@@ -449,6 +449,99 @@ class TestCamillaDSPService:
         result = await camilladsp_service.wait_for_connection(timeout=0.1)
         assert result is False
 
+    @pytest.mark.asyncio
+    async def test_concurrent_rmw_does_not_clobber(self, camilladsp_service, monkeypatch):
+        """A filter drag and a compressor toggle issued concurrently must BOTH land.
+
+        The daemon graph is read-modify-written per caller; without serialization the
+        two interleave (each reads the pre-change graph, the second write clobbers the
+        first → last-writer-wins). `_config_lock` makes each RMW atomic so both survive.
+        The fake config I/O yields between read and write to force the interleave that
+        would clobber if the lock were absent.
+        """
+        import asyncio
+        import copy
+
+        camilladsp_service._connected = True
+        camilladsp_service._client = MagicMock()
+        monkeypatch.setattr(camilladsp_service, "_schedule_persist", lambda: None)
+        monkeypatch.setattr(camilladsp_service, "_broadcast_event", AsyncMock())
+
+        daemon = {
+            "filters": {"eq_band_00": {"type": "Biquad", "parameters": {
+                "type": "Peaking", "freq": 31.0, "gain": 0.0, "q": 1.41}}},
+            "pipeline": [],
+            "processors": {},
+        }
+
+        async def fake_get_config():
+            await asyncio.sleep(0)  # yield between read and write
+            return copy.deepcopy(daemon)
+
+        async def fake_set_config(cfg):
+            await asyncio.sleep(0)
+            daemon.clear()
+            daemon.update(copy.deepcopy(cfg))
+
+        monkeypatch.setattr(camilladsp_service, "_get_config", fake_get_config)
+        monkeypatch.setattr(camilladsp_service, "_set_config", fake_set_config)
+
+        await asyncio.gather(
+            camilladsp_service.set_filter("eq_band_00", 31.0, 6.0, 1.41),
+            camilladsp_service.set_compressor(enabled=True),
+        )
+
+        assert daemon["filters"]["eq_band_00"]["parameters"]["gain"] == 6.0  # filter change kept
+        assert "compressor" in daemon["processors"]  # compressor change kept
+
+    @pytest.mark.asyncio
+    async def test_apply_settings_single_round_trip(self, camilladsp_service, monkeypatch):
+        """A full 10-band record applies in ONE set_config, not 13 sequential RMWs."""
+        import asyncio  # noqa: F401 -- parity with sibling tests; kept for clarity
+        from backend.core.multiroom.models import (
+            EqualizerSettings, EqFilter, FilterType, DEFAULT_EQ_FREQUENCIES,
+        )
+
+        camilladsp_service._connected = True
+        camilladsp_service._client = MagicMock()
+        monkeypatch.setattr(camilladsp_service, "_schedule_persist", lambda: None)
+        monkeypatch.setattr(camilladsp_service, "_broadcast_event", AsyncMock())
+
+        captured = {}
+        set_calls = 0
+
+        async def fake_get_config():
+            return {"filters": {}, "pipeline": [], "processors": {}}
+
+        async def fake_set_config(cfg):
+            nonlocal set_calls
+            set_calls += 1
+            captured["cfg"] = cfg
+
+        monkeypatch.setattr(camilladsp_service, "_get_config", fake_get_config)
+        monkeypatch.setattr(camilladsp_service, "_set_config", fake_set_config)
+
+        settings = EqualizerSettings(
+            filters=[
+                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQUENCIES[i],
+                         gain=float(i), q=1.41, filter_type=FilterType.PEAKING)
+                for i in range(10)
+            ],
+            active_preset="custom",
+        )
+        settings.compressor.enabled = True
+        settings.loudness.enabled = True
+
+        ok = await camilladsp_service.apply_settings(settings, persist=False)
+
+        assert ok is True
+        assert set_calls == 1  # one graph write for the whole record (was 13)
+        cfg = captured["cfg"]
+        assert cfg["filters"]["eq_band_09"]["parameters"]["gain"] == 9.0
+        assert "compressor" in cfg["processors"]
+        assert "loudness_low" in cfg["filters"]
+        assert camilladsp_service._active_preset == "custom"
+
 
 # =============================================================================
 # Equalizer State Tests

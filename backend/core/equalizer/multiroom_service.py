@@ -438,70 +438,15 @@ class MultiroomEqualizerService:
             self.logger.warning("CamillaDSP not connected, settings saved but not applied")
             return False
 
-        try:
-            # Apply EQ filters (suppress individual broadcasts - zone will broadcast complete state)
-            for eq_filter in settings.filters:
-                success = await self._camilladsp_service.set_filter(
-                    filter_id=eq_filter.id,
-                    freq=eq_filter.frequency,
-                    gain=eq_filter.gain,
-                    q=eq_filter.q,
-                    filter_type=eq_filter.filter_type.value,
-                    enabled=eq_filter.enabled,
-                    persist=False,  # Don't persist to equalizer.* keys (multiroom uses registry)
-                    broadcast=False,  # Don't broadcast per-filter (zone broadcasts complete state)
-                )
-                if not success:
-                    self.logger.warning(f"Failed to apply filter {eq_filter.id}")
-
-            # Apply compressor (suppress broadcast - zone broadcasts complete state)
-            comp = settings.compressor
-            await self._camilladsp_service.set_compressor(
-                enabled=comp.enabled,
-                threshold=comp.threshold,
-                ratio=comp.ratio,
-                attack=comp.attack,
-                release=comp.release,
-                makeup_gain=comp.makeup_gain,
-                persist=False,  # Don't persist to equalizer.* keys keys
-                broadcast=False,  # Don't broadcast (zone broadcasts complete state)
-            )
-
-            # Apply loudness (suppress broadcast - zone broadcasts complete state)
-            loud = settings.loudness
-            await self._camilladsp_service.set_loudness(
-                enabled=loud.enabled,
-                high_boost=loud.high_boost,
-                low_boost=loud.low_boost,
-                persist=False,  # Don't persist to equalizer.* keys keys
-                broadcast=False,  # Don't broadcast (zone broadcasts complete state)
-            )
-
-            # Apply mono (suppress broadcast - zone broadcasts complete state)
-            await self._camilladsp_service.set_mono(
-                enabled=settings.mono,
-                persist=False,
-                broadcast=False,
-            )
-
-            # Keep the local preset NAME in sync with the gains we just applied.
-            # The local client's name is read from CamillaDSPService._active_preset
-            # (GET /api/equalizer/presets), a store separate from the filter cache.
-            # Without this, the local client shows a stale preset name against fresh
-            # gains — e.g. it keeps the previous name after a zone is deleted, since
-            # deletion leaves the local DSP untouched. persist=False: the registry is
-            # the source of truth in multiroom mode, not equalizer.json.
-            if settings.active_preset:
-                await self._camilladsp_service.set_active_preset(
-                    settings.active_preset, persist=False
-                )
-
-            self.logger.debug("Equalizer settings applied to local")
-            return True
-
-        except Exception as e:
-            self.logger.warning(f"Failed to apply equalizer settings to local: {e}")
-            return False
+        # One batched graph write for the whole record (filters + compressor +
+        # loudness + mono + active_preset name), instead of 13 sequential read-
+        # modify-write round-trips. persist/broadcast suppressed: set_client_eq
+        # snapshots to equalizer.json and the zone broadcasts the complete state.
+        # apply_settings is @handle_errors(default=False), so it never raises.
+        success = await self._camilladsp_service.apply_settings(settings, persist=False)
+        if not success:
+            self.logger.warning("Failed to apply equalizer settings to local")
+        return success
 
     async def _apply_to_remote(self, mac_id: str, settings: EqualizerSettings) -> bool:
         """Apply equalizer settings to a remote client via proxy."""
