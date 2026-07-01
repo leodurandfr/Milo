@@ -301,10 +301,12 @@ class TestAudioRoutingService:
         assert len(error_events) == 1
 
     @pytest.mark.asyncio
-    async def test_set_multiroom_enabled_best_effort_failure_does_not_fail_transition(
+    async def test_set_multiroom_enabled_degraded_followup_commits_but_reports_failure(
         self, routing_service, mock_settings_service
     ):
-        """Post-transition best-effort (WS/volume) failure must not fail the transition."""
+        """A post-transition WS/volume failure when enabling: the mode stays
+        committed (settings written, property True — no rollback), but the call
+        returns False and broadcasts multiroom_error(enable_degraded)."""
         _seed_multiroom(mock_settings_service, False)
 
         # Wire a WS service that raises on start_connection
@@ -318,9 +320,20 @@ class TestAudioRoutingService:
             with patch.object(routing_service, '_apply_transition', new_callable=AsyncMock):
                 result = await routing_service.set_multiroom_enabled(True)
 
-        assert result is True
+        # Honest failure surfaced …
+        assert result is False
+        # … but the physical mode IS committed — no rollback.
         assert routing_service.multiroom_enabled is True
         mock_settings_service.set_setting_strict.assert_called_once_with('routing.multiroom_enabled', True)
+        # Degraded (not hard-failed) reason broadcast.
+        error_events = [c for c in routing_service.state_machine.broadcast_event.call_args_list
+                        if c.args[:2] == ("routing", "multiroom_error")]
+        assert len(error_events) == 1
+        assert error_events[0].args[2]["reason"] == "enable_degraded"
+        # No clean state_changed when degraded.
+        state_changed = [c for c in routing_service.state_machine.broadcast_event.call_args_list
+                         if c.args[:2] == ("system", "state_changed")]
+        assert not state_changed
 
     @pytest.mark.asyncio
     async def test_detect_initial_state_failure_keeps_flag_false(self, routing_service, mock_settings_service):
