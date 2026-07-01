@@ -782,7 +782,7 @@ class CdSource(MpvAudioSource):
             state_changed = True
 
         # Calculate current disc LBA from mpv's perspective
-        current_audio_lba = self._play_start_lba + int(float(time_pos) * SECTORS_PER_SECOND)
+        current_audio_lba = self._time_pos_to_lba(time_pos)
 
         # Track auto-advance (reader plays through track boundaries)
         new_track = self._lba_to_track(current_audio_lba)
@@ -816,7 +816,7 @@ class CdSource(MpvAudioSource):
         time_pos = await self._mpv.get_property("time-pos")
         if time_pos is None:
             return
-        current_audio_lba = self._play_start_lba + int(float(time_pos) * SECTORS_PER_SECOND)
+        current_audio_lba = self._time_pos_to_lba(time_pos)
         self._track_position = max(
             0, self._lba_to_track_position(current_audio_lba, self._current_track)
         )
@@ -828,6 +828,10 @@ class CdSource(MpvAudioSource):
     # =========================================================================
     # HELPERS
     # =========================================================================
+
+    def _time_pos_to_lba(self, time_pos: float) -> int:
+        """Disc LBA for mpv's time-pos (seconds into the current FIFO session)."""
+        return self._play_start_lba + int(float(time_pos) * SECTORS_PER_SECOND)
 
     def _lba_to_track(self, lba: int) -> Optional[int]:
         """Find which track (1-based) an LBA falls in."""
