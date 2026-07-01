@@ -214,6 +214,7 @@
     "ready": "Pronto para conectar",
     "readyToStream": "Pronto para transmitir",
     "waiting": "A aguardar...",
+    "playing": "A reproduzir",
     "connectedTo": "Conectado a",
     "audioReceivedFrom": "Áudio recebido de",
     "disconnect": "Desconectar",

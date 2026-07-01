@@ -214,6 +214,7 @@
     "ready": "准备连接",
     "readyToStream": "准备播放",
     "waiting": "等待中...",
+    "playing": "播放中",
     "connectedTo": "已连接到",
     "audioReceivedFrom": "接收音频来自",
     "disconnect": "断开连接",
