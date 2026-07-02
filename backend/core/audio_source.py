@@ -589,13 +589,9 @@ class BaseAudioSource(ABC):
         if not self.state_machine:
             return
 
-        # Keep system_state.metadata in sync for initial_state on reconnect.
-        # Guard: only update if this source is still active (avoids stale
-        # writes from a source whose monitor hasn't stopped yet).
-        sm = self.state_machine.system_state
-        if sm.metadata is not None and sm.active_source == self.source:
-            sm.metadata["position"] = position
-            sm.metadata["duration"] = duration
+        # Keep system_state.metadata in sync for initial_state on reconnect
+        # (the state machine owns the write; only the active source is applied).
+        self.state_machine.update_position_metadata(self.source, position, duration)
 
         self._bg.spawn(
             self.state_machine.broadcast(SourcePositionUpdate(

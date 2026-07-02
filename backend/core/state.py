@@ -270,6 +270,17 @@ class AudioStateMachine:
             metadata=metadata
         ))
 
+    def update_position_metadata(
+        self, source: AudioSource, position: int, duration: int
+    ) -> None:
+        """Sync live position/duration into system_state.metadata (so a new WS
+        connection's initial_state carries them). Only the active source may
+        write; the write stays here so state mutation lives in the state machine."""
+        sm = self.system_state
+        if sm.metadata is not None and sm.active_source == source:
+            sm.metadata["position"] = position
+            sm.metadata["duration"] = duration
+
     @handle_errors(default=False, level='warning')
     async def refresh_active_metadata(self) -> bool:
         """Refresh metadata from the active source."""

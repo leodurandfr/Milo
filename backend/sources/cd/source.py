@@ -23,7 +23,6 @@ Key rules:
   not the active source — at boot the watcher only reads the local TOC.
 """
 import asyncio
-import logging
 from time import monotonic
 from typing import Any, Dict, List, Optional
 
@@ -39,8 +38,6 @@ from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
 
-logger = logging.getLogger(__name__)
-
 # Retry MusicBrainz when the initial lookup fell through to the fallback DiscInfo
 # (typically because DNS wasn't ready at boot when the disc was first detected).
 METADATA_RETRY_INTERVAL_S = 60.0
@@ -50,6 +47,7 @@ DISC_POLL_INTERVAL_S = 2.0
 
 
 class CdSource(MpvAudioSource):
+    """CD source (Family C — active player): UI-driven playback, rich metadata."""
 
     def __init__(
         self,
