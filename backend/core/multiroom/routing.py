@@ -534,8 +534,9 @@ class AudioRoutingService:
             # it logs warnings but never fails the transition.
             await self._post_transition_setup_best_effort(enabled)
 
-            # multiroom_changed is the discriminator Milo-Mac keys on; the new
-            # mode itself travels in the injected full_state.
+            # Canonical shape {"source": <str>} + multiroom_changed: the discriminator
+            # Milo-Mac keys on (only this emitter adds it); the new mode itself
+            # travels in the injected full_state.
             if self.state_machine:
                 await self.state_machine.broadcast_event("system", "state_changed", {
                     "multiroom_changed": True,
@@ -746,8 +747,9 @@ class AudioRoutingService:
             self._get_equalizer_effects_enabled, self._set_equalizer_effects_state,
             enabled, "equalizer_effects", body,
         )
-        # Broadcast final state after successful transition.
-        # full_state aggregation reads equalizer_effects_enabled from camilladsp.
+        # Broadcast final state after successful transition. Canonical shape
+        # {"source": <str>}: full_state aggregation reads
+        # equalizer_effects_enabled from camilladsp.
         if success and self.state_machine:
             await self.state_machine.broadcast_event("system", "state_changed", {
                 "source": "equalizer",

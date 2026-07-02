@@ -236,7 +236,12 @@ class PendingClientsService:
     # === BROADCASTING ===
 
     async def _broadcast(self, event_type: str, data: dict) -> None:
-        """Broadcast event via state machine."""
+        """Broadcast event via state machine.
+
+        pending_client_changed payload is a union discriminated by ``action``:
+        {"action": "registered" | "updated", "client": <client dict>}
+        | {"action": "removed", "mac_id": <mac>}.
+        """
         if self._state_machine:
             try:
                 await self._state_machine.broadcast_event(

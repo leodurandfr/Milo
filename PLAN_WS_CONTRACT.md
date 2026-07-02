@@ -174,7 +174,16 @@ Phase checks: `pytest` (Milo-Mac contract suite MUST stay green), `npm run
 lint`, dev smoke: source switch, multiroom toggle, a settings change, a radio
 favorite add/remove — UI reacts as before, no console warnings.
 
-## [ ] Phase 3 — Shape unification (last dict-era phase)
+## [x] Phase 3 — Shape unification (last dict-era phase)
+
+*Done 2026-07-02. Notes: the settings route already emitted `source: "settings"`
+via `_handle_setting_update` — only the FR11 emitter was missing it.
+`filter_changed`'s call site has no `EqFilter` in hand (it works on the plain
+dicts in `self._filters`), so the payload stays hand-built but now matches
+`to_wire_dict()` key-for-key (added `enabled`; frontend handler ignores it —
+additive). Grep sanity confirmed: `source/state_changed`'s two emitters
+(state.py + audio_source.py `broadcast_error`) already share
+`{source, new_state, metadata}` since Phase 2.*
 
 Goal: exactly one shape per `(category, type)` pair (documented unions allowed
 only where discriminated by `data.source`).

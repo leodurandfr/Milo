@@ -323,7 +323,8 @@ class AudioStateMachine:
             self.system_state.metadata = {}
             self.system_state.error = None
 
-        # Broadcast the reset state so frontend knows system is stable again
+        # Broadcast the reset state so frontend knows system is stable again.
+        # Canonical shape: {"source": <str>} — consumers read the injected full_state.
         await self.broadcast_event("system", "state_changed", {
             "source": "system",
         })
