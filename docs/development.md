@@ -141,13 +141,13 @@ frontend/src/
 ```
 1. User clicks button
    ↓
-2. Component calls API (fetch/axios)
+2. Component calls API (via apiCall)
    ↓
 3. Backend route handler
    ↓
 4. Service updates state machine
    ↓
-5. State machine calls broadcast_event()
+5. State machine calls broadcast(event)
    ↓
 6. WebSocketManager sends to all clients
    ↓
@@ -709,17 +709,18 @@ See detailed comments in `backend/dependencies.py`.
 
 ### WebSocket broadcasting
 
-Always use `state_machine.broadcast_event()` to propagate changes:
+Always use `state_machine.broadcast()` with a typed `WsEvent` subclass from
+`backend/core/models/ws_events.py` (one class per `(category, type)` pair —
+the model IS the payload documentation; new event → new subclass):
 
 ```python
-await self.state_machine.broadcast_event(
-    category="source",
-    type="state_changed",
-    data={
-        "source": self.source.value,
-        "metadata": metadata
-    }
-)
+from backend.core.models.ws_events import SourceStateChanged
+
+await self.state_machine.broadcast(SourceStateChanged(
+    source=self.source.value,
+    new_state="active",
+    metadata=metadata,
+))
 ```
 
 ### Settings persistence

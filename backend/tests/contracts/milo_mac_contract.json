@@ -18,7 +18,7 @@
   ],
 
   "ws": {
-    "_about": "Each (category, type) below MUST have at least one backend broadcast_event() site. The offline test enforces existence only; payload_invariants are documented for humans + the freshness job, not statically verified.",
+    "_about": "Each (category, type) below MUST have at least one backend emission site: a typed WsEvent subclass (core/models/ws_events.py) referenced outside its defining module. payload_invariants are STATICALLY VERIFIED against those typed models by test_milo_mac_contract.py (test_invariant_* + test_all_payload_invariants_are_verified) — adding/changing an invariant here requires the matching test.",
     "events": [
       { "category": "system",    "type": "state_changed",        "consumer": "handleSystemStateChange (reads full_state)" },
       { "category": "system",    "type": "transition_start",     "consumer": "handleSystemStateChange (reads full_state)" },
@@ -27,7 +27,7 @@
       { "category": "volume",    "type": "volume_changed",       "consumer": "handleVolumeChange" },
       { "category": "routing",   "type": "multiroom_error",      "consumer": "didReceiveMultiroomTransitionComplete(success: false)" },
       { "category": "settings",  "type": "volume_limits_changed", "consumer": "handleVolumeLimitsChange",
-        "note": "Emitted via the variable event_type path in api/settings.py::_handle_setting_update (broadcast_event(\"settings\", event_type, ...)), not as a literal pair." },
+        "note": "Emitted as a typed VolumeLimitsChanged event through api/settings.py::_handle_setting_update." },
       { "category": "settings",  "type": "dock_apps_changed",    "consumer": "handleDockAppsChange" }
     ],
 

@@ -6,8 +6,9 @@ import { logger } from '@/services/logger';
 /**
  * WebSocket singleton with smart disconnect when the tab is hidden.
  *
- * Wire format: { category, type, origin, data, timestamp } (see
- * state_machine.broadcast_event on the backend). Handlers are registered
+ * Wire format: { category, type, origin, data, timestamp } (built by
+ * WsEvent.to_envelope() — backend/core/models/ws_events.py, one typed class
+ * per (category, type) pair). Handlers are registered
  * centrally in App.vue via on()/parsedOn() and dispatch into Pinia stores —
  * components react to store state, never to raw events. parsedOn() validates
  * payloads against the Zod registry in @/schemas/ws.js before dispatching.
@@ -27,6 +28,7 @@ import { logger } from '@/services/logger';
  *               enabled_changed, zone_enabled_changed)
  *   settings  → settingsStore / fanStore (settings.*_changed)
  *   programs  → update/install progress (UpdateManager)
+ *   network   → networkStore (status_changed)
  */
 class WebSocketSingleton {
   constructor() {

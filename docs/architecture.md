@@ -455,15 +455,30 @@ Automatic binary backups during updates:
 ### Architecture
 
 ```
-Backend State Change → WebSocketManager → All connected clients
-                            ↓
-                    Frontend Store Update → Reactive UI Update
+Backend State Change → state_machine.broadcast(WsEvent) → WebSocketManager → All clients
+                                                               ↓
+                                              Frontend Store Update → Reactive UI Update
 ```
+
+### Typed event layer
+
+Every event is a Pydantic `WsEvent` subclass in
+`backend/core/models/ws_events.py` — one class per `(category, type)` pair,
+`CATEGORY`/`TYPE` pinned at class level, and the model's own fields ARE the
+wire `data` payload. The model is the payload documentation: each class
+docstring names its consumers (frontend store/handler, Milo-Mac where
+applicable). There is no dict-based emission path — a new event means a new
+subclass.
+
+`AudioStateMachine.broadcast(event)` serializes the model, injects the
+aggregated `full_state` for `source`/`system` categories (lightweight events
+opt out via `INCLUDE_FULL_STATE = False`), and wraps it in the envelope via
+`WsEvent.to_envelope()`.
 
 ### Message format
 
 Wire format: `{ category, type, origin, data, timestamp }`. The `origin` field
-is derived from `data["source"]` (falling back to `category`).
+is the event's `source` field (falling back to `CATEGORY`).
 
 ```json
 {
@@ -479,8 +494,13 @@ is derived from `data["source"]` (falling back to `category`).
 ```
 
 Event categories: `source`, `system`, `routing`, `equalizer`, `multiroom`,
-`settings`, `volume`, `programs`. Callers using category `source` **must**
-include a `"source"` field in `data` so the manager can populate `origin`.
+`settings`, `volume`, `programs`, `network`. Event classes with category
+`source` declare a `source` field so the envelope carries a meaningful
+`origin`.
+
+The subset of this surface consumed by Milo-Mac is pinned in
+`backend/tests/contracts/milo_mac_contract.json`; its payload invariants are
+statically verified against the event models on every `pytest` run.
 
 ### Disconnection handling
 
