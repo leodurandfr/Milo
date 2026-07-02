@@ -25,6 +25,7 @@ AIRPLAY_SAMPLE_RATE = 44100
 
 
 class AirPlaySource(BaseAudioSource):
+    """AirPlay 2 source (Family B — passive player): external control, rich metadata."""
 
     def __init__(
         self,
