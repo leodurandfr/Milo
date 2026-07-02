@@ -85,7 +85,12 @@ checking `data.source`.
 
 ---
 
-## [ ] Phase 1 — Real-impact fixes (wire noise + contract alignment)
+## [x] Phase 1 — Real-impact fixes (wire noise + contract alignment)
+
+*Done 2026-07-02. Notes: the shared `_broadcast_event` helper stays (it serves
+the canonical zone emission); `multiroom_enabled` derives from
+`volume_state.mode == "multiroom"` (same VolumeState as `state.mode`);
+`currentError` in App.vue now carries `source` so `error_cleared` can match.*
 
 Smallest changes with observable value; no field removal yet.
 

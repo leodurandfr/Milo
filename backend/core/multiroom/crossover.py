@@ -212,11 +212,6 @@ class CrossoverService:
         if speaker_type != 'subwoofer':
             await self._set_client_filter(client_id, "crossover", True, frequency)
 
-        await self._broadcast_event({
-            "client_id": client_id,
-            "crossover_frequency": frequency
-        })
-
         return True
 
     def get_client_speaker_type(self, client_id: str) -> str:
@@ -489,16 +484,9 @@ class CrossoverService:
     async def _broadcast_event(self, data: Dict[str, Any]) -> None:
         """Broadcast a crossover event via state machine (WebSocket).
 
-        Canonical payload for 'multiroom.crossover_changed' (consumed by the
-        frontend equalizerStore.handleZoneCrossoverChanged):
+        Single canonical payload for 'multiroom.crossover_changed' (consumed
+        by the frontend equalizerStore.handleZoneCrossoverChanged):
             {zone_id: str, crossover_enabled: bool, crossover_frequency: int}
-
-        Other call sites in this file also emit this event with different
-        shapes for per-client changes (e.g. {client_id, speaker_type,
-        crossover_frequency}, {client_id, settings_applied}). These are not
-        currently consumed by the frontend — same event type, different shape
-        depending on whether zone_id or client_id is keyed. A future RFC may
-        split this into distinct event types.
         """
         if self.state_machine:
             await self.state_machine.broadcast_event("multiroom", "crossover_changed", data)
@@ -606,11 +594,6 @@ class CrossoverService:
             if not result:
                 success = False
                 self.logger.warning(f"Failed to apply pending loudness to {client_id}")
-
-        await self._broadcast_event({
-            "client_id": client_id,
-            "settings_applied": list(pending.keys())
-        })
 
         return success
 
