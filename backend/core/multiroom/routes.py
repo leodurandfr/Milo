@@ -28,7 +28,6 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, set
         """Publish Snapcast update notification via WebSocket."""
         try:
             await state_machine.broadcast_event("system", "state_changed", {
-                "snapcast_update": True,
                 "source": "snapcast"
             })
         except Exception as e:

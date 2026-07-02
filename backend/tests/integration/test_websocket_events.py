@@ -655,7 +655,7 @@ class TestBroadcastTriggers:
             "category": "system",
             "type": "transition_start",
             "origin": "system",
-            "data": {"to_source": "radio", "from_source": "none"},
+            "data": {"source": "system"},
             "timestamp": time.time()
         }
         await websocket_manager.broadcast_dict(start_event)
@@ -665,7 +665,7 @@ class TestBroadcastTriggers:
             "category": "system",
             "type": "transition_complete",
             "origin": "system",
-            "data": {"active_source": "radio"},
+            "data": {"source": "system"},
             "timestamp": time.time()
         }
         await websocket_manager.broadcast_dict(complete_event)
@@ -675,8 +675,8 @@ class TestBroadcastTriggers:
 
         assert len(start_events) == 1
         assert len(complete_events) == 1
-        assert start_events[0]["data"]["to_source"] == "radio"
-        assert complete_events[0]["data"]["active_source"] == "radio"
+        assert start_events[0]["data"]["source"] == "system"
+        assert complete_events[0]["data"]["source"] == "system"
 
     @pytest.mark.asyncio
     async def test_volume_change_triggers_broadcast(

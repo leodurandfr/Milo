@@ -3,9 +3,12 @@
 API routes for program management — Full version with satellites
 """
 import asyncio
+import logging
 from fastapi import APIRouter, BackgroundTasks
 from backend.core.models.audio_state import AudioSource
 from backend.core.updates.helpers import compare_versions, extract_base_tag
+
+logger = logging.getLogger(__name__)
 
 # Mapping from program key to AudioSource for pre-update deactivation
 PROGRAM_TO_AUDIO_SOURCE = {
@@ -34,7 +37,6 @@ def create_programs_router(update_service, satellite_update_service, state_machi
         complete_event_type: str,
         ws_source: str,
         identifier_data: dict,
-        default_success_msg: str = "Update completed",
         pre_update_fn=None,
     ):
         """Create a background update task with progress tracking and WS broadcasting.
@@ -53,9 +55,11 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 "progress": progress,
                 "message": message
             }
+            # Broadcast carries status only; progress/message live in
+            # active_updates for the REST reconstruction path (GET /programs).
             await state_machine.broadcast_event(
                 "programs", progress_event_type,
-                {"source": ws_source, **identifier_data, "progress": progress, "message": message, "status": "updating"}
+                {"source": ws_source, **identifier_data, "status": "updating"}
             )
 
         async def do_update():
@@ -66,27 +70,23 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 result = await update_fn(progress_callback)
                 del active_updates[update_key]
 
-                if result["success"]:
-                    success_data = {**identifier_data, "success": True, "message": result.get("message", default_success_msg)}
-                    for key in ("new_version", "old_version"):
-                        if key in result:
-                            success_data[key] = result[key]
-                    await state_machine.broadcast_event(
-                        "programs", complete_event_type,
-                        {"source": ws_source, **success_data}
-                    )
-                else:
-                    await state_machine.broadcast_event(
-                        "programs", complete_event_type,
-                        {"source": ws_source, **identifier_data, "success": False, "error": result.get("error", "Update failed")}
-                    )
+                if not result["success"]:
+                    logger.error(f"Update {update_key} failed: {result.get('error', 'Update failed')}")
+
+                # Completion carries success only; the UI refetches versions
+                # over REST.
+                await state_machine.broadcast_event(
+                    "programs", complete_event_type,
+                    {"source": ws_source, **identifier_data, "success": result["success"]}
+                )
 
             except Exception as e:
+                logger.error(f"Update {update_key} failed: {e}")
                 if update_key in active_updates:
                     del active_updates[update_key]
                 await state_machine.broadcast_event(
                     "programs", complete_event_type,
-                    {"source": ws_source, **identifier_data, "success": False, "error": str(e)}
+                    {"source": ws_source, **identifier_data, "success": False}
                 )
 
         return do_update
@@ -226,7 +226,6 @@ def create_programs_router(update_service, satellite_update_service, state_machi
             complete_event_type="satellite_app_update_complete",
             ws_source="satellite_update",
             identifier_data={"mac_id": mac_id},
-            default_success_msg="App update completed",
         )
 
         background_tasks.add_task(do_update)
@@ -255,7 +254,6 @@ def create_programs_router(update_service, satellite_update_service, state_machi
             complete_event_type="satellite_camilladsp_update_complete",
             ws_source="satellite_update",
             identifier_data={"mac_id": mac_id},
-            default_success_msg="CamillaDSP update completed",
         )
 
         background_tasks.add_task(do_update)

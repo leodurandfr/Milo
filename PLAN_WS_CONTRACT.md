@@ -114,7 +114,25 @@ Phase checks: `pytest` (contract tests green), `npm run lint`, quick dev-server
 smoke: toggle a zone crossover → no Zod warn in console; per-client EQ change →
 no `crossover_changed` warn either.
 
-## [ ] Phase 2 — Dead-field pruning (wire diet)
+## [x] Phase 2 — Dead-field pruning (wire diet)
+
+*Done 2026-07-02.*
+
+**FINDING — consumer the audit missed:** `routing/multiroom_error`'s `reason`
+IS read by the frontend: `multiroomStore.js:343` maps it via
+`MULTIROOM_ERROR_KEYS` to a localized `transitionError` (since commit
+`ab902e97`, 2026-06-05 — predates the audit). The D1 entry
+"routing/multiroom_enabling|disabling|error → reason" and the D4 claim that
+the `routing.py:700` docstring is wrong are both incorrect for the `_error`
+event. **Kept** `reason` on `multiroom_error` (docstring already accurate);
+dropped it only from `multiroom_enabling|disabling` (`:689`), whose handlers
+switch on event type alone. Phases 3–6: treat
+`multiroom_error.{reason}` as a live contract field.
+
+*Other notes: `api/programs.py` — removed error details from the broadcast
+required adding a `logger.error` in `_create_background_update` (failure was
+otherwise unrecorded); dead `default_success_msg` param removed.
+`state.py:269` — the `old_state` local went away with the field.*
 
 Remove every D1 field from its emitter. All were verified consumer-free on
 2026-07-02 (frontend greps + Zod strip analysis + Milo-Mac vendored Swift).
@@ -139,8 +157,9 @@ the standing constraints.
   the internal variable for the HTTP response if it's part of it).
 - `api/settings.py:785` → drop `service_restarted` from the broadcast (keep in
   HTTP response).
-- `multiroom/routing.py:689,700` → drop `reason` (empty data dicts are fine —
-  consumers switch on `event.type` / presence only). Fix the `:700` docstring (D4).
+- `multiroom/routing.py:689` → drop `reason` (consumers switch on `event.type`).
+  ~~`:700`~~ NOT done — see FINDING above: `multiroom_error.reason` has a real
+  consumer; field and docstring kept as-is.
 - `multiroom/routing.py:735` → drop `effects_bypassed`.
 - `core/log_handler.py:50` → drop `level`, `logger` (only `message` is read).
 - `api/programs.py:56,74,79,87` → stop emitting `progress`, `message`, `error`,

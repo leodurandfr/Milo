@@ -80,10 +80,11 @@ def create_settings_router(
                     logger.error(f"reload_callback failed for {event_type}: {e}")
                     reload_success = False
 
+            # reload_success stays in the HTTP response only (useSettingsAPI reads
+            # it there); the broadcast carries just the new config.
             await state_machine.broadcast_event("settings", event_type, {
                 "source": "settings",
                 **event_data,
-                "reload_success": reload_success,
             })
 
             return {"status": "success", **event_data, "reload_success": reload_success}
@@ -782,10 +783,10 @@ def create_settings_router(
             if not restart_success:
                 logger.warning("Failed to restart milo-mac.service, settings saved but not applied")
 
+            # service_restarted stays in the HTTP response only.
             await state_machine.broadcast_event("settings", "mac_roc_changed", {
                 "source": "settings",
                 "config": mac_config,
-                "service_restarted": restart_success,
             })
 
             return {
