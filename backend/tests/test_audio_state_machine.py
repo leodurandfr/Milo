@@ -13,6 +13,7 @@ from unittest.mock import Mock, AsyncMock
 
 from backend.core.state import AudioStateMachine
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.ws_events import SourceStateChanged, SystemErrorEvent, VolumeChanged
 
 
 @pytest.fixture
@@ -189,25 +190,25 @@ class TestWebSocketBroadcasting:
     """Test WebSocket broadcasting via ws_manager."""
 
     @pytest.mark.asyncio
-    async def test_broadcast_event_with_ws_manager(self, state_machine):
-        """Test broadcast_event calls ws_manager.broadcast_dict."""
+    async def test_broadcast_with_ws_manager(self, state_machine):
+        """Test broadcast calls ws_manager.broadcast_dict."""
         mock_manager = Mock()
         mock_manager.broadcast_dict = AsyncMock()
         state_machine.ws_manager = mock_manager
 
-        await state_machine.broadcast_event("test", "event", {"key": "value"})
+        await state_machine.broadcast(SystemErrorEvent(source="radio", error="boom", message="Boom"))
 
         mock_manager.broadcast_dict.assert_called_once()
         call_args = mock_manager.broadcast_dict.call_args[0][0]
-        assert call_args["category"] == "test"
-        assert call_args["type"] == "event"
-        assert call_args["data"]["key"] == "value"
+        assert call_args["category"] == "system"
+        assert call_args["type"] == "error"
+        assert call_args["data"]["message"] == "Boom"
 
     @pytest.mark.asyncio
-    async def test_broadcast_event_without_ws_manager(self, state_machine):
-        """Test broadcast_event works without ws_manager."""
+    async def test_broadcast_without_ws_manager(self, state_machine):
+        """Test broadcast works without ws_manager."""
         # Should not raise
-        await state_machine.broadcast_event("test", "event", {"key": "value"})
+        await state_machine.broadcast(SystemErrorEvent(source="radio", error="boom", message="Boom"))
 
     @pytest.mark.asyncio
     async def test_broadcast_includes_full_state_for_source(self, state_machine):
@@ -216,7 +217,7 @@ class TestWebSocketBroadcasting:
         mock_manager.broadcast_dict = AsyncMock()
         state_machine.ws_manager = mock_manager
 
-        await state_machine.broadcast_event("source", "state_changed", {"source": "radio"})
+        await state_machine.broadcast(SourceStateChanged(source="radio", new_state="active"))
 
         call_args = mock_manager.broadcast_dict.call_args[0][0]
         assert "full_state" in call_args["data"]
@@ -228,7 +229,9 @@ class TestWebSocketBroadcasting:
         mock_manager.broadcast_dict = AsyncMock()
         state_machine.ws_manager = mock_manager
 
-        await state_machine.broadcast_event("volume", "volume_changed", {"source": "volume"})
+        await state_machine.broadcast(VolumeChanged(
+            show_bar=True, step_mobile_db=3.0, multiroom_enabled=False, state={}
+        ))
 
         call_args = mock_manager.broadcast_dict.call_args[0][0]
         assert "full_state" not in call_args["data"]
@@ -249,7 +252,7 @@ class TestWebSocketBroadcasting:
         state_machine.routing_service = routing
         state_machine.camilladsp_service = equalizer
 
-        await state_machine.broadcast_event("source", "state_changed", {"source": "radio"})
+        await state_machine.broadcast(SourceStateChanged(source="radio", new_state="active"))
 
         full_state = mock_manager.broadcast_dict.call_args[0][0]["data"]["full_state"]
         assert full_state["multiroom_enabled"] is True

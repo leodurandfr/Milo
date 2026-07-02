@@ -25,9 +25,11 @@ import contextlib
 import glob
 import logging
 import os
-from typing import List, Optional
+from typing import List, Optional, Type
 
 import aiofiles
+
+from backend.core.models.ws_events import FanConfigChanged, FanStatusChanged, FanStatusEvent
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +220,7 @@ class FanController:
                 self._start_monitor()
             else:
                 await self._stop_monitor()
-        await self._broadcast_status("fan_config_changed")
+        await self._broadcast_status(FanConfigChanged)
 
     async def test_speed(self, percent: int) -> None:
         """Drive the fan to a given speed momentarily (manual preview / test).
@@ -232,7 +234,7 @@ class FanController:
             return
         await self._take_control()
         await self._set_pwm_percent(percent)
-        await self._broadcast_status("fan_status_changed")
+        await self._broadcast_status(FanStatusChanged)
 
     def get_status(self) -> dict:
         """Return the last-known config + telemetry (no I/O — cached values)."""
@@ -255,10 +257,8 @@ class FanController:
             await self._sample()
         return self.get_status()
 
-    async def _broadcast_status(self, event_type: str) -> None:
-        await self.state_machine.broadcast_event(
-            "settings", event_type, self.get_status()
-        )
+    async def _broadcast_status(self, event_cls: Type[FanStatusEvent]) -> None:
+        await self.state_machine.broadcast(event_cls(**self.get_status()))
 
     # ========================================================================
     # HARDWARE CONTROL
@@ -426,7 +426,7 @@ class FanController:
 
                 telemetry = (self._temp_c, self._rpm, self._pwm_percent)
                 if telemetry != last_telemetry:
-                    await self._broadcast_status("fan_status_changed")
+                    await self._broadcast_status(FanStatusChanged)
                     last_telemetry = telemetry
             except asyncio.CancelledError:
                 raise

@@ -12,6 +12,7 @@ from backend.api.models import (
     SnapcastServerConfigRequest
 )
 from backend.config.constants import CLIENT_API_PORT
+from backend.core.models.ws_events import SystemStateChanged
 from backend.core.multiroom.routing import SnapclientEnv, DEFAULT_SNAPCLIENT_CONFIG
 from backend.core.multiroom.snapcast import NETWORK_PRESETS, SUPPORTED_CODECS
 
@@ -25,15 +26,9 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, set
     # === WebSocket utility functions ===
 
     async def _publish_snapcast_update():
-        """Publish Snapcast update notification via WebSocket.
-
-        Canonical system/state_changed shape: {"source": <str>} — consumers
-        read the injected full_state.
-        """
+        """Publish Snapcast update notification via WebSocket."""
         try:
-            await state_machine.broadcast_event("system", "state_changed", {
-                "source": "snapcast"
-            })
+            await state_machine.broadcast(SystemStateChanged(source="snapcast"))
         except Exception as e:
             logger.error("Error publishing Snapcast update: %s", e)
 

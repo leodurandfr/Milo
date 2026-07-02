@@ -22,6 +22,12 @@ from typing import Dict, Any, List, Optional, Tuple
 import aiofiles
 from PIL import Image
 
+from backend.core.models.ws_events import (
+    RadioFavoriteAdded,
+    RadioFavoriteModified,
+    RadioFavoriteRemoved,
+    WsEvent,
+)
 from backend.shared.decorators import handle_errors
 
 
@@ -224,10 +230,10 @@ class StationDataService:
             self.logger.error(f"Error loading station data: {e}")
             self._loaded = True
 
-    async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast radio event via state machine (WebSocket)."""
+    async def _broadcast(self, event: WsEvent) -> None:
+        """Broadcast a typed radio event via state machine (WebSocket)."""
         if self._state_machine:
-            await self._state_machine.broadcast_event("source", event_type, {**data, "source": "radio"})
+            await self._state_machine.broadcast(event)
 
     async def _load_data(self) -> Dict[str, Any]:
         """Load radio_data.json."""
@@ -383,10 +389,7 @@ class StationDataService:
         success = await self._save()
 
         if success:
-            # WS payload: {"source": "radio", "station_id": <station id>}
-            await self._broadcast_event("favorite_added", {
-                "station_id": station_id,
-            })
+            await self._broadcast(RadioFavoriteAdded(station_id=station_id))
 
         return success
 
@@ -404,10 +407,7 @@ class StationDataService:
         success = await self._save()
 
         if success:
-            # WS payload: {"source": "radio", "station_id": <station id>}
-            await self._broadcast_event("favorite_removed", {
-                "station_id": station_id,
-            })
+            await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
 
         return success
 
@@ -606,10 +606,7 @@ class StationDataService:
             station_data['is_favorite'] = station_id in self._favorites
 
             if success:
-                # WS payload: {"source": "radio", "station": <station dict with id, is_favorite>}
-                await self._broadcast_event("favorite_modified", {
-                    "station": station_data
-                })
+                await self._broadcast(RadioFavoriteModified(station=station_data))
 
             return {"success": success, "station": station_data}
 

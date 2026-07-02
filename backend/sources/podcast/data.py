@@ -16,6 +16,11 @@ import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+from backend.core.models.ws_events import (
+    PodcastFavoriteAdded,
+    PodcastFavoriteRemoved,
+    WsEvent,
+)
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
 REQUIRED_TOP_LEVEL_KEYS = ("subscriptions", "playback_progress", "settings")
@@ -93,10 +98,10 @@ class PodcastDataService:
             await save_versioned_json(self._data_file, data, self.SCHEMA_VERSION)
         return True
 
-    async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast podcast event via state machine (WebSocket)."""
+    async def _broadcast(self, event: WsEvent) -> None:
+        """Broadcast a typed podcast event via state machine (WebSocket)."""
         if self._state_machine:
-            await self._state_machine.broadcast_event("source", event_type, {**data, "source": "podcast"})
+            await self._state_machine.broadcast(event)
 
     # ========== SUBSCRIPTIONS ==========
 
@@ -143,8 +148,7 @@ class PodcastDataService:
         success = await self.save_data(data)
 
         if success:
-            # WS payload: {"source": "podcast", "podcast": <subscription dict>}
-            await self._broadcast_event("favorite_added", {"podcast": subscription})
+            await self._broadcast(PodcastFavoriteAdded(podcast=subscription))
 
         return success
 
@@ -162,8 +166,7 @@ class PodcastDataService:
             success = await self.save_data(data)
 
             if success:
-                # WS payload: {"source": "podcast", "uuid": <podcast series uuid>}
-                await self._broadcast_event("favorite_removed", {"uuid": podcast_uuid})
+                await self._broadcast(PodcastFavoriteRemoved(uuid=podcast_uuid))
 
             return success
 

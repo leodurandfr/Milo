@@ -18,6 +18,8 @@ from typing import Set, Dict, Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from backend.core.models.ws_events import SystemInitialState, VolumeChanged
+
 logger = logging.getLogger(__name__)
 
 PING_INTERVAL = 30
@@ -118,17 +120,13 @@ class WebSocketServer:
         try:
             await self.volume_service.wait_for_availability(timeout=5.0)
             volume_state = await self.volume_service.get_volume_state()
-            await websocket.send_text(json.dumps({
-                "category": "volume",
-                "type": "volume_changed",
-                "origin": "volume",
-                "data": {
-                    "show_bar": False,
-                    "step_mobile_db": self.volume_service.volume_config.step_mobile_db,
-                    "state": volume_state.to_dict(),
-                },
-                "timestamp": time.time(),
-            }))
+            event = VolumeChanged(
+                show_bar=False,
+                step_mobile_db=self.volume_service.volume_config.step_mobile_db,
+                multiroom_enabled=volume_state.mode == "multiroom",
+                state=volume_state.to_dict(),
+            )
+            await websocket.send_text(json.dumps(event.to_envelope()))
         except Exception as e:
             logger.debug(f"Failed to send volume state: {e}")
 
@@ -171,17 +169,12 @@ class WebSocketServer:
                     self.network_service.hotspot_active if self.network_service else False
                 )
 
-                await websocket.send_text(json.dumps({
-                    "category": "system",
-                    "type": "initial_state",
-                    "origin": "system",
-                    "data": {
-                        "full_state": current_state,
-                        "setup_completed": setup_completed,
-                        "hotspot_active": hotspot_active,
-                    },
-                    "timestamp": time.time(),
-                }))
+                event = SystemInitialState(
+                    full_state=current_state,
+                    setup_completed=setup_completed,
+                    hotspot_active=hotspot_active,
+                )
+                await websocket.send_text(json.dumps(event.to_envelope()))
 
                 volume_task = asyncio.create_task(
                     self._send_volume_state(websocket)

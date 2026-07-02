@@ -29,6 +29,7 @@ from typing import List, Optional, Tuple
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
+from backend.core.models.ws_events import NetworkStatusChanged
 from backend.shared.background import BackgroundTaskSet
 
 from backend.core.network.models import (
@@ -933,10 +934,8 @@ class NetworkService:
 
             self._last_broadcast = status
 
-        await self.state_machine.broadcast_event(
-            category="network",
-            event_type="status_changed",
-            data=status.model_dump(),
+        await self.state_machine.broadcast(
+            NetworkStatusChanged(**status.model_dump())
         )
 
     # =========================================================================

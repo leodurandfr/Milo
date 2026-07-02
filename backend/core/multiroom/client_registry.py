@@ -12,8 +12,14 @@ Architecture:
 """
 import asyncio
 import logging
-from typing import Dict, List, Optional, Callable, Awaitable, Any
+from typing import Dict, List, Optional, Callable, Awaitable, Any, Type
 
+from backend.core.models.ws_events import (
+    MultiroomClientStateChanged,
+    MultiroomEqualizerChanged,
+    MultiroomZoneChanged,
+    WsEvent,
+)
 from backend.core.multiroom.models import (
     Client,
     Zone,
@@ -27,21 +33,22 @@ from backend.core.multiroom.models import (
     DEFAULT_CROSSOVER_FREQUENCIES,
 )
 
-# Map registry event types to standardized multiroom WebSocket event types.
+# Map registry event types to the typed multiroom WS event classes; each
+# registry payload dict maps 1:1 onto the class's fields (cls(**data)).
 # Kept exported so external broadcasters (e.g. SnapcastWebSocketService) can
-# translate registry events into wire-level "multiroom" categories.
-REGISTRY_EVENT_TYPE_MAP = {
-    RegistryEventType.CLIENT_CONNECTED: "client_state_changed",
-    RegistryEventType.CLIENT_DISCONNECTED: "client_state_changed",
-    RegistryEventType.CLIENT_UPDATED: "client_state_changed",
-    RegistryEventType.SPEAKER_TYPE_CHANGED: "client_state_changed",
-    RegistryEventType.VOLUME_CHANGED: "client_state_changed",
-    RegistryEventType.ZONE_CREATED: "zone_changed",
-    RegistryEventType.ZONE_UPDATED: "zone_changed",
-    RegistryEventType.ZONE_DELETED: "zone_changed",
-    RegistryEventType.ZONE_CLIENT_ADDED: "zone_changed",
-    RegistryEventType.ZONE_CLIENT_REMOVED: "zone_changed",
-    RegistryEventType.EQUALIZER_SETTINGS_CHANGED: "equalizer_changed",
+# translate registry events into wire-level "multiroom" events.
+REGISTRY_EVENT_CLASSES: Dict[str, Type[WsEvent]] = {
+    RegistryEventType.CLIENT_CONNECTED: MultiroomClientStateChanged,
+    RegistryEventType.CLIENT_DISCONNECTED: MultiroomClientStateChanged,
+    RegistryEventType.CLIENT_UPDATED: MultiroomClientStateChanged,
+    RegistryEventType.SPEAKER_TYPE_CHANGED: MultiroomClientStateChanged,
+    RegistryEventType.VOLUME_CHANGED: MultiroomClientStateChanged,
+    RegistryEventType.ZONE_CREATED: MultiroomZoneChanged,
+    RegistryEventType.ZONE_UPDATED: MultiroomZoneChanged,
+    RegistryEventType.ZONE_DELETED: MultiroomZoneChanged,
+    RegistryEventType.ZONE_CLIENT_ADDED: MultiroomZoneChanged,
+    RegistryEventType.ZONE_CLIENT_REMOVED: MultiroomZoneChanged,
+    RegistryEventType.EQUALIZER_SETTINGS_CHANGED: MultiroomEqualizerChanged,
 }
 
 

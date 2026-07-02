@@ -22,6 +22,10 @@ import asyncio
 import logging
 from typing import Optional
 
+from backend.core.models.ws_events import (
+    EqualizerZoneEnabledChanged,
+    MultiroomEqualizerChanged,
+)
 from backend.core.multiroom.models import (
     EqualizerSettings,
     EqFilter,
@@ -609,15 +613,11 @@ class MultiroomEqualizerService:
 
         # Broadcast targeted WebSocket event
         if self._state_machine:
-            await self._state_machine.broadcast_event(
-                "multiroom",
-                "equalizer_changed",
-                {
-                    "target_type": target_type,
-                    "target_id": target_id,
-                    "equalizer_settings": broadcast_settings,
-                },
-            )
+            await self._state_machine.broadcast(MultiroomEqualizerChanged(
+                target_type=target_type,
+                target_id=target_id,
+                equalizer_settings=broadcast_settings,
+            ))
 
         return True
 
@@ -946,9 +946,8 @@ class MultiroomEqualizerService:
                 success_count += 1
 
         if self._state_machine:
-            await self._state_machine.broadcast_event(
-                "equalizer", "zone_enabled_changed",
-                {"zone_id": zone_id, "enabled": enabled}
+            await self._state_machine.broadcast(
+                EqualizerZoneEnabledChanged(zone_id=zone_id, enabled=enabled)
             )
 
         return success_count > 0

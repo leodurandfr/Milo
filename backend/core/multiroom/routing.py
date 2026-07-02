@@ -9,6 +9,14 @@ import os
 import time
 from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.ws_events import (
+    EqualizerEnabledChanged,
+    RoutingMultiroomDisabling,
+    RoutingMultiroomEnabling,
+    RoutingMultiroomError,
+    RoutingMultiroomReady,
+    SystemStateChanged,
+)
 from backend.core.systemd import SystemdServiceManager  # noqa: F401 (patched in tests)
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
@@ -534,14 +542,13 @@ class AudioRoutingService:
             # it logs warnings but never fails the transition.
             await self._post_transition_setup_best_effort(enabled)
 
-            # Canonical shape {"source": <str>} + multiroom_changed: the discriminator
-            # Milo-Mac keys on (only this emitter adds it); the new mode itself
-            # travels in the injected full_state.
+            # multiroom_changed: the discriminator Milo-Mac keys on (only this
+            # emitter sets it); the new mode itself travels in the injected
+            # full_state.
             if self.state_machine:
-                await self.state_machine.broadcast_event("system", "state_changed", {
-                    "multiroom_changed": True,
-                    "source": "routing",
-                })
+                await self.state_machine.broadcast(
+                    SystemStateChanged(source="routing", multiroom_changed=True)
+                )
 
             self.logger.info(f"Multiroom transition complete: {enabled}")
             return True
@@ -675,7 +682,7 @@ class AudioRoutingService:
         if enabled and self.state_machine:
             try:
                 self.logger.info("POST_TRANSITION: Broadcasting multiroom_ready event")
-                await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
+                await self.state_machine.broadcast(RoutingMultiroomReady())
             except Exception as e:
                 self.logger.warning(f"POST_TRANSITION: multiroom_ready broadcast failed: {e}")
 
@@ -684,10 +691,9 @@ class AudioRoutingService:
         if not self.state_machine:
             self.logger.warning("state_machine not available, cannot broadcast event")
             return
-        event_type = "multiroom_enabling" if enabled else "multiroom_disabling"
-        self.logger.info(f"Broadcasting {event_type} event")
-        # Consumers switch on event type only (multiroomStore.handleRoutingEvent).
-        await self.state_machine.broadcast_event("routing", event_type, {})
+        event = RoutingMultiroomEnabling() if enabled else RoutingMultiroomDisabling()
+        self.logger.info(f"Broadcasting {event.TYPE} event")
+        await self.state_machine.broadcast(event)
         await asyncio.sleep(0.1)  # Let frontend react
 
     async def _broadcast_error(self, attempted_state: bool) -> None:
@@ -695,12 +701,9 @@ class AudioRoutingService:
         if not self.state_machine:
             return
         try:
-            # Emit a stable, machine-readable reason code (canonical key `reason`,
-            # consistent with the multiroom_enabling/disabling events) so the
-            # frontend can localize the message instead of surfacing raw English.
-            await self.state_machine.broadcast_event("routing", "multiroom_error", {
-                "reason": "enable_failed" if attempted_state else "disable_failed",
-            })
+            await self.state_machine.broadcast(RoutingMultiroomError(
+                reason="enable_failed" if attempted_state else "disable_failed",
+            ))
         except Exception as e:
             self.logger.warning(f"multiroom_error broadcast failed: {e}")
 
@@ -733,9 +736,7 @@ class AudioRoutingService:
                     return False
 
             if self.state_machine:
-                await self.state_machine.broadcast_event("equalizer", "enabled_changed", {
-                    "enabled": enabled,
-                })
+                await self.state_machine.broadcast(EqualizerEnabledChanged(enabled=enabled))
 
             if self.settings_service:
                 await self.settings_service.set_setting('routing.equalizer_effects_enabled', enabled)
@@ -747,13 +748,10 @@ class AudioRoutingService:
             self._get_equalizer_effects_enabled, self._set_equalizer_effects_state,
             enabled, "equalizer_effects", body,
         )
-        # Broadcast final state after successful transition. Canonical shape
-        # {"source": <str>}: full_state aggregation reads
-        # equalizer_effects_enabled from camilladsp.
+        # Broadcast final state after successful transition — full_state
+        # aggregation reads equalizer_effects_enabled from camilladsp.
         if success and self.state_machine:
-            await self.state_machine.broadcast_event("system", "state_changed", {
-                "source": "equalizer",
-            })
+            await self.state_machine.broadcast(SystemStateChanged(source="equalizer"))
         return success
 
     def regenerate_env_files(self) -> None:

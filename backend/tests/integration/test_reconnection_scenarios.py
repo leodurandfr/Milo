@@ -435,7 +435,7 @@ class TestReconnectionContextDetectionIntegration:
     def mock_state_machine(self):
         """Create a mock state machine."""
         sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.snapcast_service = None
         sm.volume_service = None
         sm.crossover_service = None
@@ -728,7 +728,7 @@ class TestInZoneReconnectionSyncIntegration:
     def mock_state_machine(self):
         """Create a mock state machine with volume_service."""
         sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.snapcast_service = None
         sm.crossover_service = None
         sm.equalizer_client_proxy_service = None
@@ -1034,7 +1034,7 @@ class TestAC4SyncTimeCompliance:
     def mock_state_machine(self):
         """Create a mock state machine with all required services."""
         sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
 
         # Mock snapcast service
         snapcast = AsyncMock()
@@ -1221,7 +1221,7 @@ class TestAC6PendingSettingsQueue:
     def mock_state_machine_with_crossover(self):
         """Create a mock state machine with crossover/proxy services for pending settings."""
         sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
 
         # Mock crossover service with queue_pending_settings
         crossover = AsyncMock()
@@ -1408,7 +1408,7 @@ class TestAC6PendingSettingsQueue:
 
         # Create state machine with successful proxy
         sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.camilladsp_service = None
         sm.equalizer_settings_sync_service = None
 
@@ -1482,7 +1482,7 @@ class TestStandaloneReconnectionSyncIntegration:
     def mock_state_machine(self):
         """Create a mock state machine with volume_service."""
         sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.snapcast_service = None
         sm.crossover_service = None
         sm.equalizer_client_proxy_service = None

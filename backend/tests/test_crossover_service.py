@@ -991,7 +991,7 @@ class TestCrossoverEventBroadcasting:
 
         # Setup mock state machine for broadcast
         mock_state_machine = MagicMock()
-        mock_state_machine.broadcast_event = AsyncMock()
+        mock_state_machine.broadcast = AsyncMock()
         service.set_state_machine(mock_state_machine)
 
         # Setup: Zone with satellite + subwoofer
@@ -1016,10 +1016,10 @@ class TestCrossoverEventBroadcasting:
         await service._recalculate_zones_for_client("sub-1")
 
         # Verify zone_changed event was broadcast via state machine
-        mock_state_machine.broadcast_event.assert_called()
-        call_args = mock_state_machine.broadcast_event.call_args
-        assert call_args[0][0] == "multiroom"
-        assert call_args[0][1] == "zone_changed"
+        mock_state_machine.broadcast.assert_called()
+        event = mock_state_machine.broadcast.call_args.args[0]
+        assert event.CATEGORY == "multiroom"
+        assert event.TYPE == "zone_changed"
 
     @pytest.mark.asyncio
     async def test_zone_updated_event_includes_crossover_enabled(self, crossover_service_with_registry):
@@ -1028,7 +1028,7 @@ class TestCrossoverEventBroadcasting:
 
         # Setup mock state machine for broadcast
         mock_state_machine = MagicMock()
-        mock_state_machine.broadcast_event = AsyncMock()
+        mock_state_machine.broadcast = AsyncMock()
         service.set_state_machine(mock_state_machine)
 
         # Setup: Zone with satellite + online subwoofer
@@ -1053,10 +1053,9 @@ class TestCrossoverEventBroadcasting:
         await service._recalculate_zones_for_client("sub-1")
 
         # Verify event data includes crossover_enabled
-        call_args = mock_state_machine.broadcast_event.call_args
-        event_data = call_args[0][2]  # Third positional arg is data
-        assert "zone" in event_data
-        zone_data = event_data["zone"]
+        event = mock_state_machine.broadcast.call_args.args[0]
+        assert event.zone is not None
+        zone_data = event.zone
         assert "crossover_enabled" in zone_data
         # Should be True because subwoofer is online
         assert zone_data["crossover_enabled"] is True

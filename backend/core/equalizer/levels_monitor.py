@@ -14,6 +14,8 @@ import contextlib
 import logging
 from typing import Any, Dict, List, Optional
 
+from backend.core.models.ws_events import EqualizerLevels
+
 logger = logging.getLogger(__name__)
 
 SILENT_PEAK = [-80.0, -80.0]
@@ -60,9 +62,7 @@ class LevelsMonitor:
             try:
                 payload = await self._sample()
                 if payload != last_payload:
-                    # WS `equalizer`/`levels` — schema: frontend/src/schemas/ws.js.
-                    # {available: bool, output_peak: [left_db, right_db]}
-                    await self.state_machine.broadcast_event("equalizer", "levels", payload)
+                    await self.state_machine.broadcast(EqualizerLevels(**payload))
                     last_payload = payload
             except Exception as e:
                 logger.error("Levels monitor sampling error: %s", e)

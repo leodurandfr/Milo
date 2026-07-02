@@ -3,6 +3,7 @@ import contextlib
 import logging
 import time
 
+from backend.core.models.ws_events import SystemBackendError
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,6 @@ class WebSocketLogHandler(logging.Handler):
         # Never let broadcasting errors propagate — otherwise a logged exception
         # would re-enter the WebSocket layer and loop. Intentionally silent.
         with contextlib.suppress(Exception):
-            await self._state_machine.broadcast_event("system", "backend_error", {
-                "message": record.getMessage(),
-            })
+            await self._state_machine.broadcast(
+                SystemBackendError(message=record.getMessage())
+            )

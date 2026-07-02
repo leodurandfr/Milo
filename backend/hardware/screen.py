@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from time import monotonic
 
+from backend.core.models.ws_events import ScreenSleepChanged
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 
@@ -192,11 +193,7 @@ class ScreenController:
     @handle_errors(default=None)
     async def _broadcast_sleep_state(self, sleeping: bool):
         """Broadcast screen sleep state change to frontend via WebSocket"""
-        await self.state_machine.broadcast_event(
-            "settings",
-            "screen_sleep_changed",
-            {"sleeping": sleeping}
-        )
+        await self.state_machine.broadcast(ScreenSleepChanged(sleeping=sleeping))
 
     async def _monitor_source_state(self):
         """Monitors source state"""

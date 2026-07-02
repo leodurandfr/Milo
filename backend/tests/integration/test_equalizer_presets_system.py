@@ -43,7 +43,7 @@ def mock_settings_service():
 def mock_state_machine():
     """Create mock state machine"""
     sm = Mock()
-    sm.broadcast_event = AsyncMock()
+    sm.broadcast = AsyncMock()
     return sm
 
 

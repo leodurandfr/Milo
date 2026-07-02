@@ -20,6 +20,11 @@ import logging
 import re
 from typing import Dict, Optional, Set, Union
 
+from backend.core.models.ws_events import (
+    BtRemoteConfig,
+    BtRemoteConfigChanged,
+    BtRemoteStatusChanged,
+)
 from backend.hardware.playback_dispatch import PlaybackDispatcher
 from backend.hardware.volume_accumulator import VolumeAccumulator
 
@@ -204,9 +209,8 @@ class BtRemoteController:
                 await self._disconnect_matching_devices()
                 await self._stop_scanning()
 
-        await self.state_machine.broadcast_event(
-            "settings", "bt_remote_config_changed",
-            {"source": "settings", "config": config}
+        await self.state_machine.broadcast(
+            BtRemoteConfigChanged(config=BtRemoteConfig(**config))
         )
 
     def get_status(self) -> dict:
@@ -249,21 +253,14 @@ class BtRemoteController:
         return devices
 
     async def _broadcast_status(self):
-        """Broadcast current connection status via WebSocket.
-
-        Payload: { source: "settings", connected_devices: [...], discovering: bool, paired: bool }.
-        `paired` is the durable BlueZ-bond signal (true even while the remote
-        sleeps/disconnects); the UI uses it to offer the "unpair" action.
-        """
+        """Broadcast current connection status via WebSocket."""
         status = self.get_status()
         paired = await self.is_paired()
-        await self.state_machine.broadcast_event(
-            "settings", "bt_remote_status_changed",
-            {"source": "settings",
-             "connected_devices": status["connected_devices"],
-             "discovering": status["discovering"],
-             "paired": paired}
-        )
+        await self.state_machine.broadcast(BtRemoteStatusChanged(
+            connected_devices=status["connected_devices"],
+            discovering=status["discovering"],
+            paired=paired,
+        ))
 
     # ========================================================================
     # BATTERY (on-demand D-Bus read)

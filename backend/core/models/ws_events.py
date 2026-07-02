@@ -8,13 +8,14 @@ serializes the model, injects `full_state` for source/system categories, and
 wraps it in the `{category, type, origin, data, timestamp}` envelope.
 
 The model is the payload documentation: each class docstring names its
-consumers (frontend store/handler, Milo-Mac where applicable). Families not
-yet listed here still go through the legacy
-`broadcast_event(category, type, data)` until their Phase-5 migration.
+consumers (frontend store/handler, Milo-Mac where applicable).
 """
+import time
 from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
+
+from backend.core.network.models import NetworkStatus
 
 
 class WsEvent(BaseModel):
@@ -36,6 +37,18 @@ class WsEvent(BaseModel):
     def wire_data(self) -> Dict[str, Any]:
         """The envelope `data` payload (before full_state injection)."""
         return self.model_dump(exclude_none=self.EXCLUDE_NONE)
+
+    def to_envelope(self, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """The full wire envelope. `data` lets the state machine pass the
+        payload it already enriched with full_state; per-client senders
+        (ws/manager handshake) call it bare."""
+        return {
+            "category": self.CATEGORY,
+            "type": self.TYPE,
+            "origin": self.origin,
+            "data": data if data is not None else self.wire_data(),
+            "timestamp": time.time(),
+        }
 
 
 # =============================================================================
@@ -75,6 +88,53 @@ class SystemStateChanged(WsEvent):
     multiroom_changed: Optional[bool] = None
 
 
+class SystemConnectivityChanged(WsEvent):
+    """App.vue offline banner — NetworkManager connectivity flips."""
+    CATEGORY = "system"
+    TYPE = "connectivity_changed"
+    INCLUDE_FULL_STATE = False
+    source: Literal["system"] = "system"
+    online: bool
+
+
+class SystemHostnameConflictChanged(WsEvent):
+    """App.vue hostname-conflict banner (milo.local advertised under another name)."""
+    CATEGORY = "system"
+    TYPE = "hostname_conflict_changed"
+    INCLUDE_FULL_STATE = False
+    source: Literal["system"] = "system"
+    hostname_conflict: bool
+    advertised_name: Optional[str]
+    local_ip: Optional[str]
+    expected_name: str
+
+
+class SystemBackendError(WsEvent):
+    """App.vue error toast — forwarded backend ERROR log records."""
+    CATEGORY = "system"
+    TYPE = "backend_error"
+    message: str
+
+
+class SystemCdDriveStatus(WsEvent):
+    """full_state carrier — drive/disc state travels in the injected
+    full_state metadata, not in data (App.vue → unifiedAudioStore)."""
+    CATEGORY = "system"
+    TYPE = "cd_drive_status"
+    source: Literal["cd"] = "cd"
+
+
+class SystemInitialState(WsEvent):
+    """Handshake reply (ws/manager) — sent to the single ready client, never
+    broadcast; carries its own full_state as an explicit field."""
+    CATEGORY = "system"
+    TYPE = "initial_state"
+    INCLUDE_FULL_STATE = False
+    full_state: Dict[str, Any]
+    setup_completed: bool
+    hotspot_active: bool
+
+
 # =============================================================================
 # SOURCE (all audio sources — never source-specific categories)
 # =============================================================================
@@ -104,6 +164,48 @@ class SourcePositionUpdate(WsEvent):
     source: str
     position: int  # milliseconds
     duration: int  # milliseconds
+
+
+# source/favorite_* is a union discriminated by data.source (radio | podcast).
+
+class RadioFavoriteAdded(WsEvent):
+    """radioStore favorites sync."""
+    CATEGORY = "source"
+    TYPE = "favorite_added"
+    source: Literal["radio"] = "radio"
+    station_id: str
+
+
+class RadioFavoriteRemoved(WsEvent):
+    """radioStore favorites sync."""
+    CATEGORY = "source"
+    TYPE = "favorite_removed"
+    source: Literal["radio"] = "radio"
+    station_id: str
+
+
+class RadioFavoriteModified(WsEvent):
+    """radioStore metadata edit sync; station dict carries id + is_favorite."""
+    CATEGORY = "source"
+    TYPE = "favorite_modified"
+    source: Literal["radio"] = "radio"
+    station: Dict[str, Any]
+
+
+class PodcastFavoriteAdded(WsEvent):
+    """podcastStore subscriptions sync; podcast = the subscription dict."""
+    CATEGORY = "source"
+    TYPE = "favorite_added"
+    source: Literal["podcast"] = "podcast"
+    podcast: Dict[str, Any]
+
+
+class PodcastFavoriteRemoved(WsEvent):
+    """podcastStore subscriptions sync."""
+    CATEGORY = "source"
+    TYPE = "favorite_removed"
+    source: Literal["podcast"] = "podcast"
+    uuid: str
 
 
 # =============================================================================
@@ -303,6 +405,243 @@ class RadioSettingsChanged(SettingsEvent):
     """App.vue settings listener."""
     TYPE = "radio_settings_changed"
     config: RadioSettingsConfig
+
+
+class BtRemoteConfig(BaseModel):
+    enabled: bool
+    device_name_filter: str
+    key_map: Dict[str, str]
+
+
+class BtRemoteConfigChanged(SettingsEvent):
+    """BT-remote settings form sync."""
+    TYPE = "bt_remote_config_changed"
+    config: BtRemoteConfig
+
+
+class BtRemoteStatusChanged(SettingsEvent):
+    """BT-remote settings panel. `paired` is the durable BlueZ-bond signal
+    (true even while the remote sleeps/disconnects); the UI uses it to offer
+    the "unpair" action."""
+    TYPE = "bt_remote_status_changed"
+    connected_devices: List[Dict[str, Any]]
+    discovering: bool
+    paired: bool
+
+
+class IrRemoteStatusChanged(SettingsEvent):
+    """IR-remote settings panel (pairing flow + listener state)."""
+    TYPE = "ir_remote_status_changed"
+    available: bool
+    enabled: bool
+    paired: bool
+    device_id: Optional[int]
+    paired_at: Optional[float]
+    listening: bool
+    pairing_in_progress: bool
+
+
+class FanStatusEvent(SettingsEvent):
+    """Base for fan events; payload = FanController.get_status() (config +
+    live telemetry)."""
+    available: bool
+    enabled: bool
+    mode: str  # auto | manual | target
+    manual_percent: int
+    target_temp_c: int
+    curve: List[Dict[str, Any]]
+    temp_c: float
+    rpm: int
+    pwm_percent: int
+
+
+class FanConfigChanged(FanStatusEvent):
+    """Fan settings form sync (config write)."""
+    TYPE = "fan_config_changed"
+
+
+class FanStatusChanged(FanStatusEvent):
+    """Fan settings panel telemetry refresh."""
+    TYPE = "fan_status_changed"
+
+
+class ScreenSleepChanged(WsEvent):
+    """Kiosk screen wake/sleep indicator. No `source` field (origin falls back
+    to the category, matching the historical wire shape)."""
+    CATEGORY = "settings"
+    TYPE = "screen_sleep_changed"
+    sleeping: bool
+
+
+# =============================================================================
+# EQUALIZER (local CamillaDSP + zone toggles)
+# =============================================================================
+
+class EqualizerStateChanged(WsEvent):
+    """equalizerStore — CamillaDSP daemon connection state."""
+    CATEGORY = "equalizer"
+    TYPE = "state_changed"
+    state: str
+
+
+class EqualizerFilterChanged(WsEvent):
+    """equalizerStore/ParametricEQ — canonical EQ-filter wire shape
+    (EqFilter.to_wire_dict: freq/type, not the frequency/filter_type
+    persistence shape)."""
+    CATEGORY = "equalizer"
+    TYPE = "filter_changed"
+    id: str
+    freq: float
+    gain: float
+    q: float
+    type: str
+    enabled: bool
+
+
+class EqualizerCompressorChanged(WsEvent):
+    """equalizerStore compressor panel sync."""
+    CATEGORY = "equalizer"
+    TYPE = "compressor_changed"
+    enabled: bool
+    threshold: float
+    ratio: float
+    attack: float
+    release: float
+    makeup_gain: float
+
+
+class EqualizerLoudnessChanged(WsEvent):
+    """equalizerStore loudness panel sync."""
+    CATEGORY = "equalizer"
+    TYPE = "loudness_changed"
+    enabled: bool
+    high_boost: float
+    low_boost: float
+
+
+class EqualizerMonoChanged(WsEvent):
+    """equalizerStore mono toggle sync."""
+    CATEGORY = "equalizer"
+    TYPE = "mono_changed"
+    enabled: bool
+
+
+class EqualizerLevels(WsEvent):
+    """Zod equalizer.levels → VU meter; output_peak = [left_db, right_db]."""
+    CATEGORY = "equalizer"
+    TYPE = "levels"
+    available: bool
+    output_peak: List[float]
+
+
+class EqualizerEnabledChanged(WsEvent):
+    """equalizerStore global effects toggle (bypass/restore)."""
+    CATEGORY = "equalizer"
+    TYPE = "enabled_changed"
+    enabled: bool
+
+
+class EqualizerZoneEnabledChanged(WsEvent):
+    """equalizerStore per-zone effects toggle."""
+    CATEGORY = "equalizer"
+    TYPE = "zone_enabled_changed"
+    zone_id: str
+    enabled: bool
+
+
+# =============================================================================
+# MULTIROOM (client/zone registry + crossover + pending clients)
+# =============================================================================
+
+class MultiroomClientStateChanged(WsEvent):
+    """multiroomStore client list sync; `client` is absent (not null) on
+    unregister, where only the mac_id remains meaningful."""
+    CATEGORY = "multiroom"
+    TYPE = "client_state_changed"
+    EXCLUDE_NONE = True
+    mac_id: str
+    client: Optional[Dict[str, Any]] = None
+
+
+class MultiroomZoneChanged(WsEvent):
+    """multiroomStore zone sync — union: {zone_id, zone} on create/update/
+    delete, {zone_id, mac_id} on zone_client_removed (zone omitted)."""
+    CATEGORY = "multiroom"
+    TYPE = "zone_changed"
+    EXCLUDE_NONE = True
+    zone_id: str
+    zone: Optional[Dict[str, Any]] = None
+    mac_id: Optional[str] = None
+
+
+class MultiroomEqualizerChanged(WsEvent):
+    """equalizerStore targeted EQ sync; equalizer_settings is a PARTIAL wire
+    dict (only the changed keys: filters/compressor/loudness/mono/...)."""
+    CATEGORY = "multiroom"
+    TYPE = "equalizer_changed"
+    target_type: str  # "client" | "zone"
+    target_id: str
+    equalizer_settings: Dict[str, Any]
+
+
+class MultiroomCrossoverChanged(WsEvent):
+    """equalizerStore.handleZoneCrossoverChanged — single canonical zone shape."""
+    CATEGORY = "multiroom"
+    TYPE = "crossover_changed"
+    zone_id: str
+    crossover_enabled: bool
+    crossover_frequency: int
+
+
+class MultiroomPendingClientChanged(WsEvent):
+    """multiroomStore pending-client list — union discriminated by `action`:
+    {action: registered|updated, client} | {action: removed, mac_id}."""
+    CATEGORY = "multiroom"
+    TYPE = "pending_client_changed"
+    EXCLUDE_NONE = True
+    action: str
+    client: Optional[Dict[str, Any]] = None
+    mac_id: Optional[str] = None
+
+
+# =============================================================================
+# ROUTING (multiroom transitions)
+# =============================================================================
+
+class RoutingMultiroomEnabling(WsEvent):
+    """multiroomStore.handleRoutingEvent — transition spinner on (empty payload)."""
+    CATEGORY = "routing"
+    TYPE = "multiroom_enabling"
+
+
+class RoutingMultiroomDisabling(WsEvent):
+    """multiroomStore.handleRoutingEvent — transition spinner on (empty payload)."""
+    CATEGORY = "routing"
+    TYPE = "multiroom_disabling"
+
+
+class RoutingMultiroomReady(WsEvent):
+    """multiroomStore.handleRoutingEvent — clears the transition spinner (empty payload)."""
+    CATEGORY = "routing"
+    TYPE = "multiroom_ready"
+
+
+class RoutingMultiroomError(WsEvent):
+    """multiroomStore maps `reason` via MULTIROOM_ERROR_KEYS to a localized
+    transitionError; also in the Milo-Mac manifest."""
+    CATEGORY = "routing"
+    TYPE = "multiroom_error"
+    reason: str  # "enable_failed" | "disable_failed"
+
+
+# =============================================================================
+# NETWORK
+# =============================================================================
+
+class NetworkStatusChanged(NetworkStatus, WsEvent):
+    """networkStore — flat NetworkStatus payload (wifi_enabled, ethernet, wifi)."""
+    CATEGORY = "network"
+    TYPE = "status_changed"
 
 
 # =============================================================================

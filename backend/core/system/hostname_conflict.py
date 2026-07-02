@@ -15,6 +15,7 @@ import socket
 import time
 from typing import Any, Dict, List, Optional, Set
 
+from backend.core.models.ws_events import SystemHostnameConflictChanged
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
@@ -262,18 +263,12 @@ class HostnameConflictService:
     async def _broadcast_if_changed(self, previous: bool) -> None:
         if previous == self._conflict or self._state_machine is None:
             return
-        await self._state_machine.broadcast_event(
-            category="system",
-            event_type="hostname_conflict_changed",
-            data={
-                "source": "system",
-                "hostname_conflict": self._conflict,
-                "advertised_name": self._advertised_name,
-                "local_ip": self._local_ip,
-                "expected_name": EXPECTED_FQDN,
-            },
-            include_full_state=False,
-        )
+        await self._state_machine.broadcast(SystemHostnameConflictChanged(
+            hostname_conflict=self._conflict,
+            advertised_name=self._advertised_name,
+            local_ip=self._local_ip,
+            expected_name=EXPECTED_FQDN,
+        ))
 
     async def _avahi_resolve_name(self, name: str) -> Optional[str]:
         return await self._run_avahi(["avahi-resolve", "-4", "-n", name])

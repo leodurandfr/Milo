@@ -44,7 +44,7 @@ def _make_volume_service(startup_volume_db: float = DEFAULT_VOLUME_DB):
 def _make_ws_service(registry, volume_service=None, snapcast_service=None):
     """Create a SnapcastWebSocketService wired for sync tests."""
     sm = MagicMock()
-    sm.broadcast_event = AsyncMock()
+    sm.broadcast = AsyncMock()
 
     routing = MagicMock()
     routing.get_state = MagicMock(return_value={"multiroom_enabled": True})
@@ -104,7 +104,7 @@ def mock_settings_service():
 @pytest.fixture
 def mock_state_machine():
     sm = MagicMock()
-    sm.broadcast_event = AsyncMock()
+    sm.broadcast = AsyncMock()
     return sm
 
 
@@ -1000,7 +1000,7 @@ class TestProcessDisconnectedClients:
 def _make_ws_with_proxy(registry):
     """SnapcastWebSocketService with a capturing equalizer proxy (no stubbed sync)."""
     sm = MagicMock()
-    sm.broadcast_event = AsyncMock()
+    sm.broadcast = AsyncMock()
     routing = MagicMock()
     routing.get_state = MagicMock(return_value={"multiroom_enabled": True})
     ws = SnapcastWebSocketService(state_machine=sm, routing_service=routing)

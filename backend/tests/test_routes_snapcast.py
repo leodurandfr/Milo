@@ -42,7 +42,7 @@ class TestSnapcastRoutes:
     def mock_state_machine(self):
         """State machine mock"""
         sm = Mock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         # Mock volume_service with async broadcast_volume_state for mute tests
         sm.volume_service = Mock()
         sm.volume_service.broadcast_volume_state = AsyncMock()

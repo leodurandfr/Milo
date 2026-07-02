@@ -26,6 +26,7 @@ from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 from dbus_next.signature import Variant
 
+from backend.core.models.ws_events import SystemConnectivityChanged
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
@@ -113,11 +114,8 @@ class ConnectivityService:
     async def _broadcast(self) -> None:
         if self._state_machine is None:
             return
-        await self._state_machine.broadcast_event(
-            category="system",
-            event_type="connectivity_changed",
-            data={"source": "system", "online": self._online},
-            include_full_state=False,
+        await self._state_machine.broadcast(
+            SystemConnectivityChanged(online=self._online)
         )
 
     async def cleanup(self) -> None:

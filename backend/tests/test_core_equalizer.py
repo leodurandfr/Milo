@@ -465,7 +465,7 @@ class TestCamillaDSPService:
         camilladsp_service._connected = True
         camilladsp_service._client = MagicMock()
         monkeypatch.setattr(camilladsp_service, "_schedule_persist", lambda: None)
-        monkeypatch.setattr(camilladsp_service, "_broadcast_event", AsyncMock())
+        monkeypatch.setattr(camilladsp_service, "_broadcast", AsyncMock())
 
         daemon = {
             "filters": {"eq_band_00": {"type": "Biquad", "parameters": {
@@ -505,7 +505,7 @@ class TestCamillaDSPService:
         camilladsp_service._connected = True
         camilladsp_service._client = MagicMock()
         monkeypatch.setattr(camilladsp_service, "_schedule_persist", lambda: None)
-        monkeypatch.setattr(camilladsp_service, "_broadcast_event", AsyncMock())
+        monkeypatch.setattr(camilladsp_service, "_broadcast", AsyncMock())
 
         captured = {}
         set_calls = 0

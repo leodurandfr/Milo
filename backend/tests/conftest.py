@@ -8,19 +8,27 @@ from backend.core.models.audio_state import SourceState
 
 
 def attach_registry_broadcaster(registry, state_machine) -> None:
-    """Forward ClientRegistryService events to state_machine.broadcast_event.
+    """Forward ClientRegistryService events to state_machine.broadcast().
 
     Mirrors what SnapcastWebSocketService.set_registry does in production —
     the registry itself is a pure store, so tests that previously relied on
     `registry.set_state_machine(state_machine)` use this helper instead.
     """
-    from backend.core.multiroom.client_registry import REGISTRY_EVENT_TYPE_MAP
+    from backend.core.multiroom.client_registry import REGISTRY_EVENT_CLASSES
 
     async def _forward(event_type: str, data: dict) -> None:
-        mapped_type = REGISTRY_EVENT_TYPE_MAP.get(event_type, event_type.lower())
-        await state_machine.broadcast_event("multiroom", mapped_type, data)
+        await state_machine.broadcast(REGISTRY_EVENT_CLASSES[event_type](**data))
 
     registry.subscribe(_forward)
+
+
+def events_of(broadcast_mock, category: str, type_: str) -> list:
+    """Typed events of a (category, type) pair captured by a mocked
+    `state_machine.broadcast` (AsyncMock)."""
+    return [
+        c.args[0] for c in broadcast_mock.call_args_list
+        if c.args[0].CATEGORY == category and c.args[0].TYPE == type_
+    ]
 
 
 

@@ -40,7 +40,7 @@ def mock_settings_service():
 def mock_state_machine():
     """Create mock state machine"""
     sm = Mock()
-    sm.broadcast_event = AsyncMock()
+    sm.broadcast = AsyncMock()
     return sm
 
 
@@ -130,8 +130,7 @@ class TestAC1CompressorEnableDisable:
             with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
                 await connected_camilladsp_service.set_compressor(enabled=True, threshold=-25)
 
-                # Verify broadcast via _broadcast_event (which uses state_machine.broadcast_event internally)
-                # The service broadcasts through its own method
+                # The service broadcasts through its own _broadcast method
                 assert connected_camilladsp_service._compressor["enabled"] is True
                 assert connected_camilladsp_service._compressor["threshold"] == -25
 
@@ -475,7 +474,7 @@ class TestAC5ZonePropagation:
                 await camilladsp_service_with_preset.set_compressor(enabled=True)
 
                 # Verify broadcast was called (zone members listen to this)
-                mock_state_machine.broadcast_event.assert_called()
+                mock_state_machine.broadcast.assert_called()
 
 
 # =============================================================================
