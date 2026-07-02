@@ -22,6 +22,14 @@ from time import monotonic
 from typing import Dict, Any, Optional
 
 from backend.core.models.audio_state import AudioSource, SourceState, SystemAudioState
+from backend.core.models.ws_events import (
+    SourceStateChanged,
+    SystemErrorEvent,
+    SystemStateChanged,
+    SystemTransitionComplete,
+    SystemTransitionStart,
+    WsEvent,
+)
 from backend.core.audio_source import BaseAudioSource
 from backend.shared.decorators import handle_errors
 
@@ -152,10 +160,7 @@ class AudioStateMachine:
                         )
                         self.system_state.metadata = {}
 
-                    # Consumers react to the event type + injected full_state only.
-                    await self.broadcast_event("system", "transition_start", {
-                        "source": "system"
-                    })
+                    await self.broadcast(SystemTransitionStart())
 
                     # Stop old source
                     if old_source != AudioSource.NONE:
@@ -181,10 +186,7 @@ class AudioStateMachine:
                             else:
                                 self.system_state.source_state = SourceState.WAITING
 
-                    # Consumers react to the event type + injected full_state only.
-                    await self.broadcast_event("system", "transition_complete", {
-                        "source": "system"
-                    })
+                    await self.broadcast(SystemTransitionComplete())
 
                     # Reset inactivity timer on source change
                     self._last_activity_time = monotonic()
@@ -199,11 +201,11 @@ class AudioStateMachine:
                     self.system_state.error = "Transition timeout"
 
                 # Broadcast error to WebSocket before emergency_stop clears state
-                await self.broadcast_event("system", "error", {
-                    "source": target_source.value,
-                    "error": "Transition timeout",
-                    "message": f"Transition timeout after {self.TRANSITION_TIMEOUT}s"
-                })
+                await self.broadcast(SystemErrorEvent(
+                    source=target_source.value,
+                    error="Transition timeout",
+                    message=f"Transition timeout after {self.TRANSITION_TIMEOUT}s"
+                ))
 
                 await self._emergency_stop()
                 return False
@@ -215,11 +217,11 @@ class AudioStateMachine:
                     self.system_state.error = str(e)
 
                 # Broadcast error to WebSocket before emergency_stop clears state
-                await self.broadcast_event("system", "error", {
-                    "source": target_source.value,
-                    "error": str(e),
-                    "message": str(e)
-                })
+                await self.broadcast(SystemErrorEvent(
+                    source=target_source.value,
+                    error=str(e),
+                    message=str(e)
+                ))
 
                 await self._emergency_stop()
                 return False
@@ -263,11 +265,11 @@ class AudioStateMachine:
             if new_state == SourceState.ACTIVE:
                 self._last_activity_time = monotonic()
 
-        await self.broadcast_event("source", "state_changed", {
-            "source": source.value,
-            "new_state": new_state.value,
-            "metadata": metadata
-        })
+        await self.broadcast(SourceStateChanged(
+            source=source.value,
+            new_state=new_state.value,
+            metadata=metadata
+        ))
 
     @handle_errors(default=False, level='warning')
     async def refresh_active_metadata(self) -> bool:
@@ -324,10 +326,7 @@ class AudioStateMachine:
             self.system_state.error = None
 
         # Broadcast the reset state so frontend knows system is stable again.
-        # Canonical shape: {"source": <str>} — consumers read the injected full_state.
-        await self.broadcast_event("system", "state_changed", {
-            "source": "system",
-        })
+        await self.broadcast(SystemStateChanged(source="system"))
 
     # === Inactivity Monitor ===
 
@@ -398,6 +397,30 @@ class AudioStateMachine:
             self._inactivity_monitor_task = None
 
     # === WebSocket Broadcasting ===
+
+    async def broadcast(self, event: WsEvent) -> None:
+        """
+        Broadcast a typed event to all connected WebSocket clients.
+
+        Same envelope as broadcast_event: {category, type, origin, data,
+        timestamp}. Payload shape and consumers are documented on the event
+        model (backend/core/models/ws_events.py); full_state is injected for
+        source/system events unless the event class opts out.
+        """
+        if not self.ws_manager:
+            return
+
+        event_payload = event.wire_data()
+        if event.INCLUDE_FULL_STATE and event.CATEGORY in self._FULL_STATE_CATEGORIES:
+            event_payload["full_state"] = self.get_current_state()
+
+        await self.ws_manager.broadcast_dict({
+            "category": event.CATEGORY,
+            "type": event.TYPE,
+            "origin": event.origin,
+            "data": event_payload,
+            "timestamp": time.time()
+        })
 
     async def broadcast_event(
         self,

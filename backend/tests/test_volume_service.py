@@ -15,7 +15,7 @@ class TestVolumeService:
     def mock_state_machine(self):
         """Mock of the state machine"""
         sm = Mock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.routing_service = Mock()
         sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': False})
         return sm

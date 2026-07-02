@@ -9,6 +9,11 @@ from pydantic import BaseModel, ValidationError
 
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
+from backend.core.models.ws_events import (
+    SourceErrorCleared,
+    SourcePositionUpdate,
+    SourceStateChanged,
+)
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
@@ -593,16 +598,11 @@ class BaseAudioSource(ABC):
             sm.metadata["duration"] = duration
 
         self._bg.spawn(
-            self.state_machine.broadcast_event(
-                "source",
-                "position_update",
-                {
-                    "source": self.source.value,
-                    "position": position,
-                    "duration": duration,
-                },
-                include_full_state=False,
-            ),
+            self.state_machine.broadcast(SourcePositionUpdate(
+                source=self.source.value,
+                position=position,
+                duration=duration,
+            )),
             label="broadcast_position_update",
         )
 
@@ -618,15 +618,11 @@ class BaseAudioSource(ABC):
 
         self._error_active = True
         self._bg.spawn(
-            self.state_machine.broadcast_event(
-                "source",
-                "state_changed",
-                {
-                    "source": self.source.value,
-                    "new_state": SourceState.ERROR.value,
-                    "metadata": {"error": error_message}
-                }
-            ),
+            self.state_machine.broadcast(SourceStateChanged(
+                source=self.source.value,
+                new_state=SourceState.ERROR.value,
+                metadata={"error": error_message}
+            )),
             label="broadcast_error",
         )
 
@@ -643,10 +639,8 @@ class BaseAudioSource(ABC):
 
         self._error_active = False
         self._bg.spawn(
-            self.state_machine.broadcast_event(
-                "source",
-                "error_cleared",
-                {"source": self.source.value}
+            self.state_machine.broadcast(
+                SourceErrorCleared(source=self.source.value)
             ),
             label="broadcast_error_cleared",
         )
