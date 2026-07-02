@@ -486,16 +486,19 @@ onMounted(async () => {
       if (event.data?.new_state === 'error') {
         const source = event.data?.source || 'source';
         const error = event.data?.metadata?.error || 'error';
-        currentError.value = { title: `${capitalize(source)} Error`, detail: error };
+        currentError.value = { title: `${capitalize(source)} Error`, detail: error, source };
       }
     }),
     parsedOn('source', 'position_update', wsEventRegistry['source.position_update'],
              (payload) => {
                unifiedStore.updatePosition(payload);
              }),
-    on('source', 'error_cleared', () => {
-      // Auto-dismiss error notification when the error condition is resolved
-      currentError.value = null;
+    on('source', 'error_cleared', (event) => {
+      // Auto-dismiss the error notification, but only if the displayed error
+      // came from the source that cleared (don't eat unrelated banners)
+      if (currentError.value?.source === event.data?.source) {
+        currentError.value = null;
+      }
     }),
     on('system', 'error', (event) => {
       const source = event.data?.source || 'system';

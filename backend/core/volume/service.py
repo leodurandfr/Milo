@@ -880,13 +880,21 @@ class VolumeService:
         self.logger.info(f"Initialized availability for {len(clients)} clients")
 
     async def broadcast_volume_state(self, show_bar: bool = True) -> None:
-        """Broadcast volume state immediately to WebSocket clients."""
+        """Broadcast volume state immediately to WebSocket clients.
+
+        Payload for 'volume.volume_changed':
+            {show_bar: bool, step_mobile_db: float, multiroom_enabled: bool,
+             state: VolumeState.to_dict()}
+        Milo-Mac contract: reads state.global_volume_db, state.mode and
+        multiroom_enabled (mirror of state.mode == "multiroom").
+        """
         try:
             volume_state = await self.get_volume_state()
 
             event_data = {
                 "show_bar": show_bar,
                 "step_mobile_db": self._volume_config.step_mobile_db,
+                "multiroom_enabled": volume_state.mode == "multiroom",
                 "state": volume_state.to_dict()
             }
 
