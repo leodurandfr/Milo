@@ -12,8 +12,10 @@ with NO network access:
 
   * every REST entry resolves to a real FastAPI route (method + path template,
     path params included);
-  * every WS (category, type) has at least one `broadcast_event()` site in
-    `backend/` (AST scan, handling the variable-`event_type` indirection).
+  * every WS (category, type) has at least one emission site in `backend/`:
+    a legacy `broadcast_event()` call (AST scan, handling the variable-
+    `event_type` indirection) OR a typed `WsEvent` subclass from
+    `core/models/ws_events.py` referenced outside its defining module.
 
 A separate, non-blocking CI job (`check_milo_mac_freshness.py`) re-clones
 Milo-Mac and verifies the *manifest itself* still matches what Milo-Mac
@@ -131,8 +133,48 @@ def test_rest_route_exists(entry):
 
 
 # --------------------------------------------------------------------------- #
-# WS: every manifest (category, type) must have a broadcast_event() site.
+# WS: every manifest (category, type) must have an emission site — a legacy
+# broadcast_event() call or a typed WsEvent class actually used by the backend.
 # --------------------------------------------------------------------------- #
+
+def _scan_typed_events():
+    """Static model of typed `broadcast(event)` emission.
+
+    Typed events pin (CATEGORY, TYPE) at the class level, so an emission site
+    is any reference to the event class outside `core/models/ws_events.py`
+    (instantiation `SourceStateChanged(...)` or class handoff
+    `progress_event_cls=SatelliteUpdateProgress`). Bare imports don't count —
+    an imported-but-unused class is dead code ruff flags anyway.
+    """
+    from backend.core.models import ws_events
+
+    def _concrete(cls):
+        for sub in cls.__subclasses__():
+            if "TYPE" in vars(sub):
+                yield sub
+            yield from _concrete(sub)
+
+    class_to_pair = {
+        cls.__name__: (cls.CATEGORY, cls.TYPE)
+        for cls in _concrete(ws_events.WsEvent)
+    }
+
+    referenced_pairs: set[tuple[str, str]] = set()
+    ws_events_path = BACKEND_ROOT / "core" / "models" / "ws_events.py"
+
+    for py in BACKEND_ROOT.rglob("*.py"):
+        if "/tests/" in py.as_posix() or py == ws_events_path:
+            continue
+        try:
+            tree = ast.parse(py.read_text(), filename=str(py))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in class_to_pair:
+                referenced_pairs.add(class_to_pair[node.id])
+
+    return referenced_pairs
 
 def _scan_broadcast_events():
     """Static model of `broadcast_event()` emission across backend/ (no tests).
@@ -200,6 +242,7 @@ def _scan_broadcast_events():
 
 
 _EXPLICIT, _DYNAMIC_CATS, _DYNAMIC_TYPES = _scan_broadcast_events()
+_TYPED = _scan_typed_events()
 
 
 @pytest.mark.parametrize(
@@ -211,15 +254,18 @@ def test_ws_broadcast_site_exists(event):
     """Each WS (category, type) Milo-Mac listens for must be broadcast somewhere."""
     category, evt_type = event["category"], event["type"]
 
-    satisfied = (category, evt_type) in _EXPLICIT or (
-        category in _DYNAMIC_CATS and evt_type in _DYNAMIC_TYPES
+    satisfied = (
+        (category, evt_type) in _TYPED
+        or (category, evt_type) in _EXPLICIT
+        or (category in _DYNAMIC_CATS and evt_type in _DYNAMIC_TYPES)
     )
 
     assert satisfied, (
-        f"WS event `{category}/{evt_type}` has no broadcast_event() site but is "
-        f"required by Milo-Mac ({event['consumer']}). Restore the broadcast or, "
-        f"if Milo-Mac genuinely dropped it, delete the entry from "
-        f"{MANIFEST_PATH.name}. See CLAUDE.md §'External API clients — Milo-Mac'."
+        f"WS event `{category}/{evt_type}` has no emission site (typed WsEvent "
+        f"or broadcast_event()) but is required by Milo-Mac "
+        f"({event['consumer']}). Restore the broadcast or, if Milo-Mac "
+        f"genuinely dropped it, delete the entry from {MANIFEST_PATH.name}. "
+        f"See CLAUDE.md §'External API clients — Milo-Mac'."
     )
 
 

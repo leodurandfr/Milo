@@ -6,6 +6,18 @@ import asyncio
 import logging
 from fastapi import APIRouter, BackgroundTasks
 from backend.core.models.audio_state import AudioSource
+from backend.core.models.ws_events import (
+    ProgramsCompleteEvent,
+    ProgramsProgressEvent,
+    ProgramUpdateComplete,
+    ProgramUpdateProgress,
+    SatelliteAppUpdateComplete,
+    SatelliteAppUpdateProgress,
+    SatelliteCamillaDspUpdateComplete,
+    SatelliteCamillaDspUpdateProgress,
+    SatelliteUpdateComplete,
+    SatelliteUpdateProgress,
+)
 from backend.core.updates.helpers import compare_versions, extract_base_tag
 
 logger = logging.getLogger(__name__)
@@ -33,10 +45,9 @@ def create_programs_router(update_service, satellite_update_service, state_machi
     def _create_background_update(
         update_key: str,
         update_fn,
-        progress_event_type: str,
-        complete_event_type: str,
-        ws_source: str,
-        identifier_data: dict,
+        progress_event_cls: type[ProgramsProgressEvent],
+        complete_event_cls: type[ProgramsCompleteEvent],
+        identifier: dict,
         pre_update_fn=None,
     ):
         """Create a background update task with progress tracking and WS broadcasting.
@@ -57,10 +68,7 @@ def create_programs_router(update_service, satellite_update_service, state_machi
             }
             # Broadcast carries status only; progress/message live in
             # active_updates for the REST reconstruction path (GET /programs).
-            await state_machine.broadcast_event(
-                "programs", progress_event_type,
-                {"source": ws_source, **identifier_data, "status": "updating"}
-            )
+            await state_machine.broadcast(progress_event_cls(**identifier))
 
         async def do_update():
             try:
@@ -73,20 +81,16 @@ def create_programs_router(update_service, satellite_update_service, state_machi
                 if not result["success"]:
                     logger.error(f"Update {update_key} failed: {result.get('error', 'Update failed')}")
 
-                # Completion carries success only; the UI refetches versions
-                # over REST.
-                await state_machine.broadcast_event(
-                    "programs", complete_event_type,
-                    {"source": ws_source, **identifier_data, "success": result["success"]}
+                await state_machine.broadcast(
+                    complete_event_cls(**identifier, success=result["success"])
                 )
 
             except Exception as e:
                 logger.error(f"Update {update_key} failed: {e}")
                 if update_key in active_updates:
                     del active_updates[update_key]
-                await state_machine.broadcast_event(
-                    "programs", complete_event_type,
-                    {"source": ws_source, **identifier_data, "success": False}
+                await state_machine.broadcast(
+                    complete_event_cls(**identifier, success=False)
                 )
 
         return do_update
@@ -194,10 +198,9 @@ def create_programs_router(update_service, satellite_update_service, state_machi
         do_update = _create_background_update(
             update_key=satellite_key,
             update_fn=lambda cb: satellite_service.update_satellite(mac_id, cb),
-            progress_event_type="satellite_update_progress",
-            complete_event_type="satellite_update_complete",
-            ws_source="satellite_update",
-            identifier_data={"mac_id": mac_id},
+            progress_event_cls=SatelliteUpdateProgress,
+            complete_event_cls=SatelliteUpdateComplete,
+            identifier={"mac_id": mac_id},
         )
 
         background_tasks.add_task(do_update)
@@ -222,10 +225,9 @@ def create_programs_router(update_service, satellite_update_service, state_machi
         do_update = _create_background_update(
             update_key=satellite_key,
             update_fn=lambda cb: satellite_service.update_satellite_app(mac_id, cb),
-            progress_event_type="satellite_app_update_progress",
-            complete_event_type="satellite_app_update_complete",
-            ws_source="satellite_update",
-            identifier_data={"mac_id": mac_id},
+            progress_event_cls=SatelliteAppUpdateProgress,
+            complete_event_cls=SatelliteAppUpdateComplete,
+            identifier={"mac_id": mac_id},
         )
 
         background_tasks.add_task(do_update)
@@ -250,10 +252,9 @@ def create_programs_router(update_service, satellite_update_service, state_machi
         do_update = _create_background_update(
             update_key=satellite_key,
             update_fn=lambda cb: satellite_service.update_satellite_camilladsp(mac_id, cb),
-            progress_event_type="satellite_camilladsp_update_progress",
-            complete_event_type="satellite_camilladsp_update_complete",
-            ws_source="satellite_update",
-            identifier_data={"mac_id": mac_id},
+            progress_event_cls=SatelliteCamillaDspUpdateProgress,
+            complete_event_cls=SatelliteCamillaDspUpdateComplete,
+            identifier={"mac_id": mac_id},
         )
 
         background_tasks.add_task(do_update)
@@ -307,10 +308,9 @@ def create_programs_router(update_service, satellite_update_service, state_machi
         do_update = _create_background_update(
             update_key=program_key,
             update_fn=lambda cb: update_service.update_program(program_key, cb),
-            progress_event_type="program_update_progress",
-            complete_event_type="program_update_complete",
-            ws_source="program_update",
-            identifier_data={"program": program_key},
+            progress_event_cls=ProgramUpdateProgress,
+            complete_event_cls=ProgramUpdateComplete,
+            identifier={"program": program_key},
             pre_update_fn=_deactivate_if_needed,
         )
 

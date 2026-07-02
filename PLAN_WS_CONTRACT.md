@@ -210,7 +210,29 @@ only where discriminated by `data.source`).
 Phase checks: `pytest`, `npm run lint`, grep sanity: for every pair emitted from
 more than one site, the data keys are now identical across sites.
 
-## [ ] Phase 4 — Typed Pydantic event layer: foundation + core migration
+## [x] Phase 4 — Typed Pydantic event layer: foundation + core migration
+
+*Done 2026-07-02. Notes: the foundation defines classes only for the migrated
+families (17 settings subclasses + configs, 2 programs bases + 8 subclasses,
+core system/source/volume) — radio/podcast favorites, registry payloads and
+`EqFilterWire` are deliberately deferred to Phase 5 with their call sites (no
+dead classes). Helpers refactored: `api/settings.py::_handle_setting_update`
+takes a `SettingsEvent` (HTTP response rebuilt via
+`event.model_dump(exclude={"source"})`, unchanged on the wire);
+`api/programs.py::_create_background_update` takes progress/complete event
+classes. The radio/podcast/multiroom `_broadcast_event` helpers move in
+Phase 5. `WsEvent.EXCLUDE_NONE` (used by `SystemStateChanged`) keeps the
+optional `multiroom_changed` absent-not-null. **The Milo-Mac contract test
+scanner had to learn the typed layer**: `_scan_typed_events()` maps concrete
+`WsEvent` subclasses to their pair and requires a class reference outside
+`ws_events.py` — legacy `broadcast_event` scanning kept for un-migrated
+families (drop it in Phase 5). Envelope equivalence: snapshot tests in
+`backend/tests/test_ws_events.py` (12 events, one per family incl. full_state
+injection and the metadata:null case). Test mocks updated: `sm.broadcast =
+AsyncMock()` in volume/settings suites, typed side-effect in
+`integration/test_volume_control.py`. Live smoke green (source switch,
+rotary-steps, volume ±1 dB): shapes identical, volume_changed still carries
+the Milo-Mac invariants.*
 
 One class per event; `category`/`type` are class-level, never passed at call
 sites; wire format byte-identical to today.

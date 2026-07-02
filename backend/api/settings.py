@@ -29,6 +29,42 @@ from backend.api.models import (
     RadioSettingsRequest,
     HardwareConfigRequest,
 )
+from backend.core.models.ws_events import (
+    AudioStopChanged,
+    AudioStopConfig,
+    BtRemoteStepsChanged,
+    BtRemoteStepsConfig,
+    DockAppsChanged,
+    DockAppsConfig,
+    IrRemoteStepsChanged,
+    IrRemoteStepsConfig,
+    LanguageChanged,
+    MacRocChanged,
+    MacRocConfig,
+    PodcastCredentialsChanged,
+    PodcastCredentialsConfig,
+    RadioSettingsChanged,
+    RadioSettingsConfig,
+    RotaryStepsChanged,
+    RotaryStepsConfig,
+    ScreenBrightnessChanged,
+    ScreenBrightnessConfig,
+    ScreenColorFilterChanged,
+    ScreenColorFilterConfig,
+    ScreenScreensaverChanged,
+    ScreenScreensaverConfig,
+    ScreenTimeoutChanged,
+    ScreenTimeoutConfig,
+    ScreenUiScaleChanged,
+    ScreenUiScaleConfig,
+    SettingsEvent,
+    VolumeLimitsChanged,
+    VolumeLimitsConfig,
+    VolumeStartupChanged,
+    VolumeStartupConfig,
+    VolumeStepsChanged,
+    VolumeStepsConfig,
+)
 from backend.core.multiroom.routing import MacEnv
 import logging
 import asyncio
@@ -52,12 +88,11 @@ def create_settings_router(
         payload: Dict[str, Any],
         validator: Callable[[Any], bool],
         setter: Callable,
-        event_type: str,
-        event_data: Dict[str, Any],
+        event: SettingsEvent,
         reload_callback: Optional[Callable] = None
     ) -> Dict[str, Any]:
         """Unified pattern for all settings routes – supports async setters"""
-        async with api_error_handler(f"Error updating setting ({event_type})", logger):
+        async with api_error_handler(f"Error updating setting ({event.TYPE})", logger):
             if not validator(payload):
                 raise HTTPException(status_code=400, detail="Invalid payload")
 
@@ -77,17 +112,18 @@ def create_settings_router(
                 try:
                     reload_success = await reload_callback()
                 except Exception as e:
-                    logger.error(f"reload_callback failed for {event_type}: {e}")
+                    logger.error(f"reload_callback failed for {event.TYPE}: {e}")
                     reload_success = False
 
             # reload_success stays in the HTTP response only (useSettingsAPI reads
             # it there); the broadcast carries just the new config.
-            await state_machine.broadcast_event("settings", event_type, {
-                "source": "settings",
-                **event_data,
-            })
+            await state_machine.broadcast(event)
 
-            return {"status": "success", **event_data, "reload_success": reload_success}
+            return {
+                "status": "success",
+                **event.model_dump(exclude={"source"}),
+                "reload_success": reload_success,
+            }
 
     def _get_services_for_source(source: str) -> list:
         """Return the list of systemd services for an audio source"""
@@ -170,8 +206,7 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('language', payload.language),
-            event_type="language_changed",
-            event_data={"language": payload.language}
+            event=LanguageChanged(language=payload.language)
         )
 
     # Volume limits (in dB)
@@ -184,8 +219,9 @@ def create_settings_router(
                 'volume.limit_min_db': payload.min_db,
                 'volume.limit_max_db': payload.max_db,
             }),
-            event_type="volume_limits_changed",
-            event_data={"limits": {"min_db": payload.min_db, "max_db": payload.max_db}},
+            event=VolumeLimitsChanged(
+                limits=VolumeLimitsConfig(min_db=payload.min_db, max_db=payload.max_db)
+            ),
             reload_callback=volume_service.reload_volume_limits
         )
 
@@ -199,8 +235,10 @@ def create_settings_router(
                 'volume.startup_volume_db': payload.startup_volume_db,
                 'volume.restore_last_volume': payload.restore_last_volume,
             }),
-            event_type="volume_startup_changed",
-            event_data={"config": {"startup_volume_db": payload.startup_volume_db, "restore_last_volume": payload.restore_last_volume}},
+            event=VolumeStartupChanged(config=VolumeStartupConfig(
+                startup_volume_db=payload.startup_volume_db,
+                restore_last_volume=payload.restore_last_volume,
+            )),
             reload_callback=volume_service.reload_startup_config
         )
 
@@ -211,8 +249,9 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('volume.step_mobile_db', payload.step_mobile_db),
-            event_type="volume_steps_changed",
-            event_data={"config": {"step_mobile_db": payload.step_mobile_db}},
+            event=VolumeStepsChanged(
+                config=VolumeStepsConfig(step_mobile_db=payload.step_mobile_db)
+            ),
             reload_callback=volume_service.reload_volume_steps_config
         )
 
@@ -223,8 +262,9 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('volume.step_rotary_db', payload.step_rotary_db),
-            event_type="rotary_steps_changed",
-            event_data={"config": {"step_rotary_db": payload.step_rotary_db}},
+            event=RotaryStepsChanged(
+                config=RotaryStepsConfig(step_rotary_db=payload.step_rotary_db)
+            ),
             reload_callback=volume_service.reload_steps_config
         )
 
@@ -235,8 +275,9 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('volume.step_bt_remote_db', payload.step_bt_remote_db),
-            event_type="bt_remote_steps_changed",
-            event_data={"config": {"step_bt_remote_db": payload.step_bt_remote_db}},
+            event=BtRemoteStepsChanged(
+                config=BtRemoteStepsConfig(step_bt_remote_db=payload.step_bt_remote_db)
+            ),
             reload_callback=volume_service.reload_steps_config
         )
 
@@ -247,8 +288,9 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('volume.step_ir_remote_db', payload.step_ir_remote_db),
-            event_type="ir_remote_steps_changed",
-            event_data={"config": {"step_ir_remote_db": payload.step_ir_remote_db}},
+            event=IrRemoteStepsChanged(
+                config=IrRemoteStepsConfig(step_ir_remote_db=payload.step_ir_remote_db)
+            ),
             reload_callback=volume_service.reload_steps_config
         )
 
@@ -275,10 +317,9 @@ def create_settings_router(
                 # No change, just save
                 success = await settings.set_setting("dock.enabled_apps", enabled_apps)
                 if success:
-                    await state_machine.broadcast_event("settings", "dock_apps_changed", {
-                        "source": "settings",
-                        "config": {"enabled_apps": enabled_apps},
-                    })
+                    await state_machine.broadcast(DockAppsChanged(
+                        config=DockAppsConfig(enabled_apps=enabled_apps)
+                    ))
                     return {"status": "success", "config": {"enabled_apps": enabled_apps}}
                 else:
                     raise HTTPException(status_code=500, detail="Failed to save settings")
@@ -371,10 +412,9 @@ def create_settings_router(
                 if not success:
                     raise ValueError("Failed to save settings")
 
-                await state_machine.broadcast_event("settings", "dock_apps_changed", {
-                    "source": "settings",
-                    "config": {"enabled_apps": enabled_apps},
-                })
+                await state_machine.broadcast(DockAppsChanged(
+                    config=DockAppsConfig(enabled_apps=enabled_apps)
+                ))
 
                 return {
                     "status": "success",
@@ -404,8 +444,7 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('audio.auto_stop_delay', delay),
-            event_type="audio_stop_changed",
-            event_data={"config": {"auto_stop_delay": delay}},
+            event=AudioStopChanged(config=AudioStopConfig(auto_stop_delay=delay)),
             reload_callback=state_machine.reload_auto_stop_for_all_sources
         )
 
@@ -440,8 +479,9 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=save_credentials,
-            event_type="podcast_credentials_changed",
-            event_data={"config": {"taddy_user_id": user_id, "taddy_api_key": api_key}},
+            event=PodcastCredentialsChanged(config=PodcastCredentialsConfig(
+                taddy_user_id=user_id, taddy_api_key=api_key
+            )),
             reload_callback=reload_source_credentials
         )
 
@@ -531,8 +571,10 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('screen.timeout_seconds', payload.screen_timeout_seconds),
-            event_type="screen_timeout_changed",
-            event_data={"config": {"screen_timeout_enabled": payload.screen_timeout_enabled, "screen_timeout_seconds": payload.screen_timeout_seconds}},
+            event=ScreenTimeoutChanged(config=ScreenTimeoutConfig(
+                screen_timeout_enabled=payload.screen_timeout_enabled,
+                screen_timeout_seconds=payload.screen_timeout_seconds,
+            )),
             reload_callback=screen_controller.reload_timeout_config
         )
 
@@ -543,8 +585,9 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('screen.brightness_on', payload.brightness_on),
-            event_type="screen_brightness_changed",
-            event_data={"config": {"brightness_on": payload.brightness_on}},
+            event=ScreenBrightnessChanged(
+                config=ScreenBrightnessConfig(brightness_on=payload.brightness_on)
+            ),
             reload_callback=screen_controller.reload_timeout_config
         )
 
@@ -581,8 +624,7 @@ def create_settings_router(
             payload,
             validator=lambda p: True,
             setter=setter,
-            event_type="screen_screensaver_changed",
-            event_data={"config": config}
+            event=ScreenScreensaverChanged(config=ScreenScreensaverConfig(**config))
         )
 
     # Screen UI scale
@@ -592,8 +634,9 @@ def create_settings_router(
             payload,
             validator=lambda p: True,
             setter=lambda: settings.set_setting('screen.ui_scale', payload.ui_scale),
-            event_type="screen_ui_scale_changed",
-            event_data={"config": {"ui_scale": payload.ui_scale}}
+            event=ScreenUiScaleChanged(
+                config=ScreenUiScaleConfig(ui_scale=payload.ui_scale)
+            )
         )
 
     # Screen warm color filter
@@ -617,8 +660,7 @@ def create_settings_router(
             payload,
             validator=lambda p: True,
             setter=setter,
-            event_type="screen_color_filter_changed",
-            event_data={"config": config}
+            event=ScreenColorFilterChanged(config=ScreenColorFilterConfig(**config))
         )
 
     @router.post("/screen-activity")
@@ -784,10 +826,7 @@ def create_settings_router(
                 logger.warning("Failed to restart milo-mac.service, settings saved but not applied")
 
             # service_restarted stays in the HTTP response only.
-            await state_machine.broadcast_event("settings", "mac_roc_changed", {
-                "source": "settings",
-                "config": mac_config,
-            })
+            await state_machine.broadcast(MacRocChanged(config=MacRocConfig(**mac_config)))
 
             return {
                 "status": "success",
@@ -816,8 +855,7 @@ def create_settings_router(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('radio', radio_config),
-            event_type="radio_settings_changed",
-            event_data={"config": radio_config},
+            event=RadioSettingsChanged(config=RadioSettingsConfig(**radio_config)),
             reload_callback=apply_to_radio
         )
 

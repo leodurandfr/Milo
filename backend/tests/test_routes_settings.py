@@ -32,7 +32,7 @@ class TestSettingsRoutes:
         sm.transition_to_source = AsyncMock(return_value=True)
         sm.get_current_state = Mock(return_value={"active_source": "none"})
         sm.get_source = Mock(return_value=None)
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.reload_auto_stop_for_all_sources = AsyncMock(return_value=True)
         return sm
 

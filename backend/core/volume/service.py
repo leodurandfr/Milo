@@ -21,6 +21,11 @@ from backend.core.volume.equalizer_controller import EqualizerController
 from backend.core.multiroom.snapcast import get_online_client_ids
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState
+from backend.core.models.ws_events import (
+    VolumeChanged,
+    VolumeStartupChanged,
+    VolumeStartupConfig,
+)
 from backend.config.constants import DEFAULT_VOLUME_DB
 
 
@@ -429,23 +434,15 @@ class VolumeService:
         """
         Broadcast startup volume change via WebSocket (FR11).
 
-        Payload is identical to the /settings/volume-startup route emission:
-        {"source": "settings", "config": {"startup_volume_db", "restore_last_volume"}}.
-
         Args:
             volume_db: The new startup volume in dB
         """
-        await self.state_machine.broadcast_event(
-            "settings",
-            "volume_startup_changed",
-            {
-                "source": "settings",
-                "config": {
-                    "startup_volume_db": volume_db,
-                    "restore_last_volume": self._volume_config.restore_last_volume
-                }
-            }
-        )
+        await self.state_machine.broadcast(VolumeStartupChanged(
+            config=VolumeStartupConfig(
+                startup_volume_db=volume_db,
+                restore_last_volume=self._volume_config.restore_last_volume
+            )
+        ))
 
     @handle_errors(default=False)
     async def _reload_config(self, broadcast: bool = False) -> bool:
@@ -884,25 +881,16 @@ class VolumeService:
         self.logger.info(f"Initialized availability for {len(clients)} clients")
 
     async def broadcast_volume_state(self, show_bar: bool = True) -> None:
-        """Broadcast volume state immediately to WebSocket clients.
-
-        Payload for 'volume.volume_changed':
-            {show_bar: bool, step_mobile_db: float, multiroom_enabled: bool,
-             state: VolumeState.to_dict()}
-        Milo-Mac contract: reads state.global_volume_db, state.mode and
-        multiroom_enabled (mirror of state.mode == "multiroom").
-        """
+        """Broadcast volume state immediately to WebSocket clients."""
         try:
             volume_state = await self.get_volume_state()
 
-            event_data = {
-                "show_bar": show_bar,
-                "step_mobile_db": self._volume_config.step_mobile_db,
-                "multiroom_enabled": volume_state.mode == "multiroom",
-                "state": volume_state.to_dict()
-            }
-
-            await self.state_machine.broadcast_event("volume", "volume_changed", event_data)
+            await self.state_machine.broadcast(VolumeChanged(
+                show_bar=show_bar,
+                step_mobile_db=self._volume_config.step_mobile_db,
+                multiroom_enabled=volume_state.mode == "multiroom",
+                state=volume_state.to_dict()
+            ))
 
             self.logger.debug(f"Volume broadcast completed: {len(volume_state.clients)} clients, {len(volume_state.zones)} zones")
         except Exception as e:

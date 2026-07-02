@@ -16,6 +16,7 @@ from backend.core.volume import (
 )
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState, ClientVolume, ZoneVolume
+from backend.core.models.ws_events import VolumeStartupChanged
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 
 
@@ -420,7 +421,7 @@ class TestVolumeService:
     def mock_state_machine(self):
         """Create mock state machine."""
         sm = Mock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.routing_service = Mock()
         sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': False})
         return sm
@@ -551,7 +552,7 @@ class TestVolumeService:
         assert result is True  # no silent 500 — the press is accepted
         assert service._state_store.local_volume_db == -50.0  # desired state recorded
         mock_camilladsp_service.set_volume.assert_not_called()  # deferred to reconnect
-        mock_state_machine.broadcast_event.assert_called()  # UI reflects it immediately
+        mock_state_machine.broadcast.assert_called()  # UI reflects it immediately
 
     @pytest.mark.asyncio
     async def test_adjust_volume_db_defers_when_camilladsp_not_ready(
@@ -1026,7 +1027,7 @@ class TestStartupVolumeAutoUpdate:
     def mock_state_machine(self):
         """Create mock state machine."""
         sm = Mock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.routing_service = Mock()
         sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': False})
         return sm
@@ -1182,12 +1183,12 @@ class TestStartupVolumeAutoUpdate:
         # Act
         await service.set_volume_db(-45.0)
 
-        # Assert: WebSocket broadcast was called with settings category
-        broadcast_calls = mock_state_machine.broadcast_event.call_args_list
-        settings_broadcast = [c for c in broadcast_calls if c[0][0] == "settings"]
-        assert len(settings_broadcast) >= 1
-        # Check the event type
-        assert settings_broadcast[0][0][1] == "volume_startup_changed"
+        # Assert: a typed VolumeStartupChanged event was broadcast
+        broadcast_calls = mock_state_machine.broadcast.call_args_list
+        startup_broadcasts = [
+            c for c in broadcast_calls if isinstance(c[0][0], VolumeStartupChanged)
+        ]
+        assert len(startup_broadcasts) >= 1
 
     @pytest.mark.asyncio
     async def test_zone_volume_delta_updates_startup_volume(
@@ -1240,7 +1241,7 @@ class TestStartupVolumeOnRestart:
     def mock_state_machine(self):
         """Create mock state machine."""
         sm = Mock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.routing_service = Mock()
         sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': False})
         return sm
@@ -1442,7 +1443,7 @@ class TestVolumeLockNoTimeout:
     @pytest.fixture
     def mock_state_machine(self):
         sm = Mock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         sm.routing_service = Mock()
         sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': True})
         return sm
