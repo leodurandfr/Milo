@@ -25,7 +25,11 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, set
     # === WebSocket utility functions ===
 
     async def _publish_snapcast_update():
-        """Publish Snapcast update notification via WebSocket."""
+        """Publish Snapcast update notification via WebSocket.
+
+        Canonical system/state_changed shape: {"source": <str>} — consumers
+        read the injected full_state.
+        """
         try:
             await state_machine.broadcast_event("system", "state_changed", {
                 "source": "snapcast"

@@ -558,14 +558,16 @@ class CamillaDSPService:
                     })
                     break
 
-        # Broadcast update (can be suppressed for batch updates)
+        # Broadcast update (can be suppressed for batch updates).
+        # Payload is the canonical EQ-filter wire shape (EqFilter.to_wire_dict).
         if broadcast:
             await self._broadcast_event("filter_changed", {
                 "id": filter_id,
                 "freq": freq,
                 "gain": gain,
                 "q": q,
-                "type": filter_type
+                "type": filter_type,
+                "enabled": enabled
             })
 
         # Persist filters to settings (skip during bypass operations)

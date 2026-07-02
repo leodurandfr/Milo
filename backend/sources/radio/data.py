@@ -383,6 +383,7 @@ class StationDataService:
         success = await self._save()
 
         if success:
+            # WS payload: {"source": "radio", "station_id": <station id>}
             await self._broadcast_event("favorite_added", {
                 "station_id": station_id,
             })
@@ -403,6 +404,7 @@ class StationDataService:
         success = await self._save()
 
         if success:
+            # WS payload: {"source": "radio", "station_id": <station id>}
             await self._broadcast_event("favorite_removed", {
                 "station_id": station_id,
             })
@@ -604,6 +606,7 @@ class StationDataService:
             station_data['is_favorite'] = station_id in self._favorites
 
             if success:
+                # WS payload: {"source": "radio", "station": <station dict with id, is_favorite>}
                 await self._broadcast_event("favorite_modified", {
                     "station": station_data
                 })

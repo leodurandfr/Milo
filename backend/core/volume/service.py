@@ -429,6 +429,9 @@ class VolumeService:
         """
         Broadcast startup volume change via WebSocket (FR11).
 
+        Payload is identical to the /settings/volume-startup route emission:
+        {"source": "settings", "config": {"startup_volume_db", "restore_last_volume"}}.
+
         Args:
             volume_db: The new startup volume in dB
         """
@@ -436,6 +439,7 @@ class VolumeService:
             "settings",
             "volume_startup_changed",
             {
+                "source": "settings",
                 "config": {
                     "startup_volume_db": volume_db,
                     "restore_last_volume": self._volume_config.restore_last_volume

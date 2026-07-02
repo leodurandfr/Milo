@@ -103,6 +103,7 @@ class TestAC1FilterParameterUpdate:
                 assert call_args[0][2]["freq"] == 100
                 assert call_args[0][2]["gain"] == 3.0
                 assert call_args[0][2]["q"] == 1.41
+                assert call_args[0][2]["enabled"] is True
 
     @pytest.mark.asyncio
     async def test_set_filter_updates_local_cache(self, connected_camilladsp_service):
