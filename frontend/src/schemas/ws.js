@@ -19,6 +19,10 @@
  *
  * To add a schema (when the rule above is met): declare it below, expose it
  * via `wsEventRegistry`, and switch the consumer to `parsedOn(...)`.
+ *
+ * Backend-side shapes are the typed WsEvent classes in
+ * backend/core/models/ws_events.py — each entry names its class. Cross-checked
+ * field-by-field against those models on 2026-07-02 (WS contract phase 6).
  */
 import { z } from 'zod';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
@@ -89,26 +93,27 @@ const FanStatusSchema = z.object({
 });
 
 export const wsEventRegistry = {
-  // Backend: service.py:306,353 → {state: CamillaDspState.value}.
+  // Backend: EqualizerStateChanged → {state: CamillaDspState.value}.
   'equalizer.state_changed': z.object({
     state: CamillaDspStateSchema,
   }),
-  // Backend: backend/core/equalizer/levels_monitor.py — pushed at ~4 Hz while
-  // an EQ view holds the levels-monitor keepalive.
+  // Backend: EqualizerLevels — pushed at ~4 Hz while an EQ view holds the
+  // levels-monitor keepalive.
   'equalizer.levels': z.object({
     available: z.boolean(),
     output_peak: z.array(z.number()),
   }),
-  // Backend: service.py:699 → self._compressor.
+  // Backend: EqualizerCompressorChanged (equalizer/service.py self._compressor).
   'equalizer.compressor_changed': CompressorPayloadSchema,
-  // Backend: service.py:784 → self._loudness.
+  // Backend: EqualizerLoudnessChanged (equalizer/service.py self._loudness).
   'equalizer.loudness_changed': LoudnessPayloadSchema,
-  // Backend: two producers, both → state_machine.broadcast_event('multiroom',
-  // 'equalizer_changed', ...):
-  //  - client_registry.py set_client_equalizer → full record (to_wire_dict): all
-  //    of enabled/filters/compressor/loudness/active_preset/mono/custom_gains.
-  //  - multiroom_service.py _apply_partial_update → a partial sub-object
-  //    ({filters,active_preset} | {compressor} | {loudness} | {mono}).
+  // Backend: MultiroomEqualizerChanged — equalizer_settings is a PARTIAL wire
+  // dict by design, two producers:
+  //  - multiroom/client_registry.py registry forward → full record
+  //    (to_wire_dict): enabled/filters/compressor/loudness/active_preset/mono/
+  //    custom_gains.
+  //  - equalizer/multiroom_service.py _apply_partial_update → only the changed
+  //    sub-object ({filters,active_preset} | {compressor} | {loudness} | {mono}).
   // Hence every equalizer_settings field is optional; filters use the freq/type
   // wire shape (Pitfall #18 — one canonical key).
   'multiroom.equalizer_changed': z.object({
@@ -124,22 +129,19 @@ export const wsEventRegistry = {
       custom_gains: z.array(z.number()).optional(),
     }),
   }),
-  // Backend: backend/core/multiroom/crossover.py:371 — canonical zone shape.
-  // Other producers in crossover.py emit per-client variants (client_id-keyed)
-  // on the same event type; those are not consumed by the frontend and will
-  // surface as schema warnings in dev — see the _broadcast_event docstring.
+  // Backend: MultiroomCrossoverChanged — single canonical zone shape.
   'multiroom.crossover_changed': z.object({
     zone_id: z.string(),
     crossover_enabled: z.boolean(),
     crossover_frequency: z.number(),
   }),
-  // Backend: backend/hardware/fan.py FanController.get_status() — emitted as
-  // both fan_config_changed (config edit) and fan_status_changed (telemetry
-  // tick). Same shape; the store routes config vs telemetry to separate slices.
+  // Backend: FanConfigChanged/FanStatusChanged (payload = FanController.
+  // get_status(), config edit vs telemetry tick). Same shape; the store routes
+  // config vs telemetry to separate slices.
   'settings.fan_config_changed': FanStatusSchema,
   'settings.fan_status_changed': FanStatusSchema,
-  // Backend: backend/api/programs.py — local program + satellite update
-  // progress/completion, consumed by updatesStore.
+  // Backend: the ProgramsProgressEvent/ProgramsCompleteEvent subclasses —
+  // local program + satellite update progress/completion (updatesStore).
   'programs.program_update_progress': ProgramUpdateProgressSchema,
   'programs.program_update_complete': ProgramUpdateCompleteSchema,
   'programs.satellite_update_progress': SatelliteUpdateProgressSchema,
@@ -148,7 +150,7 @@ export const wsEventRegistry = {
   'programs.satellite_app_update_complete': SatelliteUpdateCompleteSchema,
   'programs.satellite_camilladsp_update_progress': SatelliteUpdateProgressSchema,
   'programs.satellite_camilladsp_update_complete': SatelliteUpdateCompleteSchema,
-  // Backend: backend/core/audio_source.py:583 — broadcast_position_update.
+  // Backend: SourcePositionUpdate (audio_source.py broadcast_position_update).
   // Position and duration are in milliseconds.
   'source.position_update': z.object({
     source: z.enum(['none', ...ALL_AUDIO_SOURCES]),

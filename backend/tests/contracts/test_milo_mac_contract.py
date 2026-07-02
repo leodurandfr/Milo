@@ -14,7 +14,9 @@ with NO network access:
     path params included);
   * every WS (category, type) has an emission site in `backend/`: a typed
     `WsEvent` subclass from `core/models/ws_events.py` referenced outside its
-    defining module (`broadcast(event)` is the sole emission API).
+    defining module (`broadcast(event)` is the sole emission API);
+  * every payload invariant the manifest documents (`ws.payload_invariants`)
+    holds on the typed event models — the exact fields Milo-Mac reads exist.
 
 A separate, non-blocking CI job (`check_milo_mac_freshness.py`) re-clones
 Milo-Mac and verifies the *manifest itself* still matches what Milo-Mac
@@ -136,6 +138,29 @@ def test_rest_route_exists(entry):
 # WsEvent class actually used by the backend.
 # --------------------------------------------------------------------------- #
 
+def _concrete_event_classes():
+    """All concrete WsEvent subclasses (those pinning TYPE), keyed by pair.
+
+    A pair may map to several classes (unions discriminated by `data.source`,
+    e.g. source/favorite_added radio|podcast), hence the list values.
+    """
+    from backend.core.models import ws_events
+
+    def _walk(cls):
+        for sub in cls.__subclasses__():
+            if "TYPE" in vars(sub):
+                yield sub
+            yield from _walk(sub)
+
+    table: dict[tuple[str, str], list] = {}
+    for cls in _walk(ws_events.WsEvent):
+        table.setdefault((cls.CATEGORY, cls.TYPE), []).append(cls)
+    return table
+
+
+_EVENT_CLASSES = _concrete_event_classes()
+
+
 def _scan_typed_events():
     """Static model of typed `broadcast(event)` emission.
 
@@ -145,17 +170,10 @@ def _scan_typed_events():
     `progress_event_cls=SatelliteUpdateProgress`). Bare imports don't count —
     an imported-but-unused class is dead code ruff flags anyway.
     """
-    from backend.core.models import ws_events
-
-    def _concrete(cls):
-        for sub in cls.__subclasses__():
-            if "TYPE" in vars(sub):
-                yield sub
-            yield from _concrete(sub)
-
     class_to_pair = {
-        cls.__name__: (cls.CATEGORY, cls.TYPE)
-        for cls in _concrete(ws_events.WsEvent)
+        cls.__name__: pair
+        for pair, classes in _EVENT_CLASSES.items()
+        for cls in classes
     }
 
     referenced_pairs: set[tuple[str, str]] = set()
@@ -193,6 +211,127 @@ def test_ws_broadcast_site_exists(event):
         f"Milo-Mac ({event['consumer']}). Restore the broadcast or, if "
         f"Milo-Mac genuinely dropped it, delete the entry from "
         f"{MANIFEST_PATH.name}. See CLAUDE.md §'External API clients — Milo-Mac'."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Payload invariants: every field Milo-Mac reads (per the manifest) must exist
+# on the typed event models — statically, before any wire traffic.
+# --------------------------------------------------------------------------- #
+
+_INVARIANTS = _MANIFEST["ws"]["payload_invariants"]
+
+
+def _sole_event_class(category: str, evt_type: str):
+    """The single WsEvent class for a pair (invariant pairs are never unions)."""
+    classes = _EVENT_CLASSES[(category, evt_type)]
+    assert len(classes) == 1, (
+        f"{category}/{evt_type} maps to {len(classes)} event classes — the "
+        f"payload-invariant tests assume a single shape for this pair."
+    )
+    return classes[0]
+
+
+def test_invariant_full_state_envelope():
+    """full_state subkeys Milo-Mac reads exist in the aggregated state dict,
+    and every carrier pair actually gets full_state injected (source/system
+    category + INCLUDE_FULL_STATE)."""
+    from backend.core.state import AudioStateMachine
+
+    inv = _INVARIANTS["full_state_envelope"]
+    state_keys = set(AudioStateMachine().get_current_state())
+    missing = set(inv["required_subkeys"]) - state_keys
+    assert not missing, (
+        f"full_state lost subkey(s) {sorted(missing)} required by Milo-Mac "
+        f"(get_current_state() now returns {sorted(state_keys)})."
+    )
+
+    for pair in inv["carried_by"]:
+        category, evt_type = pair.split("/")
+        for cls in _EVENT_CLASSES[(category, evt_type)]:
+            assert (
+                cls.INCLUDE_FULL_STATE
+                and category in AudioStateMachine._FULL_STATE_CATEGORIES
+            ), (
+                f"{pair} ({cls.__name__}) no longer carries full_state but "
+                f"Milo-Mac reads it from this event."
+            )
+
+
+def test_invariant_multiroom_changed_discriminator():
+    """The multiroom_changed boolean sibling of full_state must stay declarable."""
+    inv = _INVARIANTS["multiroom_changed_discriminator"]
+    cls = _sole_event_class("system", "state_changed")
+    assert inv["data_key"] in cls.model_fields, (
+        f"{cls.__name__} lost `{inv['data_key']}` — Milo-Mac keys its multiroom "
+        f"spinner completion on it."
+    )
+
+
+def test_invariant_volume_changed():
+    """volume_changed must keep every data key Milo-Mac reads; `state.*` keys
+    resolve against VolumeState (the payload docstring pins state =
+    VolumeState.to_dict())."""
+    import dataclasses
+
+    from backend.core.models.volume_state import VolumeState
+
+    cls = _sole_event_class("volume", "volume_changed")
+    volume_state_keys = {f.name for f in dataclasses.fields(VolumeState)}
+
+    for dotted in _INVARIANTS["volume_changed"]["data_keys"]:
+        head, _, sub = dotted.partition(".")
+        assert head in cls.model_fields, (
+            f"{cls.__name__} lost `{head}` — Milo-Mac reads `{dotted}`."
+        )
+        if sub:
+            assert head == "state", (
+                f"Unexpected nested invariant `{dotted}` — teach this test how "
+                f"to resolve `{head}.*` before changing the manifest."
+            )
+            assert sub in volume_state_keys, (
+                f"VolumeState lost `{sub}` — Milo-Mac reads `{dotted}` on "
+                f"volume/volume_changed."
+            )
+
+
+@pytest.mark.parametrize("pair_key", ["settings/volume_limits_changed", "settings/dock_apps_changed"])
+def test_invariant_settings_payloads(pair_key):
+    """Settings payload sub-models must keep the fields Milo-Mac reads."""
+    inv = _INVARIANTS[pair_key]
+    category, evt_type = pair_key.split("/")
+    cls = _sole_event_class(category, evt_type)
+
+    assert inv["data_key"] in cls.model_fields, (
+        f"{cls.__name__} lost `{inv['data_key']}` — Milo-Mac reads it."
+    )
+    sub_model = cls.model_fields[inv["data_key"]].annotation
+    for key in inv["subkeys"]:
+        assert key in sub_model.model_fields, (
+            f"{sub_model.__name__} lost `{key}` — Milo-Mac reads "
+            f"`{inv['data_key']}.{key}` on {pair_key}."
+        )
+
+
+def test_all_payload_invariants_are_verified():
+    """A new manifest invariant must not silently skip verification: this list
+    mirrors the test functions above (routing/multiroom_error is presence-only,
+    covered by test_ws_broadcast_site_exists)."""
+    verified = {
+        "full_state_envelope",
+        "multiroom_changed_discriminator",
+        "volume_changed",
+        "settings/volume_limits_changed",
+        "settings/dock_apps_changed",
+        "routing/multiroom_error",
+    }
+    assert set(_INVARIANTS) == verified, (
+        "payload_invariants changed in the manifest — add/remove the matching "
+        "verification test in this file, then update this list."
+    )
+    assert _INVARIANTS["routing/multiroom_error"]["data_keys"] == [], (
+        "routing/multiroom_error is documented as presence-only; if Milo-Mac "
+        "now reads payload fields, write a real invariant test for them."
     )
 
 

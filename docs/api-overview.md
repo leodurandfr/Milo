@@ -54,7 +54,7 @@ every state change is pushed.
 **Envelope:** `{ category, type, origin, data, timestamp }`
 
 **Categories:** `source`, `system`, `routing`, `equalizer`, `multiroom`, `volume`, `settings`,
-`programs`.
+`programs`, `network`.
 
 On connect the client receives a `full_state` snapshot, then incremental deltas. The events the
 companion apps rely on (the `full_state` envelope, `multiroom_changed`, `volume_changed`,
@@ -64,5 +64,5 @@ run, so they cannot silently drift.
 
 ---
 
-For how state flows end-to-end (backend change → `broadcast_event()` → WS → Pinia store →
+For how state flows end-to-end (backend change → `broadcast(WsEvent)` → WS → Pinia store →
 reactive UI), see the [Architecture](architecture.md) doc.
