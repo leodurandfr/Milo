@@ -59,7 +59,7 @@ class TestControllerConfig:
     def controller(self):
         volume_service = MagicMock()
         state_machine = MagicMock()
-        state_machine.broadcast_event = AsyncMock()
+        state_machine.broadcast = AsyncMock()
         settings_service = MagicMock()
         settings_service.get_setting = AsyncMock(return_value=None)
         settings_service.set_setting = AsyncMock()
@@ -133,7 +133,7 @@ def _menu_controller(dock_apps, active_source):
     """Build a controller wired with a dock-order + active-source fixture."""
     volume_service = MagicMock()
     state_machine = MagicMock()
-    state_machine.broadcast_event = AsyncMock()
+    state_machine.broadcast = AsyncMock()
     state_machine.transition_to_source = AsyncMock()
     state_machine.system_state.active_source = active_source
     settings_service = MagicMock()

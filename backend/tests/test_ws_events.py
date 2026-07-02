@@ -1,11 +1,12 @@
 # backend/tests/test_ws_events.py
 """
-Envelope-equivalence tests for the typed WS event layer (Phase 4).
+Envelope-equivalence tests for the typed WS event layer.
 
 Each snapshot is the exact envelope the dict-based broadcast_event() call
 sites produced before the migration — broadcast(event) must keep the wire
-byte-identical (timestamp excluded). One representative event per migrated
-family (state machine, audio source, volume, settings, programs).
+byte-identical (timestamp excluded). One representative event per family
+(state machine, audio source, volume, settings, programs, equalizer,
+multiroom, routing, network, hardware).
 """
 import pytest
 
@@ -13,11 +14,21 @@ from backend.core.state import AudioStateMachine
 from backend.core.models.ws_events import (
     DockAppsChanged,
     DockAppsConfig,
+    EqualizerFilterChanged,
+    EqualizerLevels,
+    MultiroomPendingClientChanged,
+    MultiroomZoneChanged,
+    NetworkStatusChanged,
     ProgramUpdateComplete,
+    RadioFavoriteAdded,
+    RoutingMultiroomError,
     SatelliteUpdateProgress,
+    ScreenSleepChanged,
     SourceErrorCleared,
     SourcePositionUpdate,
     SourceStateChanged,
+    SystemCdDriveStatus,
+    SystemConnectivityChanged,
     SystemErrorEvent,
     SystemStateChanged,
     SystemTransitionStart,
@@ -124,6 +135,79 @@ CASES = [
          "origin": "program_update",
          "data": {"source": "program_update", "program": "go-librespot",
                   "success": True}},
+        False,
+    ),
+    (
+        EqualizerFilterChanged(id="eq_band_00", freq=31.0, gain=3.0, q=1.41,
+                               type="Peaking", enabled=True),
+        {"category": "equalizer", "type": "filter_changed", "origin": "equalizer",
+         "data": {"id": "eq_band_00", "freq": 31.0, "gain": 3.0, "q": 1.41,
+                  "type": "Peaking", "enabled": True}},
+        False,
+    ),
+    (
+        EqualizerLevels(available=True, output_peak=[-12.5, -13.0]),
+        {"category": "equalizer", "type": "levels", "origin": "equalizer",
+         "data": {"available": True, "output_peak": [-12.5, -13.0]}},
+        False,
+    ),
+    (
+        # EXCLUDE_NONE: the zone_client_removed variant carries mac_id, no zone key
+        MultiroomZoneChanged(zone_id="z1", mac_id="aa:bb:cc:dd:ee:ff"),
+        {"category": "multiroom", "type": "zone_changed", "origin": "multiroom",
+         "data": {"zone_id": "z1", "mac_id": "aa:bb:cc:dd:ee:ff"}},
+        False,
+    ),
+    (
+        MultiroomPendingClientChanged(action="removed", mac_id="aa:bb:cc:dd:ee:ff"),
+        {"category": "multiroom", "type": "pending_client_changed",
+         "origin": "multiroom",
+         "data": {"action": "removed", "mac_id": "aa:bb:cc:dd:ee:ff"}},
+        False,
+    ),
+    (
+        RoutingMultiroomError(reason="enable_failed"),
+        {"category": "routing", "type": "multiroom_error", "origin": "routing",
+         "data": {"reason": "enable_failed"}},
+        False,
+    ),
+    (
+        NetworkStatusChanged(wifi_enabled=True,
+                             ethernet={"connected": False, "ip_address": None},
+                             wifi={"connected": True, "ssid": "Net",
+                                   "ip_address": "192.168.1.2", "signal": 70,
+                                   "saved_ssid": "Net"}),
+        {"category": "network", "type": "status_changed", "origin": "network",
+         "data": {"wifi_enabled": True,
+                  "ethernet": {"connected": False, "ip_address": None},
+                  "wifi": {"connected": True, "ssid": "Net",
+                           "ip_address": "192.168.1.2", "signal": 70,
+                           "saved_ssid": "Net"}}},
+        False,
+    ),
+    (
+        SystemConnectivityChanged(online=False),
+        {"category": "system", "type": "connectivity_changed", "origin": "system",
+         "data": {"source": "system", "online": False}},
+        False,  # INCLUDE_FULL_STATE=False despite the system category
+    ),
+    (
+        SystemCdDriveStatus(),
+        {"category": "system", "type": "cd_drive_status", "origin": "cd",
+         "data": {"source": "cd"}},
+        True,
+    ),
+    (
+        RadioFavoriteAdded(station_id="abc123"),
+        {"category": "source", "type": "favorite_added", "origin": "radio",
+         "data": {"source": "radio", "station_id": "abc123"}},
+        True,
+    ),
+    (
+        # No source field on purpose — origin falls back to the category
+        ScreenSleepChanged(sleeping=True),
+        {"category": "settings", "type": "screen_sleep_changed", "origin": "settings",
+         "data": {"sleeping": True}},
         False,
     ),
 ]

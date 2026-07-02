@@ -43,7 +43,7 @@ def mock_settings_service():
 def mock_state_machine():
     """Create mock state machine"""
     sm = Mock()
-    sm.broadcast_event = AsyncMock()
+    sm.broadcast = AsyncMock()
     return sm
 
 
@@ -419,7 +419,7 @@ class TestAC3ZonePropagation:
 
         # Set up state_machine mock
         mock_sm = Mock()
-        mock_sm.broadcast_event = AsyncMock()
+        mock_sm.broadcast = AsyncMock()
         routing.set_state_machine(mock_sm)
 
         # Mock camilladsp_service — owns effects_enabled cache + setter
@@ -631,7 +631,7 @@ class TestAC6StateSync:
         routing = AudioRoutingService(settings_service=mock_settings)
 
         mock_sm = Mock()
-        mock_sm.broadcast_event = AsyncMock()
+        mock_sm.broadcast = AsyncMock()
         routing.set_state_machine(mock_sm)
 
         mock_camilladsp = Mock()
@@ -677,7 +677,7 @@ class TestDspEnabledAPI:
 
         # Set up state_machine mock
         mock_sm = Mock()
-        mock_sm.broadcast_event = AsyncMock()
+        mock_sm.broadcast = AsyncMock()
         routing.set_state_machine(mock_sm)
 
         # Mock camilladsp_service — owns effects_enabled cache + setter, currently enabled

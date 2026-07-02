@@ -18,6 +18,14 @@ from backend.core.equalizer.config_builder import (
     loudness_filter_defs,
 )
 from backend.core.equalizer.presets import get_builtin_presets, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
+from backend.core.models.ws_events import (
+    EqualizerCompressorChanged,
+    EqualizerFilterChanged,
+    EqualizerLoudnessChanged,
+    EqualizerMonoChanged,
+    EqualizerStateChanged,
+    WsEvent,
+)
 from backend.core.multiroom.models import (
     CompressorSettings,
     EqFilter,
@@ -147,7 +155,7 @@ class CamillaDSPService:
 
         # Owned state: equalizer effects on/off. Loaded from
         # routing.equalizer_effects_enabled in settings.json. Read by
-        # AudioStateMachine.broadcast_event when aggregating full_state, and by
+        # AudioStateMachine.broadcast() when aggregating full_state, and by
         # AudioRoutingService via property.
         self._effects_enabled: bool = False
 
@@ -314,7 +322,7 @@ class CamillaDSPService:
                 self.logger.info(f"Connected to CamillaDSP at {self.host}:{self.port}, state: {self._state}")
 
                 self._connection_ready.set()
-                await self._broadcast_event("state_changed", {"state": self._state.value})
+                await self._broadcast(EqualizerStateChanged(state=self._state.value))
 
                 return True
 
@@ -361,7 +369,7 @@ class CamillaDSPService:
             self._state = CamillaDspState.DISCONNECTED
 
             # Broadcast state change event (frontend listens for 'state_changed')
-            await self._broadcast_event("state_changed", {"state": self._state.value})
+            await self._broadcast(EqualizerStateChanged(state=self._state.value))
 
     @handle_errors(default=CamillaDspState.DISCONNECTED)
     async def _get_daemon_state(self) -> CamillaDspState:
@@ -558,17 +566,12 @@ class CamillaDSPService:
                     })
                     break
 
-        # Broadcast update (can be suppressed for batch updates).
-        # Payload is the canonical EQ-filter wire shape (EqFilter.to_wire_dict).
+        # Broadcast update (can be suppressed for batch updates)
         if broadcast:
-            await self._broadcast_event("filter_changed", {
-                "id": filter_id,
-                "freq": freq,
-                "gain": gain,
-                "q": q,
-                "type": filter_type,
-                "enabled": enabled
-            })
+            await self._broadcast(EqualizerFilterChanged(
+                id=filter_id, freq=freq, gain=gain, q=q,
+                type=filter_type, enabled=enabled,
+            ))
 
         # Persist filters to settings (skip during bypass operations)
         if persist:
@@ -687,7 +690,7 @@ class CamillaDSPService:
 
         # Broadcast change event (can be suppressed for batch zone updates)
         if broadcast:
-            await self._broadcast_event("compressor_changed", self._compressor)
+            await self._broadcast(EqualizerCompressorChanged(**self._compressor))
 
         # Persist compressor settings (skip during bypass operations)
         if persist:
@@ -736,7 +739,7 @@ class CamillaDSPService:
 
         # Broadcast change event (can be suppressed for batch zone updates)
         if broadcast:
-            await self._broadcast_event("loudness_changed", self._loudness)
+            await self._broadcast(EqualizerLoudnessChanged(**self._loudness))
 
         # Persist loudness settings (skip during bypass operations)
         if persist:
@@ -778,7 +781,7 @@ class CamillaDSPService:
             await self._set_config(config)
 
         if broadcast:
-            await self._broadcast_event("mono_changed", {"enabled": self._mono})
+            await self._broadcast(EqualizerMonoChanged(enabled=self._mono))
 
         if persist:
             self._schedule_persist()
@@ -1199,10 +1202,10 @@ class CamillaDSPService:
 
     # === Event Broadcasting ===
 
-    async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast equalizer event via state machine (WebSocket)."""
+    async def _broadcast(self, event: WsEvent) -> None:
+        """Broadcast a typed equalizer event via state machine (WebSocket)."""
         if self.state_machine:
-            await self.state_machine.broadcast_event("equalizer", event_type, data)
+            await self.state_machine.broadcast(event)
 
     # === Cleanup ===
 

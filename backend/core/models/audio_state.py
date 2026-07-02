@@ -34,7 +34,7 @@ class SystemAudioState:
     Source-scoped audio state. Global feature flags (`multiroom_enabled`,
     `equalizer_effects_enabled`) are owned by their respective services
     (AudioRoutingService, CamillaDSPService) and merged into the wire payload
-    by AudioStateMachine.broadcast_event.
+    by AudioStateMachine.broadcast() when aggregating full_state.
     """
     active_source: AudioSource = AudioSource.NONE
     source_state: SourceState = SourceState.WAITING

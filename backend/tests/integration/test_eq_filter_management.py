@@ -47,7 +47,7 @@ class TestAC1FilterParameterUpdate:
     def mock_state_machine(self):
         """Create mock state machine"""
         sm = Mock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         return sm
 
     @pytest.fixture
@@ -95,15 +95,15 @@ class TestAC1FilterParameterUpdate:
                 assert result is True
 
                 # Verify broadcast was called with correct event type and data
-                mock_state_machine.broadcast_event.assert_called()
-                call_args = mock_state_machine.broadcast_event.call_args
-                assert call_args[0][0] == "equalizer"  # category
-                assert call_args[0][1] == "filter_changed"  # event type
-                assert call_args[0][2]["id"] == "eq_band_00"
-                assert call_args[0][2]["freq"] == 100
-                assert call_args[0][2]["gain"] == 3.0
-                assert call_args[0][2]["q"] == 1.41
-                assert call_args[0][2]["enabled"] is True
+                mock_state_machine.broadcast.assert_called()
+                event = mock_state_machine.broadcast.call_args.args[0]
+                assert event.CATEGORY == "equalizer"
+                assert event.TYPE == "filter_changed"
+                assert event.id == "eq_band_00"
+                assert event.freq == 100
+                assert event.gain == 3.0
+                assert event.q == 1.41
+                assert event.enabled is True
 
     @pytest.mark.asyncio
     async def test_set_filter_updates_local_cache(self, connected_camilladsp_service):
@@ -166,7 +166,7 @@ class TestAC2SetFilterMethod:
             for i in range(10)
         ]
         service.state_machine = Mock()
-        service.state_machine.broadcast_event = AsyncMock()
+        service.state_machine.broadcast = AsyncMock()
         return service
 
     @pytest.mark.asyncio
@@ -345,7 +345,7 @@ class TestAC4NoAutoSwitch:
             for i in range(10)
         ]
         service.state_machine = Mock()
-        service.state_machine.broadcast_event = AsyncMock()
+        service.state_machine.broadcast = AsyncMock()
         return service
 
     @pytest.mark.asyncio

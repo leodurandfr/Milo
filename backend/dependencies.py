@@ -171,7 +171,7 @@ def _create_service(name: str) -> Any:
         ),
 
         # Network service (Ethernet + WiFi)
-        "network_service": lambda: _import("backend.core.network", "NetworkService")(
+        "network_service": lambda: _import("backend.core.network.service", "NetworkService")(
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service")
         ),

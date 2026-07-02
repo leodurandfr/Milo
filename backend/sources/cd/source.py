@@ -31,6 +31,7 @@ from pydantic import BaseModel
 
 from backend.config.constants import CD_DEVICE
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.ws_events import SystemCdDriveStatus
 from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY, CdDataService
 from backend.sources.cd.models import DiscInfo, PlayTrackParams, SeekParams, TrackInfo
 from backend.sources.cd.reader import CD_FIFO_PATH, SECTORS_PER_SECOND, CdIoctlReader
@@ -340,11 +341,7 @@ class CdSource(MpvAudioSource):
             self._logger.info(
                 f"CD drive {'connected' if self._drive_connected else 'disconnected'}"
             )
-            # full_state carrier: consumers read drive/disc state from the
-            # injected full_state metadata, not from data.
-            await self.state_machine.broadcast_event(
-                "system", "cd_drive_status", {"source": "cd"}
-            )
+            await self.state_machine.broadcast(SystemCdDriveStatus())
             if not self._drive_connected:
                 await self._clear_disc_state()
                 return
@@ -389,9 +386,7 @@ class CdSource(MpvAudioSource):
             and self.state_machine.system_state.active_source == AudioSource.CD
         )
 
-        await self.state_machine.broadcast_event(
-            "system", "cd_drive_status", {"source": "cd"}
-        )
+        await self.state_machine.broadcast(SystemCdDriveStatus())
 
         # Show the loading-album indicator immediately
         if is_active:
@@ -533,9 +528,7 @@ class CdSource(MpvAudioSource):
             self._update_connection_state()
 
         if self.state_machine:
-            await self.state_machine.broadcast_event(
-                "system", "cd_drive_status", {"source": "cd"}
-            )
+            await self.state_machine.broadcast(SystemCdDriveStatus())
 
     # =========================================================================
     # COMMANDS

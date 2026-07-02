@@ -53,15 +53,15 @@ class TestSnapcastDetectionIntegration:
         sm = MagicMock()
         sm.broadcasts = []
 
-        async def track_broadcast(category, event_type, data):
+        async def track_broadcast(event):
             sm.broadcasts.append({
-                "category": category,
-                "type": event_type,
-                "data": data,
+                "category": event.CATEGORY,
+                "type": event.TYPE,
+                "data": event.wire_data(),
                 "timestamp": time.time()
             })
 
-        sm.broadcast_event = track_broadcast
+        sm.broadcast = track_broadcast
         return sm
 
     @pytest.fixture

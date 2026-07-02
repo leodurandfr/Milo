@@ -27,6 +27,7 @@ from typing import Optional, Tuple
 
 from backend.config.constants import AUDIO_SOURCE_APPS
 from backend.core.models.audio_state import AudioSource
+from backend.core.models.ws_events import IrRemoteStatusChanged
 from backend.hardware import keymap_writer
 from backend.hardware.keymap_writer import APPLE_MANUFACTURER
 from backend.hardware.playback_dispatch import PlaybackDispatcher
@@ -217,10 +218,7 @@ class IrRemoteController:
         }
 
     async def _broadcast_status(self) -> None:
-        await self.state_machine.broadcast_event(
-            "settings", "ir_remote_status_changed",
-            {"source": "settings", **self.get_status()},
-        )
+        await self.state_machine.broadcast(IrRemoteStatusChanged(**self.get_status()))
 
     # ========================================================================
     # RUNTIME LISTENER

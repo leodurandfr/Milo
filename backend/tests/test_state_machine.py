@@ -7,6 +7,7 @@ import asyncio
 from unittest.mock import AsyncMock
 from backend.core.state import AudioStateMachine
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.ws_events import SystemStateChanged
 
 
 class TestAudioStateMachine:
@@ -226,15 +227,15 @@ class TestAudioStateMachine:
         assert state_machine.system_state.metadata == {"title": "Song", "artist": "Artist"}
 
     @pytest.mark.asyncio
-    async def test_broadcast_event(self, state_machine, mock_ws_manager):
+    async def test_broadcast(self, state_machine, mock_ws_manager):
         """Event broadcast test"""
-        await state_machine.broadcast_event("test", "test_event", {"data": "value"})
+        await state_machine.broadcast(SystemStateChanged(source="system"))
 
         mock_ws_manager.broadcast_dict.assert_called_once()
         call_args = mock_ws_manager.broadcast_dict.call_args[0][0]
 
-        assert call_args["category"] == "test"
-        assert call_args["type"] == "test_event"
+        assert call_args["category"] == "system"
+        assert call_args["type"] == "state_changed"
         assert "timestamp" in call_args
 
     @pytest.mark.asyncio

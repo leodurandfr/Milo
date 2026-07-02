@@ -9,6 +9,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from backend.core.multiroom import AudioRoutingService
 from backend.core.models.audio_state import AudioSource
 from backend.core.settings import SettingsWriteError
+from backend.tests.conftest import events_of
 
 
 class _CamillaStub:
@@ -78,7 +79,7 @@ class TestAudioRoutingService:
                 yield
 
         mock_state_machine.exclusive_transition = _exclusive_transition
-        mock_state_machine.broadcast_event = AsyncMock()
+        mock_state_machine.broadcast = AsyncMock()
         mock_state_machine.update_source_state = AsyncMock()
         service.state_machine = mock_state_machine
         # Wire a camilladsp stub so equalizer_effects_enabled property works
@@ -243,9 +244,9 @@ class TestAudioRoutingService:
         # _apply_transition was invoked once with the target
         mock_apply.assert_awaited_once()
         # Final state broadcast carries the multiroom_changed discriminator
-        broadcast_calls = [c for c in routing_service.state_machine.broadcast_event.call_args_list
-                           if c.args[:2] == ("system", "state_changed")]
-        assert any(c.args[2].get("multiroom_changed") is True for c in broadcast_calls)
+        broadcast_calls = events_of(routing_service.state_machine.broadcast,
+                                    "system", "state_changed")
+        assert any(e.multiroom_changed is True for e in broadcast_calls)
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_apply_failure_does_not_persist_settings(
@@ -266,8 +267,8 @@ class TestAudioRoutingService:
         # PHASE 3 (best-effort post-transition) must be skipped on failure
         mock_best_effort.assert_not_called()
         # multiroom_error event broadcast
-        error_events = [c for c in routing_service.state_machine.broadcast_event.call_args_list
-                        if c.args[:2] == ("routing", "multiroom_error")]
+        error_events = events_of(routing_service.state_machine.broadcast,
+                                 "routing", "multiroom_error")
         assert len(error_events) == 1
 
     @pytest.mark.asyncio
@@ -296,8 +297,8 @@ class TestAudioRoutingService:
         # Post-transition skipped
         mock_best_effort.assert_not_called()
         # multiroom_error broadcast
-        error_events = [c for c in routing_service.state_machine.broadcast_event.call_args_list
-                        if c.args[:2] == ("routing", "multiroom_error")]
+        error_events = events_of(routing_service.state_machine.broadcast,
+                                 "routing", "multiroom_error")
         assert len(error_events) == 1
 
     @pytest.mark.asyncio
@@ -326,13 +327,13 @@ class TestAudioRoutingService:
         assert routing_service.multiroom_enabled is True
         mock_settings_service.set_setting_strict.assert_called_once_with('routing.multiroom_enabled', True)
         # state_changed broadcast so the UI toggle / full_state are truthful.
-        state_changed = [c for c in routing_service.state_machine.broadcast_event.call_args_list
-                         if c.args[:2] == ("system", "state_changed")]
+        state_changed = events_of(routing_service.state_machine.broadcast,
+                                  "system", "state_changed")
         assert len(state_changed) == 1
-        assert state_changed[0].args[2]["multiroom_changed"] is True
+        assert state_changed[0].multiroom_changed is True
         # A self-healing followup hiccup does not raise a user-facing error.
-        error_events = [c for c in routing_service.state_machine.broadcast_event.call_args_list
-                        if c.args[:2] == ("routing", "multiroom_error")]
+        error_events = events_of(routing_service.state_machine.broadcast,
+                                 "routing", "multiroom_error")
         assert not error_events
 
     @pytest.mark.asyncio

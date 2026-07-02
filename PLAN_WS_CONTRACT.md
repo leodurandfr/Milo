@@ -272,7 +272,30 @@ representative event of each migrated family, `broadcast(event)` produces the
 exact dict the Phase-3 code produced (snapshot the expected dicts in the test).
 Dev smoke: source switch, volume change, one settings change.
 
-## [ ] Phase 5 — Typed layer: remaining families + single code path
+## [x] Phase 5 — Typed layer: remaining families + single code path
+
+*Done 2026-07-02. Notes: `broadcast_event` deleted — `broadcast(WsEvent)` is the
+sole emission API (grep-verified zero callers, tests included; envelope now
+built by `WsEvent.to_envelope()`). Registry forward: `REGISTRY_EVENT_CLASSES`
+(RegistryEventType → event class, `cls(**data)`) replaces
+`REGISTRY_EVENT_TYPE_MAP`; unknown registry event → error log + drop (no
+stringly fallback). **Import cycle resolved**: `ws_events` imports
+`core.network.models` (NetworkStatusChanged embeds NetworkStatus), so
+`core/network/__init__.py` no longer eagerly re-exports NetworkService
+(dependencies.py imports `backend.core.network.service` directly).
+`ws/manager.py`: `initial_state` typed (`SystemInitialState`, carries
+full_state as an explicit field) AND the per-client volume handshake now
+reuses `VolumeChanged` — it therefore gained `multiroom_enabled` (additive;
+closes the last divergent volume_changed shape). `screen_sleep_changed`
+deliberately keeps no `source` field (byte-identical wire; origin falls back
+to category). Contract-test scanner: legacy broadcast_event AST scan removed,
+typed-classes-only. Tests: mocks → `sm.broadcast`, typed-event assertions,
+`conftest.events_of()` helper; envelope snapshot suite extended to 23 events
+covering the new families. Live smoke green on the Pi (source switch, radio
+favorite add/remove, rotary re-put, EQ filter edit → multiroom/
+equalizer_changed, multiroom toggle both ways incl. the `multiroom_changed`
+discriminator + routing/multiroom_{disabling,enabling,ready}, network/fan/
+screen/registry events observed; idle state restored).*
 
 1. Migrate: `core/equalizer/*` (11 sites), `core/multiroom/*` (15),
    `sources/{radio,podcast,cd}` (12), `hardware/*` (5),

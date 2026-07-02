@@ -27,7 +27,7 @@ from backend.hardware.fan import (
 
 def make_controller() -> FanController:
     state_machine = MagicMock()
-    state_machine.broadcast_event = AsyncMock()
+    state_machine.broadcast = AsyncMock()
     return FanController(state_machine, MagicMock())
 
 

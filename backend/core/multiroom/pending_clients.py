@@ -25,6 +25,7 @@ from typing import Any, Dict, Optional
 import aiofiles
 
 from backend.config.constants import MILO_DATA_DIR
+from backend.core.models.ws_events import MultiroomPendingClientChanged
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +122,9 @@ class PendingClientsService:
             client_snapshot = dict(client)
             await self._persist()
 
-        await self._broadcast("pending_client_changed", {
-            "action": "registered",
-            "client": client_snapshot,
-        })
+        await self._broadcast(MultiroomPendingClientChanged(
+            action="registered", client=client_snapshot,
+        ))
 
         logger.info(f"Pending client {'updated' if existing else 'registered'}: {mac_id} (ip={ip}, audio={audio_id})")
         return client_snapshot
@@ -155,10 +155,9 @@ class PendingClientsService:
             client_snapshot = dict(client)
             await self._persist()
 
-        await self._broadcast("pending_client_changed", {
-            "action": "updated",
-            "client": client_snapshot,
-        })
+        await self._broadcast(MultiroomPendingClientChanged(
+            action="updated", client=client_snapshot,
+        ))
         return client_snapshot
 
     def get_client(self, mac_id: str) -> Optional[Dict[str, Any]]:
@@ -178,10 +177,9 @@ class PendingClientsService:
             del self._clients[mac_id]
             await self._persist()
 
-        await self._broadcast("pending_client_changed", {
-            "action": "removed",
-            "mac_id": mac_id,
-        })
+        await self._broadcast(MultiroomPendingClientChanged(
+            action="removed", mac_id=mac_id,
+        ))
 
         logger.info(f"Pending client removed: {mac_id}")
         return True
@@ -228,26 +226,16 @@ class PendingClientsService:
 
         for mac_id in stale_ids:
             logger.info(f"Pending client expired (no heartbeat): {mac_id}")
-            await self._broadcast("pending_client_changed", {
-                "action": "removed",
-                "mac_id": mac_id,
-            })
+            await self._broadcast(MultiroomPendingClientChanged(
+                action="removed", mac_id=mac_id,
+            ))
 
     # === BROADCASTING ===
 
-    async def _broadcast(self, event_type: str, data: dict) -> None:
-        """Broadcast event via state machine.
-
-        pending_client_changed payload is a union discriminated by ``action``:
-        {"action": "registered" | "updated", "client": <client dict>}
-        | {"action": "removed", "mac_id": <mac>}.
-        """
+    async def _broadcast(self, event: MultiroomPendingClientChanged) -> None:
+        """Broadcast event via state machine."""
         if self._state_machine:
             try:
-                await self._state_machine.broadcast_event(
-                    category="multiroom",
-                    event_type=event_type,
-                    data=data,
-                )
+                await self._state_machine.broadcast(event)
             except Exception as e:
                 logger.error(f"Failed to broadcast pending client event: {e}")

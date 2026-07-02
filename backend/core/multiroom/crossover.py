@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
+from backend.core.models.ws_events import MultiroomCrossoverChanged, MultiroomZoneChanged
 from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCIES,
@@ -294,11 +295,12 @@ class CrossoverService:
         # Get updated crossover state for complete event data
         crossover_state = await self.get_zone_crossover(zone_id)
 
-        await self._broadcast_event({
-            "zone_id": zone_id,
-            "crossover_enabled": crossover_state["enabled"],
-            "crossover_frequency": int(frequency),
-        })
+        if self.state_machine:
+            await self.state_machine.broadcast(MultiroomCrossoverChanged(
+                zone_id=zone_id,
+                crossover_enabled=crossover_state["enabled"],
+                crossover_frequency=int(frequency),
+            ))
 
         # Apply the updated crossover filters to all zone clients
         await self.apply_zone_crossover(zone_id)
@@ -475,21 +477,11 @@ class CrossoverService:
             # Broadcast zone update directly (WebSocket) without using
             # registry._emit_event(ZONE_UPDATED), which would re-enter
             # _handle_registry_event and call apply_zone_crossover a second time.
-            zone_data = {"zone_id": zone.id, "zone": self._registry.zone_to_enriched_dict(zone)}
             if self.state_machine:
-                await self.state_machine.broadcast_event("multiroom", "zone_changed", zone_data)
-
-    # === Event Broadcasting ===
-
-    async def _broadcast_event(self, data: Dict[str, Any]) -> None:
-        """Broadcast a crossover event via state machine (WebSocket).
-
-        Single canonical payload for 'multiroom.crossover_changed' (consumed
-        by the frontend equalizerStore.handleZoneCrossoverChanged):
-            {zone_id: str, crossover_enabled: bool, crossover_frequency: int}
-        """
-        if self.state_machine:
-            await self.state_machine.broadcast_event("multiroom", "crossover_changed", data)
+                await self.state_machine.broadcast(MultiroomZoneChanged(
+                    zone_id=zone.id,
+                    zone=self._registry.zone_to_enriched_dict(zone),
+                ))
 
     # === Pending Settings Queue for Offline Clients ===
 

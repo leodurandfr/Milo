@@ -59,16 +59,16 @@ def mock_state_machine(websocket_collector: WebSocketEventCollector):
     """Mock state machine with WebSocket event collection."""
     sm = Mock()
 
-    async def mock_broadcast(category, event_type, data):
+    async def mock_broadcast(event):
         await websocket_collector.broadcast_dict({
-            "category": category,
-            "type": event_type,
+            "category": event.CATEGORY,
+            "type": event.TYPE,
             "origin": "registry",
-            "data": data,
+            "data": event.wire_data(),
             "timestamp": asyncio.get_running_loop().time()
         })
 
-    sm.broadcast_event = AsyncMock(side_effect=mock_broadcast)
+    sm.broadcast = AsyncMock(side_effect=mock_broadcast)
     return sm
 
 

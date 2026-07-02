@@ -2025,9 +2025,9 @@ class TestSnapcastClientDetection:
 
     @pytest.fixture
     def mock_state_machine(self):
-        """Create a mock state machine with broadcast_event."""
+        """Create a mock state machine with a typed broadcast."""
         sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         return sm
 
     @pytest.fixture
@@ -2114,9 +2114,9 @@ class TestSnapcastClientDetection:
         await ws_service._handle_client_connect(params)
 
         # Verify broadcast was called with multiroom registry event
-        mock_state_machine.broadcast_event.assert_called()
-        call_args = mock_state_machine.broadcast_event.call_args_list
-        multiroom_calls = [c for c in call_args if c[0][0] == "multiroom"]
+        mock_state_machine.broadcast.assert_called()
+        call_args = mock_state_machine.broadcast.call_args_list
+        multiroom_calls = [c for c in call_args if c.args[0].CATEGORY == "multiroom"]
         assert len(multiroom_calls) >= 1
 
     # === AC2: Client Disconnection Detection ===
@@ -2181,14 +2181,14 @@ class TestSnapcastClientDetection:
         }
 
         # Clear previous calls
-        mock_state_machine.broadcast_event.reset_mock()
+        mock_state_machine.broadcast.reset_mock()
 
         await ws_service._handle_client_disconnect(params)
 
         # Verify disconnect event broadcast via registry (multiroom category)
-        mock_state_machine.broadcast_event.assert_called()
-        call_args = mock_state_machine.broadcast_event.call_args_list
-        multiroom_calls = [c for c in call_args if c[0][0] == "multiroom"]
+        mock_state_machine.broadcast.assert_called()
+        call_args = mock_state_machine.broadcast.call_args_list
+        multiroom_calls = [c for c in call_args if c.args[0].CATEGORY == "multiroom"]
         assert len(multiroom_calls) >= 1
 
     # === AC3: Auto-Registration with Default Values ===
@@ -2283,15 +2283,15 @@ class TestSnapcastClientDetection:
         await registry.register_client("test-client", "Test", "192.168.1.100")
 
         # Get the broadcast call
-        calls = mock_state_machine.broadcast_event.call_args_list
+        calls = mock_state_machine.broadcast.call_args_list
         assert len(calls) > 0
 
-        # Check event structure (category, type, data) - now uses multiroom category
-        category, event_type, data = calls[-1][0]
-        assert category == "multiroom"
-        assert event_type == "client_state_changed"  # Mapped from client_connected/client_updated
-        assert "mac_id" in data
-        assert "client" in data
+        # Check the typed event - registry events map to the multiroom category
+        event = calls[-1].args[0]
+        assert event.CATEGORY == "multiroom"
+        assert event.TYPE == "client_state_changed"  # Mapped from client_connected/client_updated
+        assert event.mac_id
+        assert event.client is not None
 
     @pytest.mark.asyncio
     async def test_set_client_online_event_format(self, registry, mock_state_machine):
@@ -2300,19 +2300,19 @@ class TestSnapcastClientDetection:
         attach_registry_broadcaster(registry, mock_state_machine)
 
         await registry.register_client("test-client", "Test", "192.168.1.100")
-        mock_state_machine.broadcast_event.reset_mock()
+        mock_state_machine.broadcast.reset_mock()
 
         await registry.set_client_online("test-client", True)
 
         # Verify event format - now uses multiroom category with mapped event type
-        calls = mock_state_machine.broadcast_event.call_args_list
+        calls = mock_state_machine.broadcast.call_args_list
         assert len(calls) > 0
 
-        category, event_type, data = calls[-1][0]
-        assert category == "multiroom"
-        assert event_type == "client_state_changed"  # Mapped from client_connected
-        assert data["mac_id"] == "test-client"
-        assert "client" in data
+        event = calls[-1].args[0]
+        assert event.CATEGORY == "multiroom"
+        assert event.TYPE == "client_state_changed"  # Mapped from client_connected
+        assert event.mac_id == "test-client"
+        assert event.client is not None
 
     @pytest.mark.asyncio
     async def test_set_client_offline_event_format(self, registry, mock_state_machine):
@@ -2322,18 +2322,18 @@ class TestSnapcastClientDetection:
 
         await registry.register_client("test-client", "Test", "192.168.1.100")
         await registry.set_client_online("test-client", True)
-        mock_state_machine.broadcast_event.reset_mock()
+        mock_state_machine.broadcast.reset_mock()
 
         await registry.set_client_online("test-client", False)
 
         # Verify event format - now uses multiroom category with mapped event type
-        calls = mock_state_machine.broadcast_event.call_args_list
+        calls = mock_state_machine.broadcast.call_args_list
         assert len(calls) > 0
 
-        category, event_type, data = calls[-1][0]
-        assert category == "multiroom"
-        assert event_type == "client_state_changed"  # Mapped from client_disconnected
-        assert data["mac_id"] == "test-client"
+        event = calls[-1].args[0]
+        assert event.CATEGORY == "multiroom"
+        assert event.TYPE == "client_state_changed"  # Mapped from client_disconnected
+        assert event.mac_id == "test-client"
 
     # === compute_mac_id Tests for Snapcast Integration ===
 
@@ -2385,7 +2385,7 @@ class TestSnapcastClientDetection:
 
         Broadcasting is owned by SnapcastWebSocketService (or another caller).
         The registry should expose no state_machine reference and never call
-        state_machine.broadcast_event itself.
+        state_machine.broadcast itself.
         """
         from backend.core.multiroom.models import EqualizerSettings
 
@@ -2417,7 +2417,7 @@ class TestSnapcastClientDetection:
         await registry.unregister_client("aa:bb:cc:dd:ee:01")
 
         # state_machine never touched.
-        mock_state_machine.broadcast_event.assert_not_called()
+        mock_state_machine.broadcast.assert_not_called()
 
 
 # =============================================================================
@@ -2763,7 +2763,7 @@ class TestSyncStandaloneDspToClient:
     @pytest.fixture
     def mock_state_machine(self):
         sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         return sm
 
     @pytest.fixture
@@ -2884,7 +2884,7 @@ class TestReconnectRepushesEqualizer:
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import ReconnectionContext
         sm = MagicMock()
-        sm.broadcast_event = AsyncMock()
+        sm.broadcast = AsyncMock()
         ws = SnapcastWebSocketService(state_machine=sm, routing_service=MagicMock())
         ws._registry = MagicMock()
         ws._registry.get_reconnection_context = MagicMock(return_value=ReconnectionContext.STANDALONE_ALONE)

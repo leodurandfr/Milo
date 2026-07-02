@@ -17,7 +17,7 @@ import aiohttp
 from backend.core.multiroom.models import ReconnectionContext
 from backend.core.multiroom.client_registry import (
     ClientRegistryService,
-    REGISTRY_EVENT_TYPE_MAP,
+    REGISTRY_EVENT_CLASSES,
 )
 from backend.config.constants import CLIENT_API_PORT, DEFAULT_VOLUME_DB, get_client_display_name
 from backend.shared.background import BackgroundTaskSet
@@ -188,9 +188,12 @@ class SnapcastWebSocketService:
         registry.subscribe(self._broadcast_registry_event)
 
     async def _broadcast_registry_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Forward a registry event as a multiroom WebSocket broadcast."""
-        mapped_type = REGISTRY_EVENT_TYPE_MAP.get(event_type, event_type.lower())
-        await self.state_machine.broadcast_event("multiroom", mapped_type, data)
+        """Forward a registry event as a typed multiroom WebSocket broadcast."""
+        event_cls = REGISTRY_EVENT_CLASSES.get(event_type)
+        if event_cls is None:
+            self.logger.error(f"No WS event class for registry event {event_type!r} — dropped")
+            return
+        await self.state_machine.broadcast(event_cls(**data))
 
     def set_volume_service(self, service) -> None:
         """Set VolumeService dependency (closes the volume ↔ snapcast_ws cycle)."""

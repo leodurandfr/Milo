@@ -69,7 +69,7 @@ def mock_camilladsp_service():
 @pytest.fixture
 def mock_state_machine():
     sm = Mock()
-    sm.broadcast_event = AsyncMock()
+    sm.broadcast = AsyncMock()
     return sm
 
 
@@ -651,13 +651,13 @@ class TestPartialUpdateMethods:
     async def test_update_filter_broadcasts(self, multiroom_equalizer_service, mock_registry, mock_state_machine, sample_zone):
         mock_registry.get_zone.return_value = sample_zone
         await multiroom_equalizer_service.update_filter("zone", "zone-123", "eq_band_00", gain=5.0)
-        mock_state_machine.broadcast_event.assert_called_once()
-        cat, typ, data = mock_state_machine.broadcast_event.call_args.args
-        assert (cat, typ) == ("multiroom", "equalizer_changed")
-        assert data["target_id"] == "zone-123"
+        mock_state_machine.broadcast.assert_called_once()
+        event = mock_state_machine.broadcast.call_args.args[0]
+        assert (event.CATEGORY, event.TYPE) == ("multiroom", "equalizer_changed")
+        assert event.target_id == "zone-123"
         # The broadcast filter MUST be the frontend wire shape (freq/type), not the
         # model's persistence shape (frequency/filter_type) — the store reads freq/type.
-        flt = data["equalizer_settings"]["filters"][0]
+        flt = event.equalizer_settings["filters"][0]
         assert "freq" in flt and "type" in flt
         assert "frequency" not in flt and "filter_type" not in flt
         assert flt["gain"] == 5.0
@@ -732,13 +732,13 @@ class TestEventBroadcasting:
         """Full-record applies don't broadcast; partial updates and the registry do."""
         mock_registry.get_zone.return_value = sample_zone
         await multiroom_equalizer_service.apply_zone_equalizer("zone-123", sample_equalizer_settings)
-        mock_state_machine.broadcast_event.assert_not_called()
+        mock_state_machine.broadcast.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_apply_client_equalizer_does_not_broadcast_directly(self, multiroom_equalizer_service, mock_registry, mock_state_machine, local_client, sample_equalizer_settings):
         mock_registry.get_client.return_value = local_client
         await multiroom_equalizer_service.apply_client_equalizer("local", sample_equalizer_settings)
-        mock_state_machine.broadcast_event.assert_not_called()
+        mock_state_machine.broadcast.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_apply_without_state_machine(self, mock_registry, mock_camilladsp_service, sample_zone, sample_equalizer_settings):
@@ -865,9 +865,9 @@ class TestZoneEffectsEnabled:
         )  # remote member pushed
         persisted = mock_registry.set_client_equalizer.call_args.args[1]
         assert persisted.enabled is False  # remote member's flag persisted
-        cat, typ, data = mock_state_machine.broadcast_event.call_args.args
-        assert (cat, typ) == ("equalizer", "zone_enabled_changed")
-        assert data == {"zone_id": "zone-123", "enabled": False}
+        event = mock_state_machine.broadcast.call_args.args[0]
+        assert (event.CATEGORY, event.TYPE) == ("equalizer", "zone_enabled_changed")
+        assert event.wire_data() == {"zone_id": "zone-123", "enabled": False}
 
     @pytest.mark.asyncio
     async def test_zone_not_found_raises(self, multiroom_equalizer_service, mock_registry):

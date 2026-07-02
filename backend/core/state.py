@@ -15,7 +15,6 @@ Usage:
 """
 import asyncio
 import contextlib
-import time
 import logging
 from contextlib import asynccontextmanager
 from time import monotonic
@@ -84,7 +83,7 @@ class AudioStateMachine:
     def get_current_state(self) -> Dict[str, Any]:
         """Return current system state as dict.
 
-        Mirrors the aggregation in `broadcast_event`: pulls multiroom_enabled
+        Mirrors the full_state aggregation in `broadcast()`: pulls multiroom_enabled
         from routing_service and equalizer_effects_enabled from camilladsp_service
         so the wire payload (notably the initial_state on WS connect) carries
         both global flags.
@@ -402,9 +401,9 @@ class AudioStateMachine:
         """
         Broadcast a typed event to all connected WebSocket clients.
 
-        Same envelope as broadcast_event: {category, type, origin, data,
-        timestamp}. Payload shape and consumers are documented on the event
-        model (backend/core/models/ws_events.py); full_state is injected for
+        Sole emission API — envelope {category, type, origin, data, timestamp}.
+        Payload shape and consumers are documented on the event model
+        (backend/core/models/ws_events.py); full_state is injected for
         source/system events unless the event class opts out.
         """
         if not self.ws_manager:
@@ -414,45 +413,4 @@ class AudioStateMachine:
         if event.INCLUDE_FULL_STATE and event.CATEGORY in self._FULL_STATE_CATEGORIES:
             event_payload["full_state"] = self.get_current_state()
 
-        await self.ws_manager.broadcast_dict({
-            "category": event.CATEGORY,
-            "type": event.TYPE,
-            "origin": event.origin,
-            "data": event_payload,
-            "timestamp": time.time()
-        })
-
-    async def broadcast_event(
-        self,
-        category: str,
-        event_type: str,
-        data: Dict[str, Any],
-        include_full_state: bool = True,
-    ) -> None:
-        """
-        Broadcast event to all connected WebSocket clients.
-
-        Wire format:
-            { category, type, origin, data, timestamp }
-
-        - "origin" is read from data["source"] (falling back to category).
-          Callers using category="source" MUST provide "source" in the data dict
-          so that origin resolves to the audio source name (e.g. "radio", "spotify").
-        - source/system events include full_state for unifiedAudioStore
-          unless include_full_state=False (used for lightweight position updates).
-        - Other categories send only their specific data.
-        """
-        if not self.ws_manager:
-            return
-
-        event_payload = dict(data)
-        if include_full_state and category in self._FULL_STATE_CATEGORIES:
-            event_payload["full_state"] = self.get_current_state()
-
-        await self.ws_manager.broadcast_dict({
-            "category": category,
-            "type": event_type,
-            "origin": data.get("source", category),
-            "data": event_payload,
-            "timestamp": time.time()
-        })
+        await self.ws_manager.broadcast_dict(event.to_envelope(event_payload))

@@ -139,7 +139,7 @@ def mock_state_machine_for_ws(mock_volume_service):
         "metadata": {},
         "error": None,
     })
-    sm.broadcast_event = AsyncMock()
+    sm.broadcast = AsyncMock()
 
     return sm
 
