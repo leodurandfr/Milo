@@ -109,7 +109,7 @@ import { logger } from '@/services/logger';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
-import { handleNetworkStatusChanged } from '@/composables/useNetwork';
+import { handleNetworkStatusChanged, preloadNetworkStatus } from '@/composables/useNetwork';
 
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
@@ -189,7 +189,12 @@ const deltaStores = [
 ];
 
 async function resyncStores() {
-  await Promise.allSettled(deltaStores.map((store) => store.resync()));
+  await Promise.allSettled([
+    ...deltaStores.map((store) => store.resync()),
+    // Network status is a module-level singleton (useNetwork), not a store, but
+    // its `status_changed` deltas are equally missable — heal it alongside.
+    preloadNetworkStatus({ force: true }),
+  ]);
 }
 
 // === Boot timeout handling ===

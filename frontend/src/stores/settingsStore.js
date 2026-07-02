@@ -527,9 +527,15 @@ export const useSettingsStore = defineStore('settings', () => {
     hotspotActive.value = value;
   }
 
-  // Also re-applies language: the locale watcher reacts to settingsStore.language
+  // Also re-applies language: the locale watcher reacts to settingsStore.language.
+  // btRemote/irRemote sit outside the settings/bulk payload and are delta-fed
+  // (bt_remote_*/ir_remote_status_changed), so refetch them explicitly here.
   async function resync() {
-    return loadAllSettings();
+    await Promise.all([
+      loadAllSettings(),
+      loadBtRemoteStatus(),
+      loadIrRemoteStatus(),
+    ]);
   }
 
   return {

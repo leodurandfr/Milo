@@ -21,9 +21,13 @@ let _countryLoaded = false;
 /**
  * Pre-load network status for instant rendering when NetworkSettings opens.
  * Call from SettingsModal.onMounted() (non-blocking, like radioStore).
+ *
+ * force=true refetches even when already loaded — `status_changed` WS deltas
+ * (cable/wifi link changes) may have been missed while disconnected/backgrounded,
+ * so App.vue::resyncStores() calls this on reconnect/tab-visible.
  */
-export async function preloadNetworkStatus() {
-  if (_statusLoaded) return;
+export async function preloadNetworkStatus({ force = false } = {}) {
+  if (_statusLoaded && !force) return;
   const result = await apiCall.get('/api/network/status', {
     category: 'network',
     message: 'Failed to preload network status'
