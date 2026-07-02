@@ -152,9 +152,8 @@ class AudioStateMachine:
                         )
                         self.system_state.metadata = {}
 
+                    # Consumers react to the event type + injected full_state only.
                     await self.broadcast_event("system", "transition_start", {
-                        "from_source": old_source.value,
-                        "to_source": target_source.value,
                         "source": "system"
                     })
 
@@ -182,9 +181,8 @@ class AudioStateMachine:
                             else:
                                 self.system_state.source_state = SourceState.WAITING
 
+                    # Consumers react to the event type + injected full_state only.
                     await self.broadcast_event("system", "transition_complete", {
-                        "active_source": target_source.value,
-                        "source_state": self.system_state.source_state.value,
                         "source": "system"
                     })
 
@@ -244,7 +242,6 @@ class AudioStateMachine:
                 logger.debug(f"Ignoring state update during transition: {source.value}")
                 return
 
-            old_state = self.system_state.source_state
             self.system_state.source_state = new_state
 
             # Replace, don't merge: a state transition supplies the authoritative
@@ -268,7 +265,6 @@ class AudioStateMachine:
 
         await self.broadcast_event("source", "state_changed", {
             "source": source.value,
-            "old_state": old_state.value,
             "new_state": new_state.value,
             "metadata": metadata
         })
@@ -330,7 +326,6 @@ class AudioStateMachine:
         # Broadcast the reset state so frontend knows system is stable again
         await self.broadcast_event("system", "state_changed", {
             "source": "system",
-            "reason": "emergency_stop",
         })
 
     # === Inactivity Monitor ===

@@ -57,9 +57,7 @@ const EqFilterWireSchema = z.object({
 });
 
 // Backend: backend/api/programs.py _create_background_update — progress events
-// carry {program|mac_id, status, progress, message}; completion events carry
-// {program|mac_id, success} plus message/error/old_version/new_version, which
-// the store does not consume.
+// carry {program|mac_id, status}; completion events carry {program|mac_id, success}.
 const ProgramUpdateProgressSchema = z.object({
   program: z.string(),
   status: z.string(),

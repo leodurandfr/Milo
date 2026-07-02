@@ -223,7 +223,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   // Called from App.vue on source.state_changed; metadata is nested under
-  // event.data.metadata (the event also carries old_state/new_state).
+  // event.data.metadata (the event also carries new_state).
   function handleSourceEvent(event) {
     if (event.origin !== 'podcast') return;
     if (event.type === 'state_changed') {

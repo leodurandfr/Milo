@@ -242,10 +242,10 @@ class TestAudioRoutingService:
         mock_settings_service.set_setting_strict.assert_called_once_with('routing.multiroom_enabled', True)
         # _apply_transition was invoked once with the target
         mock_apply.assert_awaited_once()
-        # Final state broadcast carries multiroom_enabled in payload
+        # Final state broadcast carries the multiroom_changed discriminator
         broadcast_calls = [c for c in routing_service.state_machine.broadcast_event.call_args_list
                            if c.args[:2] == ("system", "state_changed")]
-        assert any(c.args[2].get("multiroom_enabled") is True for c in broadcast_calls)
+        assert any(c.args[2].get("multiroom_changed") is True for c in broadcast_calls)
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_apply_failure_does_not_persist_settings(
@@ -329,7 +329,7 @@ class TestAudioRoutingService:
         state_changed = [c for c in routing_service.state_machine.broadcast_event.call_args_list
                          if c.args[:2] == ("system", "state_changed")]
         assert len(state_changed) == 1
-        assert state_changed[0].args[2]["multiroom_enabled"] is True
+        assert state_changed[0].args[2]["multiroom_changed"] is True
         # A self-healing followup hiccup does not raise a user-facing error.
         error_events = [c for c in routing_service.state_machine.broadcast_event.call_args_list
                         if c.args[:2] == ("routing", "multiroom_error")]

@@ -340,12 +340,10 @@ class CdSource(MpvAudioSource):
             self._logger.info(
                 f"CD drive {'connected' if self._drive_connected else 'disconnected'}"
             )
+            # full_state carrier: consumers read drive/disc state from the
+            # injected full_state metadata, not from data.
             await self.state_machine.broadcast_event(
-                "system", "cd_drive_status", {
-                    "source": "cd",
-                    "drive_connected": self._drive_connected,
-                    "disc_present": self._disc_present,
-                }
+                "system", "cd_drive_status", {"source": "cd"}
             )
             if not self._drive_connected:
                 await self._clear_disc_state()
@@ -392,11 +390,7 @@ class CdSource(MpvAudioSource):
         )
 
         await self.state_machine.broadcast_event(
-            "system", "cd_drive_status", {
-                "source": "cd",
-                "drive_connected": self._drive_connected,
-                "disc_present": True,
-            }
+            "system", "cd_drive_status", {"source": "cd"}
         )
 
         # Show the loading-album indicator immediately
@@ -540,11 +534,7 @@ class CdSource(MpvAudioSource):
 
         if self.state_machine:
             await self.state_machine.broadcast_event(
-                "system", "cd_drive_status", {
-                    "source": "cd",
-                    "drive_connected": self._drive_connected,
-                    "disc_present": False,
-                }
+                "system", "cd_drive_status", {"source": "cd"}
             )
 
     # =========================================================================

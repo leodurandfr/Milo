@@ -48,7 +48,5 @@ class WebSocketLogHandler(logging.Handler):
         # would re-enter the WebSocket layer and loop. Intentionally silent.
         with contextlib.suppress(Exception):
             await self._state_machine.broadcast_event("system", "backend_error", {
-                "level": record.levelname,
-                "logger": record.name,
                 "message": record.getMessage(),
             })

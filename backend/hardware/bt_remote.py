@@ -251,7 +251,7 @@ class BtRemoteController:
     async def _broadcast_status(self):
         """Broadcast current connection status via WebSocket.
 
-        Payload: { connected_devices: [...], discovering: bool, paired: bool }.
+        Payload: { source: "settings", connected_devices: [...], discovering: bool, paired: bool }.
         `paired` is the durable BlueZ-bond signal (true even while the remote
         sleeps/disconnects); the UI uses it to offer the "unpair" action.
         """

@@ -142,11 +142,13 @@ class TestWebSocketEvents:
         start_events = websocket_collector.get_events_by_type("transition_start")
         assert len(start_events) >= 1, "Should emit transition_start event"
 
+        # data carries only the origin key; the transition detail travels in
+        # the injected full_state
         start_event = start_events[0]
         assert start_event["category"] == "system"
         assert start_event["type"] == "transition_start"
-        assert "data" in start_event
-        assert start_event["data"]["to_source"] == "radio"
+        assert start_event["data"]["source"] == "system"
+        assert start_event["data"]["full_state"]["active_source"] == "radio"
 
         # Check for transition_complete event
         complete_events = websocket_collector.get_events_by_type("transition_complete")
@@ -155,7 +157,8 @@ class TestWebSocketEvents:
         complete_event = complete_events[0]
         assert complete_event["category"] == "system"
         assert complete_event["type"] == "transition_complete"
-        assert complete_event["data"]["active_source"] == "radio"
+        assert complete_event["data"]["source"] == "system"
+        assert complete_event["data"]["full_state"]["active_source"] == "radio"
 
     @pytest.mark.asyncio
     async def test_event_format_has_required_fields(

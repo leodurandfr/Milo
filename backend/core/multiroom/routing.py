@@ -534,12 +534,11 @@ class AudioRoutingService:
             # it logs warnings but never fails the transition.
             await self._post_transition_setup_best_effort(enabled)
 
+            # multiroom_changed is the discriminator Milo-Mac keys on; the new
+            # mode itself travels in the injected full_state.
             if self.state_machine:
                 await self.state_machine.broadcast_event("system", "state_changed", {
-                    "old_state": old_state,
-                    "new_state": enabled,
                     "multiroom_changed": True,
-                    "multiroom_enabled": enabled,
                     "source": "routing",
                 })
 
@@ -686,7 +685,8 @@ class AudioRoutingService:
             return
         event_type = "multiroom_enabling" if enabled else "multiroom_disabling"
         self.logger.info(f"Broadcasting {event_type} event")
-        await self.state_machine.broadcast_event("routing", event_type, {"reason": "user_action"})
+        # Consumers switch on event type only (multiroomStore.handleRoutingEvent).
+        await self.state_machine.broadcast_event("routing", event_type, {})
         await asyncio.sleep(0.1)  # Let frontend react
 
     async def _broadcast_error(self, attempted_state: bool) -> None:
@@ -734,7 +734,6 @@ class AudioRoutingService:
             if self.state_machine:
                 await self.state_machine.broadcast_event("equalizer", "enabled_changed", {
                     "enabled": enabled,
-                    "effects_bypassed": not enabled,
                 })
 
             if self.settings_service:
@@ -751,9 +750,6 @@ class AudioRoutingService:
         # full_state aggregation reads equalizer_effects_enabled from camilladsp.
         if success and self.state_machine:
             await self.state_machine.broadcast_event("system", "state_changed", {
-                "old_state": not enabled,
-                "new_state": enabled,
-                "equalizer_effects_changed": True,
                 "source": "equalizer",
             })
         return success
