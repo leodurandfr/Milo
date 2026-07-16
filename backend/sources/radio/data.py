@@ -7,13 +7,12 @@ This module provides:
 - Image management for station artwork
 - Metadata caching from RadioBrowser API
 
-Storage location: /var/lib/milo/radio_data.json
+Storage location: /var/lib/milo/radio_data.json (schema_version protocol —
+see CLAUDE.md §"Persistence & schema-version protocol").
 Images location: /var/lib/milo/radio_images/
 """
 import asyncio
-import json
 import logging
-import os
 import uuid
 import io
 from pathlib import Path
@@ -29,6 +28,9 @@ from backend.core.models.ws_events import (
     WsEvent,
 )
 from backend.shared.decorators import handle_errors
+from backend.shared.persistence import load_versioned_json, save_versioned_json
+
+REQUIRED_TOP_LEVEL_KEYS = ("favorites", "modified_metadata", "manual_stations", "favorites_cache")
 
 
 class ImageManager:
@@ -190,12 +192,14 @@ class StationDataService:
     field is absent.
     """
 
+    SCHEMA_VERSION: int = 1
+
     def __init__(self, state_machine=None):
         self.logger = logging.getLogger("source.radio.data")
         self._state_machine = state_machine
         self.image_manager = ImageManager()
 
-        self._data_file = '/var/lib/milo/radio_data.json'
+        self._data_file = Path('/var/lib/milo/radio_data.json')
         self._file_lock = asyncio.Lock()
 
         # Local cache
@@ -209,26 +213,27 @@ class StationDataService:
         self.radio_api = None
 
     async def initialize(self) -> None:
-        """Load state from disk."""
+        """Load state from disk.
+
+        Seeds defaults on fresh install. Raises SchemaVersionMismatch on version
+        drift or RuntimeError on a corrupt file (missing keys / invalid JSON); the
+        handler in dependencies.py logs the banner and SystemExit(1)s — favorites
+        are never silently wiped.
+        """
         if self._loaded:
             return
 
-        try:
-            data = await self._load_data()
-            self._favorites = data.get('favorites', [])
-            self._modified_metadata = data.get('modified_metadata', {})
-            self._manual_stations = data.get('manual_stations', {})
-            self._favorites_cache = data.get('favorites_cache', {})
+        data = await self._load_data()
+        self._favorites = data['favorites']
+        self._modified_metadata = data['modified_metadata']
+        self._manual_stations = data['manual_stations']
+        self._favorites_cache = data['favorites_cache']
 
-            self.logger.info(
-                f"Loaded {len(self._favorites)} favorites, "
-                f"{len(self._manual_stations)} custom stations"
-            )
-            self._loaded = True
-
-        except Exception as e:
-            self.logger.error(f"Error loading station data: {e}")
-            self._loaded = True
+        self.logger.info(
+            f"Loaded {len(self._favorites)} favorites, "
+            f"{len(self._manual_stations)} custom stations"
+        )
+        self._loaded = True
 
     async def _broadcast(self, event: WsEvent) -> None:
         """Broadcast a typed radio event via state machine (WebSocket)."""
@@ -236,47 +241,46 @@ class StationDataService:
             await self._state_machine.broadcast(event)
 
     async def _load_data(self) -> Dict[str, Any]:
-        """Load radio_data.json."""
-        try:
-            if os.path.exists(self._data_file):
-                async with self._file_lock:
-                    async with aiofiles.open(self._data_file, 'r', encoding='utf-8') as f:
-                        data = json.loads(await f.read())
-                        if 'favorites_cache' not in data:
-                            data['favorites_cache'] = {}
-                        return data
-            else:
-                self.logger.info("radio_data.json not found, creating new file")
-                default_data = {
-                    "favorites": [],
-                    "modified_metadata": {},
-                    "manual_stations": {},
-                    "favorites_cache": {}
-                }
-                await self._save_data(default_data)
-                return default_data
+        """Load radio_data.json, seeding defaults on fresh install.
 
-        except json.JSONDecodeError as e:
-            self.logger.error(f"JSON error in radio_data.json: {e}")
-            return {"favorites": [], "modified_metadata": {}, "manual_stations": {}, "favorites_cache": {}}
-        except Exception as e:
-            self.logger.error(f"Error loading radio_data.json: {e}")
-            return {"favorites": [], "modified_metadata": {}, "manual_stations": {}, "favorites_cache": {}}
+        Raises SchemaVersionMismatch on version drift and RuntimeError / JSON
+        errors on a corrupt file — a corrupt file fails loud, never a silent wipe.
+        """
+        async with self._file_lock:
+            data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
+
+        if not data:
+            self.logger.info("radio_data.json not found, creating new file")
+            default_data = self._get_default_structure()
+            await self._save_data(default_data)
+            return default_data
+
+        self._validate_required_keys(data)
+        return data
+
+    def _validate_required_keys(self, data: Dict[str, Any]) -> None:
+        """Fail-loud if any expected top-level key is missing."""
+        missing = [k for k in REQUIRED_TOP_LEVEL_KEYS if k not in data]
+        if missing:
+            raise RuntimeError(
+                f"radio_data.json missing required keys: {missing} — "
+                f"delete it to reset (rm {self._data_file})"
+            )
+
+    def _get_default_structure(self) -> Dict[str, Any]:
+        """Default structure for a fresh install."""
+        return {
+            "favorites": [],
+            "modified_metadata": {},
+            "manual_stations": {},
+            "favorites_cache": {},
+        }
 
     @handle_errors(default=False)
     async def _save_data(self, data: Dict[str, Any]) -> bool:
-        """Save radio_data.json with atomic write."""
+        """Save radio_data.json with atomic write (schema_version stamped automatically)."""
         async with self._file_lock:
-            temp_file = self._data_file + '.tmp'
-
-            async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(data, ensure_ascii=False, indent=2))
-                await f.write('\n')
-                await f.flush()
-                os.fsync(f.fileno())
-
-            os.replace(temp_file, self._data_file)
-
+            await save_versioned_json(self._data_file, data, self.SCHEMA_VERSION)
         return True
 
     async def _save(self) -> bool:
@@ -310,28 +314,37 @@ class StationDataService:
         """Check if station is in favorites."""
         return station_id in self._favorites
 
+    def _lookup_local(
+        self, station_id: str, *, include_cache: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve station metadata from the local stores, `id` stamped.
+
+        Priority: modified_metadata (user overrides) → manual_stations
+        (custom_xxx) → favorites_cache. `include_cache=False` restricts the
+        lookup to user-authored stores (the "custom station" view, which
+        excludes the API-populated favorites cache). Returns None when absent.
+        """
+        stores = [self._modified_metadata, self._manual_stations]
+        if include_cache:
+            stores.append(self._favorites_cache)
+
+        for store in stores:
+            if station_id in store:
+                metadata = store[station_id].copy()
+                metadata['id'] = station_id
+                return metadata
+
+        return None
+
     async def get_station_metadata(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
         Get station metadata with priority chain:
-        1. Modified metadata (user overrides)
-        2. Manual stations (custom_xxx)
-        3. Favorites cache
-        4. Fetch from API
+        1. Local data (modified → manual → cache)
+        2. Fetch from API
         """
-        if station_id in self._modified_metadata:
-            metadata = self._modified_metadata[station_id].copy()
-            metadata['id'] = station_id
-            return metadata
-
-        if station_id in self._manual_stations:
-            metadata = self._manual_stations[station_id].copy()
-            metadata['id'] = station_id
-            return metadata
-
-        if station_id in self._favorites_cache:
-            metadata = self._favorites_cache[station_id].copy()
-            metadata['id'] = station_id
-            return metadata
+        local = self._lookup_local(station_id)
+        if local:
+            return local
 
         if self.radio_api:
             metadata = await self.radio_api.fetch_remote_station(station_id)
@@ -344,22 +357,7 @@ class StationDataService:
 
     def get_favorite_metadata_local(self, station_id: str) -> Optional[Dict[str, Any]]:
         """Get favorite station metadata from local data only (no API)."""
-        if station_id in self._modified_metadata:
-            metadata = self._modified_metadata[station_id].copy()
-            metadata['id'] = station_id
-            return metadata
-
-        if station_id in self._manual_stations:
-            metadata = self._manual_stations[station_id].copy()
-            metadata['id'] = station_id
-            return metadata
-
-        if station_id in self._favorites_cache:
-            metadata = self._favorites_cache[station_id].copy()
-            metadata['id'] = station_id
-            return metadata
-
-        return None
+        return self._lookup_local(station_id)
 
     async def get_favorites_with_metadata(self) -> List[Dict[str, Any]]:
         """Get favorite stations with complete metadata."""
@@ -417,22 +415,20 @@ class StationDataService:
             station_id = station.get('id')
             station['is_favorite'] = station_id in self._favorites
 
-            if station_id in self._modified_metadata:
-                custom = self._modified_metadata[station_id]
-                preserved_score = station.get('score', 0)
-                preserved_votes = station.get('votes', 0)
-                preserved_clickcount = station.get('clickcount', 0)
+            custom = self._modified_metadata.get(station_id)
+            if custom is not None:
+                # Overlay the override, but keep the live popularity stats
+                # (score/votes/clickcount) whenever the override left them blank.
+                preserved = {
+                    field: station.get(field, 0)
+                    for field in ('score', 'votes', 'clickcount')
+                    if not custom.get(field)
+                }
                 station.update(custom)
+                station.update(preserved)
                 station['id'] = station_id
-                if not custom.get('score'):
-                    station['score'] = preserved_score
-                if not custom.get('votes'):
-                    station['votes'] = preserved_votes
-                if not custom.get('clickcount'):
-                    station['clickcount'] = preserved_clickcount
             elif station_id in self._manual_stations:
-                custom = self._manual_stations[station_id]
-                station.update(custom)
+                station.update(self._manual_stations[station_id])
                 station['id'] = station_id
 
         return stations
@@ -465,18 +461,8 @@ class StationDataService:
         }
 
     def get_custom_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
-        """Get custom station by ID."""
-        if station_id in self._modified_metadata:
-            station = self._modified_metadata[station_id].copy()
-            station['id'] = station_id
-            return station
-
-        if station_id in self._manual_stations:
-            station = self._manual_stations[station_id].copy()
-            station['id'] = station_id
-            return station
-
-        return None
+        """Get custom station by ID (user-authored stores only, no API cache)."""
+        return self._lookup_local(station_id, include_cache=False)
 
     async def add_custom_station(
         self,

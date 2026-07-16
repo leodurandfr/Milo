@@ -15,6 +15,7 @@ Features:
 """
 import asyncio
 import json
+import re
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 
@@ -23,12 +24,81 @@ from pydantic import BaseModel
 from backend.core.models.audio_state import SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.radio.models import PlayStationParams, RemoveFavoriteParams
+from backend.sources.radio.artwork import RadioArtworkResolver
 from backend.sources.radio.data import StationDataService
 from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.radio.browser_api import RadioBrowserAPI
+
+# In-band metadata polling (primary now-playing source). The monitor ticks
+# ~1 s; read mpv metadata every _INBAND_POLL_TICKS ticks. If in-band stays
+# empty for _SHAZAM_GRACE_TICKS ticks after playback starts, Shazam kicks in
+# as the fallback (covers metadata-less streams like Radio France).
+_INBAND_POLL_TICKS = 4
+_SHAZAM_GRACE_TICKS = 8
+
+# Consecutive empty in-band polls (once in-band has been seen) after which a
+# stale pinned title is cleared. A brief gap between tracks keeps the last
+# title; sustained silence (ad/talk/dead air with an empty StreamTitle) clears
+# it — mirrors Shazam's STALE_CLEAR_ROUNDS so in-band can't pin a phantom
+# title either. 4 polls × ~4 s ≈ 16 s of continuous empty metadata.
+_INBAND_STALE_CLEAR_POLLS = 4
+
+# Trailing station-promo suffix some broadcasters append to the ICY title,
+# e.g. "Artist - Title - WALM Radio on walmradio.com". Stripped before parsing.
+_INBAND_PROMO_RE = re.compile(r"\s*-\s*[^-]+\son\s+\S+\.\S+\s*$", re.IGNORECASE)
+
+# Trailing source marker some stations append to every title (walmradio's
+# "(Vinyl)", plus mono/stereo tags) — pure noise, dropped from the display
+# title. Meaningful parentheticals ("(with …)", "(feat. …)") are kept.
+_INBAND_TITLE_NOISE_RE = re.compile(
+    r"\s*\((?:vinyl|mono|stereo)\)\s*$", re.IGNORECASE
+)
+
+
+def _parse_inband_track(metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    """Extract a {title, artist, artwork} track from mpv in-band metadata.
+
+    Reads the ICY StreamTitle (mpv key `icy-title`), strips a trailing
+    station-promo suffix, and best-effort splits the artist from the title.
+    Two separator conventions are handled: "Artist - Title" (most ICY streams)
+    and "Title by Artist" (walmradio Classic Vinyl / Adroit Jazz). Returns
+    None when no usable title is present. The station name (`icy-name`) is
+    deliberately NOT used as a track title — that would show the station as
+    the song. `artwork` is always None here; it is resolved asynchronously
+    from the artist/title (see RadioSource._resolve_inband_artwork).
+    """
+    raw = (metadata.get("icy-title") or metadata.get("streamtitle") or "").strip()
+    if not raw:
+        return None
+
+    cleaned = _INBAND_PROMO_RE.sub("", raw).strip()
+    if not cleaned:
+        return None
+
+    artist, title = "", cleaned
+    if " - " in cleaned:
+        left, _, right = cleaned.partition(" - ")
+        if left.strip() and right.strip():
+            artist, title = left.strip(), right.strip()
+    elif " by " in cleaned:
+        # "<Title> by <Artist>" (walmradio jazz/vinyl: titles and artists are
+        # usually multi-word). " by " is ambiguous with song titles that contain
+        # it literally ("Stand by Me"), so only split when at least one side is
+        # multi-word — a bare "<word> by <word>" is kept whole rather than
+        # mangled into a wrong artist (a wrong artist is worse than none).
+        left, _, right = cleaned.partition(" by ")
+        left, right = left.strip(), right.strip()
+        if left and right and (len(left.split()) > 1 or len(right.split()) > 1):
+            title, artist = left, right
+
+    title = _INBAND_TITLE_NOISE_RE.sub("", title).strip()
+    if not title:
+        return None
+
+    return {"title": title, "artist": artist, "artwork": None}
 
 
 class RadioSource(MpvAudioSource):
@@ -68,12 +138,29 @@ class RadioSource(MpvAudioSource):
 
         self._shazam: Optional[ShazamRecognitionService] = None
 
+        # Resolves cover art for in-band tracks (which carry no artwork) from
+        # their artist/title via the iTunes Search API.
+        self._artwork = RadioArtworkResolver()
+
         # State
         self._metadata: Dict[str, Any] = {}
         self._current_station: Optional[Dict[str, Any]] = None
         self._last_station: Optional[Dict[str, Any]] = None
         self._preroll_cache: Dict[str, int] = {}  # hostname → preroll skip seconds (for Shazam)
         self._buffering_ticks: int = 0
+
+        # In-band metadata (primary title source). Shazam is the fallback,
+        # started only when in-band stays empty (see _poll_inband_metadata).
+        self._inband_track: Optional[Dict[str, Any]] = None
+        self._inband_seen: bool = False        # station emits in-band → suppress Shazam
+        self._inband_poll_ticks: int = 0
+        self._empty_inband_ticks: int = 0      # in-band-empty polls since play start
+        self._inband_empty_streak: int = 0     # consecutive empty polls after in-band seen
+        self._shazam_candidate: bool = False   # station qualifies for Shazam fallback
+        # Per-station now-playing gate ("Reconnaissance des morceaux de cette
+        # station"). When a station is opted out, NO track is shown — neither
+        # in-band metadata NOR Shazam. Set per play in _handle_play_station.
+        self._recognition_enabled: bool = True
 
     @handle_errors(default=False)
     async def initialize(self) -> bool:
@@ -86,6 +173,16 @@ class RadioSource(MpvAudioSource):
         super()._reset_playback_state()
         self._last_station = self._current_station or self._last_station
         self._current_station = None
+        self._reset_inband_state()
+
+    def _reset_inband_state(self) -> None:
+        """Clear in-band metadata / Shazam-arbitration state between stations."""
+        self._inband_track = None
+        self._inband_seen = False
+        self._inband_poll_ticks = 0
+        self._empty_inband_ticks = 0
+        self._inband_empty_streak = 0
+        self._shazam_candidate = False
 
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
@@ -199,6 +296,7 @@ class RadioSource(MpvAudioSource):
                 self._is_playing = False
 
             # Update state: buffering in progress (broadcast immediately for responsive UI)
+            self._reset_inband_state()
             self._current_station = station
             self._is_buffering = True
             self._buffering_ticks = 0
@@ -221,15 +319,21 @@ class RadioSource(MpvAudioSource):
                 self._current_station = station
                 self._metadata = self._build_playback_metadata()
 
-            # Start Shazam recognition if enabled globally AND for this specific
-            # station. Stations like news/talk/ambient can opt out via ManageStation.
-            if (
+            # Per-station now-playing gate: when the station is opted out via
+            # ManageStation, show no track at all (neither in-band nor Shazam).
+            self._recognition_enabled = self._station_data.is_station_shazam_enabled(
+                station_id
+            )
+
+            # In-band metadata (polled by the monitor) is the primary title
+            # source. Shazam is a fallback started only if in-band stays empty
+            # past the grace period — see _poll_inband_metadata. It additionally
+            # requires the global Shazam toggle (in-band needs neither).
+            self._shazam_candidate = bool(
                 self._shazam
+                and self._recognition_enabled
                 and await self._shazam.is_enabled()
-                and self._station_data.is_station_shazam_enabled(station_id)
-            ):
-                preroll = await self._detect_preroll(working_url)
-                await self._shazam.start(working_url, preroll_skip=preroll)
+            )
 
             return self.success_response(f"Loading {station_name}", station=station)
 
@@ -252,9 +356,10 @@ class RadioSource(MpvAudioSource):
 
         self._logger.info(f"Primary URL failed for {station_name}, searching alternatives...")
 
-        # Find and try alternative URLs
+        # Find and try alternative URLs — anchored to the same broadcaster
+        # (uuid/host/country), never a different station that shares the name.
         alternatives = await self._radio_api.find_alternative_urls(
-            station_name, exclude_url=primary_url
+            station, exclude_url=primary_url
         )
 
         if not alternatives:
@@ -315,10 +420,11 @@ class RadioSource(MpvAudioSource):
             return self.error_response("No station to resume")
 
         station_id = self._last_station.get('id', '')
-        return await self._handle_play_station({
-            'station_id': station_id,
-            'station': self._last_station
-        })
+        if not station_id:
+            return self.error_response("Last station has no id, cannot resume")
+        return await self._handle_play_station(
+            PlayStationParams(station_id=station_id, station=self._last_station)
+        )
 
     async def _handle_add_favorite(self, params: PlayStationParams) -> Dict[str, Any]:
         """Add station to favorites."""
@@ -382,14 +488,25 @@ class RadioSource(MpvAudioSource):
         self._preroll_cache[hostname] = skip
         return skip
 
+    def _resolve_track(self) -> Optional[Dict[str, Any]]:
+        """Current now-playing track: in-band metadata is primary, Shazam fallback."""
+        if self._inband_track:
+            return self._inband_track
+        return self._shazam.current_track if self._shazam else None
+
+    @staticmethod
+    def _track_key(track: Optional[Dict[str, Any]]):
+        """Identity of a track for change detection (None when absent)."""
+        if not track:
+            return None
+        return (track.get("title"), track.get("artist"))
+
     def _build_playback_metadata(self, track_override=None) -> Dict[str, Any]:
-        """Build metadata dict for current station, enriched with Shazam track info."""
+        """Build metadata dict for current station, enriched with now-playing track."""
         if not self._current_station:
             return {}
 
-        track = track_override if track_override is not None else (
-            self._shazam.current_track if self._shazam else None
-        )
+        track = track_override if track_override is not None else self._resolve_track()
 
         return {
             "station_id": self._current_station.get('id'),
@@ -424,15 +541,22 @@ class RadioSource(MpvAudioSource):
             return True
 
         if enabled:
-            # Start recognition only if the playing station is not opted out.
+            # Re-arm the fallback only if the playing station is not opted out.
+            # In-band metadata stays primary; if in-band has already taken over
+            # (or is present), leave Shazam off — otherwise the monitor's grace
+            # logic starts it once in-band stays empty.
             if self._current_station and self._is_playing:
                 station_id = self._current_station.get('id')
                 stream_url = self._current_station.get('url')
                 if stream_url and self._station_data.is_station_shazam_enabled(station_id):
-                    preroll = await self._detect_preroll(stream_url)
-                    await self._shazam.start(stream_url, preroll_skip=preroll)
+                    if self._inband_seen or self._inband_track:
+                        self._shazam_candidate = False
+                    else:
+                        self._shazam_candidate = True
+                        self._empty_inband_ticks = 0
         else:
             # Stop recognition loop and clear track info
+            self._shazam_candidate = False
             await self._shazam.stop()
 
         return True
@@ -504,6 +628,110 @@ class RadioSource(MpvAudioSource):
                     self._metadata = {}
                     self.broadcast_error(f"Unable to load stream: {station_name}")
                     self._update_connection_state()
+
+        if self._current_station and self._is_playing:
+            await self._poll_inband_metadata()
+
+    async def _poll_inband_metadata(self) -> None:
+        """Read mpv in-band metadata; it is the primary now-playing source.
+
+        In-band metadata (ICY StreamTitle / HLS tags) is instant and exact when
+        present, so it overrides Shazam: the first in-band title shuts any
+        running Shazam loop down. When in-band stays empty past a short grace
+        period, Shazam starts as the fallback (metadata-less streams like
+        Radio France). Polled every _INBAND_POLL_TICKS monitor ticks.
+
+        Skipped entirely when the station is opted out of now-playing — the
+        per-station gate must suppress in-band titles too, not just Shazam.
+        """
+        if not self._recognition_enabled:
+            return
+
+        self._inband_poll_ticks += 1
+        if self._inband_poll_ticks < _INBAND_POLL_TICKS:
+            return
+        self._inband_poll_ticks = 0
+
+        metadata = await self._mpv.get_metadata()
+        track = _parse_inband_track(metadata)
+
+        if track:
+            self._empty_inband_ticks = 0
+            self._inband_empty_streak = 0
+            if not self._inband_seen:
+                self._inband_seen = True
+                # In-band wins over Shazam — shut the fallback down.
+                if self._shazam and self._shazam.is_running:
+                    await self._shazam.stop()
+            if self._track_key(track) != self._track_key(self._inband_track):
+                self._inband_track = track
+                self._metadata = self._build_playback_metadata()
+                self._update_connection_state()
+                # In-band carries no artwork — resolve a cover off the monitor
+                # (iTunes Search), then patch it in if the track is still up.
+                self._bg.spawn(
+                    self._resolve_inband_artwork(track),
+                    label="inband_artwork",
+                )
+            return
+
+        # In-band empty this poll. A brief gap between tracks is normal, so keep
+        # the last title for a few polls; clear it only after sustained silence
+        # (ad/talk/dead air) so in-band can't leave a phantom title pinned.
+        if self._inband_seen:
+            if self._inband_track is not None:
+                self._inband_empty_streak += 1
+                if self._inband_empty_streak >= _INBAND_STALE_CLEAR_POLLS:
+                    self._inband_track = None
+                    self._inband_empty_streak = 0
+                    self._metadata = self._build_playback_metadata()
+                    self._update_connection_state()
+            return
+
+        # Never seen in-band for this station → count toward the Shazam grace,
+        # then start the fallback once (candidacy is consumed to avoid re-arming).
+        self._empty_inband_ticks += 1
+        if (
+            self._shazam_candidate
+            and self._shazam
+            and not self._shazam.is_running
+            and self._empty_inband_ticks * _INBAND_POLL_TICKS >= _SHAZAM_GRACE_TICKS
+        ):
+            stream_url = self._current_station.get('url') if self._current_station else None
+            if stream_url:
+                self._shazam_candidate = False
+                # Preroll probe (ffprobe) runs off the monitor to avoid stalling
+                # playback-state checks for up to ~10 s.
+                self._bg.spawn(
+                    self._start_shazam_fallback(stream_url),
+                    label="shazam_fallback_start",
+                )
+
+    async def _resolve_inband_artwork(self, track: Dict[str, Any]) -> None:
+        """Resolve cover art for an in-band track and patch it in if still current.
+
+        Runs off the monitor (spawned via `_bg`). The artwork is applied only
+        when `track` is still the live in-band track — a newer title that
+        arrived during the lookup must not be overwritten with a stale cover.
+        """
+        artwork = await self._artwork.resolve(
+            track.get("artist", ""), track.get("title", "")
+        )
+        if not artwork:
+            return
+        if self._inband_track is track and self._current_station and self._is_playing:
+            track["artwork"] = artwork
+            self._metadata = self._build_playback_metadata()
+            self._update_connection_state()
+
+    async def _start_shazam_fallback(self, stream_url: str) -> None:
+        """Detect preroll and start Shazam, unless in-band appeared meanwhile."""
+        if not self._shazam:
+            return
+        preroll = await self._detect_preroll(stream_url)
+        # Station may have changed / in-band arrived during the probe.
+        if self._current_station and self._is_playing and not self._inband_seen:
+            await self._shazam.start(stream_url, preroll_skip=preroll)
 
     # === Public API ===
 

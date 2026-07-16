@@ -159,7 +159,7 @@ const playerClasses = computed(() => ({
   width: 100%;
   margin: 0;
   height: 100%;
-  max-height: 560px;
+  max-height: 720px;
   flex-direction: column;
   gap: var(--space-04);
   padding: var(--space-04);

@@ -31,8 +31,8 @@
         <!-- Track info: 3-line layout when Shazam recognized a track -->
         <template v-if="radioStore.trackInfo" #info>
           <!-- Desktop: 3-line layout -->
-          <p class="player-title heading-2 radio-track--desktop">{{ radioStore.trackInfo.title }}</p>
-          <p class="player-subtitle heading-4 radio-track--desktop">{{ radioStore.trackInfo.artist }}</p>
+          <p class="player-title heading-1 radio-track--desktop">{{ radioStore.trackInfo.title }}</p>
+          <p class="player-subtitle heading-3 radio-track--desktop">{{ radioStore.trackInfo.artist }}</p>
           <p class="player-subtitle text-mono radio-track--desktop">{{ displayStation?.name }}</p>
           <!-- Mobile: 2-line compact layout -->
           <p class="player-title heading-4 radio-track--mobile">{{ radioStore.trackInfo.title }} · {{ radioStore.trackInfo.artist }}</p>

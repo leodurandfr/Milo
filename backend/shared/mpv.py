@@ -279,6 +279,28 @@ class MpvController:
             return response.get('data')
         return None
 
+    async def get_metadata(self) -> Dict[str, str]:
+        """
+        Get current in-band stream metadata (ICY / HLS tags).
+
+        mpv's IPC read loop skips async event lines, so metadata is not
+        push-observed — this polls the `metadata` property (cheap local IPC).
+        mpv exposes the ICY StreamTitle as `icy-title` and the station name as
+        `icy-name`; HLS ID3 tags surface under their own keys.
+
+        Returns:
+            Lowercased-key dict of string metadata values (non-string values
+            dropped), or an empty dict when mpv reports no metadata.
+        """
+        raw = await self.get_property("metadata")
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(key).lower(): value
+            for key, value in raw.items()
+            if isinstance(value, str)
+        }
+
     async def set_property(self, property_name: str, value: Any) -> bool:
         """
         Sets an mpv property
