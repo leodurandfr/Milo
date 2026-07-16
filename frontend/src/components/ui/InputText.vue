@@ -11,10 +11,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue';
-import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
-import { useHardwareConfig } from '@/composables/useHardwareConfig';
-import { logger } from '@/services/logger';
+import { ref, onUnmounted } from 'vue';
+import { useVirtualKeyboard, useKeyboardAvailability } from '@/composables/useVirtualKeyboard';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
@@ -57,47 +55,10 @@ const emit = defineEmits(['update:modelValue', 'focus', 'blur', 'submit']);
 
 const inputRef = ref(null);
 const keyboard = useVirtualKeyboard();
-const { screenResolution } = useHardwareConfig();
+const { shouldShowKeyboard } = useKeyboardAvailability();
 
 // Track if the virtual keyboard is active for THIS specific input
 const isKeyboardActiveForThis = ref(false);
-
-// Detect if the resolution matches (to show the virtual keyboard)
-const shouldShowKeyboard = computed(() => {
-  // Force mode via URL parameter (for development/testing)
-  const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('virtualKeyboard') === 'true') {
-    logger.debug('hardware', 'Virtual keyboard force mode enabled via URL');
-    return true;
-  }
-
-  const configuredResolution = screenResolution.value;
-  const currentWidth = window.innerWidth;
-  const currentHeight = window.innerHeight;
-
-  const configWidth = configuredResolution?.width;
-  const configHeight = configuredResolution?.height;
-
-  logger.debug('hardware', 'Resolution check', {
-    configWidth,
-    configHeight,
-    browserWidth: currentWidth,
-    browserHeight: currentHeight
-  });
-
-  // If no valid resolution configured, no virtual keyboard
-  if (!configWidth || !configHeight) {
-    logger.debug('hardware', 'No valid resolution configured');
-    return false;
-  }
-
-  // Check if resolutions match exactly
-  const matches = currentWidth === configWidth && currentHeight === configHeight;
-
-  logger.debug('hardware', `Resolution ${matches ? 'MATCH' : 'NO MATCH'} (${currentWidth}x${currentHeight} vs ${configWidth}x${configHeight})`);
-
-  return matches;
-});
 
 function handleInput(event) {
   emit('update:modelValue', event.target.value);

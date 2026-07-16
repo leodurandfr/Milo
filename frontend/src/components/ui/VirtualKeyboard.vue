@@ -129,15 +129,14 @@
 <script setup>
 import { ref, reactive, computed, nextTick, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
-import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { useVirtualKeyboard, useKeyboardAvailability } from '@/composables/useVirtualKeyboard';
 import { useTimer } from '@/composables/useTimer';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { getCurrentLanguage } = useI18n();
 const timer = useTimer();
 const keyboardState = useVirtualKeyboard();
-const { screenResolution } = useHardwareConfig();
+const { shouldShowKeyboard } = useKeyboardAvailability();
 
 const keyboardRef = ref(null);
 const displayInput = ref(null);
@@ -154,21 +153,6 @@ const keyboardMode = ref('abc'); // 'abc', 'numbers', 'symbols'
 const isCapsLock = ref(false);
 const isShiftHeld = ref(false);
 const isUppercase = computed(() => isCapsLock.value || isShiftHeld.value);
-
-// Screen resolution detection
-const shouldShowKeyboard = computed(() => {
-  const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('virtualKeyboard') === 'true') return true;
-
-  const configuredResolution = screenResolution.value;
-  const currentWidth = window.innerWidth;
-  const currentHeight = window.innerHeight;
-  const configWidth = configuredResolution?.width;
-  const configHeight = configuredResolution?.height;
-
-  if (!configWidth || !configHeight) return false;
-  return currentWidth === configWidth && currentHeight === configHeight;
-});
 
 // ===== KEYBOARD LAYOUTS =====
 const keyboardLayouts = {
