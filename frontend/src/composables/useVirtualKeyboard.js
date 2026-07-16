@@ -1,5 +1,24 @@
 // frontend/src/composables/useVirtualKeyboard.js
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
+
+/**
+ * Whether the on-screen virtual keyboard is allowed on this device.
+ * The keyboard is exclusive to the Pi's own touchscreen (the kiosk), which
+ * always loads the app from http://localhost (see system/milo-kiosk.service).
+ * Remote browsers reach the unit via milo.local / IP, so their hostname is
+ * never 'localhost' — same `isKiosk` signal used for the color filter and
+ * ui_scale (App.vue, settingsStore.js). `?virtualKeyboard=true` forces it on
+ * for dev/testing; the dev server (localhost:5173) is otherwise excluded.
+ */
+export function useKeyboardAvailability() {
+  const shouldShowKeyboard = computed(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('virtualKeyboard') === 'true') return true;
+    if (import.meta.env.DEV) return false;
+    return window.location.hostname === 'localhost';
+  });
+  return { shouldShowKeyboard };
+}
 
 // Global state (shared across all components)
 const isVisible = ref(false);
