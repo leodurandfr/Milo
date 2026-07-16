@@ -119,6 +119,10 @@ export function useDockDrag({
     if (isDraggingAdditional) {
       const deltaY = getEventY(e) - additionalDragStartY;
       if (Math.abs(deltaY) > 5) {
+        // The overflow panel uses its own gesture stream (it doesn't touch the
+        // shared gestureHasMoved), so cancel any pending app-hold explicitly on
+        // the first swipe to avoid a misfired close.
+        if (!additionalDragMoved) onVolumeHoldEnd();
         additionalDragMoved = true;
         e.preventDefault();
       }

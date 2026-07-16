@@ -14,7 +14,8 @@
       class="additional-apps-container glass-surface glass-border mobile-only" :class="{ visible: showAdditionalApps }">
 
       <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
-        @click="() => handleAdditionalAppClick(app.id)" v-press
+        @click="() => handleAdditionalAppClick(app.id)"
+        @pointerdown="(e) => appHold.onAppHoldStart(app.id, e)" v-press
         :style="{ '--stagger': `${0.05 + (additionalDockApps.length - 1 - index) * 0.02}s` }"
         class="additional-app-content glass-border button-interactive-subtle">
         <AppIcon :name="app.icon" :size="32" />
@@ -38,6 +39,7 @@
         <!-- Mobile: first 3 dock apps (audio mix + features) -->
         <button v-for="({ id, icon }, index) in dockApps" :key="`mobile-${id}`"
           :ref="el => { if (el) mobileDockItems[index] = el }" @click="() => handleAppClick(id, index)"
+          @pointerdown="(e) => appHold.onAppHoldStart(id, e)"
           :disabled="unifiedStore.systemState.transitioning" :style="{ transitionDelay: getDockItemDelay(index) }"
           v-press class="dock-item button-interactive-subtle mobile-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
@@ -46,6 +48,7 @@
         <!-- Desktop: Audio Sources -->
         <button v-for="({ id, icon }, index) in enabledAudioSources" :key="`desktop-audio-${id}`"
           :ref="el => { if (el) desktopDockItems[index] = el }" @click="() => handleAppClick(id, index)"
+          @pointerdown="(e) => appHold.onAppHoldStart(id, e)"
           :disabled="unifiedStore.systemState.transitioning" :style="{ transitionDelay: getDockItemDelay(index) }"
           v-press class="dock-item button-interactive-subtle desktop-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
@@ -87,6 +90,7 @@ import { useI18n } from '@/services/i18n';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { useDockDrag } from '@/composables/useDockDrag';
 import { useVolumeHold } from '@/composables/useVolumeHold';
+import { useDockAppHold } from '@/composables/useDockAppHold';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
@@ -228,7 +232,10 @@ const drag = useDockDrag({
   onShow: showDock,
   onHide: hideDock,
   onCloseAdditionalApps: () => closeAdditionalApps(),
-  onVolumeHoldEnd: (e) => volumeHold.onVolumeHoldEnd(e),
+  // Ends both the volume hold and the app hold — routed through drag's
+  // movement-cancel and document pointerup/pointercancel so a swipe/scroll
+  // can't leave the app-hold timer armed (would misfire a close).
+  onVolumeHoldEnd: (e) => { volumeHold.onVolumeHoldEnd(e); appHold.onAppHoldEnd(e); },
   onResetHideTimer: resetHideTimer,
 });
 
@@ -246,6 +253,19 @@ const volumeHold = useVolumeHold({
 });
 
 const { onVolumeHoldStart, onVolumeHoldEnd } = volumeHold;
+
+// === APP HOLD COMPOSABLE (hold active source's icon → close it) ===
+const appHold = useDockAppHold({
+  isActiveSource: (id) => id === unifiedStore.systemState.active_source,
+  onCloseActive: () => {
+    indicatorStyle.value.opacity = '0';
+    unifiedStore.changeSource('none');
+  },
+  gestureHasMoved: drag.gestureHasMoved,
+  gestureStartPosition: drag.gestureStartPosition,
+  getEventX: drag.getEventX,
+  getEventY: drag.getEventY,
+});
 
 // === ACTIVE INDICATOR ===
 const indicatorStyle = ref({
@@ -326,6 +346,10 @@ const onIndicatorClick = () => {
 };
 
 const handleAppClick = (appId, index) => {
+  // A hold on the active source just closed it — swallow the trailing click
+  // so we don't immediately reselect it.
+  if (appHold.consumeHoldFired()) return;
+
   resetHideTimer();
 
   const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
@@ -343,6 +367,13 @@ const handleAppClick = (appId, index) => {
 const handleAdditionalAppClick = (appId) => {
   if (drag.additionalDragMoved) {
     drag.resetAdditionalDragMoved();
+    return;
+  }
+
+  // A hold on the active source (in the overflow panel) just closed it —
+  // swallow the trailing click and dismiss the panel.
+  if (appHold.consumeHoldFired()) {
+    closeAdditionalApps();
     return;
   }
 
