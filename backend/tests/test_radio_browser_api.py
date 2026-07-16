@@ -150,6 +150,91 @@ class TestNormalizeStation:
         assert result["countrycode"] == ""
 
 
+class TestNormalizeStationSelectionSignals:
+    """WI-3: `hls` and `ssl_error` propagate for quality-first stream selection."""
+
+    def test_propagates_hls_and_ssl_error(self, api):
+        raw = {
+            "stationuuid": "abc",
+            "name": "Test",
+            "url_resolved": "http://x",
+            "tags": "",
+            "hls": 1,
+            "ssl_error": 1,
+        }
+        result = api._normalize_station(raw)
+        assert result["hls"] == 1
+        assert result["ssl_error"] == 1
+
+    def test_defaults_when_absent(self, api):
+        raw = {"stationuuid": "abc", "name": "Test", "url_resolved": "http://x", "tags": ""}
+        result = api._normalize_station(raw)
+        assert result["hls"] == 0
+        assert result["ssl_error"] == 0
+
+
+class TestRankingKey:
+    """WI-3: quality first, then metadata-likelihood, reliability, popularity."""
+
+    def test_codec_normalizes_bitrate(self, api):
+        """AAC 96k outranks MP3 128k (96*1.5=144 > 128)."""
+        aac = {"codec": "AAC", "bitrate": 96}
+        mp3 = {"codec": "MP3", "bitrate": 128}
+        assert api._ranking_key(aac) > api._ranking_key(mp3)
+
+    def test_quality_dominates_popularity(self, api):
+        """A higher-bitrate variant wins even with a lower score."""
+        hi = {"codec": "MP3", "bitrate": 256, "score": 0}
+        lo = {"codec": "MP3", "bitrate": 128, "score": 9999}
+        assert api._ranking_key(hi) > api._ranking_key(lo)
+
+    def test_non_hls_preferred_at_equal_quality(self, api):
+        """Metadata-likelihood tie-breaks: Icecast (hls=0) over HLS."""
+        icecast = {"codec": "MP3", "bitrate": 128, "hls": 0}
+        hls = {"codec": "MP3", "bitrate": 128, "hls": 1}
+        assert api._ranking_key(icecast) > api._ranking_key(hls)
+
+    def test_ssl_error_penalized_at_equal_quality(self, api):
+        clean = {"codec": "MP3", "bitrate": 128, "ssl_error": 0}
+        broken = {"codec": "MP3", "bitrate": 128, "ssl_error": 1}
+        assert api._ranking_key(clean) > api._ranking_key(broken)
+
+
+class TestFindAlternativeUrls:
+    """WI-4: alternatives stay on the same broadcaster, never a name twin."""
+
+    @pytest.mark.asyncio
+    async def test_drops_other_country_matches(self, api):
+        """A same-name station in another country is never offered."""
+        origin = {"name": "Radio X", "id": "u1", "countrycode": "FR", "url": "http://fr/a"}
+        results = [
+            {"name": "Radio X", "id": "u2", "countrycode": "FR", "url": "http://fr/b", "bitrate": 128, "codec": "MP3"},
+            {"name": "Radio X", "id": "u3", "countrycode": "BR", "url": "http://br/c", "bitrate": 320, "codec": "MP3"},
+        ]
+        with patch.object(api, "_fetch_stations_by_query", new=AsyncMock(return_value=results)):
+            alts = await api.find_alternative_urls(origin, exclude_url="http://fr/a")
+
+        urls = [a["url"] for a in alts]
+        assert urls == ["http://fr/b"]  # Brazilian twin dropped despite higher bitrate
+
+    @pytest.mark.asyncio
+    async def test_same_host_outranks_higher_quality_stranger(self, api):
+        """Same streaming host (same broadcaster) beats a higher-bitrate name-match."""
+        origin = {"name": "Radio X", "id": "u1", "countrycode": "FR", "url": "http://cdn.example/a"}
+        results = [
+            {"name": "Radio X", "id": "u2", "countrycode": "FR", "url": "http://cdn.example/b", "bitrate": 96, "codec": "MP3"},
+            {"name": "Radio X", "id": "u3", "countrycode": "FR", "url": "http://other.net/c", "bitrate": 320, "codec": "MP3"},
+        ]
+        with patch.object(api, "_fetch_stations_by_query", new=AsyncMock(return_value=results)):
+            alts = await api.find_alternative_urls(origin, exclude_url="http://cdn.example/a")
+
+        assert alts[0]["url"] == "http://cdn.example/b"  # affinity (host) beats quality
+
+    @pytest.mark.asyncio
+    async def test_excludes_failing_url_and_empty_name(self, api):
+        assert await api.find_alternative_urls({"name": ""}) == []
+
+
 class TestExtractValidGenre:
     def test_urban_is_skipped(self):
         """'urban' was removed from VALID_GENRES — must skip past it."""

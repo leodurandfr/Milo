@@ -221,7 +221,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 <style scoped>
 /* Layout wrapper */
 .audio-source-layout {
-  --audio-player-wrapper-width: 360px;
+  --audio-player-wrapper-width: 400px;
   position: relative;
   display: flex;
   justify-content: center;

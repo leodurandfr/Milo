@@ -19,12 +19,21 @@ from shazamio import Shazam, HTTPClient
 
 logger = logging.getLogger("source.radio.shazam")
 
-# Recognition timing
-INITIAL_DELAY_SECONDS = 10
-RECOGNITION_INTERVAL_SECONDS = 30
+# Recognition timing. Shazam is now a *fallback* (started only after in-band
+# metadata stays empty — see RadioSource), so the stream has already been
+# playing for a grace period: the initial delay is short, and the interval is
+# lowered so the effective cadence stays well under the old ~66 s.
+INITIAL_DELAY_SECONDS = 5
+RECOGNITION_INTERVAL_SECONDS = 20
 SEGMENT_DURATION_SECONDS = 12
 RECOGNITION_TIMEOUT_SECONDS = 25
-MAX_RETRIES = 3
+MAX_RETRIES = 2
+
+# Consecutive unrecognized rounds (a round = one initial try + immediate
+# retries) after which a stale pinned track is cleared. Prevents a previous
+# title from lingering over an unrecognizable track (rap/ads/talk). Root
+# cause #1 in docs/plans/radio-metadata.md.
+STALE_CLEAR_ROUNDS = 2
 
 # ffmpeg capture timeout (capture duration + buffer for connection/codec init)
 FFMPEG_TIMEOUT_SECONDS = SEGMENT_DURATION_SECONDS + 15
@@ -55,9 +64,14 @@ class ShazamRecognitionService:
         self._on_track_changed = on_track_changed
         self._shazam = Shazam(
             http_client=HTTPClient(
+                # Fail fast on throttling: a sustained poll gets 429'd, and a
+                # long exponential backoff (was attempts=5/max_timeout=30)
+                # blocked the loop ~30 s, pinning stale state. Keep retries
+                # minimal so a throttled call returns quickly and the loop can
+                # clear the stale title instead of waiting.
                 retry_options=ExponentialRetry(
-                    attempts=5,
-                    max_timeout=30,
+                    attempts=2,
+                    max_timeout=3,
                     statuses={500, 502, 503, 504, 429},
                 ),
             ),
@@ -70,6 +84,12 @@ class ShazamRecognitionService:
         self._loop_task: Optional[asyncio.Task] = None
         self._running = False
         self._preroll_skip: int = 0
+        self._consecutive_failures: int = 0
+
+    @property
+    def is_running(self) -> bool:
+        """True while the recognition loop is active."""
+        return self._running
 
     @property
     def current_track(self) -> Optional[Dict[str, Any]]:
@@ -104,6 +124,7 @@ class ShazamRecognitionService:
         self._preroll_skip = preroll_skip
         self._running = True
         self._current_track = None
+        self._consecutive_failures = 0
 
         self._loop_task = asyncio.create_task(self._recognition_loop())
 
@@ -153,6 +174,25 @@ class ShazamRecognitionService:
                         recognized = await self._try_recognize()
                         if recognized:
                             break
+
+                if recognized:
+                    self._consecutive_failures = 0
+                else:
+                    self._consecutive_failures += 1
+                    # Clear a stale pinned title once the stream has gone
+                    # unrecognized for enough rounds (unrecognizable track,
+                    # ad, or talk). Never leave a phantom previous title.
+                    if (
+                        self._consecutive_failures >= STALE_CLEAR_ROUNDS
+                        and self._current_track is not None
+                    ):
+                        logger.info(
+                            "Clearing stale track after "
+                            f"{self._consecutive_failures} unrecognized rounds"
+                        )
+                        self._current_track = None
+                        if self._on_track_changed:
+                            await self._on_track_changed(None)
 
                 await asyncio.sleep(RECOGNITION_INTERVAL_SECONDS)
 
@@ -289,6 +329,13 @@ class ShazamRecognitionService:
             Dict with 'title', 'artist', 'artwork' keys, or None if not recognized.
         """
         if not result or "track" not in result:
+            return None
+
+        # Confidence gate: a genuine recognition carries at least one match.
+        # A `track` block with zero matches is a low-confidence guess — drop it
+        # rather than pin a wrong title. (Real FIP matches were all `1 matches`,
+        # so requiring ≥1 does not over-gate.)
+        if not result.get("matches"):
             return None
 
         track = result["track"]
