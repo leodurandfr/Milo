@@ -472,7 +472,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
         """
         Register a milo-client as a pending speaker.
 
-        Called by milo-client at boot time.
+        Called by milo-client at boot, then re-posted every 15s as a heartbeat.
         - hardware_configured=false → store as pending (user must configure via wizard).
           If the mac_id already exists in the registry (reinstall scenario),
           the old entry is removed so the client appears fresh.
@@ -498,7 +498,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                     if existing.volume_control != request.volume_control:
                         await registry_service.update_client(request.mac_id, volume_control=request.volume_control)
                         logger.info(f"Client {request.mac_id} volume_control updated to {request.volume_control}")
-                    logger.info(f"Client {request.mac_id} registered with hardware configured, skipping pending")
+                    logger.debug(f"Client {request.mac_id} heartbeat, hardware configured, skipping pending")
                     return {"status": "success", "message": "Hardware configured, snapclient will reconnect"}
 
                 # Not in registry yet (e.g. wifi-adopted client on first boot).
