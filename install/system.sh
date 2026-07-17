@@ -212,6 +212,7 @@ enable_services() {
 
     # Note: The following services are managed dynamically by the Milo backend:
     # - milo-spotify.service
+    # - milo-qobuz.service
     # - milo-mac.service
     # - milo-radio.service
     # - milo-airplay.service
