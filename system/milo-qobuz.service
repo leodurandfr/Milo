@@ -1,0 +1,31 @@
+[Unit]
+Description=Milo Qobuz Connect via qobuz-proxy
+After=network-online.target sound.target milo-backend.service milo-camilladsp.service
+Wants=network-online.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=audio
+
+ExecStart=/var/lib/milo/qobuz/venv/bin/qobuz-proxy --config /var/lib/milo/qobuz/config.yaml
+Environment=HOME=/home/milo
+# Force qobuz-proxy's config + OAuth token cache under the D3 data dir
+# (/var/lib/milo/qobuz), owned/writable by the milo user (see PLAN_QOBUZ D3).
+Environment=QOBUZPROXY_DATA_DIR=/var/lib/milo/qobuz
+# routing.env supplies MILO_MODE (direct|multiroom); the milo_qobuz ALSA PCM
+# switches its backing device on it, same wiring as every other source.
+EnvironmentFile=/var/lib/milo/routing.env
+WorkingDirectory=/var/lib/milo
+Restart=always
+RestartSec=5
+TimeoutStopSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-qobuz
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
