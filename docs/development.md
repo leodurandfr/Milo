@@ -71,7 +71,8 @@ backend/
 │   ├── radio/                # RadioSource + routes + browser_api
 │   ├── podcast/              # PodcastSource + routes + podcastindex_api
 │   ├── cd/                   # CDSource + routes
-│   └── dlna/                 # DlnaSource + metadata_reader (UPnP bridge) + routes
+│   ├── dlna/                 # DlnaSource + metadata_reader (UPnP bridge) + routes
+│   └── qobuz/                # QobuzSource + monitor (qobuz-proxy /api/status poll)
 ├── api/                       # REST API routes
 ├── hardware/                  # Hardware controllers (rotary, IR remote, BT remote, screen)
 ├── ws/                        # WebSocket server + manager
@@ -101,6 +102,7 @@ frontend/src/
 │   ├── navigation/           # Navigation stack
 │   ├── network/              # Network / WiFi settings
 │   ├── podcasts/             # Podcast source UI
+│   ├── qobuz/                # Qobuz source UI
 │   ├── radio/                # Radio source UI
 │   ├── settings/             # System settings (nested categories)
 │   ├── setup/                # First-boot setup wizard
@@ -423,6 +425,38 @@ The Radio source (`backend/sources/radio/`) is a complete, production-ready refe
 **Store:** radioStore.js (Pinia) with full state management
 
 This is an excellent reference for building a complex audio source with external dependencies, data persistence, and rich UI interactions.
+
+### Sidecar source: Qobuz (Family B)
+
+Qobuz Connect (`backend/sources/qobuz/`) is a **Family B** source (passive
+receiver, `showControls=false`, like AirPlay/DLNA) backed by a reverse-engineered
+sidecar, **qobuz-proxy**. It is the reference for wiring a source whose playback
+is driven entirely by an external app:
+
+- **No `routes.py`, no binary artwork.** `QobuzSource` starts `milo-qobuz.service`
+  and a `QobuzMonitor` that polls `GET http://127.0.0.1:8689/api/status` (~1 Hz)
+  and maps `playing`/`paused` → ACTIVE via `emit_connection_state(...)`, with a
+  short idle-grace window so a track change doesn't flash "ready to stream".
+  Artwork is a Qobuz CDN URL loaded straight by the kiosk. No position/duration
+  over HTTP → progress bar stays inert.
+- **Install is from git, not PyPI.** qobuz-proxy has no PyPI release, so
+  [install/qobuz-proxy.sh](../install/qobuz-proxy.sh) creates a venv under
+  `/var/lib/milo/qobuz/` and `pip install`s the **pinned git tag**
+  (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
+  backend + `libportaudio2` from apt). The script also pins the local backend to
+  unity gain (CamillaDSP is the sole volume authority) — a fail-loud edit of the
+  vendored `stream.py` that aborts on a version bump if its anchors move. It is
+  called from both `install.sh` and the pi-gen stage-02 (single source of truth).
+- **One-time account login.** Unlike Spotify's zeroconf, qobuz-proxy won't
+  advertise until a Qobuz account is authenticated. The **Qobuz account** settings
+  screen (`components/settings/categories/QobuzSettings.vue`) drives the backend
+  relay `backend/api/qobuz_account.py` (`GET /api/qobuz/account`,
+  `GET .../login-url`, `POST .../logout`), which proxies qobuz-proxy's OAuth so
+  the browser flow stays on `:8689`. The token is cached in
+  `/var/lib/milo/qobuz/credentials.json` (per-user, **not** baked into the image).
+- **ASCII device name.** `device.name` must be ASCII (`"Milo"`, not `"Milō"`) —
+  the Qobuz iOS app silently aborts the Connect handshake on a non-ASCII name.
+  Milō's own UI still shows the `audioSources.qobuz` label ("Qobuz").
 
 ## Testing
 
