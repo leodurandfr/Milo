@@ -46,6 +46,13 @@ function hasRichDisplay(source, state, meta) {
       // controller stops).
       return state === 'active' && !!m.is_playing && !!m.title && !!m.artist &&
         (m.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
+    case 'qobuz':
+      // Trusted metadata provider (Qobuz CDN cover, always full-size — no
+      // album_art_width is emitted). Unlike AirPlay/DLNA the proxy reports idle
+      // explicitly (→ WAITING) instead of leaving stale metadata, so no
+      // is_playing gate is needed: title + artist is enough (like Spotify), and
+      // a paused track keeps its cover on screen.
+      return state === 'active' && !!m.title && !!m.artist;
     default:
       // bluetooth, mac, none → no rich view, always the status card.
       return false;
