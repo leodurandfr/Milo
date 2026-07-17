@@ -197,21 +197,6 @@ class AudioStopRequest(BaseModel):
 
 
 # =============================================================================
-# SETTINGS - PODCAST
-# =============================================================================
-
-class PodcastCredentialsRequest(BaseModel):
-    """Podcast Taddy API credentials request"""
-    taddy_user_id: str
-    taddy_api_key: str
-
-    @field_validator('taddy_user_id', 'taddy_api_key')
-    @classmethod
-    def strip_whitespace(cls, v: str) -> str:
-        return v.strip()
-
-
-# =============================================================================
 # SETTINGS - SCREEN
 # =============================================================================
 

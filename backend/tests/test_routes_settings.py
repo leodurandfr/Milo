@@ -361,26 +361,6 @@ class TestSettingsRoutes:
         assert response.status_code == 422
 
     # ===================
-    # PODCAST CREDENTIALS TESTS
-    # ===================
-
-    def test_set_podcast_credentials_valid(self, client):
-        """Test PUT /podcast-credentials with valid credentials"""
-        response = client.put("/api/settings/podcast-credentials", json={
-            "taddy_user_id": "user123",
-            "taddy_api_key": "key456"
-        })
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
-
-    def test_set_podcast_credentials_missing_field(self, client):
-        """Test PUT /podcast-credentials with missing field - should return 422"""
-        response = client.put("/api/settings/podcast-credentials", json={
-            "taddy_user_id": "user123"
-        })
-        assert response.status_code == 422
-
-    # ===================
     # MAC ROC TESTS
     # ===================
 

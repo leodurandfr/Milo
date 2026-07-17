@@ -3,20 +3,21 @@
 Podcast audio source using MPV.
 
 This source handles podcast playback with progress tracking, speed control,
-and Taddy API integration for discovery and search.
+and Podcast Index API integration for discovery and search.
 
 Features:
 - MPV IPC for playback control
 - Progress tracking with auto-save
 - Playback speed control (0.5x - 2.0x)
 - Resume from last position
-- TaddyAPI for podcast discovery
+- PodcastIndexAPI for podcast discovery
 """
 import asyncio
 from typing import Dict, Any, Optional
 
 from pydantic import BaseModel
 
+from backend.config.constants import PODCASTINDEX_API_KEY, PODCASTINDEX_API_SECRET
 from backend.core.models.audio_state import SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.podcast.models import PlayEpisodeParams, SeekParams, SetSpeedParams
@@ -24,7 +25,7 @@ from backend.sources.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
-from backend.sources.podcast.taddy_api import TaddyAPI
+from backend.sources.podcast.podcastindex_api import PodcastIndexAPI
 
 VALID_PLAYBACK_SPEEDS: list[float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
@@ -58,12 +59,11 @@ class PodcastSource(MpvAudioSource):
             state_machine=state_machine
         )
 
-        # Taddy API - load credentials from settings, initialized immediately for routes access
-        taddy_user_id = (settings_service.get_setting_sync("podcast.taddy_user_id") or "") if settings_service else ""
-        taddy_api_key = (settings_service.get_setting_sync("podcast.taddy_api_key") or "") if settings_service else ""
-        self._taddy_api = TaddyAPI(
-            user_id=taddy_user_id,
-            api_key=taddy_api_key,
+        # Podcast Index API - app-level credentials (constants.py), initialized
+        # immediately for routes access
+        self._podcast_api = PodcastIndexAPI(
+            api_key=PODCASTINDEX_API_KEY,
+            api_secret=PODCASTINDEX_API_SECRET,
             cache_duration_minutes=60
         )
 
@@ -201,7 +201,7 @@ class PodcastSource(MpvAudioSource):
         try:
             self._logger.info(f"Starting playback for episode: {episode_uuid}")
 
-            episode = await self._taddy_api.get_episode(episode_uuid)
+            episode = await self._podcast_api.get_episode(episode_uuid)
             if not episode:
                 return self.error_response(f"Episode not found: {episode_uuid}")
 
@@ -474,7 +474,7 @@ class PodcastSource(MpvAudioSource):
     async def _cleanup(self) -> None:
         """Clean up resources.
 
-        Note: _podcast_data and _taddy_api are NOT cleaned up here because
+        Note: _podcast_data and _podcast_api are NOT cleaned up here because
         they need to remain available for routes (subscriptions, search, etc.)
         even when the source is stopped.
         """
@@ -517,7 +517,7 @@ class PodcastSource(MpvAudioSource):
             if new_position != self._position:
                 self._position = new_position
 
-        # Edge-trigger: Taddy may return duration=null (→ self._duration is
+        # Edge-trigger: Podcast Index may return duration=null (→ self._duration is
         # initialized to 0 in _handle_play_episode). Once mpv reports the real
         # duration, broadcast immediately so the frontend ProgressBar appears
         # without waiting up to POSITION_SYNC_INTERVAL seconds for the next
@@ -628,26 +628,15 @@ class PodcastSource(MpvAudioSource):
 
     # === Public API ===
 
-    async def reload_credentials(self, user_id: str, api_key: str) -> bool:
-        """Hot-reload Taddy API credentials without restarting the source."""
-        self._taddy_api.user_id = user_id
-        self._taddy_api.api_key = api_key
-        # Close existing session so _ensure_session() recreates it with new headers
-        await self._taddy_api.close()
-        # Clear caches that may contain error responses from old credentials
-        self._taddy_api.clear_cache()
-        self._logger.info("Taddy API credentials reloaded")
-        return True
-
     @property
     def podcast_data(self) -> Optional[PodcastDataService]:
         """Get podcast data service."""
         return self._podcast_data
 
     @property
-    def taddy_api(self) -> Optional[TaddyAPI]:
-        """Get Taddy API client."""
-        return self._taddy_api
+    def podcast_api(self) -> Optional[PodcastIndexAPI]:
+        """Get Podcast Index API client."""
+        return self._podcast_api
 
     @property
     def position(self) -> int:

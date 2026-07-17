@@ -1,6 +1,6 @@
 # backend/sources/podcast/__init__.py
 """
-Podcast audio source feature using MPV and Taddy API.
+Podcast audio source feature using MPV and the Podcast Index API.
 
 This module provides podcast streaming with discovery, search,
 subscription management, and playback control.

@@ -321,17 +321,6 @@ class AudioStopChanged(SettingsEvent):
     config: AudioStopConfig
 
 
-class PodcastCredentialsConfig(BaseModel):
-    taddy_user_id: str
-    taddy_api_key: str
-
-
-class PodcastCredentialsChanged(SettingsEvent):
-    """App.vue settings listener (podcast credentials form sync)."""
-    TYPE = "podcast_credentials_changed"
-    config: PodcastCredentialsConfig
-
-
 class ScreenTimeoutConfig(BaseModel):
     screen_timeout_enabled: bool
     screen_timeout_seconds: int

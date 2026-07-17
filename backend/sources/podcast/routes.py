@@ -3,8 +3,8 @@
 FastAPI routes for Podcast feature.
 
 Provides REST API for:
-- Discovery (top charts, by genre)
-- Search (podcasts and episodes)
+- Discovery (top charts, by genre — iTunes RSS, exact Apple Podcasts order)
+- Search (podcasts only — Podcast Index has no cross-podcast episode search)
 - Content (series details, episode details)
 - Playback (play, pause, resume, seek, stop, speed)
 - Subscriptions (add, remove, list)
@@ -24,11 +24,7 @@ from backend.sources.podcast.models import (
     SettingsRequest
 )
 from backend.sources.podcast.source import PodcastSource
-from backend.sources.podcast.taddy_api import (
-    map_milo_language_to_taddy,
-    map_milo_language_to_itunes_country,
-    map_milo_language_to_taddy_country,
-)
+from backend.sources.podcast.podcastindex_api import map_milo_language_to_itunes_country
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -51,36 +47,35 @@ def setup_podcast_routes(source_provider) -> APIRouter:
 @router.get("/discover/top-charts")
 async def get_top_charts(
     source: PodcastSource = Depends(get_source),
-    content_type: str = Query("PODCASTSERIES", description="PODCASTSERIES or PODCASTEPISODE"),
-    page: int = Query(1, ge=1, le=20),
-    limit: int = Query(25, ge=1, le=25)
+    content_type: str = Query("PODCASTSERIES", description="PODCASTSERIES (episode charts are gone)"),
+    limit: int = Query(25, ge=1, le=200)
 ) -> Dict[str, Any]:
-    """Get top charts using user's language from settings."""
+    """Get Apple Podcasts top charts (iTunes RSS) using user's language."""
     async with api_error_handler("Error getting top charts", logger):
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
         milo_language = settings.get('language', 'english')
         itunes_country = map_milo_language_to_itunes_country(milo_language)
-        taddy_country = map_milo_language_to_taddy_country(milo_language)
 
-        result = await source.taddy_api.get_top_charts_by_country(
-            country=taddy_country,
-            content_type=content_type,
-            page=page,
+        # Episode charts are unavailable keyless (iTunes RSS is podcasts-only);
+        # answer the pre-Phase-2 frontend with an empty list instead of a 422.
+        if content_type != "PODCASTSERIES":
+            return {
+                "results": [], "total": 0,
+                "country": itunes_country, "language": milo_language,
+            }
+
+        result = await source.podcast_api.get_itunes_top_podcasts(
+            country_code=itunes_country,
             limit=limit
         )
 
-        # Enrich with subscription/progress status
-        if content_type == "PODCASTSERIES":
-            subscriptions = await source.podcast_data.get_subscription_uuids()
-            for podcast in result.get('results', []):
-                podcast['is_subscribed'] = podcast.get('uuid') in subscriptions
-        else:
-            for episode in result.get('results', []):
-                progress = await source.podcast_data.get_playback_progress(episode.get('uuid'))
-                if progress:
-                    episode['playback_progress'] = progress
+        # Enrich with subscription status (uuid is None for unresolved iTunes
+        # entries — those simply stay unsubscribed-looking, like /by-genre)
+        subscriptions = await source.podcast_data.get_subscription_uuids()
+        for podcast in result.get('results', []):
+            podcast['is_subscribed'] = podcast.get('uuid') in subscriptions
 
         result['country'] = itunes_country
         result['language'] = milo_language
@@ -100,11 +95,9 @@ async def get_content_by_genre(
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
         milo_language = settings.get('language', 'english')
-
-        taddy_language = map_milo_language_to_taddy(milo_language)
         itunes_country = map_milo_language_to_itunes_country(milo_language)
 
-        podcasts_result = await source.taddy_api.get_itunes_top_podcasts_by_genre(
+        podcasts_result = await source.podcast_api.get_itunes_top_podcasts_by_genre(
             genre=genre,
             country_code=itunes_country,
             limit=limit
@@ -114,7 +107,7 @@ async def get_content_by_genre(
 
         response = {
             "podcasts": podcasts,
-            "language": taddy_language,
+            "language": milo_language,
             "country": itunes_country
         }
         if podcasts_result.get("network_error"):
@@ -125,17 +118,11 @@ async def get_content_by_genre(
 @router.get("/lookup/itunes/{itunes_id}")
 async def lookup_podcast_by_itunes_id(
     itunes_id: str,
-    source: PodcastSource = Depends(get_source),
-    name: str = Query(None, description="Podcast name for fallback lookup"),
-    artist: str = Query(None, description="Podcast author/publisher to disambiguate same-title homonyms")
+    source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
-    """Lookup Taddy UUID for a podcast using its iTunes ID."""
+    """Lookup the Podcast Index feedId for a podcast using its iTunes ID."""
     async with api_error_handler("Error looking up podcast by iTunes ID", logger):
-        uuid = await source.taddy_api.lookup_podcast_uuid_by_itunes_id(
-            itunes_id=itunes_id,
-            podcast_name=name,
-            podcast_artist=artist
-        )
+        uuid = await source.podcast_api.lookup_by_itunes_id(itunes_id)
 
         if not uuid:
             logger.error("No podcast found for iTunes ID: %s", itunes_id)
@@ -147,46 +134,23 @@ async def lookup_podcast_by_itunes_id(
 # === Search Routes ===
 
 @router.get("/search")
-async def search_mixed(
+async def search_podcasts(
     source: PodcastSource = Depends(get_source),
-    term: str = Query("", description="Search term (optional)"),
-    genres: str = Query(None, description="Comma-separated genre list"),
-    languages: str = Query(None, description="Comma-separated language list"),
-    countries: str = Query(None, description="Comma-separated country list"),
-    duration_min: int = Query(None, description="Min duration in seconds"),
-    duration_max: int = Query(None, description="Max duration in seconds"),
-    sort_by: str = Query("EXACTNESS", description="EXACTNESS or POPULARITY"),
+    term: str = Query("", description="Search term"),
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(25, ge=1, le=25)
 ) -> Dict[str, Any]:
-    """Search for podcasts AND episodes simultaneously."""
-    async with api_error_handler("Error in mixed search", logger):
-        # Only return empty if BOTH term is empty AND no filters are active
-        if not term and not genres and not languages and not duration_min and not duration_max:
-            return {
-                "podcasts": [],
-                "episodes": [],
-                "pagination": {
-                    "podcasts": {"total": 0, "pages": 0},
-                    "episodes": {"total": 0, "pages": 0}
-                }
-            }
+    """Search for podcasts (feeds-only; Podcast Index has no episode search)."""
+    async with api_error_handler("Error in podcast search", logger):
+        empty = {
+            "podcasts": [],
+            "pagination": {"podcasts": {"total": 0, "pages": 0}},
+        }
+        if not term:
+            return empty
 
-        # Parse lists
-        genre_list = [g.strip() for g in genres.split(",")] if genres else None
-        language_list = [lang.strip() for lang in languages.split(",")] if languages else None
-        country_list = [c.strip() for c in countries.split(",")] if countries else None
-
-        # Note: Do NOT use published_after filter - it breaks podcast search relevance
-        # The Taddy API returns random podcasts instead of matching the search term
-        result = await source.taddy_api.search_mixed(
+        result = await source.podcast_api.search_podcasts(
             term=term,
-            genres=genre_list,
-            languages=language_list,
-            countries=country_list,
-            duration_min=duration_min,
-            duration_max=duration_max,
-            sort_by=sort_by,
             page=page,
             limit=limit
         )
@@ -196,13 +160,15 @@ async def search_mixed(
         for podcast in result.get('podcasts', []):
             podcast['is_subscribed'] = podcast.get('uuid') in subscriptions
 
-        # Enrich episodes with progress
-        for episode in result.get('episodes', []):
-            progress = await source.podcast_data.get_playback_progress(episode.get('uuid'))
-            if progress:
-                episode['playback_progress'] = progress
-
-        return result
+        response = {
+            "podcasts": result.get('podcasts', []),
+            "pagination": {
+                "podcasts": result.get('pagination', {}).get('podcasts', {"total": 0, "pages": 0}),
+            },
+        }
+        if result.get("network_error"):
+            response["network_error"] = True
+        return response
 
 
 # === Content Routes ===
@@ -213,12 +179,12 @@ async def get_podcast_series(
     source: PodcastSource = Depends(get_source),
     page: int = Query(1, ge=1),
     limit: int = Query(25, ge=1, le=25),
-    sort_order: str = Query("LATEST", description="LATEST, OLDEST, or SEARCH")
+    sort_order: str = Query("LATEST", description="LATEST or OLDEST")
 ) -> Dict[str, Any]:
     """Get podcast series details with episodes."""
     async with api_error_handler("Error getting podcast series", logger):
-        series = await source.taddy_api.get_podcast_series(
-            uuid=uuid,
+        series = await source.podcast_api.get_podcast_series(
+            feed_id=uuid,
             episodes_page=page,
             episodes_limit=limit,
             sort_order=sort_order
@@ -247,7 +213,7 @@ async def get_episode(
 ) -> Dict[str, Any]:
     """Get episode details."""
     async with api_error_handler("Error getting episode", logger):
-        episode = await source.taddy_api.get_episode(uuid)
+        episode = await source.podcast_api.get_episode(uuid)
         if not episode:
             logger.error("Episode not found: %s", uuid)
             raise HTTPException(status_code=404, detail="Episode not found")
@@ -366,18 +332,25 @@ async def get_latest_episodes_from_subscriptions(
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(50, ge=1, le=50)
 ) -> Dict[str, Any]:
-    """Get latest episodes from all subscribed podcasts."""
+    """Get latest episodes from all subscribed podcasts (N parallel calls)."""
     async with api_error_handler("Error getting latest episodes", logger):
-        # Get subscription UUIDs
-        uuids = await source.podcast_data.get_subscription_uuids()
+        subscriptions = await source.podcast_data.get_subscriptions()
 
-        if not uuids:
+        if not subscriptions:
             return {"results": [], "total": 0}
 
-        result = await source.taddy_api.get_latest_episodes(
-            podcast_uuids=uuids,
+        # Stored name/image fill the episode's podcast block when the
+        # /episodes/byfeedid items omit feedTitle
+        feed_meta = {
+            s['uuid']: {"name": s.get('name', ''), "image_url": s.get('image_url', '')}
+            for s in subscriptions if s.get('uuid')
+        }
+
+        result = await source.podcast_api.get_latest_episodes(
+            feed_ids=list(feed_meta),
             page=page,
-            limit=limit
+            limit=limit,
+            feed_meta=feed_meta
         )
 
         # Add progress to episodes

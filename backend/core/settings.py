@@ -64,10 +64,6 @@ class SettingsService:
             "audio": {
                 "auto_stop_delay": 120.0,
             },
-            "podcast": {
-                "taddy_user_id": "",
-                "taddy_api_key": ""
-            },
             "routing": {
                 "multiroom_enabled": False,
                 "equalizer_effects_enabled": False
@@ -205,16 +201,6 @@ class SettingsService:
             'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', 50))))
         }
 
-        # Podcast credentials
-        podcast_input = settings.get('podcast', {})
-        validated['podcast'] = {
-            'taddy_user_id': str(podcast_input.get('taddy_user_id', '')),
-            'taddy_api_key': str(podcast_input.get('taddy_api_key', ''))
-        }
-        # Preserve credentials_validated_at if present
-        if 'credentials_validated_at' in podcast_input:
-            validated['podcast']['credentials_validated_at'] = int(podcast_input['credentials_validated_at'])
-
         # Dock with validation for at least one audio source
         dock_input = settings.get('dock', {})
 
@@ -333,8 +319,6 @@ class SettingsService:
         * ``AudioRoutingService.multiroom_enabled`` property — hot-path
           sync read used by the state machine when aggregating ``full_state``
           for source/system events.
-        * ``PodcastSource.__init__`` — credential read at construction time
-          (cache is already populated by the bootstrap helper).
 
         Loaded data is run through ``_validate_and_merge`` before caching
         so missing keys (e.g. older installs without a ``routing`` block)
