@@ -81,6 +81,10 @@ class CdSource(MpvAudioSource):
         # Lock protecting self._mpv creation/connection (shared by _do_start and _pre_start_service)
         self._mpv_lock = asyncio.Lock()
 
+        # Serializes reader+mpv (re)starts so a background preload can't collide
+        # with a user play/seek/resume on the shared reader thread + FIFO.
+        self._playback_lock = asyncio.Lock()
+
         # Disc watcher (permanent, from initialize)
         self._disc_watcher_task: Optional[asyncio.Task] = None
         self._watcher_first_check_done = False
@@ -159,13 +163,15 @@ class CdSource(MpvAudioSource):
             self._start_monitor()
             self._update_connection_state()
 
-            # Metadata lookup in background if disc present but no metadata yet.
-            # Runs AFTER _do_start returns so the transition completes first
-            # and the frontend can show the loading-album indicator.
-            if self._disc_present and not self._current_disc and self._last_disc_id:
+            # On activation with a disc inserted, load it (if needed) and
+            # *preload* track 1 in the background (reader + mpv loaded, paused)
+            # so the first play starts fast — without auto-playing. Runs AFTER
+            # _do_start returns so the transition completes and the frontend
+            # shows the loader while the drive spins up.
+            if self._disc_present:
                 self._bg.spawn(
-                    self._load_disc_metadata(),
-                    label="load_disc_metadata_on_start",
+                    self._preload_on_start(),
+                    label="cd_preload_on_start",
                 )
 
             return True
@@ -201,6 +207,69 @@ class CdSource(MpvAudioSource):
         except Exception as e:
             self._logger.error(f"Background metadata lookup failed: {e}")
 
+    async def _preload_on_start(self) -> None:
+        """On activation with a disc inserted, load it (if needed) then preload
+        track 1 so the first play is fast — without auto-playing.
+
+        Holds is_buffering=True from activation through the metadata lookup and
+        the preload so the play button reads as a loader the whole time (no
+        flash to a play icon in between). Skips — and clears the loader — if the
+        user already started something while the lookup was in flight.
+        """
+        try:
+            self._is_buffering = True
+            self._update_connection_state()
+
+            if not self._current_disc and self._last_disc_id:
+                await self._load_disc_metadata()
+
+            still_active = (
+                self.state_machine
+                and self.state_machine.system_state.active_source == AudioSource.CD
+            )
+            if (still_active and self._sector_offsets and self._tracks
+                    and not self._is_playing and not self._is_paused):
+                await self._preload_track_1()
+            else:
+                self._is_buffering = False
+                self._update_connection_state()
+        except Exception as e:
+            self._is_buffering = False
+            self._update_connection_state()
+            self._logger.error(f"CD preload on start failed: {e}")
+
+    async def _preload_track_1(self) -> None:
+        """Preload track 1: reader + mpv loaded and *paused* (never un-paused, so
+        no audio), primed for an instant resume. Shows the loader while the drive
+        spins up and mpv loads, then parks in a paused/ready state (play tap ->
+        resume). Auto-stop is armed so the drive releases if the user never plays.
+        """
+        if not self._mpv or not self._sector_offsets or not self._tracks:
+            return
+
+        self._current_track = 1
+        self._track_position = 0
+        self._track_duration = self._tracks[0].duration
+        self._is_playing = False
+        self._is_paused = False
+        self._is_buffering = True  # loader while the drive spins up + mpv loads
+        self._update_connection_state()
+
+        if not await self._restart_reader_and_mpv(
+            self._sector_offsets[0], autostart=False
+        ):
+            self._is_buffering = False
+            self._update_connection_state()
+            self._logger.warning("Preload: failed to load track 1")
+            return
+
+        # Parked paused & primed — a play tap resumes instantly.
+        self._is_paused = True
+        self._is_buffering = False
+        self._handle_pause_change(True)
+        self._update_connection_state()
+        self._logger.info("Preloaded track 1 (paused)")
+
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:
         """Stop playback and service."""
@@ -223,17 +292,19 @@ class CdSource(MpvAudioSource):
     # READER + MPV ORCHESTRATION
     # =========================================================================
 
-    async def _start_reader_and_mpv(self, start_lba: int) -> bool:
+    async def _start_reader_and_mpv(self, start_lba: int, autostart: bool = True) -> bool:
         """Start ioctl reader at given LBA and connect mpv to the FIFO.
 
         Sequence: reader opens CD + creates FIFO + blocks on write-open,
         then mpv opens FIFO for reading -> both sides connect.
 
         mpv is loaded paused so it doesn't emit audio while the loadfile/FIFO
-        handshake and drive spin-up settle, then un-paused. Real playback is
-        only *confirmed* by wait_until_advancing below — mpv's time-pos sits at
-        0 through a ~1s output-startup latency — which keeps that latency out of
-        the audible path so the track intro isn't clipped.
+        handshake and drive spin-up settle. With autostart (the default) it is
+        then un-paused and playback is *confirmed* by wait_until_advancing —
+        mpv's time-pos sits at 0 through a ~1s output-startup latency — keeping
+        that latency out of the audible path so the intro isn't clipped. With
+        autostart=False it is left paused and primed (preload): a later resume
+        un-pauses it for a fast start.
         """
         self._reader.start(start_lba, self._disc_end_lba)
 
@@ -252,6 +323,13 @@ class CdSource(MpvAudioSource):
             await asyncio.to_thread(self._reader.stop)
             return False
 
+        self._play_start_lba = start_lba
+
+        if not autostart:
+            # Preload only: leave mpv paused and primed for an instant resume.
+            self._logger.info(f"Reader + mpv preloaded (paused) at LBA {start_lba}")
+            return True
+
         await self._mpv.set_property("pause", False)
 
         # Block until playback actually advances. mpv's audio output has a ~1s
@@ -261,7 +339,6 @@ class CdSource(MpvAudioSource):
         if not await self._mpv.wait_until_advancing(timeout=3.0):
             self._logger.warning("mpv playback did not advance within timeout")
 
-        self._play_start_lba = start_lba
         self._logger.info(f"Reader + mpv started at LBA {start_lba}")
         return True
 
@@ -286,19 +363,21 @@ class CdSource(MpvAudioSource):
         self._is_buffering = False
         self._update_connection_state()
 
-    async def _restart_reader_and_mpv(self, start_lba: int) -> bool:
+    async def _restart_reader_and_mpv(self, start_lba: int, autostart: bool = True) -> bool:
         """Restart reader at a new LBA position and reconnect mpv.
 
         Guards the monitor tick out for the whole restart: _play_start_lba and
         _current_track are momentarily inconsistent here, and a tick reading the
         old mpv's time-pos against them would emit a bogus position/album-end.
+        autostart=False loads paused (preload) instead of starting playback.
         """
-        self._restarting = True
-        try:
-            await self._stop_reader_and_mpv()
-            return await self._start_reader_and_mpv(start_lba)
-        finally:
-            self._restarting = False
+        async with self._playback_lock:
+            self._restarting = True
+            try:
+                await self._stop_reader_and_mpv()
+                return await self._start_reader_and_mpv(start_lba, autostart=autostart)
+            finally:
+                self._restarting = False
 
     async def _settle_after_restart(self, restarted: bool) -> bool:
         """Post-restart UI settle shared by play/seek/resume.
@@ -532,21 +611,12 @@ class CdSource(MpvAudioSource):
             self._logger.warning(f"Pre-start failed: {e}")
 
     async def _auto_play_track_1(self) -> None:
-        """Auto-play track 1 after disc insertion while source is active."""
-        if not self._mpv or not self._sector_offsets or not self._tracks:
-            return
+        """Auto-play track 1 after disc insertion while source is active.
 
-        if not await self._start_reader_and_mpv(self._sector_offsets[0]):
-            self._logger.error("Auto-play: failed to start reader")
-            return
-
-        self._current_track = 1
-        self._track_position = 0
-        self._track_duration = self._tracks[0].duration
-        self._is_playing = True
-        self._is_paused = False
-        self._update_connection_state()
-        self._logger.info("Auto-playing track 1")
+        Delegates to the shared play path (loader freeze, advance gate, settle,
+        locked restart) so insertion behaves exactly like a track selection.
+        """
+        await self._handle_play_track(PlayTrackParams(track_number=1))
 
     async def _clear_disc_state(self) -> None:
         """Clear in-memory disc state and stop playback. Does NOT eject physically.
@@ -682,11 +752,21 @@ class CdSource(MpvAudioSource):
         if not self._mpv:
             return self.error_response("CD not active")
         try:
-            # Short pause — mpv still loaded, unblock the reader in place.
+            # Short pause / preload — mpv still loaded, unblock the reader in
+            # place. A cold preload (loaded but never advanced) incurs the ~1s
+            # output-startup latency on un-pause, so freeze the bar and gate on
+            # real advancement like play_track; a warm mid-track resume already
+            # has time-pos > 0, so wait_until_advancing returns immediately.
             if self._is_paused:
+                self._is_buffering = True
+                self._update_connection_state()
                 await self._mpv.resume()
+                if not await self._mpv.wait_until_advancing(timeout=3.0):
+                    self._logger.warning("Resume: mpv playback did not advance in time")
+                await self._sync_position_from_mpv()
                 self._is_playing = True
                 self._is_paused = False
+                self._is_buffering = False
                 self._handle_pause_change(False)
                 self._update_connection_state()
                 return self.success_response("Resumed")
@@ -960,18 +1040,17 @@ class CdSource(MpvAudioSource):
                 "current_track": current,
             })
 
-            # Now-playing projection consumed by AudioPlayerFull. While idle (no
-            # live or paused session) the disc still shows the album + artist,
-            # with the album standing in for the track title and no
-            # position/duration so the player hides the progress bar until
-            # playback starts. Once playing/paused it switches to the track title
-            # and real position/duration.
+            # Now-playing projection consumed by AudioPlayerFull. Always the
+            # current track's title (default track 1) + the disc artist — never
+            # the album standing in as the title. Position/duration are only
+            # published once a session is live/paused (incl. preload), so the
+            # progress bar stays hidden until the track is ready to play.
             session_active = self._is_playing or self._is_paused
             metadata.update({
                 "album": self._current_disc.album,
                 "artist": self._current_disc.artist,
                 "album_art_url": self._current_disc.cover_url,
-                "title": playing_track.title if (session_active and playing_track)
+                "title": playing_track.title if playing_track
                 else self._current_disc.album,
                 "position": int(self._track_position * 1000) if session_active else 0,
                 "duration": int((playing_track.duration if playing_track else 0) * 1000)
