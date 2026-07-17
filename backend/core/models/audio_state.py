@@ -18,6 +18,7 @@ class AudioSource(Enum):
     MAC = "mac"
     CD = "cd"
     DLNA = "dlna"
+    QOBUZ = "qobuz"
 
 
 class SourceState(Enum):
