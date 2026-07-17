@@ -25,6 +25,7 @@ from backend.api.models import (
     ScreenColorFilterRequest,
     MacRocConfigRequest,
     RadioSettingsRequest,
+    QobuzSettingsRequest,
     HardwareConfigRequest,
 )
 from backend.core.models.ws_events import (
@@ -41,6 +42,8 @@ from backend.core.models.ws_events import (
     MacRocConfig,
     RadioSettingsChanged,
     RadioSettingsConfig,
+    QobuzSettingsChanged,
+    QobuzSettingsConfig,
     RotaryStepsChanged,
     RotaryStepsConfig,
     ScreenBrightnessChanged,
@@ -144,6 +147,7 @@ def create_settings_router(
         audio = all_settings.get('audio', {})
         screen = all_settings.get('screen', {})
         radio = all_settings.get('radio', {})
+        qobuz = all_settings.get('qobuz', {})
         mac = all_settings.get('mac', {})
 
         timeout_seconds = screen.get('timeout_seconds', 120)
@@ -179,6 +183,7 @@ def create_settings_router(
                 "warmth": screen.get('color_filter_warmth', 50)
             },
             "radio_settings": {"shazam_enabled": radio.get('shazam_enabled', True)},
+            "qobuz_settings": {"allow_app_volume": qobuz.get('allow_app_volume', False)},
             "mac_roc": {
                 "target_latency_ms": mac.get('target_latency_ms', 50),
                 "latency_profile": mac.get('latency_profile', 'responsive'),
@@ -732,6 +737,31 @@ def create_settings_router(
             setter=lambda: settings.set_setting('radio', radio_config),
             event=RadioSettingsChanged(config=RadioSettingsConfig(**radio_config)),
             reload_callback=apply_to_radio
+        )
+
+    # Qobuz settings (allow the mobile app to control volume)
+    @router.put("/qobuz-settings")
+    async def set_qobuz_settings(payload: QobuzSettingsRequest):
+        qobuz_config = {
+            'allow_app_volume': payload.allow_app_volume
+        }
+
+        async def apply_to_qobuz():
+            try:
+                source = state_machine.get_source(AudioSource.QOBUZ)
+                if source:
+                    return await source.on_allow_app_volume_changed(payload.allow_app_volume)
+                return True
+            except Exception as e:
+                logger.error(f"Error applying qobuz settings: {e}")
+                return False
+
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('qobuz', qobuz_config),
+            event=QobuzSettingsChanged(config=QobuzSettingsConfig(**qobuz_config)),
+            reload_callback=apply_to_qobuz
         )
 
     return router

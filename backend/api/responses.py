@@ -172,6 +172,10 @@ class RadioSettingsModel(BaseModel):
     shazam_enabled: bool
 
 
+class QobuzSettingsModel(BaseModel):
+    allow_app_volume: bool
+
+
 class MacRocModel(BaseModel):
     target_latency_ms: int
     latency_profile: str
@@ -195,6 +199,7 @@ class BulkSettingsResponse(BaseModel):
     screen_screensaver: ScreenScreensaverModel
     screen_color_filter: ScreenColorFilterModel
     radio_settings: RadioSettingsModel
+    qobuz_settings: QobuzSettingsModel
     mac_roc: MacRocModel
 
 

@@ -251,6 +251,7 @@ def test_bulk_settings_full_key_set():
         "screen_screensaver": {"screensaver_enabled": True, "screensaver_delay_seconds": 120},
         "screen_color_filter": {"enabled": True, "warmth": 72},
         "radio_settings": {"shazam_enabled": True},
+        "qobuz_settings": {"allow_app_volume": False},
         "mac_roc": {"target_latency_ms": 130, "latency_profile": "responsive", "frame_length_ms": 10},
     }
     out = emit(R.BulkSettingsResponse, data)
