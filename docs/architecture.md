@@ -150,16 +150,24 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 - Cache duration: 60 minutes
 - Max image size: 10MB (JPG, PNG, WEBP, GIF)
 
-### 5. Podcasts (mpv + Taddy API)
+### 5. Podcasts (mpv + Podcast Index API)
 
 **What is it?**
 - Podcast streaming via mpv media player
-- Discovery via Taddy GraphQL API (charts, search, episode metadata)
-- [**Go to Taddy API**](https://taddy.org/developers)
+- Discovery via the Podcast Index REST API (search + episode metadata), with
+  charts (top + by genre) from the iTunes RSS feeds
+- [**Go to Podcast Index API**](https://podcastindex-org.github.io/docs-api/)
 
 **How does it work?**
 - Reuses the `MpvController` shared with the Radio source (separate mpv instance)
-- Taddy API provides search, charts, and episode listings (60min cache)
+- Podcast Index provides podcast search and episode listings; the app
+  authenticates with a single **app-level key + secret** embedded in the backend
+  (`config/constants.py`) — no per-user credentials, no quota. Auth is a per-request
+  SHA-1 signature (`X-Auth-Key`/`X-Auth-Date`/`Authorization`, 3-min window).
+  Search is **podcasts-only** (Podcast Index has no cross-podcast episode search).
+- Charts (top + by genre) stay on the keyless **iTunes RSS** feeds for exact Apple
+  ordering; results are resolved to Podcast Index feeds via `/podcasts/byitunesid`
+- Responses are cached in-memory (120min TTL)
 - Playback progress is saved every 10s and resumed on next launch (if > 10s in)
 - Speed control (0.5x–2x) and seek supported
 

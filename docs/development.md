@@ -69,7 +69,7 @@ backend/
 │   ├── bluetooth/            # BluetoothSource + routes
 │   ├── mac/                  # MacSource + routes
 │   ├── radio/                # RadioSource + routes + browser_api
-│   ├── podcast/              # PodcastSource + routes + taddy_api
+│   ├── podcast/              # PodcastSource + routes + podcastindex_api
 │   ├── cd/                   # CDSource + routes
 │   └── dlna/                 # DlnaSource + metadata_reader (UPnP bridge) + routes
 ├── api/                       # REST API routes
