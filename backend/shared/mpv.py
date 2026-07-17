@@ -329,6 +329,26 @@ class MpvController:
         # If playback-time is a number (even 0), the stream is playing
         return isinstance(playback_time, (int, float))
 
+    async def wait_until_advancing(
+        self, timeout: float = 3.0, poll_interval: float = 0.05
+    ) -> bool:
+        """Wait until mpv's playhead actually advances past 0.
+
+        After un-pausing, mpv's audio output has a startup latency during which
+        `time-pos` stays at 0 for up to ~1s — a mere "time-pos is a number"
+        check (file loaded) fires immediately and is NOT real playback. Callers
+        gate UI/buffering state on this so a progress bar doesn't run ahead of a
+        not-yet-moving playhead. Bounded by `timeout` so a stalled source can't
+        hang the caller. Returns True once advancing, False on timeout.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            time_pos = await self.get_property("time-pos")
+            if isinstance(time_pos, (int, float)) and time_pos > 0:
+                return True
+            await asyncio.sleep(poll_interval)
+        return False
+
     async def get_status(self) -> Dict[str, Any]:
         """
         Gets current mpv state

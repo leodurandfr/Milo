@@ -25,6 +25,12 @@ CD_DATA_FILE = MILO_DATA_DIR / "cd_data.json"
 CD_COVERS_DIR = MILO_DATA_DIR / "cd_covers"
 CD_DEVICE = "/dev/sr0"
 
+# "prev" button: past this many seconds into a track, prev restarts the current
+# track instead of stepping to the previous one. Mirrors Spotify/go-librespot's
+# standard ~3s rewind-vs-skip threshold (go-librespot's exact value isn't
+# exposed in-repo, so we replicate the well-known 3s behavior).
+CD_PREV_RESTART_THRESHOLD_S = 3.0
+
 # =============================================================================
 # SYSTEM SCRIPTS
 # =============================================================================
