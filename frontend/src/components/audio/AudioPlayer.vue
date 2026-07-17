@@ -367,6 +367,7 @@ const playerClasses = computed(() => ({
     text-align: left;
     padding: 0;
     min-width: 0;
+    gap: var(--space-01);
   }
 
 
