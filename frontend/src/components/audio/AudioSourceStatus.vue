@@ -112,6 +112,8 @@ const displayedStatusLines = computed(() => {
         return [t('status.loadingOf'), t('audioSources.airplay')];
       case 'dlna':
         return [t('status.loadingOf'), t('audioSources.dlna')];
+      case 'qobuz':
+        return [t('status.loadingOf'), t('audioSources.qobuz')];
       case 'cd':
         return [t('status.loadingOfMasculine'), t('audioSources.cd')];
       default:
@@ -136,6 +138,8 @@ const displayedStatusLines = computed(() => {
         return [t('audioSources.airplay'), t('status.readyToStream')];
       case 'dlna':
         return [t('audioSources.dlna'), t('status.readyToStream')];
+      case 'qobuz':
+        return [t('audioSources.qobuz'), t('status.readyToStream')];
       case 'cd':
         return [t('audioSources.cd'), t('status.readyToPlay')];
       default:
@@ -164,6 +168,13 @@ const displayedStatusLines = computed(() => {
   // rich player is gated out — show a playing state, not the waiting fallback.
   if (props.sourceState === 'active' && props.sourceType === 'dlna') {
     return [t('audioSources.dlna'), t('status.playing')];
+  }
+
+  // Qobuz active in the brief window before the first now_playing arrives (no
+  // title/artist yet → rich player gated out). The proxy exposes no controller
+  // identity, so show a playing state rather than the waiting fallback.
+  if (props.sourceState === 'active' && props.sourceType === 'qobuz') {
+    return [t('audioSources.qobuz'), t('status.playing')];
   }
 
   return [t('status.waiting')];

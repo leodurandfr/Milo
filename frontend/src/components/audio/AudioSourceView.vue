@@ -27,6 +27,11 @@
         <DLNASource />
       </div>
 
+      <!-- QobuzView -->
+      <div v-else-if="shouldShowQobuz" :key="contentKey" class="connect-container">
+        <QobuzPlayer />
+      </div>
+
       <!-- Source Status -->
       <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="source-status-container">
         <AudioSourceStatus :source-type="currentSourceType" :source-state="currentSourceState"
@@ -61,6 +66,9 @@ const CDSource = defineAsyncComponent(() =>
 const DLNASource = defineAsyncComponent(() =>
   import('../dlna/DLNASource.vue')
 );
+const QobuzPlayer = defineAsyncComponent(() =>
+  import('../qobuz/QobuzPlayer.vue')
+);
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
 const unifiedStore = useUnifiedAudioStore();
@@ -90,6 +98,7 @@ const shouldShowPodcast = computed(() => richSource.value === 'podcast');
 const shouldShowCD = computed(() => richSource.value === 'cd');
 const shouldShowAirPlay = computed(() => richSource.value === 'airplay');
 const shouldShowDLNA = computed(() => richSource.value === 'dlna');
+const shouldShowQobuz = computed(() => richSource.value === 'qobuz');
 
 const shouldShowSourceStatus = computed(() => {
   if (activeSource.value === 'none') return false;  // nothing active (incl. deactivation)
@@ -173,6 +182,10 @@ const currentDeviceName = computed(() => {
       return meta.client_name || '';
     case 'dlna':
       return meta.client_name || '';
+    case 'qobuz':
+      // Passive receiver: the proxy exposes no controller identity, only the
+      // speaker name. Keep the status card generic (handled in AudioSourceStatus).
+      return '';
     default:
       return '';
   }
