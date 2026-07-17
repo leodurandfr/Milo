@@ -79,6 +79,21 @@ source install/go-librespot.sh
 configure_go_librespot
 CHROOT
 
+# ── qobuz-proxy (Qobuz Connect) ──────────────────────────────────────────────
+# Reuse install/qobuz-proxy.sh::install_qobuz_proxy so pi-gen and the bash
+# installer build an identical venv + config.yaml — single source of truth.
+# Installs libportaudio2 + the pinned git tag into /var/lib/milo/qobuz/venv and
+# writes the flat single-speaker config. The one-time Qobuz login is done by the
+# operator later (settings screen / :8689) and cached in credentials.json — it
+# is user-specific and intentionally NOT baked into the image.
+
+on_chroot << 'CHROOT'
+cd /home/milo/milo
+source install/common.sh
+source install/qobuz-proxy.sh
+install_qobuz_proxy
+CHROOT
+
 # ── Snapserver configuration ─────────────────────────────────────────────────
 # Reuse install/snapcast.sh::configure_snapserver to keep a single source of truth
 # for /etc/snapserver.conf — pi-gen and bash install.sh write the same content.
