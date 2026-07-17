@@ -18,8 +18,12 @@ from backend.core.settings import SettingsService
 from backend.hardware.fan import (
     SAFETY_OVERRIDE_TEMP_C,
     TARGET_DEADBAND_C,
-    TARGET_STEP_PCT,
+    TARGET_SNAP_OFF_DELTA_C,
+    TARGET_STEP_MAX_PCT,
+    TARGET_STEP_MIN_PCT,
     TARGET_TEMP_DEFAULT_C,
+    TARGET_TEMP_MAX_C,
+    TARGET_TEMP_MIN_C,
     FanController,
     clamp_target_temp,
 )
@@ -45,7 +49,7 @@ class TestFanConfigRequest:
         assert cfg.mode == "target"
         assert cfg.target_temp_c == 70
 
-    @pytest.mark.parametrize("temp", [54, 81])
+    @pytest.mark.parametrize("temp", [TARGET_TEMP_MIN_C - 1, TARGET_TEMP_MAX_C + 1])
     def test_rejects_out_of_range_target_temp(self, temp):
         with pytest.raises(ValidationError):
             FanConfigRequest(mode="target", **{**VALID_PAYLOAD, "target_temp_c": temp})
@@ -53,8 +57,8 @@ class TestFanConfigRequest:
 
 class TestClampTargetTemp:
     def test_clamps_to_range(self):
-        assert clamp_target_temp(40) == 55
-        assert clamp_target_temp(95) == 80
+        assert clamp_target_temp(TARGET_TEMP_MIN_C - 15) == TARGET_TEMP_MIN_C
+        assert clamp_target_temp(TARGET_TEMP_MAX_C + 19) == TARGET_TEMP_MAX_C
         assert clamp_target_temp(70) == 70
 
     def test_falls_back_to_default_on_garbage(self):
@@ -70,11 +74,26 @@ class TestTargetModePercent:
         c._pwm_percent = 50
         return c
 
-    def test_steps_up_above_deadband(self, controller):
-        assert controller._target_mode_percent(70 + TARGET_DEADBAND_C + 0.1) == 50 + TARGET_STEP_PCT
+    def test_minimal_step_just_outside_deadband(self, controller):
+        assert controller._target_mode_percent(70 + TARGET_DEADBAND_C + 0.1) == 50 + TARGET_STEP_MIN_PCT
+        assert controller._target_mode_percent(70 - TARGET_DEADBAND_C - 0.1) == 50 - TARGET_STEP_MIN_PCT
 
-    def test_steps_down_below_deadband(self, controller):
-        assert controller._target_mode_percent(70 - TARGET_DEADBAND_C - 0.1) == 50 - TARGET_STEP_PCT
+    def test_step_scales_with_error(self, controller):
+        small = controller._target_mode_percent(72.0) - 50  # 0.5 °C beyond deadband
+        large = controller._target_mode_percent(76.0) - 50  # 4.5 °C beyond deadband
+        assert TARGET_STEP_MIN_PCT <= small < large <= TARGET_STEP_MAX_PCT
+
+    def test_step_caps_at_max(self, controller):
+        # 9 °C over target but under the safety override: capped slew, not 100
+        assert controller._target_mode_percent(79.0) == 50 + TARGET_STEP_MAX_PCT
+
+    def test_scaled_descent_just_above_snap_boundary(self, controller):
+        result = controller._target_mode_percent(70 - TARGET_SNAP_OFF_DELTA_C + 0.1)
+        assert 0 < result < 50 - TARGET_STEP_MIN_PCT
+
+    def test_snaps_to_zero_well_below_target(self, controller):
+        assert controller._target_mode_percent(70 - TARGET_SNAP_OFF_DELTA_C) == 0
+        assert controller._target_mode_percent(60.0) == 0
 
     def test_holds_inside_deadband(self, controller):
         assert controller._target_mode_percent(70.0) == 50
@@ -87,7 +106,7 @@ class TestTargetModePercent:
         controller._pwm_percent = 99
         assert controller._target_mode_percent(75.0) == 100
         controller._pwm_percent = 1
-        assert controller._target_mode_percent(60.0) == 0
+        assert controller._target_mode_percent(68.0) == 0  # scaled step > 1, clamped at 0
 
 
 class TestMonitorLoopTargetMode:
@@ -133,7 +152,7 @@ class TestSettingsSanitization:
     def test_clamps_target_temp(self, service):
         result = service._validate_and_merge({'fan': {'mode': 'target', 'target_temp_c': 95}})
         assert result['fan']['mode'] == 'target'
-        assert result['fan']['target_temp_c'] == 80
+        assert result['fan']['target_temp_c'] == TARGET_TEMP_MAX_C
 
     def test_falls_back_to_default_on_garbage(self, service):
         result = service._validate_and_merge({'fan': {'target_temp_c': 'hot'}})
