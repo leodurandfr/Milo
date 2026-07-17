@@ -58,9 +58,9 @@
       "play": "चलाएँ"
     },
     "radioSource": {
-      "favoritesTitle": "पसंदीदा रेडियो",
-      "discoverTitle": "रेडियो खोजें",
-      "searchPlaceholder": "खोजें",
+      "favoritesTitle": "पसंदीदा वेब रेडियो",
+      "discoverTitle": "वेब रेडियो खोजें",
+      "searchPlaceholder": "स्टेशन का नाम",
       "loadingCountries": "देश लोड हो रहे हैं...",
       "loadingStations": "स्टेशन लोड हो रहे हैं...",
       "noInternet": "इंटरनेट कनेक्शन नहीं है",
@@ -427,7 +427,7 @@
   "podcasts": {
     "podcasts": "पॉडकास्ट",
     "subscriptions": "सदस्यता",
-    "search": "खोजें",
+    "search": "पॉडकास्ट खोजें",
     "queue": "कतार",
     "podcastDetails": "पॉडकास्ट विवरण",
     "episodeDetails": "एपिसोड विवरण",
@@ -458,39 +458,11 @@
       "true_crime": "ट्रू क्राइम",
       "tv_and_film": "टीवी और फिल्म"
     },
-    "searchPlaceholder": "खोजें",
+    "searchPlaceholder": "पॉडकास्ट या होस्ट का नाम",
     "podcastsTitle": "पॉडकास्ट",
     "noResultsFor": "\"{query}\" के लिए कोई परिणाम नहीं",
     "noResults": "कोई परिणाम नहीं मिला",
     "searchPrompt": "पॉडकास्ट खोजें",
-    "duration": {
-      "label": "अवधि",
-      "short": "छोटा (< 15 मिनट)",
-      "medium": "मध्यम (15-45 मिनट)",
-      "long": "लंबा (> 45 मिनट)"
-    },
-    "languageFilter": {
-      "all": "भाषा",
-      "english": "अंग्रेज़ी",
-      "french": "फ़्रांसीसी",
-      "spanish": "स्पेनिश",
-      "german": "जर्मन",
-      "italian": "इतालवी",
-      "portuguese": "पुर्तगाली",
-      "chinese": "चीनी",
-      "japanese": "जापानी",
-      "korean": "कोरियाई",
-      "hindi": "हिंदी",
-      "arabic": "अरबी",
-      "dutch": "डच",
-      "polish": "पोलिश",
-      "russian": "रूसी",
-      "swedish": "स्वीडिश",
-      "turkish": "तुर्की"
-    },
-    "genreFilter": {
-      "all": "शैली"
-    },
     "loadMorePodcasts": "अधिक पॉडकास्ट लोड करें",
     "loadMoreEpisodes": "अधिक एपिसोड लोड करें",
     "newEpisodes": "नए एपिसोड",

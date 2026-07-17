@@ -58,9 +58,9 @@
       "play": "Lecture"
     },
     "radioSource": {
-      "favoritesTitle": "Radios préférées",
-      "discoverTitle": "Découvrir des radios",
-      "searchPlaceholder": "Recherche",
+      "favoritesTitle": "Webradios favorites",
+      "discoverTitle": "Rechercher une webradio",
+      "searchPlaceholder": "Nom d'une station",
       "loadingCountries": "Chargement des pays...",
       "loadingStations": "Chargement des stations...",
       "noInternet": "Pas de connexion internet",
@@ -427,7 +427,7 @@
   "podcasts": {
     "podcasts": "Podcasts",
     "subscriptions": "Abonnements",
-    "search": "Recherche",
+    "search": "Rechercher un podcast",
     "queue": "File d'attente",
     "podcastDetails": "Détails du podcast",
     "episodeDetails": "Détails de l'épisode",
@@ -458,39 +458,11 @@
       "true_crime": "True Crime",
       "tv_and_film": "TV & Cinéma"
     },
-    "searchPlaceholder": "Rechercher",
+    "searchPlaceholder": "Nom d'un podcast ou d'un animateur",
     "podcastsTitle": "Podcasts",
     "noResultsFor": "Aucun résultat pour \"{query}\"",
     "noResults": "Aucun résultat trouvé",
     "searchPrompt": "Recherchez des podcasts",
-    "duration": {
-      "label": "Durée",
-      "short": "Court (< 15 min)",
-      "medium": "Moyen (15-45 min)",
-      "long": "Long (> 45 min)"
-    },
-    "languageFilter": {
-      "all": "Langue",
-      "english": "Anglais",
-      "french": "Français",
-      "spanish": "Espagnol",
-      "german": "Allemand",
-      "italian": "Italien",
-      "portuguese": "Portugais",
-      "chinese": "Chinois",
-      "japanese": "Japonais",
-      "korean": "Coréen",
-      "hindi": "Hindi",
-      "arabic": "Arabe",
-      "dutch": "Néerlandais",
-      "polish": "Polonais",
-      "russian": "Russe",
-      "swedish": "Suédois",
-      "turkish": "Turc"
-    },
-    "genreFilter": {
-      "all": "Genre"
-    },
     "loadMorePodcasts": "Charger plus de podcasts",
     "loadMoreEpisodes": "Charger plus d'épisodes",
     "newEpisodes": "Nouveaux épisodes",

@@ -112,7 +112,8 @@ class PodcastDataService:
         podcast_uuid: str,
         name: str,
         image_url: str,
-        children_hash: str = ""
+        children_hash: str = "",
+        itunes_id: Optional[int] = None
     ) -> bool:
         """
         Add podcast to subscriptions with full metadata.
@@ -122,6 +123,8 @@ class PodcastDataService:
             name: Podcast name
             image_url: Podcast image URL
             children_hash: Hash of episodes (for detecting new episodes)
+            itunes_id: Apple podcast ID (lets iTunes-sourced search results be
+                flagged as subscribed). Stored as a string; None when unknown.
         """
         data = await self.load_data()
 
@@ -135,6 +138,9 @@ class PodcastDataService:
             existing['image_url'] = image_url
             existing['children_hash'] = children_hash
             existing['last_checked'] = int(time.time())
+            # Never clobber a known itunes_id with None on a metadata refresh
+            if itunes_id:
+                existing['itunes_id'] = str(itunes_id)
             subscription = existing
         else:
             subscription = {
@@ -142,6 +148,7 @@ class PodcastDataService:
                 'name': name,
                 'image_url': image_url,
                 'children_hash': children_hash,
+                'itunes_id': str(itunes_id) if itunes_id else None,
                 'added_at': int(time.time()),
                 'last_checked': int(time.time())
             }
@@ -183,6 +190,16 @@ class PodcastDataService:
         """Get just the UUIDs of subscribed podcasts."""
         subscriptions = await self.get_subscriptions()
         return [s['uuid'] for s in subscriptions if s.get('uuid')]
+
+    async def get_subscription_itunes_ids(self) -> set[str]:
+        """Get the iTunes IDs (as strings) of subscribed podcasts.
+
+        Lets iTunes-sourced search results (which carry only an itunes_id, no
+        resolved feedId) be flagged as subscribed. Subscriptions created before
+        itunes_id capture simply won't match — no backfill.
+        """
+        subscriptions = await self.get_subscriptions()
+        return {s['itunes_id'] for s in subscriptions if s.get('itunes_id')}
 
     async def is_subscribed(self, podcast_uuid: str) -> bool:
         """Check if podcast is subscribed."""

@@ -58,9 +58,9 @@
       "play": "Reproducir"
     },
     "radioSource": {
-      "favoritesTitle": "Radios favoritas",
-      "discoverTitle": "Descubrir radios",
-      "searchPlaceholder": "Buscar",
+      "favoritesTitle": "Radios web favoritas",
+      "discoverTitle": "Buscar radios web",
+      "searchPlaceholder": "Nombre de la emisora",
       "loadingCountries": "Cargando países...",
       "loadingStations": "Cargando estaciones...",
       "noInternet": "Sin conexión a internet",
@@ -427,7 +427,7 @@
   "podcasts": {
     "podcasts": "Podcasts",
     "subscriptions": "Suscripciones",
-    "search": "Buscar",
+    "search": "Buscar podcasts",
     "queue": "Cola",
     "podcastDetails": "Detalles del podcast",
     "episodeDetails": "Detalles del episodio",
@@ -458,39 +458,11 @@
       "true_crime": "Crimen Real",
       "tv_and_film": "TV y Cine"
     },
-    "searchPlaceholder": "Buscar",
+    "searchPlaceholder": "Nombre de un podcast o presentador",
     "podcastsTitle": "Podcasts",
     "noResultsFor": "Sin resultados para \"{query}\"",
     "noResults": "Sin resultados encontrados",
     "searchPrompt": "Buscar podcasts",
-    "duration": {
-      "label": "Duración",
-      "short": "Corto (< 15 min)",
-      "medium": "Medio (15-45 min)",
-      "long": "Largo (> 45 min)"
-    },
-    "languageFilter": {
-      "all": "Idioma",
-      "english": "Inglés",
-      "french": "Francés",
-      "spanish": "Español",
-      "german": "Alemán",
-      "italian": "Italiano",
-      "portuguese": "Portugués",
-      "chinese": "Chino",
-      "japanese": "Japonés",
-      "korean": "Coreano",
-      "hindi": "Hindi",
-      "arabic": "Árabe",
-      "dutch": "Neerlandés",
-      "polish": "Polaco",
-      "russian": "Ruso",
-      "swedish": "Sueco",
-      "turkish": "Turco"
-    },
-    "genreFilter": {
-      "all": "Género"
-    },
     "loadMorePodcasts": "Cargar más podcasts",
     "loadMoreEpisodes": "Cargar más episodios",
     "newEpisodes": "Nuevos episodios",

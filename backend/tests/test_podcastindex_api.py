@@ -20,7 +20,8 @@ from backend.sources.podcast.podcastindex_api import (
 )
 
 
-# Realistic /search/byterm feed (subset of documented fields Milō maps)
+# Realistic Podcast Index feed (subset of documented fields Milō maps; as
+# returned by /podcasts/byfeedid and normalized by _normalize_podcast_series)
 SAMPLE_FEED = {
     "id": 920666,
     "podcastGuid": "9b024349-ccf0-5f69-a609-6b82873eab3c",
@@ -187,31 +188,50 @@ class TestNormalizeEpisode:
 class TestSearchPodcasts:
     @pytest.mark.asyncio
     async def test_fetches_once_and_paginates_client_side(self, api):
-        """PI has no page/offset: one max=100 fetch (cached), sliced locally."""
-        feeds = [{**SAMPLE_FEED, "id": i} for i in range(60)]
-        envelope = {"status": "true", "feeds": feeds, "count": 60}
+        """One iTunes fetch per (country, term), cached, sliced locally."""
+        results = [
+            {"itunes_id": str(i), "uuid": None, "name": f"Podcast {i}"}
+            for i in range(60)
+        ]
 
-        with patch.object(api, "_make_request", new=AsyncMock(return_value=envelope)) as mock:
-            page1 = await api.search_podcasts("radiolab", page=1, limit=25)
-            page3 = await api.search_podcasts("radiolab", page=3, limit=25)
+        with patch.object(
+            api, "_search_itunes", new=AsyncMock(return_value={"results": results})
+        ) as mock:
+            page1 = await api.search_podcasts("radiolab", page=1, limit=25, country="us")
+            page3 = await api.search_podcasts("radiolab", page=3, limit=25, country="us")
 
-        mock.assert_awaited_once_with(
-            "/search/byterm", {"q": "radiolab", "max": api.SEARCH_FETCH_MAX}
-        )
+        mock.assert_awaited_once_with("radiolab", "us")
         assert len(page1["podcasts"]) == 25
-        assert page1["podcasts"][0]["uuid"] == "0"
-        assert len(page3["podcasts"]) == 10  # 60 feeds -> 25+25+10
+        assert page1["podcasts"][0]["itunes_id"] == "0"
+        assert len(page3["podcasts"]) == 10  # 60 hits -> 25+25+10
         assert page1["pagination"]["podcasts"] == {"total": 60, "pages": 3}
 
     @pytest.mark.asyncio
     async def test_network_error_sentinel_propagates(self, api):
         with patch.object(
-            api, "_make_request", new=AsyncMock(return_value={"_network_error": True})
+            api, "_search_itunes", new=AsyncMock(return_value={"_network_error": True})
         ):
             result = await api.search_podcasts("radiolab")
 
         assert result["network_error"] is True
         assert result["podcasts"] == []
+
+    def test_normalizes_itunes_search_result(self, api):
+        """iTunes hit → Milō keys: itunes_id string, no uuid, artwork upscaled."""
+        out = api._normalize_itunes_search({
+            "collectionId": 1556250107,
+            "collectionName": "Underscore_",
+            "artistName": "Micode",
+            "artworkUrl100": "https://is1.mzstatic.com/image/thumb/x/100x100bb.jpg",
+            "trackCount": 238,
+        })
+        assert out["itunes_id"] == "1556250107"
+        assert out["uuid"] is None
+        assert out["name"] == "Underscore_"
+        assert out["publisher"] == "Micode"
+        assert out["image_url"].endswith("600x600bb.jpg")
+        assert out["total_episodes"] == 238
+        assert out["source"] == "itunes_search"
 
 
 class TestGetPodcastSeries:

@@ -337,6 +337,37 @@ class TestPodcastDataService:
 
         assert structure["settings"]["playback_speed"] == 1.0
 
+    @pytest.mark.asyncio
+    async def test_subscription_captures_itunes_id(self, tmp_path):
+        """itunes_id is stored as a string; get_subscription_itunes_ids exposes
+        it (excluding legacy subscriptions saved without one)."""
+        service = PodcastDataService()
+        service._data_file = tmp_path / "podcast_data.json"
+        await service.initialize()
+
+        await service.add_subscription("1409945", "Underscore_", "img", itunes_id=1556250107)
+        await service.add_subscription("920666", "Radiolab", "img")  # legacy: no itunes_id
+
+        by_uuid = {s["uuid"]: s for s in await service.get_subscriptions()}
+        assert by_uuid["1409945"]["itunes_id"] == "1556250107"  # coerced to string
+        assert by_uuid["920666"]["itunes_id"] is None
+
+        assert await service.get_subscription_itunes_ids() == {"1556250107"}
+
+    @pytest.mark.asyncio
+    async def test_resubscribe_does_not_clobber_itunes_id(self, tmp_path):
+        """A metadata refresh without an itunes_id must not wipe a known one."""
+        service = PodcastDataService()
+        service._data_file = tmp_path / "podcast_data.json"
+        await service.initialize()
+
+        await service.add_subscription("1409945", "Underscore_", "img", itunes_id=1556250107)
+        await service.add_subscription("1409945", "Underscore_ (v2)", "img2")  # no itunes_id
+
+        sub = (await service.get_subscriptions())[0]
+        assert sub["itunes_id"] == "1556250107"
+        assert sub["name"] == "Underscore_ (v2)"
+
 
 class TestConnectionState:
     """Test connection state management."""

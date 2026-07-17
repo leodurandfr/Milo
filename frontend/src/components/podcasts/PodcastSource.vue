@@ -25,7 +25,8 @@
           @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
         <!-- Search View -->
-        <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails" />
+        <SearchView v-else-if="currentView === 'search'" key="search" :loadingPodcastId="loadingPodcastId"
+          @select-podcast="openPodcastDetails" />
 
         <!-- Queue View -->
         <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
