@@ -1,13 +1,13 @@
 <template>
-  <div class="message-content" :class="{ 'is-delayed': loading && !showLoading }">
+  <div class="message-content" :class="{ 'is-delayed': loading && !showLoading, 'mc--no-glyph': !icon && !showLoading }">
     <!-- Loading spinner OR icon (mutually exclusive) -->
     <LoadingSpinner v-if="showLoading" :size="64" />
     <SvgIcon v-else-if="icon" :name="icon" :size="64" color="var(--color-background-medium-16)" />
 
     <!-- Content always visible (even while loading) -->
-    <p v-if="title" class="heading-2">{{ title }}</p>
-    <p v-if="subtitle" class="text-mono" v-html="subtitle"></p>
-    <p v-if="details" class="text-mono">{{ details }}</p>
+    <p v-if="title" class="heading-2 mc-title">{{ title }}</p>
+    <p v-if="subtitle" class="text-mono mc-subtitle" v-html="subtitle"></p>
+    <p v-if="details" class="text-mono mc-details">{{ details }}</p>
     <div v-if="ctaLabel || ctaSecondaryLabel" class="cta-group">
       <Button v-if="ctaLabel" :variant="ctaVariant" :loading="ctaLoading" @click="ctaClick">
         {{ ctaLabel }}
@@ -117,11 +117,16 @@ watch(() => props.loading, (isLoading) => {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: var(--space-04);
   padding: var(--space-07) var(--space-06) var(--space-08) var(--space-06);
   text-align: center;
   background: var(--color-background-neutral);
   border-radius: var(--radius-06);
+}
+
+/* No leading icon/spinner: the reduced top padding exists to seat a 64px glyph,
+   so drop it and balance the card with symmetric vertical padding. */
+.message-content.mc--no-glyph {
+  padding-top: var(--space-08);
 }
 
 .message-content :deep(p),
@@ -130,12 +135,23 @@ watch(() => props.loading, (isLoading) => {
   color: var(--color-text-secondary);
 }
 
-.message-content :deep(.loading-spinner) {
+.message-content > :deep(.loading-spinner) {
   color: var(--color-text-secondary);
 }
 
-.message-content :deep(.btn) {
-  margin-top: var(--space-02);
+/* Vertical rhythm is per block — title→description and description→CTA differ,
+   so each block owns its top spacing instead of a single uniform flex gap. */
+.message-content > :first-child {
+  margin-top: 0;
+}
+
+.mc-title,
+.mc-subtitle {
+  margin-top: var(--space-04);
+}
+
+.mc-details {
+  margin-top: var(--space-03);
 }
 
 .cta-group {
@@ -144,10 +160,7 @@ watch(() => props.loading, (isLoading) => {
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-02);
-}
-
-.cta-group :deep(.btn) {
-  margin-top: 0;
+  margin-top: var(--space-05);
 }
 
 

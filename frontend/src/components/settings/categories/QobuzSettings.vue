@@ -10,34 +10,38 @@
   tab and we refetch status when the user returns (focus + a bounded poll).
 -->
 <template>
-  <SettingsContainer>
-    <SettingsSection :title="t('qobuzSettings.accountTitle')">
-      <!-- Checking status -->
-      <MessageContent v-if="loading" loading :title="t('qobuzSettings.loading')" />
+  <!-- Checking status -->
+  <MessageContent v-if="loading" loading :title="t('qobuzSettings.loading')" />
 
-      <!-- Connected -->
-      <template v-else-if="account.authenticated">
-        <div class="qobuz-account">
-          <img v-if="account.avatar" :src="account.avatar" class="qobuz-avatar" alt="" referrerpolicy="no-referrer" />
+  <!-- Not connected: a single message-content card carries its own Connect CTA. -->
+  <MessageContent
+    v-else-if="!account.authenticated"
+    :title="t('qobuzSettings.notConnectedTitle')"
+    :details="t('qobuzSettings.notConnectedDetails')"
+    :cta-label="t('qobuzSettings.connect')"
+    :cta-loading="connecting"
+    :cta-click="connect"
+  />
+
+  <!-- Connected -->
+  <SettingsContainer v-else>
+    <SettingsSection>
+      <!-- Title + email are one group on the left; Disconnect aligns with it on the right. -->
+      <template #header>
+        <div class="qobuz-header">
           <div class="qobuz-account-text">
-            <p class="heading-2">{{ account.name || t('qobuzSettings.connected') }}</p>
+            <h2 class="heading-2">{{ t('qobuzSettings.accountTitle') }}</h2>
             <p v-if="account.email" class="text-mono qobuz-email">{{ account.email }}</p>
           </div>
+          <Button
+            variant="background-strong"
+            size="medium"
+            :loading="disconnecting"
+            @click="disconnect"
+          >
+            {{ t('qobuzSettings.disconnect') }}
+          </Button>
         </div>
-        <Button variant="background-strong" size="medium" :loading="disconnecting" @click="disconnect">
-          {{ t('qobuzSettings.disconnect') }}
-        </Button>
-      </template>
-
-      <!-- Not connected -->
-      <template v-else>
-        <MessageContent
-          :title="t('qobuzSettings.notConnectedTitle')"
-          :details="t('qobuzSettings.notConnectedDetails')"
-        />
-        <Button variant="brand" size="medium" :loading="connecting" @click="connect">
-          {{ t('qobuzSettings.connect') }}
-        </Button>
       </template>
     </SettingsSection>
 
@@ -79,7 +83,7 @@ async function handleAppVolumeToggle(enabled) {
   await updateSetting('qobuz-settings', { allow_app_volume: enabled });
 }
 
-const account = ref({ authenticated: false, name: null, email: null, avatar: null });
+const account = ref({ authenticated: false, email: null });
 const loading = ref(true);
 const connecting = ref(false);
 const disconnecting = ref(false);
@@ -100,9 +104,7 @@ async function fetchStatus() {
   if (result.ok && result.data?.data) {
     account.value = {
       authenticated: !!result.data.data.authenticated,
-      name: result.data.data.name ?? null,
       email: result.data.data.email ?? null,
-      avatar: result.data.data.avatar ?? null,
     };
   }
   loading.value = false;
@@ -174,26 +176,18 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.qobuz-account {
+.qobuz-header {
   display: flex;
   align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-02) 0;
-}
-
-.qobuz-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-full);
-  object-fit: cover;
-  flex-shrink: 0;
+  gap: var(--space-04);
 }
 
 .qobuz-account-text {
+  margin-right: auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-01);
-  min-width: 0;
 }
 
 .qobuz-email {
