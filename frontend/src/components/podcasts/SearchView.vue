@@ -1,13 +1,8 @@
 <template>
   <div class="search-view">
-    <!-- Filters -->
-    <div class="filters-bar">
-      <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" variant="background-neutral" icon="search"
-        @update:modelValue="onSearchInput" />
-      <Dropdown v-model="searchFilters.language" :options="languageOptions" variant="background-neutral" />
-      <Dropdown v-model="searchFilters.genre" :options="genreOptions" variant="background-neutral" />
-      <Dropdown v-model="searchFilters.duration" :options="durationOptions" variant="background-neutral" />
-    </div>
+    <!-- Search -->
+    <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" variant="background-neutral"
+      icon="search" @update:modelValue="onSearchInput" />
 
     <!-- Results -->
     <div class="results">
@@ -33,8 +28,9 @@
             {{ t('podcasts.podcastsTitle') }}
           </h2>
           <div class="podcasts-grid">
-            <PodcastCard v-for="podcast in searchResults.podcasts" :key="podcast.uuid" :podcast="podcast"
-              @select="$emit('select-podcast', podcast.uuid)" />
+            <PodcastCard v-for="podcast in searchResults.podcasts" :key="podcast.itunes_id || podcast.uuid"
+              :podcast="podcast" :isLoading="isPodcastLoading(podcast)"
+              @select="$emit('select-podcast', podcast)" />
           </div>
           <div v-if="searchCurrentPage.podcasts < searchPagination.podcasts.pages" class="load-more-container">
             <Button variant="brand" :loading="searchLoadingMore.podcasts" @click="loadMorePodcasts">
@@ -58,7 +54,6 @@
 </template>
 
 <script setup>
-import { watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useDebounce } from '@/composables/useDebounce'
@@ -67,18 +62,29 @@ import { apiCall } from '@/services/apiCall'
 import PodcastCard from './PodcastCard.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Button from '@/components/ui/Button.vue'
-import Dropdown from '@/components/ui/Dropdown.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
+
+const props = defineProps({
+  loadingPodcastId: {
+    type: [String, Number],
+    default: null
+  }
+})
 
 const emit = defineEmits(['select-podcast'])
 const podcastStore = usePodcastStore()
 const { t } = useI18n()
 
+// True while the tapped iTunes search hit is being resolved to a feedId.
+function isPodcastLoading(podcast) {
+  if (!props.loadingPodcastId) return false
+  return podcast.itunes_id === props.loadingPodcastId || podcast.uuid === props.loadingPodcastId
+}
+
 // Get reactive refs from store (persisted across navigation)
 const {
   searchTerm,
   lastSearchTerm,
-  searchFilters,
   searchResults,
   searchPagination,
   searchCurrentPage,
@@ -87,72 +93,12 @@ const {
   searchLoadingMore
 } = storeToRefs(podcastStore)
 
-// Filter options (static constants)
-const languageOptions = [
-  { value: '', label: t('podcasts.languageFilter.all') },
-  { value: 'ENGLISH', label: t('podcasts.languageFilter.english') },
-  { value: 'FRENCH', label: t('podcasts.languageFilter.french') },
-  { value: 'SPANISH', label: t('podcasts.languageFilter.spanish') },
-  { value: 'GERMAN', label: t('podcasts.languageFilter.german') },
-  { value: 'ITALIAN', label: t('podcasts.languageFilter.italian') },
-  { value: 'PORTUGUESE', label: t('podcasts.languageFilter.portuguese') },
-  { value: 'CHINESE', label: t('podcasts.languageFilter.chinese') },
-  { value: 'JAPANESE', label: t('podcasts.languageFilter.japanese') },
-  { value: 'KOREAN', label: t('podcasts.languageFilter.korean') },
-  { value: 'HINDI', label: t('podcasts.languageFilter.hindi') },
-  { value: 'ARABIC', label: t('podcasts.languageFilter.arabic') },
-  { value: 'DUTCH_FLEMISH', label: t('podcasts.languageFilter.dutch') },
-  { value: 'POLISH', label: t('podcasts.languageFilter.polish') },
-  { value: 'RUSSIAN', label: t('podcasts.languageFilter.russian') },
-  { value: 'SWEDISH', label: t('podcasts.languageFilter.swedish') },
-  { value: 'TURKISH', label: t('podcasts.languageFilter.turkish') }
-]
-
-const durationOptions = [
-  { value: '', label: t('podcasts.duration.label') },
-  { value: 'short', label: t('podcasts.duration.short') },
-  { value: 'medium', label: t('podcasts.duration.medium') },
-  { value: 'long', label: t('podcasts.duration.long') }
-]
-
-const genreOptions = [
-  { value: '', label: t('podcasts.genreFilter.all') },
-  { value: 'PODCASTSERIES_ARTS', label: t('podcasts.genres.arts') },
-  { value: 'PODCASTSERIES_BUSINESS', label: t('podcasts.genres.business') },
-  { value: 'PODCASTSERIES_COMEDY', label: t('podcasts.genres.comedy') },
-  { value: 'PODCASTSERIES_EDUCATION', label: t('podcasts.genres.education') },
-  { value: 'PODCASTSERIES_FICTION', label: t('podcasts.genres.fiction') },
-  { value: 'PODCASTSERIES_GOVERNMENT', label: t('podcasts.genres.government') },
-  { value: 'PODCASTSERIES_HEALTH_AND_FITNESS', label: t('podcasts.genres.health_and_fitness') },
-  { value: 'PODCASTSERIES_HISTORY', label: t('podcasts.genres.history') },
-  { value: 'PODCASTSERIES_KIDS_AND_FAMILY', label: t('podcasts.genres.kids_and_family') },
-  { value: 'PODCASTSERIES_LEISURE', label: t('podcasts.genres.leisure') },
-  { value: 'PODCASTSERIES_MUSIC', label: t('podcasts.genres.music') },
-  { value: 'PODCASTSERIES_NEWS', label: t('podcasts.genres.news') },
-  { value: 'PODCASTSERIES_RELIGION_AND_SPIRITUALITY', label: t('podcasts.genres.religion_and_spirituality') },
-  { value: 'PODCASTSERIES_SCIENCE', label: t('podcasts.genres.science') },
-  { value: 'PODCASTSERIES_SOCIETY_AND_CULTURE', label: t('podcasts.genres.society_and_culture') },
-  { value: 'PODCASTSERIES_SPORTS', label: t('podcasts.genres.sports') },
-  { value: 'PODCASTSERIES_TECHNOLOGY', label: t('podcasts.genres.technology') },
-  { value: 'PODCASTSERIES_TRUE_CRIME', label: t('podcasts.genres.true_crime') },
-  { value: 'PODCASTSERIES_TV_AND_FILM', label: t('podcasts.genres.tv_and_film') }
-]
-
 const { debounced: debouncedSearch } = useDebounce(() => performSearch())
-const { debounced: debouncedFilterSearch } = useDebounce(() => performSearch())
-
-// Helper to check if all filters and search term are empty
-function isEmptyState() {
-  return !searchTerm.value &&
-    !searchFilters.value.language &&
-    !searchFilters.value.duration &&
-    !searchFilters.value.genre
-}
 
 // Handle search input with debounce
 function onSearchInput() {
-  // Reset to initial state if everything is empty
-  if (isEmptyState()) {
+  // Reset to initial state when the term is cleared
+  if (!searchTerm.value) {
     hasSearched.value = false
     searchResults.value = { podcasts: [] }
     return
@@ -161,51 +107,12 @@ function onSearchInput() {
   debouncedSearch()
 }
 
-// Watch filters and auto-trigger search when they change
-watch(
-  () => [searchFilters.value.language, searchFilters.value.duration, searchFilters.value.genre],
-  () => {
-    // Reset to initial state if everything is empty
-    if (isEmptyState()) {
-      hasSearched.value = false
-      searchResults.value = { podcasts: [] }
-      return
-    }
-
-    // Auto-search if filters are active
-    debouncedFilterSearch()
-  }
-)
-
-const durationMap = {
-  short: { min: 0, max: 900 },      // 0-15 min
-  medium: { min: 900, max: 2700 },   // 15-45 min
-  long: { min: 2700, max: 999999 }   // 45+ min
-}
-
 function buildSearchParams(page) {
-  const params = new URLSearchParams({
+  return new URLSearchParams({
     term: searchTerm.value,
-    sort_by: 'EXACTNESS',
     limit: '25',
     page: String(page)
   })
-
-  if (searchFilters.value.duration) {
-    const duration = durationMap[searchFilters.value.duration]
-    params.append('duration_min', duration.min.toString())
-    params.append('duration_max', duration.max.toString())
-  }
-
-  if (searchFilters.value.genre) {
-    params.append('genres', searchFilters.value.genre)
-  }
-
-  if (searchFilters.value.language) {
-    params.append('languages', searchFilters.value.language)
-  }
-
-  return params
 }
 
 async function performSearch() {
@@ -252,18 +159,6 @@ async function loadMorePodcasts() {
   gap: var(--space-03);
 }
 
-.filters-bar {
-  display: flex;
-  gap: var(--space-02);
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.filters-bar > :deep(*) {
-  flex: 1;
-  min-width: 180px;
-}
-
 .results {
   display: flex;
   flex-direction: column;
@@ -293,28 +188,6 @@ async function loadMorePodcasts() {
   justify-content: center;
   padding: var(--space-04) 0;
   margin-top: var(--space-02);
-}
-
-/* Mobile: horizontal scroll for filters */
-@media (max-aspect-ratio: 4/3) {
-  .filters-bar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    margin-left: calc(-1 * var(--space-05));
-    margin-right: calc(-1 * var(--space-05));
-    padding-left: var(--space-05);
-    padding-right: var(--space-05);
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .filters-bar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .filters-bar > :deep(*) {
-    flex-shrink: 0;
-  }
 }
 
 </style>

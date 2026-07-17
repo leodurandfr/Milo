@@ -58,9 +58,9 @@
       "play": "播放"
     },
     "radioSource": {
-      "favoritesTitle": "喜爱的广播",
-      "discoverTitle": "发现广播",
-      "searchPlaceholder": "搜索",
+      "favoritesTitle": "喜爱的网络电台",
+      "discoverTitle": "搜索网络电台",
+      "searchPlaceholder": "电台名称",
       "loadingCountries": "正在加载国家...",
       "loadingStations": "正在加载电台...",
       "noInternet": "无网络连接",
@@ -427,7 +427,7 @@
   "podcasts": {
     "podcasts": "播客",
     "subscriptions": "订阅",
-    "search": "搜索",
+    "search": "搜索播客",
     "queue": "播放队列",
     "podcastDetails": "播客详情",
     "episodeDetails": "单集详情",
@@ -458,39 +458,11 @@
       "true_crime": "真实犯罪",
       "tv_and_film": "电视与电影"
     },
-    "searchPlaceholder": "搜索",
+    "searchPlaceholder": "播客或主播名称",
     "podcastsTitle": "播客",
     "noResultsFor": "没有找到\"{query}\"的结果",
     "noResults": "没有找到结果",
     "searchPrompt": "搜索播客",
-    "duration": {
-      "label": "时长",
-      "short": "短 (< 15分钟)",
-      "medium": "中等 (15-45分钟)",
-      "long": "长 (> 45分钟)"
-    },
-    "languageFilter": {
-      "all": "语言",
-      "english": "英语",
-      "french": "法语",
-      "spanish": "西班牙语",
-      "german": "德语",
-      "italian": "意大利语",
-      "portuguese": "葡萄牙语",
-      "chinese": "中文",
-      "japanese": "日语",
-      "korean": "韩语",
-      "hindi": "印地语",
-      "arabic": "阿拉伯语",
-      "dutch": "荷兰语",
-      "polish": "波兰语",
-      "russian": "俄语",
-      "swedish": "瑞典语",
-      "turkish": "土耳其语"
-    },
-    "genreFilter": {
-      "all": "类型"
-    },
     "loadMorePodcasts": "加载更多播客",
     "loadMoreEpisodes": "加载更多单集",
     "newEpisodes": "新单集",

@@ -131,7 +131,7 @@ async def search_podcasts(
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(25, ge=1, le=25)
 ) -> Dict[str, Any]:
-    """Search for podcasts (feeds-only; Podcast Index has no episode search)."""
+    """Search for podcasts (feeds-only; iTunes-backed, resolved to Podcast Index on open)."""
     async with api_error_handler("Error in podcast search", logger):
         empty = {
             "podcasts": [],
@@ -140,16 +140,30 @@ async def search_podcasts(
         if not term:
             return empty
 
+        from backend.dependencies import get_service
+        settings_service = get_service("settings_service")
+        settings = await settings_service.load_settings()
+        milo_language = settings.get('language', 'english')
+        itunes_country = map_milo_language_to_itunes_country(milo_language)
+
         result = await source.podcast_api.search_podcasts(
             term=term,
             page=page,
-            limit=limit
+            limit=limit,
+            country=itunes_country,
         )
 
-        # Enrich podcasts with subscription status
-        subscriptions = await source.podcast_data.get_subscription_uuids()
+        # Enrich with subscription status. iTunes-sourced hits carry uuid=None
+        # (resolved on open), so match on itunes_id — captured at subscribe time.
+        # One read: derive both lookup sets from a single subscriptions fetch.
+        subscriptions = await source.podcast_data.get_subscriptions()
+        subscribed_uuids = {s['uuid'] for s in subscriptions if s.get('uuid')}
+        subscribed_itunes = {s['itunes_id'] for s in subscriptions if s.get('itunes_id')}
         for podcast in result.get('podcasts', []):
-            podcast['is_subscribed'] = podcast.get('uuid') in subscriptions
+            podcast['is_subscribed'] = (
+                podcast.get('uuid') in subscribed_uuids
+                or podcast.get('itunes_id') in subscribed_itunes
+            )
 
         response = {
             "podcasts": result.get('podcasts', []),
@@ -301,7 +315,8 @@ async def add_subscription(
             podcast_uuid=request.uuid,
             name=request.name,
             image_url=request.image_url,
-            children_hash=request.children_hash
+            children_hash=request.children_hash,
+            itunes_id=request.itunes_id
         )
         return {"success": success}
 

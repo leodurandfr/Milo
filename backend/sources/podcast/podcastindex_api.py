@@ -8,8 +8,12 @@ Auth is a SHA-1 of api_key + api_secret + unix_time, recomputed for every
 request (3-minute validity window). The key pair is app-level (embedded in
 backend/config/constants.py) — free and unlimited, no per-user credentials.
 
-Apple Podcasts top charts (exact ordering) still come from the keyless
-iTunes RSS API, which lives here too.
+Apple Podcasts top charts (exact ordering) come from the keyless iTunes RSS
+API, and term search from the keyless iTunes Search API — both live here too.
+Podcast Index's own /search/byterm can't match titles with glued punctuation
+(e.g. "Underscore_" tokenizes whole and is unreachable from "underscore"), so
+search is backed by Apple's better-tokenized index and resolved to a Podcast
+Index feedId lazily on open (same path the charts already use).
 """
 import asyncio
 import hashlib
@@ -21,6 +25,7 @@ import logging
 from math import ceil
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 from backend.shared.decorators import handle_errors
 from backend.shared.network import is_network_error
@@ -83,7 +88,7 @@ class PodcastIndexAPI:
 
     BASE_URL = "https://api.podcastindex.org/api/1.0"
     MAX_CACHE_ENTRIES = 200
-    SEARCH_FETCH_MAX = 100     # feeds fetched per term, sliced into pages client-side
+    ITUNES_SEARCH_MAX = 100    # iTunes Search hits fetched per term, sliced client-side
     EPISODES_FETCH_MAX = 1000  # PI hard max for /episodes/byfeedid
 
     def __init__(self, api_key: str, api_secret: str, cache_duration_minutes: int = 120):
@@ -327,24 +332,28 @@ class PodcastIndexAPI:
         self,
         term: str,
         page: int = 1,
-        limit: int = 25
+        limit: int = 25,
+        country: str = "us",
     ) -> Dict[str, Any]:
         """
-        Search for podcasts by term (feeds-only — Podcast Index has no
-        cross-podcast episode search).
+        Search for podcasts by term (feeds-only — there is no cross-podcast
+        episode search).
 
-        Fetches SEARCH_FETCH_MAX feeds once per term (cached), then slices
-        pages client-side.
+        Backed by the Apple iTunes Search API rather than Podcast Index's own
+        /search/byterm, whose index can't reach titles with glued punctuation
+        (e.g. "Underscore_" from "underscore"). Each hit carries only an
+        itunes_id; the Podcast Index feedId is resolved lazily via
+        lookup_by_itunes_id when the podcast is opened — the same path the
+        iTunes-RSS charts use. Fetches ITUNES_SEARCH_MAX hits once per
+        (country, term) (cached), then slices pages client-side.
         """
         limit = max(1, min(limit, 25))
         page = max(1, page)
 
-        cache_key = f"search_{term}"
+        cache_key = f"search_{country}_{term}"
         data = self._check_cache(self._search_cache, cache_key)
         if data is None:
-            data = await self._make_request(
-                "/search/byterm", {"q": term, "max": self.SEARCH_FETCH_MAX}
-            )
+            data = await self._search_itunes(term, country)
             if data and data.get("_network_error"):
                 return {
                     "podcasts": [],
@@ -355,15 +364,82 @@ class PodcastIndexAPI:
                 return {"podcasts": [], "pagination": {"podcasts": {"total": 0, "pages": 0}}}
             self._set_cache(self._search_cache, cache_key, data)
 
-        feeds = data.get("feeds") or []
+        results = data.get("results") or []
         start = (page - 1) * limit
-        podcasts = [self._normalize_podcast_series(f) for f in feeds[start:start + limit]]
+        podcasts = results[start:start + limit]
 
         return {
             "podcasts": podcasts,
             "pagination": {
-                "podcasts": {"total": len(feeds), "pages": ceil(len(feeds) / limit)}
+                "podcasts": {"total": len(results), "pages": ceil(len(results) / limit)}
             },
+        }
+
+    async def _search_itunes(
+        self, term: str, country: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Query the Apple iTunes Search API for podcasts matching `term`.
+
+        Returns {"results": [...normalized...]} on success (possibly empty),
+        {"_network_error": True} on a network failure, or None on any other
+        error — mirroring the sentinels search_podcasts already handles.
+        """
+        await self._ensure_session()
+        url = "https://itunes.apple.com/search?" + urlencode({
+            "term": term,
+            "media": "podcast",
+            "entity": "podcast",
+            "limit": self.ITUNES_SEARCH_MAX,
+            "country": country,
+        })
+        try:
+            async with self.session.get(
+                url, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 200:
+                    self.logger.error(f"iTunes Search error: HTTP {resp.status}")
+                    return None
+
+                # iTunes returns text/javascript instead of application/json
+                text = await resp.text()
+                import json as json_module
+                data = json_module.loads(text)
+                results = [
+                    self._normalize_itunes_search(r)
+                    for r in (data.get("results") or [])
+                    if r.get("collectionId")
+                ]
+                return {"results": results}
+
+        except Exception as e:
+            if is_network_error(e):
+                self.logger.error(f"Network error searching iTunes: {e}")
+                return {"_network_error": True}
+            self.logger.error(f"Error searching iTunes: {e}")
+            return None
+
+    def _normalize_itunes_search(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize an iTunes Search API podcast result to Milō keys.
+
+        Same shape as the iTunes-RSS charts entries (uuid=None until resolved
+        from itunes_id on open) so search results and charts render and open
+        through one path.
+        """
+        image_url = result.get("artworkUrl600") or result.get("artworkUrl100") or ""
+        if "100x100bb" in image_url:
+            image_url = image_url.replace("100x100bb", "600x600bb")
+        artist = result.get("artistName") or ""
+        return {
+            "itunes_id": str(result.get("collectionId")),
+            "uuid": None,
+            "name": result.get("collectionName") or "Unknown Podcast",
+            "artist": artist,
+            "publisher": artist,
+            "image_url": image_url,
+            "total_episodes": result.get("trackCount") or 0,
+            "source": "itunes_search",
         }
 
     # ========== CONTENT ==========

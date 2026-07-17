@@ -104,6 +104,7 @@ async function handleSubscribe() {
     name: podcast.value.name || '',
     image_url: podcast.value.image_url || '',
     children_hash: podcast.value.children_hash || '',
+    itunes_id: podcast.value.itunes_id ?? null,
   }, {
     category: 'podcast',
     message: 'Error subscribing',
@@ -114,6 +115,7 @@ async function handleSubscribe() {
     uuid: props.uuid,
     name: podcast.value.name || '',
     image_url: podcast.value.image_url || '',
+    itunes_id: podcast.value.itunes_id ?? null,
   })
 }
 

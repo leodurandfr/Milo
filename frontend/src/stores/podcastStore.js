@@ -40,11 +40,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   // Persisted across navigation within Podcasts module
   const searchTerm = ref('');
   const lastSearchTerm = ref('');
-  const searchFilters = ref({
-    language: '',
-    duration: '',
-    genre: ''
-  });
   const searchResults = ref({
     podcasts: []
   });
@@ -417,7 +412,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   function clearSearch() {
     searchTerm.value = '';
     lastSearchTerm.value = '';
-    searchFilters.value = { language: '', duration: '', genre: '' };
     searchResults.value = { podcasts: [] };
     searchPagination.value = {
       podcasts: { total: 0, pages: 0 }
@@ -457,7 +451,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Search state
     searchTerm,
     lastSearchTerm,
-    searchFilters,
     searchResults,
     searchPagination,
     searchCurrentPage,

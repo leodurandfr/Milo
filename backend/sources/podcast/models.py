@@ -23,6 +23,9 @@ class SubscribeRequest(BaseModel):
     name: str
     image_url: str
     children_hash: Optional[str] = ""
+    # Apple podcast ID (== Podcast Index feed.itunesId). Stored so iTunes-sourced
+    # search results (which carry only an itunes_id) can be flagged as subscribed.
+    itunes_id: Optional[int] = None
 
 
 class SettingsRequest(BaseModel):
