@@ -296,6 +296,15 @@
     "apply": "Apply & Restart",
     "restarting": "Restarting..."
   },
+  "qobuzSettings": {
+    "accountTitle": "Account",
+    "loading": "Checking status…",
+    "connected": "Connected",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "notConnectedTitle": "Not connected",
+    "notConnectedDetails": "Sign in to your Qobuz account to stream to Milō from the Qobuz app. A browser window opens for you to sign in; return here once it's done."
+  },
   "multiroomSettings": {
     "presets": "Presets",
     "responsive": "Responsive",
