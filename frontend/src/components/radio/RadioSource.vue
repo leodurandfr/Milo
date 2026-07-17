@@ -30,9 +30,11 @@
         :subtitle="playerSubtitle" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
         <!-- Track info: 3-line layout when Shazam recognized a track -->
         <template v-if="radioStore.trackInfo" #info>
-          <!-- Desktop: 3-line layout -->
-          <p class="player-title heading-1 radio-track--desktop">{{ radioStore.trackInfo.title }}</p>
-          <p class="player-subtitle heading-3 radio-track--desktop">{{ radioStore.trackInfo.artist }}</p>
+          <!-- Desktop: 3-line layout — title + artist grouped tighter than the station line -->
+          <div class="radio-track-group radio-track--desktop">
+            <p class="player-title heading-1">{{ radioStore.trackInfo.title }}</p>
+            <p class="player-subtitle heading-3">{{ radioStore.trackInfo.artist }}</p>
+          </div>
           <p class="player-subtitle text-mono radio-track--desktop">{{ displayStation?.name }}</p>
           <!-- Mobile: 2-line compact layout -->
           <p class="player-title heading-4 radio-track--mobile">{{ radioStore.trackInfo.title }} · {{ radioStore.trackInfo.artist }}</p>
@@ -298,6 +300,13 @@ async function loadAvailableCountries() {
 /* Track info: mobile/desktop responsive variants */
 .radio-track--mobile {
   display: none;
+}
+
+/* Group title + artist with a tighter gap than player-info's own spacing */
+.radio-track-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
 }
 
 @media (max-aspect-ratio: 4/3) {
