@@ -50,6 +50,7 @@
     "multiroom": "Multiroom",
     "cd": "CD-Player",
     "dlna": "DLNA",
+    "qobuz": "Qobuz",
     "cdSource": {
       "unknownAlbum": "Unbekanntes Album",
       "unknownArtist": "Unbekannter Künstler",
