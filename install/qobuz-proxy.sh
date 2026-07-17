@@ -64,10 +64,7 @@ qobuz:
   max_quality: auto        # auto | 5=MP3 | 6=CD | 7=HiRes96 | 27=HiRes192
 
 device:
-  name: "Milō"             # display name in the Qobuz app. NOTE: qobuz-proxy hard-couples
-                           # speaker id = slugify(name), so this yields id "mil" (the
-                           # non-ASCII ō is dropped). That is intentional — the backend
-                           # monitor matches the speaker by audio_device, not by id.
+  name: "Milō"             # name shown in the Qobuz mobile app
 
 backend:
   type: "local"
