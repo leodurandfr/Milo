@@ -396,6 +396,16 @@ class RadioSettingsChanged(SettingsEvent):
     config: RadioSettingsConfig
 
 
+class QobuzSettingsConfig(BaseModel):
+    allow_app_volume: bool
+
+
+class QobuzSettingsChanged(SettingsEvent):
+    """App.vue settings listener (Qobuz 'allow app volume' toggle sync)."""
+    TYPE = "qobuz_settings_changed"
+    config: QobuzSettingsConfig
+
+
 class BtRemoteConfig(BaseModel):
     enabled: bool
     device_name_filter: str

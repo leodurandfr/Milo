@@ -376,6 +376,11 @@ class RadioSettingsRequest(BaseModel):
     shazam_enabled: bool
 
 
+class QobuzSettingsRequest(BaseModel):
+    """Qobuz settings request"""
+    allow_app_volume: bool
+
+
 # =============================================================================
 # HARDWARE CONFIGURATION
 # =============================================================================

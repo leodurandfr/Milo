@@ -12,9 +12,16 @@ no binary artwork route (unlike AirPlay/DLNA).
 """
 from typing import Any, Dict, Optional
 
+from backend.config.constants import MILO_DATA_DIR
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.qobuz.monitor import QobuzMonitor
+
+# One-byte volume-policy flag the patched qobuz-proxy stream reads
+# ($QOBUZPROXY_DATA_DIR/allow_app_volume): "1" → honor the Qobuz app's volume
+# slider, anything else → stay at unity (CamillaDSP owns volume). Written here
+# from the qobuz.allow_app_volume setting; the sidecar's data dir is D3.
+QOBUZ_VOLUME_FLAG = MILO_DATA_DIR / "qobuz" / "allow_app_volume"
 
 # qobuz-proxy local HTTP API (aiohttp, bound 0.0.0.0:8689 by milo-qobuz.service).
 QOBUZ_STATUS_URL = "http://127.0.0.1:8689/api/status"
@@ -74,6 +81,10 @@ class QobuzSource(BaseAudioSource):
     async def _do_start(self) -> bool:
         """Start the qobuz-proxy service and the /api/status poll monitor."""
         try:
+            # Put the volume-policy flag in place before the sidecar starts so its
+            # first volume command reads the right value.
+            await self._sync_volume_flag()
+
             if not await self._start_service_and_wait():
                 return False
 
@@ -97,6 +108,43 @@ class QobuzSource(BaseAudioSource):
     # Family B: playback is controlled from the Qobuz app; qobuz-proxy exposes no
     # local control channel — command() rejects every command as unknown.
     COMMANDS = {}
+
+    # ------------------------------------------------------------------
+    # Volume policy (allow the mobile app to control volume, or pin unity)
+    # ------------------------------------------------------------------
+
+    def _write_volume_flag(self, allowed: bool) -> None:
+        """Write the one-byte flag the patched qobuz-proxy stream reads.
+
+        "1" → honor the Qobuz app slider, "0" → stay at unity (CamillaDSP owns
+        volume). Best-effort: a write failure leaves the sidecar at its safe
+        default (unity), so log and carry on rather than failing the source.
+        """
+        try:
+            QOBUZ_VOLUME_FLAG.write_text("1" if allowed else "0")
+        except OSError as e:
+            self._logger.warning(f"Could not write Qobuz volume-policy flag: {e}")
+
+    async def _sync_volume_flag(self) -> None:
+        """Refresh the flag from the persisted qobuz.allow_app_volume setting."""
+        allowed = False
+        if self._settings_service:
+            qobuz = await self._settings_service.get_setting("qobuz") or {}
+            allowed = bool(qobuz.get("allow_app_volume", False))
+        self._write_volume_flag(allowed)
+
+    async def on_allow_app_volume_changed(self, allowed: bool) -> bool:
+        """Apply the 'allow app volume' toggle (settings reload_callback).
+
+        The running stream re-reads the flag on the next app volume command, so
+        unlocking is honored live. Locking must reset an already-lowered stream to
+        unity immediately, which only a restart forces — bounce the sidecar when
+        it is running.
+        """
+        self._write_volume_flag(allowed)
+        if not allowed and await self._is_service_active():
+            return await self._restart_service_and_wait()
+        return True
 
     async def _on_status(self, speaker: Optional[Dict[str, Any]]) -> None:
         """Map a qobuz-proxy speaker snapshot into connection/playback state.

@@ -644,6 +644,11 @@ onMounted(async () => {
         settingsStore.updateRadioSettings(event.data.config);
       }
     }),
+    on('settings', 'qobuz_settings_changed', (event) => {
+      if (event.data?.config) {
+        settingsStore.updateQobuzSettings(event.data.config);
+      }
+    }),
     on('settings', 'mac_roc_changed', (event) => {
       if (event.data?.config) {
         settingsStore.updateMacRocSettings(event.data.config);

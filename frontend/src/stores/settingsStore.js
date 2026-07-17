@@ -65,6 +65,13 @@ export const useSettingsStore = defineStore('settings', () => {
     shazam_enabled: true
   });
 
+  // === QOBUZ ===
+  // allow_app_volume=false → qobuz-proxy stays at unity (CamillaDSP owns volume),
+  // the Qobuz app slider is inert; true → the app slider controls qobuz volume.
+  const qobuzSettings = ref({
+    allow_app_volume: false
+  });
+
   // === MAC ROC ===
   const macRocSettings = ref({
     target_latency_ms: 50,
@@ -217,6 +224,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
         setIfChanged(radioSettings, {
           shazam_enabled: d.radio_settings?.shazam_enabled ?? true
+        });
+
+        setIfChanged(qobuzSettings, {
+          allow_app_volume: d.qobuz_settings?.allow_app_volume ?? false
         });
 
         setIfChanged(macRocSettings, {
@@ -482,6 +493,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
   const updateRadioSettings = makeUpdater(radioSettings);
+  const updateQobuzSettings = makeUpdater(qobuzSettings);
   const updateMacRocSettings = makeUpdater(macRocSettings);
 
   /**
@@ -521,6 +533,7 @@ export const useSettingsStore = defineStore('settings', () => {
     sourceOrder,
     audioPlayback,
     radioSettings,
+    qobuzSettings,
     macRocSettings,
     btRemote,
     irRemote,
@@ -544,6 +557,7 @@ export const useSettingsStore = defineStore('settings', () => {
     buildEnabledAppsArray,
     updateAudioPlayback,
     updateRadioSettings,
+    updateQobuzSettings,
     updateMacRocSettings,
     updateBtRemoteConfig,
     updateBtRemoteStatus,

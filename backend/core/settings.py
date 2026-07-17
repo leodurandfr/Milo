@@ -74,6 +74,12 @@ class SettingsService:
             "radio": {
                 "shazam_enabled": True
             },
+            "qobuz": {
+                # False → the local qobuz-proxy backend stays at unity gain and the
+                # Qobuz app's volume slider is inert (CamillaDSP owns volume). True →
+                # the app slider controls qobuz-proxy's software volume.
+                "allow_app_volume": False
+            },
             "wifi": {
                 "country": ""
             },
@@ -253,6 +259,12 @@ class SettingsService:
         radio_input = settings.get('radio', {})
         validated['radio'] = {
             'shazam_enabled': bool(radio_input.get('shazam_enabled', True))
+        }
+
+        # Qobuz settings
+        qobuz_input = settings.get('qobuz', {})
+        validated['qobuz'] = {
+            'allow_app_volume': bool(qobuz_input.get('allow_app_volume', False))
         }
 
         # WiFi regulatory domain

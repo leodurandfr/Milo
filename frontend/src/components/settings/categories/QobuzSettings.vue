@@ -40,21 +40,44 @@
         </Button>
       </template>
     </SettingsSection>
+
+    <!-- Allow the Qobuz mobile app to control volume. Off (default) keeps
+         qobuz-proxy at unity so CamillaDSP is the only volume authority. -->
+    <ToggleSection
+      :title="t('qobuzSettings.appVolumeTitle')"
+      :description="t('qobuzSettings.appVolumeDescription')"
+      :enabled="allowAppVolume"
+      @change="handleAppVolumeToggle"
+    />
   </SettingsContainer>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
 import { useTimer } from '@/composables/useTimer';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();
 const timer = useTimer();
+const settingsStore = useSettingsStore();
+const { updateSetting } = useSettingsAPI();
+
+// Whether the Qobuz app may change the volume (else qobuz-proxy stays at unity
+// and CamillaDSP owns the volume). Mirrors settingsStore, fed by WS + bulk load.
+const allowAppVolume = computed(() => settingsStore.qobuzSettings.allow_app_volume);
+
+async function handleAppVolumeToggle(enabled) {
+  settingsStore.updateQobuzSettings({ allow_app_volume: enabled });
+  await updateSetting('qobuz-settings', { allow_app_volume: enabled });
+}
 
 const account = ref({ authenticated: false, name: null, email: null, avatar: null });
 const loading = ref(true);

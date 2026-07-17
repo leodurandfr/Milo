@@ -42,7 +42,7 @@ install_qobuz_proxy() {
     sudo "$MILO_DATA_DIR/qobuz/venv/bin/pip" install \
         "qobuz-proxy[local] @ git+https://github.com/leolobato/qobuz-proxy@v${QOBUZ_PROXY_VERSION}"
 
-    pin_qobuz_proxy_unity_volume
+    wire_qobuz_proxy_volume_policy
     configure_qobuz_proxy
 
     # Own the whole tree (venv + config + future credentials.json) as milo:audio
@@ -52,15 +52,19 @@ install_qobuz_proxy() {
     log_success "qobuz-proxy installed"
 }
 
-# Pin qobuz-proxy's local (PortAudio) backend to unity gain. CamillaDSP is the
-# single volume authority in Milō's audio path — exactly the role external_volume
-# plays for go-librespot and ignore_volume_control for shairport-sync. qobuz-proxy
-# has no config knob for this on the local backend (fixed_volume is DLNA-only) and
-# its output stream even defaults to 50%, so the Qobuz app's slider would attenuate
-# (and lose bits) before CamillaDSP. We edit the two spots in the vendored stream
-# that set the software gain so it is always 1.0. Version-pinned (QOBUZ_PROXY_VERSION):
-# the edit fails loudly if the anchors move on an upgrade, forcing a conscious re-check.
-pin_qobuz_proxy_unity_volume() {
+# Make qobuz-proxy's local (PortAudio) backend default to unity gain and honor the
+# Qobuz app's volume slider only when Milō says so. CamillaDSP is the volume
+# authority in Milō's audio path — exactly the role external_volume plays for
+# go-librespot and ignore_volume_control for shairport-sync — so by default the
+# app slider must not attenuate (and lose bits) before CamillaDSP. qobuz-proxy has
+# no config knob for this on the local backend (fixed_volume is DLNA-only) and its
+# stream even defaults to 50%. We edit the two spots in the vendored stream that
+# set the software gain: the __init__ default becomes unity, and set_volume() reads
+# a one-byte flag file ($QOBUZPROXY_DATA_DIR/allow_app_volume, written by the
+# backend from the "allow app volume" setting) — '1' honors the slider, anything
+# else stays at unity. Version-pinned (QOBUZ_PROXY_VERSION): the edit fails loudly
+# if the anchors move on an upgrade, forcing a conscious re-check.
+wire_qobuz_proxy_volume_policy() {
     sudo "$MILO_DATA_DIR/qobuz/venv/bin/python" - << 'PY'
 import io
 from qobuz_proxy.backends.local import stream as m
@@ -68,13 +72,25 @@ from qobuz_proxy.backends.local import stream as m
 path = m.__file__
 src = io.open(path, encoding="utf-8").read()
 
+set_volume_body = (
+    "        # Milo: CamillaDSP owns volume. Honor the Qobuz app slider only when\n"
+    "        # Milo's \"allow app volume\" setting wrote a '1' flag; otherwise stay at\n"
+    "        # unity so nothing attenuates before CamillaDSP.\n"
+    "        import os as _os\n"
+    "        _flag = _os.path.join(_os.environ.get(\"QOBUZPROXY_DATA_DIR\", \".\"), \"allow_app_volume\")\n"
+    "        try:\n"
+    "            _allow = open(_flag).read().strip() == \"1\"\n"
+    "        except OSError:\n"
+    "            _allow = False\n"
+    "        self._volume = max(0.0, min(1.0, level / 100.0)) if _allow else 1.0"
+)
+
 edits = [
-    # __init__ default gain (0.0-1.0 float)
+    # __init__ default gain (0.0-1.0 float) → unity
     ("        self._volume: float = 0.5  # 0.0 to 1.0",
-     "        self._volume: float = 1.0  # Milo: pinned to unity, CamillaDSP owns volume"),
-    # set_volume() body: ignore the app slider, stay at unity
-    ("        self._volume = max(0.0, min(1.0, level / 100.0))",
-     "        self._volume = 1.0  # Milo: ignore the Qobuz app slider, CamillaDSP owns volume"),
+     "        self._volume: float = 1.0  # Milo: default to unity; policy applied in set_volume"),
+    # set_volume() body → flag-gated: app slider honored only when allowed
+    ("        self._volume = max(0.0, min(1.0, level / 100.0))", set_volume_body),
 ]
 
 for old, new in edits:
@@ -82,13 +98,13 @@ for old, new in edits:
         continue  # already applied (idempotent re-install)
     if old not in src:
         raise SystemExit(
-            f"qobuz-proxy unity-volume pin: anchor not found in {path!r}:\n  {old!r}\n"
-            "Upstream stream.py changed (version bump?) — re-verify the pin."
+            f"qobuz-proxy volume-policy wiring: anchor not found in {path!r}:\n  {old!r}\n"
+            "Upstream stream.py changed (version bump?) — re-verify the edit."
         )
     src = src.replace(old, new, 1)
 
 io.open(path, "w", encoding="utf-8").write(src)
-print("qobuz-proxy: local backend pinned to unity volume")
+print("qobuz-proxy: local backend volume policy wired (unity default, flag-gated slider)")
 PY
 }
 
