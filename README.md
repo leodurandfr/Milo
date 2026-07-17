@@ -6,7 +6,7 @@
 
 > ⚠ Currently in work in progress — Available soon
 
-### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, DLNA, and Mac streaming.
+### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Qobuz Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, DLNA, and Mac streaming.
 
 <!-- TODO: Add screenshot or GIF of the interface -->
 <!-- ![Milō Interface](docs/assets/screenshot.png) -->
@@ -17,6 +17,10 @@
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/spotify.png" width="48"></td>
     <td><b>Spotify</b><br>Spotify Connect receiver with artwork and full playback control</td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/qobuz.png" width="48"></td>
+    <td><b>Qobuz</b><br>Qobuz Connect receiver with lossless audio and rich metadata</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/radio.png" width="48"></td>
@@ -113,6 +117,7 @@ After setup:
 
 - **Web interface** → http://milo.local
 - **Spotify** → Select "Milō" in Spotify app
+- **Qobuz** → Select "Milo" in the Qobuz app (requires a one-time login in Milō's settings)
 - **AirPlay** → Select "Milō" in your iPhone/iPad/Mac AirPlay outputs
 - **Bluetooth** → Connect to "Milō · Bluetooth"
 - **DLNA** → Select "Milo" as the renderer in any UPnP/DLNA controller app
@@ -187,7 +192,7 @@ Control Milō from your other devices:
   </tr>
   <tr>
     <td><b>Audio</b></td>
-    <td>ALSA, CamillaDSP, Snapcast, mpv, go-librespot, shairport-sync, bluez-alsa, ROC</td>
+    <td>ALSA, CamillaDSP, Snapcast, mpv, go-librespot, qobuz-proxy, shairport-sync, bluez-alsa, ROC</td>
   </tr>
   <tr>
     <td><b>Platform</b></td>
