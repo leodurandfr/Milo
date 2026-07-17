@@ -47,7 +47,7 @@
           <RangeSlider
             v-model="config.target_temp_c"
             :min="55"
-            :max="80"
+            :max="76"
             :step="1"
             value-unit="°C"
             @change="onTargetChange"

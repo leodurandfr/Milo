@@ -138,7 +138,7 @@ class FanConfigRequest(BaseModel):
     enabled: bool = Field(..., description="Fan on; off = fan stopped (0%)")
     mode: Literal['auto', 'manual', 'target'] = Field(default='auto')
     manual_percent: int = Field(..., ge=0, le=100, description="Speed for manual mode")
-    target_temp_c: int = Field(..., ge=55, le=80, description="Setpoint for target mode in °C")
+    target_temp_c: int = Field(..., ge=55, le=76, description="Setpoint for target mode in °C")
     curve: List[FanCurvePoint] = Field(..., min_length=2, description="Auto-mode curve")
 
     @model_validator(mode='after')
