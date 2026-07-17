@@ -166,5 +166,3 @@ CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `
 - [docs/architecture.md](docs/architecture.md) — technologies, audio routing, persistence inventory, systemd, security.
 - [docs/development.md](docs/development.md) — setup, adding a source (full), testing, debugging, lint history, dev-vs-prod detail.
 - [README.md](README.md) — install + hardware.
-
-**Vendored upstream docs:** to verify a bundled binary's behavior (API shape, config, events), read `docs/vendor/<tool>/` (pinned to the shipped version) instead of guessing. Currently [go-librespot](docs/vendor/go-librespot/VENDOR.md) — Spotify Connect REST+WS contract + config schema.

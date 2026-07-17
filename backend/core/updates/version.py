@@ -50,9 +50,9 @@ class VersionService:
                 # here to stop the update flow ever offering an upstream release
                 # above X.Y.Z (clamp logic lives in get_latest_github_version).
                 # Intentionally NOT set since 2026-05-25 so the UI surfaces
-                # go-librespot 0.7.3 (which carries the upstream SIGTERM-hang fix;
-                # see docs/vendor/go-librespot/VENDOR.md). Re-arm by re-adding the
-                # key with the last validated version.
+                # go-librespot 0.7.3 (which carries the upstream SIGTERM-hang
+                # fix). Re-arm by re-adding the key with the last validated
+                # version.
             },
             "shairport-sync": {
                 "name": "AirPlay",
