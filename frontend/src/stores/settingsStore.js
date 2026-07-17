@@ -53,17 +53,6 @@ export const useSettingsStore = defineStore('settings', () => {
   // Ordered list of all audio sources (both enabled and disabled)
   const sourceOrder = ref([...ALL_AUDIO_SOURCES]);
 
-  // === PODCAST ===
-  const podcastCredentials = ref({
-    taddy_user_id: '',
-    taddy_api_key: ''
-  });
-
-  // Podcast credentials status (checked at startup)
-  const podcastCredentialsStatus = ref('unknown'); // 'unknown', 'valid', 'missing', 'invalid', 'rate_limited', 'error'
-  const podcastApiUsage = ref(null); // requests_used (null if no valid credentials)
-  const podcastCredentialsValidatedAt = ref(null); // Unix timestamp when credentials were validated
-
   // === AUDIO PLAYBACK ===
   // Global behavior applied to every eligible audio source:
   // - auto_stop_delay: stop a paused (or silent) source after N seconds (0 = disabled)
@@ -145,8 +134,8 @@ export const useSettingsStore = defineStore('settings', () => {
   /**
    * Assign a config ref only when its content actually changed. loadAllSettings
    * re-runs on every reconnect/tab-visible resync; a fresh object with identical
-   * values would retrigger watchers (e.g. PodcastSettings syncs its local input
-   * fields from the store and would clobber in-flight edits).
+   * values would retrigger watchers (e.g. DockSettings watches sourceOrder and a
+   * same-content reassign would reset an in-progress dock reorder).
    */
   function setIfChanged(target, value) {
     if (JSON.stringify(target.value) !== JSON.stringify(value)) {
@@ -197,11 +186,6 @@ export const useSettingsStore = defineStore('settings', () => {
           setIfChanged(dockApps, buildDockAppsMap(enabledApps));
           syncSourceOrder(enabledApps);
         }
-
-        setIfChanged(podcastCredentials, {
-          taddy_user_id: d.podcast_credentials?.taddy_user_id ?? '',
-          taddy_api_key: d.podcast_credentials?.taddy_api_key ?? ''
-        });
 
         setIfChanged(audioPlayback, {
           auto_stop_delay: d.audio_stop?.auto_stop_delay ?? 120.0
@@ -300,22 +284,6 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   const updateAudioPlayback = makeUpdater(audioPlayback);
-  const updatePodcastCredentials = makeUpdater(podcastCredentials);
-
-  /**
-   * Refresh podcast credentials status (after validation/save)
-   */
-  async function refreshPodcastCredentialsStatus() {
-    const result = await apiCall.get('/api/settings/podcast-credentials/status', {
-      category: 'settings',
-      message: 'Error refreshing podcast credentials status',
-    });
-    if (result.ok) {
-      podcastCredentialsStatus.value = result.data.status ?? 'error';
-      podcastApiUsage.value = result.data.requests_used ?? null;
-      podcastCredentialsValidatedAt.value = result.data.credentials_validated_at ?? null;
-    }
-  }
 
   // === BT REMOTE ACTIONS ===
 
@@ -552,10 +520,6 @@ export const useSettingsStore = defineStore('settings', () => {
     dockApps,
     sourceOrder,
     audioPlayback,
-    podcastCredentials,
-    podcastCredentialsStatus,
-    podcastApiUsage,
-    podcastCredentialsValidatedAt,
     radioSettings,
     macRocSettings,
     btRemote,
@@ -579,8 +543,6 @@ export const useSettingsStore = defineStore('settings', () => {
     updateSourceOrder,
     buildEnabledAppsArray,
     updateAudioPlayback,
-    updatePodcastCredentials,
-    refreshPodcastCredentialsStatus,
     updateRadioSettings,
     updateMacRocSettings,
     updateBtRemoteConfig,

@@ -32,8 +32,8 @@ export const usePodcastStore = defineStore('podcast', () => {
       (a.name || '').localeCompare(b.name || '')
     );
   });
-  const subscriptionsListLoaded = ref(false); // True when subscriptions list is loaded (no Taddy call)
-  const subscriptionsLoaded = ref(false); // True when latest episodes are also loaded (with Taddy call)
+  const subscriptionsListLoaded = ref(false); // True when subscriptions list is loaded (no discovery API call)
+  const subscriptionsLoaded = ref(false); // True when latest episodes are also loaded (with discovery API call)
   const subscriptionsFullLoading = ref(false); // Guard against concurrent loadSubscriptions calls
 
   // === SEARCH STATE ===
@@ -46,22 +46,18 @@ export const usePodcastStore = defineStore('podcast', () => {
     genre: ''
   });
   const searchResults = ref({
-    podcasts: [],
-    episodes: []
+    podcasts: []
   });
   const searchPagination = ref({
-    podcasts: { total: 0, pages: 0 },
-    episodes: { total: 0, pages: 0 }
+    podcasts: { total: 0, pages: 0 }
   });
   const searchCurrentPage = ref({
-    podcasts: 1,
-    episodes: 1
+    podcasts: 1
   });
   const hasSearched = ref(false);
   const searchLoading = ref(false);
   const searchLoadingMore = ref({
-    podcasts: false,
-    episodes: false
+    podcasts: false
   });
 
   // === NETWORK STATE ===
@@ -297,13 +293,13 @@ export const usePodcastStore = defineStore('podcast', () => {
     return map;
   }
 
-  // Preload subscriptions list only (no Taddy API call)
+  // Preload subscriptions list only (no discovery API call)
   // Called at app startup for instant hasSubscriptions check
   //
   // force=true refetches even when already loaded (reconnect/tab-visible
   // resync — favorite_* WS deltas may have been missed) and invalidates the
   // latest-episodes cache so the next HomeView open refetches with fresh
-  // subscription and progress state (lazy: no Taddy call during the resync).
+  // subscription and progress state (lazy: no discovery API call during the resync).
   async function preloadSubscriptionsList({ force = false } = {}) {
     if (subscriptionsListLoaded.value && !force) return;
     const result = await apiCall.get('/api/podcast/subscriptions', {
@@ -321,7 +317,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     }
   }
 
-  // Full load - fetches subscriptions list + latest episodes (Taddy API call)
+  // Full load - fetches subscriptions list + latest episodes (discovery API call)
   // Called when HomeView opens
   async function loadSubscriptions(forceRefresh = false) {
     // Return cached data if fully loaded and not forcing refresh
@@ -350,7 +346,7 @@ export const usePodcastStore = defineStore('podcast', () => {
         subscriptionsListLoaded.value = true;
       }
 
-      // Fetch latest episodes (Taddy API call) if user has subscriptions
+      // Fetch latest episodes (discovery API call) if user has subscriptions
       if (subscriptions.value.size > 0) {
         const epResult = await apiCall.get(
           '/api/podcast/subscriptions/latest-episodes',
@@ -398,50 +394,38 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === SEARCH ACTIONS ===
 
-  function setSearchResults(podcasts, episodes, pagination) {
+  function setSearchResults(podcasts, pagination) {
     searchResults.value = {
-      podcasts: podcasts || [],
-      episodes: enrichEpisodesWithProgress(episodes || [])
+      podcasts: podcasts || []
     };
     searchPagination.value = pagination || {
-      podcasts: { total: 0, pages: 0 },
-      episodes: { total: 0, pages: 0 }
+      podcasts: { total: 0, pages: 0 }
     };
-    searchCurrentPage.value = { podcasts: 1, episodes: 1 };
+    searchCurrentPage.value = { podcasts: 1 };
     hasSearched.value = true;
     lastSearchTerm.value = searchTerm.value;
   }
 
-  function appendSearchResults(type, items) {
-    if (type === 'podcasts') {
-      searchResults.value.podcasts = [
-        ...searchResults.value.podcasts,
-        ...items
-      ];
-      searchCurrentPage.value.podcasts++;
-    } else if (type === 'episodes') {
-      const enrichedItems = enrichEpisodesWithProgress(items);
-      searchResults.value.episodes = [
-        ...searchResults.value.episodes,
-        ...enrichedItems
-      ];
-      searchCurrentPage.value.episodes++;
-    }
+  function appendSearchResults(items) {
+    searchResults.value.podcasts = [
+      ...searchResults.value.podcasts,
+      ...items
+    ];
+    searchCurrentPage.value.podcasts++;
   }
 
   function clearSearch() {
     searchTerm.value = '';
     lastSearchTerm.value = '';
     searchFilters.value = { language: '', duration: '', genre: '' };
-    searchResults.value = { podcasts: [], episodes: [] };
+    searchResults.value = { podcasts: [] };
     searchPagination.value = {
-      podcasts: { total: 0, pages: 0 },
-      episodes: { total: 0, pages: 0 }
+      podcasts: { total: 0, pages: 0 }
     };
-    searchCurrentPage.value = { podcasts: 1, episodes: 1 };
+    searchCurrentPage.value = { podcasts: 1 };
     hasSearched.value = false;
     searchLoading.value = false;
-    searchLoadingMore.value = { podcasts: false, episodes: false };
+    searchLoadingMore.value = { podcasts: false };
   }
 
   // Clear display metadata after fade-out animation completes

@@ -295,20 +295,6 @@
     "apply": "Appliquer & Redémarrer",
     "restarting": "Redémarrage..."
   },
-  "podcastSettings": {
-    "taddyCredentials": "Identifiants API Taddy",
-    "credentialsDescription": "Configurez vos identifiants Taddy API pour accéder au contenu podcast. Obtenez vos identifiants sur https://taddy.org/signup/developers",
-    "userId": "User ID",
-    "userIdPlaceholder": "Entrez votre User ID Taddy",
-    "apiKey": "API Key",
-    "apiKeyPlaceholder": "Entrez votre API Key Taddy",
-    "validateButton": "Tester la connexion",
-    "invalidCredentials": "Vos identifiants Taddy API ne sont pas valides",
-    "apiUsage": "Utilisation de Taddy API",
-    "requestsPerMonth": "requêtes",
-    "resetsMonthly": "Limitations API réinitialisé tous les mois",
-    "resetsOn": "Limitations réinitialisées le {day} {month}"
-  },
   "multiroomSettings": {
     "presets": "Pré-réglages",
     "responsive": "Réactivité",
@@ -475,10 +461,9 @@
     },
     "searchPlaceholder": "Rechercher",
     "podcastsTitle": "Podcasts",
-    "recentEpisodesTitle": "Épisodes des deux dernières semaines",
     "noResultsFor": "Aucun résultat pour \"{query}\"",
     "noResults": "Aucun résultat trouvé",
-    "searchPrompt": "Recherchez des podcasts ou épisodes",
+    "searchPrompt": "Recherchez des podcasts",
     "duration": {
       "label": "Durée",
       "short": "Court (< 15 min)",
@@ -532,12 +517,7 @@
     "alreadyListened": "Déjà écouté",
     "today": "Aujourd'hui",
     "yesterday": "Hier",
-    "unsubscribe": "Se désabonner",
-    "credentialsError": "Identifiants Taddy API requis",
-    "credentialsErrorHint": "Configurez vos identifiants pour accéder aux podcasts",
-    "configureButton": "Configurer",
-    "rateLimitError": "Limite API atteinte",
-    "rateLimitErrorHint": "Vous avez atteint la limite de 500 requêtes Taddy API. La limite se réinitialise automatiquement chaque mois à la date de votre première utilisation."
+    "unsubscribe": "Se désabonner"
   },
   "setup": {
     "stepLabel": "Étape {n}",
