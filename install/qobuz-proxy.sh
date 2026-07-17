@@ -64,7 +64,9 @@ qobuz:
   max_quality: auto        # auto | 5=MP3 | 6=CD | 7=HiRes96 | 27=HiRes192
 
 device:
-  name: "Milō"             # name shown in the Qobuz mobile app
+  name: "Milo"             # ASCII on purpose: the speaker id = slugify(name),
+                           # and "Milō" slugifies to "mil" (non-ASCII ō dropped).
+                           # "Milo" → id "milo". Trade-off: no macron in the app.
 
 backend:
   type: "local"
