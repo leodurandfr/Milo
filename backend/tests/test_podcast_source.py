@@ -12,8 +12,9 @@ Tests cover:
 import json
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 
+from backend.config.constants import PODCASTINDEX_API_KEY, PODCASTINDEX_API_SECRET
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.data import PodcastDataService
 from backend.core.audio_source import BaseAudioSource
@@ -26,8 +27,6 @@ def config():
     """Default Podcast source config."""
     return {
         "mpv_socket": "/tmp/test-podcast-ipc.sock",
-        "taddy_user_id": "test-user",
-        "taddy_api_key": "test-key"
     }
 
 
@@ -74,29 +73,18 @@ class TestPodcastSourceConfig:
     """Test PodcastSource configuration."""
 
     def test_default_config(self):
-        """Test default configuration values."""
+        """Test default configuration values (app-level Podcast Index credentials)."""
         source = PodcastSource()
 
         assert source._mpv_socket == "/run/milo/podcast-ipc.sock"
-        assert source._taddy_api.user_id == ""
-        assert source._taddy_api.api_key == ""
+        assert source._podcast_api.api_key == PODCASTINDEX_API_KEY
+        assert source._podcast_api.api_secret == PODCASTINDEX_API_SECRET
 
     def test_custom_config(self):
         """Test custom configuration."""
-        config = {
-            "mpv_socket": "/custom/socket.sock",
-        }
-        mock_settings = MagicMock()
-        mock_settings.get_setting_sync = lambda key: {
-            "podcast.taddy_user_id": "custom-user",
-            "podcast.taddy_api_key": "custom-key"
-        }.get(key, "")
-
-        source = PodcastSource(config, settings_service=mock_settings)
+        source = PodcastSource({"mpv_socket": "/custom/socket.sock"})
 
         assert source._mpv_socket == "/custom/socket.sock"
-        assert source._taddy_api.user_id == "custom-user"
-        assert source._taddy_api.api_key == "custom-key"
 
 
 class TestPodcastSourceLifecycle:
@@ -112,7 +100,7 @@ class TestPodcastSourceLifecycle:
                 mock_data.get_setting = AsyncMock(return_value=1.0)
                 mock_data_class.return_value = mock_data
 
-                with patch('backend.sources.podcast.source.TaddyAPI') as mock_api_class:
+                with patch('backend.sources.podcast.source.PodcastIndexAPI') as mock_api_class:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
@@ -135,7 +123,7 @@ class TestPodcastSourceLifecycle:
                 mock_data.get_setting = AsyncMock(return_value=1.0)
                 mock_data_class.return_value = mock_data
 
-                with patch('backend.sources.podcast.source.TaddyAPI') as mock_api_class:
+                with patch('backend.sources.podcast.source.PodcastIndexAPI') as mock_api_class:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
@@ -156,8 +144,8 @@ class TestPodcastSourceLifecycle:
         # Setup mocked state
         podcast_source._mpv = Mock()
         podcast_source._mpv.disconnect = AsyncMock()
-        podcast_source._taddy_api = Mock()
-        podcast_source._taddy_api.close = AsyncMock()
+        podcast_source._podcast_api = Mock()
+        podcast_source._podcast_api.close = AsyncMock()
         podcast_source._podcast_data = Mock()
         podcast_source._monitor_task = None
         podcast_source._progress_save_task = None
@@ -183,8 +171,8 @@ class TestPodcastSourceCommands:
         podcast_source._podcast_data = Mock()
         podcast_source._podcast_data.get_playback_progress = AsyncMock(return_value=None)
         podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
-        podcast_source._taddy_api = Mock()
-        podcast_source._taddy_api.get_episode = AsyncMock(return_value={
+        podcast_source._podcast_api = Mock()
+        podcast_source._podcast_api.get_episode = AsyncMock(return_value={
             "uuid": "test-uuid",
             "name": "Test Episode",
             "audio_url": "http://stream.url",

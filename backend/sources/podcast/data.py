@@ -38,7 +38,9 @@ class PodcastDataService:
     Note: Language/country settings are centralized in /var/lib/milo/settings.json
     """
 
-    SCHEMA_VERSION: int = 1
+    # v2: IDs are Podcast Index feedId/episodeId strings — v1 files hold
+    # incompatible legacy UUIDs and must be reset (fail-loud protocol)
+    SCHEMA_VERSION: int = 2
 
     def __init__(self, state_machine=None):
         self._logger = logging.getLogger("source.podcast.data")

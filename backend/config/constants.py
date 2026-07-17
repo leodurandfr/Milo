@@ -36,6 +36,16 @@ DEPLOY_UPDATE_CMD = "/usr/local/bin/milo-deploy-update"
 CLIENT_API_PORT = 8001          # Milo-client API port (equalizer, health, etc.)
 
 # =============================================================================
+# PODCAST INDEX API (app-level credentials)
+# =============================================================================
+# Single key pair shared by every Milō unit — Podcast Index is free and
+# unlimited, so no per-user credentials or quota handling. Deliberately
+# embedded (locked decision in docs/podcast-podcastindex-migration.md);
+# extraction is low-stakes: the key is revocable and rotated here if needed.
+PODCASTINDEX_API_KEY = "7XCFZWYVUFR3MTG6GWXE"
+PODCASTINDEX_API_SECRET = "uscKuHPtaWw^hFmpzvDKQZud4cwH7TUkyKh9fuN2"
+
+# =============================================================================
 # TIMEOUTS (in seconds)
 # =============================================================================
 HEALTH_CHECK_TIMEOUT = 2.0      # Timeout for health checks

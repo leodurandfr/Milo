@@ -245,7 +245,6 @@ def test_bulk_settings_full_key_set():
         "ir_remote_steps": {"step_ir_remote_db": 3.0},
         "dock_apps": {"enabled_apps": ["spotify", "radio"]},
         "audio_stop": {"auto_stop_delay": 120.0},
-        "podcast_credentials": {"taddy_user_id": "3671", "taddy_api_key": "k"},
         "screen_timeout": {"screen_timeout_enabled": True, "screen_timeout_seconds": 30},
         "screen_brightness": {"brightness_on": 6},
         "screen_ui_scale": {"ui_scale": 1.15},

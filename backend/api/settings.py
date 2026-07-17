@@ -7,7 +7,6 @@ from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource
 from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
 from backend.api.responses import BulkSettingsResponse
-from backend.sources.podcast.taddy_api import TaddyAPI
 from backend.config.constants import DEFAULT_VOLUME_DB, DEFAULT_DOCK_APPS, AUDIO_SOURCE_APPS
 from backend.api.models import (
     LanguageRequest,
@@ -19,7 +18,6 @@ from backend.api.models import (
     IrRemoteStepsRequest,
     DockAppsRequest,
     AudioStopRequest,
-    PodcastCredentialsRequest,
     ScreenTimeoutRequest,
     ScreenBrightnessRequest,
     ScreenScreensaverRequest,
@@ -41,8 +39,6 @@ from backend.core.models.ws_events import (
     LanguageChanged,
     MacRocChanged,
     MacRocConfig,
-    PodcastCredentialsChanged,
-    PodcastCredentialsConfig,
     RadioSettingsChanged,
     RadioSettingsConfig,
     RotaryStepsChanged,
@@ -145,7 +141,6 @@ def create_settings_router(
 
         vol = all_settings.get('volume', {})
         dock = all_settings.get('dock', {})
-        podcast = all_settings.get('podcast', {})
         audio = all_settings.get('audio', {})
         screen = all_settings.get('screen', {})
         radio = all_settings.get('radio', {})
@@ -169,10 +164,6 @@ def create_settings_router(
             "ir_remote_steps": {"step_ir_remote_db": vol.get('step_ir_remote_db', 2.0)},
             "dock_apps": {"enabled_apps": dock.get('enabled_apps', DEFAULT_DOCK_APPS)},
             "audio_stop": {"auto_stop_delay": audio.get('auto_stop_delay', 120.0)},
-            "podcast_credentials": {
-                "taddy_user_id": podcast.get('taddy_user_id', ''),
-                "taddy_api_key": podcast.get('taddy_api_key', '')
-            },
             "screen_timeout": {
                 "screen_timeout_enabled": timeout_seconds != 0,
                 "screen_timeout_seconds": timeout_seconds
@@ -447,122 +438,6 @@ def create_settings_router(
             event=AudioStopChanged(config=AudioStopConfig(auto_stop_delay=delay)),
             reload_callback=state_machine.reload_auto_stop_for_all_sources
         )
-
-    # Podcast credentials
-    @router.put("/podcast-credentials")
-    async def set_podcast_credentials(payload: PodcastCredentialsRequest):
-        user_id = payload.taddy_user_id
-        api_key = payload.taddy_api_key
-
-        # Save credentials and validation timestamp in one operation
-        async def save_credentials():
-            import time
-            podcast_config = {
-                'taddy_user_id': user_id,
-                'taddy_api_key': api_key,
-                'credentials_validated_at': int(time.time())
-            }
-            return await settings.set_setting('podcast', podcast_config)
-
-        # Reload credentials in the podcast source without restarting
-        async def reload_source_credentials():
-            try:
-                source = state_machine.get_source(AudioSource.PODCAST)
-                if source:
-                    return await source.reload_credentials(user_id, api_key)
-            except Exception as e:
-                logger.error(f"Failed to reload podcast credentials: {e}")
-                return False
-            return False
-
-        return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
-            setter=save_credentials,
-            event=PodcastCredentialsChanged(config=PodcastCredentialsConfig(
-                taddy_user_id=user_id, taddy_api_key=api_key
-            )),
-            reload_callback=reload_source_credentials
-        )
-
-    @router.post("/podcast-credentials/validate")
-    async def validate_podcast_credentials(payload: PodcastCredentialsRequest):
-        """Test Taddy API credentials by checking remaining API requests"""
-        try:
-            user_id = payload.taddy_user_id
-            api_key = payload.taddy_api_key
-
-            # Empty check (Pydantic allows empty strings by default)
-            if not user_id or not api_key:
-                return {
-                    "status": "error",
-                    "valid": False,
-                    "message": "User ID and API Key are required"
-                }
-
-            # Create a temporary TaddyAPI instance
-            taddy_api = TaddyAPI(user_id=user_id, api_key=api_key)
-
-            try:
-                # Returns the number of remaining requests, or -1 if error
-                remaining = await taddy_api.get_api_requests_remaining()
-
-                if remaining >= 0:
-                    return {
-                        "status": "success",
-                        "valid": True,
-                        "message": "Credentials are valid",
-                        "requests_remaining": remaining,
-                        "requests_used": 500 - remaining
-                    }
-                else:
-                    return {
-                        "status": "error",
-                        "valid": False,
-                        "message": "Invalid credentials - API authentication failed"
-                    }
-
-            finally:
-                # Always close the session
-                await taddy_api.close()
-
-        except Exception as e:
-            logger.error(f"Error validating Taddy credentials: {e}")
-            return {
-                "status": "error",
-                "valid": False,
-                "message": f"Validation failed: {str(e)}"
-            }
-
-    @router.get("/podcast-credentials/status")
-    async def get_podcast_credentials_status():
-        """Check credential status: missing, invalid, rate_limited, or valid"""
-        try:
-            podcast = await settings.get_setting('podcast') or {}
-            user_id = str(podcast.get('taddy_user_id', '')).strip()
-            api_key = str(podcast.get('taddy_api_key', '')).strip()
-            validated_at = podcast.get('credentials_validated_at')
-
-            # No credentials configured
-            if not user_id or not api_key:
-                return {"status": "missing"}
-
-            taddy_api = TaddyAPI(user_id=user_id, api_key=api_key)
-            try:
-                remaining = await taddy_api.get_api_requests_remaining()
-
-                if remaining == -1:
-                    return {"status": "invalid"}
-                elif remaining == 0:
-                    return {"status": "rate_limited", "requests_used": 500, "credentials_validated_at": validated_at}
-                else:
-                    return {"status": "valid", "requests_used": 500 - remaining, "credentials_validated_at": validated_at}
-            finally:
-                await taddy_api.close()
-
-        except Exception as e:
-            logger.error(f"Error checking Taddy credentials status: {e}")
-            return {"status": "error", "message": str(e)}
 
     # Screen timeout
     @router.put("/screen-timeout")

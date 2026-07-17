@@ -145,11 +145,6 @@ class AudioStopModel(BaseModel):
     auto_stop_delay: float
 
 
-class PodcastCredentialsModel(BaseModel):
-    taddy_user_id: str
-    taddy_api_key: str
-
-
 class ScreenTimeoutModel(BaseModel):
     screen_timeout_enabled: bool
     screen_timeout_seconds: int
@@ -194,7 +189,6 @@ class BulkSettingsResponse(BaseModel):
     ir_remote_steps: IrRemoteStepsModel
     dock_apps: DockAppsModel
     audio_stop: AudioStopModel
-    podcast_credentials: PodcastCredentialsModel
     screen_timeout: ScreenTimeoutModel
     screen_brightness: ScreenBrightnessModel
     screen_ui_scale: ScreenUiScaleModel
