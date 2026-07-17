@@ -40,7 +40,7 @@ class TestUpdateServiceInit:
         assert hasattr(update_service, "_github_cache")
 
     def test_update_config_present(self, update_service):
-        expected_keys = {"milo", "go-librespot", "shairport-sync", "multiroom", "camilladsp"}
+        expected_keys = {"milo", "go-librespot", "shairport-sync", "multiroom", "camilladsp", "qobuz-proxy"}
         assert set(update_service.update_config.keys()) == expected_keys
 
 

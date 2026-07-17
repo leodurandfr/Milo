@@ -35,7 +35,7 @@ class TestVersionServiceInit:
         assert version_service_with_token.github_token == "ghp_testtoken123"
 
     def test_programs_configured(self, version_service):
-        expected_keys = {"milo", "go-librespot", "shairport-sync", "multiroom", "camilladsp"}
+        expected_keys = {"milo", "go-librespot", "shairport-sync", "multiroom", "camilladsp", "qobuz-proxy"}
         assert set(version_service.programs.keys()) == expected_keys
 
     def test_cache_initialized_empty(self, version_service):

@@ -260,7 +260,8 @@ function getProgramIcon(programKey) {
     'go-librespot': 'spotify',
     'multiroom': 'multiroom',
     'shairport-sync': 'airplay',
-    'camilladsp': 'equalizer'
+    'camilladsp': 'equalizer',
+    'qobuz-proxy': 'qobuz'
   };
   return iconMap[programKey] || 'settings';
 }
@@ -270,7 +271,8 @@ function getProgramDisplayName(program, key) {
     'go-librespot': t('audioSources.spotify'),
     'multiroom': t('audioSources.multiroom'),
     'shairport-sync': t('audioSources.airplay'),
-    'camilladsp': t('equalizer.title')
+    'camilladsp': t('equalizer.title'),
+    'qobuz-proxy': t('audioSources.qobuz')
   };
   return nameOverrides[key] || program.name;
 }
@@ -279,7 +281,8 @@ function getVersionLabel(key) {
   const labelOverrides = {
     'multiroom': 'snapcast',
     'shairport-sync': 'shairport-sync',
-    'camilladsp': 'camilladsp'
+    'camilladsp': 'camilladsp',
+    'qobuz-proxy': 'qobuz-proxy'
   };
   return labelOverrides[key] || key;
 }
@@ -338,7 +341,8 @@ if (typeof window !== 'undefined') {
 const programToDockApp = {
   'go-librespot': 'spotify',
   'multiroom': 'multiroom',
-  'shairport-sync': 'airplay'
+  'shairport-sync': 'airplay',
+  'qobuz-proxy': 'qobuz'
 };
 
 function isProgramEnabled(programKey) {
