@@ -64,9 +64,10 @@ qobuz:
   max_quality: auto        # auto | 5=MP3 | 6=CD | 7=HiRes96 | 27=HiRes192
 
 device:
-  name: "Milo"             # ASCII on purpose: the speaker id = slugify(name),
-                           # and "Milō" slugifies to "mil" (non-ASCII ō dropped).
-                           # "Milo" → id "milo". Trade-off: no macron in the app.
+  name: "Milō"             # display name in the Qobuz app. NOTE: qobuz-proxy hard-couples
+                           # speaker id = slugify(name), so this yields id "mil" (the
+                           # non-ASCII ō is dropped). That is intentional — the backend
+                           # monitor matches the speaker by audio_device, not by id.
 
 backend:
   type: "local"
