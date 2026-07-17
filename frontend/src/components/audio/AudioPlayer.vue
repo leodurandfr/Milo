@@ -21,7 +21,7 @@
 
           <div class="player-info">
             <slot name="info">
-              <p :class="['player-title', source === 'radio' ? 'heading-1' : 'heading-2']">{{ title }}</p>
+              <p :class="['player-title', source === 'radio' ? 'heading-1' : 'heading-3']">{{ title }}</p>
               <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
             </slot>
             <slot name="progress"></slot>
@@ -350,7 +350,7 @@ const playerClasses = computed(() => ({
     flex-wrap: wrap;
     align-items: center;
     overflow-y: visible;
-    padding: var(--space-04) 0;
+    padding: 0;
     gap: var(--space-04);
     width: 100%;
   }
@@ -365,6 +365,7 @@ const playerClasses = computed(() => ({
   .player-info {
     flex: 1;
     text-align: left;
+    padding: 0;
     min-width: 0;
   }
 
