@@ -251,6 +251,11 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
+        "qobuz_source": lambda: _import("backend.sources.qobuz", "QobuzSource")(
+            state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service"),
+            systemd_manager=get_service("systemd_manager")
+        ),
     }
 
     if name not in creators:
@@ -379,6 +384,7 @@ def initialize_services() -> None:
     state_machine.register_source(AudioSource.AIRPLAY, get_service("airplay_source"))
     state_machine.register_source(AudioSource.CD, get_service("cd_source"))
     state_machine.register_source(AudioSource.DLNA, get_service("dlna_source"))
+    state_machine.register_source(AudioSource.QOBUZ, get_service("qobuz_source"))
 
     # =========================================================================
     # STEP 3b: Write routing.env / mac.env / snapclient.env synchronously BEFORE async init
