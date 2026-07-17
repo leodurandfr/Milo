@@ -31,16 +31,10 @@
           </div>
         </div>
 
-        <!-- Disconnect button (conditional) -->
-        <div v-if="displayedShowDisconnectButton" class="disconnect-button">
-          <div class="disconnect-button-content">
-            <div class="disconnect-button-inner">
-              <button @click="handleDisconnect" :disabled="isDisconnecting" class="disconnect-text heading-3">
-                <p>{{ isDisconnecting ? t('status.disconnecting') : t('status.disconnect') }}</p>
-              </button>
-            </div>
-          </div>
-        </div>
+        <!-- Bottom action button: Bluetooth disconnect or Qobuz connect-account CTA.
+             The <button> IS the full-width bar so the whole surface is clickable. -->
+        <button v-if="actionButton" @click="actionButton.onClick" :disabled="actionButton.disabled"
+          class="action-button heading-3">{{ actionButton.label }}</button>
       </div>
     </div>
   </div>
@@ -74,11 +68,18 @@ const props = defineProps({
   isDisconnecting: {
     type: Boolean,
     default: false
+  },
+  // False only when the source needs an account and none is connected (Qobuz):
+  // swaps the idle line to "account not connected" and arms the connect CTA.
+  // Default true so sources without a login requirement are unaffected.
+  accountConnected: {
+    type: Boolean,
+    default: true
   }
 });
 
 // Emits
-const emit = defineEmits(['disconnect']);
+const emit = defineEmits(['disconnect', 'connect']);
 
 // === COMPUTED FOR DISPLAYED CONTENT ===
 const displayedStatusLines = computed(() => {
@@ -139,7 +140,11 @@ const displayedStatusLines = computed(() => {
       case 'dlna':
         return [t('audioSources.dlna'), t('status.readyToStream')];
       case 'qobuz':
-        return [t('audioSources.qobuz'), t('status.readyToStream')];
+        // No Qobuz account logged in → point the user at the account login
+        // rather than the (unreachable) "ready to stream" state.
+        return props.accountConnected
+          ? [t('audioSources.qobuz'), t('status.readyToStream')]
+          : [t('audioSources.qobuz'), t('status.accountNotConnected')];
       case 'cd':
         return [t('audioSources.cd'), t('status.readyToPlay')];
       default:
@@ -180,11 +185,25 @@ const displayedStatusLines = computed(() => {
   return [t('status.waiting')];
 });
 
-const displayedShowDisconnectButton = computed(() => {
-  if (props.sourceState === 'starting') {
-    return false;
+// Single bottom action button on the card, or null to hide it. The two cases are
+// mutually exclusive: Bluetooth's disconnect (active) and Qobuz's connect-account
+// CTA (waiting with no account). 'starting' never shows a button.
+const actionButton = computed(() => {
+  if (props.sourceType === 'bluetooth' && props.sourceState === 'active') {
+    return {
+      label: props.isDisconnecting ? t('status.disconnecting') : t('status.disconnect'),
+      disabled: props.isDisconnecting,
+      onClick: () => emit('disconnect'),
+    };
   }
-  return props.sourceType === 'bluetooth' && props.sourceState === 'active';
+  if (props.sourceType === 'qobuz' && props.sourceState === 'waiting' && !props.accountConnected) {
+    return {
+      label: t('status.connect'),
+      disabled: false,
+      onClick: () => emit('connect'),
+    };
+  }
+  return null;
 });
 
 // Classes for status lines
@@ -206,10 +225,6 @@ function getDisplayedStatusLine2Class() {
     return 'active-state';
   }
   return 'secondary-state';
-}
-
-function handleDisconnect() {
-  emit('disconnect');
 }
 </script>
 
@@ -321,63 +336,28 @@ function handleDisconnect() {
   color: var(--color-text-secondary);
 }
 
-/* Disconnect button */
-.disconnect-button {
-  background: var(--color-background-strong);
-  height: 42px;
-  position: relative;
-  border-radius: var(--radius-04);
-  flex-shrink: 0;
-  width: 100%;
-}
-
-.disconnect-button-content {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-.disconnect-button-inner {
+/* Bottom action button (disconnect / connect) — the <button> IS the full-width
+   bar so the entire surface is clickable, not just the label. */
+.action-button {
   box-sizing: border-box;
-  display: flex;
-  flex-direction: row;
-  gap: 40px;
+  width: 100%;
   height: 42px;
+  flex-shrink: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-02) var(--space-05);
-  position: relative;
-  width: 100%;
-}
-
-.disconnect-text {
-  background: none;
+  background: var(--color-background-strong);
   border: none;
-  cursor: pointer;
-  font-style: normal;
-  position: relative;
-  flex-shrink: 0;
+  border-radius: var(--radius-04);
   color: var(--color-text-secondary);
-  text-align: center;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-
-
-.disconnect-text:disabled {
+.action-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.disconnect-text p {
-  display: block;
-  white-space: pre;
-  margin: 0;
 }
 
 /* Responsive */

@@ -35,7 +35,8 @@
       <!-- Source Status -->
       <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="source-status-container">
         <AudioSourceStatus :source-type="currentSourceType" :source-state="currentSourceState"
-          :device-name="currentDeviceName" :is-disconnecting="isDisconnecting" @disconnect="handleDisconnect" />
+          :device-name="currentDeviceName" :is-disconnecting="isDisconnecting"
+          :account-connected="qobuzAccountConnected" @disconnect="handleDisconnect" @connect="handleConnect" />
       </div>
 
     </Transition>
@@ -43,7 +44,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, defineAsyncComponent } from 'vue';
+import { computed, ref, watch, inject, defineAsyncComponent } from 'vue';
 import { useTimer } from '@/composables/useTimer';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRichDisplay } from '@/composables/useRichDisplay';
@@ -83,6 +84,21 @@ const isDisconnecting = computed(() => unifiedStore.isDisconnecting(activeSource
 
 function handleDisconnect() {
   unifiedStore.disconnectSource(activeSource.value);
+}
+
+// Qobuz login state rides the broadcast metadata (account_authenticated). Only an
+// explicit false — the proxy confirming no account — arms the "connect account"
+// CTA; an absent field (pre-first-poll, or any non-Qobuz source) reads as
+// connected so the card never flashes the CTA before status arrives.
+const qobuzAccountConnected = computed(() => {
+  if (activeSource.value !== 'qobuz') return true;
+  return metadata.value?.account_authenticated !== false;
+});
+
+// The CTA opens the Qobuz account settings screen for the one-time login.
+const openSettings = inject('openSettings');
+function handleConnect() {
+  openSettings?.('qobuz');
 }
 
 // === DISPLAY DECISION ===

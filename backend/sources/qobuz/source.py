@@ -72,6 +72,10 @@ class QobuzSource(BaseAudioSource):
         self._is_playing = False
         self._device_connected = False
         self._idle_ticks = 0
+        # qobuz-proxy account login state (from /api/status auth.authenticated).
+        # Optimistic default so the idle card doesn't flash the "connect account"
+        # CTA before the first poll confirms there is no account.
+        self._authenticated = True
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
@@ -146,7 +150,9 @@ class QobuzSource(BaseAudioSource):
             return await self._restart_service_and_wait()
         return True
 
-    async def _on_status(self, speaker: Optional[Dict[str, Any]]) -> None:
+    async def _on_status(
+        self, speaker: Optional[Dict[str, Any]], authenticated: Optional[bool]
+    ) -> None:
         """Map a qobuz-proxy speaker snapshot into connection/playback state.
 
         playing/paused (with now_playing) → ACTIVE with the current track;
@@ -155,7 +161,14 @@ class QobuzSource(BaseAudioSource):
         doesn't flash the "ready to stream" fallback). Position/duration are not
         exposed over HTTP (they only flow to the Qobuz cloud), so the progress
         bar stays inert — expected for a Family B source.
+
+        `authenticated` is the proxy's login state (None = unknown, keep last);
+        it rides the broadcast metadata so the idle card can offer a "connect
+        account" CTA when no Qobuz account is logged in.
         """
+        if authenticated is not None:
+            self._authenticated = authenticated
+
         status = (speaker or {}).get("status")
 
         if speaker is not None and status in _ACTIVE_STATUSES:
@@ -197,11 +210,14 @@ class QobuzSource(BaseAudioSource):
         Broadcast metadata (WS source/state_changed → system_state.metadata):
         title, artist, album, album_art_url, is_playing, is_buffering (canonical
         PlaybackMetadata) + client_name="Qobuz" (extra, so the source bar shows a
-        label — the proxy never reports the controlling device).
+        label — the proxy never reports the controlling device) +
+        account_authenticated (login state; drives the idle card's "connect
+        account" CTA when no Qobuz account is logged in).
         """
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
         extras["client_name"] = QOBUZ_CLIENT_NAME
+        extras["account_authenticated"] = self._authenticated
         self.emit_connection_state(self._device_connected, core, extras)
 
     async def _cleanup(self) -> None:

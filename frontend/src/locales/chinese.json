@@ -214,6 +214,8 @@
     "loadingOfFeminine": "启动中",
     "ready": "准备连接",
     "readyToStream": "准备播放",
+    "accountNotConnected": "账户未连接",
+    "connect": "连接",
     "waiting": "等待中...",
     "playing": "播放中",
     "connectedTo": "已连接到",
