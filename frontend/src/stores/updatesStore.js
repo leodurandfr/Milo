@@ -11,7 +11,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
 
-const SUPPORTED_LOCAL_UPDATES = ['milo', 'go-librespot', 'shairport-sync', 'multiroom', 'camilladsp'];
+const SUPPORTED_LOCAL_UPDATES = ['milo', 'go-librespot', 'shairport-sync', 'multiroom', 'camilladsp', 'qobuz-proxy'];
 
 export const useUpdatesStore = defineStore('updates', () => {
   // === STATE ===

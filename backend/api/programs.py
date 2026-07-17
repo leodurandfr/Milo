@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 PROGRAM_TO_AUDIO_SOURCE = {
     'go-librespot': AudioSource.SPOTIFY,
     'shairport-sync': AudioSource.AIRPLAY,
+    'qobuz-proxy': AudioSource.QOBUZ,
 }
 
 def create_programs_router(update_service, satellite_update_service, state_machine):

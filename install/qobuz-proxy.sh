@@ -52,60 +52,15 @@ install_qobuz_proxy() {
     log_success "qobuz-proxy installed"
 }
 
-# Make qobuz-proxy's local (PortAudio) backend default to unity gain and honor the
-# Qobuz app's volume slider only when Milō says so. CamillaDSP is the volume
-# authority in Milō's audio path — exactly the role external_volume plays for
-# go-librespot and ignore_volume_control for shairport-sync — so by default the
-# app slider must not attenuate (and lose bits) before CamillaDSP. qobuz-proxy has
-# no config knob for this on the local backend (fixed_volume is DLNA-only) and its
-# stream even defaults to 50%. We edit the two spots in the vendored stream that
-# set the software gain: the __init__ default becomes unity, and set_volume() reads
-# a one-byte flag file ($QOBUZPROXY_DATA_DIR/allow_app_volume, written by the
-# backend from the "allow app volume" setting) — '1' honors the slider, anything
-# else stays at unity. Version-pinned (QOBUZ_PROXY_VERSION): the edit fails loudly
-# if the anchors move on an upgrade, forcing a conscious re-check.
+# Make qobuz-proxy's local (PortAudio) backend default to unity gain, flag-gating
+# the Qobuz app slider on Milō's "allow app volume" setting (CamillaDSP owns
+# volume). The patch itself lives in qobuz_volume_policy.py so the fragile,
+# version-pinned stream.py anchors have a single definition shared with the
+# in-app updater — BASH_SOURCE resolves the script dir even when this file is
+# sourced from install.sh / pi-gen.
 wire_qobuz_proxy_volume_policy() {
-    sudo "$MILO_DATA_DIR/qobuz/venv/bin/python" - << 'PY'
-import io
-from qobuz_proxy.backends.local import stream as m
-
-path = m.__file__
-src = io.open(path, encoding="utf-8").read()
-
-set_volume_body = (
-    "        # Milo: CamillaDSP owns volume. Honor the Qobuz app slider only when\n"
-    "        # Milo's \"allow app volume\" setting wrote a '1' flag; otherwise stay at\n"
-    "        # unity so nothing attenuates before CamillaDSP.\n"
-    "        import os as _os\n"
-    "        _flag = _os.path.join(_os.environ.get(\"QOBUZPROXY_DATA_DIR\", \".\"), \"allow_app_volume\")\n"
-    "        try:\n"
-    "            _allow = open(_flag).read().strip() == \"1\"\n"
-    "        except OSError:\n"
-    "            _allow = False\n"
-    "        self._volume = max(0.0, min(1.0, level / 100.0)) if _allow else 1.0"
-)
-
-edits = [
-    # __init__ default gain (0.0-1.0 float) → unity
-    ("        self._volume: float = 0.5  # 0.0 to 1.0",
-     "        self._volume: float = 1.0  # Milo: default to unity; policy applied in set_volume"),
-    # set_volume() body → flag-gated: app slider honored only when allowed
-    ("        self._volume = max(0.0, min(1.0, level / 100.0))", set_volume_body),
-]
-
-for old, new in edits:
-    if new in src:
-        continue  # already applied (idempotent re-install)
-    if old not in src:
-        raise SystemExit(
-            f"qobuz-proxy volume-policy wiring: anchor not found in {path!r}:\n  {old!r}\n"
-            "Upstream stream.py changed (version bump?) — re-verify the edit."
-        )
-    src = src.replace(old, new, 1)
-
-io.open(path, "w", encoding="utf-8").write(src)
-print("qobuz-proxy: local backend volume policy wired (unity default, flag-gated slider)")
-PY
+    sudo "$MILO_DATA_DIR/qobuz/venv/bin/python" \
+        "$(dirname "${BASH_SOURCE[0]}")/qobuz_volume_policy.py"
 }
 
 # Write /var/lib/milo/qobuz/config.yaml. Speakers-list form → qobuz-proxy builds

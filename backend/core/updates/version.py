@@ -81,6 +81,19 @@ class VersionService:
                 },
                 "repo": "HEnquist/camilladsp",
                 "version_regex": r"(\d+\.\d+\.\d+)"
+            },
+            "qobuz-proxy": {
+                "name": "Qobuz",
+                "description": "updates.qobuz",
+                "commands": {
+                    # Installed as a git-tag pip package in a venv (no --version CLI);
+                    # read the distribution metadata via the venv's own Python. Missing
+                    # venv → FileNotFoundError → status "not_installed" (no update offered).
+                    "main": ["/var/lib/milo/qobuz/venv/bin/python", "-c",
+                             "import importlib.metadata as m; print(m.version('qobuz-proxy'))"]
+                },
+                "repo": "leolobato/qobuz-proxy",
+                "version_regex": r"v?(\d+\.\d+\.\d+)"
             }
         }
 

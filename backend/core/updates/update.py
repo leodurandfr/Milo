@@ -14,6 +14,12 @@ from typing import Dict, Any, Optional, Callable, Awaitable
 from backend.core.updates.version import VersionService
 from backend.config.constants import DEPLOY_UPDATE_CMD
 
+# qobuz-proxy is a pip package installed from a git tag; the in-app update pins
+# the same URL the installer uses (install/qobuz-proxy.sh) and re-applies the
+# volume patch via the shared script (single source of truth for the anchors).
+QOBUZ_PROXY_REPO_URL = "https://github.com/leolobato/qobuz-proxy"
+QOBUZ_VOLUME_POLICY_SCRIPT = "/home/milo/milo/install/qobuz_volume_policy.py"
+
 
 class UpdateService(VersionService):
     """Update service - Extends VersionService"""
@@ -60,6 +66,11 @@ class UpdateService(VersionService):
                 "binary_path": "/usr/local/bin/camilladsp",
                 "service_name": "milo-camilladsp.service",
                 "backup_path": "/var/lib/milo/backups/camilladsp"
+            },
+            "qobuz-proxy": {
+                "service_name": "milo-qobuz.service",
+                "venv_path": "/var/lib/milo/qobuz/venv",
+                "backup_path": "/var/lib/milo/backups/qobuz"
             }
         }
 
@@ -87,6 +98,8 @@ class UpdateService(VersionService):
                 return await self._update_shairport_sync(status, progress_callback)
             elif program_key == "camilladsp":
                 return await self._update_camilladsp(status, progress_callback)
+            elif program_key == "qobuz-proxy":
+                return await self._update_qobuz_proxy(status, progress_callback)
             else:
                 return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
@@ -935,6 +948,208 @@ class UpdateService(VersionService):
         except Exception as e:
             self.update_logger.error(f"shairport-sync rollback failed: {e}")
             return False
+
+    # === QOBUZ-PROXY (pip venv upgrade + source patch) ===
+
+    async def _run_local(self, *args, timeout: int = 120) -> tuple[bool, str]:
+        """Run an unprivileged command (as the milo user) and capture output.
+
+        Used for venv operations (pip, the volume patch, cp/mv/rm) that write
+        only inside the milo-owned /var/lib/milo/qobuz tree — no sudo needed,
+        unlike _run_deploy.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            if proc.returncode != 0:
+                return False, stderr.decode().strip() or stdout.decode().strip()
+            return True, stdout.decode().strip()
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return False, f"Timed out after {timeout}s"
+        except Exception as e:
+            return False, str(e)
+
+    async def _update_qobuz_proxy(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+        """Updates the qobuz-proxy sidecar (a pip package installed from a git tag).
+
+        Unlike the binary programs, the "install" is a pip upgrade inside the
+        milo-owned venv plus re-applying the vendored stream.py volume patch —
+        both unprivileged (the backend runs as milo). The whole venv is backed
+        up first so any failure rolls back to the working version; the fragile
+        part is the patch, which fails loud if an upstream release moved its
+        anchors. config.yaml and credentials.json are left untouched.
+        """
+        config = self.update_config["qobuz-proxy"]
+        latest_version = status["latest"]["version"]
+        # Use the exact upstream tag for the pip ref (not a reconstructed
+        # "v{version}") so a tag that isn't simply "v" + semver still resolves.
+        tag_name = status["latest"]["tag_name"]
+        venv = config["venv_path"]
+        service = config["service_name"]
+
+        service_was_active = await self._is_service_active(service)
+        self.update_logger.info(f"Service {service} was {'active' if service_was_active else 'inactive'} before update")
+
+        try:
+            # Phase 1: Back up the venv (10%)
+            if progress_callback:
+                await progress_callback("updates.progress.creatingBackup", 10)
+
+            backup_result = await self._backup_qobuz_venv(config)
+            if not backup_result["success"]:
+                return backup_result
+
+            # Phase 2: Stop the sidecar before touching the venv (50%).
+            # Normally already stopped (the route deactivates Qobuz pre-update),
+            # so this is defensive against a file lock (Restart=always).
+            if service_was_active:
+                if progress_callback:
+                    await progress_callback("updates.progress.stoppingService", 50)
+
+                if not await self._stop_service(service):
+                    await self._rollback_qobuz_venv(config, service_was_active)
+                    return {"success": False, "error": "Failed to stop service"}
+
+            # Phase 3: pip upgrade to the pinned tag (70%) — unprivileged
+            if progress_callback:
+                await progress_callback("updates.progress.installingVersion", 70)
+
+            pip_ok, pip_out = await self._run_local(
+                f"{venv}/bin/pip", "install", "--upgrade",
+                f"qobuz-proxy[local] @ git+{QOBUZ_PROXY_REPO_URL}@{tag_name}",
+                timeout=600
+            )
+            if not pip_ok:
+                self.update_logger.error(f"qobuz-proxy pip upgrade failed: {pip_out}")
+                await self._rollback_qobuz_venv(config, service_was_active)
+                return {"success": False, "error": f"pip install failed: {pip_out}"}
+
+            # Phase 4: re-apply the volume patch (85%) — the fragile step
+            if progress_callback:
+                await progress_callback("updates.progress.installingVersion", 85)
+
+            patch_ok, patch_out = await self._run_local(
+                f"{venv}/bin/python", QOBUZ_VOLUME_POLICY_SCRIPT, timeout=60
+            )
+            if not patch_ok:
+                self.update_logger.error(f"qobuz-proxy volume patch failed: {patch_out}")
+                await self._rollback_qobuz_venv(config, service_was_active)
+                return {"success": False, "error": f"Volume-policy patch failed (upstream stream.py may have changed): {patch_out}"}
+
+            # Phase 5: verify import + version (95%)
+            if progress_callback:
+                await progress_callback("updates.progress.verifyingUpdate", 95)
+
+            verify_result = await self._verify_qobuz_update(config, latest_version)
+            if not verify_result["success"]:
+                await self._rollback_qobuz_venv(config, service_was_active)
+                return verify_result
+
+            # Restart only if it was active; otherwise the sidecar stays stopped
+            # and starts on demand when the user next selects Qobuz.
+            if service_was_active:
+                await self._start_service(service)
+
+            if progress_callback:
+                await progress_callback("updates.progress.completed", 100)
+
+            await self._cleanup_qobuz_backup(config)
+
+            return {
+                "success": True,
+                "message": f"qobuz-proxy updated to {latest_version}",
+                "old_version": status["installed"]["versions"].get("main"),
+                "new_version": latest_version,
+                "service_restarted": service_was_active
+            }
+
+        except Exception as e:
+            self.update_logger.error(f"qobuz-proxy update failed: {e}")
+            await self._rollback_qobuz_venv(config, service_was_active)
+            return {"success": False, "error": str(e)}
+
+    async def _backup_qobuz_venv(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Copies the whole venv to backup_path/venv so a failed upgrade can roll back."""
+        try:
+            backup_venv = Path(config["backup_path"]) / "venv"
+            if backup_venv.exists():
+                ok, out = await self._run_local("rm", "-rf", str(backup_venv), timeout=120)
+                if not ok:
+                    return {"success": False, "error": f"Backup cleanup failed: {out}"}
+
+            Path(config["backup_path"]).mkdir(parents=True, exist_ok=True)
+            # cp -a preserves the venv's symlinks/permissions; restoring to the
+            # same absolute path keeps the interpreter shebangs valid.
+            ok, out = await self._run_local("cp", "-a", config["venv_path"], str(backup_venv), timeout=300)
+            if not ok:
+                return {"success": False, "error": f"venv backup failed: {out}"}
+
+            return {"success": True, "backup_dir": config["backup_path"]}
+
+        except Exception as e:
+            return {"success": False, "error": f"Backup failed: {e}"}
+
+    async def _rollback_qobuz_venv(self, config: Dict[str, Any], service_was_active: bool = False) -> bool:
+        """Restores the backed-up venv (same path → shebangs stay valid)."""
+        try:
+            backup_venv = Path(config["backup_path"]) / "venv"
+            if not backup_venv.exists():
+                self.update_logger.error("No qobuz-proxy venv backup found for rollback")
+                return False
+
+            await self._stop_service(config["service_name"])
+
+            ok, out = await self._run_local("rm", "-rf", config["venv_path"], timeout=120)
+            if not ok:
+                self.update_logger.error(f"qobuz-proxy rollback (rm) failed: {out}")
+                return False
+
+            ok, out = await self._run_local("mv", str(backup_venv), config["venv_path"], timeout=120)
+            if not ok:
+                self.update_logger.error(f"qobuz-proxy rollback (mv) failed: {out}")
+                return False
+
+            if service_was_active:
+                await self._start_service(config["service_name"])
+
+            self.update_logger.info(f"qobuz-proxy rollback completed (service {'restarted' if service_was_active else 'left stopped'})")
+            return True
+
+        except Exception as e:
+            self.update_logger.error(f"qobuz-proxy rollback failed: {e}")
+            return False
+
+    async def _cleanup_qobuz_backup(self, config: Dict[str, Any]) -> None:
+        """Removes the venv backup after a successful update (best-effort)."""
+        try:
+            backup_venv = Path(config["backup_path"]) / "venv"
+            if backup_venv.exists():
+                await self._run_local("rm", "-rf", str(backup_venv), timeout=120)
+        except Exception as e:
+            self.update_logger.warning(f"Failed to clean qobuz-proxy backup: {e}")
+
+    async def _verify_qobuz_update(self, config: Dict[str, Any], expected_version: str) -> Dict[str, Any]:
+        """Verifies the upgraded venv imports the patched stream and reports the expected version."""
+        ok, out = await self._run_local(
+            f"{config['venv_path']}/bin/python", "-c",
+            "import qobuz_proxy.backends.local.stream, importlib.metadata as m; "
+            "print(m.version('qobuz-proxy'))",
+            timeout=60
+        )
+        if not ok:
+            return {"success": False, "error": f"Verification import failed: {out}"}
+
+        installed = out.strip().splitlines()[-1].strip() if out.strip() else ""
+        if installed != expected_version:
+            return {"success": False, "error": f"Version mismatch after update: {installed!r} != {expected_version!r}"}
+
+        return {"success": True}
 
     # === CAMILLADSP (binary download) ===
 
