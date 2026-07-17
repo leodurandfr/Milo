@@ -214,6 +214,8 @@
     "loadingOfFeminine": "शुरू हो रहा है",
     "ready": "कनेक्ट करने के लिए तैयार",
     "readyToStream": "स्ट्रीम करने के लिए तैयार",
+    "accountNotConnected": "खाता कनेक्ट नहीं है",
+    "connect": "कनेक्ट करें",
     "waiting": "प्रतीक्षा...",
     "playing": "चल रहा है",
     "connectedTo": "से जुड़ा हुआ",

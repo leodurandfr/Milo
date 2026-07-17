@@ -214,6 +214,8 @@
     "loadingOfFeminine": "A iniciar",
     "ready": "Pronto para conectar",
     "readyToStream": "Pronto para transmitir",
+    "accountNotConnected": "Conta não conectada",
+    "connect": "Conectar",
     "waiting": "A aguardar...",
     "playing": "A reproduzir",
     "connectedTo": "Conectado a",

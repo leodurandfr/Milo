@@ -3,8 +3,8 @@
 
 qobuz-proxy exposes no local control channel and no push/WebSocket — its own web
 UI just polls GET /api/status every few seconds. This monitor mirrors that: it
-polls /api/status ~1s, extracts our speaker, and hands the speaker dict (or None
-when absent) to a single async callback. The source turns that into playback
+polls /api/status ~1s, extracts our speaker and the account's login state, and
+hands both to a single async callback. The source turns that into playback
 state. Playback control belongs to the Qobuz app (Family B), so there is nothing
 to send back — only status to read.
 
@@ -30,7 +30,7 @@ class QobuzMonitor:
         self,
         status_url: str,
         audio_device: str,
-        on_status: Callable[[Optional[Dict[str, Any]]], Awaitable[None]],
+        on_status: Callable[[Optional[Dict[str, Any]], Optional[bool]], Awaitable[None]],
         poll_interval: float = 1.0,
     ):
         self._status_url = status_url
@@ -77,26 +77,33 @@ class QobuzMonitor:
         """
         while self._running:
             try:
-                speaker = await self._fetch_speaker()
-                await self._on_status(speaker)
+                speaker, authenticated = await self._fetch_status()
+                await self._on_status(speaker, authenticated)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 logger.warning("Qobuz status poll failed: %s", e)
             await asyncio.sleep(self._poll_interval)
 
-    async def _fetch_speaker(self) -> Optional[Dict[str, Any]]:
-        """Return our speaker dict from /api/status, or None if not present."""
+    async def _fetch_status(self) -> tuple[Optional[Dict[str, Any]], Optional[bool]]:
+        """Return (our speaker dict | None, account authenticated | None).
+
+        `authenticated` comes from qobuz-proxy's ``auth.authenticated`` in the
+        same /api/status payload the poll already fetches (no extra request).
+        None means "unknown — keep the last value": a non-200 blip must not flap
+        the login state that drives the idle card's "connect account" CTA.
+        """
         async with self._session.get(self._status_url) as resp:
             if resp.status != 200:
                 logger.warning("Qobuz /api/status -> HTTP %s", resp.status)
-                return None
+                return None, None
             payload = await resp.json()
 
+        authenticated = bool((payload.get("auth") or {}).get("authenticated"))
         speakers = payload.get("speakers") or []
         for speaker in speakers:
             config = speaker.get("config") or {}
             if config.get("audio_device") == self._audio_device:
-                return speaker
+                return speaker, authenticated
         # Single-speaker proxy: fall back to the first speaker if present.
-        return speakers[0] if speakers else None
+        return (speakers[0] if speakers else None), authenticated

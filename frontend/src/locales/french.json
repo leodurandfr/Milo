@@ -214,6 +214,8 @@
     "loadingOfFeminine": "Démarrage de la",
     "ready": "Prêt à se connecter",
     "readyToStream": "Prêt à diffuser",
+    "accountNotConnected": "Compte non connecté",
+    "connect": "Se connecter",
     "readyToPlay": "Prêt à lire",
     "loadingAlbum": "Chargement de l'album",
     "ejecting": "Éjection en cours...",
