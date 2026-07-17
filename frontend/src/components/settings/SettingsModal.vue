@@ -126,6 +126,13 @@
                   <img :src="radioIcon" alt="Radio" />
                 </template>
               </ListItemButton>
+
+              <ListItemButton v-if="settingsStore.dockApps.qobuz" variant="background" :title="t('audioSources.qobuz')" action="caret"
+                @click="push('qobuz')">
+                <template #icon>
+                  <img :src="qobuzIcon" alt="Qobuz" />
+                </template>
+              </ListItemButton>
             </div>
           </div>
 
@@ -221,6 +228,8 @@
 
       <MacSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
 
+      <QobuzSettings v-else-if="currentView === 'qobuz'" key="qobuz" class="view-content" />
+
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
       <InfoSettings v-else-if="currentView === 'info'" key="info" class="view-content" />
@@ -261,6 +270,7 @@ import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
+import qobuzIcon from '@/assets/settings-icons/qobuz.svg';
 import hardwareIcon from '@/assets/settings-icons/hardware.svg';
 import fanIcon from '@/assets/settings-icons/fan.svg';
 import networkIcon from '@/assets/settings-icons/network.svg';
@@ -280,6 +290,7 @@ import ConfigureSystem from './categories/multiroom/ConfigureSystem.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import MacSettings from '@/components/settings/categories/MacSettings.vue';
+import QobuzSettings from '@/components/settings/categories/QobuzSettings.vue';
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
 import FanSettings from '@/components/settings/categories/FanSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
@@ -376,6 +387,7 @@ const headerTitle = computed(() => {
     'radio-add': t('radio.manageStation.addStationTitle'),
     'radio-edit': t('radio.manageStation.editStationTitle'),
     'macos': t('audioSources.macOS'),
+    'qobuz': t('audioSources.qobuz'),
     'updates': t('settings.updates'),
     'info': t('settings.information')
   };
@@ -591,6 +603,7 @@ const hasAnyConfigurableSource = computed(() =>
   settingsStore.dockApps.mac
   || settingsStore.dockApps.radio
   || settingsStore.dockApps.podcast
+  || settingsStore.dockApps.qobuz
 );
 
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
