@@ -68,7 +68,7 @@ function formatDuration(seconds) {
 
 @media (max-aspect-ratio: 4/3) {
   .track-card:last-child {
-    padding-bottom: var(--space-08);
+    padding-bottom: calc(var(--space-09) + env(safe-area-inset-bottom));
   }
 }
 
