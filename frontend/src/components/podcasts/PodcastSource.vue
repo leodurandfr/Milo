@@ -1,13 +1,13 @@
 <template>
-  <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayerLayout && !hasCredentialsError"
-    :header-title="hasCredentialsError ? t('podcasts.podcasts') : currentTitle"
-    :header-subtitle="hasCredentialsError ? null : currentSubtitle"
-    :header-show-back="!hasCredentialsError && canGoBack" header-icon="podcast" header-variant="background-neutral"
-    :header-actions-key="currentView" :content-key="hasCredentialsError ? 'credentials' : currentView"
+  <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayerLayout"
+    :header-title="currentTitle"
+    :header-subtitle="currentSubtitle"
+    :header-show-back="canGoBack" header-icon="podcast" header-variant="background-neutral"
+    :header-actions-key="currentView" :content-key="currentView"
     :player-mobile-height="184" :pending-scroll-restore="pendingScrollRestore" gradient="podcast" @header-back="goBack"
     @scroll-restored="onScrollRestored">
-    <!-- Header actions (only when not in credentials error and on home view) -->
-    <template v-if="!hasCredentialsError && currentView === 'home'" #header-actions="{ iconVariant }">
+    <!-- Header actions (only on home view) -->
+    <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
       <IconButton icon="heartOff" :variant="iconVariant" :active="false" @click="goToSubscriptions" />
       <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
       <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
@@ -15,11 +15,8 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-        <!-- Credentials Required -->
-        <CredentialsRequired v-if="hasCredentialsError" key="credentials" @configure="openPodcastSettings" />
-
         <!-- Home View (Discovery) -->
-        <HomeView v-else-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
+        <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
           @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
 
         <!-- Subscriptions View -->
@@ -27,8 +24,7 @@
           @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
         <!-- Search View -->
-        <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails"
-          @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+        <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails" />
 
         <!-- Queue View -->
         <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
@@ -84,9 +80,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, inject } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
-import { useSettingsStore } from '@/stores/settingsStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
@@ -110,10 +105,8 @@ import GenreView from './GenreView.vue'
 import PodcastDetails from './PodcastDetails.vue'
 import EpisodeDetails from './EpisodeDetails.vue'
 import ProgressBar from './ProgressBar.vue'
-import CredentialsRequired from './CredentialsRequired.vue'
 
 const podcastStore = usePodcastStore()
-const settingsStore = useSettingsStore()
 const unifiedStore = useUnifiedAudioStore()
 const { t } = useI18n()
 
@@ -124,22 +117,6 @@ const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null)
 // Navigation with stack — scrollElRef enables scroll position save on push() and restore on back()
 const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef })
-
-// Inject openSettings from App.vue
-const openSettings = inject('openSettings')
-
-// Credentials status check
-const hasCredentialsError = computed(() => {
-  const status = settingsStore.podcastCredentialsStatus
-  return status === 'missing' || status === 'invalid' || status === 'rate_limited'
-})
-
-// Open podcast settings - navigates directly to podcast settings view
-function openPodcastSettings() {
-  if (openSettings) {
-    openSettings('podcast')
-  }
-}
 
 // Playback state + player visibility (shared logic via composable).
 // Visibility follows the backend's source_state transitions — when the backend
@@ -251,8 +228,8 @@ async function openPodcastDetails(podcastOrUuid) {
     uuid = podcastOrUuid.uuid
   } else if (podcastOrUuid && podcastOrUuid.itunes_id) {
     // Podcast object from iTunes RSS without UUID - need to lookup.
-    // A miss means Taddy doesn't index this podcast (expected for some charts
-    // entries), so log it as info and tell the user instead of failing silently.
+    // A miss means Podcast Index doesn't index this podcast (expected for some
+    // charts entries), so log it as info and tell the user instead of failing silently.
     loadingPodcastId.value = podcastOrUuid.itunes_id
     const result = await apiCall.get(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}`, {
       category: 'podcast',

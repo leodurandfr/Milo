@@ -295,20 +295,6 @@
     "apply": "लागू करें और पुनः आरंभ करें",
     "restarting": "पुनः आरंभ हो रहा है..."
   },
-  "podcastSettings": {
-    "taddyCredentials": "Taddy API क्रेडेंशियल",
-    "credentialsDescription": "पॉडकास्ट सामग्री तक पहुंचने के लिए अपने Taddy API क्रेडेंशियल कॉन्फ़िगर करें। https://taddy.org/signup/developers पर अपने क्रेडेंशियल प्राप्त करें",
-    "userId": "यूजर आईडी",
-    "userIdPlaceholder": "अपना Taddy यूजर आईडी दर्ज करें",
-    "apiKey": "API कुंजी",
-    "apiKeyPlaceholder": "अपनी Taddy API कुंजी दर्ज करें",
-    "validateButton": "कनेक्शन टेस्ट करें",
-    "invalidCredentials": "आपके Taddy API क्रेडेंशियल मान्य नहीं हैं",
-    "apiUsage": "Taddy API उपयोग",
-    "requestsPerMonth": "अनुरोध",
-    "resetsMonthly": "API सीमाएं मासिक रूप से रीसेट होती हैं",
-    "resetsOn": "API सीमाएं {day} {month} को रीसेट होंगी"
-  },
   "multiroomSettings": {
     "presets": "प्रीसेट्स",
     "responsive": "रिस्पॉन्सिव",
@@ -475,10 +461,9 @@
     },
     "searchPlaceholder": "खोजें",
     "podcastsTitle": "पॉडकास्ट",
-    "recentEpisodesTitle": "पिछले दो हफ्तों के एपिसोड",
     "noResultsFor": "\"{query}\" के लिए कोई परिणाम नहीं",
     "noResults": "कोई परिणाम नहीं मिला",
-    "searchPrompt": "पॉडकास्ट या एपिसोड खोजें",
+    "searchPrompt": "पॉडकास्ट खोजें",
     "duration": {
       "label": "अवधि",
       "short": "छोटा (< 15 मिनट)",
@@ -532,12 +517,7 @@
     "alreadyListened": "पहले ही सुना गया",
     "today": "आज",
     "yesterday": "कल",
-    "unsubscribe": "सदस्यता रद्द करें",
-    "credentialsError": "Taddy API क्रेडेंशियल आवश्यक",
-    "credentialsErrorHint": "पॉडकास्ट एक्सेस करने के लिए अपने क्रेडेंशियल कॉन्फ़िगर करें",
-    "configureButton": "कॉन्फ़िगर करें",
-    "rateLimitError": "API सीमा पहुंच गई",
-    "rateLimitErrorHint": "आपने Taddy API की 500 अनुरोधों की सीमा पूरी कर ली है। सीमा आपके पहले उपयोग की तारीख से हर महीने स्वचालित रूप से रीसेट हो जाती है।"
+    "unsubscribe": "सदस्यता रद्द करें"
   },
   "setup": {
     "stepLabel": "चरण {n}",

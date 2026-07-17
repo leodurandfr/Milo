@@ -346,16 +346,6 @@ watch(() => unifiedStore.transientNotice, (notice) => {
   }, 4000);
 });
 
-// Fire Taddy credentials check during the Podcasts source transition (~500ms+).
-// PodcastSource.vue only mounts once `transitioning` clears, so under normal
-// network conditions the status is resolved before its first render.
-watch(() => unifiedStore.systemState.active_source, (newSource) => {
-  if (newSource === 'podcast' &&
-      settingsStore.podcastCredentialsStatus === 'unknown') {
-    settingsStore.refreshPodcastCredentialsStatus();
-  }
-});
-
 // === Sleep shield: wake screen on first touch ===
 let sleepShieldTimeout = null;
 let wakeInProgress = false;
@@ -674,14 +664,6 @@ onMounted(async () => {
         settingsStore.applyIrRemoteStatus(event.data);
       }
     }),
-    on('settings', 'podcast_credentials_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updatePodcastCredentials({
-          taddy_user_id: event.data.config.taddy_user_id || '',
-          taddy_api_key: event.data.config.taddy_api_key || ''
-        });
-      }
-    }),
     parsedOn('settings', 'fan_config_changed', wsEventRegistry['settings.fan_config_changed'],
              (payload) => fanStore.applyConfig(payload)),
     parsedOn('settings', 'fan_status_changed', wsEventRegistry['settings.fan_status_changed'],
@@ -745,7 +727,7 @@ onMounted(async () => {
   multiroomStore.initialize();
 
   // Preload podcast subscriptions list in background (for instant hasSubscriptions check)
-  // Only fetches local data, no Taddy API call - episodes loaded when HomeView opens
+  // Only fetches local data, no discovery API call - episodes loaded when HomeView opens
   podcastStore.preloadSubscriptionsList()
 
   // Preload radio favorites in background (for instant display when user opens Radio)

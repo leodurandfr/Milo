@@ -295,20 +295,6 @@
     "apply": "Anwenden & neu starten",
     "restarting": "Wird neu gestartet..."
   },
-  "podcastSettings": {
-    "taddyCredentials": "Taddy API-Anmeldedaten",
-    "credentialsDescription": "Konfiguriere deine Taddy API-Anmeldedaten, um auf Podcast-Inhalte zuzugreifen. Hole dir deine Anmeldedaten auf https://taddy.org/signup/developers",
-    "userId": "User ID",
-    "userIdPlaceholder": "Gib deine Taddy User ID ein",
-    "apiKey": "API Key",
-    "apiKeyPlaceholder": "Gib deinen Taddy API Key ein",
-    "validateButton": "Verbindung testen",
-    "invalidCredentials": "Ihre Taddy API-Anmeldedaten sind ungültig",
-    "apiUsage": "Taddy API-Nutzung",
-    "requestsPerMonth": "Anfragen",
-    "resetsMonthly": "API-Limits werden monatlich zurückgesetzt",
-    "resetsOn": "API-Limits werden am {day}. {month} zurückgesetzt"
-  },
   "multiroomSettings": {
     "presets": "Voreinstellungen",
     "responsive": "Reaktiv",
@@ -475,10 +461,9 @@
     },
     "searchPlaceholder": "Suchen",
     "podcastsTitle": "Podcasts",
-    "recentEpisodesTitle": "Episoden der letzten zwei Wochen",
     "noResultsFor": "Keine Ergebnisse für \"{query}\"",
     "noResults": "Keine Ergebnisse gefunden",
-    "searchPrompt": "Podcasts oder Episoden suchen",
+    "searchPrompt": "Podcasts suchen",
     "duration": {
       "label": "Dauer",
       "short": "Kurz (< 15 Min.)",
@@ -532,12 +517,7 @@
     "alreadyListened": "Bereits gehört",
     "today": "Heute",
     "yesterday": "Gestern",
-    "unsubscribe": "Abbestellen",
-    "credentialsError": "Taddy API-Anmeldedaten erforderlich",
-    "credentialsErrorHint": "Konfiguriere deine Anmeldedaten, um auf Podcasts zuzugreifen",
-    "configureButton": "Konfigurieren",
-    "rateLimitError": "API-Limit erreicht",
-    "rateLimitErrorHint": "Du hast das Taddy API-Limit von 500 Anfragen erreicht. Das Limit wird jeden Monat ab dem Datum deiner ersten Nutzung automatisch zurückgesetzt."
+    "unsubscribe": "Abbestellen"
   },
   "setup": {
     "stepLabel": "Schritt {n}",

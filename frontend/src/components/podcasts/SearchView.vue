@@ -26,9 +26,9 @@
       />
 
       <!-- Search results -->
-      <div v-else-if="hasSearched && (searchResults.podcasts.length > 0 || searchResults.episodes.length > 0)" class="results-content fade-in">
+      <div v-else-if="hasSearched && searchResults.podcasts.length > 0" class="results-content fade-in">
         <!-- Podcasts results -->
-        <section v-if="searchResults.podcasts.length > 0" class="section">
+        <section class="section">
           <h2 class="heading-2">
             {{ t('podcasts.podcastsTitle') }}
           </h2>
@@ -39,23 +39,6 @@
           <div v-if="searchCurrentPage.podcasts < searchPagination.podcasts.pages" class="load-more-container">
             <Button variant="brand" :loading="searchLoadingMore.podcasts" @click="loadMorePodcasts">
               {{ t('podcasts.loadMorePodcasts') }}
-            </Button>
-          </div>
-        </section>
-
-        <!-- Episodes results -->
-        <section v-if="searchResults.episodes.length > 0" class="section">
-          <h2 class="heading-2">
-            {{ t('podcasts.recentEpisodesTitle') }}
-          </h2>
-          <div class="episodes-list">
-            <EpisodeCard v-for="episode in searchResults.episodes" :key="episode.uuid" :episode="episode"
-              @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)"
-              @select-podcast="(podcast) => $emit('select-podcast', podcast)" />
-          </div>
-          <div v-if="searchCurrentPage.episodes < searchPagination.episodes.pages" class="load-more-container">
-            <Button variant="brand" :loading="searchLoadingMore.episodes" @click="loadMoreEpisodes">
-              {{ t('podcasts.loadMoreEpisodes') }}
             </Button>
           </div>
         </section>
@@ -82,13 +65,12 @@ import { useDebounce } from '@/composables/useDebounce'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import PodcastCard from './PodcastCard.vue'
-import EpisodeCard from './EpisodeCard.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Button from '@/components/ui/Button.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
-const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
+const emit = defineEmits(['select-podcast'])
 const podcastStore = usePodcastStore()
 const { t } = useI18n()
 
@@ -172,7 +154,7 @@ function onSearchInput() {
   // Reset to initial state if everything is empty
   if (isEmptyState()) {
     hasSearched.value = false
-    searchResults.value = { podcasts: [], episodes: [] }
+    searchResults.value = { podcasts: [] }
     return
   }
 
@@ -186,7 +168,7 @@ watch(
     // Reset to initial state if everything is empty
     if (isEmptyState()) {
       hasSearched.value = false
-      searchResults.value = { podcasts: [], episodes: [] }
+      searchResults.value = { podcasts: [] }
       return
     }
 
@@ -239,7 +221,7 @@ async function performSearch() {
       podcastStore.networkError = true
     } else {
       podcastStore.networkError = false
-      podcastStore.setSearchResults(data.podcasts, data.episodes, data.pagination)
+      podcastStore.setSearchResults(data.podcasts, data.pagination)
     }
   }
   loading.value = false
@@ -255,24 +237,9 @@ async function loadMorePodcasts() {
     params: buildSearchParams(searchCurrentPage.value.podcasts + 1),
   })
   if (result.ok) {
-    podcastStore.appendSearchResults('podcasts', result.data.podcasts || [])
+    podcastStore.appendSearchResults(result.data.podcasts || [])
   }
   searchLoadingMore.value.podcasts = false
-}
-
-async function loadMoreEpisodes() {
-  if (searchLoadingMore.value.episodes || searchCurrentPage.value.episodes >= searchPagination.value.episodes.pages) return
-
-  searchLoadingMore.value.episodes = true
-  const result = await apiCall.get('/api/podcast/search', {
-    category: 'podcast',
-    message: 'Error loading more episodes',
-    params: buildSearchParams(searchCurrentPage.value.episodes + 1),
-  })
-  if (result.ok) {
-    podcastStore.appendSearchResults('episodes', result.data.episodes || [])
-  }
-  searchLoadingMore.value.episodes = false
 }
 
 </script>
@@ -318,12 +285,6 @@ async function loadMoreEpisodes() {
 .podcasts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-02);
-}
-
-.episodes-list {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-02);
 }
 

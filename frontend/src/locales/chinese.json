@@ -295,20 +295,6 @@
     "apply": "应用并重启",
     "restarting": "正在重启..."
   },
-  "podcastSettings": {
-    "taddyCredentials": "Taddy API 凭证",
-    "credentialsDescription": "配置您的 Taddy API 凭证以访问播客内容。在 https://taddy.org/signup/developers 获取您的凭证",
-    "userId": "用户 ID",
-    "userIdPlaceholder": "输入您的 Taddy 用户 ID",
-    "apiKey": "API 密钥",
-    "apiKeyPlaceholder": "输入您的 Taddy API 密钥",
-    "validateButton": "测试连接",
-    "invalidCredentials": "您的 Taddy API 凭证无效",
-    "apiUsage": "Taddy API 使用情况",
-    "requestsPerMonth": "请求",
-    "resetsMonthly": "API 限制每月重置",
-    "resetsOn": "API 限制将于 {month} {day} 日重置"
-  },
   "multiroomSettings": {
     "presets": "预设",
     "responsive": "低延迟",
@@ -475,10 +461,9 @@
     },
     "searchPlaceholder": "搜索",
     "podcastsTitle": "播客",
-    "recentEpisodesTitle": "最近两周的单集",
     "noResultsFor": "没有找到\"{query}\"的结果",
     "noResults": "没有找到结果",
-    "searchPrompt": "搜索播客或单集",
+    "searchPrompt": "搜索播客",
     "duration": {
       "label": "时长",
       "short": "短 (< 15分钟)",
@@ -532,12 +517,7 @@
     "alreadyListened": "已收听",
     "today": "今天",
     "yesterday": "昨天",
-    "unsubscribe": "取消订阅",
-    "credentialsError": "需要 Taddy API 凭据",
-    "credentialsErrorHint": "配置您的凭据以访问播客",
-    "configureButton": "配置",
-    "rateLimitError": "已达到 API 限制",
-    "rateLimitErrorHint": "您已达到 Taddy API 500 次请求限制。限制从您首次使用之日起每月自动重置。"
+    "unsubscribe": "取消订阅"
   },
   "setup": {
     "stepLabel": "步骤 {n}",

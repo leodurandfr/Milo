@@ -295,20 +295,6 @@
     "apply": "Aplicar y reiniciar",
     "restarting": "Reiniciando..."
   },
-  "podcastSettings": {
-    "taddyCredentials": "Credenciales API de Taddy",
-    "credentialsDescription": "Configura tus credenciales de Taddy API para acceder al contenido de podcasts. Obtén tus credenciales en https://taddy.org/signup/developers",
-    "userId": "User ID",
-    "userIdPlaceholder": "Ingresa tu User ID de Taddy",
-    "apiKey": "API Key",
-    "apiKeyPlaceholder": "Ingresa tu API Key de Taddy",
-    "validateButton": "Probar conexión",
-    "invalidCredentials": "Sus credenciales de Taddy API no son válidas",
-    "apiUsage": "Uso de Taddy API",
-    "requestsPerMonth": "solicitudes",
-    "resetsMonthly": "Límites de API se reinician mensualmente",
-    "resetsOn": "Límites de API se reinician el {day} de {month}"
-  },
   "multiroomSettings": {
     "presets": "Preajustes",
     "responsive": "Reactivo",
@@ -475,10 +461,9 @@
     },
     "searchPlaceholder": "Buscar",
     "podcastsTitle": "Podcasts",
-    "recentEpisodesTitle": "Episodios de las últimas dos semanas",
     "noResultsFor": "Sin resultados para \"{query}\"",
     "noResults": "Sin resultados encontrados",
-    "searchPrompt": "Buscar podcasts o episodios",
+    "searchPrompt": "Buscar podcasts",
     "duration": {
       "label": "Duración",
       "short": "Corto (< 15 min)",
@@ -532,12 +517,7 @@
     "alreadyListened": "Ya escuchado",
     "today": "Hoy",
     "yesterday": "Ayer",
-    "unsubscribe": "Cancelar suscripción",
-    "credentialsError": "Credenciales de API Taddy requeridas",
-    "credentialsErrorHint": "Configura tus credenciales para acceder a los podcasts",
-    "configureButton": "Configurar",
-    "rateLimitError": "Límite de API alcanzado",
-    "rateLimitErrorHint": "Has alcanzado el límite de 500 solicitudes de la API Taddy. El límite se restablece automáticamente cada mes desde la fecha de tu primer uso."
+    "unsubscribe": "Cancelar suscripción"
   },
   "setup": {
     "stepLabel": "Paso {n}",

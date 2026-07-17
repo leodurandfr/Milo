@@ -126,13 +126,6 @@
                   <img :src="radioIcon" alt="Radio" />
                 </template>
               </ListItemButton>
-
-              <ListItemButton v-if="settingsStore.dockApps.podcast" variant="background" :title="t('audioSources.podcasts')" action="caret"
-                @click="push('podcast')">
-                <template #icon>
-                  <img :src="podcastIcon" alt="Podcasts" />
-                </template>
-              </ListItemButton>
             </div>
           </div>
 
@@ -226,8 +219,6 @@
         @back="handleBackFromRadioModal" @success="handleRadioStationEdited"
         @confirm-action="handleStationActionConfirm" />
 
-      <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
-
       <MacSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
 
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
@@ -269,7 +260,6 @@ import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
 import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
-import podcastIcon from '@/assets/settings-icons/podcast.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
 import hardwareIcon from '@/assets/settings-icons/hardware.svg';
 import fanIcon from '@/assets/settings-icons/fan.svg';
@@ -289,7 +279,6 @@ import ClientEdit from './categories/multiroom/ClientEdit.vue';
 import ConfigureSystem from './categories/multiroom/ConfigureSystem.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
-import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
 import MacSettings from '@/components/settings/categories/MacSettings.vue';
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
 import FanSettings from '@/components/settings/categories/FanSettings.vue';
@@ -386,7 +375,6 @@ const headerTitle = computed(() => {
     'radio': t('audioSources.radio'),
     'radio-add': t('radio.manageStation.addStationTitle'),
     'radio-edit': t('radio.manageStation.editStationTitle'),
-    'podcast': t('audioSources.podcasts'),
     'macos': t('audioSources.macOS'),
     'updates': t('settings.updates'),
     'info': t('settings.information')
@@ -399,7 +387,7 @@ watch(() => unifiedStore.volumeState.any_volume_control, (hasControl) => {
   if (!hasControl && currentView.value === 'volume') back();
 });
 
-// Watch initialView prop for direct navigation (e.g., from CredentialsRequired)
+// Watch initialView prop for direct navigation (e.g., deep-link into a settings view)
 watch(() => props.initialView, (newView) => {
   if (newView && newView !== 'home') {
     goTo(newView);
@@ -642,14 +630,6 @@ onMounted(async () => {
     i18n.initializeLanguage(),
     settingsStore.loadAllSettings()
   ]);
-
-  // Refresh Taddy credentials status (external API call, podcast-only).
-  // Guarded on 'unknown' so we only fetch once per frontend session — subsequent
-  // modal opens reuse the cached status (App.vue watcher may have set it first).
-  if (settingsStore.dockApps.podcast &&
-      settingsStore.podcastCredentialsStatus === 'unknown') {
-    settingsStore.refreshPodcastCredentialsStatus();
-  }
 
   // Preload radio settings data if radio is enabled (non-blocking)
   if (settingsStore.dockApps.radio) {
