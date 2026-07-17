@@ -4,40 +4,41 @@
       <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
            transition classes, so the enter/leave would be instant. -->
       <div v-if="visible" class="audio-player" :class="playerClasses">
-      <!-- Background image - heavily zoomed and blurred -->
-      <div class="player-art-background">
-        <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
-        <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
-        <img v-else-if="placeholderArtwork" :src="placeholderArtwork" alt="" class="background-image" />
-      </div>
+        <!-- Background image - heavily zoomed and blurred -->
+        <div class="player-art-background">
+          <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
+          <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
+          <img v-else-if="placeholderArtwork" :src="placeholderArtwork" alt="" class="background-image" />
+        </div>
 
-      <div class="player-content">
-        <!-- Artwork: falls back to inline-SVG avatar (font-aware) when no valid artwork,
+        <div class="player-content">
+          <!-- Artwork: falls back to inline-SVG avatar (font-aware) when no valid artwork,
              then to placeholderArtwork for sources that ship a static image (e.g. podcasts). -->
-        <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork" @load="handleArtworkLoad" @error="artworkError = true" />
-        <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
-        <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
+          <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork" @load="handleArtworkLoad"
+            @error="artworkError = true" />
+          <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
+          <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
 
-        <div class="player-info">
-          <slot name="info">
-            <p :class="['player-title', source === 'radio' ? 'heading-1' : 'heading-4']">{{ title }}</p>
-            <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
-          </slot>
-          <slot name="progress"></slot>
+          <div class="player-info">
+            <slot name="info">
+              <p :class="['player-title', source === 'radio' ? 'heading-1' : 'heading-2']">{{ title }}</p>
+              <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
+            </slot>
+            <slot name="progress"></slot>
 
+          </div>
+
+
+          <div class="controls">
+            <slot name="controls">
+              <!-- Default: Simple play/pause -->
+              <div class="playback-controls">
+                <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium" :loading="isLoading"
+                  @click="$emit('toggle-play')" />
+              </div>
+            </slot>
+          </div>
         </div>
-
-
-        <div class="controls">
-          <slot name="controls">
-            <!-- Default: Simple play/pause -->
-            <div class="playback-controls">
-              <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium" :loading="isLoading"
-                @click="$emit('toggle-play')" />
-            </div>
-          </slot>
-        </div>
-      </div>
       </div>
     </Transition>
   </Teleport>
@@ -162,7 +163,7 @@ const playerClasses = computed(() => ({
   max-height: 720px;
   flex-direction: column;
   gap: var(--space-04);
-  padding: var(--space-04);
+  padding: 0 var(--space-04);
   background: var(--color-background-neutral);
   border-radius: var(--radius-07);
   backdrop-filter: blur(var(--blur-02));
@@ -232,6 +233,7 @@ const playerClasses = computed(() => ({
   z-index: 2;
   display: flex;
   flex-direction: column;
+  padding: var(--space-04) 0;
   gap: var(--space-04);
   overflow-y: auto;
 }
@@ -273,7 +275,8 @@ const playerClasses = computed(() => ({
   justify-content: center;
   height: 100%;
   flex-direction: column;
-  gap: var(--space-02);
+  padding: var(--space-05) 0;
+  gap: var(--space-04);
 }
 
 :deep(.player-title) {
@@ -295,6 +298,7 @@ const playerClasses = computed(() => ({
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
 :deep(.player-subtitle.text-mono) {
   color: var(--color-text-contrast-50);
 }
@@ -323,7 +327,7 @@ const playerClasses = computed(() => ({
     position: fixed;
     /* bottom: calc(max(var(--space-06), env(safe-area-inset-bottom, 0px)) + var(--space-05)); */
     /* bottom: env(safe-area-inset-bottom, 0px); */
-    bottom: calc( env(safe-area-inset-bottom, 0px) + var(--space-08) );
+    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-08));
 
     margin: 0;
     left: 50%;
@@ -346,7 +350,8 @@ const playerClasses = computed(() => ({
     flex-wrap: wrap;
     align-items: center;
     overflow-y: visible;
-    gap: var(--space-02);
+    padding: var(--space-04) 0;
+    gap: var(--space-04);
     width: 100%;
   }
 
@@ -442,6 +447,7 @@ const playerClasses = computed(() => ({
 
 /* Vue Transition: Desktop - slide from right with fade */
 @media (min-aspect-ratio: 4/3) {
+
   .audio-player-enter-active,
   .audio-player-leave-active {
     /* Pin to the rendered width (wrapper minus its left padding) so the player
@@ -475,6 +481,7 @@ const playerClasses = computed(() => ({
 
 /* Vue Transition: Mobile */
 @media (max-aspect-ratio: 4/3) {
+
   .audio-player-enter-active,
   .audio-player-leave-active {
     position: fixed;
