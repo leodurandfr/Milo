@@ -247,6 +247,43 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 - Visible name: "Milo" (ASCII — the apt gmediarender v0.3 crashes on "Milō")
 - `MemoryMax=256M` (measured ~70 MiB RSS on hi-res FLAC 24/192)
 
+### 9. Qobuz Connect (qobuz-proxy)
+
+**What is it?**
+- Qobuz Connect receiver — any Qobuz app (mobile/desktop) can cast lossless
+  audio to Milō, rich metadata included
+- Qobuz Connect has no official DIY path, so Milō embeds **qobuz-proxy**, a
+  reverse-engineered virtual Qobuz Connect device, as a **sidecar** — the exact
+  model as go-librespot for Spotify
+- [**Go to qobuz-proxy repository**](https://github.com/leolobato/qobuz-proxy)
+
+**How does it work?**
+- `qobuz-proxy` announces Milō as a Qobuz Connect device via mDNS and receives
+  the Qobuz cloud's play/pause/seek commands (protobuf) — there is **no local
+  playback-control API**, so control belongs to the Qobuz app (Family B, like
+  AirPlay/DLNA); the UI hides controls and shows only now-playing
+- The proxy's `local` (PortAudio) backend renders to the named ALSA PCM
+  `milo_qobuz`; Milō's `QobuzMonitor` **polls `GET http://127.0.0.1:8689/api/status`**
+  (~1 Hz) for `now_playing` (title/artist/album/album-art URL). No position or
+  duration is exposed over HTTP, so the progress bar stays inert
+- Artwork is a plain Qobuz CDN URL loaded directly by the kiosk — no binary
+  artwork route
+- A **one-time Qobuz account login** is required (unlike Spotify's zeroconf) or
+  the device won't advertise; done via the in-app **Qobuz account** settings
+  screen (backend relay `/api/qobuz/account/*` → the proxy's OAuth), token cached
+  in `credentials.json` (see below)
+- Volume follows CamillaDSP only: qobuz-proxy's local backend is pinned to unity
+  gain at install (the Qobuz app slider is inert), the same role
+  `external_volume` plays for go-librespot
+
+**Configuration:**
+- Service: milo-qobuz.service (qobuz-proxy sidecar, backend-managed)
+- API: http://localhost:8689 (`/api/status` polled; OAuth on `/auth/*`)
+- Audio output: ALSA (milo_qobuz)
+- Visible name: "Milo" (ASCII — the Qobuz iOS app silently aborts the Connect
+  handshake on a non-ASCII device name; Milō's own UI still shows "Qobuz")
+- Data: `/var/lib/milo/qobuz/` (venv + `config.yaml` + OAuth `credentials.json`)
+
 ## Multiroom (Snapcast)
 
 **What is it?**
@@ -353,6 +390,7 @@ options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8
 ```
 
 - **card 2 `LoopbackDLNA`**, subdevice 0: DLNA (multiroom) — gmediarender writes `hw:2,0,0`, Snapserver reads `hw:2,1,0`.
+- **card 2 `LoopbackDLNA`**, subdevice 1: Qobuz (multiroom) — qobuz-proxy writes `hw:LoopbackDLNA,0,1`, Snapserver reads `hw:2,1,1`.
 
 Any further source needs another loopback card (bump `index`/`enable`/`id`/`pcm_substreams` in the module options at **both** install paths — `install/alsa.sh` and `pi-gen/stage-milo/02-install-milo/01-run.sh`).
 
@@ -442,6 +480,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **radio_data.json** - Radio favorites and custom stations
 **routing.env** - Derived artifact of `settings.routing.multiroom_enabled`. Holds `MILO_MODE=direct|multiroom`. Read by every source systemd unit via `EnvironmentFile=` and by `/etc/asound.conf` via `@func getenv vars [ MILO_MODE ]` for `milo_*` alias resolution. Regenerated exclusively by `AudioRoutingService` whenever the setting changes.
 **last_volume.json** - Last saved volume for restoration
+**qobuz/** - qobuz-proxy sidecar home (`QOBUZPROXY_DATA_DIR`): `venv/` (the pinned qobuz-proxy install), `config.yaml`, and the OAuth `credentials.json` written on first login. Owned `milo:audio`. Not baked into the image — the account login is per-user.
 
 **Integrity protection:**
 - ✅ Atomic write (`os.replace()`)
@@ -537,6 +576,7 @@ milo-radio                # Radio player (mpv)
 milo-podcast              # Podcast player (mpv, separate instance from radio)
 milo-cd                   # CD player
 milo-dlna                 # DLNA/UPnP renderer (gmediarender + GStreamer)
+milo-qobuz                # Qobuz Connect (qobuz-proxy sidecar, backend-managed)
 milo-camilladsp           # CamillaDSP audio processing (always in path for volume)
 milo-snapserver-multiroom # Snapcast server (started/stopped by AudioRoutingService — no WantedBy)
 milo-snapclient-multiroom # Local snapcast client (started/stopped by AudioRoutingService — no WantedBy)
