@@ -28,6 +28,13 @@ QOBUZ_CLIENT_NAME = "Qobuz"
 # qobuz-proxy speaker.status values that mean a session is attached.
 _ACTIVE_STATUSES = {"playing", "paused"}
 
+# A track change makes qobuz-proxy briefly report idle / an empty now_playing for
+# a poll tick or two. Hold the last ACTIVE state for this many ticks (~poll_interval
+# each) before committing to WAITING, so the UI doesn't flash the "ready to stream"
+# fallback between tracks. A real stop persists past the window; a track change
+# does not.
+_IDLE_GRACE_TICKS = 3
+
 
 class QobuzSource(BaseAudioSource):
     """Qobuz Connect source (Family B — passive player): external control, rich metadata."""
@@ -57,10 +64,12 @@ class QobuzSource(BaseAudioSource):
         self._metadata: Dict[str, Any] = {}
         self._is_playing = False
         self._device_connected = False
+        self._idle_ticks = 0
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
         self._device_connected = False
+        self._idle_ticks = 0
 
     async def _do_start(self) -> bool:
         """Start the qobuz-proxy service and the /api/status poll monitor."""
@@ -93,25 +102,41 @@ class QobuzSource(BaseAudioSource):
         """Map a qobuz-proxy speaker snapshot into connection/playback state.
 
         playing/paused (with now_playing) → ACTIVE with the current track;
-        idle/disconnected/absent → WAITING. Position/duration are not exposed
-        over HTTP (they only flow to the Qobuz cloud), so the progress bar stays
-        inert — expected for a Family B source.
+        idle/disconnected/absent → WAITING (after a short grace window that
+        bridges the idle/empty blip qobuz-proxy emits between tracks, so the UI
+        doesn't flash the "ready to stream" fallback). Position/duration are not
+        exposed over HTTP (they only flow to the Qobuz cloud), so the progress
+        bar stays inert — expected for a Family B source.
         """
         status = (speaker or {}).get("status")
 
         if speaker is not None and status in _ACTIVE_STATUSES:
             now = speaker.get("now_playing") or {}
             self._is_playing = status == "playing"
-            self._metadata = {
-                "title": now.get("title"),
-                "artist": now.get("artist"),
-                "album": now.get("album"),
-                "album_art_url": now.get("album_art_url"),
-                "is_playing": self._is_playing,
-                "is_buffering": False,
-            }
+            # Overwrite metadata only when the proxy actually reports a track.
+            # During a track change now_playing is briefly empty — keep the last
+            # track's metadata rather than blanking title/artist (which would gate
+            # out the rich player and flash the fallback).
+            if now.get("title") or now.get("artist"):
+                self._metadata = {
+                    "title": now.get("title"),
+                    "artist": now.get("artist"),
+                    "album": now.get("album"),
+                    "album_art_url": now.get("album_art_url"),
+                    "is_playing": self._is_playing,
+                    "is_buffering": False,
+                }
+            elif self._metadata:
+                self._metadata["is_playing"] = self._is_playing
             self._device_connected = True
+            self._idle_ticks = 0
         else:
+            # idle/disconnected/absent. A real stop persists; a track-change blip
+            # lasts a tick or two — hold the previous ACTIVE state for the grace
+            # window, then commit to WAITING.
+            if self._device_connected and self._idle_ticks < _IDLE_GRACE_TICKS:
+                self._idle_ticks += 1
+                return
             self._is_playing = False
             self._metadata = {}
             self._device_connected = False
