@@ -59,10 +59,11 @@
           <div v-if="!loadingTopCharts && !topChartsNetworkError" key="loaded-podcasts" class="podcasts-grid">
             <PodcastCard
               v-for="(podcast, index) in topCharts.slice(0, 6)"
-              :key="podcast.uuid"
+              :key="podcast.itunes_id || podcast.uuid"
               :podcast="podcast"
               :position="index + 1"
-              @select="$emit('select-podcast', podcast.uuid)"
+              :isLoading="isPodcastLoading(podcast)"
+              @select="$emit('select-podcast', podcast)"
             />
           </div>
         </transition>
@@ -80,32 +81,6 @@
           :label="genre.label"
           @click="browseGenre(genre.value)"
         />
-      </div>
-    </section>
-
-    <!-- Top Episodes (Bloc 4) -->
-    <section class="section">
-      <h2 class="section-title heading-2">{{ t('podcasts.topEpisodes') }}</h2>
-      <div class="transition-container">
-        <transition name="content-fade">
-          <div v-if="loadingTopEpisodes" key="loading-episodes" class="episodes-list">
-            <SkeletonEpisodeCard v-for="i in 6" :key="`skeleton-episode-${i}`" />
-          </div>
-        </transition>
-
-        <transition name="content-fade">
-          <div v-if="!loadingTopEpisodes" key="loaded-episodes" class="episodes-list">
-            <EpisodeCard
-              v-for="episode in topEpisodes.slice(0, 6)"
-              :key="episode.uuid"
-              :episode="episode"
-              @select="$emit('select-episode', episode.uuid)"
-              @play="$emit('play-episode', episode)"
-
-              @select-podcast="(podcast) => $emit('select-podcast', podcast)"
-            />
-          </div>
-        </transition>
       </div>
     </section>
   </div>
@@ -127,14 +102,27 @@ import MessageContent from '@/components/ui/MessageContent.vue'
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode', 'browse-genre'])
 const { t } = useI18n()
 
+// loadingPodcastId is set by the parent (PodcastSource) while it resolves an
+// iTunes chart entry's feedId — used to show a spinner on the tapped card.
+const props = defineProps({
+  loadingPodcastId: {
+    type: [String, Number],
+    default: null
+  }
+})
+
 const podcastStore = usePodcastStore()
 
 const loadingTopCharts = ref(true)
-const loadingTopEpisodes = ref(true)
 const loadingSubscriptions = ref(true)
 const topCharts = ref([])
-const topEpisodes = ref([])
 const topChartsNetworkError = ref(false)
+
+// True while the tapped iTunes chart entry is being resolved to a feedId.
+function isPodcastLoading(podcast) {
+  if (!props.loadingPodcastId) return false
+  return podcast.itunes_id === props.loadingPodcastId || podcast.uuid === props.loadingPodcastId
+}
 
 // Use store's computed for hasSubscriptions (preloaded in App.vue)
 const hasSubscriptions = computed(() => podcastStore.hasSubscriptions)
@@ -180,7 +168,7 @@ async function loadData() {
   const podcastsResult = await apiCall.get('/api/podcast/discover/top-charts', {
     category: 'podcast',
     message: 'Error loading top charts',
-    params: { content_type: 'PODCASTSERIES', limit: 10 },
+    params: { limit: 10 },
   })
   if (podcastsResult.ok) {
     const data = podcastsResult.data
@@ -193,25 +181,6 @@ async function loadData() {
     }
   }
   loadingTopCharts.value = false
-
-  // Load top episodes (Bloc 4) - skip if network is already known to be down
-  if (!topChartsNetworkError.value) {
-    loadingTopEpisodes.value = true
-    const episodesResult = await apiCall.get('/api/podcast/discover/top-charts', {
-      category: 'podcast',
-      message: 'Error loading top episodes',
-      params: { content_type: 'PODCASTEPISODE', limit: 10 },
-    })
-    if (episodesResult.ok) {
-      // Hide episodes already listened to from "top episodes"
-      topEpisodes.value = podcastStore
-        .enrichEpisodesWithProgress(episodesResult.data.results || [])
-        .filter((ep) => !ep.playback_progress?.completed)
-    }
-    loadingTopEpisodes.value = false
-  } else {
-    loadingTopEpisodes.value = false
-  }
 }
 
 onMounted(() => {

@@ -16,7 +16,8 @@
     <!-- Content slot: scrollable views -->
     <template #content>
         <!-- Home View (Discovery) -->
-        <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
+        <HomeView v-if="currentView === 'home'" key="home" :loadingPodcastId="loadingPodcastId"
+          @select-podcast="openPodcastDetails"
           @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
 
         <!-- Subscriptions View -->
