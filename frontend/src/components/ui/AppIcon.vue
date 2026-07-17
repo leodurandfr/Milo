@@ -42,6 +42,7 @@ const iconMapping = {
   'airplay': 'airplay',
   'cd': 'cd',
   'dlna': 'dlna',
+  'qobuz': 'qobuz',
   'multiroom': 'multiroom',
   'equalizer': 'equalizer',
   'settings': 'settings',
