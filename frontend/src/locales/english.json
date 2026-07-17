@@ -297,12 +297,11 @@
     "restarting": "Restarting..."
   },
   "qobuzSettings": {
-    "accountTitle": "Account",
+    "accountTitle": "Account settings",
     "loading": "Checking status…",
-    "connected": "Connected",
     "connect": "Connect",
     "disconnect": "Disconnect",
-    "notConnectedTitle": "Not connected",
+    "notConnectedTitle": "Account Qobuz not connected",
     "notConnectedDetails": "Sign in to your Qobuz account to stream to Milō from the Qobuz app. A browser window opens for you to sign in; return here once it's done.",
     "appVolumeTitle": "Volume control from the Qobuz app",
     "appVolumeDescription": "Let the Qobuz app change the volume. When off, Milō keeps Qobuz at full volume and its own volume control sets the level."
