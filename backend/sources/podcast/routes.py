@@ -47,24 +47,15 @@ def setup_podcast_routes(source_provider) -> APIRouter:
 @router.get("/discover/top-charts")
 async def get_top_charts(
     source: PodcastSource = Depends(get_source),
-    content_type: str = Query("PODCASTSERIES", description="PODCASTSERIES (episode charts are gone)"),
     limit: int = Query(25, ge=1, le=200)
 ) -> Dict[str, Any]:
-    """Get Apple Podcasts top charts (iTunes RSS) using user's language."""
+    """Get Apple Podcasts top charts (iTunes RSS, podcasts-only) using user's language."""
     async with api_error_handler("Error getting top charts", logger):
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
         milo_language = settings.get('language', 'english')
         itunes_country = map_milo_language_to_itunes_country(milo_language)
-
-        # Episode charts are unavailable keyless (iTunes RSS is podcasts-only);
-        # answer the pre-Phase-2 frontend with an empty list instead of a 422.
-        if content_type != "PODCASTSERIES":
-            return {
-                "results": [], "total": 0,
-                "country": itunes_country, "language": milo_language,
-            }
 
         result = await source.podcast_api.get_itunes_top_podcasts(
             country_code=itunes_country,
