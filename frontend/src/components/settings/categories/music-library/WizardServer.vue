@@ -112,14 +112,10 @@ onMounted(() => {
   min-height: calc(2 * 62px + var(--space-01));
 }
 
-/* Manual-entry + re-scan side by side, equal width. */
 .wiz-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-02);
-}
-
-.wiz-actions > * {
-  flex: 1;
 }
 
 .wiz-list {
@@ -151,6 +147,10 @@ onMounted(() => {
 @media (max-aspect-ratio: 4/3) {
   .wiz-center {
     min-height: calc(2 * 58px + var(--space-01));
+  }
+
+  .wiz-actions {
+    grid-template-columns: 1fr;
   }
 }
 </style>
