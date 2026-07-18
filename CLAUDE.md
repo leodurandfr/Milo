@@ -148,9 +148,8 @@ End users run the **pre-built** frontend served by nginx from `dist/` — no Vit
 
 When unsure, ask: *"reproducible from a clean prod boot, or only from dev-session state?"* Full telltale lists: [docs/development.md](docs/development.md).
 
-## Comments & docs language
+## Do not write in french except for i18n
 
-Write all code comments, docstrings, and `TODO`/`FIXME` in **English**, even when the conversation is in French. User-facing text (UI labels, i18n strings, error messages) can be localized.
 
 ## Lint floor
 
