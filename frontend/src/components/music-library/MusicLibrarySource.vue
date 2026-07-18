@@ -56,6 +56,9 @@
                 <IconButton icon="next" variant="on-dark" size="small" @click="store.next()" />
               </div>
               <div class="ml-secondary">
+                <IconButton icon="shuffle" variant="on-dark" size="small"
+                  :color="store.shuffle ? 'var(--color-brand)' : undefined"
+                  @click="store.toggleShuffle()" />
                 <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="small"
                   @click="store.toggleCurrentStar()" />
                 <IconButton icon="queue" variant="on-dark" size="small" @click="goToQueue" />

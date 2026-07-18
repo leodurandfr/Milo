@@ -11,15 +11,22 @@ playlist / search) — the frontend hands the ordered Subsonic song dicts to the
 ``stream?id=…&format=raw`` URL, and mpv plays them as one native playlist. With
 the unit's ``--gapless-audio=yes`` that is truly gapless. Transport
 (pause/resume/next/prev/seek/play_index) drives that single mpv playlist; the
-now-playing projection (title/artist/album/art + queue/index/shuffle/repeat) is
-broadcast over WS. Shuffle is honoured at play time; repeat is surfaced as state
-(the toggle command lands in Phase 3).
+now-playing projection (title/artist/album/art + queue/index/shuffle) is
+broadcast over WS. Shuffle can be toggled live from the player (``set_shuffle``
+reshuffles the upcoming tracks without interrupting the current one).
+
+Resume-on-return (P3-12): when playback stops because the user switched to
+another source or the idle auto-stop fired, the live session (queue / track /
+position) is snapshotted in memory; the next activation restores it PAUSED so a
+tap on play continues where it left off. An explicit Stop or a naturally-finished
+queue forgets it, and it is deliberately not persisted (a reboot starts fresh).
 
 Underneath, the USB storage layer (P1-4): initialize() starts a StorageManager
 that watches for USB keys, mounts them read-only under /media/milo and triggers
 a Navidrome rescan — independent of playback, so a plugged-in key is indexed even
 when music_library is not the active source. See docs/plans/music-library.md.
 """
+import asyncio
 import random
 from typing import Any, Dict, List, Optional
 
@@ -35,6 +42,7 @@ from backend.sources.music_library.models import (
     PlayContextParams,
     PlayIndexParams,
     SeekParams,
+    SetShuffleParams,
     ShareRequest,
 )
 from backend.sources.music_library.navidrome_client import NavidromeClient
@@ -85,10 +93,18 @@ class MusicLibrarySource(MpvAudioSource):
         self._position: int = 0  # seconds into the current track
         self._duration: int = 0  # seconds
         self._shuffle: bool = False
-        self._repeat: str = "off"  # surfaced only; the toggle command is Phase 3
+        # The queue in its pristine (pre-shuffle) order, captured at play time so
+        # toggling shuffle OFF can restore the original run of upcoming tracks.
+        self._queue_unshuffled: List[Dict[str, Any]] = []
         # Guards the monitor tick while a load / track-switch is mid-flight (mpv
         # briefly reports idle-active or a stale playlist-pos during the change).
         self._loading: bool = False
+        # Saved session for resume-on-return (P3-12): {queue, queue_unshuffled,
+        # queue_index, position, shuffle}. Captured when playback stops via a
+        # source switch or the idle auto-stop; restored PAUSED on the next
+        # activation. In-memory only (a reboot forgets it), and deliberately NOT
+        # reset by _reset_playback_state so it survives the stop→start cycle.
+        self._resume: Optional[Dict[str, Any]] = None
 
     # =========================================================================
     # NAVIDROME CLIENT (shared with routes.py)
@@ -155,11 +171,11 @@ class MusicLibrarySource(MpvAudioSource):
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
         self._queue = []
+        self._queue_unshuffled = []
         self._queue_index = 0
         self._position = 0
         self._duration = 0
         self._shuffle = False
-        self._repeat = "off"
         self._loading = False
 
     async def _do_start(self) -> bool:
@@ -178,8 +194,11 @@ class MusicLibrarySource(MpvAudioSource):
             await self._load_auto_stop_config()
             self._start_monitor()
 
-            # Idle placeholder (no queue yet) — selecting the source lands on the
-            # status card; play_context flips it to ACTIVE.
+            # Resume the previous session (paused) if one was saved when the
+            # source was switched away or idle-stopped; otherwise idle on the
+            # WAITING placeholder until the user plays a context.
+            if self._resume and await self._restore_resume_session():
+                return True
             self.emit_connection_state(False)
             return True
 
@@ -190,7 +209,12 @@ class MusicLibrarySource(MpvAudioSource):
 
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:
-        """Stop mpv and the service, clearing the queue."""
+        """Stop mpv and the service, clearing the queue.
+
+        A stop here is a source switch or routing change (never an explicit
+        Stop), so the live session is snapshotted for resume-on-return before the
+        teardown clears it."""
+        await self._capture_resume_session()
         await self._cleanup()
         self._reset_playback_state()
         return await self._stop_service()
@@ -217,6 +241,7 @@ class MusicLibrarySource(MpvAudioSource):
         "next": None,
         "prev": None,
         "seek": SeekParams,
+        "set_shuffle": SetShuffleParams,
         "stop": None,
     }
 
@@ -235,6 +260,8 @@ class MusicLibrarySource(MpvAudioSource):
             return await self._handle_prev()
         if cmd == "seek":
             return await self._handle_seek(params)
+        if cmd == "set_shuffle":
+            return await self._handle_set_shuffle(params)
         if cmd == "stop":
             return await self._handle_stop()
         return self.error_response(f"Unhandled command: {cmd}")
@@ -249,6 +276,7 @@ class MusicLibrarySource(MpvAudioSource):
             return self.error_response("Music library catalog not ready")
 
         tracks = list(params.tracks)
+        original_order = list(tracks)  # pristine order for a later shuffle-off
         start_index = min(params.start_index, len(tracks) - 1)
         shuffle = params.shuffle
         if shuffle:
@@ -260,10 +288,13 @@ class MusicLibrarySource(MpvAudioSource):
 
         urls = [client.stream_url(track["id"]) for track in tracks]
 
+        # A fresh context supersedes any saved resume session.
+        self._resume = None
         # Announce the target track buffering BEFORE the blocking load so the
         # player snaps to the new now-playing (title/artist/art, spinner) at once.
         self._loading = True
         self._queue = tracks
+        self._queue_unshuffled = original_order
         self._queue_index = start_index
         self._shuffle = shuffle
         self._position = 0
@@ -388,20 +419,74 @@ class MusicLibrarySource(MpvAudioSource):
         self._update_connection_state()
         return self.success_response(f"Seeked to {position}s")
 
+    async def _handle_set_shuffle(self, params: SetShuffleParams) -> Dict[str, Any]:
+        """Toggle shuffle on the live queue, reordering ONLY the upcoming tracks so
+        the current one keeps playing (gapless, no restart).
+
+        ON shuffles the tracks after the current index; OFF restores their pristine
+        order from ``_queue_unshuffled``. The played/current head is left as-is
+        either way. mpv's tail is rebuilt in place (no reload of the current
+        entry) via :meth:`MpvController.replace_playlist_tail`.
+        """
+        if not self._mpv or not self._queue:
+            return self.error_response("No active queue")
+        target = bool(params.shuffle)
+        if target == self._shuffle:
+            return self.success_response("Shuffle unchanged")
+
+        client = await self.get_navidrome_client()
+        if client is None:
+            return self.error_response("Music library catalog not ready")
+
+        head = self._queue[: self._queue_index + 1]
+        if target:
+            tail = self._queue[self._queue_index + 1:]
+            random.shuffle(tail)
+        else:
+            # Pristine order minus whatever is already in the played/current head.
+            head_ids = {t.get("id") for t in head}
+            tail = [t for t in self._queue_unshuffled if t.get("id") not in head_ids]
+
+        urls = [client.stream_url(track["id"]) for track in tail]
+        self._loading = True
+        try:
+            ok = await self._mpv.replace_playlist_tail(self._queue_index + 1, urls)
+        except Exception as e:
+            self._loading = False
+            self._logger.error(f"Shuffle toggle error: {e}")
+            return self.error_response(str(e))
+        self._loading = False
+        if not ok:
+            return self.error_response("Failed to reorder queue")
+
+        self._queue = head + tail
+        self._shuffle = target
+        self._update_connection_state()
+        return self.success_response("Shuffle on" if target else "Shuffle off")
+
     async def _handle_stop(self) -> Dict[str, Any]:
-        await self._stop_playback()
+        # Explicit Stop: forget any saved session (the user chose to stop).
+        await self._stop_playback(save_resume=False)
         return self.success_response("Playback stopped")
 
     async def _auto_stop_action(self) -> None:
-        """Stop playback in place after the pause timeout (releases the device;
-        the screen can sleep). The source drops to WAITING."""
-        await self._stop_playback()
+        """Stop playback after the idle pause timeout (releases the device; the
+        screen can sleep). The source drops to WAITING but the session is saved so
+        returning to the source resumes where it left off."""
+        await self._stop_playback(save_resume=True)
 
-    async def _stop_playback(self) -> None:
-        """Stop mpv, clear the queue, and drop to WAITING."""
+    async def _stop_playback(self, save_resume: bool = False) -> None:
+        """Stop mpv, clear the queue, and drop to WAITING.
+
+        ``save_resume`` snapshots the live session first (idle auto-stop); an
+        explicit Stop passes False and forgets any previously-saved session."""
         self._loading = False
-        # Explicit stop — drop any pending pause timer (mpv's pause property can
-        # stay True after `stop`).
+        if save_resume:
+            await self._capture_resume_session()
+        else:
+            self._resume = None
+        # Drop any pending pause timer (mpv's pause property can stay True after
+        # `stop`).
         self._handle_pause_change(False)
         if self._mpv:
             await self._mpv.stop()
@@ -475,6 +560,8 @@ class MusicLibrarySource(MpvAudioSource):
     async def _handle_queue_finished(self) -> None:
         """The whole queue played out — drop to WAITING (the shared player hides)."""
         self._logger.info("Queue finished")
+        # Nothing to resume once the queue has played out.
+        self._resume = None
         self._reset_playback_state()
         self.set_state(
             SourceState.WAITING,
@@ -492,6 +579,98 @@ class MusicLibrarySource(MpvAudioSource):
         position = await self._mpv.get_property("time-pos")
         if position is not None:
             self._position = int(position)
+
+    # =========================================================================
+    # RESUME-ON-RETURN (in-memory session snapshot)
+    # =========================================================================
+
+    async def _capture_resume_session(self) -> None:
+        """Snapshot the live queue/track/position for resume-on-return.
+
+        No-op (and clears any stale snapshot) when nothing is playing. Reads the
+        exact playhead from mpv first so the resume lands where playback actually
+        stopped. In-memory only — a backend restart forgets it.
+        """
+        if not self._queue or not (0 <= self._queue_index < len(self._queue)):
+            self._resume = None
+            return
+        await self._sync_position_from_mpv()
+        self._resume = {
+            "queue": list(self._queue),
+            "queue_unshuffled": list(self._queue_unshuffled),
+            "queue_index": self._queue_index,
+            "position": self._position,
+            "shuffle": self._shuffle,
+        }
+
+    async def _restore_resume_session(self) -> bool:
+        """Reload the saved session PAUSED at its stored track/position.
+
+        Consumes ``self._resume`` (cleared regardless of outcome). Returns False
+        when the catalog isn't ready or the load fails, so _do_start falls back to
+        the WAITING placeholder.
+        """
+        session = self._resume
+        self._resume = None
+        if not session or not self._mpv:
+            return False
+        client = await self.get_navidrome_client()
+        if client is None:
+            return False
+
+        tracks = session.get("queue") or []
+        if not tracks:
+            return False
+        index = min(session.get("queue_index", 0), len(tracks) - 1)
+        position = int(session.get("position") or 0)
+        urls = [client.stream_url(track["id"]) for track in tracks]
+
+        self._loading = True
+        self._queue = tracks
+        self._queue_unshuffled = session.get("queue_unshuffled") or list(tracks)
+        self._queue_index = index
+        self._shuffle = bool(session.get("shuffle"))
+        self._position = position
+        self._duration = int(tracks[index].get("duration") or 0)
+        self._is_playing = False
+        self._is_buffering = False
+        # Show the restored (paused) track straight away, then load underneath.
+        self._update_connection_state()
+
+        try:
+            # load_playlist always unpauses at the end, so pause right after it,
+            # then seek into the saved position (seeking works fine while paused).
+            loaded = await self._mpv.load_playlist(urls, index)
+            if loaded:
+                await self._mpv.pause()
+                if position > 0:
+                    await self._wait_and_seek(position)
+        except Exception as e:
+            self._logger.error(f"Resume restore failed: {e}")
+            loaded = False
+
+        self._loading = False
+        if not loaded:
+            self._reset_playback_state()
+            return False
+
+        self._is_playing = False
+        self._handle_pause_change(True)
+        self._update_connection_state()
+        self._logger.info("Resumed previous session (paused) at %ss", position)
+        return True
+
+    async def _wait_and_seek(self, position: int, timeout: float = 5.0) -> None:
+        """Wait until the stream is seekable (duration known), then seek there.
+
+        Best-effort: on timeout the restored track simply starts from 0."""
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            duration = await self._mpv.get_property("duration")
+            if duration and duration > 0:
+                await self._mpv.seek(position)
+                return
+            await asyncio.sleep(0.2)
 
     # =========================================================================
     # METADATA / STATE
@@ -527,7 +706,6 @@ class MusicLibrarySource(MpvAudioSource):
             "queue": self._queue,
             "queue_index": self._queue_index,
             "shuffle": self._shuffle,
-            "repeat": self._repeat,
         }
 
     def _update_connection_state(self) -> None:
@@ -563,6 +741,15 @@ class MusicLibrarySource(MpvAudioSource):
     # =========================================================================
     # NETWORK SHARES (SMB/NFS) — CRUD orchestration for routes.py
     # =========================================================================
+
+    def list_usb_devices(self) -> List[Dict[str, str]]:
+        """USB volumes mounted under the library root right now (read-only status).
+
+        Sits beside :meth:`list_shares` in the settings UI so the user sees every
+        music origin — the auto-mounted key and the configured NAS shares — in one
+        place. Delegates to the storage manager's live mount map (no I/O).
+        """
+        return self._storage.get_usb_mounts()
 
     async def list_shares(self) -> List[Dict[str, Any]]:
         """Configured network shares (non-secret metadata; safe over the API).

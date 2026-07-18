@@ -5,7 +5,7 @@
 //   1. Now-playing — DERIVED from the central audio mirror
 //      (unifiedAudioStore.systemState.metadata) gated on active_source ===
 //      'music_library', exactly like cdStore. The backend broadcasts the queue
-//      projection (title/artist/album/art + queue/index/shuffle/repeat) as
+//      projection (title/artist/album/art + queue/index/shuffle) as
 //      standard source metadata, healed by full_state on every reconnect, so
 //      there is no delta-fed now-playing state to maintain here.
 //
@@ -50,7 +50,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const queue = computed(() => meta.value.queue || []);
   const queueIndex = computed(() => meta.value.queue_index ?? -1);
   const shuffle = computed(() => !!meta.value.shuffle);
-  const repeat = computed(() => meta.value.repeat || 'off');
   const currentTrackId = computed(() => meta.value.track_id || null);
   const isPlaying = computed(() => !!meta.value.is_playing);
   const isBuffering = computed(() => !!meta.value.is_buffering);
@@ -143,6 +142,10 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const next = () => send('next');
   const previous = () => send('prev');
   const stop = () => send('stop');
+  // Live shuffle toggle: reorders only the upcoming tracks (the current one keeps
+  // playing). Sends the target state, not a flip, so a stale tap can't invert it.
+  const setShuffle = (on) => send('set_shuffle', { shuffle: !!on });
+  const toggleShuffle = () => setShuffle(!shuffle.value);
 
   // =========================================================================
   // CATALOG — Albums (home Albums tab; getAlbumList2 newest, paged)
@@ -504,6 +507,27 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return false;
   }
 
+  // =========================================================================
+  // USB DEVICES (read-only status). The backend auto-mounts keys on hotplug;
+  // this is surfaced only so the settings screen can show whether a key is
+  // plugged in, beside the configurable network shares. No WS event — fetched
+  // when the settings screen mounts and refreshed on resync.
+  // =========================================================================
+  const usbDevices = ref([]);
+  const usbLoaded = ref(false);
+
+  async function loadUsbDevices() {
+    const result = await apiCall.get(`${BASE}/usb-devices`, {
+      category: 'musicLibrary',
+      message: 'Error loading USB devices',
+      logLevel: 'debug',
+    });
+    if (result.ok && Array.isArray(result.data?.devices)) {
+      usbDevices.value = result.data.devices;
+      usbLoaded.value = true;
+    }
+  }
+
   // mDNS discovery of SMB/NFS servers on the LAN (a convenience to prefill the
   // add-share form). Resilient: an empty list simply means "type it manually".
   async function discoverServers() {
@@ -558,6 +582,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (genresLoaded.value) tasks.push(loadGenres({ force: true }));
     if (playlistsLoaded.value) tasks.push(loadPlaylists({ force: true }));
     if (sharesLoaded.value) tasks.push(loadShares({ force: true }));
+    if (usbLoaded.value) tasks.push(loadUsbDevices());
     await Promise.allSettled(tasks);
   }
 
@@ -575,7 +600,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     queue,
     queueIndex,
     shuffle,
-    repeat,
     currentTrackId,
     isPlaying,
     isBuffering,
@@ -594,6 +618,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     next,
     previous,
     stop,
+    setShuffle,
+    toggleShuffle,
 
     // Albums
     albums,
@@ -662,6 +688,11 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     removeShare,
     discoverServers,
     browseShare,
+
+    // USB devices (read-only)
+    usbDevices,
+    usbLoaded,
+    loadUsbDevices,
 
     // UI
     activeTab,
