@@ -43,6 +43,7 @@ const iconMapping = {
   'cd': 'cd',
   'dlna': 'dlna',
   'qobuz': 'qobuz',
+  'music_library': 'music-library',
   'multiroom': 'multiroom',
   'equalizer': 'equalizer',
   'settings': 'settings',

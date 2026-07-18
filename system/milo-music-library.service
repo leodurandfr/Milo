@@ -1,0 +1,62 @@
+[Unit]
+Description=Milo Music Library Player (mpv)
+Documentation=https://mpv.io/manual/stable/
+After=sound.target milo-backend.service milo-camilladsp.service
+Requires=sound.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+
+# Create /run/milo/ automatically for IPC socket
+RuntimeDirectory=milo
+RuntimeDirectoryMode=0755
+# Preserve the shared /run/milo on stop — see milo-camilladsp.service
+RuntimeDirectoryPreserve=yes
+
+# Load Milo environment variables (MILO_MODE)
+EnvironmentFile=/var/lib/milo/routing.env
+
+# ALSA device routes to direct (CamillaDSP) or multiroom (Snapcast)
+ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE}"'
+
+# Launch mpv in daemon mode with IPC socket.
+# --gapless-audio=yes → true gapless across the queue (album/live/classical).
+# No loudnorm filter: a local library is played bit-perfect (Navidrome streams
+# format=raw); volume/EQ live downstream in CamillaDSP.
+ExecStart=/usr/bin/mpv \
+    --no-video \
+    --audio-device=alsa/milo_music_library \
+    --input-ipc-server=/run/milo/music_library-ipc.sock \
+    --idle=yes \
+    --gapless-audio=yes \
+    --cache=yes \
+    --demuxer-max-bytes=50MiB \
+    --demuxer-max-back-bytes=5MiB \
+    --network-timeout=15 \
+    --stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=30 \
+    --msg-level=all=warn \
+    --no-config \
+    --no-terminal
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Resource limits
+CPUQuota=50%
+MemoryMax=256M
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-music-library
+
+[Install]
+WantedBy=multi-user.target

@@ -30,7 +30,7 @@ codec = flac
 chunk_ms = 40
 sampleformat = 48000:32:2
 
-source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast/AirPlay/CD/DLNA/Qobuz?name=Multiroom
+source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast/AirPlay/CD/DLNA/Qobuz/MusicLibrary?name=Multiroom
 
 source = alsa:///?name=Bluetooth&device=hw:1,1,1&idle_threshold=5000
 source = alsa:///?name=ROC&device=hw:1,1,2&idle_threshold=5000
@@ -41,6 +41,7 @@ source = alsa:///?name=AirPlay&device=hw:1,1,6&idle_threshold=5000
 source = alsa:///?name=CD&device=hw:1,1,7&idle_threshold=5000
 source = alsa:///?name=DLNA&device=hw:2,1,0&idle_threshold=5000
 source = alsa:///?name=Qobuz&device=hw:2,1,1&idle_threshold=5000
+source = alsa:///?name=MusicLibrary&device=hw:2,1,2&idle_threshold=5000
 
 [http]
 enabled = true

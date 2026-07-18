@@ -115,6 +115,8 @@ const displayedStatusLines = computed(() => {
         return [t('status.loadingOf'), t('audioSources.dlna')];
       case 'qobuz':
         return [t('status.loadingOf'), t('audioSources.qobuz')];
+      case 'music_library':
+        return [t('status.loadingOf'), t('audioSources.musicLibrary')];
       case 'cd':
         return [t('status.loadingOfMasculine'), t('audioSources.cd')];
       default:
@@ -145,6 +147,8 @@ const displayedStatusLines = computed(() => {
         return props.accountConnected
           ? [t('audioSources.qobuz'), t('status.readyToStream')]
           : [t('audioSources.qobuz'), t('status.accountNotConnected')];
+      case 'music_library':
+        return [t('audioSources.musicLibrary'), t('status.readyToPlay')];
       case 'cd':
         return [t('audioSources.cd'), t('status.readyToPlay')];
       default:

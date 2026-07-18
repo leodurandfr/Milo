@@ -51,6 +51,7 @@
     "cd": "CD Player",
     "dlna": "DLNA",
     "qobuz": "Qobuz",
+    "musicLibrary": "Music Library",
     "cdSource": {
       "unknownAlbum": "Unknown Album",
       "unknownArtist": "Unknown Artist",
