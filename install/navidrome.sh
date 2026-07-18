@@ -99,6 +99,16 @@ EnableInsightsCollector = false
 EnableExternalServices = true
 
 LogLevel = "info"
+
+# Album identity: group tracks into one album by album-artist + album name
+# (a MusicBrainz album id still wins when present). This drops the default's
+# release-date and album-version components, so a single track missing a
+# DATE/RELEASEDATE tag no longer spawns a second one-track "album" beside the
+# rest — the common failure with ripped / self-tagged files. Tradeoff: two
+# genuinely distinct same-name albums by one artist with no version tag would
+# merge, acceptable for a home library. Changing this needs a FULL rescan.
+[PID]
+Album = "musicbrainz_albumid|albumartistid,album"
 EOF
 
     # milo owns the whole tree so milo-navidrome.service (User=milo) can read the

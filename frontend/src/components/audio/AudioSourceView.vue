@@ -235,6 +235,13 @@ const contentKey = computed(() => {
   position: absolute;
   inset: 0;
   display: grid;
+  /* Clamp the single row to the slot's fixed height (minmax min:0, not auto) so a
+     source whose content is taller than the viewport doesn't grow the row — which
+     would make the child's height:100% resolve to content height, leaving
+     .audio-source-layout's overflow-y:auto nothing to scroll and clipping the
+     overflow under #app{overflow:hidden}. First surfaced by Music Library's long
+     track lists; the row now stays viewport-height and the layout scrolls. */
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .source-status-container {
