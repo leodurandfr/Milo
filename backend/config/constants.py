@@ -41,6 +41,13 @@ NAVIDROME_HOST = "127.0.0.1"
 NAVIDROME_PORT = 4533
 NAVIDROME_URL = f"http://{NAVIDROME_HOST}:{NAVIDROME_PORT}"
 
+# Privileged storage helpers (pinned sudoers, milo-* doctrine). A USB key is
+# detected unprivileged via pyudev, then mounted read-only under MUSIC_LIBRARY_MOUNT_ROOT
+# by these helpers — the backend never calls mount/umount directly. See
+# rootfs/usr/local/bin/milo-mount and docs/plans/music-library.md.
+MILO_MOUNT_CMD = "/usr/local/bin/milo-mount"
+MILO_UMOUNT_CMD = "/usr/local/bin/milo-umount"
+
 # "prev" button: past this many seconds into a track, prev restarts the current
 # track instead of stepping to the previous one. Mirrors Spotify/go-librespot's
 # standard ~3s rewind-vs-skip threshold (go-librespot's exact value isn't

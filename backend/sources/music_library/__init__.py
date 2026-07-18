@@ -22,11 +22,16 @@ from backend.sources.music_library.navidrome_client import (
     NavidromeClient,
     load_navidrome_credentials,
 )
+from backend.sources.music_library.routes import router, setup_music_library_routes
 from backend.sources.music_library.source import MusicLibrarySource
+from backend.sources.music_library.storage import StorageManager
 
 __all__ = [
     "MusicLibrarySource",
     "NavidromeClient",
     "NavidromeAuthError",
     "load_navidrome_credentials",
+    "StorageManager",
+    "router",
+    "setup_music_library_routes",
 ]

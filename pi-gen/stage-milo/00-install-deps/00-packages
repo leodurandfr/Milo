@@ -66,6 +66,9 @@ sg3-utils
 libdiscid0
 libdiscid-dev
 eject
+exfatprogs
+ntfs-3g
+dosfstools
 ethtool
 ir-keytable
 cage

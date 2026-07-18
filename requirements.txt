@@ -21,3 +21,4 @@ aiohttp-retry>=2.9.0  # direct import in sources/radio/shazam.py (otherwise only
 audioop-lts>=0.2.2; python_version >= "3.13"  # stdlib audioop removed in 3.13 (needed by pydub via shazamio)
 discid>=1.2.0
 musicbrainzngs>=0.7.1
+pyudev>=0.24.0  # USB hotplug detection for the Music Library storage layer (sources/music_library/storage.py)

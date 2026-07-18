@@ -61,7 +61,7 @@ const props = defineProps({
   source: {
     type: String,
     required: true,
-    validator: (value) => ['radio', 'podcast', 'bluetooth', 'mac'].includes(value)
+    validator: (value) => ['radio', 'podcast', 'bluetooth', 'mac', 'music_library'].includes(value)
   },
 
   /**
@@ -437,6 +437,59 @@ const playerClasses = computed(() => ({
   .audio-player.source-podcast :deep(.speed-selector),
   .audio-player.source-podcast :deep(.playback-controls > :first-child) {
     display: flex !important;
+  }
+
+  /* Show progress bar for music library on mobile */
+  .audio-player.source-music_library .player-content :deep(.progress-bar) {
+    display: flex;
+  }
+
+  /* Music library mobile: compact layout (art | title + progress / controls) */
+  .audio-player.source-music_library {
+    flex-direction: column !important;
+    gap: var(--space-03);
+    padding: var(--space-03);
+  }
+
+  .audio-player.source-music_library .player-content {
+    display: grid !important;
+    grid-template-columns: 88px 1fr;
+    grid-template-rows: 1fr auto;
+    column-gap: var(--space-03);
+    row-gap: var(--space-01);
+  }
+
+  .audio-player.source-music_library .player-artwork {
+    grid-row: 1 / -1;
+    width: 88px;
+    height: auto;
+    min-width: 88px;
+    align-self: center;
+  }
+
+  .audio-player.source-music_library .player-info {
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--space-01);
+    min-width: 0;
+  }
+
+  .audio-player.source-music_library .controls {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  /* Compact mobile player drops the favorite/queue row (available in the UI). */
+  .audio-player.source-music_library :deep(.ml-controls) {
+    flex-direction: row;
+    gap: var(--space-02);
+  }
+
+  .audio-player.source-music_library :deep(.ml-secondary) {
+    display: none;
   }
 
   .controls {

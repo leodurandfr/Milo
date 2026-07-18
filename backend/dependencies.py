@@ -411,6 +411,7 @@ def initialize_services() -> None:
     radio_source = get_service("radio_source")
     cd_source = get_service("cd_source")
     podcast_source = get_service("podcast_source")
+    music_library_source = get_service("music_library_source")
 
     async def init_async():
         """Async initialization with error handling."""
@@ -439,6 +440,9 @@ def initialize_services() -> None:
             ("cd_source", cd_source.initialize()),
             # Podcast persistence schema check (fail-loud on schema_version drift)
             ("podcast_source", podcast_source.initialize()),
+            # USB storage watcher (pyudev) — mounts a plugged-in key under
+            # /media/milo + triggers a Navidrome rescan, independent of playback.
+            ("music_library_source", music_library_source.initialize()),
             # mDNS hostname conflict detection (fail-open, never raises)
             ("hostname_conflict_service", hostname_conflict_service.check()),
             # Internet connectivity monitoring (D-Bus subscription, fail-open)

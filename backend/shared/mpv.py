@@ -391,3 +391,37 @@ class MpvController:
         """
         response = await self._send_command("seek", position, "absolute")
         return response is not None and response.get('error') == 'success'
+
+    # === Playlist (gapless queue) ===
+
+    async def load_playlist(self, urls: list, start_index: int = 0) -> bool:
+        """Build mpv's native playlist from an ordered list of stream URLs and
+        start playing at ``start_index``.
+
+        With the unit's ``--gapless-audio=yes`` a native playlist plays truly
+        gapless across the queue. Loads paused so the first entry doesn't blip
+        before jumping to ``start_index``, then unpauses. The first URL uses
+        ``loadfile … replace`` (which clears any previous queue); the rest are
+        appended in order. Returns False if the initial load fails; a single
+        failed append is logged but doesn't abort the whole queue.
+        """
+        if not urls:
+            return False
+
+        await self.set_property("pause", True)
+        if not await self.load_stream(urls[0]):
+            return False
+        for url in urls[1:]:
+            response = await self._send_command("loadfile", url, "append")
+            if response is None:
+                self.logger.warning("playlist append failed for an entry")
+
+        if start_index:
+            await self.set_property("playlist-pos", start_index)
+        await self.set_property("pause", False)
+        return True
+
+    async def set_playlist_pos(self, index: int) -> bool:
+        """Jump to a 0-based entry in the current playlist (mpv loads + plays it,
+        honoring the current pause state)."""
+        return await self.set_property("playlist-pos", index)

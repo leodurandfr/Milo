@@ -11,19 +11,19 @@ using the single service account provisioned on first boot by
 milo-navidrome-provision and stored in a milo-owned 0600 cred file
 (NAVIDROME_CRED_FILE). Credentials never touch settings.json or WS payloads.
 
-Phase status (docs/plans/music-library.md): P0-3 lands the auth layer plus the
-handful of calls the end-to-end smoke test exercises — ping, scan trigger/status,
-a way to pull a playable song id (get_random_songs / search3), and the
-bit-perfect stream URL builder. The full browse surface (getArtists/getAlbum/
-getGenres/getPlaylists/star/getCoverArt paging) is layered on in P1-5; playback
-wiring in source.py in P1-6.
+Phase status (docs/plans/music-library.md): P0-3 landed the auth layer plus the
+handful of calls the end-to-end smoke test exercises (ping, scan trigger/status,
+get_random_songs / search3, the bit-perfect stream URL). P1-5 adds the full
+browse surface consumed by /api/music-library/* — getArtists/getArtist/getAlbum/
+getAlbumList2/getGenres/getSongsByGenre, getPlaylists/getPlaylist, star/unstar,
+and getCoverArt bytes for the cover proxy. Playback wiring in source.py is P1-6.
 """
 import asyncio
 import hashlib
 import logging
 import secrets
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 import aiohttp
@@ -36,6 +36,24 @@ from backend.shared.network import is_network_error
 SUBSONIC_API_VERSION = "1.16.1"
 # Client identifier sent as `c=` — surfaces in Navidrome's "players" list.
 SUBSONIC_CLIENT_NAME = "milo"
+
+# Valid `type` values for getAlbumList2. Routes validate against this before
+# calling so an unknown type is a 400, not a silent empty list from Navidrome.
+# `byGenre` needs `genre`; `byYear` needs `fromYear`/`toYear`.
+ALBUM_LIST_TYPES = frozenset(
+    {
+        "random",
+        "newest",
+        "highest",
+        "frequent",
+        "recent",
+        "alphabeticalByName",
+        "alphabeticalByArtist",
+        "starred",
+        "byYear",
+        "byGenre",
+    }
+)
 
 
 class NavidromeAuthError(Exception):
@@ -223,7 +241,7 @@ class NavidromeClient:
             await asyncio.sleep(poll_interval)
         return False
 
-    # === Catalog (minimal P0-3 surface; full browse in P1-5) ===
+    # === Catalog browse ===
 
     async def get_random_songs(
         self, size: int = 10, genre: Optional[str] = None
@@ -262,6 +280,114 @@ class NavidromeClient:
             "song": result.get("song", []) or [],
         }
 
+    async def get_artists(self) -> List[Dict[str, Any]]:
+        """All artists as A–Z index buckets (Subsonic ``getArtists``).
+
+        Returns the ``artists.index`` list — ``[{"name": "A", "artist": [...]},
+        ...]`` — preserving the alphabetical grouping the Artists view renders.
+        """
+        response = await self._make_request("getArtists")
+        if not response or response.get("_network_error"):
+            return []
+        return response.get("artists", {}).get("index", []) or []
+
+    async def get_artist(self, artist_id: str) -> Optional[Dict[str, Any]]:
+        """A single artist with its albums (Subsonic ``getArtist``)."""
+        response = await self._make_request("getArtist", {"id": artist_id})
+        if not response or response.get("_network_error"):
+            return None
+        return response.get("artist")
+
+    async def get_album(self, album_id: str) -> Optional[Dict[str, Any]]:
+        """A single album with its ordered songs (Subsonic ``getAlbum``)."""
+        response = await self._make_request("getAlbum", {"id": album_id})
+        if not response or response.get("_network_error"):
+            return None
+        return response.get("album")
+
+    async def get_album_list(
+        self,
+        list_type: str = "alphabeticalByName",
+        size: int = 50,
+        offset: int = 0,
+        genre: Optional[str] = None,
+        from_year: Optional[int] = None,
+        to_year: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """A page of albums (Subsonic ``getAlbumList2``).
+
+        ``list_type`` is one of :data:`ALBUM_LIST_TYPES`. ``genre`` is required
+        for ``byGenre``; ``from_year``/``to_year`` for ``byYear``. Callers page
+        with ``size``/``offset``.
+        """
+        response = await self._make_request(
+            "getAlbumList2",
+            {
+                "type": list_type,
+                "size": size,
+                "offset": offset,
+                "genre": genre,
+                "fromYear": from_year,
+                "toYear": to_year,
+            },
+        )
+        if not response or response.get("_network_error"):
+            return []
+        return response.get("albumList2", {}).get("album", []) or []
+
+    async def get_genres(self) -> List[Dict[str, Any]]:
+        """All genres with song/album counts (Subsonic ``getGenres``)."""
+        response = await self._make_request("getGenres")
+        if not response or response.get("_network_error"):
+            return []
+        return response.get("genres", {}).get("genre", []) or []
+
+    async def get_songs_by_genre(
+        self, genre: str, count: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """Songs tagged with ``genre`` (Subsonic ``getSongsByGenre``)."""
+        response = await self._make_request(
+            "getSongsByGenre",
+            {"genre": genre, "count": count, "offset": offset},
+        )
+        if not response or response.get("_network_error"):
+            return []
+        return response.get("songsByGenre", {}).get("song", []) or []
+
+    # === Playlists (read-only in P1-5; create/edit is Phase 3) ===
+
+    async def get_playlists(self) -> List[Dict[str, Any]]:
+        """All playlists, without their entries (Subsonic ``getPlaylists``)."""
+        response = await self._make_request("getPlaylists")
+        if not response or response.get("_network_error"):
+            return []
+        return response.get("playlists", {}).get("playlist", []) or []
+
+    async def get_playlist(self, playlist_id: str) -> Optional[Dict[str, Any]]:
+        """A single playlist with its ordered entries (Subsonic ``getPlaylist``)."""
+        response = await self._make_request("getPlaylist", {"id": playlist_id})
+        if not response or response.get("_network_error"):
+            return None
+        return response.get("playlist")
+
+    # === Favorites (star) ===
+
+    async def star(self, item_id: str, kind: str = "song") -> bool:
+        """Star a song/album/artist (Subsonic ``star``). ``kind`` picks the id
+        param Subsonic expects (``id``/``albumId``/``artistId``)."""
+        return await self._set_star("star", item_id, kind)
+
+    async def unstar(self, item_id: str, kind: str = "song") -> bool:
+        """Remove a star set by :meth:`star` (Subsonic ``unstar``)."""
+        return await self._set_star("unstar", item_id, kind)
+
+    async def _set_star(self, endpoint: str, item_id: str, kind: str) -> bool:
+        param = {"song": "id", "album": "albumId", "artist": "artistId"}.get(
+            kind, "id"
+        )
+        response = await self._make_request(endpoint, {param: item_id})
+        return bool(response) and not response.get("_network_error")
+
     # === Playback / media URLs ===
 
     def stream_url(self, song_id: str) -> str:
@@ -274,5 +400,42 @@ class NavidromeClient:
         return self._build_url("stream", {"id": song_id, "format": "raw"})
 
     def cover_art_url(self, cover_id: str, size: Optional[int] = None) -> str:
-        """Authenticated getCoverArt URL (proxied behind /api/music-library in P1-5)."""
+        """Authenticated getCoverArt URL (proxied behind /api/music-library)."""
         return self._build_url("getCoverArt", {"id": cover_id, "size": size})
+
+    async def get_cover_art(
+        self, cover_id: str, size: Optional[int] = None
+    ) -> Optional[Tuple[bytes, str]]:
+        """Fetch cover-art bytes + content-type for the /api/music-library/cover
+        proxy (the frontend never reaches Navidrome directly).
+
+        Returns ``(data, content_type)`` on success, None on error. Subsonic
+        replies with a JSON error body instead of an image when the id is
+        unknown, so a JSON/text content-type is treated as a miss.
+        """
+        await self._ensure_session()
+        query = {**self._auth_params(), "id": cover_id, "size": size}
+        try:
+            async with self._session.get(
+                f"{self._base_url}/rest/getCoverArt",
+                params={k: v for k, v in query.items() if v is not None},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    self.logger.error(
+                        f"Navidrome getCoverArt HTTP {resp.status} for {cover_id}"
+                    )
+                    return None
+                content_type = resp.headers.get("Content-Type", "image/jpeg")
+                if content_type.startswith(("application/json", "text/")):
+                    self.logger.error(
+                        f"Navidrome getCoverArt error for {cover_id}: {content_type}"
+                    )
+                    return None
+                return await resp.read(), content_type
+        except Exception as exc:
+            if is_network_error(exc):
+                self.logger.info(f"Navidrome not reachable for cover art: {exc}")
+            else:
+                self.logger.error(f"Navidrome getCoverArt error for {cover_id}: {exc}")
+            return None
