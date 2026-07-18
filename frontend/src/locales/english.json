@@ -537,6 +537,7 @@
     "emptyLibraryHint": "Plug in a USB drive with your music to build the library.",
     "building": "Building library…",
     "buildingHint": "Indexing your music. This can take a few minutes.",
+    "buildingProgress": "{count} tracks indexed…",
     "queueEmpty": "Nothing in the queue",
     "queueEmptyHint": "Play an album, playlist or track to build a queue.",
     "albumsCount": "{count} albums",

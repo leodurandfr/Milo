@@ -527,6 +527,7 @@
     "emptyLibraryHint": "Branchez une clé USB contenant votre musique pour constituer la bibliothèque.",
     "building": "Constitution de la bibliothèque…",
     "buildingHint": "Indexation de votre musique. Cela peut prendre quelques minutes.",
+    "buildingProgress": "{count} morceaux indexés…",
     "queueEmpty": "File d'attente vide",
     "queueEmptyHint": "Lisez un album, une playlist ou un titre pour créer une file d'attente.",
     "albumsCount": "{count} albums",

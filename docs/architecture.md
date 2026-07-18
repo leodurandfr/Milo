@@ -284,6 +284,47 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
   handshake on a non-ASCII device name; Milō's own UI still shows "Qobuz")
 - Data: `/var/lib/milo/qobuz/` (venv + `config.yaml` + OAuth `credentials.json`)
 
+### 10. Music Library (Navidrome + mpv)
+
+**What is it?**
+- The user's own music, played from a **USB key** or **SMB/NFS network share** — an indexed
+  library (Artists / Albums / Genres / Playlists / search / playlists), UI-controlled with rich
+  metadata (Family C, like Radio/Podcast/CD)
+- First source split into a catalog **engine** (Navidrome) + a **player** (mpv): the engine
+  indexes and serves metadata, the player streams bit-perfect audio
+- [**Go to Navidrome**](https://www.navidrome.org/)
+
+**How does it work?**
+- **Storage layer (ours):** a USB key is detected unprivileged via `pyudev` and mounted
+  read-only under `/media/milo/<label>` by the `milo-mount` sudoers helper (SMB/NFS shares the
+  same way; `milo-umount` reverses it). Navidrome only indexes folders — mounting the device is
+  the backend's job
+- **Catalog engine:** `milo-navidrome.service` (always-on, `BindsTo=milo-backend`) indexes
+  everything under `/media/milo` and exposes a localhost **Subsonic API** (`127.0.0.1:4533`). A
+  mount change triggers an explicit rescan; scan progress is polled over
+  `GET /api/music-library/scan-status` and surfaced as a "building library…" state with a live
+  indexed-track count
+- **Player:** `sources/music_library` browses the Subsonic API through the backend proxy and
+  builds an mpv native playlist from `stream?id=…&format=raw` URLs (bit-perfect, no transcode),
+  played gapless (`--gapless-audio`) to `alsa/milo_music_library` → CamillaDSP — the same shape
+  as Podcast, with Navidrome standing in for Podcast Index. The queue is built from any context
+  (album / genre / playlist / search)
+- **Cover art** is proxied localhost-only behind `/api/music-library/cover/{id}`; the frontend
+  never talks to Navidrome (or sees its credentials) directly. Online metadata/art agents are
+  always enabled (no toggle) — album covers still come from embedded/folder art first, the
+  agents only enrich what's missing and fail back silently offline
+- **Auth:** one service account, provisioned per-device on first boot by
+  `milo-navidrome-provision`, stored in a milo-owned 0600 cred file — never in settings.json or
+  WS payloads
+
+**Configuration:**
+- Services: milo-navidrome.service (catalog engine) + milo-music-library.service (mpv player)
+- Storage: milo-mount / milo-umount privileged helpers (pinned sudoers) → mounts under /media/milo
+- API: http://127.0.0.1:4533 (Subsonic, localhost only); REST under /api/music-library
+- Audio output: ALSA (milo_music_library)
+- Data: `/var/lib/milo/navidrome/` (DB + cache + service-account cred), `music_library_data.json`
+  (network-share config, non-secret); share passwords live in root-only cred files, never here
+
 ## Multiroom (Snapcast)
 
 **What is it?**
@@ -391,6 +432,7 @@ options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8
 
 - **card 2 `LoopbackDLNA`**, subdevice 0: DLNA (multiroom) — gmediarender writes `hw:2,0,0`, Snapserver reads `hw:2,1,0`.
 - **card 2 `LoopbackDLNA`**, subdevice 1: Qobuz (multiroom) — qobuz-proxy writes `hw:LoopbackDLNA,0,1`, Snapserver reads `hw:2,1,1`.
+- **card 2 `LoopbackDLNA`**, subdevice 2: Music Library (multiroom) — mpv writes `hw:LoopbackDLNA,0,2`, Snapserver reads `hw:2,1,2`. Direct mode routes `pcm.milo_music_library` → `camilladsp`, the same trio pattern as `milo_cd`/`milo_qobuz`.
 
 Any further source needs another loopback card (bump `index`/`enable`/`id`/`pcm_substreams` in the module options at **both** install paths — `install/alsa.sh` and `pi-gen/stage-milo/02-install-milo/01-run.sh`).
 
@@ -481,6 +523,8 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **routing.env** - Derived artifact of `settings.routing.multiroom_enabled`. Holds `MILO_MODE=direct|multiroom`. Read by every source systemd unit via `EnvironmentFile=` and by `/etc/asound.conf` via `@func getenv vars [ MILO_MODE ]` for `milo_*` alias resolution. Regenerated exclusively by `AudioRoutingService` whenever the setting changes.
 **last_volume.json** - Last saved volume for restoration
 **qobuz/** - qobuz-proxy sidecar home (`QOBUZPROXY_DATA_DIR`): `venv/` (the pinned qobuz-proxy install), `config.yaml`, and the OAuth `credentials.json` written on first login. Owned `milo:audio`. Not baked into the image — the account login is per-user.
+**navidrome/** - Navidrome catalog engine `DataFolder`: the library **DB** (`navidrome.db`), the regenerable art/transcode **cache/**, the baked `navidrome.toml`, and the per-device service-account cred (`milo-service.cred`, 0600) + `navidrome-auth.env` written on first boot. Owned `milo:milo`. Placed under `/var/lib/milo` so any whole-tree backup captures the catalog (see Backups).
+**music_library_data.json** - Music Library network-share config (SMB/NFS): non-secret metadata only (id/type/host/path/name/`has_credentials`). Share passwords never land here — they live in root-only cred files written by `milo-mount`. USB keys are not persisted (auto-detected live). Mounts themselves appear under `/media/milo/` (the Navidrome `MusicFolder`), which is a mount root, not persisted data.
 
 **Integrity protection:**
 - ✅ Atomic write (`os.replace()`)
@@ -496,6 +540,12 @@ Automatic binary backups during updates:
 ├── snapserver-0.31.0
 └── snapclient-0.31.0
 ```
+
+There is no whole-tree backup/restore feature today; the appliance's durable state simply lives
+under `/var/lib/milo/`. Everything there — including the Navidrome library DB (`navidrome/navidrome.db`)
+and per-device credentials — is therefore captured by any backup that archives that directory. The
+`navidrome/cache/` subdirectory is a rebuildable art/transcode cache and can be safely excluded from a
+future backup (Navidrome regenerates it on demand).
 
 ## Real-time communication (WebSocket)
 
@@ -577,6 +627,8 @@ milo-podcast              # Podcast player (mpv, separate instance from radio)
 milo-cd                   # CD player
 milo-dlna                 # DLNA/UPnP renderer (gmediarender + GStreamer)
 milo-qobuz                # Qobuz Connect (qobuz-proxy sidecar, backend-managed)
+milo-navidrome            # Music Library catalog engine (Navidrome, always-on, BindsTo=milo-backend)
+milo-music-library        # Music Library player (mpv, gapless; streams from Navidrome)
 milo-camilladsp           # CamillaDSP audio processing (always in path for volume)
 milo-snapserver-multiroom # Snapcast server (started/stopped by AudioRoutingService — no WantedBy)
 milo-snapclient-multiroom # Local snapcast client (started/stopped by AudioRoutingService — no WantedBy)
