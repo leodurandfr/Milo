@@ -40,7 +40,7 @@ install_dependencies() {
             git python3-pip python3-venv python3-dev libasound2-dev libasound2-plugins libssl-dev \
             cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
             fontconfig mpv libinput-tools bc eject libdiscid0 libdiscid-dev sg3-utils \
-            exfatprogs ntfs-3g dosfstools cifs-utils nfs-common \
+            exfatprogs ntfs-3g dosfstools cifs-utils nfs-common smbclient \
             ethtool \
             fonts-noto fonts-noto-cjk fonts-lohit-deva fonts-noto-color-emoji
 

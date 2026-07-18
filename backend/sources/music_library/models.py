@@ -119,6 +119,40 @@ class ShareRequest(BaseModel):
         return self
 
 
+class ShareBrowseRequest(BaseModel):
+    """Body for ``POST /music-library/shares/browse`` (the add-share wizard).
+
+    Walks a server one level deep *without mounting* to build a share config:
+    ``path`` empty → the top level (SMB shares / NFS exports); non-empty (SMB
+    only) → the folders under ``<share>/<subpath>``. CIFS credentials feed the
+    ``smbclient`` call (and let the backend report ``auth_required``); they are
+    used transiently and never persisted here. ``path`` may contain spaces (real
+    folder names do) but no control characters (it reaches a subprocess).
+    """
+
+    type: Literal["cifs", "nfs"]
+    host: str = Field(min_length=1, max_length=255)
+    path: str = Field(default="", max_length=1024)
+    username: Optional[str] = Field(default=None, max_length=128)
+    password: Optional[str] = Field(default=None, max_length=256)
+    domain: Optional[str] = Field(default=None, max_length=128)
+
+    @field_validator("host")
+    @classmethod
+    def _host_no_whitespace(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("invalid host")
+        return value
+
+    @field_validator("path", "username", "password", "domain")
+    @classmethod
+    def _no_control_chars(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("must not contain control characters")
+        return value
+
+
 # === Command-parameter models (validated at the command() boundary) ===
 
 class PlayContextParams(BaseModel):

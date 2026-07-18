@@ -31,8 +31,11 @@ from fastapi.responses import Response
 
 from backend.api.route_helpers import api_error_handler
 from backend.api.source_dependency import make_source_dependency
+from backend.sources.music_library.browse import browse_share
+from backend.sources.music_library.discovery import discover_servers
 from backend.sources.music_library.models import (
     CreatePlaylistRequest,
+    ShareBrowseRequest,
     ShareRequest,
     StarRequest,
     UpdatePlaylistRequest,
@@ -388,6 +391,39 @@ async def get_scan_status(
 
 
 # === Network shares (SMB/NFS) ===
+
+@router.get("/shares/discover")
+async def discover_shares() -> Dict[str, Any]:
+    """SMB/NFS servers found on the LAN via mDNS, to prefill the add-share form.
+
+    Resilient (always HTTP 200): discovery is a convenience over manual entry, so
+    an unavailable Avahi, a timeout, or a parse miss yields an empty list rather
+    than an error. Needs no source — it never touches Navidrome or credentials.
+    """
+    return {"servers": await discover_servers()}
+
+
+@router.post("/shares/browse")
+async def browse_share_route(request: ShareBrowseRequest) -> Dict[str, Any]:
+    """Walk a server one level (SMB shares/folders, NFS exports) for the wizard.
+
+    Unprivileged and mount-free (smbclient / showmount). Always HTTP 200 with a
+    typed ``status`` (ok / auth_required / unreachable / error) the wizard branches
+    on — a wrong password or an offline NAS is normal wizard flow, not a 5xx.
+    Credentials are used transiently for the smbclient call, never persisted here.
+    """
+    result = await browse_share(
+        share_type=request.type,
+        host=request.host,
+        path=request.path,
+        credentials={
+            "username": request.username,
+            "password": request.password,
+            "domain": request.domain,
+        } if request.password or request.username else None,
+    )
+    return result
+
 
 @router.get("/shares")
 async def list_shares(

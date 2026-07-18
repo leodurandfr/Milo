@@ -420,6 +420,111 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const isScanning = computed(() => !!scanStatus.value?.scanning);
 
   // =========================================================================
+  // NETWORK SHARES (SMB/NFS) — configured in Settings; the backend persists,
+  // (re)mounts read-only under /media/milo, and rescans on every write. Non-
+  // secret metadata only ({id, type, host, path, name, has_credentials}); the
+  // password is write-only (handed to the mount helper, never read back).
+  // =========================================================================
+  const shares = ref([]);
+  const sharesLoading = ref(false);
+  const sharesLoaded = ref(false);
+
+  async function loadShares({ force = false } = {}) {
+    if (sharesLoaded.value && !force) return;
+    sharesLoading.value = true;
+    const result = await apiCall.get(`${BASE}/shares`, {
+      category: 'musicLibrary',
+      message: 'Error loading network shares',
+    });
+    if (result.ok && Array.isArray(result.data?.shares)) {
+      shares.value = result.data.shares;
+      sharesLoaded.value = true;
+    }
+    sharesLoading.value = false;
+  }
+
+  // Adding/updating a share (re)mounts it and kicks a rescan; refresh the scan
+  // status so the library view reflects the "building…" state. Returns
+  // { ok, mounted, error }: `ok` means the config was saved, `mounted` whether
+  // the read-only mount actually succeeded (a share persists either way, but the
+  // UI tells the user whether it connected). No throw — the form reads the flags.
+  async function addShare(payload) {
+    const result = await apiCall.post(`${BASE}/shares`, payload, {
+      category: 'musicLibrary',
+      message: 'Error adding network share',
+    });
+    if (result.ok && result.data?.status === 'success') {
+      await loadShares({ force: true });
+      refreshScanStatus();
+      return { ok: true, mounted: !!result.data.share?.mounted };
+    }
+    return { ok: false, error: result.error?.detail };
+  }
+
+  async function updateShare(shareId, payload) {
+    const result = await apiCall.put(`${BASE}/shares/${shareId}`, payload, {
+      category: 'musicLibrary',
+      message: 'Error updating network share',
+    });
+    if (result.ok && result.data?.status === 'success') {
+      await loadShares({ force: true });
+      refreshScanStatus();
+      return { ok: true, mounted: !!result.data.share?.mounted };
+    }
+    return { ok: false, error: result.error?.detail };
+  }
+
+  async function removeShare(shareId) {
+    const result = await apiCall.delete(`${BASE}/shares/${shareId}`, {
+      category: 'musicLibrary',
+      message: 'Error removing network share',
+    });
+    if (result.ok && result.data?.status === 'success') {
+      await loadShares({ force: true });
+      refreshScanStatus();
+      return true;
+    }
+    return false;
+  }
+
+  // mDNS discovery of SMB/NFS servers on the LAN (a convenience to prefill the
+  // add-share form). Resilient: an empty list simply means "type it manually".
+  async function discoverServers() {
+    const result = await apiCall.get(`${BASE}/shares/discover`, {
+      category: 'musicLibrary',
+      message: 'Error discovering network servers',
+      checkStatus: true,
+      logLevel: 'debug',
+    });
+    return result.ok && Array.isArray(result.data?.servers) ? result.data.servers : [];
+  }
+
+  // Walk a server one level for the add-share wizard (SMB shares/folders, NFS
+  // exports) WITHOUT mounting. Returns the backend's typed envelope
+  // { status: 'ok'|'auth_required'|'unreachable'|'error', entries, message } —
+  // credentials are only sent for CIFS and are never persisted client-side.
+  async function browseShare({ type, host, path = '', username, password, domain }) {
+    const body = { type, host, path };
+    if (type === 'cifs' && (username || password)) {
+      Object.assign(body, { username, password, domain });
+    }
+    const result = await apiCall.post(`${BASE}/shares/browse`, body, {
+      category: 'musicLibrary',
+      message: 'Error browsing network server',
+      checkStatus: true,
+      logLevel: 'debug',
+    });
+    if (result.ok && result.data?.status) {
+      return {
+        status: result.data.status,
+        entries: Array.isArray(result.data.entries) ? result.data.entries : [],
+        message: result.data.message || '',
+      };
+    }
+    return { status: 'error', entries: [], message: '' };
+  }
+
+  // =========================================================================
   // UI STATE (persisted across navigation)
   // =========================================================================
   const activeTab = ref('albums'); // albums | artists | genres | playlists
@@ -435,6 +540,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (artistsLoaded.value) tasks.push(loadArtists({ force: true }));
     if (genresLoaded.value) tasks.push(loadGenres({ force: true }));
     if (playlistsLoaded.value) tasks.push(loadPlaylists({ force: true }));
+    if (sharesLoaded.value) tasks.push(loadShares({ force: true }));
     await Promise.allSettled(tasks);
   }
 
@@ -526,6 +632,17 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     scanStatus,
     isScanning,
     refreshScanStatus,
+
+    // Network shares
+    shares,
+    sharesLoading,
+    sharesLoaded,
+    loadShares,
+    addShare,
+    updateShare,
+    removeShare,
+    discoverServers,
+    browseShare,
 
     // UI
     activeTab,
