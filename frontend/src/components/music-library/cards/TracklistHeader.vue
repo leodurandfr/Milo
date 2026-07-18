@@ -2,7 +2,7 @@
   <div class="tracklist-header">
     <LazyImage
       :src="store.coverUrl(coverId, 600)"
-      :fallback-name="title"
+      :fallback="albumPlaceholder"
       :alt="title"
       priority="high"
       class="tracklist-cover"
@@ -38,6 +38,7 @@
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
+import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 

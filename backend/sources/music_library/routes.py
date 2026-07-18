@@ -325,7 +325,10 @@ async def get_cover(
         client = await _require_client(source)
         result = await client.get_cover_art(cover_id, size=size)
         if result is None:
-            logger.error("Cover art not available: %s", cover_id)
+            # Expected, not an error: the album has no art (never had any, or its
+            # folder image was removed) — the frontend shows its own placeholder.
+            # Kept below ERROR so it never reaches the WebSocketLogHandler banner.
+            logger.debug("Cover art not available: %s", cover_id)
             raise HTTPException(status_code=404, detail="Cover art not available")
         data, content_type = result
         return Response(

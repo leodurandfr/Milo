@@ -2,7 +2,7 @@
   <div v-press class="album-card" @click="$emit('click')">
     <LazyImage
       :src="store.thumbUrl(album.coverArt)"
-      :fallback-name="album.name || album.artist"
+      :fallback="albumPlaceholder"
       :alt="album.name"
       lazy
       class="album-cover"
@@ -17,6 +17,7 @@
 <script setup>
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
+import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
 defineProps({
   album: {

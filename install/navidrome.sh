@@ -98,6 +98,17 @@ EnableInsightsCollector = false
 # Independent of EnableInsightsCollector above: we fetch art but send no telemetry.
 EnableExternalServices = true
 
+# Cover-art file matching. Navidrome's patterns are Go filepath.Match globs run
+# against the lowercased filename (core/artwork/sources.go), so a glob must match
+# the WHOLE name — the default `front.*` only matches a file literally named
+# `front.<ext>`. Ripped/self-tagged albums commonly ship `NN - Front.jpg` or
+# `<Album> front.jpg`, which the default silently ignores (no cover). We append
+# loose `*front*`/`*cover*`/`*folder*` as a LAST resort — after the exact names
+# and embedded art — so those albums get their real cover while albums that
+# already match an earlier rule are unaffected (zero regression). `*back*` is
+# deliberately omitted (never surface the back cover as album art).
+CoverArtPriority = "cover.*, folder.*, front.*, embedded, *front*, *cover*, *folder*"
+
 LogLevel = "info"
 
 # Purge files that disappeared (an unplugged USB drive, a removed share) so they
@@ -107,15 +118,18 @@ LogLevel = "info"
 [Scanner]
 PurgeMissing = "full"
 
-# Album identity: group tracks into one album by album-artist + album name
-# (a MusicBrainz album id still wins when present). This drops the default's
-# release-date and album-version components, so a single track missing a
-# DATE/RELEASEDATE tag no longer spawns a second one-track "album" beside the
-# rest — the common failure with ripped / self-tagged files. Tradeoff: two
-# genuinely distinct same-name albums by one artist with no version tag would
-# merge, acceptable for a home library. Changing this needs a FULL rescan.
+# Album identity: group tracks into one album by album title alone (a MusicBrainz
+# album id still wins when present). Dropping album-artist from the key is what
+# lets an untagged "Various Artists" compilation — every track a different ARTIST,
+# no shared ALBUMARTIST/COMPILATION tag — collapse into ONE album instead of one
+# album per track; a multi-disc set likewise stays a single album whether its
+# discs sit in one folder or in CD1/CD2 subfolders (discs split by DISCNUMBER).
+# Tradeoff: two genuinely different albums that share the exact same title with
+# no MusicBrainz id merge (e.g. two "Greatest Hits") — rare, and softened by the
+# id tier plus the UI showing the per-track artist. Changing this needs a FULL
+# rescan, which Navidrome forces automatically when the PID config changes.
 [PID]
-Album = "musicbrainz_albumid|albumartistid,album"
+Album = "musicbrainz_albumid|album"
 EOF
 
     # milo owns the whole tree so milo-navidrome.service (User=milo) can read the
