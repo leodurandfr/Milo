@@ -65,6 +65,11 @@
 
     <!-- PLAYLISTS -->
     <template v-else>
+      <div class="playlists-actions">
+        <Button variant="background-strong" size="small" left-icon="plus" @click="createOpen = true">
+          {{ t('musicLibrary.playlists.newPlaylist') }}
+        </Button>
+      </div>
       <MessageContent v-if="store.playlistsLoading && !store.playlists.length" loading :title="t('musicLibrary.loading')" />
       <MessageContent v-else-if="!store.playlists.length" :title="t('musicLibrary.noPlaylists')" />
       <div v-else class="rows-list">
@@ -78,23 +83,46 @@
         />
       </div>
     </template>
+
+    <PlaylistNameModal
+      :is-open="createOpen"
+      :title="t('musicLibrary.playlists.createTitle')"
+      :submit-label="t('musicLibrary.playlists.create')"
+      :loading="creating"
+      @close="createOpen = false"
+      @submit="handleCreate"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
+import Button from '@/components/ui/Button.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import AlbumCard from '../cards/AlbumCard.vue';
 import MediaRow from '../cards/MediaRow.vue';
+import PlaylistNameModal from '../PlaylistNameModal.vue';
 
 defineEmits(['select-album', 'select-artist', 'select-genre', 'select-playlist']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
+
+// New-playlist creation (empty playlist; tracks are added later via the ⋯ menu).
+const createOpen = ref(false);
+const creating = ref(false);
+
+async function handleCreate(name) {
+  if (creating.value) return;
+  creating.value = true;
+  const created = await store.createPlaylist(name);
+  creating.value = false;
+  if (created) createOpen.value = false;
+}
 
 const tabOptions = computed(() => [
   { label: t('musicLibrary.tabs.albums'), value: 'albums' },
@@ -167,6 +195,12 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
+}
+
+.playlists-actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
 }
 
 .genre-row {

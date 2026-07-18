@@ -16,7 +16,9 @@
         :current="idx === store.queueIndex"
         :playing="store.isPlaying"
         show-artist
+        show-menu
         @play="store.playIndex(idx)"
+        @menu="store.requestAddToPlaylist([song.id])"
       />
     </div>
   </div>

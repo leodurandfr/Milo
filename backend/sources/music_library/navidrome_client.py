@@ -17,6 +17,7 @@ get_random_songs / search3, the bit-perfect stream URL). P1-5 adds the full
 browse surface consumed by /api/music-library/* — getArtists/getArtist/getAlbum/
 getAlbumList2/getGenres/getSongsByGenre, getPlaylists/getPlaylist, star/unstar,
 and getCoverArt bytes for the cover proxy. Playback wiring in source.py is P1-6.
+P3-11 adds the playlist write verbs (createPlaylist/updatePlaylist/deletePlaylist).
 """
 import asyncio
 import hashlib
@@ -58,6 +59,24 @@ ALBUM_LIST_TYPES = frozenset(
 
 class NavidromeAuthError(Exception):
     """Raised when Navidrome rejects our credentials (Subsonic error 40/41)."""
+
+
+def _encode_query(query: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """Flatten a Subsonic param dict to aiohttp's list-of-pairs form.
+
+    None values are dropped; a list/tuple value expands to a repeated key
+    (``songId=a&songId=b``) — Subsonic's convention for the multi-valued params
+    used by createPlaylist (``songId``) and updatePlaylist (``songIdToAdd``).
+    """
+    pairs: List[Tuple[str, str]] = []
+    for key, value in query.items():
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            pairs.extend((key, str(item)) for item in value if item is not None)
+        else:
+            pairs.append((key, str(value)))
+    return pairs
 
 
 def load_navidrome_credentials(
@@ -161,7 +180,7 @@ class NavidromeClient:
         try:
             async with self._session.get(
                 f"{self._base_url}/rest/{endpoint}",
-                params={k: v for k, v in query.items() if v is not None},
+                params=_encode_query(query),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 if resp.status != 200:
@@ -354,7 +373,7 @@ class NavidromeClient:
             return []
         return response.get("songsByGenre", {}).get("song", []) or []
 
-    # === Playlists (read-only in P1-5; create/edit is Phase 3) ===
+    # === Playlists ===
 
     async def get_playlists(self) -> List[Dict[str, Any]]:
         """All playlists, without their entries (Subsonic ``getPlaylists``)."""
@@ -369,6 +388,60 @@ class NavidromeClient:
         if not response or response.get("_network_error"):
             return None
         return response.get("playlist")
+
+    async def create_playlist(
+        self, name: str, song_ids: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Create a playlist (Subsonic ``createPlaylist``), optionally seeded with
+        an ordered set of songs. Navidrome echoes the created playlist back, which
+        is returned (with its generated id); None on error.
+        """
+        response = await self._make_request(
+            "createPlaylist", {"name": name, "songId": song_ids}
+        )
+        if not response or response.get("_network_error"):
+            return None
+        return response.get("playlist")
+
+    async def update_playlist(
+        self,
+        playlist_id: str,
+        name: Optional[str] = None,
+        song_ids_to_add: Optional[List[str]] = None,
+    ) -> bool:
+        """Rename a playlist and/or append tracks (Subsonic ``updatePlaylist``).
+
+        This is the surgical edit path — a rename or an append that doesn't need
+        the current track list. Reordering/removal go through
+        :meth:`set_playlist_tracks` (which rewrites the whole ordered list).
+        """
+        params: Dict[str, Any] = {"playlistId": playlist_id}
+        if name is not None:
+            params["name"] = name
+        if song_ids_to_add:
+            params["songIdToAdd"] = song_ids_to_add
+        response = await self._make_request("updatePlaylist", params)
+        return bool(response) and not response.get("_network_error")
+
+    async def set_playlist_tracks(
+        self, playlist_id: str, song_ids: List[str]
+    ) -> bool:
+        """Replace a playlist's entire ordered track list.
+
+        Subsonic has no reorder verb, so ``createPlaylist`` with an existing
+        ``playlistId`` is the canonical way to rewrite the order (Navidrome
+        replaces the tracks and keeps the name). Used for both reordering and
+        removing tracks — the caller passes the full new order (``[]`` clears it).
+        """
+        response = await self._make_request(
+            "createPlaylist", {"playlistId": playlist_id, "songId": song_ids}
+        )
+        return bool(response) and not response.get("_network_error")
+
+    async def delete_playlist(self, playlist_id: str) -> bool:
+        """Delete a playlist (Subsonic ``deletePlaylist``)."""
+        response = await self._make_request("deletePlaylist", {"id": playlist_id})
+        return bool(response) and not response.get("_network_error")
 
     # === Favorites (star) ===
 

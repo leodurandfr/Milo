@@ -5,7 +5,8 @@ REST surface for the indexed catalog served by the Navidrome sidecar:
 - Browse   — artists (A–Z index), a single artist/album, album lists, genres.
 - Search   — fuzzy search3 across artists/albums/songs.
 - Genres   — the genre list plus songs-by-genre (a play context).
-- Playlists — list + a single playlist with its entries (read-only in P1-5).
+- Playlists — list, a single playlist with its entries, and create/rename/
+             add-tracks/reorder/remove/delete (Subsonic create/update/delete).
 - Cover    — a localhost-only proxy for Navidrome getCoverArt bytes, so the
              frontend never talks to Navidrome (or sees its credentials) directly.
 - Favorites — star/unstar a song/album/artist.
@@ -30,7 +31,12 @@ from fastapi.responses import Response
 
 from backend.api.route_helpers import api_error_handler
 from backend.api.source_dependency import make_source_dependency
-from backend.sources.music_library.models import ShareRequest, StarRequest
+from backend.sources.music_library.models import (
+    CreatePlaylistRequest,
+    ShareRequest,
+    StarRequest,
+    UpdatePlaylistRequest,
+)
 from backend.sources.music_library.navidrome_client import (
     ALBUM_LIST_TYPES,
     NavidromeAuthError,
@@ -240,6 +246,63 @@ async def get_playlist(
             logger.error("Playlist not found: %s", playlist_id)
             raise HTTPException(status_code=404, detail="Playlist not found")
         return {"playlist": playlist}
+
+
+@router.post("/playlists")
+async def create_playlist(
+    request: CreatePlaylistRequest,
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Create a playlist (Subsonic createPlaylist), optionally seeded with songs.
+
+    Returns the created playlist (with its generated id) so the caller can open it.
+    """
+    async with _catalog_errors("Error creating playlist", source):
+        client = await _require_client(source)
+        playlist = await client.create_playlist(request.name, song_ids=request.song_ids)
+        if playlist is None:
+            logger.error("Navidrome rejected playlist creation: %s", request.name)
+            raise HTTPException(status_code=502, detail="Navidrome rejected playlist creation")
+        return {"status": "success", "playlist": playlist}
+
+
+@router.put("/playlist/{playlist_id}")
+async def update_playlist(
+    playlist_id: str,
+    request: UpdatePlaylistRequest,
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Edit a playlist (Subsonic update/create): rename, append tracks, or replace
+    the whole ordered list (reorder/remove). The request carries exactly one of
+    those operations (enforced by the model)."""
+    async with _catalog_errors("Error updating playlist", source):
+        client = await _require_client(source)
+        if request.track_ids is not None:
+            ok = await client.set_playlist_tracks(playlist_id, request.track_ids)
+        elif request.song_ids_to_add is not None:
+            ok = await client.update_playlist(
+                playlist_id, song_ids_to_add=request.song_ids_to_add
+            )
+        else:
+            ok = await client.update_playlist(playlist_id, name=request.name)
+        if not ok:
+            logger.error("Navidrome rejected playlist update: %s", playlist_id)
+            raise HTTPException(status_code=502, detail="Navidrome rejected playlist update")
+        return {"status": "success"}
+
+
+@router.delete("/playlist/{playlist_id}")
+async def delete_playlist(
+    playlist_id: str,
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Delete a playlist (Subsonic deletePlaylist)."""
+    async with _catalog_errors("Error deleting playlist", source):
+        client = await _require_client(source)
+        if not await client.delete_playlist(playlist_id):
+            logger.error("Navidrome rejected playlist deletion: %s", playlist_id)
+            raise HTTPException(status_code=502, detail="Navidrome rejected playlist deletion")
+        return {"status": "success"}
 
 
 # === Cover art proxy ===

@@ -27,6 +27,8 @@
           variant="background-strong"
           @click="$emit('toggle-favorite')"
         />
+        <!-- Extra actions (e.g. the playlist Edit/Done toggle). -->
+        <slot name="actions"></slot>
       </div>
     </div>
   </div>

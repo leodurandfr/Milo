@@ -24,7 +24,8 @@
 
       <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="currentParams.genre" />
 
-      <PlaylistView v-else-if="currentView === 'playlist'" key="playlist" :playlist-id="currentParams.playlistId" />
+      <PlaylistView v-else-if="currentView === 'playlist'" key="playlist"
+        :playlist-id="currentParams.playlistId" @deleted="goBack" />
 
       <SearchView v-else-if="currentView === 'search'" key="search"
         @select-album="openAlbum" @select-artist="openArtist" />
@@ -63,6 +64,13 @@
       </AudioPlayer>
     </template>
   </AudioSourceLayout>
+
+  <!-- Add-to-playlist picker, opened from any track row's ⋯ menu (store-driven). -->
+  <AddToPlaylistModal
+    :is-open="!!store.addToPlaylistSongIds"
+    :song-ids="store.addToPlaylistSongIds || []"
+    @close="store.closeAddToPlaylist()"
+  />
 </template>
 
 <script setup>
@@ -85,6 +93,7 @@ import GenreView from './views/GenreView.vue';
 import PlaylistView from './views/PlaylistView.vue';
 import SearchView from './views/SearchView.vue';
 import QueueView from './views/QueueView.vue';
+import AddToPlaylistModal from './AddToPlaylistModal.vue';
 
 const store = useMusicLibraryStore();
 const { t } = useI18n();

@@ -54,7 +54,9 @@
             :current="song.id === store.currentTrackId"
             :playing="store.isPlaying"
             show-artist
+            show-menu
             @play="playSong(idx)"
+            @menu="store.requestAddToPlaylist([song.id])"
           />
         </div>
       </section>

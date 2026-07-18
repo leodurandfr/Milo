@@ -13,7 +13,16 @@
         @play="playFrom(0)"
         @shuffle="shufflePlay"
         @toggle-favorite="store.toggleStar('album', album.id, album.starred)"
-      />
+      >
+        <template #actions>
+          <IconButton
+            icon="threeDots"
+            variant="background-strong"
+            :aria-label="t('musicLibrary.playlists.addToPlaylist')"
+            @click="addAlbumToPlaylist"
+          />
+        </template>
+      </TracklistHeader>
 
       <div class="tracks">
         <TrackRow
@@ -23,7 +32,9 @@
           :number="song.track || idx + 1"
           :current="song.id === store.currentTrackId"
           :playing="store.isPlaying"
+          show-menu
           @play="playFrom(idx)"
+          @menu="store.requestAddToPlaylist([song.id])"
         />
       </div>
     </template>
@@ -36,6 +47,7 @@ import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { totalMinutes } from '../format.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import TracklistHeader from '../cards/TracklistHeader.vue';
 import TrackRow from '../cards/TrackRow.vue';
 
@@ -78,6 +90,13 @@ function shufflePlay() {
   // Pin a random track first, backend shuffles the remainder → true shuffle feel.
   const start = Math.floor(Math.random() * songs.value.length);
   store.playContext(songs.value, start, true);
+}
+
+// Add the whole album to a playlist (all tracks; the user prunes them afterwards
+// in the playlist's edit mode).
+function addAlbumToPlaylist() {
+  const ids = songs.value.map((s) => s.id).filter(Boolean);
+  if (ids.length) store.requestAddToPlaylist(ids);
 }
 
 watch(() => props.albumId, async (id) => {
