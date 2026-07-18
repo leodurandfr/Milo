@@ -148,7 +148,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const toggleShuffle = () => setShuffle(!shuffle.value);
 
   // =========================================================================
-  // CATALOG — Albums (home Albums tab; getAlbumList2 newest, paged)
+  // CATALOG — Albums (home Albums tab; getAlbumList2 alphabetical, paged)
   // =========================================================================
   const albums = ref([]);
   const albumsLoading = ref(false);
@@ -166,7 +166,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       category: 'musicLibrary',
       message: 'Error loading albums',
       checkStatus: true,
-      params: { type: 'newest', size: ALBUMS_PAGE_SIZE, offset: 0 },
+      params: { type: 'alphabeticalByName', size: ALBUMS_PAGE_SIZE, offset: 0 },
     });
     if (result.ok && Array.isArray(result.data?.albums)) {
       albums.value = result.data.albums;
@@ -183,7 +183,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       category: 'musicLibrary',
       message: 'Error loading more albums',
       checkStatus: true,
-      params: { type: 'newest', size: ALBUMS_PAGE_SIZE, offset: albums.value.length },
+      params: { type: 'alphabeticalByName', size: ALBUMS_PAGE_SIZE, offset: albums.value.length },
     });
     if (result.ok && Array.isArray(result.data?.albums)) {
       albums.value = [...albums.value, ...result.data.albums];
