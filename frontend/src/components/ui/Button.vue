@@ -16,7 +16,7 @@ const props = defineProps({
     variant: {
         type: String,
         default: 'background-strong',
-        validator: (value) => ['background-strong', 'brand', 'on-grey', 'on-dark', 'outline', 'important'].includes(value)
+        validator: (value) => ['background-strong', 'brand', 'on-grey', 'on-dark', 'outline', 'outline-neutral', 'important'].includes(value)
     },
     size: {
         type: String,
@@ -195,6 +195,19 @@ function handleClick(event) {
     box-shadow: none;
 }
 
+/* === OUTLINE-NEUTRAL variant (neutral border, e.g. unselected ButtonGroup item) === */
+.btn--outline-neutral.btn--normal {
+    background-color: var(--color-background-neutral);
+    color: var(--color-text-secondary);
+    box-shadow: inset 0 0 0 2px var(--color-border);
+}
+
+.btn--outline-neutral.btn--disabled {
+    background-color: var(--color-background);
+    color: var(--color-text-light);
+    box-shadow: none;
+}
+
 /* === IMPORTANT variant === */
 .btn--important.btn--normal {
     background-color: var(--color-background-neutral);
@@ -237,6 +250,12 @@ function handleClick(event) {
     background-color: var(--color-background-neutral);
     color: var(--color-brand);
     box-shadow: inset 0 0 0 2px var(--color-brand);
+}
+
+.btn--outline-neutral.btn--loading {
+    background-color: var(--color-background-neutral);
+    color: var(--color-text-secondary);
+    box-shadow: inset 0 0 0 2px var(--color-border);
 }
 
 .btn--important.btn--loading {

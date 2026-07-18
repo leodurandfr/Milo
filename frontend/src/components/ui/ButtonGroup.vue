@@ -12,7 +12,7 @@
     <Button
       v-for="option in options"
       :key="option.value"
-      :variant="modelValue === option.value ? 'outline' : 'background-strong'"
+      :variant="modelValue === option.value ? 'outline' : 'outline-neutral'"
       :size="size"
       :disabled="disabled || option.disabled"
       @click="selectOption(option.value)"
@@ -43,7 +43,7 @@ const props = defineProps({
   mobileLayout: {
     type: String,
     default: 'wrap',
-    validator: (value) => ['wrap', 'column', 'column-reverse', 'grid-3'].includes(value)
+    validator: (value) => ['wrap', 'column', 'column-reverse', 'grid-3', 'scroll'].includes(value)
   },
   lastFullWidth: {
     type: Boolean,
@@ -104,6 +104,30 @@ function selectOption(value) {
   /* Last item full width (for grid-3) */
   .button-group--mobile-grid-3.button-group--last-full :deep(.btn:last-child) {
     grid-column: 1 / -1;
+  }
+
+  /* Scroll - single horizontal row, bleeding to the screen edges (assumes the
+     app's standard --space-05 mobile content padding). */
+  .button-group--mobile-scroll {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-left: calc(-1 * var(--space-05));
+    margin-right: calc(-1 * var(--space-05));
+    padding-left: var(--space-05);
+    padding-right: var(--space-05);
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .button-group--mobile-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Keep the base `flex: 1` (grow → fill the row), only stop shrinking so the
+     buttons overflow into a horizontal scroll instead of squeezing — same as
+     radio's filters-bar. */
+  .button-group--mobile-scroll :deep(.btn) {
+    flex-shrink: 0;
   }
 }
 </style>
