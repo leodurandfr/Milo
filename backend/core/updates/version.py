@@ -94,6 +94,18 @@ class VersionService:
                 },
                 "repo": "leolobato/qobuz-proxy",
                 "version_regex": r"v?(\d+\.\d+\.\d+)"
+            },
+            "navidrome": {
+                # Catalog engine behind the Music Library source. `navidrome
+                # --version` prints "0.63.2 (hash)"; missing binary →
+                # FileNotFoundError → status "not_installed" (no update offered).
+                "name": "Music Library",
+                "description": "updates.musicLibrary",
+                "commands": {
+                    "main": ["/usr/local/bin/navidrome", "--version"]
+                },
+                "repo": "navidrome/navidrome",
+                "version_regex": r"(\d+\.\d+\.\d+)"
             }
         }
 

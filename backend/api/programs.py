@@ -27,6 +27,8 @@ PROGRAM_TO_AUDIO_SOURCE = {
     'go-librespot': AudioSource.SPOTIFY,
     'shairport-sync': AudioSource.AIRPLAY,
     'qobuz-proxy': AudioSource.QOBUZ,
+    # Stopping Navidrome mid-update kills the localhost stream mpv is playing.
+    'navidrome': AudioSource.MUSIC_LIBRARY,
 }
 
 def create_programs_router(update_service, satellite_update_service, state_machine):
