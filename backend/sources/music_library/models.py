@@ -92,14 +92,25 @@ class ShareRequest(BaseModel):
     password: Optional[str] = Field(default=None, max_length=256)
     domain: Optional[str] = Field(default=None, max_length=128)
 
-    @field_validator("host", "path")
+    @field_validator("host")
     @classmethod
-    def _no_whitespace_or_control(cls, value: str) -> str:
+    def _host_no_whitespace(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("host must not be empty or contain whitespace/control characters")
+        return value
+
+    @field_validator("path")
+    @classmethod
+    def _path_no_control(cls, value: str) -> str:
+        # The path may contain spaces (real folder names like "My Music"); it is
+        # passed to milo-mount as a single argument, so only control characters
+        # (which could inject a mount option) are rejected.
         value = value.strip()
         if not value:
-            raise ValueError("must not be empty")
-        if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
-            raise ValueError("must not contain whitespace or control characters")
+            raise ValueError("path must not be empty")
+        if any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("path must not contain control characters")
         return value
 
     @field_validator("name", "username", "password", "domain")

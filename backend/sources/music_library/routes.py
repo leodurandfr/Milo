@@ -390,6 +390,22 @@ async def get_scan_status(
     return {"scan_status": status}
 
 
+@router.post("/scan")
+async def trigger_scan(
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Kick a Navidrome library rescan on demand ("I added music, refresh now").
+
+    Needed because inotify does not report changes made on the far side of a
+    CIFS/NFS mount, so files added directly on a NAS aren't picked up by the
+    watcher — only by a scan. 503 until the daemon is provisioned.
+    """
+    async with _catalog_errors("Error starting scan", source):
+        client = await _require_client(source)
+        await client.start_scan()
+        return {"status": "success"}
+
+
 # === Network shares (SMB/NFS) ===
 
 @router.get("/shares/discover")

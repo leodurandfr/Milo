@@ -49,11 +49,20 @@
         {{ t('musicLibrary.shares.addShare') }}
       </Button>
     </SettingsSection>
+
+    <!-- Library refresh — for music added directly on a NAS, which the file
+         watcher can't see over a network mount. -->
+    <SettingsSection :title="t('musicLibrary.shares.libraryTitle')">
+      <p class="text-mono ml-lib-desc">{{ t('musicLibrary.shares.libraryDesc') }}</p>
+      <Button variant="background-strong" size="medium" :loading="rescanning || store.isScanning" @click="doRescan">
+        {{ store.isScanning ? t('musicLibrary.shares.scanning') : t('musicLibrary.shares.refreshLibrary') }}
+      </Button>
+    </SettingsSection>
   </SettingsContainer>
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
@@ -75,9 +84,18 @@ function shareLocation(share) {
   return `${share.host} / ${share.path}`;
 }
 
+const rescanning = ref(false);
+async function doRescan() {
+  if (rescanning.value || store.isScanning) return;
+  rescanning.value = true;
+  await store.rescan();
+  rescanning.value = false;
+}
+
 onMounted(() => {
   // Preloaded on modal open is not guaranteed; fetch (cached) on mount.
   store.loadShares();
+  store.refreshScanStatus();
 });
 </script>
 
@@ -89,6 +107,10 @@ onMounted(() => {
 }
 
 .ml-shares-header__desc {
+  color: var(--color-text-secondary);
+}
+
+.ml-lib-desc {
   color: var(--color-text-secondary);
 }
 

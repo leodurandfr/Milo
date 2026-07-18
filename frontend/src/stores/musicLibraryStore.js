@@ -419,6 +419,20 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   const isScanning = computed(() => !!scanStatus.value?.scanning);
 
+  // On-demand rescan ("I added music, refresh now"). The watcher can't see
+  // changes made on a NAS over CIFS/NFS, so this forces Navidrome to re-index.
+  async function rescan() {
+    const result = await apiCall.post(`${BASE}/scan`, null, {
+      category: 'musicLibrary',
+      message: 'Error starting library scan',
+    });
+    if (result.ok && result.data?.status === 'success') {
+      await refreshScanStatus();
+      return true;
+    }
+    return false;
+  }
+
   // =========================================================================
   // NETWORK SHARES (SMB/NFS) — configured in Settings; the backend persists,
   // (re)mounts read-only under /media/milo, and rescans on every write. Non-
@@ -632,6 +646,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     scanStatus,
     isScanning,
     refreshScanStatus,
+    rescan,
 
     // Network shares
     shares,

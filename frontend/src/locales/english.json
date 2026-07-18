@@ -594,6 +594,10 @@
       "remove": "Remove share",
       "confirmRemove": "Tap again to remove",
       "errorGeneric": "Could not save the share. Check the details and try again.",
+      "libraryTitle": "Library",
+      "libraryDesc": "Music added directly on a NAS is picked up on the next scan (Milō rescans hourly). Refresh now to see it sooner.",
+      "refreshLibrary": "Refresh library",
+      "scanning": "Scanning…",
       "wizard": {
         "browseTitle": "Choose a folder",
         "manualTitle": "Add manually",
@@ -609,6 +613,8 @@
         "unreachable": "Couldn't reach this server. Check that it's on and try again.",
         "browseError": "Couldn't browse this server.",
         "emptyFolder": "No sub-folders here.",
+        "noSharesGuest": "No shared folders are visible without signing in.",
+        "signIn": "Sign in",
         "useFolder": "Use “{name}”",
         "savedNotMounted": "Saved, but the share didn't connect. You can edit it from the list.",
         "done": "Done"

@@ -307,6 +307,7 @@ def nav_client():
     c.star = AsyncMock(return_value=True)
     c.unstar = AsyncMock(return_value=True)
     c.get_scan_status = AsyncMock(return_value={"scanning": False, "count": 100})
+    c.start_scan = AsyncMock(return_value=True)
     return c
 
 
@@ -509,6 +510,18 @@ class TestClientUnavailable:
         r = api.get("/api/music-library/scan-status")
         assert r.status_code == 200
         assert r.json() == {"scan_status": {"scanning": False, "count": 100}}
+
+
+class TestScanRoute:
+    def test_scan_triggers_start_scan(self, api, nav_client):
+        r = api.post("/api/music-library/scan")
+        assert r.status_code == 200
+        assert r.json() == {"status": "success"}
+        nav_client.start_scan.assert_awaited_once()
+
+    def test_scan_503_when_client_missing(self, api, source):
+        source.get_navidrome_client = AsyncMock(return_value=None)
+        assert api.post("/api/music-library/scan").status_code == 503
 
 
 class TestAuthRecovery:

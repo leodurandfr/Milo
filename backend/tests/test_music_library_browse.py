@@ -17,6 +17,7 @@ from backend.sources.music_library.browse import (
     _parse_smb_ls_dirs,
     browse_share,
 )
+from backend.sources.music_library.models import ShareRequest
 from backend.sources.music_library.routes import router, setup_music_library_routes
 from backend.sources.music_library.storage import StorageManager
 
@@ -124,6 +125,21 @@ class TestBrowseRoute:
     def test_rejects_bad_type(self, api):
         r = api.post("/api/music-library/shares/browse", json={"type": "afp", "host": "nas", "path": ""})
         assert r.status_code == 422
+
+
+class TestShareRequestPath:
+    def test_allows_spaces_in_path(self):
+        # Real folders are named "My Music" — the path may contain spaces.
+        assert ShareRequest(type="cifs", host="192.168.1.10", path="My Music", name="NAS").path == "My Music"
+
+    def test_strips_and_rejects_control_chars_in_path(self):
+        assert ShareRequest(type="cifs", host="h", path="  Music  ", name="N").path == "Music"
+        with pytest.raises(ValueError):
+            ShareRequest(type="cifs", host="h", path="Mu\tsic", name="N")
+
+    def test_host_still_rejects_whitespace(self):
+        with pytest.raises(ValueError):
+            ShareRequest(type="cifs", host="bad host", path="Music", name="N")
 
 
 class TestMountedShareIds:

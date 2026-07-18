@@ -182,9 +182,15 @@ mount_network() {
     # Reject empty / option-looking host and path (they become mount arguments).
     case "$host" in ""|-*) die "invalid --host" ;; esac
     case "$path" in ""|-*) die "invalid --path" ;; esac
-    # No whitespace or control characters in the mount source.
-    case "$host$path" in
-        *[[:space:]]*|*[[:cntrl:]]*) die "host/path contain whitespace or control characters" ;;
+    # The host is an IP/hostname and never contains whitespace; the path may
+    # (real folders like "My Music"). Reject control characters in both and
+    # whitespace in the host only — the path's spaces are safe because the mount
+    # source is passed to mount(8) as a single quoted argument.
+    case "$host" in
+        *[[:space:]]*|*[[:cntrl:]]*) die "host contains whitespace or control characters" ;;
+    esac
+    case "$path" in
+        *[[:cntrl:]]*) die "path contains control characters" ;;
     esac
 
     local MOUNTPOINT="$MOUNT_ROOT/$id"
