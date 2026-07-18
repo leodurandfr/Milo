@@ -8,6 +8,7 @@ import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
+import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useI18n } from '@/services/i18n';
 import { formatDeviceNames } from '@/utils/deviceName';
@@ -31,6 +32,7 @@ export function useScreensaver() {
   const unifiedStore = useUnifiedAudioStore();
   const radioStore = useRadioStore();
   const podcastStore = usePodcastStore();
+  const musicLibraryStore = useMusicLibraryStore();
   const settingsStore = useSettingsStore();
   const { t } = useI18n();
   const timer = useTimer();
@@ -41,6 +43,13 @@ export function useScreensaver() {
     progressPercentage: podcastProgressPercentage,
     isPositionInitialized: podcastProgressReady,
   } = useSourceProgress('podcast');
+
+  const {
+    currentPosition: libraryPosition,
+    duration: libraryDuration,
+    progressPercentage: libraryProgressPercentage,
+    isPositionInitialized: libraryProgressReady,
+  } = useSourceProgress('music_library');
 
   // --- Reactive state ---
   const isScreensaverVisible = ref(false);
@@ -57,7 +66,7 @@ export function useScreensaver() {
     if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
     const source = unifiedStore.systemState.active_source;
     const state = unifiedStore.systemState.source_state;
-    return ['radio', 'podcast', 'bluetooth', 'mac', 'airplay'].includes(source) && state === 'active';
+    return ['radio', 'podcast', 'bluetooth', 'mac', 'airplay', 'dlna', 'qobuz', 'music_library'].includes(source) && state === 'active';
   });
 
   // --- Timer management ---
@@ -164,6 +173,36 @@ export function useScreensaver() {
       };
     }
 
+    if (source === 'music_library') {
+      const track = musicLibraryStore.displayTrack;
+      return {
+        mode: 'media',
+        artwork: track?.albumArtUrl || null,
+        title: track?.title || '',
+        subtitle: track?.artist || null,
+        stationFavicon: null,
+        stationName: null,
+      };
+    }
+
+    // Qobuz + DLNA: passive players (external control, rich metadata) like
+    // AirPlay. They keep the last track's metadata while paused and stay active,
+    // so a bare media layout suffices — no "connected but idle" fallback. The
+    // bottom bar mirrors their main view's source bar (source glyph + client
+    // name; DLNA renderers often send no name, so the bar simply hides). No
+    // progress bar — neither shows one in its main view (showControls=false).
+    if (source === 'qobuz' || source === 'dlna') {
+      const metadata = unifiedStore.systemState.metadata || {};
+      return {
+        mode: 'media',
+        artwork: metadata.album_art_url || null,
+        title: metadata.title || '',
+        subtitle: metadata.artist || null,
+        stationIcon: source,
+        stationName: metadata.client_name || null,
+      };
+    }
+
     if (source === 'airplay') {
       const metadata = unifiedStore.systemState.metadata || {};
       const deviceName = metadata.client_name || null;
@@ -231,13 +270,27 @@ export function useScreensaver() {
   });
 
   const screensaverProgress = computed(() => {
-    if (unifiedStore.systemState.active_source !== 'podcast') return null;
-    return {
-      currentPosition: podcastPosition.value,
-      duration: podcastDuration.value,
-      progressPercentage: podcastProgressPercentage.value,
-      isReady: podcastProgressReady.value,
-    };
+    const source = unifiedStore.systemState.active_source;
+
+    if (source === 'podcast') {
+      return {
+        currentPosition: podcastPosition.value,
+        duration: podcastDuration.value,
+        progressPercentage: podcastProgressPercentage.value,
+        isReady: podcastProgressReady.value,
+      };
+    }
+
+    if (source === 'music_library') {
+      return {
+        currentPosition: libraryPosition.value,
+        duration: libraryDuration.value,
+        progressPercentage: libraryProgressPercentage.value,
+        isReady: libraryProgressReady.value,
+      };
+    }
+
+    return null;
   });
 
   // --- Watchers ---

@@ -247,7 +247,7 @@
     "autoSleep": "屏幕休眠",
     "sleepDelay": "应用无操作时，在以下时间后关闭屏幕：",
     "screensaver": "屏幕保护程序",
-    "screensaverSourceNote": "仅适用于广播、播客、蓝牙和 macOS",
+    "screensaverSourceNote": "适用于除 Spotify 和 CD 外的所有音源",
     "uiScale": "显示",
     "uiScaleLevel": "界面缩放",
     "screensaverDelay": "在以下时间后启动屏幕保护程序：",

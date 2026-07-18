@@ -247,7 +247,7 @@
     "autoSleep": "Suspensão do ecrã",
     "sleepDelay": "Quando a aplicação estiver inativa, desligar o ecrã após:",
     "screensaver": "Protetor de ecrã",
-    "screensaverSourceNote": "Apenas em Rádio, Podcasts, Bluetooth e macOS",
+    "screensaverSourceNote": "Em todas as fontes exceto Spotify e CD",
     "uiScale": "Exibição",
     "uiScaleLevel": "Escala da interface",
     "screensaverDelay": "Iniciar o protetor de ecrã após:",

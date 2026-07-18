@@ -248,7 +248,7 @@
     "autoSleep": "Screen sleep",
     "sleepDelay": "When the app is inactive, turn off the screen after:",
     "screensaver": "Screensaver",
-    "screensaverSourceNote": "On Radio, Podcasts, Bluetooth and macOS only",
+    "screensaverSourceNote": "On all sources except Spotify and CD",
     "screensaverDelay": "Start the screensaver after:",
     "uiScale": "Display",
     "uiScaleLevel": "Interface scale",
