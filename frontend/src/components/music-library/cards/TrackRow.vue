@@ -9,7 +9,10 @@
     </div>
 
     <div class="track-main">
-      <p class="track-title heading-4">{{ song.title || song.name }}</p>
+      <div class="track-title-row">
+        <p class="track-title heading-4">{{ song.title || song.name }}</p>
+        <span v-if="feat" class="track-feat text-mono-small">{{ t('musicLibrary.featuring', { artists: feat }) }}</span>
+      </div>
       <p v-if="showArtist && song.artist" class="track-artist text-mono">{{ song.artist }}</p>
     </div>
 
@@ -66,6 +69,12 @@ const props = defineProps({
   showArtist: {
     type: Boolean,
     default: false,
+  },
+  // Featured guests shown right-aligned by the title ("feat. …"). Used by the
+  // album view for tracks whose artists go beyond the album artist. '' = hidden.
+  feat: {
+    type: String,
+    default: '',
   },
   // Show the ⋯ overflow (add-to-playlist). Suppressed in edit mode.
   showMenu: {
@@ -134,11 +143,27 @@ function onRowClick() {
   overflow: hidden;
 }
 
+.track-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-02);
+  min-width: 0;
+}
+
 .track-title {
   margin: 0;
+  min-width: 0;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Featured-guest label, sitting 8px (--space-02, the row gap) after the title —
+   not pushed to the row's right edge. */
+.track-feat {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 

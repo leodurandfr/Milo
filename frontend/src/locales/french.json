@@ -509,6 +509,7 @@
     "album": "Album",
     "artist": "Artiste",
     "variousArtists": "Artistes variés",
+    "featuring": "feat. {artists}",
     "genre": "Genre",
     "playlist": "Playlist",
     "search": "Rechercher",

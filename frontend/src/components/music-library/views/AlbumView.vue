@@ -38,6 +38,7 @@
             :current="item.song.id === store.currentTrackId"
             :playing="store.isPlaying"
             :show-artist="isVariousArtists"
+            :feat="featuredBySong[item.song.id] || ''"
             show-menu
             @play="playFrom(item.index)"
             @menu="store.requestAddToPlaylist([item.song.id])"
@@ -73,12 +74,46 @@ const loading = ref(false);
 
 const songs = computed(() => album.value?.song || []);
 
-// A "Various Artists" release: its tracks carry more than one distinct artist.
-// Drives the per-track artist line and the header label, since a single
-// album.artist would misrepresent the mix (e.g. an untagged soundtrack).
-const isVariousArtists = computed(
-  () => new Set(songs.value.map((s) => s.artist).filter(Boolean)).size > 1
-);
+// Canonical album-artist id (OpenSubsonic). Featured guests on a track are the
+// entries in song.artists[] beyond this one.
+const albumArtistId = computed(() => album.value?.artistId ?? null);
+
+// A true "Various Artists" release: at least one track's PRIMARY artist isn't the
+// album artist. A single-artist album with featured guests keeps the album artist
+// primary on every track (guests only trail it), so it stays non-various and
+// instead surfaces per-track "feat." labels. Falls back to distinct display names
+// when a source doesn't provide the structured artists[] array.
+const isVariousArtists = computed(() => {
+  const list = songs.value;
+  if (!list.length) return false;
+  const withArtists = list.filter((s) => s.artists?.length);
+  if (!withArtists.length) {
+    return new Set(list.map((s) => s.artist).filter(Boolean)).size > 1;
+  }
+  const id = albumArtistId.value;
+  const name = album.value?.artist;
+  return withArtists.some((s) =>
+    id ? s.artists[0].id !== id : s.artists[0].name !== name
+  );
+});
+
+// song.id → "Guest A, Guest B": a track's artists minus the album artist. Empty
+// for a pure album-artist track and for true compilations (which show the full
+// per-track artist instead, via show-artist).
+const featuredBySong = computed(() => {
+  const map = {};
+  if (isVariousArtists.value) return map;
+  const id = albumArtistId.value;
+  const name = album.value?.artist;
+  for (const s of songs.value) {
+    const extra = (s.artists || [])
+      .filter((a) => (id ? a.id !== id : a.name !== name))
+      .map((a) => a.name)
+      .filter(Boolean);
+    if (extra.length) map[s.id] = extra.join(', ');
+  }
+  return map;
+});
 
 // Disc-number → subtitle, when the release carries per-disc titles (OpenSubsonic
 // discTitles, e.g. "Bonus Remixes"). Absent for most albums → we fall back to
