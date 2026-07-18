@@ -70,6 +70,19 @@ async def test_add_share_returns_share_with_generated_id(service):
     assert (await service.list_shares())[0]["id"] == share["id"]
 
 
+async def test_add_share_stores_username_and_domain(service):
+    # username/domain are non-secret metadata (shown on the edit screen); only
+    # the password stays out of the store.
+    await service.initialize()
+    share = await service.add_share(
+        share_type="cifs", host="h", path="Music", name="NAS",
+        has_credentials=True, username="Leo", domain="WORKGROUP",
+    )
+    assert share["username"] == "Leo"
+    assert share["domain"] == "WORKGROUP"
+    assert (await service.list_shares())[0]["username"] == "Leo"
+
+
 async def test_add_share_generates_unique_ids(service):
     await service.initialize()
     a = await service.add_share(share_type="nfs", host="h", path="/a", name="Same", has_credentials=False)

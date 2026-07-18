@@ -306,6 +306,32 @@ class StorageManager:
                 MILO_MOUNT_CMD, "--forget", "--id", share_id, capture=False
             )
 
+    def get_mounted_share_ids(self) -> set:
+        """Ids currently mounted under the mount root, read live from /proc/mounts.
+
+        Lets the settings UI show which shares are actually connected right now (a
+        share can be configured but its NAS offline). Reading /proc/mounts is a
+        procfs op — it never touches the network filesystem, so it can't hang on a
+        dead CIFS/NFS mount the way stat()/os.path.ismount would. Fail-open: an
+        unreadable table yields an empty set.
+        """
+        root = f"{MUSIC_LIBRARY_MOUNT_ROOT}/"
+        mounted: set = set()
+        try:
+            with open("/proc/mounts", "r", encoding="utf-8", errors="ignore") as fh:
+                for line in fh:
+                    fields = line.split()
+                    if len(fields) < 2:
+                        continue
+                    # Our ids are slugs (no spaces), so no /proc-mounts octal
+                    # unescaping is needed; only the first path segment is the id.
+                    mountpoint = fields[1]
+                    if mountpoint.startswith(root):
+                        mounted.add(mountpoint[len(root):].split("/")[0])
+        except OSError as exc:
+            self.logger.debug("Could not read /proc/mounts: %s", exc)
+        return mounted
+
     @staticmethod
     def _encode_credentials(credentials: Dict[str, str]) -> bytes:
         """Serialize credentials as the ``key=value`` lines milo-mount writes to

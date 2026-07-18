@@ -565,14 +565,26 @@ class MusicLibrarySource(MpvAudioSource):
     # =========================================================================
 
     async def list_shares(self) -> List[Dict[str, Any]]:
-        """Configured network shares (non-secret metadata; safe over the API)."""
-        return await self._data.list_shares()
+        """Configured network shares (non-secret metadata; safe over the API).
+
+        Each entry is annotated with a live ``mounted`` flag (read from
+        /proc/mounts) so the settings UI can show which shares are actually
+        connected right now versus configured-but-offline.
+        """
+        mounted_ids = self._storage.get_mounted_share_ids()
+        return [
+            {**share, "mounted": share.get("id") in mounted_ids}
+            for share in await self._data.list_shares()
+        ]
 
     async def add_share(self, req: ShareRequest) -> Dict[str, Any]:
         """Persist a new share, mount it read-only, and rescan Navidrome.
 
         Returns the created share (no credentials — the password is written only
-        to the root-only cred file by milo-mount, never surfaced here).
+        to the root-only cred file by milo-mount, never surfaced here) plus a
+        transient ``mounted`` flag so the UI can confirm the mount succeeded
+        (the config is persisted either way — a share that's down now remounts at
+        the next boot, but the user should be told it didn't connect).
         """
         share = await self._data.add_share(
             share_type=req.type,
@@ -580,9 +592,13 @@ class MusicLibrarySource(MpvAudioSource):
             path=req.path,
             name=req.name,
             has_credentials=bool(req.password),
+            username=req.username,
+            domain=req.domain,
         )
-        await self._storage.mount_share(share, credentials=self._credentials(req))
-        return share
+        mountpoint = await self._storage.mount_share(
+            share, credentials=self._credentials(req)
+        )
+        return {**share, "mounted": mountpoint is not None}
 
     async def update_share(
         self, share_id: str, req: ShareRequest
@@ -600,15 +616,22 @@ class MusicLibrarySource(MpvAudioSource):
             "path": req.path,
             "name": req.name,
         }
-        if req.password:
-            updates["has_credentials"] = True
+        # Credentials move as a unit with the password (which rewrites the cred
+        # file): a new password stores the new username/domain too; NFS clears
+        # them; a CIFS edit that omits the password keeps the existing login.
+        if req.type == "nfs":
+            updates.update(has_credentials=False, username=None, domain=None)
+        elif req.password:
+            updates.update(has_credentials=True, username=req.username, domain=req.domain)
         share = await self._data.update_share(share_id, updates)
         if share is None:
             return None
         # Unmount first so a changed host/path/credentials actually takes effect.
         await self._storage.unmount_share(share_id)
-        await self._storage.mount_share(share, credentials=self._credentials(req))
-        return share
+        mountpoint = await self._storage.mount_share(
+            share, credentials=self._credentials(req)
+        )
+        return {**share, "mounted": mountpoint is not None}
 
     async def remove_share(self, share_id: str) -> bool:
         """Unmount, drop the config entry, and forget the credentials. Returns

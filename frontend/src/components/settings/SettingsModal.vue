@@ -133,6 +133,13 @@
                   <img :src="qobuzIcon" alt="Qobuz" />
                 </template>
               </ListItemButton>
+
+              <ListItemButton v-if="settingsStore.dockApps.music_library" variant="background" :title="t('audioSources.musicLibrary')" action="caret"
+                @click="push('music-library')">
+                <template #icon>
+                  <img :src="musicLibraryIcon" alt="Music Library" />
+                </template>
+              </ListItemButton>
             </div>
           </div>
 
@@ -230,6 +237,21 @@
 
       <QobuzSettings v-else-if="currentView === 'qobuz'" key="qobuz" class="view-content" />
 
+      <MusicLibrarySettings v-else-if="currentView === 'music-library'" key="music-library" class="view-content"
+        @add-share="handleAddShare" @edit-share="handleEditShare" />
+
+      <WizardServer v-else-if="currentView === 'music-library-share-add'" key="music-library-share-add" class="view-content"
+        @select="handleWizardSelect" @manual="handleWizardManual" />
+
+      <WizardBrowse v-else-if="currentView === 'music-library-share-browse' && shareWizardServer" key="music-library-share-browse"
+        class="view-content" :server="shareWizardServer" @success="handleShareSaved" />
+
+      <ManageShare v-else-if="currentView === 'music-library-share-manual'" key="music-library-share-manual" class="view-content"
+        mode="add" @success="handleShareSaved" />
+
+      <ManageShare v-else-if="currentView === 'music-library-share-edit'" key="music-library-share-edit" class="view-content"
+        mode="edit" :share="shareToEdit" @success="handleShareSaved" />
+
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
       <InfoSettings v-else-if="currentView === 'info'" key="info" class="view-content" />
@@ -246,6 +268,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useRadioStore } from '@/stores/radioStore';
+import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useFanStore } from '@/stores/fanStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useViewTransition } from '@/composables/useViewTransition';
@@ -271,6 +294,7 @@ import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
 import qobuzIcon from '@/assets/settings-icons/qobuz.svg';
+import musicLibraryIcon from '@/assets/settings-icons/music-library.svg';
 import hardwareIcon from '@/assets/settings-icons/hardware.svg';
 import fanIcon from '@/assets/settings-icons/fan.svg';
 import networkIcon from '@/assets/settings-icons/network.svg';
@@ -291,6 +315,10 @@ import RadioSettings from '@/components/settings/categories/radio/RadioSettings.
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import MacSettings from '@/components/settings/categories/MacSettings.vue';
 import QobuzSettings from '@/components/settings/categories/QobuzSettings.vue';
+import MusicLibrarySettings from '@/components/settings/categories/music-library/MusicLibrarySettings.vue';
+import ManageShare from '@/components/settings/categories/music-library/ManageShare.vue';
+import WizardServer from '@/components/settings/categories/music-library/WizardServer.vue';
+import WizardBrowse from '@/components/settings/categories/music-library/WizardBrowse.vue';
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
 import FanSettings from '@/components/settings/categories/FanSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
@@ -316,6 +344,7 @@ const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const radioStore = useRadioStore();
+const musicLibraryStore = useMusicLibraryStore();
 const fanStore = useFanStore();
 
 // Inject modal refs: the scroller (scroll el) and the navigation height writer.
@@ -330,6 +359,8 @@ const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendi
   useNavigationStack('home', { scrollElRef: modalContentRef });
 
 const stationToEdit = ref(null);
+const shareToEdit = ref(null);
+const shareWizardServer = ref(null);
 const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
 const hotspotToAdopt = ref(null);
@@ -388,6 +419,11 @@ const headerTitle = computed(() => {
     'radio-edit': t('radio.manageStation.editStationTitle'),
     'macos': t('audioSources.macOS'),
     'qobuz': t('audioSources.qobuz'),
+    'music-library': t('audioSources.musicLibrary'),
+    'music-library-share-add': t('musicLibrary.shares.addTitle'),
+    'music-library-share-browse': shareWizardServer.value?.name || t('musicLibrary.shares.wizard.browseTitle'),
+    'music-library-share-manual': t('musicLibrary.shares.wizard.manualTitle'),
+    'music-library-share-edit': t('musicLibrary.shares.editTitle'),
     'updates': t('settings.updates'),
     'info': t('settings.information')
   };
@@ -500,6 +536,39 @@ function handleRadioStationAdded(station) {
   back();
 }
 
+// === MUSIC LIBRARY NETWORK-SHARE HANDLERS ===
+// Add flow is a wizard: list → server (discovery) → browse (connect + pick a
+// folder). "Manual" and "edit" reuse the free-form ManageShare form.
+function handleAddShare() {
+  shareToEdit.value = null;
+  shareWizardServer.value = null;
+  push('music-library-share-add');
+}
+
+function handleWizardSelect(server) {
+  shareWizardServer.value = server;
+  push('music-library-share-browse');
+}
+
+function handleWizardManual() {
+  push('music-library-share-manual');
+}
+
+function handleEditShare(share) {
+  shareToEdit.value = share;
+  push('music-library-share-edit');
+}
+
+// The store already refetched the list inside add/update/removeShare. Return
+// straight to the shares list regardless of wizard depth (goTo resets the stack
+// to [home, music-library]), with a cross-fade like push/back.
+function handleShareSaved() {
+  goTo('music-library');
+  prepareNavigation();
+  shareToEdit.value = null;
+  shareWizardServer.value = null;
+}
+
 // === MULTIROOM ZONE/CLIENT HANDLERS ===
 function handleEditZone(groupId) {
   zoneGroupId.value = groupId;
@@ -604,6 +673,7 @@ const hasAnyConfigurableSource = computed(() =>
   || settingsStore.dockApps.radio
   || settingsStore.dockApps.podcast
   || settingsStore.dockApps.qobuz
+  || settingsStore.dockApps.music_library
 );
 
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);

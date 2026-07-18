@@ -109,12 +109,18 @@ class MusicLibraryDataService:
         path: str,
         name: str,
         has_credentials: bool,
+        username: Optional[str] = None,
+        domain: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Append a new share and return it (with its generated id).
 
         The id doubles as the /media/milo/<id> mountpoint and the <id>.cred
         filename, so it is a URL/path-safe slug of the display name plus a short
         random suffix (unique, stable, human-readable).
+
+        ``username``/``domain`` are stored as non-secret metadata so the edit
+        screen can show them (an account name is an identifier, not a secret);
+        only the password stays write-only in the root-only cred file.
         """
         data = await self.load_data()
         existing_ids = {s.get("id") for s in data["shares"]}
@@ -125,6 +131,8 @@ class MusicLibraryDataService:
             "path": path,
             "name": name,
             "has_credentials": has_credentials,
+            "username": username,
+            "domain": domain,
             "created_at": int(time.time()),
         }
         data["shares"].append(share)
