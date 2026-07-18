@@ -409,13 +409,13 @@ class FanController:
                 await task
 
     async def _monitor_loop(self) -> None:
-        """Sample temperature/RPM, re-assert the target PWM, broadcast telemetry on change.
+        """Sample temperature/RPM, re-assert the target PWM, broadcast on duty change.
 
         No periodic heartbeat: the fan settings page resyncs over HTTP when it
-        opens, so an unchanged status needs no WS traffic (and lets the kiosk
-        renderer sleep).
+        opens (and polls telemetry while open), so an unchanged duty needs no WS
+        traffic (and lets the kiosk renderer sleep).
         """
-        last_telemetry = None
+        last_pwm = None
         while True:
             try:
                 await self._sample()
@@ -446,10 +446,14 @@ class FanController:
                 if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_rail:
                     await self._set_pwm_percent(target)
 
-                telemetry = (self._temp_c, self._rpm, self._pwm_percent)
-                if telemetry != last_telemetry:
+                # Gate the broadcast on the actuator duty ALONE, not raw
+                # temp/rpm: those jitter every tick and would defeat the gate,
+                # turning this into a 3 s WS firehose to every client. Live
+                # temp/rpm is served to the (rarely-open) fan settings page by
+                # its own HTTP poll; no client renders telemetry off this event.
+                if self._pwm_percent != last_pwm:
                     await self._broadcast_status(FanStatusChanged)
-                    last_telemetry = telemetry
+                    last_pwm = self._pwm_percent
             except asyncio.CancelledError:
                 raise
             except Exception as e:
