@@ -531,7 +531,24 @@
     "albumsCount": "{count} albums",
     "tracksCount": "{count} titres",
     "songsCount": "{count} morceaux",
-    "minutesShort": "min"
+    "minutesShort": "min",
+    "playlists": {
+      "newPlaylist": "Nouvelle playlist",
+      "createTitle": "Nouvelle playlist",
+      "renameTitle": "Renommer la playlist",
+      "namePlaceholder": "Nom de la playlist",
+      "create": "Créer",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "edit": "Modifier",
+      "done": "Terminé",
+      "rename": "Renommer",
+      "delete": "Supprimer",
+      "confirmDelete": "Appuyez à nouveau pour supprimer",
+      "reorderHint": "Glissez pour réordonner",
+      "addToPlaylist": "Ajouter à une playlist",
+      "remove": "Retirer"
+    }
   },
   "setup": {
     "stepLabel": "Étape {n}",

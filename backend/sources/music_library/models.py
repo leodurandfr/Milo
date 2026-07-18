@@ -26,6 +26,46 @@ class StarRequest(BaseModel):
     kind: Literal["song", "album", "artist"] = "song"
 
 
+# === Playlist create/edit requests (Phase 3) ===
+
+class CreatePlaylistRequest(BaseModel):
+    """Body for ``POST /music-library/playlists`` (Subsonic ``createPlaylist``).
+
+    Optionally seed the new playlist with an ordered list of song ids (the
+    "add these tracks to a new playlist" flow); omit for an empty playlist.
+    """
+
+    name: str = Field(min_length=1, max_length=255)
+    song_ids: Optional[List[str]] = None
+
+
+class UpdatePlaylistRequest(BaseModel):
+    """Body for ``PUT /music-library/playlist/{id}`` — exactly one edit per call:
+
+    - ``name``            → rename (Subsonic ``updatePlaylist``).
+    - ``song_ids_to_add`` → append tracks (the ⋯ "add to playlist" action).
+    - ``track_ids``       → replace the whole ordered list (reorder/remove; an
+      empty list clears the playlist). ``None`` means "not this operation" —
+      distinct from ``[]`` — so removing the last track is expressible.
+    """
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    song_ids_to_add: Optional[List[str]] = None
+    track_ids: Optional[List[str]] = None
+
+    @model_validator(mode="after")
+    def _exactly_one_edit(self) -> "UpdatePlaylistRequest":
+        provided = sum(
+            field is not None
+            for field in (self.name, self.song_ids_to_add, self.track_ids)
+        )
+        if provided != 1:
+            raise ValueError(
+                "provide exactly one of: name, song_ids_to_add, track_ids"
+            )
+        return self
+
+
 # === Network-share requests (Phase 2) ===
 
 class ShareRequest(BaseModel):

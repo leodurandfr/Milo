@@ -1,5 +1,5 @@
 <template>
-  <div v-press class="track-row" :class="{ current }" @click="$emit('play')">
+  <div v-press="!editing" class="track-row" :class="{ current, editing }" @click="onRowClick">
     <div class="track-index">
       <!-- Animated bars while this row is the one playing; otherwise the number. -->
       <div v-if="current && playing" class="playing-bars" aria-hidden="true">
@@ -13,14 +13,36 @@
       <p v-if="showArtist && song.artist" class="track-artist text-mono">{{ song.artist }}</p>
     </div>
 
-    <span class="track-duration text-mono">{{ formatDuration(song.duration) }}</span>
+    <!-- Edit mode: remove + drag grip. Otherwise: duration + optional ⋯ menu.
+         @pointerdown.stop keeps the tap from bubbling to the row's v-press, which
+         would otherwise capture the pointer and steal the resulting click. -->
+    <div v-if="editing" class="track-edit">
+      <button v-press type="button" class="track-icon-btn track-remove"
+        :aria-label="t('musicLibrary.playlists.remove')"
+        @pointerdown.stop @click.stop="$emit('remove')">
+        <SvgIcon name="minus" :size="20" />
+      </button>
+      <div class="track-grip" @pointerdown.stop.prevent="$emit('grip-down', $event)">
+        <SvgIcon name="dragHandle" :size="24" />
+      </div>
+    </div>
+    <template v-else>
+      <span class="track-duration text-mono">{{ formatDuration(song.duration) }}</span>
+      <button v-if="showMenu" v-press type="button" class="track-icon-btn track-menu"
+        :aria-label="t('musicLibrary.playlists.addToPlaylist')"
+        @pointerdown.stop @click.stop="$emit('menu')">
+        <SvgIcon name="threeDots" :size="20" />
+      </button>
+    </template>
   </div>
 </template>
 
 <script setup>
+import { useI18n } from '@/services/i18n';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { formatDuration } from '../format.js';
 
-defineProps({
+const props = defineProps({
   song: {
     type: Object,
     required: true,
@@ -45,9 +67,25 @@ defineProps({
     type: Boolean,
     default: false,
   },
+  // Show the ⋯ overflow (add-to-playlist). Suppressed in edit mode.
+  showMenu: {
+    type: Boolean,
+    default: false,
+  },
+  // Playlist edit mode: swap play-on-tap for a remove button + drag grip.
+  editing: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-defineEmits(['play']);
+const emit = defineEmits(['play', 'menu', 'remove', 'grip-down']);
+
+const { t } = useI18n();
+
+function onRowClick() {
+  if (!props.editing) emit('play');
+}
 </script>
 
 <style scoped>
@@ -61,6 +99,10 @@ defineEmits(['play']);
   cursor: pointer;
   min-width: 0;
   transition: background var(--transition-fast);
+}
+
+.track-row.editing {
+  cursor: default;
 }
 
 .track-row.current {
@@ -115,6 +157,48 @@ defineEmits(['play']);
 .track-duration {
   flex-shrink: 0;
   color: var(--color-text-secondary);
+}
+
+/* Inline icon buttons (⋯ menu, remove) — ghost style, no filled surface. */
+.track-icon-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-02);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color var(--transition-fast), var(--transition-press);
+}
+
+.track-remove {
+  color: var(--color-error);
+}
+
+/* Edit mode: remove + drag grip side by side. */
+.track-edit {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-01);
+}
+
+.track-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--color-text-light);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Now-playing equalizer bars */

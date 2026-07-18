@@ -163,6 +163,90 @@ class TestNavidromeStar:
         assert await client.star("s-1") is False
 
 
+class TestNavidromePlaylistWrites:
+    async def test_create_playlist_maps_name_and_songs(self, client):
+        client._make_request = AsyncMock(return_value={
+            "playlist": {"id": "pl-9", "name": "Road Trip"}
+        })
+        pl = await client.create_playlist("Road Trip", song_ids=["s-1", "s-2"])
+        assert pl == {"id": "pl-9", "name": "Road Trip"}
+        endpoint, params = client._make_request.await_args.args
+        assert endpoint == "createPlaylist"
+        assert params == {"name": "Road Trip", "songId": ["s-1", "s-2"]}
+
+    async def test_create_playlist_without_songs(self, client):
+        client._make_request = AsyncMock(return_value={"playlist": {"id": "pl-9"}})
+        await client.create_playlist("Empty")
+        _, params = client._make_request.await_args.args
+        assert params == {"name": "Empty", "songId": None}
+
+    @pytest.mark.parametrize("payload", [None, {"_network_error": True}])
+    async def test_create_playlist_error_is_none(self, client, payload):
+        client._make_request = AsyncMock(return_value=payload)
+        assert await client.create_playlist("Road Trip") is None
+
+    async def test_update_playlist_rename(self, client):
+        client._make_request = AsyncMock(return_value={"status": "ok"})
+        assert await client.update_playlist("pl-1", name="Renamed") is True
+        endpoint, params = client._make_request.await_args.args
+        assert endpoint == "updatePlaylist"
+        assert params == {"playlistId": "pl-1", "name": "Renamed"}
+
+    async def test_update_playlist_append_tracks(self, client):
+        client._make_request = AsyncMock(return_value={"status": "ok"})
+        assert await client.update_playlist("pl-1", song_ids_to_add=["s-3"]) is True
+        _, params = client._make_request.await_args.args
+        assert params == {"playlistId": "pl-1", "songIdToAdd": ["s-3"]}
+
+    async def test_set_playlist_tracks_replaces_via_create(self, client):
+        client._make_request = AsyncMock(return_value={"status": "ok"})
+        assert await client.set_playlist_tracks("pl-1", ["s-2", "s-1"]) is True
+        endpoint, params = client._make_request.await_args.args
+        # Subsonic has no reorder verb: createPlaylist w/ playlistId rewrites order.
+        assert endpoint == "createPlaylist"
+        assert params == {"playlistId": "pl-1", "songId": ["s-2", "s-1"]}
+
+    async def test_set_playlist_tracks_empty_clears(self, client):
+        client._make_request = AsyncMock(return_value={"status": "ok"})
+        assert await client.set_playlist_tracks("pl-1", []) is True
+        _, params = client._make_request.await_args.args
+        assert params == {"playlistId": "pl-1", "songId": []}
+
+    async def test_delete_playlist_maps_id(self, client):
+        client._make_request = AsyncMock(return_value={"status": "ok"})
+        assert await client.delete_playlist("pl-1") is True
+        endpoint, params = client._make_request.await_args.args
+        assert endpoint == "deletePlaylist"
+        assert params == {"id": "pl-1"}
+
+    async def test_write_network_error_is_false(self, client):
+        client._make_request = AsyncMock(return_value={"_network_error": True})
+        assert await client.update_playlist("pl-1", name="x") is False
+        assert await client.set_playlist_tracks("pl-1", ["s-1"]) is False
+        assert await client.delete_playlist("pl-1") is False
+
+
+class TestEncodeQuery:
+    """The dict → aiohttp list-of-pairs encoder that backs multi-valued params."""
+
+    def test_scalars_are_stringified_pairs(self):
+        from backend.sources.music_library.navidrome_client import _encode_query
+        assert _encode_query({"a": "x", "n": 5}) == [("a", "x"), ("n", "5")]
+
+    def test_list_value_expands_to_repeated_keys(self):
+        from backend.sources.music_library.navidrome_client import _encode_query
+        pairs = _encode_query({"songId": ["s-1", "s-2", "s-3"]})
+        assert pairs == [("songId", "s-1"), ("songId", "s-2"), ("songId", "s-3")]
+
+    def test_none_values_and_none_items_dropped(self):
+        from backend.sources.music_library.navidrome_client import _encode_query
+        assert _encode_query({"a": None, "songId": ["s-1", None]}) == [("songId", "s-1")]
+
+    def test_empty_list_contributes_no_pairs(self):
+        from backend.sources.music_library.navidrome_client import _encode_query
+        assert _encode_query({"playlistId": "pl-1", "songId": []}) == [("playlistId", "pl-1")]
+
+
 class TestNavidromeCoverArt:
     def _stub_session(self, client, *, status=200, content_type="image/jpeg", body=b"IMG"):
         class _Resp:
@@ -215,6 +299,10 @@ def nav_client():
     c.search3 = AsyncMock(return_value={"artist": [{"id": "ar-1"}], "album": [], "song": []})
     c.get_playlists = AsyncMock(return_value=[{"id": "pl-1"}])
     c.get_playlist = AsyncMock(return_value={"id": "pl-1", "entry": []})
+    c.create_playlist = AsyncMock(return_value={"id": "pl-9", "name": "Road Trip"})
+    c.update_playlist = AsyncMock(return_value=True)
+    c.set_playlist_tracks = AsyncMock(return_value=True)
+    c.delete_playlist = AsyncMock(return_value=True)
     c.get_cover_art = AsyncMock(return_value=(b"IMG", "image/jpeg"))
     c.star = AsyncMock(return_value=True)
     c.unstar = AsyncMock(return_value=True)
@@ -306,6 +394,67 @@ class TestPlaylistRoutes:
     def test_playlist_404_when_missing(self, api, nav_client):
         nav_client.get_playlist = AsyncMock(return_value=None)
         assert api.get("/api/music-library/playlist/nope").status_code == 404
+
+
+class TestPlaylistWriteRoutes:
+    def test_create_returns_playlist(self, api, nav_client):
+        r = api.post("/api/music-library/playlists", json={"name": "Road Trip"})
+        assert r.status_code == 200
+        assert r.json() == {"status": "success", "playlist": {"id": "pl-9", "name": "Road Trip"}}
+        nav_client.create_playlist.assert_awaited_once_with("Road Trip", song_ids=None)
+
+    def test_create_with_seed_songs(self, api, nav_client):
+        api.post("/api/music-library/playlists", json={"name": "Mix", "song_ids": ["s-1", "s-2"]})
+        nav_client.create_playlist.assert_awaited_once_with("Mix", song_ids=["s-1", "s-2"])
+
+    def test_create_rejects_empty_name(self, api):
+        assert api.post("/api/music-library/playlists", json={"name": ""}).status_code == 422
+
+    def test_create_502_when_navidrome_rejects(self, api, nav_client):
+        nav_client.create_playlist = AsyncMock(return_value=None)
+        assert api.post("/api/music-library/playlists", json={"name": "x"}).status_code == 502
+
+    def test_update_rename(self, api, nav_client):
+        r = api.put("/api/music-library/playlist/pl-1", json={"name": "Renamed"})
+        assert r.status_code == 200
+        nav_client.update_playlist.assert_awaited_once_with("pl-1", name="Renamed")
+        nav_client.set_playlist_tracks.assert_not_called()
+
+    def test_update_append_tracks(self, api, nav_client):
+        api.put("/api/music-library/playlist/pl-1", json={"song_ids_to_add": ["s-3"]})
+        nav_client.update_playlist.assert_awaited_once_with("pl-1", song_ids_to_add=["s-3"])
+
+    def test_update_replace_order(self, api, nav_client):
+        api.put("/api/music-library/playlist/pl-1", json={"track_ids": ["s-2", "s-1"]})
+        nav_client.set_playlist_tracks.assert_awaited_once_with("pl-1", ["s-2", "s-1"])
+        nav_client.update_playlist.assert_not_called()
+
+    def test_update_replace_empty_clears(self, api, nav_client):
+        # track_ids=[] is a valid single op (distinct from None) — clears the playlist.
+        r = api.put("/api/music-library/playlist/pl-1", json={"track_ids": []})
+        assert r.status_code == 200
+        nav_client.set_playlist_tracks.assert_awaited_once_with("pl-1", [])
+
+    def test_update_rejects_no_operation(self, api):
+        assert api.put("/api/music-library/playlist/pl-1", json={}).status_code == 422
+
+    def test_update_rejects_multiple_operations(self, api):
+        r = api.put("/api/music-library/playlist/pl-1", json={"name": "x", "track_ids": ["s-1"]})
+        assert r.status_code == 422
+
+    def test_update_502_when_navidrome_rejects(self, api, nav_client):
+        nav_client.update_playlist = AsyncMock(return_value=False)
+        assert api.put("/api/music-library/playlist/pl-1", json={"name": "x"}).status_code == 502
+
+    def test_delete_success(self, api, nav_client):
+        r = api.delete("/api/music-library/playlist/pl-1")
+        assert r.status_code == 200
+        assert r.json() == {"status": "success"}
+        nav_client.delete_playlist.assert_awaited_once_with("pl-1")
+
+    def test_delete_502_when_navidrome_rejects(self, api, nav_client):
+        nav_client.delete_playlist = AsyncMock(return_value=False)
+        assert api.delete("/api/music-library/playlist/pl-1").status_code == 502
 
 
 class TestCoverRoute:

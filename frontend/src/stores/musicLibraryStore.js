@@ -259,6 +259,64 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   }
 
   // =========================================================================
+  // PLAYLIST WRITES (create/rename/add/reorder-remove/delete). Navidrome owns
+  // the data; every successful write refreshes the cached playlist list so the
+  // tab (names + counts) stays truthful. Drill-down views hold their own copy
+  // of a playlist's entries and pass the full new order to setPlaylistTracks.
+  // =========================================================================
+  async function createPlaylist(name, songIds = null) {
+    const body = songIds?.length ? { name, song_ids: songIds } : { name };
+    const result = await apiCall.post(`${BASE}/playlists`, body, {
+      category: 'musicLibrary',
+      message: 'Error creating playlist',
+    });
+    if (result.ok && result.data?.status === 'success') {
+      await loadPlaylists({ force: true });
+      return result.data.playlist || null;
+    }
+    return null;
+  }
+
+  // One edit per call — the backend accepts exactly one operation.
+  async function editPlaylist(playlistId, payload) {
+    const result = await apiCall.put(`${BASE}/playlist/${playlistId}`, payload, {
+      category: 'musicLibrary',
+      message: 'Error updating playlist',
+    });
+    const ok = result.ok && result.data?.status === 'success';
+    if (ok && playlistsLoaded.value) await loadPlaylists({ force: true });
+    return ok;
+  }
+
+  const renamePlaylist = (playlistId, name) => editPlaylist(playlistId, { name });
+  const addToPlaylist = (playlistId, songIds) =>
+    editPlaylist(playlistId, { song_ids_to_add: songIds });
+  const setPlaylistTracks = (playlistId, trackIds) =>
+    editPlaylist(playlistId, { track_ids: trackIds });
+
+  async function deletePlaylist(playlistId) {
+    const result = await apiCall.delete(`${BASE}/playlist/${playlistId}`, {
+      category: 'musicLibrary',
+      message: 'Error deleting playlist',
+    });
+    if (result.ok && result.data?.status === 'success') {
+      await loadPlaylists({ force: true });
+      return true;
+    }
+    return false;
+  }
+
+  // Add-to-playlist picker, hosted once at the source root and opened from any
+  // track row's ⋯ menu. null = closed; an array of song ids = open for those.
+  const addToPlaylistSongIds = ref(null);
+  function requestAddToPlaylist(songIds) {
+    if (songIds?.length) addToPlaylistSongIds.value = songIds;
+  }
+  function closeAddToPlaylist() {
+    addToPlaylistSongIds.value = null;
+  }
+
+  // =========================================================================
   // CATALOG — single-item fetches (drill-down views hold their own result)
   // =========================================================================
   async function fetchAlbum(albumId) {
@@ -439,6 +497,14 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     playlistsLoading,
     playlistsLoaded,
     loadPlaylists,
+    createPlaylist,
+    renamePlaylist,
+    addToPlaylist,
+    setPlaylistTracks,
+    deletePlaylist,
+    addToPlaylistSongIds,
+    requestAddToPlaylist,
+    closeAddToPlaylist,
 
     // Single-item fetches
     fetchAlbum,
