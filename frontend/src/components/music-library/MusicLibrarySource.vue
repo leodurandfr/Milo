@@ -1,76 +1,78 @@
 <template>
-  <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
-    :header-title="currentTitle" :header-show-back="canGoBack"
-    header-icon="music_library" header-variant="background-neutral"
-    :header-actions-key="currentView" :content-key="currentView"
-    :player-mobile-height="184" :pending-scroll-restore="pendingScrollRestore"
-    @header-back="goBack" @scroll-restored="onScrollRestored">
+  <div class="music-library-source">
+    <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
+      :header-title="currentTitle" :header-show-back="canGoBack"
+      header-icon="music_library" header-variant="background-neutral"
+      :header-actions-key="currentView" :content-key="currentView"
+      :player-mobile-height="184" :pending-scroll-restore="pendingScrollRestore"
+      @header-back="goBack" @scroll-restored="onScrollRestored">
 
-    <!-- Header actions (home only): search -->
-    <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
-      <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
-    </template>
+      <!-- Header actions (home only): search -->
+      <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
+        <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
+      </template>
 
-    <!-- Scrollable views -->
-    <template #content>
-      <LibraryHome v-if="currentView === 'home'" key="home"
-        @select-album="openAlbum" @select-artist="openArtist"
-        @select-genre="openGenre" @select-playlist="openPlaylist" />
+      <!-- Scrollable views -->
+      <template #content>
+        <LibraryHome v-if="currentView === 'home'" key="home"
+          @select-album="openAlbum" @select-artist="openArtist"
+          @select-genre="openGenre" @select-playlist="openPlaylist" />
 
-      <AlbumView v-else-if="currentView === 'album'" key="album" :album-id="currentParams.albumId" />
+        <AlbumView v-else-if="currentView === 'album'" key="album" :album-id="currentParams.albumId" />
 
-      <ArtistView v-else-if="currentView === 'artist'" key="artist" :artist-id="currentParams.artistId"
-        @select-album="openAlbum" />
+        <ArtistView v-else-if="currentView === 'artist'" key="artist" :artist-id="currentParams.artistId"
+          @select-album="openAlbum" />
 
-      <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="currentParams.genre" />
+        <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="currentParams.genre" />
 
-      <PlaylistView v-else-if="currentView === 'playlist'" key="playlist"
-        :playlist-id="currentParams.playlistId" @deleted="goBack" />
+        <PlaylistView v-else-if="currentView === 'playlist'" key="playlist"
+          :playlist-id="currentParams.playlistId" @deleted="goBack" />
 
-      <SearchView v-else-if="currentView === 'search'" key="search"
-        @select-album="openAlbum" @select-artist="openArtist" />
+        <SearchView v-else-if="currentView === 'search'" key="search"
+          @select-album="openAlbum" @select-artist="openArtist" />
 
-      <QueueView v-else-if="currentView === 'queue'" key="queue" />
-    </template>
+        <QueueView v-else-if="currentView === 'queue'" key="queue" />
+      </template>
 
-    <!-- Docked player -->
-    <template #player>
-      <AudioPlayer :visible="shouldShowPlayer" source="music_library"
-        :artwork="playerArtwork" :fallback-name="playerFallbackName"
-        :title="playerTitle" :subtitle="playerArtist"
-        :is-playing="isPlaying" :is-loading="isBuffering">
-        <template #progress>
-          <div @click.stop>
-            <ProgressBar :current-position="currentPositionSec" :duration="currentDurationSec"
-              :progress-percentage="livePercent" @seek="handleSeek" />
-          </div>
-        </template>
-
-        <template #controls>
-          <div class="ml-controls" @click.stop>
-            <div class="playback-controls">
-              <IconButton icon="previous" variant="on-dark" size="small" @click="store.previous()" />
-              <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
-                :loading="isBuffering" @click="togglePlayPause" />
-              <IconButton icon="next" variant="on-dark" size="small" @click="store.next()" />
+      <!-- Docked player -->
+      <template #player>
+        <AudioPlayer :visible="shouldShowPlayer" source="music_library"
+          :artwork="playerArtwork" :fallback-name="playerFallbackName"
+          :title="playerTitle" :subtitle="playerArtist"
+          :is-playing="isPlaying" :is-loading="isBuffering">
+          <template #progress>
+            <div @click.stop>
+              <ProgressBar :current-position="currentPositionSec" :duration="currentDurationSec"
+                :progress-percentage="livePercent" @seek="handleSeek" />
             </div>
-            <div class="ml-secondary">
-              <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="small"
-                @click="store.toggleCurrentStar()" />
-              <IconButton icon="queue" variant="on-dark" size="small" @click="goToQueue" />
-            </div>
-          </div>
-        </template>
-      </AudioPlayer>
-    </template>
-  </AudioSourceLayout>
+          </template>
 
-  <!-- Add-to-playlist picker, opened from any track row's ⋯ menu (store-driven). -->
-  <AddToPlaylistModal
-    :is-open="!!store.addToPlaylistSongIds"
-    :song-ids="store.addToPlaylistSongIds || []"
-    @close="store.closeAddToPlaylist()"
-  />
+          <template #controls>
+            <div class="ml-controls" @click.stop>
+              <div class="playback-controls">
+                <IconButton icon="previous" variant="on-dark" size="small" @click="store.previous()" />
+                <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
+                  :loading="isBuffering" @click="togglePlayPause" />
+                <IconButton icon="next" variant="on-dark" size="small" @click="store.next()" />
+              </div>
+              <div class="ml-secondary">
+                <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="small"
+                  @click="store.toggleCurrentStar()" />
+                <IconButton icon="queue" variant="on-dark" size="small" @click="goToQueue" />
+              </div>
+            </div>
+          </template>
+        </AudioPlayer>
+      </template>
+    </AudioSourceLayout>
+
+    <!-- Add-to-playlist picker, opened from any track row's ⋯ menu (store-driven). -->
+    <AddToPlaylistModal
+      :is-open="!!store.addToPlaylistSongIds"
+      :song-ids="store.addToPlaylistSongIds || []"
+      @close="store.closeAddToPlaylist()"
+    />
+  </div>
 </template>
 
 <script setup>
@@ -198,6 +200,12 @@ function handleSeek(positionSec) {
 </script>
 
 <style scoped>
+/* Fills the transition slot; AudioSourceLayout inside is width/height 100%. */
+.music-library-source {
+  width: 100%;
+  height: 100%;
+}
+
 ::-webkit-scrollbar {
   display: none;
 }
