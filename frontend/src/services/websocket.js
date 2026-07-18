@@ -88,9 +88,12 @@ class WebSocketSingleton {
     }
 
     logger.info('websocket', `Connecting to ${wsUrl}`);
-    this.socket = new WebSocket(wsUrl);
+    const socket = new WebSocket(wsUrl);
+    this.socket = socket;
 
-    this.socket.onopen = () => {
+    socket.onopen = () => {
+      if (this.socket !== socket) return;
+
       // isConnected starts false, so it can't distinguish the first connection
       // of a page load from a real reconnection — hasEverConnected can
       const wasReconnecting = this.hasEverConnected;
@@ -102,8 +105,8 @@ class WebSocketSingleton {
       this.startPingCheck();
 
       // Send ready signal to request initial state
-      if (this.socket.readyState === WebSocket.OPEN) {
-        this.socket.send(JSON.stringify({ type: "ready" }));
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "ready" }));
       }
 
       if (wasReconnecting) {
@@ -115,7 +118,7 @@ class WebSocketSingleton {
       }
     };
 
-    this.socket.onmessage = (event) => {
+    socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
         this.handleMessage(message);
@@ -123,8 +126,10 @@ class WebSocketSingleton {
         logger.error('websocket', 'Message parse error', { error: error.message });
       }
     };
-    
-    this.socket.onclose = () => {
+
+    socket.onclose = () => {
+      if (this.socket && this.socket !== socket) return;
+
       this.isConnected.value = false;
       this.socket = null;
       logger.info('websocket', 'Disconnected');
@@ -142,7 +147,7 @@ class WebSocketSingleton {
       }
     };
 
-    this.socket.onerror = (error) => {
+    socket.onerror = (error) => {
       logger.error('websocket', 'Connection error', { error });
     };
   }
