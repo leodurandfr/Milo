@@ -96,6 +96,7 @@ import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useRadioStore } from '@/stores/radioStore';
+import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
@@ -126,6 +127,7 @@ const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
 const radioStore = useRadioStore();
+const musicLibraryStore = useMusicLibraryStore();
 const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
@@ -186,6 +188,7 @@ function processInitialState(event) {
 const deltaStores = [
   multiroomStore, equalizerStore, systemStore, fanStore,
   radioStore, podcastStore, updatesStore, settingsStore,
+  musicLibraryStore,
 ];
 
 async function resyncStores() {

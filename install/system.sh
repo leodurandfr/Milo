@@ -79,6 +79,14 @@ install_apply_hardware_script() {
     sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-navidrome-provision" /usr/local/bin/milo-navidrome-provision
     sudo chmod +x /usr/local/bin/milo-navidrome-provision
 
+    # Music Library USB storage helpers (privileged read-only mount / unmount of a
+    # USB key under /media/milo, so Navidrome can index it).
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-mount" /usr/local/bin/milo-mount
+    sudo chmod +x /usr/local/bin/milo-mount
+
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-umount" /usr/local/bin/milo-umount
+    sudo chmod +x /usr/local/bin/milo-umount
+
     # Remove legacy sudoers file if present
     sudo rm -f /etc/sudoers.d/milo-hardware
 
@@ -98,6 +106,9 @@ milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-deploy-update
 # WiFi regulatory domain
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-wifi-country
+# Music Library USB storage (read-only mount / unmount under /media/milo)
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-mount
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-umount
 EOF
     sudo visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
     sudo chmod 0440 /etc/sudoers.d/milo-backend

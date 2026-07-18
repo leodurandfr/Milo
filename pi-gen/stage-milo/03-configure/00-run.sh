@@ -152,6 +152,9 @@ milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-deploy-update
 # WiFi regulatory domain
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-wifi-country
+# Music Library USB storage (read-only mount / unmount under /media/milo)
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-mount
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-umount
 EOF
 visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
 chmod 0440 /etc/sudoers.d/milo-backend

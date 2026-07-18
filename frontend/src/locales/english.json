@@ -504,6 +504,46 @@
     "yesterday": "Yesterday",
     "unsubscribe": "Unsubscribe"
   },
+  "musicLibrary": {
+    "tabs": {
+      "albums": "Albums",
+      "artists": "Artists",
+      "genres": "Genres",
+      "playlists": "Playlists"
+    },
+    "sections": {
+      "artists": "Artists",
+      "albums": "Albums",
+      "tracks": "Tracks"
+    },
+    "album": "Album",
+    "artist": "Artist",
+    "genre": "Genre",
+    "playlist": "Playlist",
+    "search": "Search",
+    "queue": "Queue",
+    "searchPlaceholder": "Artists, albums, tracks",
+    "searchPrompt": "Search your library",
+    "noResultsFor": "No results for \"{query}\"",
+    "play": "Play",
+    "shuffle": "Shuffle",
+    "loading": "Loading…",
+    "notFound": "Not found",
+    "noTracks": "No tracks",
+    "noArtists": "No artists yet",
+    "noGenres": "No genres yet",
+    "noPlaylists": "No playlists yet",
+    "emptyLibrary": "No music yet",
+    "emptyLibraryHint": "Plug in a USB drive with your music to build the library.",
+    "building": "Building library…",
+    "buildingHint": "Indexing your music. This can take a few minutes.",
+    "queueEmpty": "Nothing in the queue",
+    "queueEmptyHint": "Play an album, playlist or track to build a queue.",
+    "albumsCount": "{count} albums",
+    "tracksCount": "{count} tracks",
+    "songsCount": "{count} songs",
+    "minutesShort": "min"
+  },
   "setup": {
     "stepLabel": "Step {n}",
     "back": "Back",

@@ -493,6 +493,46 @@
     "yesterday": "Hier",
     "unsubscribe": "Se désabonner"
   },
+  "musicLibrary": {
+    "tabs": {
+      "albums": "Albums",
+      "artists": "Artistes",
+      "genres": "Genres",
+      "playlists": "Playlists"
+    },
+    "sections": {
+      "artists": "Artistes",
+      "albums": "Albums",
+      "tracks": "Titres"
+    },
+    "album": "Album",
+    "artist": "Artiste",
+    "genre": "Genre",
+    "playlist": "Playlist",
+    "search": "Rechercher",
+    "queue": "File d'attente",
+    "searchPlaceholder": "Artistes, albums, titres",
+    "searchPrompt": "Rechercher dans votre bibliothèque",
+    "noResultsFor": "Aucun résultat pour « {query} »",
+    "play": "Lire",
+    "shuffle": "Aléatoire",
+    "loading": "Chargement…",
+    "notFound": "Introuvable",
+    "noTracks": "Aucun titre",
+    "noArtists": "Aucun artiste",
+    "noGenres": "Aucun genre",
+    "noPlaylists": "Aucune playlist",
+    "emptyLibrary": "Aucune musique",
+    "emptyLibraryHint": "Branchez une clé USB contenant votre musique pour constituer la bibliothèque.",
+    "building": "Constitution de la bibliothèque…",
+    "buildingHint": "Indexation de votre musique. Cela peut prendre quelques minutes.",
+    "queueEmpty": "File d'attente vide",
+    "queueEmptyHint": "Lisez un album, une playlist ou un titre pour créer une file d'attente.",
+    "albumsCount": "{count} albums",
+    "tracksCount": "{count} titres",
+    "songsCount": "{count} morceaux",
+    "minutesShort": "min"
+  },
   "setup": {
     "stepLabel": "Étape {n}",
     "back": "Retour",

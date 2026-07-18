@@ -1,0 +1,46 @@
+#!/bin/bash
+# milo-umount — privileged unmount of a Milō USB mountpoint under /media/milo.
+#
+# Usage: milo-umount <mountpoint>
+#   <mountpoint>: an absolute path directly under /media/milo, exactly as returned
+#                 by milo-mount (the backend hands back what it captured).
+#
+# Counterpart to milo-mount (docs/plans/music-library.md). Validates the target is
+# a real mountpoint directly beneath /media/milo — with a single safe-named
+# component, no traversal — then unmounts it and removes the now-empty directory.
+# Falls back to a lazy unmount when the mount is busy (Navidrome still holding a
+# file handle, or the device was yanked). Must run as root (milo-backend sudoers).
+set -euo pipefail
+
+MOUNT_ROOT="/media/milo"
+
+log() { echo "milo-umount: $*" >&2; }
+die() { log "ERROR: $*"; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || die "must run as root"
+[ $# -eq 1 ] || die "usage: milo-umount <mountpoint>"
+
+TARGET="$(readlink -f -- "$1")" || die "cannot resolve $1"
+
+# Confine to a single child of the mount root — reject anything else outright.
+case "$TARGET" in
+    "$MOUNT_ROOT"/*) : ;;
+    *) die "$TARGET is not under $MOUNT_ROOT" ;;
+esac
+NAME="${TARGET#"$MOUNT_ROOT"/}"
+case "$NAME" in
+    */*|.|..|"") die "invalid mountpoint name: $NAME" ;;
+    *) : ;;
+esac
+
+if mountpoint -q "$TARGET"; then
+    umount "$TARGET" 2>/dev/null || umount -l "$TARGET" \
+        || die "failed to unmount $TARGET"
+    log "unmounted $TARGET"
+else
+    log "$TARGET is not mounted (already gone)"
+fi
+
+# Drop the now-empty mountpoint dir. Ignore failure: a lazy unmount may still be
+# settling, and a leftover empty dir is harmless (reused on the next mount).
+rmdir "$TARGET" 2>/dev/null || true

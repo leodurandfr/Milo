@@ -17,6 +17,9 @@
       <!-- CDView -->
       <CDSource v-else-if="shouldShowCD" :key="contentKey" />
 
+      <!-- MusicLibraryView -->
+      <MusicLibrarySource v-else-if="shouldShowMusicLibrary" :key="contentKey" />
+
       <!-- AirPlayView -->
       <div v-else-if="shouldShowAirPlay" :key="contentKey" class="connect-container">
         <AirPlaySource />
@@ -63,6 +66,9 @@ const AirPlaySource = defineAsyncComponent(() =>
 );
 const CDSource = defineAsyncComponent(() =>
   import('../cd/CDSource.vue')
+);
+const MusicLibrarySource = defineAsyncComponent(() =>
+  import('../music-library/MusicLibrarySource.vue')
 );
 const DLNASource = defineAsyncComponent(() =>
   import('../dlna/DLNASource.vue')
@@ -112,6 +118,7 @@ const shouldShowSpotify = computed(() => richSource.value === 'spotify');
 const shouldShowRadio = computed(() => richSource.value === 'radio');
 const shouldShowPodcast = computed(() => richSource.value === 'podcast');
 const shouldShowCD = computed(() => richSource.value === 'cd');
+const shouldShowMusicLibrary = computed(() => richSource.value === 'music_library');
 const shouldShowAirPlay = computed(() => richSource.value === 'airplay');
 const shouldShowDLNA = computed(() => richSource.value === 'dlna');
 const shouldShowQobuz = computed(() => richSource.value === 'qobuz');
