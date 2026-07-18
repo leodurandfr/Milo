@@ -6,6 +6,7 @@ helpers (mocked subprocess), the devnode→mountpoint bookkeeping, and the
 Navidrome rescan trigger. The pyudev monitor thread itself needs real udev
 events and is exercised on the Pi, not here.
 """
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -130,8 +131,6 @@ async def test_run_helper_returns_none_on_failure(manager):
 
 
 async def test_run_helper_times_out(manager):
-    import asyncio
-
     proc = _proc()
     proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
     with patch("asyncio.create_subprocess_exec", return_value=proc):
@@ -150,3 +149,116 @@ async def test_scan_skipped_when_navidrome_unavailable():
         # Should not raise even though there is no client to scan with.
         await mgr._trigger_scan()
     assert mgr._navidrome is None
+
+
+# === network shares (SMB/NFS) =====================================================
+
+_CIFS_SHARE = {"id": "nas-abcd1234", "type": "cifs", "host": "192.168.1.10", "path": "Music"}
+_NFS_SHARE = {"id": "nfs-abcd1234", "type": "nfs", "host": "10.0.0.5", "path": "/volume1/music"}
+
+
+async def test_mount_share_passes_args_and_credentials_on_stdin(manager):
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")) as exec_mock:
+        mp = await manager.mount_share(
+            _CIFS_SHARE,
+            credentials={"username": "SECRETUSER", "password": "SECRETPASS", "domain": "WG"},
+        )
+
+    args = exec_mock.call_args.args
+    assert args[:3] == ("sudo", "-n", MILO_MOUNT_CMD)
+    # --network cifs --id <id> --host <host> --path <path>
+    assert list(args[3:]) == [
+        "--network", "cifs", "--id", "nas-abcd1234",
+        "--host", "192.168.1.10", "--path", "Music",
+    ]
+    # Credentials go over stdin (PIPE), never argv.
+    assert exec_mock.call_args.kwargs["stdin"] == asyncio.subprocess.PIPE
+    joined = " ".join(args)
+    assert "SECRETUSER" not in joined and "SECRETPASS" not in joined
+    assert mp == "/media/milo/nas-abcd1234"
+    assert manager._share_mounts == {"nas-abcd1234": "/media/milo/nas-abcd1234"}
+    manager._navidrome.start_scan.assert_awaited_once()
+
+
+async def test_mount_share_credentials_stdin_bytes(manager):
+    captured = {}
+
+    def _make(*a, **k):
+        proc = _proc(stdout=b"/media/milo/nas-abcd1234\n")
+
+        async def _comm(input=None):
+            captured["input"] = input
+            return (b"/media/milo/nas-abcd1234\n", b"")
+        proc.communicate = _comm
+        return proc
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_make):
+        await manager.mount_share(_CIFS_SHARE, credentials={"username": "u", "password": "p"})
+
+    assert captured["input"] == b"username=u\npassword=p\n"
+
+
+async def test_mount_share_boot_remount_uses_devnull_stdin(manager):
+    # No credentials (boot remount) -> stdin is /dev/null, milo-mount reuses the
+    # persisted cred file.
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(stdout=b"/media/milo/nfs-abcd1234\n")) as exec_mock:
+        await manager.mount_share(_NFS_SHARE)
+
+    assert exec_mock.call_args.kwargs["stdin"] == asyncio.subprocess.DEVNULL
+    args = exec_mock.call_args.args
+    assert list(args[3:]) == [
+        "--network", "nfs", "--id", "nfs-abcd1234",
+        "--host", "10.0.0.5", "--path", "/volume1/music",
+    ]
+
+
+async def test_mount_share_failure_records_nothing(manager):
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(returncode=1, stderr=b"cifs mount failed")):
+        mp = await manager.mount_share(_CIFS_SHARE, credentials={"password": "p"})
+    assert mp is None
+    assert manager._share_mounts == {}
+    manager._navidrome.start_scan.assert_not_awaited()
+
+
+async def test_unmount_share_tracked(manager):
+    manager._share_mounts["nas-abcd1234"] = "/media/milo/nas-abcd1234"
+    with patch("asyncio.create_subprocess_exec", return_value=_proc()) as exec_mock:
+        await manager.unmount_share("nas-abcd1234")
+
+    args = exec_mock.call_args.args
+    assert args[:3] == ("sudo", "-n", MILO_UMOUNT_CMD)
+    assert args[3] == "/media/milo/nas-abcd1234"
+    assert manager._share_mounts == {}
+    manager._navidrome.start_scan.assert_awaited_once()
+
+
+async def test_unmount_share_untracked_falls_back_to_deterministic_path(manager):
+    # Not in the session map (e.g. mounted before a backend restart) -> derive
+    # the deterministic /media/milo/<id> so a delete still unmounts it.
+    with patch("asyncio.create_subprocess_exec", return_value=_proc()) as exec_mock:
+        await manager.unmount_share("nfs-abcd1234")
+    assert exec_mock.call_args.args[3] == "/media/milo/nfs-abcd1234"
+
+
+async def test_forget_share_credentials(manager):
+    with patch("asyncio.create_subprocess_exec", return_value=_proc()) as exec_mock:
+        await manager.forget_share_credentials("nas-abcd1234")
+    args = exec_mock.call_args.args
+    assert args[:3] == ("sudo", "-n", MILO_MOUNT_CMD)
+    assert list(args[3:]) == ["--forget", "--id", "nas-abcd1234"]
+
+
+# === credential encoding ==========================================================
+
+@pytest.mark.parametrize("creds,expected", [
+    ({"username": "u", "password": "p", "domain": "d"}, b"username=u\npassword=p\ndomain=d\n"),
+    ({"password": "p"}, b"password=p\n"),
+    ({"username": "u", "password": "p"}, b"username=u\npassword=p\n"),
+    ({"username": "", "password": ""}, b""),  # nothing usable
+    ({}, b""),
+])
+def test_encode_credentials(creds, expected):
+    assert StorageManager._encode_credentials(creds) == expected

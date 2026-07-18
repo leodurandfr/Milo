@@ -1,109 +1,263 @@
 #!/bin/bash
-# milo-mount — privileged read-only mount of a USB partition under /media/milo.
+# milo-mount — privileged read-only mount helper for the Music Library source.
 #
-# Usage: milo-mount <device>
-#   <device>: a block partition node (e.g. /dev/sda1) or a /dev/disk/by-* symlink.
+# Three modes, dispatched on the first argument:
+#   milo-mount <device>                                   USB partition (Phase 1)
+#   milo-mount --network <cifs|nfs> --id <id> \
+#              --host <host> --path <share|export>        SMB/NFS share (Phase 2)
+#   milo-mount --forget --id <id>                         drop a share's creds
 #
-# The storage layer for the Music Library source (docs/plans/music-library.md).
-# Navidrome only indexes what is mounted under /media/milo — getting a USB key
-# mounted there is the backend's job, done through this single validated entry
-# point (the milo-* privileged-helper doctrine; the backend never mounts directly).
+# Navidrome only indexes what is mounted under /media/milo — getting a device or
+# network share mounted there is the backend's job, done through this single
+# validated entry point (the milo-* privileged-helper doctrine; the backend never
+# mounts directly). Every mode re-validates its inputs from scratch and never
+# trusts the caller.
 #
-# It re-validates the device from scratch (never trusts the caller): a real USB
-# partition carrying a supported filesystem. Then it computes a stable mountpoint
-# /media/milo/<label-or-uuid> and mounts read-only with nosuid,nodev,noexec. For
-# FAT/exFAT/NTFS — which carry no Unix ownership — it maps ownership to the milo
-# user so Navidrome (User=milo) can read the files.
+# USB (docs/plans/music-library.md, P1-4): resolve the device, confirm it is a
+# real USB partition on a supported filesystem, then mount read-only with
+# nosuid,nodev,noexec at a stable /media/milo/<label-or-uuid>.
 #
-# On success it prints ONLY the absolute mountpoint on stdout (the backend
-# captures it to pair the later unmount); all diagnostics go to stderr.
-# Idempotent: an already-mounted device prints its existing mountpoint.
+# Network (P2-8): mount a CIFS or NFS share read-only at /media/milo/<id>. CIFS
+# credentials are fed on STDIN (never argv — argv is world-readable in /proc) as
+# `username=`/`password=`/`domain=` lines and persisted to a ROOT-ONLY cred file
+# (CRED_DIR/<id>.cred, 0600 root:root) so a later boot remount needs no secret
+# from the milo backend. A remount with empty stdin reuses that file; a share
+# with neither creds nor a file is mounted as guest.
+#
+# --forget removes a share's cred file (share deletion). The milo backend can
+# neither read a share password nor the cred dir (0700 root:root).
+#
+# On a successful mount it prints ONLY the absolute mountpoint on stdout (the
+# backend captures it to pair the later unmount); all diagnostics go to stderr.
+# Idempotent: an already-mounted target prints its existing mountpoint.
 #
 # Must run as root (via the milo-backend sudoers rule).
 set -euo pipefail
 
 MOUNT_ROOT="/media/milo"
 MILO_USER="milo"
+# Root-only store for network-share credentials (0700 root:root). Only milo-mount
+# (as root) ever reads or writes these — the milo backend can neither read a
+# share password nor plant a symlink here. One <id>.cred per CIFS share.
+CRED_DIR="/var/lib/milo/shares"
 # Filesystems we accept on a USB key. Read-only mounts, so the in-kernel drivers
 # (vfat/exfat/ntfs3/ext*/hfsplus) suffice; ntfs-3g is a userspace fallback.
 ALLOWED_FSTYPES="vfat exfat ntfs ext2 ext3 ext4 hfsplus"
+# Cap on a single network mount syscall so an unreachable NAS can't wedge the
+# helper (the backend also times out, but killing sudo won't kill an in-kernel
+# mount stuck in D state).
+NET_MOUNT_TIMEOUT=20
 
 log() { echo "milo-mount: $*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
-[ $# -eq 1 ] || die "usage: milo-mount <device>"
 
-# Resolve symlinks (/dev/disk/by-*) and require an actual block device.
-DEVICE="$(readlink -f -- "$1")" || die "cannot resolve $1"
-[ -b "$DEVICE" ] || die "$DEVICE is not a block device"
-
-# udev properties are the authoritative bus/type/fs metadata — the same source
-# the backend's pyudev monitor reads. Parse them as plain strings (no eval) so a
-# hostile filesystem label can never inject shell.
-PROPS="$(udevadm info --query=property --name="$DEVICE" 2>/dev/null)" \
-    || die "udevadm failed for $DEVICE"
-get_prop() { printf '%s\n' "$PROPS" | sed -n "s/^$1=//p" | head -n1; }
-
-[ "$(get_prop ID_BUS)" = "usb" ] \
-    || die "$DEVICE is not on the USB bus"
-[ "$(get_prop DEVTYPE)" = "partition" ] \
-    || die "$DEVICE is not a partition"
-
-FSTYPE="$(get_prop ID_FS_TYPE)"
-[ -n "$FSTYPE" ] || die "$DEVICE has no filesystem"
-case " $ALLOWED_FSTYPES " in
-    *" $FSTYPE "*) : ;;
-    *) die "unsupported filesystem: $FSTYPE" ;;
-esac
-
-# Already mounted under our root (e.g. a re-triggered add)? Report it and stop.
-EXISTING="$(findmnt -n -o TARGET --source "$DEVICE" 2>/dev/null \
-    | grep "^$MOUNT_ROOT/" | head -n1 || true)"
-if [ -n "$EXISTING" ]; then
-    log "$DEVICE already mounted at $EXISTING"
-    echo "$EXISTING"
-    exit 0
-fi
-
-# Mountpoint name: filesystem label, else UUID, else kernel name — sanitized to a
-# single safe path component (no traversal, no shell/glob metacharacters).
+# Sanitize any caller-supplied string to a single safe path component (no
+# traversal, no shell/glob metacharacters).
 sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | sed 's/^[._]*//; s/_*$//'; }
-KNAME="$(basename "$DEVICE")"
-UUID="$(get_prop ID_FS_UUID)"
-NAME="$(sanitize "$(get_prop ID_FS_LABEL)")"
-[ -n "$NAME" ] || NAME="$(sanitize "$UUID")"
-[ -n "$NAME" ] || NAME="$KNAME"
 
-# Pick a free mountpoint: <name>, then <name>-<uuid8>, then <name>-<kname>.
-mkdir -p "$MOUNT_ROOT"
-taken() { mountpoint -q "$1" || { [ -d "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null)" ]; }; }
-MOUNTPOINT="$MOUNT_ROOT/$NAME"
-if taken "$MOUNTPOINT"; then
-    MOUNTPOINT="$MOUNT_ROOT/${NAME}-${UUID:0:8}"
-    taken "$MOUNTPOINT" && MOUNTPOINT="$MOUNT_ROOT/${NAME}-${KNAME}"
-fi
+# =============================================================================
+# USB partition (Phase 1)
+# =============================================================================
+mount_usb() {
+    # Resolve symlinks (/dev/disk/by-*) and require an actual block device.
+    local DEVICE
+    DEVICE="$(readlink -f -- "$1")" || die "cannot resolve $1"
+    [ -b "$DEVICE" ] || die "$DEVICE is not a block device"
 
-# Read-only, no device nodes / setuid / execution — a USB key is untrusted media.
-OPTS="ro,nosuid,nodev,noexec"
-case "$FSTYPE" in
-    vfat|exfat|ntfs)
-        # No Unix ownership on these filesystems — map every file to milo so
-        # Navidrome (User=milo) can read the tree; umask keeps it non-writable.
-        OPTS="$OPTS,uid=$(id -u "$MILO_USER"),gid=$(id -g "$MILO_USER"),umask=022"
-        ;;
+    # udev properties are the authoritative bus/type/fs metadata — the same source
+    # the backend's pyudev monitor reads. Parse them as plain strings (no eval) so a
+    # hostile filesystem label can never inject shell.
+    local PROPS
+    PROPS="$(udevadm info --query=property --name="$DEVICE" 2>/dev/null)" \
+        || die "udevadm failed for $DEVICE"
+    get_prop() { printf '%s\n' "$PROPS" | sed -n "s/^$1=//p" | head -n1; }
+
+    [ "$(get_prop ID_BUS)" = "usb" ] \
+        || die "$DEVICE is not on the USB bus"
+    [ "$(get_prop DEVTYPE)" = "partition" ] \
+        || die "$DEVICE is not a partition"
+
+    local FSTYPE
+    FSTYPE="$(get_prop ID_FS_TYPE)"
+    [ -n "$FSTYPE" ] || die "$DEVICE has no filesystem"
+    case " $ALLOWED_FSTYPES " in
+        *" $FSTYPE "*) : ;;
+        *) die "unsupported filesystem: $FSTYPE" ;;
+    esac
+
+    # Already mounted under our root (e.g. a re-triggered add)? Report it and stop.
+    local EXISTING
+    EXISTING="$(findmnt -n -o TARGET --source "$DEVICE" 2>/dev/null \
+        | grep "^$MOUNT_ROOT/" | head -n1 || true)"
+    if [ -n "$EXISTING" ]; then
+        log "$DEVICE already mounted at $EXISTING"
+        echo "$EXISTING"
+        return 0
+    fi
+
+    # Mountpoint name: filesystem label, else UUID, else kernel name — sanitized to
+    # a single safe path component.
+    local KNAME UUID NAME
+    KNAME="$(basename "$DEVICE")"
+    UUID="$(get_prop ID_FS_UUID)"
+    NAME="$(sanitize "$(get_prop ID_FS_LABEL)")"
+    [ -n "$NAME" ] || NAME="$(sanitize "$UUID")"
+    [ -n "$NAME" ] || NAME="$KNAME"
+
+    # Pick a free mountpoint: <name>, then <name>-<uuid8>, then <name>-<kname>.
+    mkdir -p "$MOUNT_ROOT"
+    taken() { mountpoint -q "$1" || { [ -d "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null)" ]; }; }
+    local MOUNTPOINT="$MOUNT_ROOT/$NAME"
+    if taken "$MOUNTPOINT"; then
+        MOUNTPOINT="$MOUNT_ROOT/${NAME}-${UUID:0:8}"
+        taken "$MOUNTPOINT" && MOUNTPOINT="$MOUNT_ROOT/${NAME}-${KNAME}"
+    fi
+
+    # Read-only, no device nodes / setuid / execution — a USB key is untrusted media.
+    local OPTS="ro,nosuid,nodev,noexec"
+    case "$FSTYPE" in
+        vfat|exfat|ntfs)
+            # No Unix ownership on these filesystems — map every file to milo so
+            # Navidrome (User=milo) can read the tree; umask keeps it non-writable.
+            OPTS="$OPTS,uid=$(id -u "$MILO_USER"),gid=$(id -g "$MILO_USER"),umask=022"
+            ;;
+    esac
+
+    mkdir -p "$MOUNTPOINT"
+    if [ "$FSTYPE" = "ntfs" ]; then
+        # Prefer the in-kernel ntfs3 driver; fall back to ntfs-3g (FUSE) if absent.
+        mount -t ntfs3 -o "$OPTS" "$DEVICE" "$MOUNTPOINT" 2>/dev/null \
+            || mount -t ntfs-3g -o "$OPTS" "$DEVICE" "$MOUNTPOINT" \
+            || { rmdir "$MOUNTPOINT" 2>/dev/null || true; die "mount failed for $DEVICE ($FSTYPE)"; }
+    else
+        mount -t "$FSTYPE" -o "$OPTS" "$DEVICE" "$MOUNTPOINT" \
+            || { rmdir "$MOUNTPOINT" 2>/dev/null || true; die "mount failed for $DEVICE ($FSTYPE)"; }
+    fi
+
+    log "mounted $DEVICE ($FSTYPE) at $MOUNTPOINT [$OPTS]"
+    echo "$MOUNTPOINT"
+}
+
+# =============================================================================
+# Network share (Phase 2) — credentials root-only, fed on stdin
+# =============================================================================
+ensure_cred_dir() {
+    # The parent (/var/lib/milo) is milo-owned, so guard against a pre-planted
+    # symlink before we ever chmod/write through it.
+    [ -L "$CRED_DIR" ] && die "cred dir is a symlink: $CRED_DIR"
+    mkdir -p "$CRED_DIR"
+    chown root:root "$CRED_DIR" 2>/dev/null || true
+    chmod 700 "$CRED_DIR"
+}
+
+# Persist a CIFS credentials file, keeping only the three keys mount.cifs reads
+# so a malformed stdin can't inject arbitrary mount state. Root-only (0600).
+write_cred_file() {
+    local file="$1" content="$2"
+    [ -L "$file" ] && die "cred path is a symlink: $file"
+    ( umask 077
+      printf '%s\n' "$content" | grep -E '^(username|password|domain)=' > "$file" ) \
+        || die "no valid credential lines on stdin"
+    chown root:root "$file" 2>/dev/null || true
+    chmod 600 "$file"
+}
+
+mount_network() {
+    local type="" id="" host="" path=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            cifs|nfs) type="$1"; shift ;;
+            --id)   id="${2:-}";   shift 2 || die "--id needs a value" ;;
+            --host) host="${2:-}"; shift 2 || die "--host needs a value" ;;
+            --path) path="${2:-}"; shift 2 || die "--path needs a value" ;;
+            *) die "unexpected --network argument: $1" ;;
+        esac
+    done
+
+    [ "$type" = "cifs" ] || [ "$type" = "nfs" ] || die "--network type must be cifs or nfs"
+    id="$(sanitize "$id")"
+    [ -n "$id" ] || die "--network requires --id"
+    # Reject empty / option-looking host and path (they become mount arguments).
+    case "$host" in ""|-*) die "invalid --host" ;; esac
+    case "$path" in ""|-*) die "invalid --path" ;; esac
+    # No whitespace or control characters in the mount source.
+    case "$host$path" in
+        *[[:space:]]*|*[[:cntrl:]]*) die "host/path contain whitespace or control characters" ;;
+    esac
+
+    local MOUNTPOINT="$MOUNT_ROOT/$id"
+
+    # Idempotent: already mounted (boot remount of a still-mounted share).
+    if mountpoint -q "$MOUNTPOINT"; then
+        log "$type share already mounted at $MOUNTPOINT"
+        echo "$MOUNTPOINT"
+        return 0
+    fi
+
+    mkdir -p "$MOUNT_ROOT" "$MOUNTPOINT"
+    path="${path#/}"  # normalize; we add the single separator ourselves
+
+    if [ "$type" = "cifs" ]; then
+        ensure_cred_dir
+        local cred="$CRED_DIR/$id.cred"
+        # Read stdin (empty on a boot remount — backend passes /dev/null). Fresh
+        # credentials overwrite the persisted cred file; empty stdin keeps it.
+        local stdin_creds
+        stdin_creds="$(cat)"
+        [ -n "$stdin_creds" ] && write_cred_file "$cred" "$stdin_creds"
+
+        local opts="ro,nosuid,nodev,noexec"
+        opts="$opts,uid=$(id -u "$MILO_USER"),gid=$(id -g "$MILO_USER")"
+        opts="$opts,file_mode=0444,dir_mode=0555,iocharset=utf8"
+        if [ -f "$cred" ]; then
+            opts="$opts,credentials=$cred"
+        else
+            opts="$opts,guest"
+        fi
+        local src="//$host/$path"
+        # Modern SMB first; fall back one protocol version for older NAS boxes.
+        timeout "$NET_MOUNT_TIMEOUT" mount -t cifs -o "$opts" "$src" "$MOUNTPOINT" 2>/dev/null \
+            || timeout "$NET_MOUNT_TIMEOUT" mount -t cifs -o "$opts,vers=2.0" "$src" "$MOUNTPOINT" \
+            || { rmdir "$MOUNTPOINT" 2>/dev/null || true; die "cifs mount failed for $src"; }
+    else
+        # NFS: server-side ownership; export must grant milo read. soft+timeo so a
+        # dead server fails instead of hanging the mount indefinitely.
+        local opts="ro,nosuid,nodev,noexec,soft,timeo=50,retrans=2"
+        local src="$host:/$path"
+        timeout "$NET_MOUNT_TIMEOUT" mount -t nfs -o "$opts" "$src" "$MOUNTPOINT" \
+            || { rmdir "$MOUNTPOINT" 2>/dev/null || true; die "nfs mount failed for $src"; }
+    fi
+
+    log "mounted $type share $host/$path at $MOUNTPOINT"
+    echo "$MOUNTPOINT"
+}
+
+forget_credentials() {
+    local id=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --id) id="${2:-}"; shift 2 || die "--id needs a value" ;;
+            *) die "unexpected --forget argument: $1" ;;
+        esac
+    done
+    id="$(sanitize "$id")"
+    [ -n "$id" ] || die "--forget requires --id"
+    local cred="$CRED_DIR/$id.cred"
+    # Confined to a single sanitized component under CRED_DIR; never follow a link.
+    if [ -f "$cred" ] && [ ! -L "$cred" ]; then
+        rm -f "$cred" && log "removed credentials for $id"
+    fi
+}
+
+# =============================================================================
+# Dispatch
+# =============================================================================
+case "${1:-}" in
+    --network) shift; mount_network "$@" ;;
+    --forget)  shift; forget_credentials "$@" ;;
+    "")        die "usage: milo-mount <device> | --network <type> --id <id> --host <h> --path <p> | --forget --id <id>" ;;
+    -*)        die "unknown option: $1" ;;
+    *)         [ $# -eq 1 ] || die "usage: milo-mount <device>"; mount_usb "$1" ;;
 esac
-
-mkdir -p "$MOUNTPOINT"
-if [ "$FSTYPE" = "ntfs" ]; then
-    # Prefer the in-kernel ntfs3 driver; fall back to ntfs-3g (FUSE) if absent.
-    mount -t ntfs3 -o "$OPTS" "$DEVICE" "$MOUNTPOINT" 2>/dev/null \
-        || mount -t ntfs-3g -o "$OPTS" "$DEVICE" "$MOUNTPOINT" \
-        || { rmdir "$MOUNTPOINT" 2>/dev/null || true; die "mount failed for $DEVICE ($FSTYPE)"; }
-else
-    mount -t "$FSTYPE" -o "$OPTS" "$DEVICE" "$MOUNTPOINT" \
-        || { rmdir "$MOUNTPOINT" 2>/dev/null || true; die "mount failed for $DEVICE ($FSTYPE)"; }
-fi
-
-log "mounted $DEVICE ($FSTYPE) at $MOUNTPOINT [$OPTS]"
-echo "$MOUNTPOINT"

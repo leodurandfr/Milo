@@ -30,10 +30,12 @@ from backend.core.models.source_metadata import PlaybackMetadata
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
+from backend.sources.music_library.data import MusicLibraryDataService
 from backend.sources.music_library.models import (
     PlayContextParams,
     PlayIndexParams,
     SeekParams,
+    ShareRequest,
 )
 from backend.sources.music_library.navidrome_client import NavidromeClient
 from backend.sources.music_library.storage import StorageManager
@@ -65,6 +67,10 @@ class MusicLibrarySource(MpvAudioSource):
         # USB storage watcher — runs for the whole backend lifetime, like the CD
         # disc-watcher, not gated on this source being active.
         self._storage = StorageManager()
+        # Network-share config (SMB/NFS). Persisted so the shares are remounted at
+        # boot; the source orchestrates config writes + milo-mount around it. USB
+        # keys are not persisted (auto-detected live by the StorageManager).
+        self._data = MusicLibraryDataService()
         # Navidrome Subsonic client for the /api/music-library/* browse routes
         # AND for building stream URLs at play time. Built lazily (the cred file
         # only exists once the daemon has provisioned its service account), and
@@ -113,13 +119,38 @@ class MusicLibrarySource(MpvAudioSource):
     # =========================================================================
 
     async def initialize(self) -> bool:
-        """Start the USB storage watcher, then the base source init.
+        """Load the share config, start the USB watcher, remount shares, then base
+        init.
 
-        Fail-open: initialize() never raises for storage (no udev on a dev host
-        just disables auto-mount), so a broken storage layer can't block startup.
+        The share-config load runs first and is the one **fail-loud** step: a
+        schema_version drift raises SchemaVersionMismatch, which the gather in
+        dependencies.py turns into the reset banner + SystemExit(1). USB detection
+        and network remounting are both **fail-open** (no udev on a dev host just
+        disables auto-mount; an offline NAS is skipped), so neither can block
+        startup.
         """
+        await self._data.initialize()
         await self._storage.initialize()
+        await self._mount_configured_shares()
         return await super().initialize()
+
+    async def _mount_configured_shares(self) -> None:
+        """Boot remount of every configured network share (fail-open per share).
+
+        No credentials are supplied — milo-mount reuses each share's persisted
+        root-only cred file. A share whose NAS is offline logs and is skipped; it
+        remounts on the next re-save or reboot. Never raises.
+        """
+        try:
+            shares = await self._data.list_shares()
+        except Exception as e:
+            self._logger.warning(f"Could not load network shares: {e}")
+            return
+        for share in shares:
+            try:
+                await self._storage.mount_share(share)
+            except Exception as e:
+                self._logger.warning(f"Failed to mount share {share.get('id')}: {e}")
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
@@ -528,6 +559,79 @@ class MusicLibrarySource(MpvAudioSource):
 
         self._metadata = self._build_playback_metadata()
         return True
+
+    # =========================================================================
+    # NETWORK SHARES (SMB/NFS) — CRUD orchestration for routes.py
+    # =========================================================================
+
+    async def list_shares(self) -> List[Dict[str, Any]]:
+        """Configured network shares (non-secret metadata; safe over the API)."""
+        return await self._data.list_shares()
+
+    async def add_share(self, req: ShareRequest) -> Dict[str, Any]:
+        """Persist a new share, mount it read-only, and rescan Navidrome.
+
+        Returns the created share (no credentials — the password is written only
+        to the root-only cred file by milo-mount, never surfaced here).
+        """
+        share = await self._data.add_share(
+            share_type=req.type,
+            host=req.host,
+            path=req.path,
+            name=req.name,
+            has_credentials=bool(req.password),
+        )
+        await self._storage.mount_share(share, credentials=self._credentials(req))
+        return share
+
+    async def update_share(
+        self, share_id: str, req: ShareRequest
+    ) -> Optional[Dict[str, Any]]:
+        """Replace a share's mutable fields, remount, and rescan.
+
+        Returns the updated share, or None if no share has that id. A request that
+        omits the password keeps the existing cred file (idempotent PUT).
+        """
+        if await self._data.get_share(share_id) is None:
+            return None
+        updates: Dict[str, Any] = {
+            "type": req.type,
+            "host": req.host,
+            "path": req.path,
+            "name": req.name,
+        }
+        if req.password:
+            updates["has_credentials"] = True
+        share = await self._data.update_share(share_id, updates)
+        if share is None:
+            return None
+        # Unmount first so a changed host/path/credentials actually takes effect.
+        await self._storage.unmount_share(share_id)
+        await self._storage.mount_share(share, credentials=self._credentials(req))
+        return share
+
+    async def remove_share(self, share_id: str) -> bool:
+        """Unmount, drop the config entry, and forget the credentials. Returns
+        False if no share has that id."""
+        if await self._data.get_share(share_id) is None:
+            return False
+        await self._storage.unmount_share(share_id)
+        await self._data.remove_share(share_id)
+        await self._storage.forget_share_credentials(share_id)
+        return True
+
+    @staticmethod
+    def _credentials(req: ShareRequest) -> Optional[Dict[str, str]]:
+        """CIFS credential dict from a request, or None when no password was given
+        (guest share, or a PUT that keeps the existing creds)."""
+        if not req.password:
+            return None
+        creds = {"password": req.password}
+        if req.username:
+            creds["username"] = req.username
+        if req.domain:
+            creds["domain"] = req.domain
+        return creds
 
     # =========================================================================
     # PUBLIC API

@@ -10,6 +10,10 @@ REST surface for the indexed catalog served by the Navidrome sidecar:
              frontend never talks to Navidrome (or sees its credentials) directly.
 - Favorites — star/unstar a song/album/artist.
 - Scan     — the current scan status (polled while a fresh library indexes).
+- Shares   — CRUD for SMB/NFS network shares (Phase 2): add/edit/remove a share,
+             which persists its non-secret config, (re)mounts it read-only under
+             /media/milo through milo-mount, and rescans. Credentials are write-
+             only — the password is handed to milo-mount and never read back.
 
 Playback (play_context/transport) is NOT here — it goes through the generic
 `/api/audio/control/{source}` path and lands in source.py (P1-6). All catalog
@@ -24,8 +28,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
+from backend.api.route_helpers import api_error_handler
 from backend.api.source_dependency import make_source_dependency
-from backend.sources.music_library.models import StarRequest
+from backend.sources.music_library.models import ShareRequest, StarRequest
 from backend.sources.music_library.navidrome_client import (
     ALBUM_LIST_TYPES,
     NavidromeAuthError,
@@ -317,3 +322,58 @@ async def get_scan_status(
         logger.error("Error getting scan status: %s", exc)
         status = None
     return {"scan_status": status}
+
+
+# === Network shares (SMB/NFS) ===
+
+@router.get("/shares")
+async def list_shares(
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """All configured network shares (non-secret metadata; never credentials)."""
+    async with api_error_handler("Error listing shares", logger):
+        return {"shares": await source.list_shares()}
+
+
+@router.post("/shares")
+async def create_share(
+    request: ShareRequest,
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Add a share, mount it read-only under /media/milo, and rescan.
+
+    Returns the created share (with its generated id) minus any credentials.
+    """
+    async with api_error_handler("Error creating share", logger):
+        return {"status": "success", "share": await source.add_share(request)}
+
+
+@router.put("/shares/{share_id}")
+async def update_share(
+    share_id: str,
+    request: ShareRequest,
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Replace a share's config, remount, and rescan (404 if unknown).
+
+    Idempotent: a request that omits the password keeps the existing cred file.
+    """
+    async with api_error_handler("Error updating share", logger):
+        share = await source.update_share(share_id, request)
+        if share is None:
+            logger.error("Share not found: %s", share_id)
+            raise HTTPException(status_code=404, detail="Share not found")
+        return {"status": "success", "share": share}
+
+
+@router.delete("/shares/{share_id}")
+async def delete_share(
+    share_id: str,
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Unmount + remove a share and forget its credentials (404 if unknown)."""
+    async with api_error_handler("Error deleting share", logger):
+        if not await source.remove_share(share_id):
+            logger.error("Share not found: %s", share_id)
+            raise HTTPException(status_code=404, detail="Share not found")
+        return {"status": "success"}
