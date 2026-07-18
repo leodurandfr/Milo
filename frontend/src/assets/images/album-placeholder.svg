@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" role="img" aria-label="No album art">
+  <!-- Minimalist CD. Neutral gray with opacity so it reads on both light and
+       dark card backgrounds; the centre hole is masked out so the card colour
+       shows through. Starter asset — replace with the final design. -->
+  <defs>
+    <mask id="album-placeholder-hole">
+      <rect width="512" height="512" fill="#fff"/>
+      <circle cx="256" cy="256" r="26" fill="#000"/>
+    </mask>
+  </defs>
+  <circle cx="256" cy="256" r="160" fill="#8a9099" fill-opacity="0.26" mask="url(#album-placeholder-hole)"/>
+  <g stroke="#8a9099" stroke-opacity="0.28" fill="none">
+    <circle cx="256" cy="256" r="140" stroke-width="2"/>
+    <circle cx="256" cy="256" r="112" stroke-width="2"/>
+    <circle cx="256" cy="256" r="70" stroke-width="2"/>
+  </g>
+</svg>

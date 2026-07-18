@@ -2,7 +2,8 @@
   <div v-press class="media-row" @click="$emit('click')">
     <LazyImage
       :src="store.thumbUrl(coverId)"
-      :fallback-name="title"
+      :fallback="roundedCover ? '' : albumPlaceholder"
+      :fallback-name="roundedCover ? title : ''"
       :alt="title"
       lazy
       :class="['media-cover', { rounded: roundedCover }]"
@@ -17,9 +18,12 @@
 <script setup>
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
+import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
 defineProps({
-  // Navidrome coverArt id (may be empty → SVG avatar fallback from title).
+  // Navidrome coverArt id (may be empty → placeholder fallback). Album/playlist/
+  // song rows fall back to the CD placeholder; artist rows (roundedCover) keep
+  // the initials avatar generated from the title.
   coverId: {
     type: String,
     default: '',

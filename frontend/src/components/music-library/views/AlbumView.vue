@@ -37,6 +37,7 @@
             :number="item.song.track || i + 1"
             :current="item.song.id === store.currentTrackId"
             :playing="store.isPlaying"
+            :show-artist="isVariousArtists"
             show-menu
             @play="playFrom(item.index)"
             @menu="store.requestAddToPlaylist([item.song.id])"
@@ -71,6 +72,13 @@ const album = ref(null);
 const loading = ref(false);
 
 const songs = computed(() => album.value?.song || []);
+
+// A "Various Artists" release: its tracks carry more than one distinct artist.
+// Drives the per-track artist line and the header label, since a single
+// album.artist would misrepresent the mix (e.g. an untagged soundtrack).
+const isVariousArtists = computed(
+  () => new Set(songs.value.map((s) => s.artist).filter(Boolean)).size > 1
+);
 
 // Disc-number → subtitle, when the release carries per-disc titles (OpenSubsonic
 // discTitles, e.g. "Bonus Remixes"). Absent for most albums → we fall back to
@@ -108,7 +116,8 @@ const albumStarred = computed(() =>
 const subtitle = computed(() => {
   if (!album.value) return '';
   const parts = [];
-  if (album.value.artist) parts.push(album.value.artist);
+  if (isVariousArtists.value) parts.push(t('musicLibrary.variousArtists'));
+  else if (album.value.artist) parts.push(album.value.artist);
   if (album.value.year) parts.push(String(album.value.year));
   parts.push(t('musicLibrary.tracksCount', { count: album.value.songCount || songs.value.length }));
   const mins = totalMinutes(album.value.duration);

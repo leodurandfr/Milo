@@ -35,7 +35,7 @@
           @click="addTo(pl)"
         >
           <template #icon>
-            <LazyImage :src="store.thumbUrl(pl.coverArt)" :fallback-name="pl.name" :alt="pl.name" lazy />
+            <LazyImage :src="store.thumbUrl(pl.coverArt)" :fallback="albumPlaceholder" :alt="pl.name" lazy />
           </template>
         </ListItemButton>
       </template>
@@ -70,6 +70,7 @@ import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
+import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
 const props = defineProps({
   isOpen: {

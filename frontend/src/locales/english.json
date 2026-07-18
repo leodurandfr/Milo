@@ -518,6 +518,7 @@
     },
     "album": "Album",
     "artist": "Artist",
+    "variousArtists": "Various Artists",
     "genre": "Genre",
     "playlist": "Playlist",
     "search": "Search",

@@ -7,6 +7,13 @@ Documentation=https://www.navidrome.org/docs/
 After=local-fs.target milo-backend.service
 BindsTo=milo-backend.service
 
+# Re-apply the baked catalog config from the single source of truth before we
+# start, so a device provisioned before an album-grouping/PID change picks it up
+# (the TOML lives under /var/lib/milo, which app updates never refresh). Pulled in
+# on every start — boot or on-demand — and ordered ahead of us by that unit's
+# Before=. Idempotent; only a genuine PID change makes Navidrome rescan.
+Wants=milo-navidrome-config.service
+
 [Service]
 Type=simple
 User=milo

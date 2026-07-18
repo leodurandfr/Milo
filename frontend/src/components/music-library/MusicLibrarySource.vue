@@ -37,7 +37,7 @@
       <!-- Docked player -->
       <template #player>
         <AudioPlayer :visible="shouldShowPlayer" source="music_library"
-          :artwork="playerArtwork" :fallback-name="playerFallbackName"
+          :artwork="playerArtwork" :placeholder-artwork="albumPlaceholder"
           :title="playerTitle" :subtitle="playerArtist"
           :is-playing="isPlaying" :is-loading="isBuffering">
           <template #progress>
@@ -89,6 +89,7 @@ import { useI18n } from '@/services/i18n';
 import IconButton from '@/components/ui/IconButton.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
+import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import ProgressBar from './ProgressBar.vue';
 
 import LibraryHome from './views/LibraryHome.vue';
@@ -130,7 +131,6 @@ const currentDurationSec = computed(() => Math.floor((durationMs.value || 0) / 1
 const playerTitle = computed(() => store.displayTrack?.title || '');
 const playerArtist = computed(() => store.displayTrack?.artist || '');
 const playerArtwork = computed(() => store.displayTrack?.albumArtUrl || null);
-const playerFallbackName = computed(() => store.displayTrack?.album || store.displayTrack?.title || '');
 
 // === Header title per view ===
 const currentTitle = computed(() => {

@@ -121,6 +121,12 @@ class NavidromeClient:
         self._password = password
         self._base_url = base_url.rstrip("/")
         self._session: Optional[aiohttp.ClientSession] = None
+        # Signature of Navidrome's built-in "no cover" placeholder, fetched once
+        # at runtime (see _ensure_placeholder_signature). None until fetched or
+        # if the fetch failed (fail-open: we then never suppress any cover).
+        self._placeholder_len: Optional[int] = None
+        self._placeholder_sha: Optional[str] = None
+        self._placeholder_checked: bool = False
 
     @classmethod
     def from_cred_file(
@@ -476,15 +482,64 @@ class NavidromeClient:
         """Authenticated getCoverArt URL (proxied behind /api/music-library)."""
         return self._build_url("getCoverArt", {"id": cover_id, "size": size})
 
+    async def _ensure_placeholder_signature(self) -> None:
+        """Fetch (once) the byte-signature of Navidrome's built-in "no cover"
+        placeholder so get_cover_art can tell it apart from real artwork.
+
+        Navidrome serves an identical generic image (HTTP 200, an actual image
+        body) for any album that has no embedded/folder art — and, conveniently,
+        for an *empty* id too. We fetch that empty-id reference at runtime rather
+        than hardcoding a hash, so the check tracks whatever placeholder the
+        running Navidrome version ships. Fail-open: on any error the signature
+        stays unset and no cover is ever suppressed.
+        """
+        if self._placeholder_checked:
+            return
+        self._placeholder_checked = True
+        await self._ensure_session()
+        try:
+            async with self._session.get(
+                f"{self._base_url}/rest/getCoverArt",
+                params=_encode_query({**self._auth_params(), "id": ""}),
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    return
+                if resp.headers.get("Content-Type", "").startswith(
+                    ("application/json", "text/")
+                ):
+                    return
+                data = await resp.read()
+            self._placeholder_len = len(data)
+            self._placeholder_sha = hashlib.sha256(data).hexdigest()
+            self.logger.info(
+                "Navidrome cover placeholder signature: %d bytes sha256=%s…",
+                self._placeholder_len,
+                self._placeholder_sha[:12],
+            )
+        except Exception as exc:
+            self.logger.info(f"Could not fetch Navidrome cover placeholder ref: {exc}")
+
+    def _is_placeholder(self, data: bytes) -> bool:
+        """True when ``data`` is byte-identical to Navidrome's generic placeholder
+        (length pre-check short-circuits for real covers of any other size)."""
+        return (
+            self._placeholder_sha is not None
+            and len(data) == self._placeholder_len
+            and hashlib.sha256(data).hexdigest() == self._placeholder_sha
+        )
+
     async def get_cover_art(
         self, cover_id: str, size: Optional[int] = None
     ) -> Optional[Tuple[bytes, str]]:
         """Fetch cover-art bytes + content-type for the /api/music-library/cover
         proxy (the frontend never reaches Navidrome directly).
 
-        Returns ``(data, content_type)`` on success, None on error. Subsonic
-        replies with a JSON error body instead of an image when the id is
-        unknown, so a JSON/text content-type is treated as a miss.
+        Returns ``(data, content_type)`` on success, None on miss. A miss is
+        either a Subsonic error body (unknown id — any non-image content type) or
+        Navidrome's generic "no cover" placeholder — both reported as None so the
+        route 404s and the frontend shows Milō's own album placeholder instead of
+        a foreign asset.
         """
         await self._ensure_session()
         query = {**self._auth_params(), "id": cover_id, "size": size}
@@ -495,20 +550,35 @@ class NavidromeClient:
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 if resp.status != 200:
-                    self.logger.error(
+                    # Unusual (Navidrome itself erroring) but still a "no cover"
+                    # outcome the frontend handles — warning, not error, so it
+                    # never surfaces as a system-error banner.
+                    self.logger.warning(
                         f"Navidrome getCoverArt HTTP {resp.status} for {cover_id}"
                     )
                     return None
                 content_type = resp.headers.get("Content-Type", "image/jpeg")
-                if content_type.startswith(("application/json", "text/")):
-                    self.logger.error(
-                        f"Navidrome getCoverArt error for {cover_id}: {content_type}"
+                if not content_type.startswith("image/"):
+                    # Subsonic returns an XML/JSON error body (not an image) for an
+                    # unknown/stale id — e.g. art that was present then removed.
+                    # Expected miss, not a system error: the caller 404s and the UI
+                    # shows its placeholder.
+                    self.logger.info(
+                        f"Navidrome has no cover for {cover_id} ({content_type})"
                     )
                     return None
-                return await resp.read(), content_type
+                data = await resp.read()
         except Exception as exc:
             if is_network_error(exc):
                 self.logger.info(f"Navidrome not reachable for cover art: {exc}")
             else:
                 self.logger.error(f"Navidrome getCoverArt error for {cover_id}: {exc}")
             return None
+
+        await self._ensure_placeholder_signature()
+        if self._is_placeholder(data):
+            self.logger.debug(
+                "Cover %s is Navidrome's placeholder — reporting as missing", cover_id
+            )
+            return None
+        return data, content_type
