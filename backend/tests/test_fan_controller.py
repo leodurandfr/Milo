@@ -2,9 +2,9 @@
 """
 Unit tests for the fan target mode (temperature setpoint controller).
 
-Hardware writes are mocked — these exercise the pure control law, the config
-validation surface (Pydantic + settings sanitization) and the monitor loop's
-hysteresis-bypass write decision in target mode.
+Hardware writes are mocked — these exercise the pure proportional control law,
+the config validation surface (Pydantic + settings sanitization) and the monitor
+loop's write decision (hysteresis around a stable target, rails always written).
 """
 import asyncio
 import contextlib
@@ -17,10 +17,8 @@ from backend.api.models import FanConfigRequest
 from backend.core.settings import SettingsService
 from backend.hardware.fan import (
     SAFETY_OVERRIDE_TEMP_C,
-    TARGET_DEADBAND_C,
-    TARGET_SNAP_OFF_DELTA_C,
-    TARGET_STEP_MAX_PCT,
-    TARGET_STEP_MIN_PCT,
+    TARGET_FULL_ABOVE_C,
+    TARGET_OFF_BELOW_C,
     TARGET_TEMP_DEFAULT_C,
     TARGET_TEMP_MAX_C,
     TARGET_TEMP_MIN_C,
@@ -67,6 +65,7 @@ class TestClampTargetTemp:
 
 
 class TestTargetModePercent:
+    # target 70 → band bottom (0 %) at 67 °C, band top (100 %) at 79 °C.
     @pytest.fixture
     def controller(self):
         c = make_controller()
@@ -74,39 +73,38 @@ class TestTargetModePercent:
         c._pwm_percent = 50
         return c
 
-    def test_minimal_step_just_outside_deadband(self, controller):
-        assert controller._target_mode_percent(70 + TARGET_DEADBAND_C + 0.1) == 50 + TARGET_STEP_MIN_PCT
-        assert controller._target_mode_percent(70 - TARGET_DEADBAND_C - 0.1) == 50 - TARGET_STEP_MIN_PCT
-
-    def test_step_scales_with_error(self, controller):
-        small = controller._target_mode_percent(72.0) - 50  # 0.5 °C beyond deadband
-        large = controller._target_mode_percent(76.0) - 50  # 4.5 °C beyond deadband
-        assert TARGET_STEP_MIN_PCT <= small < large <= TARGET_STEP_MAX_PCT
-
-    def test_step_caps_at_max(self, controller):
-        # 9 °C over target but under the safety override: capped slew, not 100
-        assert controller._target_mode_percent(79.0) == 50 + TARGET_STEP_MAX_PCT
-
-    def test_scaled_descent_just_above_snap_boundary(self, controller):
-        result = controller._target_mode_percent(70 - TARGET_SNAP_OFF_DELTA_C + 0.1)
-        assert 0 < result < 50 - TARGET_STEP_MIN_PCT
-
-    def test_snaps_to_zero_well_below_target(self, controller):
-        assert controller._target_mode_percent(70 - TARGET_SNAP_OFF_DELTA_C) == 0
+    def test_off_at_and_below_band_bottom(self, controller):
+        assert controller._target_mode_percent(70 - TARGET_OFF_BELOW_C) == 0
         assert controller._target_mode_percent(60.0) == 0
 
-    def test_holds_inside_deadband(self, controller):
-        assert controller._target_mode_percent(70.0) == 50
-        assert controller._target_mode_percent(70 + TARGET_DEADBAND_C) == 50
+    def test_full_at_and_above_band_top(self, controller):
+        assert controller._target_mode_percent(70 + TARGET_FULL_ABOVE_C) == 100
+        assert controller._target_mode_percent(80.0) == 100  # still under the safety override
+
+    def test_proportional_at_setpoint(self, controller):
+        # setpoint sits 3 °C into a 12 °C band → 25 %
+        assert controller._target_mode_percent(70.0) == 25
+
+    def test_small_overshoot_yields_small_speed(self, controller):
+        # 1 °C over target must be a gentle speed, not a ramp to 100 %
+        assert controller._target_mode_percent(71.0) == 33
+
+    def test_monotonic_across_band(self, controller):
+        duties = [controller._target_mode_percent(t) for t in range(67, 80)]
+        assert duties == sorted(duties)
+        assert duties[0] == 0 and duties[-1] == 100
+
+    def test_stateless_ignores_current_duty(self, controller):
+        # No integrator: the duty depends only on temperature, never on the
+        # last-written value — so it can never wind up to 100 % near the target.
+        results = []
+        for pwm in (0, 25, 50, 99, 100):
+            controller._pwm_percent = pwm
+            results.append(controller._target_mode_percent(70.0))
+        assert results == [25, 25, 25, 25, 25]
 
     def test_safety_override_jumps_to_100(self, controller):
         assert controller._target_mode_percent(SAFETY_OVERRIDE_TEMP_C) == 100
-
-    def test_clamps_at_bounds(self, controller):
-        controller._pwm_percent = 99
-        assert controller._target_mode_percent(75.0) == 100
-        controller._pwm_percent = 1
-        assert controller._target_mode_percent(68.0) == 0  # scaled step > 1, clamped at 0
 
 
 class TestMonitorLoopTargetMode:
@@ -118,25 +116,40 @@ class TestMonitorLoopTargetMode:
             await task
 
     @pytest.mark.asyncio
-    async def test_clamped_step_bypasses_write_hysteresis(self):
-        # From 99% while hot, the clamped step proposes 100 (delta 1) — the
-        # 2-point hysteresis must not swallow it in target mode.
+    async def test_safety_rail_100_bypasses_hysteresis(self):
+        # From 99 %, the safety override proposes the 100 % rail (delta 1) — the
+        # 2-point hysteresis must not swallow it while the SoC is hot.
         c = make_controller()
         c.mode = "target"
         c.target_temp_c = 70
         c._pwm_percent = 99
         c._sample = AsyncMock()
-        c._temp_c = 75.0
+        c._temp_c = SAFETY_OVERRIDE_TEMP_C
         c._set_pwm_percent = AsyncMock()
         await self.run_one_tick(c)
         c._set_pwm_percent.assert_awaited_once_with(100)
 
     @pytest.mark.asyncio
-    async def test_no_write_when_holding(self):
+    async def test_off_rail_bypasses_hysteresis(self):
+        # Below the band the target is the 0 % rail (delta 1 from 1 %) — a clean
+        # stop must be written, not held at a barely-spinning 1 %.
         c = make_controller()
         c.mode = "target"
         c.target_temp_c = 70
-        c._pwm_percent = 40
+        c._pwm_percent = 1
+        c._sample = AsyncMock()
+        c._temp_c = 60.0
+        c._set_pwm_percent = AsyncMock()
+        await self.run_one_tick(c)
+        c._set_pwm_percent.assert_awaited_once_with(0)
+
+    @pytest.mark.asyncio
+    async def test_no_write_when_holding(self):
+        # target 70 → 25 % at 70 °C; already there, within hysteresis → no write.
+        c = make_controller()
+        c.mode = "target"
+        c.target_temp_c = 70
+        c._pwm_percent = 25
         c._sample = AsyncMock()
         c._temp_c = 70.0
         c._set_pwm_percent = AsyncMock()
