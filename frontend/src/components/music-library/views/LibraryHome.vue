@@ -191,6 +191,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
+  width: 100%;
 }
 
 .albums-grid {
