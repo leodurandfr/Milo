@@ -1,42 +1,39 @@
 <template>
   <div class="audio-source-view">
-    <!-- SIMPLIFIED transition without absolute positioning -->
-    <Transition name="audio-content" mode="out-in" appear>
-
-      <!-- SpotifyView -->
-      <div v-if="shouldShowSpotify" :key="contentKey" class="spotify-container">
+    <Transition name="audio-content" appear>
+      <div v-if="shouldShowSpotify" :key="contentKey" class="audio-source-slot">
         <SpotifySource />
       </div>
 
-      <!-- RadioView -->
-      <RadioSource v-else-if="shouldShowRadio" :key="contentKey" />
+      <div v-else-if="shouldShowRadio" :key="contentKey" class="audio-source-slot">
+        <RadioSource />
+      </div>
 
-      <!-- PodcastView -->
-      <PodcastSource v-else-if="shouldShowPodcast" :key="contentKey" />
+      <div v-else-if="shouldShowPodcast" :key="contentKey" class="audio-source-slot">
+        <PodcastSource />
+      </div>
 
-      <!-- CDView -->
-      <CDSource v-else-if="shouldShowCD" :key="contentKey" />
+      <div v-else-if="shouldShowCD" :key="contentKey" class="audio-source-slot">
+        <CDSource />
+      </div>
 
-      <!-- MusicLibraryView -->
-      <MusicLibrarySource v-else-if="shouldShowMusicLibrary" :key="contentKey" />
+      <div v-else-if="shouldShowMusicLibrary" :key="contentKey" class="audio-source-slot">
+        <MusicLibrarySource />
+      </div>
 
-      <!-- AirPlayView -->
-      <div v-else-if="shouldShowAirPlay" :key="contentKey" class="connect-container">
+      <div v-else-if="shouldShowAirPlay" :key="contentKey" class="audio-source-slot">
         <AirPlaySource />
       </div>
 
-      <!-- DLNAView -->
-      <div v-else-if="shouldShowDLNA" :key="contentKey" class="connect-container">
+      <div v-else-if="shouldShowDLNA" :key="contentKey" class="audio-source-slot">
         <DLNASource />
       </div>
 
-      <!-- QobuzView -->
-      <div v-else-if="shouldShowQobuz" :key="contentKey" class="connect-container">
+      <div v-else-if="shouldShowQobuz" :key="contentKey" class="audio-source-slot">
         <QobuzPlayer />
       </div>
 
-      <!-- Source Status -->
-      <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="source-status-container">
+      <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="audio-source-slot source-status-container">
         <AudioSourceStatus :source-type="currentSourceType" :source-state="currentSourceState"
           :device-name="currentDeviceName" :is-disconnecting="isDisconnecting"
           :account-connected="qobuzAccountConnected" @disconnect="handleDisconnect" @connect="handleConnect" />
@@ -234,21 +231,13 @@ const contentKey = computed(() => {
   position: relative;
 }
 
-/* === CONTAINERS FOR SPECIFIC LAYOUTS === */
-
-/* === SIMPLIFIED CONTAINERS === */
-
-/* Connect-style sources: natural full-screen */
-.spotify-container,
-.connect-container {
-  width: 100%;
-  height: 100%;
+.audio-source-slot {
+  position: absolute;
+  inset: 0;
+  display: grid;
 }
 
-/* Source status: naturally centered */
 .source-status-container {
-  width: 100%;
-  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
