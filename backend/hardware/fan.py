@@ -45,23 +45,28 @@ LOOP_INTERVAL = 3.0       # seconds between temperature samples
 # from what was last written, to avoid jitter writes around a stable temperature.
 PWM_HYSTERESIS_PCT = 2
 
+# The control loop acts on an EMA-smoothed temperature, not the raw sample, so
+# the proportional duty doesn't jitter with sensor noise (~±0.5 °C). α=0.4 at a
+# 3 s tick ≈ a 6 s time constant: quick enough to track a real excursion, slow
+# enough to stay acoustically calm. Telemetry still reports the raw temperature.
+TEMP_EMA_ALPHA = 0.4
+
 VALID_MODES = ("auto", "manual", "target")
 
-# Target mode: incremental controller with a deadband and an error-scaled step.
-# Near the setpoint the duty moves gently (acoustic stability); far from it the
-# step grows with the temperature error, up to TARGET_STEP_MAX_PCT per tick
-# (worst-case 0→100 sweep ≈ 25 s). Well below the setpoint the duty snaps to 0
-# instead of crawling through the low-duty range where the fan still spins.
+# Target mode: a proportional controller — the duty is a direct, stateless map of
+# temperature onto a band centred on the setpoint. At target − TARGET_OFF_BELOW_C
+# the fan is fully off; at target + TARGET_FULL_ABOVE_C it is at 100 %; linear
+# between. Because every temperature maps to exactly one duty there is a stable
+# operating point at each temperature (no integrator, hence no windup), the
+# response is symmetric (the duty falls as readily as it rises), and a small
+# overshoot yields a small speed instead of ramping to 100 %.
 TARGET_TEMP_MIN_C = 55      # below ~55 °C the controller would chase idle temps
-TARGET_TEMP_MAX_C = 76      # leaves target+deadband ~4.5 °C under the safety
-                            # override, so the override never intrudes into the
-                            # control band and drives a 0↔100 % oscillation
+TARGET_TEMP_MAX_C = 76      # keeps most of the proportional band under the safety
+                            # override; above the override the top of the band is
+                            # simply clamped to 100 %
 TARGET_TEMP_DEFAULT_C = 65
-TARGET_DEADBAND_C = 1.5     # wider than sensor jitter so the duty doesn't hunt
-TARGET_STEP_MIN_PCT = 1      # gentlest nudge just outside the deadband
-TARGET_STEP_MAX_PCT = 12     # slew cap per tick
-TARGET_STEP_GAIN = 3         # % points per °C of error beyond the deadband
-TARGET_SNAP_OFF_DELTA_C = 4  # temp ≤ target − 4 °C → no cooling needed, duty 0
+TARGET_OFF_BELOW_C = 3       # target − 3 °C → fully off (bottom of the band)
+TARGET_FULL_ABOVE_C = 9      # target + 9 °C → 100 % (top of the band)
 SAFETY_OVERRIDE_TEMP_C = 82.0  # immediate 100% — 3 °C before the SoC throttle
 
 # Default curve mirrors the config.txt fallback paliers (55/66/79/82 °C tiers)
@@ -140,7 +145,8 @@ class FanController:
         self.curve: List[dict] = [dict(p) for p in DEFAULT_CURVE]
 
         # Live telemetry (refreshed by the monitor loop / read_status)
-        self._temp_c: float = 0.0
+        self._temp_c: float = 0.0           # raw sample — what telemetry reports
+        self._temp_ema: Optional[float] = None  # smoothed — what the control law reads
         self._rpm: int = 0
         self._pwm_percent: int = 0
 
@@ -340,29 +346,24 @@ class FanController:
         return curve[-1]["percent"]
 
     def _target_mode_percent(self, temp_c: float) -> int:
-        """Incremental setpoint controller: nudge the duty toward the target.
+        """Proportional map of temperature onto a band centred on the setpoint.
 
-        The integrator state IS self._pwm_percent — nothing to reset on mode
-        change, reload or enable toggle; entering target mode ramps from the
-        current duty. The per-tick step scales with the temperature error
-        beyond the deadband (TARGET_STEP_MIN_PCT..TARGET_STEP_MAX_PCT), so a
-        large excursion converges fast while near-setpoint moves stay gentle.
-        Well below the setpoint the duty snaps straight to 0.
+        0 % at target − TARGET_OFF_BELOW_C, 100 % at target + TARGET_FULL_ABOVE_C,
+        linear between. Stateless: every temperature maps to exactly one duty, so
+        there is a stable operating point at each temperature and no integrator to
+        wind up. A small overshoot yields a small speed, and the duty falls as
+        readily as it rises — below the band the fan is off, not coasting down.
+        The safety override forces 100 % before the SoC throttle.
         """
         if temp_c >= SAFETY_OVERRIDE_TEMP_C:
             return 100
-        error = temp_c - self.target_temp_c
-        if error <= -TARGET_SNAP_OFF_DELTA_C:
+        off_below = self.target_temp_c - TARGET_OFF_BELOW_C
+        full_above = self.target_temp_c + TARGET_FULL_ABOVE_C
+        if temp_c <= off_below:
             return 0
-        if abs(error) <= TARGET_DEADBAND_C:
-            return self._pwm_percent
-        step = min(
-            TARGET_STEP_MAX_PCT,
-            max(TARGET_STEP_MIN_PCT, round(TARGET_STEP_GAIN * (abs(error) - TARGET_DEADBAND_C))),
-        )
-        if error > 0:
-            return min(100, self._pwm_percent + step)
-        return max(0, self._pwm_percent - step)
+        if temp_c >= full_above:
+            return 100
+        return round((temp_c - off_below) / (full_above - off_below) * 100)
 
     async def _sample(self) -> None:
         # Both sysfs reads in a single executor hop.
@@ -371,6 +372,12 @@ class FanController:
         )
         if raw_temp is not None:
             self._temp_c = round(raw_temp / 1000.0, 1)
+            if self._temp_ema is None:
+                self._temp_ema = self._temp_c
+            else:
+                self._temp_ema = round(
+                    TEMP_EMA_ALPHA * self._temp_c + (1 - TEMP_EMA_ALPHA) * self._temp_ema, 2
+                )
         if rpm is not None:
             self._rpm = rpm
 
@@ -417,29 +424,27 @@ class FanController:
                 # duty in manual) so a transient excursion — a test preview
                 # whose follow-up PUT never landed, a mode-flip race — self-heals
                 # within LOOP_INTERVAL instead of persisting until restart.
+                # All three modes yield an absolute target duty, so they share one
+                # write path. Auto and target read the EMA-smoothed temperature
+                # (stable proportional maps that would otherwise chase jitter);
+                # manual ignores temperature entirely.
+                control_temp = self._temp_ema if self._temp_ema is not None else self._temp_c
                 if self.mode == "auto":
-                    target = self._curve_target_percent(self._temp_c)
+                    target = self._curve_target_percent(control_temp)
                 elif self.mode == "target":
-                    target = self._target_mode_percent(self._temp_c)
+                    target = self._target_mode_percent(control_temp)
                 else:
                     target = self.manual_percent
                 # Compare against the ACTUAL last-written duty (self._pwm_percent),
                 # not a loop-local var — otherwise a manual/disabled excursion
                 # leaves the loop's memory stale and hysteresis suppresses the
-                # corrective write when switching back to auto.
-                # Target mode bypasses the hysteresis: it suppresses jitter from
-                # a continuously recomputed absolute target, but the incremental
-                # law only proposes hold / an error-scaled ±step / 0 / 100, so
-                # every change is intentional — and a clamped or minimal step
-                # (e.g. 99→100, delta 1) must not be swallowed while the SoC
-                # is hot.
-                if self.mode == "target":
-                    if target != self._pwm_percent:
-                        await self._set_pwm_percent(target)
-                else:
-                    crossed_zero = (target == 0) != (self._pwm_percent == 0)
-                    if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_zero:
-                        await self._set_pwm_percent(target)
+                # corrective write when switching back to auto. Hysteresis absorbs
+                # sub-2 % jitter around a stable target; the rails (0 % / 100 %)
+                # are always written so a clean stop and the safety-override 100 %
+                # are never swallowed.
+                crossed_rail = target in (0, 100) and target != self._pwm_percent
+                if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_rail:
+                    await self._set_pwm_percent(target)
 
                 telemetry = (self._temp_c, self._rpm, self._pwm_percent)
                 if telemetry != last_telemetry:
