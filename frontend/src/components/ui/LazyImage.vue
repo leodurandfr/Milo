@@ -1,5 +1,5 @@
 <template>
-  <div class="lazy-image">
+  <div class="lazy-image" :class="{ instant }">
     <!-- Baseline layer: SVG generated from name, or static image fallback.
          Mounted at opacity 1, then faded out once the real image loads — so a
          transparent favicon shows the card background, not this layer, through
@@ -76,9 +76,16 @@ const props = defineProps({
   }
 })
 
+// A real image that is already cached (or returns within a frame or two) must
+// never cross-fade — the generated placeholder would flash over it on every
+// page switch. Reveal those instantly; keep the fade only for genuine loads.
+const INSTANT_REVEAL_MS = 80
+
 const imgRef = ref(null)
 const imageLoaded = ref(false)
 const imageError = ref(false)
+const instant = ref(false)
+let loadStartedAt = 0
 
 const resolvedFallbackSvg = computed(() => {
   if (!props.fallbackName) return ''
@@ -91,6 +98,7 @@ function handleImageLoad() {
     imageError.value = true
     return
   }
+  instant.value = performance.now() - loadStartedAt < INSTANT_REVEAL_MS
   imageLoaded.value = true
 }
 
@@ -101,14 +109,19 @@ function handleImageError() {
 watch(() => props.src, () => {
   imageLoaded.value = false
   imageError.value = false
+  instant.value = false
+  loadStartedAt = performance.now()
 })
 
 // Browser-cached images may complete before Vue mounts. Flip imageLoaded so
 // the parent's skeleton overlay can dismiss on first paint instead of waiting
-// for a `load` event that won't fire.
+// for a `load` event that won't fire — and reveal instantly (no fade), since a
+// complete-at-mount image is already on screen the moment the placeholder would.
 onMounted(() => {
+  loadStartedAt = performance.now()
   const img = imgRef.value
   if (img?.complete && img.naturalHeight >= MIN_IMAGE_SIZE && img.naturalWidth >= MIN_IMAGE_SIZE) {
+    instant.value = true
     imageLoaded.value = true
   }
 })
@@ -152,5 +165,12 @@ img.lazy-image-placeholder {
 
 .lazy-image-main.loaded {
   opacity: 1;
+}
+
+/* Cached / instant reveal: swap placeholder → image with no cross-fade, so the
+   generated avatar never flashes over an image that's already there. */
+.lazy-image.instant .lazy-image-placeholder,
+.lazy-image.instant .lazy-image-main {
+  transition: none;
 }
 </style>
