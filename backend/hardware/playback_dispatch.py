@@ -22,12 +22,14 @@ _PLAY_PAUSE_SOURCES = {
     AudioSource.RADIO,
     AudioSource.PODCAST,
     AudioSource.CD,
+    AudioSource.MUSIC_LIBRARY,
 }
 
 # Sources that support next/prev track navigation
 _TRACK_NAV_SOURCES = {
     AudioSource.SPOTIFY,
     AudioSource.CD,
+    AudioSource.MUSIC_LIBRARY,
 }
 
 
@@ -102,7 +104,7 @@ class PlaybackDispatcher:
                     await source_instance.command("stop_playback", {})
                 else:
                     await source_instance.command("resume_playback", {})
-            elif active_source in (AudioSource.PODCAST, AudioSource.CD):
+            elif active_source in (AudioSource.PODCAST, AudioSource.CD, AudioSource.MUSIC_LIBRARY):
                 if source_instance.is_playing:
                     await source_instance.command("pause", {})
                 else:

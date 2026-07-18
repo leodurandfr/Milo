@@ -65,6 +65,41 @@ class TestPublicDispatchMethods:
         source.command.assert_awaited_once_with("resume_playback", {})
 
     @pytest.mark.asyncio
+    async def test_dispatch_play_pause_music_library_when_playing(self):
+        source = MagicMock()
+        source.is_playing = True
+        source.command = AsyncMock()
+        sm = _make_state_machine(AudioSource.MUSIC_LIBRARY, source)
+
+        dispatcher = PlaybackDispatcher(sm)
+        await dispatcher.dispatch_play_pause()
+
+        source.command.assert_awaited_once_with("pause", {})
+
+    @pytest.mark.asyncio
+    async def test_dispatch_play_pause_music_library_when_paused(self):
+        source = MagicMock()
+        source.is_playing = False
+        source.command = AsyncMock()
+        sm = _make_state_machine(AudioSource.MUSIC_LIBRARY, source)
+
+        dispatcher = PlaybackDispatcher(sm)
+        await dispatcher.dispatch_play_pause()
+
+        source.command.assert_awaited_once_with("resume", {})
+
+    @pytest.mark.asyncio
+    async def test_dispatch_track_next_music_library(self):
+        source = MagicMock()
+        source.command = AsyncMock()
+        sm = _make_state_machine(AudioSource.MUSIC_LIBRARY, source)
+
+        dispatcher = PlaybackDispatcher(sm)
+        await dispatcher.dispatch_track("next")
+
+        source.command.assert_awaited_once_with("next", {})
+
+    @pytest.mark.asyncio
     async def test_dispatch_play_pause_unsupported_source_is_noop(self):
         # AirPlay does not support play/pause via backend
         source = MagicMock()
