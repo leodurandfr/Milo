@@ -7,6 +7,9 @@
 GO_LIBRESPOT_VERSION="0.7.3"
 CAMILLADSP_VERSION="4.1.3"
 SNAPCAST_VERSION="0.35.0"
+# Keep in sync with install/navidrome.sh::NAVIDROME_VERSION (single source of truth
+# for the config; the binary is downloaded here for the image, there for bash installs).
+NAVIDROME_VERSION="0.63.2"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # go-librespot
@@ -17,6 +20,16 @@ tar -xzf go-librespot_linux_arm64.tar.gz
 cp go-librespot /usr/local/bin/
 chmod +x /usr/local/bin/go-librespot
 rm -f go-librespot_linux_arm64.tar.gz go-librespot
+CHROOT
+
+# Navidrome (Music Library catalog engine — single static Go binary)
+on_chroot << CHROOT
+cd /tmp
+wget -q "https://github.com/navidrome/navidrome/releases/download/v${NAVIDROME_VERSION}/navidrome_${NAVIDROME_VERSION}_linux_arm64.tar.gz"
+tar -xzf "navidrome_${NAVIDROME_VERSION}_linux_arm64.tar.gz" navidrome
+cp navidrome /usr/local/bin/
+chmod +x /usr/local/bin/navidrome
+rm -f "navidrome_${NAVIDROME_VERSION}_linux_arm64.tar.gz" navidrome
 CHROOT
 
 # CamillaDSP

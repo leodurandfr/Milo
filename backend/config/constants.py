@@ -25,6 +25,22 @@ CD_DATA_FILE = MILO_DATA_DIR / "cd_data.json"
 CD_COVERS_DIR = MILO_DATA_DIR / "cd_covers"
 CD_DEVICE = "/dev/sr0"
 
+# =============================================================================
+# MUSIC LIBRARY / NAVIDROME (catalog engine sidecar)
+# =============================================================================
+# Navidrome runs as an always-on daemon (milo-navidrome.service) indexing the
+# mount root and exposing a localhost Subsonic API. The music_library source
+# talks to it over HTTP — never over the LAN (respects "local network only").
+# DataFolder lives under MILO_DATA_DIR so backup/restore captures it.
+MUSIC_LIBRARY_MOUNT_ROOT = Path("/media/milo")     # Navidrome MusicFolder (mounts appear here)
+NAVIDROME_DATA_DIR = MILO_DATA_DIR / "navidrome"   # Navidrome DataFolder (DB, cache)
+# Service-account credentials, provisioned once on first boot by
+# milo-navidrome-provision (milo-owned, 0600). Never in settings.json or WS.
+NAVIDROME_CRED_FILE = NAVIDROME_DATA_DIR / "milo-service.cred"
+NAVIDROME_HOST = "127.0.0.1"
+NAVIDROME_PORT = 4533
+NAVIDROME_URL = f"http://{NAVIDROME_HOST}:{NAVIDROME_PORT}"
+
 # "prev" button: past this many seconds into a track, prev restarts the current
 # track instead of stepping to the previous one. Mirrors Spotify/go-librespot's
 # standard ~3s rewind-vs-skip threshold (go-librespot's exact value isn't

@@ -25,6 +25,7 @@ source "$INSTALL_DIR/common.sh"
 source "$INSTALL_DIR/base.sh"
 source "$INSTALL_DIR/go-librespot.sh"
 source "$INSTALL_DIR/qobuz-proxy.sh"
+source "$INSTALL_DIR/navidrome.sh"
 source "$INSTALL_DIR/roc-toolkit.sh"
 source "$INSTALL_DIR/bluez-alsa.sh"
 source "$INSTALL_DIR/bluez-le.sh"
@@ -107,6 +108,7 @@ main() {
     # Audio source components
     install_go_librespot
     install_qobuz_proxy
+    install_navidrome
     install_roc_toolkit
     install_bluez_alsa
     configure_bluez_le

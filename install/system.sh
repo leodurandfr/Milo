@@ -74,6 +74,11 @@ install_apply_hardware_script() {
     sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-set-wifi-country" /usr/local/bin/milo-set-wifi-country
     sudo chmod +x /usr/local/bin/milo-set-wifi-country
 
+    # Navidrome first-boot service-account provisioning (no sudoers entry — runs
+    # as milo, writes only under /var/lib/milo/navidrome).
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-navidrome-provision" /usr/local/bin/milo-navidrome-provision
+    sudo chmod +x /usr/local/bin/milo-navidrome-provision
+
     # Remove legacy sudoers file if present
     sudo rm -f /etc/sudoers.d/milo-hardware
 

@@ -94,6 +94,20 @@ source install/qobuz-proxy.sh
 install_qobuz_proxy
 CHROOT
 
+# ── Navidrome (Music Library catalog engine) ─────────────────────────────────
+# The binary is downloaded in the audio stage (01-install-audio); here we only
+# write its config + prepare dirs, reusing install/navidrome.sh::configure_navidrome
+# so pi-gen and the bash installer emit an identical navidrome.toml — single source
+# of truth (same pattern as go-librespot). The per-device service-account password
+# is NOT baked: milo-navidrome-provision generates it on first boot.
+
+on_chroot << 'CHROOT'
+cd /home/milo/milo
+source install/common.sh
+source install/navidrome.sh
+configure_navidrome
+CHROOT
+
 # ── Snapserver configuration ─────────────────────────────────────────────────
 # Reuse install/snapcast.sh::configure_snapserver to keep a single source of truth
 # for /etc/snapserver.conf — pi-gen and bash install.sh write the same content.
