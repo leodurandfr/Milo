@@ -33,6 +33,10 @@ CD_DEVICE = "/dev/sr0"
 # talks to it over HTTP — never over the LAN (respects "local network only").
 # DataFolder lives under MILO_DATA_DIR so backup/restore captures it.
 MUSIC_LIBRARY_MOUNT_ROOT = Path("/media/milo")     # Navidrome MusicFolder (mounts appear here)
+# Network-share config (SMB/NFS). Non-secret only — id/type/host/path/name.
+# The share secrets (username/password/domain) never land here; they live in a
+# root-only cred file written by milo-mount (see MILO_MOUNT_CMD --network below).
+MUSIC_LIBRARY_DATA_FILE = MILO_DATA_DIR / "music_library_data.json"
 NAVIDROME_DATA_DIR = MILO_DATA_DIR / "navidrome"   # Navidrome DataFolder (DB, cache)
 # Service-account credentials, provisioned once on first boot by
 # milo-navidrome-provision (milo-owned, 0600). Never in settings.json or WS.
@@ -43,7 +47,9 @@ NAVIDROME_URL = f"http://{NAVIDROME_HOST}:{NAVIDROME_PORT}"
 
 # Privileged storage helpers (pinned sudoers, milo-* doctrine). A USB key is
 # detected unprivileged via pyudev, then mounted read-only under MUSIC_LIBRARY_MOUNT_ROOT
-# by these helpers — the backend never calls mount/umount directly. See
+# by these helpers — the backend never calls mount/umount directly. milo-mount also
+# mounts SMB/NFS network shares (`--network`) and writes/removes their root-only
+# credential files (`--forget`); the secret bytes are fed on stdin, never argv. See
 # rootfs/usr/local/bin/milo-mount and docs/plans/music-library.md.
 MILO_MOUNT_CMD = "/usr/local/bin/milo-mount"
 MILO_UMOUNT_CMD = "/usr/local/bin/milo-umount"

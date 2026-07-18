@@ -11,7 +11,14 @@ key.
 
 Runs for the whole backend lifetime, independent of playback: a plugged-in key
 gets indexed even when music_library is not the active source (Navidrome is
-always-on). SMB/NFS shares are Phase 2 — see docs/plans/music-library.md.
+always-on).
+
+Phase 2 adds SMB/NFS network shares. Unlike USB there is no hotplug event to
+rediscover them, so their config is persisted (MusicLibraryDataService) and the
+source replays it at boot via :meth:`mount_share`. The same milo-mount helper
+mounts them read-only under the mount root; CIFS credentials are handed to it on
+stdin (never argv) and it persists them to a root-only cred file the milo backend
+cannot read. See docs/plans/music-library.md.
 
 Fail-open throughout: no udev (a dev host without libudev), no sudoers rule, or
 Navidrome not provisioned yet must degrade to "auto-mount disabled" and log,
@@ -19,7 +26,7 @@ never crash the backend.
 """
 import asyncio
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from backend.config.constants import (
     MILO_MOUNT_CMD,
@@ -59,8 +66,10 @@ class StorageManager:
         # Serializes mount/unmount so concurrent hotplug events can't race on the
         # mountpoint table or the helpers.
         self._lock = asyncio.Lock()
-        # devnode (/dev/sda1) -> mountpoint (/media/milo/<label>)
+        # devnode (/dev/sda1) -> mountpoint (/media/milo/<label>)  [USB]
         self._mounts: Dict[str, str] = {}
+        # share id -> mountpoint (/media/milo/<id>)  [network shares]
+        self._share_mounts: Dict[str, str] = {}
 
     async def initialize(self) -> bool:
         """Mount any USB drive already present, then start the hotplug monitor.
@@ -188,41 +197,126 @@ class StorageManager:
         await self._trigger_scan()
 
     async def _run_helper(
-        self, helper: str, arg: str, capture: bool
+        self,
+        helper: str,
+        *args: str,
+        capture: bool,
+        stdin: Optional[bytes] = None,
     ) -> Optional[str]:
         """Run a milo-mount / milo-umount helper via ``sudo -n``.
+
+        ``stdin`` carries CIFS credentials to milo-mount on the standard input
+        (never argv, which is world-readable in /proc); None means no input
+        (stdin is /dev/null so the helper's ``cat`` returns at once).
 
         Returns the helper's stripped stdout (the mountpoint) when ``capture`` is
         set and it exited 0, else None. Fail-open: a missing sudoers rule, absent
         helper or timeout logs and returns None rather than raising.
         """
+        arg_str = " ".join(args)
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "-n", helper, arg,
+                "sudo", "-n", helper, *args,
+                stdin=(
+                    asyncio.subprocess.PIPE
+                    if stdin is not None
+                    else asyncio.subprocess.DEVNULL
+                ),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=_HELPER_TIMEOUT_S
+                proc.communicate(input=stdin), timeout=_HELPER_TIMEOUT_S
             )
         except asyncio.TimeoutError:
             if proc:
                 proc.kill()
-            self.logger.error("%s timed out for %s", helper, arg)
+            self.logger.error("%s timed out for %s", helper, arg_str)
             return None
         except Exception as exc:
-            self.logger.error("%s failed to spawn for %s: %s", helper, arg, exc)
+            self.logger.error("%s failed to spawn for %s: %s", helper, arg_str, exc)
             return None
 
         if proc.returncode != 0:
             self.logger.error(
                 "%s failed (rc=%s) for %s: %s",
-                helper, proc.returncode, arg,
+                helper, proc.returncode, arg_str,
                 stderr.decode(errors="replace").strip(),
             )
             return None
         return stdout.decode(errors="replace").strip() if capture else ""
+
+    # =========================================================================
+    # network shares (SMB/NFS) via milo-mount --network
+    # =========================================================================
+
+    async def mount_share(
+        self, share: Dict[str, Any], credentials: Optional[Dict[str, str]] = None
+    ) -> Optional[str]:
+        """Mount a configured SMB/NFS share read-only under the mount root.
+
+        ``credentials`` (username/password/domain) are fed to milo-mount on stdin
+        and persisted by it to a root-only cred file; pass None for a boot remount
+        (the helper reuses the stored file). Returns the mountpoint on success or
+        None (fail-open: an offline NAS logs and returns None, never raises, so a
+        share that is down at boot can't block startup). Triggers a Navidrome
+        rescan on success so the newly-visible tracks get indexed.
+        """
+        share_id = share["id"]
+        args = (
+            "--network", share["type"],
+            "--id", share_id,
+            "--host", share["host"],
+            "--path", share["path"],
+        )
+        stdin = self._encode_credentials(credentials) if credentials else None
+        async with self._lock:
+            mountpoint = await self._run_helper(
+                MILO_MOUNT_CMD, *args, capture=True, stdin=stdin
+            )
+            if not mountpoint:
+                return None
+            self._share_mounts[share_id] = mountpoint
+            self.logger.info(
+                "Mounted %s share %s at %s", share["type"], share_id, mountpoint
+            )
+        await self._trigger_scan()
+        return mountpoint
+
+    async def unmount_share(self, share_id: str) -> None:
+        """Unmount a share (edit/removal) and rescan so Navidrome drops its tracks.
+
+        Idempotent: falls back to the deterministic /media/milo/<id> mountpoint
+        when the share isn't in the session map (e.g. mounted before a backend
+        restart), and milo-umount no-ops on a path that isn't mounted.
+        """
+        async with self._lock:
+            mountpoint = self._share_mounts.pop(
+                share_id, str(MUSIC_LIBRARY_MOUNT_ROOT / share_id)
+            )
+            await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
+            self.logger.info("Unmounted share %s (%s)", share_id, mountpoint)
+        await self._trigger_scan()
+
+    async def forget_share_credentials(self, share_id: str) -> None:
+        """Drop a share's root-only cred file (called on share deletion)."""
+        async with self._lock:
+            await self._run_helper(
+                MILO_MOUNT_CMD, "--forget", "--id", share_id, capture=False
+            )
+
+    @staticmethod
+    def _encode_credentials(credentials: Dict[str, str]) -> bytes:
+        """Serialize credentials as the ``key=value`` lines milo-mount writes to
+        the CIFS cred file — only the three keys mount.cifs reads, empty ones
+        dropped. Returns empty bytes when nothing usable is present."""
+        lines = [
+            f"{key}={credentials[key]}"
+            for key in ("username", "password", "domain")
+            if credentials.get(key)
+        ]
+        return ("\n".join(lines) + "\n").encode("utf-8") if lines else b""
 
     # =========================================================================
     # Navidrome rescan

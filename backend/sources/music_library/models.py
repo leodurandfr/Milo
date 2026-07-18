@@ -10,9 +10,9 @@ Two groups:
   through the generic ``/api/audio/control/music_library`` path and validated at
   the source's ``command()`` boundary (play_context / play_index / seek).
 """
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class StarRequest(BaseModel):
@@ -24,6 +24,59 @@ class StarRequest(BaseModel):
 
     id: str = Field(min_length=1)
     kind: Literal["song", "album", "artist"] = "song"
+
+
+# === Network-share requests (Phase 2) ===
+
+class ShareRequest(BaseModel):
+    """Body for ``POST /music-library/shares`` and ``PUT .../shares/{id}``.
+
+    A CIFS or NFS network share to mount read-only under /media/milo. ``path`` is
+    the SMB share name (optionally with a subpath) or the NFS export path.
+    Credentials are optional — a public share needs none. The password is never
+    stored here or echoed back over the API; it is handed to milo-mount on stdin
+    and persisted only to a root-only cred file. On a ``PUT`` that omits the
+    password, the existing cred file is kept.
+
+    ``host``/``path`` become arguments to the mount syscall, so they are rejected
+    if they carry whitespace or control characters (defense-in-depth — milo-mount
+    re-validates independently); the credential fields may not carry control
+    characters (a newline would inject an extra key into the cred file).
+    """
+
+    type: Literal["cifs", "nfs"]
+    host: str = Field(min_length=1, max_length=255)
+    path: str = Field(min_length=1, max_length=1024)
+    name: str = Field(min_length=1, max_length=128)
+    username: Optional[str] = Field(default=None, max_length=128)
+    password: Optional[str] = Field(default=None, max_length=256)
+    domain: Optional[str] = Field(default=None, max_length=128)
+
+    @field_validator("host", "path")
+    @classmethod
+    def _no_whitespace_or_control(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be empty")
+        if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("must not contain whitespace or control characters")
+        return value
+
+    @field_validator("name", "username", "password", "domain")
+    @classmethod
+    def _no_control_chars(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("must not contain control characters")
+        return value
+
+    @model_validator(mode="after")
+    def _nfs_takes_no_credentials(self) -> "ShareRequest":
+        # Plain NFS (AUTH_SYS) authorizes by UID/host, not a client username or
+        # password — accepting credentials here would set a misleading
+        # has_credentials flag and mount identically. Reject them outright.
+        if self.type == "nfs" and (self.username or self.password or self.domain):
+            raise ValueError("NFS shares do not take username/password/domain")
+        return self
 
 
 # === Command-parameter models (validated at the command() boundary) ===

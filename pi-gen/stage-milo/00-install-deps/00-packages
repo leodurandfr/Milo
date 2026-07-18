@@ -69,6 +69,8 @@ eject
 exfatprogs
 ntfs-3g
 dosfstools
+cifs-utils
+nfs-common
 ethtool
 ir-keytable
 cage
