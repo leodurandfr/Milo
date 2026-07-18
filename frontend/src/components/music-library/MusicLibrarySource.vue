@@ -2,7 +2,7 @@
   <div class="music-library-source">
     <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
       :header-title="currentTitle" :header-show-back="canGoBack"
-      header-icon="music_library" header-variant="background-neutral"
+      header-icon="music_library" header-variant="background-neutral" gradient="music-library"
       :header-actions-key="currentView" :content-key="currentView"
       :player-mobile-height="184" :pending-scroll-restore="pendingScrollRestore"
       @header-back="goBack" @scroll-restored="onScrollRestored">

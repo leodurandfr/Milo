@@ -62,12 +62,12 @@ const props = defineProps({
     default: false
   },
   /**
-   * Background gradient variant ('radio' or 'podcast')
+   * Background gradient variant ('radio', 'podcast' or 'music-library')
    */
   gradient: {
     type: String,
     default: null,
-    validator: (value) => [null, 'radio', 'podcast'].includes(value)
+    validator: (value) => [null, 'radio', 'podcast', 'music-library'].includes(value)
   },
   /**
    * Header title
@@ -230,6 +230,15 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   height: 100%;
   padding: 0 var(--space-07);
   overflow-y: auto;
+  /* Hide the scrollbar (Firefox) so a scrollbar appearing/disappearing never
+     reflows the content-box width — otherwise .content-container's percentage
+     width resolves differently and its width transition animates the shift. */
+  scrollbar-width: none;
+}
+
+/* Same, WebKit — keeps content width independent of scrollbar presence. */
+.audio-source-layout::-webkit-scrollbar {
+  display: none;
 }
 
 /* Background gradient (Radio/Podcast) */
@@ -250,6 +259,10 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 
 .gradient-podcast {
   background: linear-gradient(180deg, rgba(66, 24, 112, 0.08) 0%, rgba(126, 46, 214, 0) 100%);
+}
+
+.gradient-music-library {
+  background: linear-gradient(180deg, rgba(212, 72, 100, 0.1) 0%, rgba(212, 72, 100, 0) 100%);
 }
 
 /* Content container: animates width to make space for player */
