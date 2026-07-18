@@ -396,9 +396,12 @@ async def trigger_scan(
 ) -> Dict[str, Any]:
     """Kick a Navidrome library rescan on demand ("I added music, refresh now").
 
-    Needed because inotify does not report changes made on the far side of a
-    CIFS/NFS mount, so files added directly on a NAS aren't picked up by the
-    watcher — only by a scan. 503 until the daemon is provisioned.
+    A quick (mtime-based) scan: it picks up new/changed files but does NOT purge
+    disappeared ones — purging is tied to the removal event itself (unplugging a
+    USB drive / deleting a share triggers a full scan), so a refresh stays a fast,
+    non-destructive "index what's new". Needed because inotify does not report
+    changes made on the far side of a CIFS/NFS mount, so files added directly on a
+    NAS aren't picked up by the watcher — only by a scan. 503 until provisioned.
     """
     async with _catalog_errors("Error starting scan", source):
         client = await _require_client(source)

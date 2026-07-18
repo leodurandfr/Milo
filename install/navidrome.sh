@@ -100,6 +100,13 @@ EnableExternalServices = true
 
 LogLevel = "info"
 
+# Purge files that disappeared (an unplugged USB drive, a removed share) so they
+# don't linger as empty "ghost" albums in the catalog. "full" purges only on an
+# explicit full scan (triggered on removal events), so a transient NAS outage
+# during a quick or scheduled scan never deletes still-valid tracks.
+[Scanner]
+PurgeMissing = "full"
+
 # Album identity: group tracks into one album by album-artist + album name
 # (a MusicBrainz album id still wins when present). This drops the default's
 # release-date and album-version components, so a single track missing a
