@@ -1,0 +1,44 @@
+#!/bin/bash
+# milo-navidrome-provision — first-boot service-account provisioning for Navidrome.
+#
+# Navidrome auto-creates an admin user named "admin" on its first run when the DB
+# is empty, using the password in ND_DEVAUTOCREATEADMINPASSWORD. We generate that
+# password once, per-device (never baked into the image), and store it so both
+# Navidrome (to create the account) and the Milō backend (to authenticate via the
+# Subsonic API) can read it.
+#
+# Two files under the milo-owned DataFolder, both 0600:
+#   milo-service.cred   — username=admin / password=… ; read by navidrome_client.py
+#   navidrome-auth.env  — ND_DEVAUTOCREATEADMINPASSWORD=… ; sourced by the service
+#
+# Runs as User=milo (ExecStartPre) writing only under /var/lib/milo/navidrome —
+# no privilege escalation, so no sudoers entry (Milō runs as milo, never root).
+# Idempotent: the password is generated only when the cred file is absent; the
+# env file is always (re)derived from the cred file so the two stay in sync.
+set -euo pipefail
+
+DATA_DIR="/var/lib/milo/navidrome"
+CRED_FILE="$DATA_DIR/milo-service.cred"
+AUTH_ENV="$DATA_DIR/navidrome-auth.env"
+# Navidrome's auto-created admin is always named "admin"; that IS our service account.
+USERNAME="admin"
+
+mkdir -p "$DATA_DIR"
+umask 077
+
+if [ ! -f "$CRED_FILE" ]; then
+    # 32 url-safe chars from the kernel CSPRNG — unique per device.
+    PASSWORD="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
+    printf 'username=%s\npassword=%s\n' "$USERNAME" "$PASSWORD" > "$CRED_FILE"
+    chmod 600 "$CRED_FILE"
+    echo "milo-navidrome-provision: generated service-account credentials"
+fi
+
+# Always re-derive the service env from the cred file (idempotent, keeps them in sync).
+PASSWORD="$(sed -n 's/^password=//p' "$CRED_FILE")"
+if [ -z "$PASSWORD" ]; then
+    echo "milo-navidrome-provision: cred file missing password field" >&2
+    exit 1
+fi
+printf 'ND_DEVAUTOCREATEADMINPASSWORD=%s\n' "$PASSWORD" > "$AUTH_ENV"
+chmod 600 "$AUTH_ENV"

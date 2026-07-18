@@ -1,0 +1,46 @@
+[Unit]
+Description=Milo Navidrome (Music Library catalog engine)
+Documentation=https://www.navidrome.org/docs/
+# Always-on catalog daemon for the music_library source. Localhost-only, indexes
+# /media/milo. Bound to the backend so it stops with the appliance; the backend
+# reaches it lazily (only when the source activates), so no strict "before backend".
+After=local-fs.target milo-backend.service
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+
+# Provision the service-account password on first boot (idempotent): generates
+# the milo-owned 0600 cred file + the auth env file consumed below. Runs as milo,
+# writes only under /var/lib/milo/navidrome — no privilege, no sudoers entry.
+ExecStartPre=/usr/local/bin/milo-navidrome-provision
+
+# Static config lives in the baked TOML; only the generated admin password is
+# device-specific. Source the provisioning env file at exec time (set -a exports
+# ND_DEVAUTOCREATEADMINPASSWORD) so it is guaranteed present — an EnvironmentFile=
+# is resolved before ExecStartPre runs and would miss a first-boot-generated file.
+Environment=HOME=/home/milo
+Environment=ND_CONFIGFILE=/var/lib/milo/navidrome/navidrome.toml
+ExecStart=/bin/sh -c 'set -a; . /var/lib/milo/navidrome/navidrome-auth.env; exec /usr/local/bin/navidrome'
+
+WorkingDirectory=/var/lib/milo/navidrome
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=10
+
+# Resource limits — a first scan of a large library is memory-hungry.
+MemoryMax=512M
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-navidrome
+
+[Install]
+WantedBy=multi-user.target

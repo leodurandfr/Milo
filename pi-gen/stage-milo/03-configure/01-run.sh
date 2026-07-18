@@ -20,6 +20,10 @@ systemctl enable milo-bluealsa-aplay.service
 systemctl enable milo-eeprom-setup.service
 systemctl enable milo-cpu-governor.service
 systemctl enable milo-camilladsp.service
+# Always-on Music Library catalog engine (BindsTo=milo-backend). The paired mpv
+# player, milo-music-library.service, is started on-demand by the backend and is
+# intentionally NOT enabled here (like milo-cd/milo-radio).
+systemctl enable milo-navidrome.service
 systemctl enable nqptp.service
 systemctl enable seatd.service
 systemctl enable avahi-daemon
