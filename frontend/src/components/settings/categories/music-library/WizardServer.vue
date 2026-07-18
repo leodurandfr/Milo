@@ -41,7 +41,7 @@
         <Button variant="outline" size="medium" @click="$emit('manual')">
           {{ t('musicLibrary.shares.wizard.manual') }}
         </Button>
-        <Button variant="brand" size="medium" :loading="discovering" :loading-label="false" @click="discover">
+        <Button variant="brand" size="medium" :loading="discovering" @click="discover">
           {{ t('musicLibrary.shares.wizard.rescan') }}
         </Button>
       </div>
