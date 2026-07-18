@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/music-library/ManageShare.vue -->
 <!--
-  Add / edit a network share (SMB or NFS). Submits to the /music-library/shares
+  Add / edit a network server (SMB or NFS). Submits to the /music-library/shares
   routes via the store, which persists the config, mounts it read-only under
   /media/milo through milo-mount, and rescans Navidrome.
 
@@ -8,83 +8,81 @@
     credential fields are hidden and never sent for NFS.
   - The password is write-only: on edit, an empty field keeps the saved password
     (the backend treats an omitted password as "keep the existing cred file").
-  - Both add and edit use an explicit Submit — a save remounts and rescans, so it
-    is a deliberate action, not an auto-saved keystroke.
+  - Save is a deliberate action (it remounts + rescans), and — like the multiroom
+    server config — it only appears once something actually changed, pinned to the
+    bottom so it's reachable from anywhere in the form.
 -->
 <template>
-  <SettingsSection>
+  <SettingsContainer>
     <form class="share-form" @submit.prevent="handleSubmit">
-      <!-- Type: SMB / NFS -->
-      <div class="form-group">
-        <label class="text-mono">{{ t('musicLibrary.shares.type') }}</label>
-        <ButtonGroup v-model="form.type" :options="typeOptions" @change="applyType" />
-      </div>
+      <SettingsSection>
+        <!-- Type: SMB / NFS -->
+        <div class="form-group">
+          <label class="text-mono">{{ t('musicLibrary.shares.type') }}</label>
+          <ButtonGroup v-model="form.type" :options="typeOptions" @change="applyType" />
+        </div>
 
-      <div class="form-group">
-        <label class="text-mono">{{ t('musicLibrary.shares.name') }} *</label>
-        <InputText v-model="form.name" :placeholder="t('musicLibrary.shares.namePlaceholder')" :maxlength="128" />
-        <span class="text-mono share-form__hint">{{ t('musicLibrary.shares.nameHint') }}</span>
-      </div>
+        <div class="form-group">
+          <label class="text-mono">{{ t('musicLibrary.shares.name') }} *</label>
+          <InputText v-model="form.name" :placeholder="t('musicLibrary.shares.namePlaceholder')" :maxlength="128" />
+          <span class="text-mono share-form__hint">{{ t('musicLibrary.shares.nameHint') }}</span>
+        </div>
 
-      <div class="form-group">
-        <label class="text-mono">{{ t('musicLibrary.shares.host') }} *</label>
-        <InputText v-model="form.host" :placeholder="t('musicLibrary.shares.hostPlaceholder')" :maxlength="255" />
-      </div>
+        <div class="form-group">
+          <label class="text-mono">{{ t('musicLibrary.shares.host') }} *</label>
+          <InputText v-model="form.host" :placeholder="t('musicLibrary.shares.hostPlaceholder')" :maxlength="255" />
+        </div>
 
-      <div class="form-group">
-        <label class="text-mono">{{ pathLabel }} *</label>
-        <InputText v-model="form.path" :placeholder="pathPlaceholder" :maxlength="1024" />
-        <span class="text-mono share-form__hint">{{ pathHint }}</span>
-      </div>
+        <div class="form-group">
+          <label class="text-mono">{{ t('musicLibrary.shares.pathLabel') }} *</label>
+          <InputText v-model="form.path" :placeholder="pathPlaceholder" :maxlength="1024" />
+          <span class="text-mono share-form__hint">{{ pathHint }}</span>
+        </div>
 
-      <!-- Credentials (SMB only) -->
-      <template v-if="form.type === 'cifs'">
-        <div class="form-row">
+        <!-- Credentials (SMB only) -->
+        <template v-if="form.type === 'cifs'">
           <div class="form-group">
             <label class="text-mono">{{ t('musicLibrary.shares.username') }}</label>
             <InputText v-model="form.username" :placeholder="t('musicLibrary.shares.usernamePlaceholder')" :maxlength="128" />
           </div>
 
           <div class="form-group">
-            <label class="text-mono">{{ t('musicLibrary.shares.domain') }}</label>
-            <InputText v-model="form.domain" :placeholder="t('musicLibrary.shares.domainPlaceholder')" :maxlength="128" />
+            <label class="text-mono">{{ t('musicLibrary.shares.password') }}</label>
+            <InputText v-model="form.password" type="password" :maxlength="256"
+              :placeholder="passwordPlaceholder" />
+            <span v-if="isEditMode && share?.has_credentials" class="text-mono share-form__hint">
+              {{ t('musicLibrary.shares.passwordKeepHint') }}
+            </span>
           </div>
-        </div>
+        </template>
 
-        <div class="form-group">
-          <label class="text-mono">{{ t('musicLibrary.shares.password') }}</label>
-          <InputText v-model="form.password" type="password" :maxlength="256"
-            :placeholder="passwordPlaceholder" />
-          <span v-if="isEditMode && share?.has_credentials" class="text-mono share-form__hint">
-            {{ t('musicLibrary.shares.passwordKeepHint') }}
-          </span>
-        </div>
-      </template>
+        <!-- NFS help note -->
+        <p v-else class="text-mono share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
 
-      <!-- NFS help note -->
-      <p v-else class="text-mono share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
-
-      <!-- Error -->
-      <div v-if="errorMessage" class="share-form__error text-mono">{{ errorMessage }}</div>
-
-      <Button variant="brand" size="medium" type="submit" class="share-form__submit"
-        :loading="isSubmitting" :disabled="isSubmitting || !isValid">
-        {{ isEditMode ? t('musicLibrary.shares.save') : t('musicLibrary.shares.add') }}
-      </Button>
+        <!-- Error -->
+        <div v-if="errorMessage" class="share-form__error text-mono">{{ errorMessage }}</div>
+      </SettingsSection>
 
       <!-- Remove (edit only) — two-tap inline confirm, like the power menu. -->
       <Button v-if="isEditMode" variant="important" size="medium" type="button"
         :loading="isRemoving" :disabled="isSubmitting || isRemoving" @click="handleRemove">
         {{ confirmRemove ? t('musicLibrary.shares.confirmRemove') : t('musicLibrary.shares.remove') }}
       </Button>
+
+      <!-- Save — sticky, and only once there's something to save. -->
+      <Button v-if="showSubmit" variant="brand" size="medium" type="submit" class="apply-button-sticky"
+        :loading="isSubmitting" :disabled="isSubmitting">
+        {{ isEditMode ? t('musicLibrary.shares.save') : t('musicLibrary.shares.add') }}
+      </Button>
     </form>
-  </SettingsSection>
+  </SettingsContainer>
 </template>
 
 <script setup>
 import { reactive, ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import InputText from '@/components/ui/InputText.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
@@ -121,7 +119,6 @@ const form = reactive({
   path: '',
   username: '',
   password: '',
-  domain: '',
 });
 
 const isSubmitting = ref(false);
@@ -129,10 +126,8 @@ const isRemoving = ref(false);
 const confirmRemove = ref(false);
 const errorMessage = ref('');
 
-// Path is an SMB share name vs an NFS export path — label/placeholder adapt.
-const pathLabel = computed(() =>
-  form.type === 'nfs' ? t('musicLibrary.shares.exportPath') : t('musicLibrary.shares.shareName')
-);
+// The path field carries an SMB share/subpath or an NFS export — one label
+// ("Access path"), the placeholder/hint adapt to the protocol.
 const pathPlaceholder = computed(() =>
   form.type === 'nfs'
     ? t('musicLibrary.shares.exportPlaceholder')
@@ -154,6 +149,26 @@ const isValid = computed(
   () => form.name.trim() && form.host.trim() && form.path.trim()
 );
 
+// Edit mode: does the form differ from the saved server? A typed password always
+// counts (it rewrites the cred file). Add mode has no baseline — any valid entry
+// is "new". Drives the sticky Save button's visibility (multiroom-style).
+const isDirty = computed(() => {
+  const s = props.share;
+  if (!isEditMode.value || !s) return false;
+  return (
+    form.type !== (s.type || 'cifs') ||
+    form.name.trim() !== (s.name || '') ||
+    form.host.trim() !== (s.host || '') ||
+    form.path.trim() !== (s.path || '') ||
+    (form.type === 'cifs' && form.username.trim() !== (s.username || '')) ||
+    !!form.password
+  );
+});
+
+const showSubmit = computed(
+  () => isValid.value && (!isEditMode.value || isDirty.value)
+);
+
 function initForm() {
   errorMessage.value = '';
   confirmRemove.value = false;
@@ -162,16 +177,14 @@ function initForm() {
     form.name = props.share.name || '';
     form.host = props.share.host || '';
     form.path = props.share.path || '';
-    // username/domain are non-secret metadata — prefill so the login is visible.
+    // The username is non-secret metadata — prefill so the login is visible.
     form.username = props.share.username || '';
-    form.domain = props.share.domain || '';
   } else {
     form.type = 'cifs';
     form.name = '';
     form.host = '';
     form.path = '';
     form.username = '';
-    form.domain = '';
   }
   // The password is write-only (never returned by the API) — always start blank.
   form.password = '';
@@ -180,14 +193,12 @@ function initForm() {
 watch(() => props.share, initForm, { immediate: true });
 
 // Switching to NFS clears the credential fields so they can't leak into the
-// payload (the backend rejects credentials on an NFS share outright). Shared by
-// the protocol toggle and by picking a discovered server.
+// payload (the backend rejects credentials on an NFS share outright).
 function applyType(type) {
   form.type = type;
   if (type === 'nfs') {
     form.username = '';
     form.password = '';
-    form.domain = '';
   }
   confirmRemove.value = false;
 }
@@ -201,7 +212,6 @@ function buildPayload() {
   };
   if (form.type === 'cifs') {
     if (form.username.trim()) payload.username = form.username.trim();
-    if (form.domain.trim()) payload.domain = form.domain.trim();
     if (form.password) payload.password = form.password; // omitted → keep existing (edit) / guest (add)
   }
   return payload;
@@ -248,7 +258,7 @@ async function handleRemove() {
 .share-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-02);
 }
 
 .form-group {
@@ -265,12 +275,6 @@ async function handleRemove() {
   color: var(--color-text-light);
 }
 
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-03);
-}
-
 .share-form__note {
   color: var(--color-text-secondary);
 }
@@ -282,13 +286,11 @@ async function handleRemove() {
   color: var(--color-error);
 }
 
-.share-form__submit {
-  margin-top: var(--space-02);
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .form-row {
-    grid-template-columns: 1fr;
-  }
+/* Save pinned to the bottom of the scroll area (mirrors MultiroomSettings). */
+.apply-button-sticky {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
 }
 </style>

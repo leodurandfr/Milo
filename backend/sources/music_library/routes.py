@@ -408,6 +408,20 @@ async def trigger_scan(
 
 # === Network shares (SMB/NFS) ===
 
+@router.get("/usb-devices")
+async def list_usb_devices(
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """USB volumes mounted under /media/milo right now (read-only status line).
+
+    Sits beside the configurable shares in the settings UI so a plugged-in key is
+    visible as a music origin. Reads the storage manager's live mount map — never
+    touches the filesystem — so it can't hang on a slow device.
+    """
+    async with api_error_handler("Error listing USB devices", logger):
+        return {"devices": source.list_usb_devices()}
+
+
 @router.get("/shares/discover")
 async def discover_shares() -> Dict[str, Any]:
     """SMB/NFS servers found on the LAN via mDNS, to prefill the add-share form.

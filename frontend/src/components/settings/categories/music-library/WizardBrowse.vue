@@ -16,12 +16,12 @@
   <SettingsContainer>
     <!-- Breadcrumb: server › share › sub… (each crumb navigates up) -->
     <div class="wb-crumbs text-mono-small">
-      <button type="button" class="wb-crumb" :disabled="phase === 'loading'" @click="load('')">
+      <button type="button" class="wb-crumb" :disabled="crumbsLocked" @click="load('')">
         {{ server.name }}
       </button>
       <template v-for="(seg, i) in crumbs" :key="i">
         <span class="wb-sep">›</span>
-        <button type="button" class="wb-crumb" :disabled="phase === 'loading'"
+        <button type="button" class="wb-crumb" :disabled="crumbsLocked"
           @click="goToCrumb(i)">{{ seg }}</button>
       </template>
     </div>
@@ -39,10 +39,6 @@
             <label class="text-mono">{{ t('musicLibrary.shares.password') }}</label>
             <InputText v-model="creds.password" type="password" :maxlength="256"
               :placeholder="t('musicLibrary.shares.passwordPlaceholder')" />
-          </div>
-          <div class="wb-group">
-            <label class="text-mono">{{ t('musicLibrary.shares.domain') }}</label>
-            <InputText v-model="creds.domain" :placeholder="t('musicLibrary.shares.domainPlaceholder')" :maxlength="128" />
           </div>
           <p v-if="authError" class="wb-error text-mono">{{ authError }}</p>
           <Button variant="brand" size="medium" :loading="connecting" @click="connect">
@@ -66,6 +62,29 @@
       <template v-else-if="phase === 'done'">
         <p class="wb-warn text-mono">{{ t('musicLibrary.shares.wizard.savedNotMounted') }}</p>
         <Button variant="background-strong" size="medium" @click="$emit('success')">
+          {{ t('musicLibrary.shares.wizard.done') }}
+        </Button>
+      </template>
+
+      <!-- Mounted — indexing runs; the live count validates there's music here. -->
+      <template v-else-if="phase === 'indexing'">
+        <div class="wb-center"><LoadingSpinner :size="40" /></div>
+        <p class="wb-note text-mono">{{ t('musicLibrary.shares.wizard.indexing') }}</p>
+        <p class="wb-count text-mono">{{ t('musicLibrary.shares.wizard.indexingCount', { count: liveFound }) }}</p>
+        <Button variant="background-strong" size="medium" @click="leave">
+          {{ t('musicLibrary.shares.wizard.done') }}
+        </Button>
+      </template>
+
+      <!-- Indexing settled — how many tracks this share contributed. -->
+      <template v-else-if="phase === 'indexed'">
+        <p v-if="indexEmpty" class="wb-warn text-mono">{{ t('musicLibrary.shares.wizard.indexedEmpty') }}</p>
+        <p v-else class="wb-success text-mono">
+          {{ indexTotalMode
+            ? t('musicLibrary.shares.wizard.indexedTotal', { count: finalFound })
+            : t('musicLibrary.shares.wizard.indexedShare', { count: finalFound }) }}
+        </p>
+        <Button variant="brand" size="medium" @click="leave">
           {{ t('musicLibrary.shares.wizard.done') }}
         </Button>
       </template>
@@ -102,6 +121,7 @@
 <script setup>
 import { ref, reactive, computed } from 'vue';
 import { useI18n } from '@/services/i18n';
+import { useTimer } from '@/composables/useTimer';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
@@ -117,20 +137,42 @@ const emit = defineEmits(['success']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
+const timer = useTimer();
 
-// phase: loading | auth | browsing | error | done
+// phase: loading | auth | browsing | error | done | indexing | indexed
 const phase = ref('loading');
 const path = ref('');          // last successfully-loaded path ('' = top level)
 const pendingPath = ref('');   // path currently being loaded (kept across the auth prompt)
 const entries = ref([]);
-const creds = reactive({ username: '', password: '', domain: '' });
+const creds = reactive({ username: '', password: '' });
 const authError = ref('');
 const errorMsg = ref('');
 const connecting = ref(false);
 const creating = ref(false);
 
+// Post-mount indexing / validation. `baseCount` is the library size snapshotted
+// *before* the mount kicks a Navidrome scan, so the delta counts what THIS share
+// contributed ("42 tracks found on this share"). If a scan is already running the
+// baseline can't be isolated, so we fall back to the whole-library total.
+const INDEX_POLL_MS = 1500;
+const INDEX_GRACE_POLLS = 6;   // how long to wait for the scan to visibly start
+const INDEX_MAX_POLLS = 80;    // ~2 min hard cap; the scan continues server-side
+const liveFound = ref(0);      // tracks attributed to this share so far
+const finalFound = ref(0);     // settled count
+const indexTotalMode = ref(false); // true → show the library total (fallback)
+const indexEmpty = ref(false);
+let baseCount = 0;
+let sawScanning = false;
+let indexPolls = 0;
+let indexingActive = false;
+
 const isNfs = computed(() => props.server.type === 'nfs');
 const crumbs = computed(() => (path.value ? path.value.split('/') : []));
+// The share exists once indexing starts — freeze the breadcrumb so a tap can't
+// wander back into the browser mid-validation.
+const crumbsLocked = computed(() =>
+  phase.value === 'loading' || phase.value === 'indexing' || phase.value === 'indexed'
+);
 const currentName = computed(() => crumbs.value[crumbs.value.length - 1] || props.server.name);
 // A whole share or any sub-folder is selectable (SMB only, once past the root).
 const canUseFolder = computed(() => !isNfs.value && path.value !== '');
@@ -157,7 +199,6 @@ async function load(target) {
     path: target,
     username: creds.username,
     password: creds.password,
-    domain: creds.domain,
   });
   if (r.status === 'ok') {
     path.value = target;
@@ -189,30 +230,38 @@ function goToCrumb(index) {
 
 function onEntry(entry) {
   if (entry.kind === 'export') {
-    createShare(entry.path, entry.name);
+    createShare(entry.path);
   } else {
     load(entry.path);
   }
 }
 
 function useThisFolder() {
-  createShare(path.value, currentName.value);
+  createShare(path.value);
 }
 
-async function createShare(targetPath, displayName) {
+async function createShare(targetPath) {
   if (creating.value) return;
   creating.value = true;
   errorMsg.value = '';
+  // Snapshot the library size before the mount triggers a scan, so the indexing
+  // step can attribute the delta to this share. A scan already running means the
+  // baseline is unreliable → show the library total instead.
+  await store.refreshScanStatus();
+  baseCount = store.scanCount;
+  indexTotalMode.value = store.isScanning;
   const payload = {
     type: props.server.type,
     host: props.server.host,
     path: targetPath,
-    name: displayName,
+    // The discovered server name (e.g. "NAS-Leo") is the share's friendly label;
+    // the folder it points at rides `path`, and the list row renders the two as
+    // "<name> / <path>". The manual form lets the user edit the label later.
+    name: props.server.name,
   };
   if (props.server.type === 'cifs' && creds.password) {
     payload.username = creds.username || undefined;
     payload.password = creds.password;
-    payload.domain = creds.domain || undefined;
   }
   const result = await store.addShare(payload);
   creating.value = false;
@@ -223,10 +272,60 @@ async function createShare(targetPath, displayName) {
     return;
   }
   if (result.mounted) {
-    emit('success');
+    startIndexing();
   } else {
     phase.value = 'done'; // saved, but the mount didn't come up
   }
+}
+
+// Poll the (global) Navidrome scan status after mounting, showing the live count
+// this share adds. Non-blocking: the "Done" button leaves at any point and the
+// scan finishes server-side.
+function startIndexing() {
+  sawScanning = false;
+  indexPolls = 0;
+  liveFound.value = 0;
+  indexingActive = true;
+  phase.value = 'indexing';
+  timer.setTimeout(pollIndex, INDEX_POLL_MS);
+}
+
+async function pollIndex() {
+  if (!indexingActive) return;
+  indexPolls += 1;
+  await store.refreshScanStatus();
+  if (!indexingActive) return; // left while awaiting the response
+  const scanning = store.isScanning;
+  liveFound.value = indexTotalMode.value
+    ? store.scanCount
+    : Math.max(0, store.scanCount - baseCount);
+  if (scanning) sawScanning = true;
+
+  // Navidrome not reporting yet (daemon not provisioned) — skip validation and
+  // go to the list; the source view's "building library…" state covers it.
+  if (store.scanStatus === null && indexPolls >= INDEX_GRACE_POLLS) {
+    leave();
+    return;
+  }
+  const settled = sawScanning && !scanning;                  // scan ran and finished
+  const neverStarted = !sawScanning && indexPolls >= INDEX_GRACE_POLLS; // instant/idle
+  if (settled || neverStarted || indexPolls >= INDEX_MAX_POLLS) {
+    finishIndexing();
+    return;
+  }
+  timer.setTimeout(pollIndex, INDEX_POLL_MS);
+}
+
+function finishIndexing() {
+  indexingActive = false;
+  finalFound.value = liveFound.value;
+  indexEmpty.value = finalFound.value === 0;
+  phase.value = 'indexed';
+}
+
+function leave() {
+  indexingActive = false;
+  emit('success');
 }
 
 // Kick off at the top level (guest); auth is requested only if refused.
@@ -313,5 +412,17 @@ load('');
   background: var(--color-warning-subtle);
   border-radius: var(--radius-04);
   color: var(--color-warning);
+}
+
+.wb-count {
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+.wb-success {
+  padding: var(--space-03);
+  background: var(--color-success-subtle);
+  border-radius: var(--radius-04);
+  color: var(--color-success);
 }
 </style>
