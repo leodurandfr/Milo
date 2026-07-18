@@ -79,9 +79,12 @@ DataFolder = "/var/lib/milo/navidrome"
 Address = "127.0.0.1"
 Port = 4533
 
-# We trigger scans explicitly on mount events; the folder watcher still catches
-# ad-hoc changes. "0" disables the periodic full rescan.
-ScanSchedule = "0"
+# We scan explicitly on mount events, and the watcher catches local (USB)
+# changes live. But inotify does NOT see writes on the far side of a CIFS/NFS
+# mount, so a periodic rescan is what eventually picks up music added directly
+# on a NAS (the settings screen also offers an on-demand rescan). Incremental
+# (mtime-based), so an hourly pass over an unchanged library is cheap.
+ScanSchedule = "1h"
 EnableWatcher = true
 
 # Appliance is offline-first and LAN-only: no anonymous usage telemetry.

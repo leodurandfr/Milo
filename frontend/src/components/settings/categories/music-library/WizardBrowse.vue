@@ -77,7 +77,16 @@
             :title="entry.name" :action="entry.kind === 'export' ? 'none' : 'caret'"
             @click="onEntry(entry)" />
         </div>
-        <p v-else class="wb-empty text-mono">{{ t('musicLibrary.shares.wizard.emptyFolder') }}</p>
+        <!-- Empty: a sub-folder with nothing in it, or a server that lists no
+             shares as guest — offer to sign in for private shares. -->
+        <template v-else>
+          <p class="wb-empty text-mono">
+            {{ path ? t('musicLibrary.shares.wizard.emptyFolder') : t('musicLibrary.shares.wizard.noSharesGuest') }}
+          </p>
+          <Button v-if="canSignIn" variant="background-strong" size="medium" @click="startSignIn">
+            {{ t('musicLibrary.shares.wizard.signIn') }}
+          </Button>
+        </template>
 
         <p v-if="errorMsg" class="wb-error text-mono">{{ errorMsg }}</p>
 
@@ -125,9 +134,17 @@ const crumbs = computed(() => (path.value ? path.value.split('/') : []));
 const currentName = computed(() => crumbs.value[crumbs.value.length - 1] || props.server.name);
 // A whole share or any sub-folder is selectable (SMB only, once past the root).
 const canUseFolder = computed(() => !isNfs.value && path.value !== '');
+// Offer a sign-in when a SMB server listed nothing as guest and no credentials
+// have been tried yet (e.g. a box that only exposes IPC$ anonymously).
+const canSignIn = computed(() => !isNfs.value && !creds.username && !creds.password);
 
 function hasCreds() {
   return !!(creds.username || creds.password);
+}
+
+function startSignIn() {
+  authError.value = '';
+  phase.value = 'auth';
 }
 
 async function load(target) {
