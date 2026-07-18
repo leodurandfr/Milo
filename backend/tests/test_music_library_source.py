@@ -2,10 +2,11 @@
 """Unit tests for MusicLibrarySource playback + queue (P1-6).
 
 Covers the play_context → gapless mpv playlist path, transport commands
-(pause/resume/next/prev/seek/play_index/stop), the now-playing WS metadata
-projection (title/artist/album/art + queue/index/shuffle/repeat), and the
-monitor's gapless auto-advance + end-of-queue detection. mpv IPC and the
-Navidrome client are mocked — no service, socket, or daemon is touched.
+(pause/resume/next/prev/seek/play_index/set_shuffle/stop), the now-playing WS
+metadata projection (title/artist/album/art + queue/index/shuffle), the live
+shuffle toggle, resume-on-return, and the monitor's gapless auto-advance +
+end-of-queue detection. mpv IPC and the Navidrome client are mocked — no service,
+socket, or daemon is touched.
 """
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -51,6 +52,9 @@ def _mpv(**overrides):
     mpv.pause = AsyncMock(return_value=True)
     mpv.resume = AsyncMock(return_value=True)
     mpv.stop = AsyncMock(return_value=True)
+    mpv.disconnect = AsyncMock(return_value=True)
+    mpv.set_property = AsyncMock(return_value=True)
+    mpv.replace_playlist_tail = AsyncMock(return_value=True)
     mpv.get_property = AsyncMock(return_value=None)
     for key, value in overrides.items():
         setattr(mpv, key, value)
@@ -286,7 +290,8 @@ class TestMetadata:
         assert meta["queue"] == TRACKS
         assert meta["queue_index"] == 1
         assert meta["shuffle"] is True
-        assert meta["repeat"] == "off"
+        # `repeat` was removed (dead scaffolding) — it must not reappear.
+        assert "repeat" not in meta
         assert meta["track_id"] == "s2"
 
     def test_cover_url_falls_back_to_album_id(self, source):
@@ -355,3 +360,189 @@ class TestMonitor:
         await source._on_monitor_tick()
 
         assert source._is_buffering is False
+
+
+class TestSetShuffle:
+    """Live shuffle toggle: reorders only the upcoming tracks (current keeps
+    playing), rebuilding the mpv tail in place."""
+
+    @pytest.mark.asyncio
+    async def test_toggle_on_rebuilds_tail_keeps_head(self, source):
+        source._mpv = _mpv()
+        source._queue = list(TRACKS)
+        source._queue_unshuffled = list(TRACKS)
+        source._queue_index = 0
+        source._shuffle = False
+
+        # No-op shuffle so the mechanics show without randomness.
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: None):
+            result = await source.command("set_shuffle", {"shuffle": True})
+
+        assert result["success"] is True
+        assert source._shuffle is True
+        assert source._queue[0]["id"] == "s1"  # current/head untouched
+        keep, urls = source._mpv.replace_playlist_tail.await_args.args
+        assert keep == 1  # everything from index+1 is the rebuilt tail
+        assert urls == ["http://nav/stream/s2", "http://nav/stream/s3"]
+
+    @pytest.mark.asyncio
+    async def test_toggle_off_restores_original_order(self, source):
+        source._mpv = _mpv()
+        # A shuffled queue whose pristine order is TRACKS.
+        source._queue = [TRACKS[0], TRACKS[2], TRACKS[1]]
+        source._queue_unshuffled = list(TRACKS)
+        source._queue_index = 0
+        source._shuffle = True
+
+        result = await source.command("set_shuffle", {"shuffle": False})
+
+        assert result["success"] is True
+        assert source._shuffle is False
+        # Head (s1) kept; tail restored to pristine order s2, s3.
+        assert [t["id"] for t in source._queue] == ["s1", "s2", "s3"]
+        keep, urls = source._mpv.replace_playlist_tail.await_args.args
+        assert keep == 1
+        assert urls == ["http://nav/stream/s2", "http://nav/stream/s3"]
+
+    @pytest.mark.asyncio
+    async def test_noop_when_already_in_target_state(self, source):
+        source._mpv = _mpv()
+        source._queue = list(TRACKS)
+        source._shuffle = False
+
+        result = await source.command("set_shuffle", {"shuffle": False})
+
+        assert result["success"] is True
+        source._mpv.replace_playlist_tail.assert_not_called()
+        assert source._shuffle is False
+
+    @pytest.mark.asyncio
+    async def test_requires_active_queue(self, source):
+        source._mpv = _mpv()
+        source._queue = []
+        result = await source.command("set_shuffle", {"shuffle": True})
+        assert result["success"] is False
+        source._mpv.replace_playlist_tail.assert_not_called()
+
+
+class TestResume:
+    """Resume-on-return: snapshot on source-switch / idle auto-stop, restore
+    PAUSED on the next activation; forget it on explicit Stop / queue end."""
+
+    @pytest.mark.asyncio
+    async def test_capture_snapshots_live_session(self, source):
+        source._mpv = _mpv_with_props({"time-pos": 42})
+        source._queue = list(TRACKS)
+        source._queue_unshuffled = list(TRACKS)
+        source._queue_index = 1
+        source._shuffle = True
+
+        await source._capture_resume_session()
+
+        assert source._resume is not None
+        assert source._resume["queue"] == TRACKS
+        assert source._resume["queue_index"] == 1
+        assert source._resume["position"] == 42  # live playhead, not the last tick
+        assert source._resume["shuffle"] is True
+
+    @pytest.mark.asyncio
+    async def test_capture_is_noop_without_queue(self, source):
+        source._mpv = _mpv()
+        source._queue = []
+        source._resume = {"stale": True}
+        await source._capture_resume_session()
+        assert source._resume is None
+
+    @pytest.mark.asyncio
+    async def test_auto_stop_saves_session(self, source):
+        source._mpv = _mpv_with_props({"time-pos": 30})
+        source._queue = list(TRACKS)
+        source._queue_index = 2
+
+        await source._auto_stop_action()
+
+        assert source.state == SourceState.WAITING
+        assert source._resume is not None
+        assert source._resume["queue_index"] == 2
+
+    @pytest.mark.asyncio
+    async def test_explicit_stop_forgets_session(self, source):
+        source._mpv = _mpv()
+        source._queue = list(TRACKS)
+        source._resume = {"stale": True}
+
+        await source.command("stop", {})
+
+        assert source.state == SourceState.WAITING
+        assert source._resume is None
+
+    @pytest.mark.asyncio
+    async def test_queue_finished_forgets_session(self, source):
+        source._resume = {"stale": True}
+        await source._handle_queue_finished()
+        assert source._resume is None
+
+    @pytest.mark.asyncio
+    async def test_new_context_forgets_session(self, source):
+        source._mpv = _mpv()
+        source._resume = {"stale": True}
+        await source.command("play_context", {"tracks": TRACKS, "start_index": 0})
+        assert source._resume is None
+
+    @pytest.mark.asyncio
+    async def test_restore_loads_paused_at_saved_position(self, source):
+        source._mpv = _mpv_with_props({"duration": 200})
+        source._resume = {
+            "queue": list(TRACKS),
+            "queue_unshuffled": list(TRACKS),
+            "queue_index": 1,
+            "position": 60,
+            "shuffle": False,
+        }
+
+        ok = await source._restore_resume_session()
+
+        assert ok is True
+        assert source._queue == TRACKS
+        assert source._queue_index == 1
+        assert source._is_playing is False          # restored PAUSED
+        assert source.state == SourceState.ACTIVE    # active but paused
+        source._mpv.load_playlist.assert_awaited()
+        source._mpv.pause.assert_awaited()
+        source._mpv.seek.assert_awaited_with(60)
+        assert source._resume is None                # consumed
+
+    @pytest.mark.asyncio
+    async def test_restore_fails_without_catalog(self, source):
+        source._mpv = _mpv()
+        source.get_navidrome_client = AsyncMock(return_value=None)
+        source._resume = {"queue": list(TRACKS), "queue_index": 0, "position": 0}
+
+        ok = await source._restore_resume_session()
+
+        assert ok is False
+        assert source._resume is None
+        source._mpv.load_playlist.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_do_start_restores_saved_session(self, source):
+        source._resume = {
+            "queue": list(TRACKS),
+            "queue_unshuffled": list(TRACKS),
+            "queue_index": 0,
+            "position": 0,
+            "shuffle": False,
+        }
+        source._start_service_and_wait = AsyncMock(return_value=True)
+        source._load_auto_stop_config = AsyncMock()
+        source._start_monitor = Mock()
+        mpv = _mpv_with_props({"duration": 100})
+        mpv.connect = AsyncMock(return_value=True)
+
+        with patch("backend.sources.music_library.source.MpvController", return_value=mpv):
+            ok = await source._do_start()
+
+        assert ok is True
+        assert source.state == SourceState.ACTIVE
+        assert source._is_playing is False  # resumed paused, not auto-playing
+        mpv.load_playlist.assert_awaited()
