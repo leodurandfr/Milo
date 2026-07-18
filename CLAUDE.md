@@ -151,6 +151,10 @@ When unsure, ask: *"reproducible from a clean prod boot, or only from dev-sessio
 ## Do not write in french except for i18n
 
 
+## Git
+
+Never create a branch unless explicitly asked — commit to the current branch, `main` included. This overrides the default "branch first on the default branch" behaviour.
+
 ## Lint floor
 
 CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `ruff check backend/`, `pytest backend/`, `npm run lint:js`, `npm run lint:css`. Enforced rules:
