@@ -71,6 +71,11 @@ class UpdateService(VersionService):
                 "service_name": "milo-qobuz.service",
                 "venv_path": "/var/lib/milo/qobuz/venv",
                 "backup_path": "/var/lib/milo/backups/qobuz"
+            },
+            "navidrome": {
+                "binary_path": "/usr/local/bin/navidrome",
+                "service_name": "milo-navidrome.service",
+                "backup_path": "/var/lib/milo/backups/navidrome"
             }
         }
 
@@ -100,6 +105,8 @@ class UpdateService(VersionService):
                 return await self._update_camilladsp(status, progress_callback)
             elif program_key == "qobuz-proxy":
                 return await self._update_qobuz_proxy(status, progress_callback)
+            elif program_key == "navidrome":
+                return await self._update_navidrome(status, progress_callback)
             else:
                 return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
@@ -1337,6 +1344,198 @@ class UpdateService(VersionService):
             return True
         except Exception as e:
             self.update_logger.error(f"CamillaDSP rollback failed: {e}")
+            return False
+
+    async def _update_navidrome(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+        """Updates Navidrome binary from GitHub release.
+
+        Navidrome (Music Library catalog engine) is an always-on service; the
+        binary is busy while running, so the service must be stopped before it
+        is replaced. Same shape as CamillaDSP — only the release asset naming
+        differs (version embedded in the filename).
+        """
+        config = self.update_config["navidrome"]
+        latest_version = status["latest"]["version"]
+        service_stopped = False
+
+        try:
+            if progress_callback:
+                await progress_callback("updates.progress.creatingBackup", 10)
+
+            backup_result = await self._backup_navidrome(config)
+            if not backup_result["success"]:
+                return backup_result
+
+            if progress_callback:
+                await progress_callback("updates.progress.downloadingNavidrome", 20)
+
+            download_result = await self._download_navidrome(latest_version)
+            if not download_result["success"]:
+                return download_result
+
+            if progress_callback:
+                await progress_callback("updates.progress.stoppingService", 60)
+
+            # Always stop service — binary cannot be replaced while in use
+            await self._stop_service(config["service_name"])
+            service_stopped = True
+            await asyncio.sleep(0.5)
+
+            if progress_callback:
+                await progress_callback("updates.progress.installingVersion", 70)
+
+            success, output = await self._run_deploy(
+                "install-binary", download_result["binary_path"], config["binary_path"]
+            )
+            if not success:
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+                await self._rollback_navidrome(config)
+                return {"success": False, "error": f"Failed to install binary: {output}"}
+
+            if progress_callback:
+                await progress_callback("updates.progress.startingService", 90)
+
+            start_result = await self._start_service(config["service_name"])
+            if not start_result:
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+                await self._rollback_navidrome(config)
+                return {"success": False, "error": "Failed to start Navidrome after update"}
+
+            if progress_callback:
+                await progress_callback("updates.progress.verifyingUpdate", 95)
+
+            verify_result = await self._verify_navidrome_update(config)
+            if not verify_result["success"]:
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+                await self._rollback_navidrome(config)
+                return verify_result
+
+            if progress_callback:
+                await progress_callback("updates.progress.completed", 100)
+
+            await self._cleanup_temp_files(download_result.get("temp_dir"))
+
+            return {
+                "success": True,
+                "message": f"Navidrome updated to {latest_version}",
+                "old_version": status["installed"]["versions"].get("main"),
+                "new_version": latest_version
+            }
+
+        except Exception as e:
+            if "download_result" in locals():
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+            if service_stopped:
+                await self._rollback_navidrome(config)
+            self.update_logger.error(f"Navidrome update failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _backup_navidrome(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Backs up Navidrome binary"""
+        try:
+            backup_dir = Path(config["backup_path"])
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            shutil.copy2(config["binary_path"], backup_dir / "navidrome.backup")
+
+            return {"success": True, "backup_dir": str(backup_dir)}
+        except Exception as e:
+            return {"success": False, "error": f"Backup failed: {e}"}
+
+    async def _download_navidrome(self, version: str) -> Dict[str, Any]:
+        """Downloads Navidrome binary from GitHub.
+
+        Release asset embeds the version (navidrome_{version}_linux_arm64.tar.gz)
+        and the tarball ships extra files (README/LICENSE) alongside the bare
+        `navidrome` binary — extraction targets the binary member only.
+        """
+        temp_dir = tempfile.mkdtemp(dir="/tmp")
+        try:
+            url = f"https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_arm64.tar.gz"
+
+            timeout = aiohttp.ClientTimeout(total=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
+
+                    archive_path = Path(temp_dir) / "navidrome.tar.gz"
+                    async with aiofiles.open(archive_path, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            await f.write(chunk)
+
+            extract_dir = Path(temp_dir) / "extracted"
+            extract_dir.mkdir()
+
+            proc = await asyncio.create_subprocess_exec(
+                "tar", "-xzf", str(archive_path), "-C", str(extract_dir), "navidrome",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await proc.communicate()
+
+            if proc.returncode != 0:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return {"success": False, "error": "Failed to extract archive"}
+
+            binary_path = extract_dir / "navidrome"
+            if not binary_path.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return {"success": False, "error": "Binary not found in archive"}
+
+            return {
+                "success": True,
+                "binary_path": str(binary_path),
+                "temp_dir": temp_dir
+            }
+        except Exception as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return {"success": False, "error": str(e)}
+
+    async def _verify_navidrome_update(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Verifies Navidrome was updated successfully"""
+        try:
+            if not Path(config["binary_path"]).exists():
+                return {"success": False, "error": "Navidrome binary not found after update"}
+
+            is_active = await self._is_service_active(config["service_name"])
+            if not is_active:
+                return {"success": False, "error": "Navidrome service not running after update"}
+
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": f"Verification failed: {e}"}
+
+    async def _rollback_navidrome(self, config: Dict[str, Any]) -> bool:
+        """Rollback Navidrome binary and restart the service"""
+        try:
+            binary_backup = Path(config["backup_path"]) / "navidrome.backup"
+            if not binary_backup.exists():
+                self.update_logger.error("No backup found for rollback")
+                return False
+
+            await self._stop_service(config["service_name"])
+            await asyncio.sleep(0.5)
+
+            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
+            shutil.copy2(binary_backup, tmp_backup)
+            try:
+                success, output = await self._run_deploy(
+                    "install-binary", str(tmp_backup), config["binary_path"]
+                )
+                if not success:
+                    self.update_logger.error(f"Rollback install failed: {output}")
+                    return False
+            finally:
+                tmp_backup.unlink(missing_ok=True)
+
+            await self._start_service(config["service_name"])
+
+            self.update_logger.info("Navidrome rollback completed, service restarted")
+            return True
+        except Exception as e:
+            self.update_logger.error(f"Navidrome rollback failed: {e}")
             return False
 
     # === UTILITY METHODS ===
