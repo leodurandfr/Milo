@@ -1,7 +1,7 @@
 <template>
   <div class="library-home">
     <!-- Top-level tabs -->
-    <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll" />
+    <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll" inactive-variant="background-neutral" />
 
     <!-- Tab content cross-fades on tab switch (fade-out → fade-in), mirroring the
          view-to-view transition in AudioSourceLayout. The keyed wrapper is what

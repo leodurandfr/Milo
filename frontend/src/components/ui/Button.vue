@@ -16,7 +16,7 @@ const props = defineProps({
     variant: {
         type: String,
         default: 'background-strong',
-        validator: (value) => ['background-strong', 'brand', 'on-grey', 'on-dark', 'outline', 'outline-neutral', 'important'].includes(value)
+        validator: (value) => ['background-strong', 'background-neutral', 'brand', 'on-grey', 'on-dark', 'outline', 'outline-neutral', 'important'].includes(value)
     },
     size: {
         type: String,
@@ -149,6 +149,17 @@ function handleClick(event) {
     color: var(--color-text-light);
 }
 
+/* === BACKGROUND-NEUTRAL variant (white fill, no border) === */
+.btn--background-neutral.btn--normal {
+    background-color: var(--color-background-neutral);
+    color: var(--color-text-secondary);
+}
+
+.btn--background-neutral.btn--disabled {
+    background-color: var(--color-background);
+    color: var(--color-text-light);
+}
+
 /* === BRAND variant === */
 .btn--brand.btn--normal {
     background-color: var(--color-brand);
@@ -228,6 +239,11 @@ function handleClick(event) {
 
 .btn--background-strong.btn--loading {
     background-color: var(--color-background-strong);
+    color: var(--color-text-secondary);
+}
+
+.btn--background-neutral.btn--loading {
+    background-color: var(--color-background-neutral);
     color: var(--color-text-secondary);
 }
 

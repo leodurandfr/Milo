@@ -12,7 +12,7 @@
     <Button
       v-for="option in options"
       :key="option.value"
-      :variant="modelValue === option.value ? 'outline' : 'outline-neutral'"
+      :variant="modelValue === option.value ? 'outline' : inactiveVariant"
       :size="size"
       :disabled="disabled || option.disabled"
       @click="selectOption(option.value)"
@@ -39,6 +39,13 @@ const props = defineProps({
     type: String,
     default: 'medium',
     validator: (value) => ['medium', 'small'].includes(value)
+  },
+  // Button variant for unselected options (the active one is always 'outline').
+  // Default 'outline-neutral' (white + grey border); pass 'background-neutral'
+  // for a flat white-no-border look.
+  inactiveVariant: {
+    type: String,
+    default: 'outline-neutral'
   },
   mobileLayout: {
     type: String,
