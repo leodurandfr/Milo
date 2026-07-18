@@ -3,7 +3,7 @@
  * `AudioSource` enum in `backend/core/models/audio_state.py`.
  * Order matters for the default dock layout.
  */
-export const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'cd', 'dlna', 'qobuz'];
+export const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'radio', 'podcast', 'airplay', 'mac', 'cd', 'dlna', 'qobuz', 'music_library'];
 
 /**
  * i18n label key per source. Not derivable from the id: some labels
@@ -19,4 +19,5 @@ export const AUDIO_SOURCE_LABEL_KEYS = {
   cd: 'audioSources.cd',
   dlna: 'audioSources.dlna',
   qobuz: 'audioSources.qobuz',
+  music_library: 'audioSources.musicLibrary',
 };

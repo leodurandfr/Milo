@@ -53,6 +53,12 @@ function hasRichDisplay(source, state, meta) {
       // is_playing gate is needed: title + artist is enough (like Spotify), and
       // a paused track keeps its cover on screen.
       return state === 'active' && !!m.title && !!m.artist;
+    case 'music_library':
+      // Phase 0 skeleton: no dedicated player component yet, so always fall
+      // back to the AudioSourceStatus placeholder card. Flips to `return true`
+      // (own AudioSourceLayout component, like radio/podcast) in Phase 1 once
+      // MusicLibrarySource.vue exists.
+      return false;
     default:
       // bluetooth, mac, none → no rich view, always the status card.
       return false;

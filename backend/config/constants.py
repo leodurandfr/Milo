@@ -98,7 +98,7 @@ UTILITY_DOCK_APPS = frozenset({'equalizer', 'multiroom', 'settings'})
 VALID_DOCK_APPS = AUDIO_SOURCE_APPS | UTILITY_DOCK_APPS
 
 # Default dock apps (ordered for UI)
-DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "cd", "dlna", "qobuz", "equalizer", "multiroom", "settings"]
+DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "radio", "podcast", "airplay", "mac", "cd", "dlna", "qobuz", "music_library", "equalizer", "multiroom", "settings"]
 
 # Supported UI languages (single source of truth for validation)
 VALID_LANGUAGES = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']

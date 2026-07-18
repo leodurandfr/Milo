@@ -19,6 +19,7 @@ class AudioSource(Enum):
     CD = "cd"
     DLNA = "dlna"
     QOBUZ = "qobuz"
+    MUSIC_LIBRARY = "music_library"
 
 
 class SourceState(Enum):
