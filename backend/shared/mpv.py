@@ -425,3 +425,26 @@ class MpvController:
         """Jump to a 0-based entry in the current playlist (mpv loads + plays it,
         honoring the current pause state)."""
         return await self.set_property("playlist-pos", index)
+
+    async def replace_playlist_tail(self, keep_count: int, urls: list) -> bool:
+        """Replace every playlist entry at index >= ``keep_count`` with ``urls``,
+        leaving entries ``[0, keep_count)`` — including the one currently playing —
+        untouched.
+
+        Because the current entry is never reloaded, playback continues without a
+        restart (and gaplessly into the new tail). Used by the live shuffle toggle
+        to reorder only the upcoming tracks. Returns False if the playlist length
+        can't be read; a single failed append is logged but doesn't abort.
+        """
+        count = await self.get_property("playlist-count")
+        if count is None:
+            return False
+        # Drop the old tail from the end down to keep_count (stable indices).
+        for index in range(int(count) - 1, keep_count - 1, -1):
+            await self._send_command("playlist-remove", index)
+        # Append the new tail in order.
+        for url in urls:
+            response = await self._send_command("loadfile", url, "append")
+            if response is None:
+                self.logger.warning("playlist tail append failed for an entry")
+        return True
