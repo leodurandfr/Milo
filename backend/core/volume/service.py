@@ -487,8 +487,24 @@ class VolumeService:
             if not (client_info and client_info.ip):
                 self.logger.warning(f"Cannot sync client {cid}: no IP address in registry")
                 continue
-            vol_data = await self._equalizer_router.get_volume(cid)
-            volume = vol_data.get("main", DEFAULT_VOLUME_DB) if vol_data else DEFAULT_VOLUME_DB
+            if cid == self._state_store.local_mac_id:
+                # SSOT: the local volume lives in the state store (last_volume.json).
+                # Never reconstruct it from the live CamillaDSP — that inverts the
+                # data flow and races the boot restore.
+                volume = self._state_store.get_client_volume(cid)
+                if volume is None:
+                    volume = self._volume_config.startup_volume_db
+            else:
+                # Remote: read the satellite's own value via the proxy, but if it is
+                # unreachable/not ready (boot race), keep the last persisted value
+                # (SSOT) rather than clobbering it with the -45 dB default — the later
+                # push restores that value to the satellite.
+                vol_data = await self._equalizer_router.get_volume(cid)
+                volume = vol_data.get("main") if vol_data else None
+                if volume is None:
+                    volume = self._state_store.get_client_volume(cid)
+                    if volume is None:
+                        volume = DEFAULT_VOLUME_DB
             await self._state_store.register_client(cid, volume_db=volume, available=client.get("available", True))
 
         self.logger.info(f"Synced {len(clients)} clients from equalizer")
@@ -730,9 +746,16 @@ class VolumeService:
             await self._camilladsp_service.set_mute(False)
             self.logger.info("DAC mode: re-pinned CamillaDSP at 0 dB after reconnect")
             return
-        volume_db = self._state_store.local_volume_db
         local_mac_id = self._state_store.local_mac_id
-        local_mute = self._state_store.get_client_mute(local_mac_id) if local_mac_id else False
+        if local_mac_id is None or not self._state_store.has_client(local_mac_id):
+            # Boot race: CamillaDSP connected before the state store was restored.
+            # Don't clobber it with DEFAULT_VOLUME_DB — the startup path
+            # (_apply_startup_volume / push_volume_to_all_clients) applies the
+            # correct local value once the store is ready.
+            self.logger.debug("reapply skipped: local client not yet known")
+            return
+        volume_db = self._state_store.local_volume_db
+        local_mute = self._state_store.get_client_mute(local_mac_id)
         await self._camilladsp_service.set_volume(volume_db)
         await self._camilladsp_service.set_mute(local_mute)
         self.logger.info(f"Re-applied volume after CamillaDSP reconnect: {volume_db:.1f}dB, mute={local_mute}")
@@ -742,12 +765,14 @@ class VolumeService:
         Apply startup volume and mute state to CamillaDSP (FR12).
 
         Volume source is determined by restore_last_volume setting:
-        - True: Use persisted volume from last_volume.json
-        - False: Use startup_volume_db from settings.json
+        - True: the local client's OWN persisted per-client volume (state store,
+          restored from last_volume.json before this runs). In multiroom
+          startup_volume_db tracks the GLOBAL AVERAGE, which is wrong for the
+          local client; in direct mode the two are equal anyway.
+        - False: the user-configured fixed startup_volume_db.
 
-        Note: At startup, registry may not have the local client yet, so we
-        rely on startup_volume_db from settings (the single source of truth at
-        boot) and apply it directly to CamillaDSP.
+        SSOT: the state store is the single source of truth for the local volume;
+        we apply store -> CamillaDSP here and never read CamillaDSP back into it.
         """
         # Wait for CamillaDSP connection
         if self._camilladsp_service:
@@ -763,14 +788,22 @@ class VolumeService:
             self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
             return
 
-        # startup_volume_db is the single source of truth:
-        # - restore_last_volume=true: auto-updated by FR11 to track current volume
-        # - restore_last_volume=false: user-configured fixed value
-        target_volume = self._volume_config.startup_volume_db
-        self.logger.info(f"FR12: Applying startup_volume_db: {target_volume:.1f} dB")
+        local_mac_id = self._state_store.local_mac_id
+
+        # In restore mode, the local client's own persisted volume is authoritative
+        # (in multiroom startup_volume_db tracks the global AVERAGE — wrong for the
+        # local client). Before the local client is resolved (fresh boot), fall back
+        # to the configured startup volume rather than the -45 dB hard default.
+        # In fixed mode, the user-configured value applies to all clients.
+        if (self._volume_config.restore_last_volume
+                and local_mac_id is not None
+                and self._state_store.has_client(local_mac_id)):
+            target_volume = self._state_store.get_client_volume(local_mac_id)
+        else:
+            target_volume = self._volume_config.startup_volume_db
+        self.logger.info(f"FR12: Applying startup volume: {target_volume:.1f} dB")
 
         # Get persisted mute state from local client (False if no client registered yet)
-        local_mac_id = self._state_store.local_mac_id
         local_mute = self._state_store.get_client_mute(local_mac_id) if local_mac_id else False
 
         # Apply directly to local CamillaDSP (at startup, registry not yet populated)

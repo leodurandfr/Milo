@@ -611,6 +611,68 @@ class TestVolumeService:
 
         mock_camilladsp_service.set_volume.assert_called_once_with(-37.0)
 
+    @pytest.mark.asyncio
+    async def test_reapply_current_volume_skips_when_local_unknown(self, service, mock_camilladsp_service):
+        """Boot race: CamillaDSP connects before the state store is restored. reapply
+        must NOT clobber the daemon with DEFAULT_VOLUME_DB — it skips until the local
+        client is known (the startup path applies the correct value)."""
+        service._state_store._local_mac_id = None
+        service._state_store._clients = {}
+
+        await service.reapply_current_volume()
+
+        mock_camilladsp_service.set_volume.assert_not_called()
+        mock_camilladsp_service.set_mute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_does_not_read_local_from_camilladsp(self, service):
+        """SSOT: the local client's volume comes from the state store, never re-read
+        from the live CamillaDSP (which would race the boot restore)."""
+        local_mac = "2c:cf:67:b9:46:6f"
+        service._routing_service = Mock()
+        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
+        service.snapcast_service.get_clients = AsyncMock(return_value=[
+            {"mac_id": local_mac, "available": True},
+        ])
+        service._client_registry = Mock()
+        service._client_registry.get_client = Mock(return_value=Mock(ip="127.0.0.1"))
+        service._equalizer_router = Mock()
+        service._equalizer_router.get_volume = AsyncMock(return_value={"main": -10.0})  # would be WRONG
+        service.broadcast_volume_state = AsyncMock()
+        service._state_store._local_mac_id = local_mac
+        service._state_store._clients[local_mac] = ClientVolume(
+            volume_db=-40.0, offset_db=0.0, mute=False, available=True
+        )
+
+        await service.sync_all_clients_from_equalizer()
+
+        service._equalizer_router.get_volume.assert_not_called()  # local never read from hardware
+        assert service._state_store.get_client_volume(local_mac) == -40.0  # store value preserved
+
+    @pytest.mark.asyncio
+    async def test_sync_keeps_persisted_remote_volume_when_proxy_fails(self, service):
+        """SSOT: if the satellite proxy read fails at boot, keep the last persisted
+        remote volume instead of clobbering it with the -45 dB default."""
+        remote_mac = "dc:a6:32:7e:d3:43"
+        service._routing_service = Mock()
+        service._routing_service.get_state.return_value = {'multiroom_enabled': True}
+        service.snapcast_service.get_clients = AsyncMock(return_value=[
+            {"mac_id": remote_mac, "available": True},
+        ])
+        service._client_registry = Mock()
+        service._client_registry.get_client = Mock(return_value=Mock(ip="192.168.1.50"))
+        service._equalizer_router = Mock()
+        service._equalizer_router.get_volume = AsyncMock(return_value=None)  # proxy unreachable
+        service.broadcast_volume_state = AsyncMock()
+        service._state_store._local_mac_id = "2c:cf:67:b9:46:6f"
+        service._state_store._clients[remote_mac] = ClientVolume(
+            volume_db=-50.0, offset_db=0.0, mute=False, available=True
+        )
+
+        await service.sync_all_clients_from_equalizer()
+
+        assert service._state_store.get_client_volume(remote_mac) == -50.0  # persisted kept, not -45
+
     def test_volume_config_access(self, service):
         """Test volume_config property access."""
         config = service.volume_config
@@ -1330,35 +1392,39 @@ class TestStartupVolumeOnRestart:
         self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
-        FR12 AC3/AC4: initialize() applies startup_volume_db when restore_last_volume=true.
-        startup_volume_db is auto-updated by FR11 to track current volume, so at restart
-        it already contains the persisted volume.
+        FR12: in restore mode, the local client's OWN persisted per-client volume is
+        applied — NOT startup_volume_db (which tracks the global average in multiroom).
         """
-        # Arrange: Set config with restore=true
-        # startup_volume_db has been auto-tracked by FR11 to the persisted volume
+        # Arrange: local persisted at -42, startup_volume_db deliberately different
         persisted_vol = -42.0
+        mac = "aa:bb:cc:dd:ee:ff"
         service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
-            startup_volume_db=persisted_vol,  # FR11 auto-tracked this
+            startup_volume_db=-30.0,  # must be ignored in favor of the local's own value
             restore_last_volume=True
+        )
+        service._state_store._local_mac_id = mac
+        service._state_store._clients[mac] = ClientVolume(
+            volume_db=persisted_vol, offset_db=0.0, mute=False, available=True
         )
 
         # Act
         await service._apply_startup_volume()
 
-        # Assert: Equalizer was set to startup_volume_db (uses _camilladsp_service directly at startup)
+        # Assert: the local's own persisted volume was applied, not startup_volume_db
         mock_camilladsp_service.set_volume.assert_called_with(persisted_vol)
 
     @pytest.mark.asyncio
-    async def test_startup_uses_startup_volume_db_as_single_source(
+    async def test_startup_falls_back_to_startup_volume_db_when_local_unknown(
         self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
-        FR12: startup_volume_db is the single source of truth for startup volume.
-        FR11 auto-updates it during runtime, so at restart it contains the correct value.
+        FR12: in restore mode, when the local client is not yet resolved (fresh boot
+        before seeding), fall back to the configured startup_volume_db rather than the
+        -45 dB hard default.
         """
-        # Arrange: startup_volume_db is always used (FR11 keeps it in sync)
+        # Arrange: restore mode, no local client resolved
         startup_vol = -38.0
         service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
@@ -1366,12 +1432,13 @@ class TestStartupVolumeOnRestart:
             startup_volume_db=startup_vol,
             restore_last_volume=True
         )
+        service._state_store._local_mac_id = None
         service._state_store._clients = {}  # No client state
 
         # Act
         await service._apply_startup_volume()
 
-        # Assert: Equalizer was set to startup_volume_db (uses _camilladsp_service directly at startup)
+        # Assert: fell back to startup_volume_db
         mock_camilladsp_service.set_volume.assert_called_with(startup_vol)
 
     @pytest.mark.asyncio
