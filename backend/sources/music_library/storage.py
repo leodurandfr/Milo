@@ -194,7 +194,9 @@ class StorageManager:
                 return  # not one of ours (some other block device)
             await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
             self.logger.info("Unmounted %s (%s)", devnode, mountpoint)
-        await self._trigger_scan()
+        # Removal is an unambiguous "this storage is gone" signal → full scan so
+        # Navidrome purges the vanished tracks (PurgeMissing="full").
+        await self._trigger_scan(full=True)
 
     async def _run_helper(
         self,
@@ -297,7 +299,8 @@ class StorageManager:
             )
             await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
             self.logger.info("Unmounted share %s (%s)", share_id, mountpoint)
-        await self._trigger_scan()
+        # Full scan so Navidrome purges the removed share's now-missing tracks.
+        await self._trigger_scan(full=True)
 
     async def forget_share_credentials(self, share_id: str) -> None:
         """Drop a share's root-only cred file (called on share deletion)."""
@@ -362,8 +365,14 @@ class StorageManager:
     # Navidrome rescan
     # =========================================================================
 
-    async def _trigger_scan(self) -> None:
+    async def _trigger_scan(self, full: bool = False) -> None:
         """Ask Navidrome to rescan /media/milo after a mount change.
+
+        ``full`` runs a full scan instead of a quick (mtime-based) one — used on
+        *removal* (USB unplug / share deletion) so Navidrome, with
+        Scanner.PurgeMissing="full", drops the now-missing tracks instead of
+        leaving them as empty "ghost" albums. A plain mount keeps the quick scan
+        (fast, add-only; a transient outage must never purge valid tracks).
 
         Best-effort: Navidrome's own folder watcher also notices, so a failure
         here (not provisioned yet, still starting up) just means a slightly later
@@ -377,7 +386,7 @@ class StorageManager:
             )
             return
         try:
-            if not await client.start_scan():
+            if not await client.start_scan(full=full):
                 self.logger.info(
                     "Navidrome scan trigger returned falsy (may be starting up)"
                 )
