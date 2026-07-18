@@ -21,7 +21,7 @@
 
           <div class="player-info">
             <slot name="info">
-              <p :class="['player-title', source === 'radio' ? 'heading-1' : 'heading-3']">{{ title }}</p>
+              <p :class="['player-title', source === 'radio' ? 'heading-2' : 'heading-3']">{{ title }}</p>
               <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
             </slot>
             <slot name="progress"></slot>
@@ -275,7 +275,6 @@ const playerClasses = computed(() => ({
   justify-content: center;
   height: 100%;
   flex-direction: column;
-  padding: var(--space-05) 0;
   gap: var(--space-04);
 }
 
@@ -482,13 +481,9 @@ const playerClasses = computed(() => ({
     grid-row: 2;
   }
 
-  /* Compact mobile player drops the favorite/queue row (available in the UI). */
-  .audio-player.source-music_library :deep(.ml-controls) {
-    flex-direction: row;
-    gap: var(--space-02);
-  }
-
-  .audio-player.source-music_library :deep(.ml-secondary) {
+  /* Compact mobile player keeps only the core transport; shuffle/like are
+     desktop-only and queue lives in the header. */
+  .audio-player.source-music_library :deep(.ml-transport-extra) {
     display: none;
   }
 

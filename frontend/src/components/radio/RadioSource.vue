@@ -32,7 +32,7 @@
         <template v-if="radioStore.trackInfo" #info>
           <!-- Desktop: 3-line layout — title + artist grouped tighter than the station line -->
           <div class="radio-track-group radio-track--desktop">
-            <p class="player-title heading-1">{{ radioStore.trackInfo.title }}</p>
+            <p class="player-title heading-2">{{ radioStore.trackInfo.title }}</p>
             <p class="player-subtitle heading-3">{{ radioStore.trackInfo.artist }}</p>
           </div>
           <p class="player-subtitle text-mono radio-track--desktop">{{ displayStation?.name }}</p>

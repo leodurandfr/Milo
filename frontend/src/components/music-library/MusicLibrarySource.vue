@@ -7,8 +7,9 @@
       :player-mobile-height="184" :pending-scroll-restore="pendingScrollRestore"
       @header-back="goBack" @scroll-restored="onScrollRestored">
 
-      <!-- Header actions (home only): search -->
+      <!-- Header actions (home only): queue + search -->
       <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
+        <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
         <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
       </template>
 
@@ -38,8 +39,22 @@
       <template #player>
         <AudioPlayer :visible="shouldShowPlayer" source="music_library"
           :artwork="playerArtwork" :placeholder-artwork="albumPlaceholder"
-          :title="playerTitle" :subtitle="playerArtist"
+          :title="playerTitle"
           :is-playing="isPlaying" :is-loading="isBuffering">
+          <!-- Track info: same text hierarchy + spacing as the radio player
+               (title / artist / album). Only the controls below differ per source. -->
+          <template #info>
+            <div class="ml-track-group ml-track--desktop">
+              <p class="player-title heading-2">{{ playerTitle }}</p>
+              <p v-if="playerArtist" class="player-subtitle heading-3">{{ playerArtist }}</p>
+            </div>
+            <p v-if="playerAlbum" class="player-subtitle text-mono ml-track--desktop">{{ playerAlbum }}</p>
+            <!-- Mobile: compact single line -->
+            <p class="player-title heading-4 ml-track--mobile">
+              {{ playerTitle }}<template v-if="playerArtist"> · {{ playerArtist }}</template>
+            </p>
+          </template>
+
           <template #progress>
             <div @click.stop>
               <ProgressBar :current-position="currentPositionSec" :duration="currentDurationSec"
@@ -50,18 +65,17 @@
           <template #controls>
             <div class="ml-controls" @click.stop>
               <div class="playback-controls">
-                <IconButton icon="previous" variant="on-dark" size="small" @click="store.previous()" />
-                <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
-                  :loading="isBuffering" @click="togglePlayPause" />
-                <IconButton icon="next" variant="on-dark" size="small" @click="store.next()" />
-              </div>
-              <div class="ml-secondary">
-                <IconButton icon="shuffle" variant="on-dark" size="small"
+                <IconButton icon="shuffle" variant="on-dark" size="small" class="ml-transport-extra"
                   :color="store.shuffle ? 'var(--color-brand)' : undefined"
                   @click="store.toggleShuffle()" />
+                <div class="ml-transport-main">
+                  <IconButton icon="previous" variant="on-dark" size="small" @click="store.previous()" />
+                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
+                    :loading="isBuffering" @click="togglePlayPause" />
+                  <IconButton icon="next" variant="on-dark" size="small" @click="store.next()" />
+                </div>
                 <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="small"
-                  @click="store.toggleCurrentStar()" />
-                <IconButton icon="queue" variant="on-dark" size="small" @click="goToQueue" />
+                  class="ml-transport-extra" @click="store.toggleCurrentStar()" />
               </div>
             </div>
           </template>
@@ -130,6 +144,7 @@ const currentDurationSec = computed(() => Math.floor((durationMs.value || 0) / 1
 // === Player display (sticky through fade-out) ===
 const playerTitle = computed(() => store.displayTrack?.title || '');
 const playerArtist = computed(() => store.displayTrack?.artist || '');
+const playerAlbum = computed(() => store.displayTrack?.album || '');
 const playerArtwork = computed(() => store.displayTrack?.albumArtUrl || null);
 
 // === Header title per view ===
@@ -213,7 +228,29 @@ function handleSeek(positionSec) {
   display: none;
 }
 
-/* Docked-player controls: transport row + favorite/queue row. */
+/* Player info: same text hierarchy + spacing as the radio player — title +
+   artist grouped tight, album separated by player-info's own gap. */
+.ml-track-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+}
+
+.ml-track--mobile {
+  display: none;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .ml-track--desktop {
+    display: none !important;
+  }
+
+  .ml-track--mobile {
+    display: block !important;
+  }
+}
+
+/* Docked-player controls: single transport row (shuffle … prev·play·next … like). */
 .ml-controls {
   display: flex;
   flex-direction: column;
@@ -222,11 +259,19 @@ function handleSeek(positionSec) {
   width: 100%;
 }
 
-.ml-secondary {
+/* Centered transport trio (prev · play · next). */
+.ml-transport-main {
   display: flex;
-  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: var(--space-05);
+  gap: var(--space-02);
+}
+
+/* Desktop: shuffle pinned far-left, like far-right, trio centered between.
+   Mobile keeps the trio centered (shuffle/like are hidden there). */
+@media (min-aspect-ratio: 4/3) {
+  .ml-controls .playback-controls {
+    justify-content: space-between;
+  }
 }
 </style>
