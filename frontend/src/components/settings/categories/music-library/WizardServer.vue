@@ -18,9 +18,16 @@
       <div v-if="discovering" class="wiz-center"><LoadingSpinner :size="40" /></div>
 
       <div v-else-if="servers.length" class="wiz-list">
+        <!-- Servers already added as a share are shown greyed + "already connected"
+             (not selectable again). -->
         <ListItemButton v-for="server in servers" :key="`${server.type}:${server.host}`"
-          variant="background" :title="server.name" :subtitle="`${server.address} · ${typeLabel(server.type)}`"
-          action="caret" @click="$emit('select', server)">
+          variant="background" :title="server.name"
+          :subtitle="isConnected(server)
+            ? t('musicLibrary.shares.wizard.alreadyConnected')
+            : `${server.address} · ${typeLabel(server.type)}`"
+          :action="isConnected(server) ? 'none' : 'caret'"
+          :disabled="isConnected(server)"
+          @click="$emit('select', server)">
           <template #icon>
             <span class="wiz-badge text-mono-small">{{ typeLabel(server.type) }}</span>
           </template>
@@ -29,13 +36,15 @@
 
       <p v-else class="wiz-empty text-mono">{{ t('musicLibrary.shares.wizard.noServers') }}</p>
 
-      <Button variant="background-strong" size="small" left-icon="search" :loading="discovering" @click="discover">
-        {{ t('musicLibrary.shares.wizard.rescan') }}
-      </Button>
-
-      <button type="button" class="wiz-manual text-mono-small" @click="$emit('manual')">
-        {{ t('musicLibrary.shares.wizard.manual') }}
-      </button>
+      <!-- Manual entry (outline) on the left, discovery re-scan (brand) on the right. -->
+      <div class="wiz-actions">
+        <Button variant="outline" size="medium" @click="$emit('manual')">
+          {{ t('musicLibrary.shares.wizard.manual') }}
+        </Button>
+        <Button variant="brand" size="medium" :loading="discovering" :loading-label="false" @click="discover">
+          {{ t('musicLibrary.shares.wizard.rescan') }}
+        </Button>
+      </div>
     </SettingsSection>
   </SettingsContainer>
 </template>
@@ -62,6 +71,13 @@ function typeLabel(type) {
   return type === 'nfs' ? 'NFS' : 'SMB';
 }
 
+// A discovered server is "already connected" when a share for the same host +
+// type already exists — the share was created from this same discovery host, so
+// an exact match is reliable.
+function isConnected(server) {
+  return store.shares.some((s) => s.host === server.host && s.type === server.type);
+}
+
 async function discover() {
   if (discovering.value) return;
   discovering.value = true;
@@ -69,7 +85,10 @@ async function discover() {
   discovering.value = false;
 }
 
-onMounted(discover);
+onMounted(() => {
+  store.loadShares(); // so isConnected() can flag servers already added
+  discover();
+});
 </script>
 
 <style scoped>
@@ -85,8 +104,22 @@ onMounted(discover);
 
 .wiz-center {
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding: var(--space-05);
+  /* Reserve the height of two server rows (title + subtitle list items) + the
+     list gap, so the panel doesn't resize when discovery finishes. Measured row
+     height: 62px desktop / 58px mobile; list gap = space-01. */
+  min-height: calc(2 * 62px + var(--space-01));
+}
+
+/* Manual-entry + re-scan side by side, equal width. */
+.wiz-actions {
+  display: flex;
+  gap: var(--space-02);
+}
+
+.wiz-actions > * {
+  flex: 1;
 }
 
 .wiz-list {
@@ -114,13 +147,10 @@ onMounted(discover);
   border: 2px dashed var(--color-border);
 }
 
-.wiz-manual {
-  align-self: center;
-  padding: var(--space-02);
-  color: var(--color-text-secondary);
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-decoration: underline;
+/* Mobile rows are a touch shorter (58px) — keep the loading block at 2 rows. */
+@media (max-aspect-ratio: 4/3) {
+  .wiz-center {
+    min-height: calc(2 * 58px + var(--space-01));
+  }
 }
 </style>

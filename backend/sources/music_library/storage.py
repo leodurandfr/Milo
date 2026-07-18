@@ -26,7 +26,7 @@ never crash the backend.
 """
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from backend.config.constants import (
     MILO_MOUNT_CMD,
@@ -331,6 +331,20 @@ class StorageManager:
         except OSError as exc:
             self.logger.debug("Could not read /proc/mounts: %s", exc)
         return mounted
+
+    def get_usb_mounts(self) -> List[Dict[str, str]]:
+        """USB volumes mounted read-only under the mount root right now.
+
+        Backs the settings screen's read-only USB status line (unlike the
+        configurable network shares). Reads the in-session devnode→mountpoint map
+        — the authoritative USB set (network shares live in a separate map) — so
+        it never stats a mountpoint and can't hang. ``label`` is the mountpoint's
+        final segment (milo-mount mounts a key at /media/milo/<label>).
+        """
+        return [
+            {"label": mountpoint.rsplit("/", 1)[-1], "mountpoint": mountpoint}
+            for mountpoint in self._mounts.values()
+        ]
 
     @staticmethod
     def _encode_credentials(credentials: Dict[str, str]) -> bytes:
