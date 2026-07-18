@@ -90,6 +90,14 @@ EnableWatcher = true
 # Appliance is offline-first and LAN-only: no anonymous usage telemetry.
 EnableInsightsCollector = false
 
+# Online metadata/art agents (artist images, bios) are intentionally always on —
+# there is no user toggle. This is Navidrome's default; setting it explicitly makes
+# the intent durable against a future default change. Album covers still come from
+# embedded/folder art first; the online agents only enrich what those lack, and a
+# failed call (offline) falls back silently — no functional regression when LAN-only.
+# Independent of EnableInsightsCollector above: we fetch art but send no telemetry.
+EnableExternalServices = true
+
 LogLevel = "info"
 EOF
 

@@ -418,6 +418,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   }
 
   const isScanning = computed(() => !!scanStatus.value?.scanning);
+  // Tracks indexed so far — surfaced in the "building library…" state as live
+  // progress during a fresh scan.
+  const scanCount = computed(() => scanStatus.value?.count || 0);
 
   // On-demand rescan ("I added music, refresh now"). The watcher can't see
   // changes made on a NAS over CIFS/NFS, so this forces Navidrome to re-index.
@@ -645,6 +648,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     // Scan status
     scanStatus,
     isScanning,
+    scanCount,
     refreshScanStatus,
     rescan,
 

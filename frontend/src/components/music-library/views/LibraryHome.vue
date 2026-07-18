@@ -10,7 +10,7 @@
         v-else-if="!store.albums.length"
         :loading="store.isScanning"
         :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.emptyLibrary')"
-        :subtitle="store.isScanning ? t('musicLibrary.buildingHint') : t('musicLibrary.emptyLibraryHint')"
+        :subtitle="store.isScanning ? buildingSubtitle : t('musicLibrary.emptyLibraryHint')"
       />
       <template v-else>
         <div class="albums-grid">
@@ -28,7 +28,9 @@
     <!-- ARTISTS -->
     <template v-else-if="store.activeTab === 'artists'">
       <MessageContent v-if="store.artistsLoading && !store.artistIndex.length" loading :title="t('musicLibrary.loading')" />
-      <MessageContent v-else-if="!store.artistIndex.length" :title="t('musicLibrary.noArtists')" />
+      <MessageContent v-else-if="!store.artistIndex.length" :loading="store.isScanning"
+        :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noArtists')"
+        :subtitle="store.isScanning ? buildingSubtitle : ''" />
       <div v-else class="index-list">
         <div v-for="bucket in store.artistIndex" :key="bucket.name" class="index-bucket">
           <p class="index-label text-mono">{{ bucket.name }}</p>
@@ -48,7 +50,9 @@
     <!-- GENRES -->
     <template v-else-if="store.activeTab === 'genres'">
       <MessageContent v-if="store.genresLoading && !store.genres.length" loading :title="t('musicLibrary.loading')" />
-      <MessageContent v-else-if="!store.genres.length" :title="t('musicLibrary.noGenres')" />
+      <MessageContent v-else-if="!store.genres.length" :loading="store.isScanning"
+        :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noGenres')"
+        :subtitle="store.isScanning ? buildingSubtitle : ''" />
       <div v-else class="rows-list">
         <div
           v-for="genre in store.genres"
@@ -71,7 +75,9 @@
         </Button>
       </div>
       <MessageContent v-if="store.playlistsLoading && !store.playlists.length" loading :title="t('musicLibrary.loading')" />
-      <MessageContent v-else-if="!store.playlists.length" :title="t('musicLibrary.noPlaylists')" />
+      <MessageContent v-else-if="!store.playlists.length" :loading="store.isScanning"
+        :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noPlaylists')"
+        :subtitle="store.isScanning ? buildingSubtitle : ''" />
       <div v-else class="rows-list">
         <MediaRow
           v-for="playlist in store.playlists"
@@ -123,6 +129,15 @@ async function handleCreate(name) {
   creating.value = false;
   if (created) createOpen.value = false;
 }
+
+// Building-state subtitle: the reassuring hint until Navidrome reports a track
+// count, then live progress ("1,234 tracks indexed…"). Shared by every tab's
+// empty state during a scan.
+const buildingSubtitle = computed(() =>
+  store.scanCount > 0
+    ? t('musicLibrary.buildingProgress', { count: store.scanCount })
+    : t('musicLibrary.buildingHint')
+);
 
 const tabOptions = computed(() => [
   { label: t('musicLibrary.tabs.albums'), value: 'albums' },

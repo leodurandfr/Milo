@@ -6,7 +6,7 @@
 
 > ⚠ Currently in work in progress — Available soon
 
-### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Qobuz Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, DLNA, and Mac streaming.
+### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Qobuz Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, your own Music Library, DLNA, and Mac streaming.
 
 <!-- TODO: Add screenshot or GIF of the interface -->
 <!-- ![Milō Interface](docs/assets/screenshot.png) -->
@@ -41,6 +41,10 @@
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/cd.png" width="48"></td>
     <td><b>CD Player</b><br>Play audio CDs with automatic track and metadata lookup</td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/music-library.png" width="48"></td>
+    <td><b>Music Library</b><br>Play your own music from a USB drive or network share (SMB/NFS), indexed by artists, albums, genres, and playlists</td>
   </tr>
     <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/macos.png" width="48"></td>
@@ -192,7 +196,7 @@ Control Milō from your other devices:
   </tr>
   <tr>
     <td><b>Audio</b></td>
-    <td>ALSA, CamillaDSP, Snapcast, mpv, go-librespot, qobuz-proxy, shairport-sync, bluez-alsa, ROC</td>
+    <td>ALSA, CamillaDSP, Snapcast, mpv, Navidrome, go-librespot, qobuz-proxy, shairport-sync, bluez-alsa, ROC</td>
   </tr>
   <tr>
     <td><b>Platform</b></td>

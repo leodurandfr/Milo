@@ -458,6 +458,53 @@ is driven entirely by an external app:
   the Qobuz iOS app silently aborts the Connect handshake on a non-ASCII name.
   Milō's own UI still shows the `audioSources.qobuz` label ("Qobuz").
 
+### Engine + player source: Music Library (Family C)
+
+Music Library (`backend/sources/music_library/`) is a **Family C** source (active
+player, `<AudioPlayerFull>` with controls) but the first one split into a catalog
+**engine** + a **player** — the reference for a source backed by an external index
+and a storage/mount layer. Mental model: **≈ the Podcast source, with Navidrome
+standing in for Podcast Index and a mount layer underneath.**
+
+- **Two services, deliberately named differently.**
+  `milo-navidrome.service` is the always-on catalog **engine** (tech-named after the
+  product, like `milo-camilladsp`), `BindsTo=milo-backend`, owns
+  `/var/lib/milo/navidrome`. `milo-music-library.service` is the on-demand **mpv
+  player** (source-named, like `milo-podcast`), started on activation. Both exist —
+  they are complementary, not alternatives.
+- **`navidrome_client.py`** is an async **Subsonic** client (the analog of
+  `browser_api.py`), used both by the `/api/music-library/*` browse routes and by
+  `source.py` at play time to build bit-perfect `stream?id=…&format=raw` URLs.
+  Auth is Subsonic token auth against a single service account provisioned on first
+  boot by `milo-navidrome-provision` (milo-owned 0600 cred file, read via
+  `NavidromeClient.from_cred_file()`); a missing cred file surfaces as a 503 on
+  browse routes and a null status on the polled scan-status route (self-healing).
+- **`storage.py` (`StorageManager`) is the only hard part** — Navidrome indexes
+  `/media/milo` but never mounts anything. A `pyudev` netlink monitor (unprivileged,
+  the analog of the CD disc-watcher) mounts USB partitions read-only via the
+  `milo-mount` sudoers helper and triggers a Navidrome `startScan`; SMB/NFS shares
+  go the same way but are persisted (`data.py`, versioned JSON — non-secret only)
+  and replayed at boot. Fail-open throughout (no udev on a dev host just disables
+  auto-mount). CIFS credentials are fed to `milo-mount` on **stdin**, never argv.
+- **`source.py` builds a gapless mpv playlist** from any context (album / genre /
+  playlist / search): the frontend hands ordered Subsonic song dicts to
+  `play_context`, the source maps each id to a stream URL and loads them as one mpv
+  native playlist (`--gapless-audio`). Now-playing (title/artist/album/art + queue/
+  index/shuffle/repeat) is broadcast as standard source metadata; the frontend
+  derives it from `unifiedAudioStore` gated on `active_source === 'music_library'`.
+- **Scan-progress UX.** A fresh library scan takes minutes.
+  `GET /api/music-library/scan-status` returns `{scanning, count, folderCount}`;
+  `MusicLibrarySource.vue` polls it (via `useTimer`) while scanning or while the
+  catalog still looks empty, shows a "building library…" state with a live
+  indexed-track count, and calls `store.resync()` on the completion edge so the
+  catalog appears without a manual refresh.
+- **Cover art** is proxied localhost-only behind `/api/music-library/cover/{id}`
+  (1-year cache); the frontend never reaches Navidrome directly. Navidrome's online
+  metadata/art agents are always enabled (`EnableExternalServices = true` in the
+  baked `navidrome.toml` — no user toggle; offline calls fail back silently).
+- **Milo-Mac contract:** no change — playback is generic (`/api/audio/control/{source}`)
+  and metadata is opaque, so no `/api/music-library/*` route is in the manifest.
+
 ## Testing
 
 ### Backend (pytest)

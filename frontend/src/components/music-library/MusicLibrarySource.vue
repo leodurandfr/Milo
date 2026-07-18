@@ -74,7 +74,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility';
@@ -165,6 +165,27 @@ function goBack() {
 function onScrollRestored() {
   pendingScrollRestore.value = null;
 }
+
+// === First-scan progress polling ===
+// A fresh library scan takes minutes; poll scan-status while it runs (or while
+// the catalog still looks empty — so a scan kicked off by a USB key inserted
+// mid-browse is noticed) and quietly stop once the library is populated and
+// idle. The tick is a cheap reactive check; the network call only fires when
+// building or empty. On the completion edge, resync() reloads whichever lists
+// are cached so the freshly-indexed catalog appears without a manual refresh.
+const SCAN_POLL_INTERVAL_MS = 2500;
+const libraryLooksEmpty = computed(() => store.albumsLoaded && !store.albums.length);
+
+onMounted(() => {
+  store.refreshScanStatus();
+  timer.setInterval(() => {
+    if (store.isScanning || libraryLooksEmpty.value) store.refreshScanStatus();
+  }, SCAN_POLL_INTERVAL_MS);
+});
+
+watch(() => store.isScanning, (scanning, wasScanning) => {
+  if (wasScanning && !scanning) store.resync();
+});
 
 // === Player controls ===
 function togglePlayPause() {
