@@ -103,11 +103,14 @@ EnableExternalServices = true
 # the WHOLE name — the default `front.*` only matches a file literally named
 # `front.<ext>`. Ripped/self-tagged albums commonly ship `NN - Front.jpg` or
 # `<Album> front.jpg`, which the default silently ignores (no cover). We append
-# loose `*front*`/`*cover*`/`*folder*` as a LAST resort — after the exact names
-# and embedded art — so those albums get their real cover while albums that
-# already match an earlier rule are unaffected (zero regression). `*back*` is
+# loose `*front*`/`*cover*`/`*folder*`/`*album*` as a LAST resort — after the
+# exact names and embedded art — so those albums get their real cover while
+# albums that already match an earlier rule are unaffected (zero regression).
+# `*album*` catches Windows/foobar-style `AlbumArt.jpg` and `AlbumArt_{GUID}_*.jpg`;
+# it stays safe because Navidrome only scans the album's OWN folder for external
+# art, so "album"-named files there are always this album's cover. `*back*` is
 # deliberately omitted (never surface the back cover as album art).
-CoverArtPriority = "cover.*, folder.*, front.*, embedded, *front*, *cover*, *folder*"
+CoverArtPriority = "cover.*, folder.*, front.*, embedded, *front*, *cover*, *folder*, *album*"
 
 LogLevel = "info"
 
