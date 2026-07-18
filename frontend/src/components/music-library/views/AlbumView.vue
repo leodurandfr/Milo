@@ -25,17 +25,23 @@
       </TracklistHeader>
 
       <div class="tracks">
-        <TrackRow
-          v-for="(song, idx) in songs"
-          :key="song.id"
-          :song="song"
-          :number="song.track || idx + 1"
-          :current="song.id === store.currentTrackId"
-          :playing="store.isPlaying"
-          show-menu
-          @play="playFrom(idx)"
-          @menu="store.requestAddToPlaylist([song.id])"
-        />
+        <template v-for="group in discGroups" :key="group.disc">
+          <!-- Disc separator, only for genuine multi-disc releases. -->
+          <p v-if="multiDisc" class="disc-header text-mono-small">
+            {{ group.title || t('musicLibrary.discLabel', { number: group.disc }) }}
+          </p>
+          <TrackRow
+            v-for="(item, i) in group.songs"
+            :key="item.song.id"
+            :song="item.song"
+            :number="item.song.track || i + 1"
+            :current="item.song.id === store.currentTrackId"
+            :playing="store.isPlaying"
+            show-menu
+            @play="playFrom(item.index)"
+            @menu="store.requestAddToPlaylist([item.song.id])"
+          />
+        </template>
       </div>
     </template>
   </div>
@@ -65,6 +71,35 @@ const album = ref(null);
 const loading = ref(false);
 
 const songs = computed(() => album.value?.song || []);
+
+// Disc-number → subtitle, when the release carries per-disc titles (OpenSubsonic
+// discTitles, e.g. "Bonus Remixes"). Absent for most albums → we fall back to
+// the generic "Disc N" label.
+const discTitles = computed(() => {
+  const map = {};
+  for (const dt of album.value?.discTitles || []) {
+    if (dt && dt.disc != null) map[dt.disc] = dt.title;
+  }
+  return map;
+});
+
+// Group the (disc-then-track ordered) songs by disc number, carrying each song's
+// flat index so play actions still target the right position in the full album
+// order. Grouped by value rather than consecutive runs so a stray out-of-order
+// track can't spawn a duplicate disc heading.
+const discGroups = computed(() => {
+  const byDisc = new Map();
+  songs.value.forEach((song, index) => {
+    const disc = Number(song.discNumber) || 1;
+    if (!byDisc.has(disc)) byDisc.set(disc, []);
+    byDisc.get(disc).push({ song, index });
+  });
+  return [...byDisc.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([disc, groupSongs]) => ({ disc, title: discTitles.value[disc] || '', songs: groupSongs }));
+});
+
+const multiDisc = computed(() => discGroups.value.length > 1);
 
 const albumStarred = computed(() =>
   album.value ? store.isStarred('album', album.value.id, album.value.starred) : false
@@ -117,5 +152,12 @@ watch(() => props.albumId, async (id) => {
   display: flex;
   flex-direction: column;
   gap: var(--space-01);
+}
+
+.disc-header {
+  margin: 0;
+  padding: var(--space-03) var(--space-03) var(--space-01);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
 }
 </style>

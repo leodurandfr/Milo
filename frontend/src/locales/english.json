@@ -544,6 +544,7 @@
     "tracksCount": "{count} tracks",
     "songsCount": "{count} songs",
     "minutesShort": "min",
+    "discLabel": "Disc {number}",
     "playlists": {
       "newPlaylist": "New playlist",
       "createTitle": "New playlist",
