@@ -439,6 +439,25 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return false;
   }
 
+  // Manual refresh: a full scan (indexes new music + purges gone files) when every
+  // share is mounted, else a quick scan — 'blocked' returns the offline shares that
+  // deferred the cleanup (a full scan would drop their still-valid tracks).
+  async function refreshLibrary() {
+    const full = await apiCall.post(`${BASE}/scan/full`, null, {
+      category: 'musicLibrary',
+      message: 'Error refreshing library',
+    });
+    if (full.ok && full.data?.status === 'success') {
+      await refreshScanStatus();
+      return { ok: true };
+    }
+    if (full.ok && full.data?.status === 'blocked') {
+      const ok = await rescan();
+      return { ok, offlineShares: full.data.offline_shares || [] };
+    }
+    return { ok: false };
+  }
+
   // =========================================================================
   // NETWORK SHARES (SMB/NFS) — configured in Settings; the backend persists,
   // (re)mounts read-only under /media/milo, and rescans on every write. Non-
@@ -676,7 +695,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     isScanning,
     scanCount,
     refreshScanStatus,
-    rescan,
+    refreshLibrary,
 
     // Network shares
     shares,

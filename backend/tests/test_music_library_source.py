@@ -546,3 +546,38 @@ class TestResume:
         assert source.state == SourceState.ACTIVE
         assert source._is_playing is False  # resumed paused, not auto-playing
         mpv.load_playlist.assert_awaited()
+
+
+class TestOfflineShareNames:
+    """The mount-health gate for the full-scan/purge route: purging while a share
+    is offline would wrongly drop its still-valid tracks, so the route refuses
+    when offline_share_names() is non-empty."""
+
+    @pytest.mark.asyncio
+    async def test_lists_only_unmounted_shares(self, source):
+        source._data.list_shares = AsyncMock(return_value=[
+            {"id": "a", "name": "NAS-Leo", "host": "10.0.0.2"},
+            {"id": "b", "name": "Studio", "host": "10.0.0.3"},
+        ])
+        source._storage.get_mounted_share_ids = Mock(return_value={"a"})
+
+        assert await source.offline_share_names() == ["Studio"]
+
+    @pytest.mark.asyncio
+    async def test_empty_when_all_mounted(self, source):
+        source._data.list_shares = AsyncMock(return_value=[
+            {"id": "a", "name": "NAS-Leo", "host": "10.0.0.2"},
+        ])
+        source._storage.get_mounted_share_ids = Mock(return_value={"a"})
+
+        assert await source.offline_share_names() == []
+
+    @pytest.mark.asyncio
+    async def test_name_falls_back_to_host_then_id(self, source):
+        source._data.list_shares = AsyncMock(return_value=[
+            {"id": "a", "host": "10.0.0.2"},   # no name → host
+            {"id": "b"},                        # no name/host → id
+        ])
+        source._storage.get_mounted_share_ids = Mock(return_value=set())
+
+        assert await source.offline_share_names() == ["10.0.0.2", "b"]

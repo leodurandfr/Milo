@@ -812,6 +812,19 @@ class MusicLibrarySource(MpvAudioSource):
             for share in await self._data.list_shares()
         ]
 
+    async def offline_share_names(self) -> List[str]:
+        """Configured network shares not mounted right now (empty if all up).
+
+        Gates the full-scan/purge route: purging while a share's NAS is offline would
+        wrongly drop its still-valid tracks. USB is excluded — an unplug already
+        purges its own tracks.
+        """
+        return [
+            share.get("name") or share.get("host") or share.get("id")
+            for share in await self.list_shares()
+            if not share.get("mounted")
+        ]
+
     async def add_share(self, req: ShareRequest) -> Dict[str, Any]:
         """Persist a new share, mount it read-only, and rescan Navidrome.
 
