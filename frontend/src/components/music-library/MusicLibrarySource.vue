@@ -272,6 +272,7 @@ function handleSeek(positionSec) {
 @media (min-aspect-ratio: 4/3) {
   .ml-controls .playback-controls {
     justify-content: space-between;
+    padding: 0 var(--space-01);
   }
 }
 </style>
