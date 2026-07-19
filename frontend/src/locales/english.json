@@ -625,6 +625,14 @@
       "title": "USB storage",
       "connected": "Connected",
       "notConnected": "Not connected"
+    },
+    "maintenance": {
+      "title": "Library refresh",
+      "description": "Fully re-indexes your library, adding new music and removing deleted tracks.",
+      "refresh": "Refresh",
+      "refreshing": "Refreshing…",
+      "refreshProgress": "{count} tracks indexed…",
+      "cleanupDeferred": "{shares} is offline — deleted music will be removed once it's reconnected."
     }
   },
   "setup": {

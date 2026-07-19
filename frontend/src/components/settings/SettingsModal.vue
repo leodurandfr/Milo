@@ -4,7 +4,7 @@
     <!-- Single NavigationHeader outside transition -->
     <NavigationHeader ref="navHeaderRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
-      <template v-if="currentView === 'home' || currentView === 'multiroom' || currentView === 'bt-remote' || showIrRemoteToggle || showFanToggle || stationActionIcon || currentView === 'music-library'" #actions>
+      <template v-if="currentView === 'home' || currentView === 'multiroom' || currentView === 'bt-remote' || showIrRemoteToggle || showFanToggle || stationActionIcon" #actions>
         <button v-if="currentView === 'home'" v-press class="power-toggle" @click="togglePowerMenu">
           <SvgIcon name="power" size="large" color="var(--color-text-contrast)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': showPowerMenu }" />
@@ -21,9 +21,6 @@
           @change="handleFanToggle" />
         <IconButton v-if="stationActionIcon" :icon="stationActionIcon" variant="on-dark"
           @click="toggleStationActionMenu" />
-        <IconButton v-if="currentView === 'music-library'" icon="arrowClockwise" variant="on-dark"
-          :loading="musicLibraryStore.isScanning" :disabled="musicLibraryStore.isScanning"
-          @click="handleMusicLibraryRescan" />
       </template>
     </NavigationHeader>
 
@@ -271,7 +268,6 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useRadioStore } from '@/stores/radioStore';
-import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useFanStore } from '@/stores/fanStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import { useViewTransition } from '@/composables/useViewTransition';
@@ -347,7 +343,6 @@ const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const radioStore = useRadioStore();
-const musicLibraryStore = useMusicLibraryStore();
 const fanStore = useFanStore();
 
 // Inject modal refs: the scroller (scroll el) and the navigation height writer.
@@ -570,13 +565,6 @@ function handleShareSaved() {
   prepareNavigation();
   shareToEdit.value = null;
   shareWizardServer.value = null;
-}
-
-// Header refresh: on-demand Navidrome rescan (music added on a NAS the file
-// watcher can't see over the mount). MusicLibrarySettings polls the scan status
-// while it runs, so the header spinner clears on its own when the scan settles.
-function handleMusicLibraryRescan() {
-  if (!musicLibraryStore.isScanning) musicLibraryStore.rescan();
 }
 
 // === MULTIROOM ZONE/CLIENT HANDLERS ===

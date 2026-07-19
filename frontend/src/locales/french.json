@@ -615,6 +615,14 @@
       "title": "Stockage USB",
       "connected": "Branché",
       "notConnected": "Non branché"
+    },
+    "maintenance": {
+      "title": "Actualisation de la bibliothèque",
+      "description": "Indexe entièrement votre bibliothèque en ajoutant les nouvelles musiques et en retirant celles supprimées.",
+      "refresh": "Actualiser",
+      "refreshing": "Actualisation en cours…",
+      "refreshProgress": "{count} morceaux indexés…",
+      "cleanupDeferred": "{shares} est hors-ligne — la musique supprimée sera retirée dès sa reconnexion."
     }
   },
   "setup": {

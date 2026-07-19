@@ -455,6 +455,30 @@ async def trigger_scan(
         return {"status": "success"}
 
 
+@router.post("/scan/full")
+async def trigger_full_scan(
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Full rescan that also purges vanished tracks — the settings "remove deleted
+    music" action (the quick /scan never purges; see its docstring).
+
+    A full scan drops every track Navidrome can't see (Scanner.PurgeMissing="full"),
+    so an offline share would have its still-valid tracks purged. When any configured
+    share is unmounted we skip the scan and return ``{"status": "blocked",
+    offline_shares}`` rather than a 5xx (an offline NAS is a normal precondition to
+    surface). USB needs no check: an unplug is itself a purge event. 503 until ready.
+    """
+    async with _catalog_errors("Error starting full scan", source):
+        offline = await source.offline_share_names()
+        if offline:
+            logger.info("Full scan skipped; shares offline: %s", ", ".join(offline))
+            return {"status": "blocked", "offline_shares": offline}
+        client = await _require_client(source)
+        await client.start_scan(full=True)
+        source.invalidate_album_cache()
+        return {"status": "success"}
+
+
 # === Network shares (SMB/NFS) ===
 
 @router.get("/usb-devices")
