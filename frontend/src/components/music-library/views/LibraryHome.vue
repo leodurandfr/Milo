@@ -54,7 +54,7 @@
               @click="$emit('select-genre', genre)">
               <span class="genre-name heading-3">{{ genre.value }}</span>
               <span class="genre-count text-mono">{{ t('musicLibrary.songsCount', { count: genre.songCount || 0 })
-                }}</span>
+              }}</span>
             </div>
           </div>
         </template>
@@ -237,5 +237,13 @@ onMounted(() => {
 .genre-count {
   flex-shrink: 0;
   color: var(--color-text-secondary);
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .albums-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    column-gap: var(--space-03);
+  }
+
 }
 </style>
