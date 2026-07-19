@@ -21,9 +21,14 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 const BASE = '/api/music-library';
 const ALBUMS_PAGE_SIZE = 40;
-// Cover thumbnails in grids/rows — Navidrome resizes; the player uses the
-// backend-provided full-size album_art_url as-is.
-const COVER_THUMB_PX = 300;
+// Cover sizes (square max dimension Navidrome resizes to), scaled by
+// devicePixelRatio (capped at 2) so covers stay crisp on HiDPI screens. The
+// player uses the backend-provided full-size album_art_url as-is.
+//   - grid: AlbumCard fills 1fr columns that render up to ~350px CSS.
+//   - row:  MediaRow / picker thumbnails render at ~60px CSS.
+const _DPR = Math.min(window.devicePixelRatio || 1, 2);
+const COVER_GRID_PX = Math.round(350 * _DPR);
+const COVER_ROW_PX = Math.round(80 * _DPR);
 
 export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const unifiedStore = useUnifiedAudioStore();
@@ -34,8 +39,13 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (!coverId) return '';
     return size ? `${BASE}/cover/${coverId}?size=${size}` : `${BASE}/cover/${coverId}`;
   }
+  // Small rounded thumbnails in lists and the playlist picker (~60px CSS).
   function thumbUrl(coverId) {
-    return coverUrl(coverId, COVER_THUMB_PX);
+    return coverUrl(coverId, COVER_ROW_PX);
+  }
+  // Full-width album covers in browse grids.
+  function gridUrl(coverId) {
+    return coverUrl(coverId, COVER_GRID_PX);
   }
 
   // =========================================================================
@@ -611,6 +621,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     // Helpers
     coverUrl,
     thumbUrl,
+    gridUrl,
 
     // Now playing
     nowPlaying,
