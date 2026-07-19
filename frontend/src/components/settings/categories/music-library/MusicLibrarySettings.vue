@@ -11,7 +11,7 @@
       <template #header>
         <SectionHeader :title="t('musicLibrary.shares.title')">
           <template #actions>
-            <Button variant="brand" size="small" left-icon="plus" @click="$emit('add-share')">
+            <Button variant="outline" size="small" @click="$emit('add-share')">
               {{ t('musicLibrary.shares.addShare') }}
             </Button>
           </template>
@@ -70,7 +70,7 @@
         </div>
       </div>
 
-      <Button variant="background-strong" size="medium" left-icon="arrowClockwise"
+      <Button variant="brand" size="medium" left-icon="arrowClockwise"
         :disabled="busy" @click="onRefresh">
         {{ busy ? t('musicLibrary.maintenance.refreshing') : t('musicLibrary.maintenance.refresh') }}
       </Button>
