@@ -250,9 +250,10 @@ class TestEncodeQuery:
 class TestNavidromeCoverArt:
     def _stub_session(self, client, *, status=200, content_type="image/jpeg", body=b"IMG"):
         class _Resp:
-            def __init__(self):
-                self.status = status
-                self.headers = {"Content-Type": content_type}
+            def __init__(self, resp_status, resp_ct, resp_body):
+                self.status = resp_status
+                self.headers = {"Content-Type": resp_ct}
+                self._body = resp_body
 
             async def __aenter__(self):
                 return self
@@ -261,11 +262,25 @@ class TestNavidromeCoverArt:
                 return False
 
             async def read(self):
-                return body
+                return self._body
+
+        def _get(url, **kwargs):
+            params = kwargs.get("params") or []
+            cover_id = (
+                params.get("id")
+                if isinstance(params, dict)
+                else next((v for k, v in params if k == "id"), None)
+            )
+            # get_cover_art also probes an empty id to learn Navidrome's generic
+            # placeholder signature — serve that a body distinct from the real
+            # cover so the signature never collides with actual artwork.
+            if not cover_id:
+                return _Resp(200, "image/png", b"PLACEHOLDER")
+            return _Resp(status, content_type, body)
 
         client._ensure_session = AsyncMock()
         client._session = MagicMock()
-        client._session.get = MagicMock(return_value=_Resp())
+        client._session.get = MagicMock(side_effect=_get)
 
     async def test_cover_art_returns_bytes_and_type(self, client):
         self._stub_session(client, content_type="image/png", body=b"PNGDATA")
