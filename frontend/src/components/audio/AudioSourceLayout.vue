@@ -13,6 +13,7 @@
       :class="{ 'has-player': showPlayer }"
     >
       <NavigationHeader
+        ref="headerRef"
         :title="headerTitle"
         :subtitle="headerSubtitle"
         :show-back="headerShowBack"
@@ -52,6 +53,7 @@ import { useIsMobile } from '@/composables/useIsMobile'
 import { useViewTransition } from '@/composables/useViewTransition'
 
 const layoutRef = ref(null)
+const headerRef = ref(null)
 
 const props = defineProps({
   /**
@@ -144,6 +146,7 @@ const { prepareNavigation, onBeforeLeave: baseOnBeforeLeave, onEnter, onAfterLea
   scrollElRef: layoutRef,
   pendingScrollRestore: pendingScrollRef,
   onScrollRestored: () => emit('scroll-restored'),
+  headerRef,
 })
 
 // Gradient fade on navigation when scroll position crosses the visibility boundary
