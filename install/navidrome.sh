@@ -87,6 +87,14 @@ Port = 4533
 ScanSchedule = "1h"
 EnableWatcher = true
 
+# Do NOT turn bundled .m3u/.nsp files into playlists. Navidrome defaults this ON,
+# which silently mints a playlist per sidecar file found in the library — and
+# ripped/downloaded albums routinely ship a per-album .m3u tracklist, so the
+# Playlists tab fills with dozens of "Auto-imported from '…m3u'" entries (and
+# duplicates on rescan) that the user never made. Playlists on Milō are created
+# and owned through the app's own UI, so this import path is pure noise here.
+AutoImportPlaylists = false
+
 # Appliance is offline-first and LAN-only: no anonymous usage telemetry.
 EnableInsightsCollector = false
 
