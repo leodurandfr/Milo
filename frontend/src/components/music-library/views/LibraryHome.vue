@@ -1,7 +1,8 @@
 <template>
   <div class="library-home">
     <!-- Top-level tabs -->
-    <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll" inactive-variant="background-neutral" />
+    <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll"
+      inactive-variant="background-neutral" />
 
     <!-- Tab content cross-fades on tab switch (fade-out → fade-in), mirroring the
          view-to-view transition in AudioSourceLayout. The keyed wrapper is what
@@ -10,21 +11,15 @@
       <div :key="store.activeTab" class="tab-content">
         <!-- ALBUMS -->
         <template v-if="store.activeTab === 'albums'">
-          <MessageContent v-if="store.albumsLoading && !store.albums.length" loading :title="t('musicLibrary.loading')" />
-          <MessageContent
-            v-else-if="!store.albums.length"
-            :loading="store.isScanning"
+          <MessageContent v-if="store.albumsLoading && !store.albums.length" loading
+            :title="t('musicLibrary.loading')" />
+          <MessageContent v-else-if="!store.albums.length" :loading="store.isScanning"
             :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.emptyLibrary')"
-            :subtitle="store.isScanning ? buildingSubtitle : t('musicLibrary.emptyLibraryHint')"
-          />
+            :subtitle="store.isScanning ? buildingSubtitle : t('musicLibrary.emptyLibraryHint')" />
           <template v-else>
             <div class="albums-grid">
-              <AlbumCard
-                v-for="album in store.albums"
-                :key="album.id"
-                :album="album"
-                @click="$emit('select-album', album)"
-              />
+              <AlbumCard v-for="album in store.albums" :key="album.id" :album="album"
+                @click="$emit('select-album', album)" />
             </div>
             <div ref="sentinelRef" class="scroll-sentinel"></div>
           </template>
@@ -32,42 +27,34 @@
 
         <!-- ARTISTS -->
         <template v-else-if="store.activeTab === 'artists'">
-          <MessageContent v-if="store.artistsLoading && !store.artistIndex.length" loading :title="t('musicLibrary.loading')" />
+          <MessageContent v-if="store.artistsLoading && !store.artistIndex.length" loading
+            :title="t('musicLibrary.loading')" />
           <MessageContent v-else-if="!store.artistIndex.length" :loading="store.isScanning"
             :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noArtists')"
             :subtitle="store.isScanning ? buildingSubtitle : ''" />
           <div v-else class="index-list">
             <div v-for="bucket in store.artistIndex" :key="bucket.name" class="index-bucket">
               <p class="index-label text-mono">{{ bucket.name }}</p>
-              <MediaRow
-                v-for="artist in bucket.artist"
-                :key="artist.id"
-                :cover-id="artist.coverArt"
-                :title="artist.name"
-                :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
-                rounded-cover
-                @click="$emit('select-artist', artist)"
-              />
+              <MediaRow v-for="artist in bucket.artist" :key="artist.id" :cover-id="artist.coverArt"
+                :title="artist.name" :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
+                rounded-cover @click="$emit('select-artist', artist)" />
             </div>
           </div>
         </template>
 
         <!-- GENRES -->
         <template v-else-if="store.activeTab === 'genres'">
-          <MessageContent v-if="store.genresLoading && !store.genres.length" loading :title="t('musicLibrary.loading')" />
+          <MessageContent v-if="store.genresLoading && !store.genres.length" loading
+            :title="t('musicLibrary.loading')" />
           <MessageContent v-else-if="!store.genres.length" :loading="store.isScanning"
             :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noGenres')"
             :subtitle="store.isScanning ? buildingSubtitle : ''" />
           <div v-else class="rows-list">
-            <div
-              v-for="genre in store.genres"
-              :key="genre.value"
-              v-press
-              class="genre-row"
-              @click="$emit('select-genre', genre)"
-            >
+            <div v-for="genre in store.genres" :key="genre.value" v-press class="genre-row"
+              @click="$emit('select-genre', genre)">
               <span class="genre-name heading-3">{{ genre.value }}</span>
-              <span class="genre-count text-mono">{{ t('musicLibrary.songsCount', { count: genre.songCount || 0 }) }}</span>
+              <span class="genre-count text-mono">{{ t('musicLibrary.songsCount', { count: genre.songCount || 0 })
+                }}</span>
             </div>
           </div>
         </template>
@@ -79,32 +66,23 @@
               {{ t('musicLibrary.playlists.newPlaylist') }}
             </Button>
           </div>
-          <MessageContent v-if="store.playlistsLoading && !store.playlists.length" loading :title="t('musicLibrary.loading')" />
+          <MessageContent v-if="store.playlistsLoading && !store.playlists.length" loading
+            :title="t('musicLibrary.loading')" />
           <MessageContent v-else-if="!store.playlists.length" :loading="store.isScanning"
             :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noPlaylists')"
             :subtitle="store.isScanning ? buildingSubtitle : ''" />
           <div v-else class="rows-list">
-            <MediaRow
-              v-for="playlist in store.playlists"
-              :key="playlist.id"
-              :cover-id="playlist.coverArt"
-              :title="playlist.name"
-              :subtitle="t('musicLibrary.songsCount', { count: playlist.songCount || 0 })"
-              @click="$emit('select-playlist', playlist)"
-            />
+            <MediaRow v-for="playlist in store.playlists" :key="playlist.id" :cover-id="playlist.coverArt"
+              :title="playlist.name" :subtitle="t('musicLibrary.songsCount', { count: playlist.songCount || 0 })"
+              @click="$emit('select-playlist', playlist)" />
           </div>
         </template>
       </div>
     </Transition>
 
-    <PlaylistNameModal
-      :is-open="createOpen"
-      :title="t('musicLibrary.playlists.createTitle')"
-      :submit-label="t('musicLibrary.playlists.create')"
-      :loading="creating"
-      @close="createOpen = false"
-      @submit="handleCreate"
-    />
+    <PlaylistNameModal :is-open="createOpen" :title="t('musicLibrary.playlists.createTitle')"
+      :submit-label="t('musicLibrary.playlists.create')" :loading="creating" @close="createOpen = false"
+      @submit="handleCreate" />
   </div>
 </template>
 
@@ -196,8 +174,9 @@ onMounted(() => {
 
 .albums-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-04);
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  row-gap: var(--space-05);
+  column-gap: var(--space-04);
 }
 
 .scroll-sentinel {
