@@ -127,6 +127,13 @@ class NavidromeClient:
         self._placeholder_len: Optional[int] = None
         self._placeholder_sha: Optional[str] = None
         self._placeholder_checked: bool = False
+        # Navidrome resizes its "no cover" placeholder too, so a thumbnail request
+        # returns bytes that differ from the full-size signature above (this is why
+        # an art-less playlist's generic cover slips through at thumb size). We
+        # learn the resized placeholder's signature per requested size the first
+        # time we confirm one against the authoritative full-size art. size → (len,
+        # sha256).
+        self._thumb_placeholder_sigs: Dict[int, Tuple[int, str]] = {}
 
     @classmethod
     def from_cred_file(
@@ -529,17 +536,14 @@ class NavidromeClient:
             and hashlib.sha256(data).hexdigest() == self._placeholder_sha
         )
 
-    async def get_cover_art(
-        self, cover_id: str, size: Optional[int] = None
+    async def _fetch_cover_bytes(
+        self, cover_id: str, size: Optional[int]
     ) -> Optional[Tuple[bytes, str]]:
-        """Fetch cover-art bytes + content-type for the /api/music-library/cover
-        proxy (the frontend never reaches Navidrome directly).
+        """Raw getCoverArt fetch → ``(bytes, content_type)`` or None on a miss.
 
-        Returns ``(data, content_type)`` on success, None on miss. A miss is
-        either a Subsonic error body (unknown id — any non-image content type) or
-        Navidrome's generic "no cover" placeholder — both reported as None so the
-        route 404s and the frontend shows Milō's own album placeholder instead of
-        a foreign asset.
+        A miss is a non-200, a non-image body (Subsonic's XML/JSON error for an
+        unknown/stale id), or a connectivity failure — all reported as None so the
+        caller 404s. Placeholder detection happens in :meth:`get_cover_art`.
         """
         await self._ensure_session()
         query = {**self._auth_params(), "id": cover_id, "size": size}
@@ -559,10 +563,6 @@ class NavidromeClient:
                     return None
                 content_type = resp.headers.get("Content-Type", "image/jpeg")
                 if not content_type.startswith("image/"):
-                    # Subsonic returns an XML/JSON error body (not an image) for an
-                    # unknown/stale id — e.g. art that was present then removed.
-                    # Expected miss, not a system error: the caller 404s and the UI
-                    # shows its placeholder.
                     self.logger.info(
                         f"Navidrome has no cover for {cover_id} ({content_type})"
                     )
@@ -574,11 +574,63 @@ class NavidromeClient:
             else:
                 self.logger.error(f"Navidrome getCoverArt error for {cover_id}: {exc}")
             return None
+        return data, content_type
+
+    async def get_cover_art(
+        self, cover_id: str, size: Optional[int] = None
+    ) -> Optional[Tuple[bytes, str]]:
+        """Fetch cover-art bytes + content-type for the /api/music-library/cover
+        proxy (the frontend never reaches Navidrome directly).
+
+        Returns ``(data, content_type)`` on success, None on miss. A miss is
+        either a Subsonic error body (unknown id) or Navidrome's generic "no cover"
+        placeholder — both reported as None so the route 404s and the frontend
+        shows Milō's own placeholder instead of a foreign asset.
+
+        The placeholder check is size-aware: Navidrome resizes its placeholder for
+        thumbnail requests, so those bytes don't match the full-size signature.
+        For a sized request whose placeholder signature we haven't learned yet, we
+        confirm against the authoritative full-size art before treating it as a
+        miss (and cache the resized signature so later thumbnails are a cheap
+        compare) — this is what stops an art-less playlist's blue-vinyl default
+        from leaking through at thumb size.
+        """
+        result = await self._fetch_cover_bytes(cover_id, size)
+        if result is None:
+            return None
+        data, content_type = result
 
         await self._ensure_placeholder_signature()
+        # Full-size signature: matches size=None requests and the cases where
+        # Navidrome ignored `size` and returned the full placeholder.
         if self._is_placeholder(data):
             self.logger.debug(
                 "Cover %s is Navidrome's placeholder — reporting as missing", cover_id
+            )
+            return None
+        if size is None:
+            return data, content_type
+
+        sig = self._thumb_placeholder_sigs.get(size)
+        digest = hashlib.sha256(data).hexdigest()
+        if sig is not None:
+            if sig == (len(data), digest):
+                self.logger.debug(
+                    "Cover %s is the resized placeholder (size=%s) — missing",
+                    cover_id,
+                    size,
+                )
+                return None
+            return data, content_type
+
+        # First sized request whose placeholder signature is unknown: confirm
+        # against the full-size art. Only a genuine placeholder learns the
+        # signature, so a real cover can never poison it.
+        full = await self._fetch_cover_bytes(cover_id, None)
+        if full is not None and self._is_placeholder(full[0]):
+            self._thumb_placeholder_sigs[size] = (len(data), digest)
+            self.logger.debug(
+                "Learned resized placeholder for size=%s from %s", size, cover_id
             )
             return None
         return data, content_type
