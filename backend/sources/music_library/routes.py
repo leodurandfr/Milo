@@ -32,6 +32,12 @@ from fastapi.responses import Response
 from backend.api.route_helpers import api_error_handler
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.music_library.browse import browse_share
+from backend.sources.music_library.disc_merge import (
+    expand_merged_album,
+    is_merged_id,
+    merge_albums,
+    parse_merged_id,
+)
 from backend.sources.music_library.discovery import discover_servers
 from backend.sources.music_library.models import (
     CreatePlaylistRequest,
@@ -114,13 +120,19 @@ async def get_artist(
     artist_id: str,
     source: MusicLibrarySource = Depends(get_source),
 ) -> Dict[str, Any]:
-    """A single artist with its albums (Subsonic getArtist)."""
+    """A single artist with its albums (Subsonic getArtist).
+
+    The album list is collapsed for multi-disc sets (see disc_merge) — the artist
+    page shows a split "… CD 1/CD 2" release as one album.
+    """
     async with _catalog_errors("Error getting artist", source):
         client = await _require_client(source)
         artist = await client.get_artist(artist_id)
         if artist is None:
             logger.error("Artist not found: %s", artist_id)
             raise HTTPException(status_code=404, detail="Artist not found")
+        if artist.get("album"):
+            artist["album"] = merge_albums(artist["album"])
         return {"artist": artist}
 
 
@@ -129,10 +141,18 @@ async def get_album(
     album_id: str,
     source: MusicLibrarySource = Depends(get_source),
 ) -> Dict[str, Any]:
-    """A single album with its ordered songs (Subsonic getAlbum)."""
+    """A single album with its ordered songs (Subsonic getAlbum).
+
+    A synthetic ``mdisc:`` id (a merged multi-disc release) is expanded into one
+    album with the members' tracks concatenated and disc-tagged; a plain id is a
+    straight getAlbum.
+    """
     async with _catalog_errors("Error getting album", source):
         client = await _require_client(source)
-        album = await client.get_album(album_id)
+        if is_merged_id(album_id):
+            album = await expand_merged_album(client.get_album, album_id)
+        else:
+            album = await client.get_album(album_id)
         if album is None:
             logger.error("Album not found: %s", album_id)
             raise HTTPException(status_code=404, detail="Album not found")
@@ -149,12 +169,21 @@ async def get_albums(
     from_year: Optional[int] = Query(None, description="Required for type=byYear"),
     to_year: Optional[int] = Query(None, description="Required for type=byYear"),
 ) -> Dict[str, Any]:
-    """A page of albums (Subsonic getAlbumList2). See ALBUM_LIST_TYPES."""
+    """A page of albums (Subsonic getAlbumList2). See ALBUM_LIST_TYPES.
+
+    Multi-disc sets are collapsed (see disc_merge). For the alphabetical grid
+    (the only paged browse) the merge runs over the *whole* catalog — cached on
+    the source — so a disc pair is never split across a page boundary; other
+    list types merge within the returned page.
+    """
     async with _catalog_errors("Error listing albums", source):
         if type not in ALBUM_LIST_TYPES:
             logger.error("Invalid album list type: %s", type)
             raise HTTPException(status_code=400, detail=f"Invalid album list type: {type}")
         client = await _require_client(source)
+        if type == "alphabeticalByName" and genre is None:
+            merged = await source.get_merged_albums()
+            return {"albums": merged[offset:offset + size]}
         albums = await client.get_album_list(
             list_type=type,
             size=size,
@@ -163,7 +192,7 @@ async def get_albums(
             from_year=from_year,
             to_year=to_year,
         )
-        return {"albums": albums}
+        return {"albums": merge_albums(albums)}
 
 
 # === Search ===
@@ -189,7 +218,7 @@ async def search(
         )
         return {
             "artists": result["artist"],
-            "albums": result["album"],
+            "albums": merge_albums(result["album"]),
             "songs": result["song"],
         }
 
@@ -340,6 +369,15 @@ async def get_cover(
 
 # === Favorites (star) ===
 
+def _star_targets(request: StarRequest) -> list:
+    """Real Subsonic ids for a star toggle — fanning a merged album (``mdisc:``)
+    out to its member album ids so favouriting the collapsed release stars every
+    disc. Any other id is starred as-is."""
+    if request.kind == "album" and is_merged_id(request.id):
+        return parse_merged_id(request.id)
+    return [request.id]
+
+
 @router.post("/star")
 async def star(
     request: StarRequest,
@@ -348,9 +386,10 @@ async def star(
     """Star a song/album/artist (Subsonic star)."""
     async with _catalog_errors("Error starring item", source):
         client = await _require_client(source)
-        if not await client.star(request.id, kind=request.kind):
-            logger.error("Navidrome rejected star for %s (%s)", request.id, request.kind)
-            raise HTTPException(status_code=502, detail="Navidrome rejected star")
+        for item_id in _star_targets(request):
+            if not await client.star(item_id, kind=request.kind):
+                logger.error("Navidrome rejected star for %s (%s)", item_id, request.kind)
+                raise HTTPException(status_code=502, detail="Navidrome rejected star")
         return {"status": "success"}
 
 
@@ -362,9 +401,10 @@ async def unstar(
     """Remove a star (Subsonic unstar)."""
     async with _catalog_errors("Error unstarring item", source):
         client = await _require_client(source)
-        if not await client.unstar(request.id, kind=request.kind):
-            logger.error("Navidrome rejected unstar for %s (%s)", request.id, request.kind)
-            raise HTTPException(status_code=502, detail="Navidrome rejected unstar")
+        for item_id in _star_targets(request):
+            if not await client.unstar(item_id, kind=request.kind):
+                logger.error("Navidrome rejected unstar for %s (%s)", item_id, request.kind)
+                raise HTTPException(status_code=502, detail="Navidrome rejected unstar")
         return {"status": "success"}
 
 
@@ -409,6 +449,9 @@ async def trigger_scan(
     async with _catalog_errors("Error starting scan", source):
         client = await _require_client(source)
         await client.start_scan()
+        # The catalog is about to change — drop the merged-album cache so the next
+        # grid load reflects new/removed music without waiting for its TTL.
+        source.invalidate_album_cache()
         return {"status": "success"}
 
 

@@ -38,6 +38,7 @@ from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.music_library.data import MusicLibraryDataService
+from backend.sources.music_library.disc_merge import merge_albums
 from backend.sources.music_library.models import (
     PlayContextParams,
     PlayIndexParams,
@@ -51,6 +52,14 @@ from backend.sources.music_library.storage import StorageManager
 # Within this many seconds of a track, `prev` restarts the current track;
 # earlier than that it steps to the previous entry (Spotify/go-librespot feel).
 PREV_RESTART_THRESHOLD_S = 3
+
+# Merged-album (multi-disc) catalog cache. The alphabetical grid pages over the
+# whole collapsed catalog so a "… CD 1"/"CD 2" pair is never split across a page
+# boundary; a short TTL bounds staleness from the watcher/scheduled scans (an
+# explicit rescan or share change invalidates it at once).
+ALBUM_CACHE_TTL_S = 30.0
+# getAlbumList2's per-request ceiling — loop by it to pull the whole catalog.
+_ALBUM_PAGE = 500
 
 
 class MusicLibrarySource(MpvAudioSource):
@@ -85,6 +94,9 @@ class MusicLibrarySource(MpvAudioSource):
         # shared across requests. Independent of the StorageManager's own client
         # — routes read the catalog even while music_library is not active.
         self._navidrome: Optional[NavidromeClient] = None
+        # Merged (multi-disc) album catalog, cached for the alphabetical grid.
+        self._album_cache: Optional[List[Dict[str, Any]]] = None
+        self._album_cache_at: float = 0.0
 
         # Playback / queue state (reset on stop). The queue holds the Subsonic
         # song dicts verbatim so it can be echoed to the frontend as-is.
@@ -129,6 +141,42 @@ class MusicLibrarySource(MpvAudioSource):
         if self._navidrome is not None:
             await self._navidrome.close()
             self._navidrome = None
+
+    async def get_merged_albums(self) -> List[Dict[str, Any]]:
+        """Whole catalog, alphabetical, with multi-disc sets collapsed (cached).
+
+        The album grid pages over this list (see routes.get_albums) so a split
+        "… CD 1"/"CD 2" release is merged even when the pair would straddle a page
+        boundary. Cached with a short TTL; an explicit rescan or share change calls
+        :meth:`invalidate_album_cache`. Returns [] until the catalog is reachable
+        (never caches an empty result — a not-yet-ready daemon retries next call).
+        """
+        now = asyncio.get_event_loop().time()
+        if self._album_cache is not None and now - self._album_cache_at < ALBUM_CACHE_TTL_S:
+            return self._album_cache
+        client = await self.get_navidrome_client()
+        if client is None:
+            return []
+        albums: List[Dict[str, Any]] = []
+        offset = 0
+        while True:
+            page = await client.get_album_list(
+                list_type="alphabeticalByName", size=_ALBUM_PAGE, offset=offset
+            )
+            albums.extend(page)
+            if len(page) < _ALBUM_PAGE:
+                break
+            offset += _ALBUM_PAGE
+        merged = merge_albums(albums)
+        if albums:
+            self._album_cache = merged
+            self._album_cache_at = now
+        return merged
+
+    def invalidate_album_cache(self) -> None:
+        """Drop the merged-album cache so the next grid load rebuilds it (called
+        after an explicit rescan or a share add/update/remove)."""
+        self._album_cache = None
 
     # =========================================================================
     # LIFECYCLE
@@ -785,6 +833,7 @@ class MusicLibrarySource(MpvAudioSource):
         mountpoint = await self._storage.mount_share(
             share, credentials=self._credentials(req)
         )
+        self.invalidate_album_cache()
         return {**share, "mounted": mountpoint is not None}
 
     async def update_share(
@@ -818,6 +867,7 @@ class MusicLibrarySource(MpvAudioSource):
         mountpoint = await self._storage.mount_share(
             share, credentials=self._credentials(req)
         )
+        self.invalidate_album_cache()
         return {**share, "mounted": mountpoint is not None}
 
     async def remove_share(self, share_id: str) -> bool:
@@ -828,6 +878,7 @@ class MusicLibrarySource(MpvAudioSource):
         await self._storage.unmount_share(share_id)
         await self._data.remove_share(share_id)
         await self._storage.forget_share_credentials(share_id)
+        self.invalidate_album_cache()
         return True
 
     @staticmethod
