@@ -1,7 +1,7 @@
 <template>
   <div v-press class="album-card" @click="$emit('click')">
     <LazyImage
-      :src="store.thumbUrl(album.coverArt)"
+      :src="store.gridUrl(album.coverArt)"
       :fallback="albumPlaceholder"
       :alt="album.name"
       lazy
