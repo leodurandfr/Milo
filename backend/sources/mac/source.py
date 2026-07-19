@@ -188,10 +188,31 @@ class MacSource(BaseAudioSource):
         self._update_connection_state()
 
     async def _resolve_hostname(self, ip: str) -> str:
-        """Resolve mDNS hostname for IP."""
+        """Resolve the connected Mac's display name from its ROC source IP.
+
+        ROC only hands us the sender's IP, so we reverse-resolve it — but the
+        reverse (PTR) answer belongs to whoever owns that address's zone. A
+        router that publishes its own DHCP domain (e.g. Freebox '.home') answers
+        the reverse with a lowercased unicast name like 'mac-mini-de-leo.home'
+        instead of the Mac's mDNS name, and the Mac no longer answers a reverse
+        mDNS query for that IP at all. So we keep only the hostname label and
+        recover the Mac's canonical, correctly-cased name via a *forward* mDNS
+        lookup of '<label>.local' → 'Mac-mini-de-Leo', which the Mac answers
+        regardless of query case. Falls back to the reverse label, then the IP.
+        """
         if not ip:
             return "Mac"
 
+        reverse = await self._avahi_reverse(ip)
+        if not reverse:
+            return ip
+
+        label = reverse.split('.', 1)[0]
+        canonical = await self._avahi_forward(f"{label}.local")
+        return canonical.split('.', 1)[0] if canonical else label
+
+    async def _avahi_reverse(self, ip: str) -> Optional[str]:
+        """avahi-resolve -a <ip> → hostname (mDNS '.local' or a router '.home')."""
         try:
             ip_norm = normalize_ip(ip)
             scope = None
@@ -210,31 +231,57 @@ class MacSource(BaseAudioSource):
             args = ["avahi-resolve", "-a", ip_norm]
             if addr.version == 6:
                 args.insert(1, "-6")
+        except Exception as e:
+            self._logger.debug(f"Bad IP for mDNS reverse {ip}: {e}")
+            return None
 
+        out = await self._run_avahi(args)
+        if out:
+            parts = out.split()
+            if len(parts) >= 2:
+                return parts[1].rstrip('.')
+        return None
+
+    async def _avahi_forward(self, name: str) -> Optional[str]:
+        """avahi-resolve -n <name> → canonical hostname (original case preserved).
+
+        '.local' is mDNS-only, so this can only be answered by the Mac itself —
+        never by the router's '.home' unicast zone.
+        """
+        out = await self._run_avahi(["avahi-resolve", "-n", name])
+        if out:
+            parts = out.split()
+            if parts:
+                return parts[0].rstrip('.')
+        return None
+
+    async def _run_avahi(self, args: list) -> Optional[str]:
+        """Run an avahi-resolve query; return stripped stdout or None on failure."""
+        try:
             proc = await asyncio.create_subprocess_exec(
                 *args,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
+                stderr=asyncio.subprocess.DEVNULL,
             )
-            try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), 5.0)
-            except asyncio.TimeoutError:
-                proc.kill()
-                self._logger.debug(f"Timeout resolving mDNS for {ip}")
-                return None
-
-            if proc.returncode == 0:
-                parts = stdout.decode().strip().split()
-                if len(parts) >= 2:
-                    return parts[1].rstrip('.').replace(".local", "")
-
         except FileNotFoundError:
             self._logger.error("mDNS resolution skipped: avahi-resolve not installed")
-            return ip
-        except Exception as e:
-            self._logger.debug(f"mDNS resolution failed for {ip}: {e}")
+            return None
+        except OSError as e:
+            # Spawn can fail transiently (EMFILE/ENOMEM/…) — fall back so the
+            # caller still registers the client under its bare IP.
+            self._logger.warning("avahi-resolve spawn failed: %s", e)
+            return None
 
-        return ip
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), 5.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()  # reap the killed child so its transport closes
+            self._logger.debug("Timeout running %s", " ".join(args))
+            return None
+
+        return stdout.decode().strip() if proc.returncode == 0 else None
 
     def _update_connection_state(self) -> None:
         """Update state based on connected clients."""
