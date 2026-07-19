@@ -61,6 +61,11 @@ ALBUM_CACHE_TTL_S = 30.0
 # getAlbumList2's per-request ceiling — loop by it to pull the whole catalog.
 _ALBUM_PAGE = 500
 
+# Bounded catch-up schedule (seconds between attempts) for network shares whose
+# NAS was still offline when the backend booted — a NAS often boots slower than
+# the Pi. ~1.75 min total, then we give up; not an ongoing reconnection loop.
+_SHARE_REMOUNT_RETRY_DELAYS_S = (15, 30, 60)
+
 
 class MusicLibrarySource(MpvAudioSource):
     """Music Library source (Family C): UI-driven gapless queue playback over a
@@ -117,6 +122,10 @@ class MusicLibrarySource(MpvAudioSource):
         # activation. In-memory only (a reboot forgets it), and deliberately NOT
         # reset by _reset_playback_state so it survives the stop→start cycle.
         self._resume: Optional[Dict[str, Any]] = None
+        # Boot-remount retry for shares whose NAS was still offline at startup
+        # (see _mount_configured_shares). Tracked so it isn't GC'd mid-flight;
+        # bounded and self-terminating, so it needs no explicit cancellation.
+        self._share_retry_task: Optional[asyncio.Task] = None
 
     # =========================================================================
     # NAVIDROME CLIENT (shared with routes.py)
@@ -202,19 +211,57 @@ class MusicLibrarySource(MpvAudioSource):
         """Boot remount of every configured network share (fail-open per share).
 
         No credentials are supplied — milo-mount reuses each share's persisted
-        root-only cred file. A share whose NAS is offline logs and is skipped; it
-        remounts on the next re-save or reboot. Never raises.
+        root-only cred file. A share whose NAS is offline at boot is retried in
+        the background by :meth:`_retry_offline_shares` (common reboot race: the
+        Pi is up before the NAS finishes booting), so it reconnects without a
+        manual re-save. Never raises.
         """
         try:
             shares = await self._data.list_shares()
         except Exception as e:
             self._logger.warning(f"Could not load network shares: {e}")
             return
-        for share in shares:
-            try:
-                await self._storage.mount_share(share)
-            except Exception as e:
-                self._logger.warning(f"Failed to mount share {share.get('id')}: {e}")
+        offline = [s for s in shares if not await self._try_mount_share(s)]
+        if offline:
+            self._share_retry_task = asyncio.create_task(
+                self._retry_offline_shares(offline)
+            )
+
+    async def _try_mount_share(self, share: Dict[str, Any]) -> bool:
+        """One remount attempt for a configured share; True on success.
+
+        Fail-open like the rest of the boot path: an offline NAS returns None
+        (or the helper raises), which we log and report as not-mounted so the
+        caller can retry it — never propagates.
+        """
+        try:
+            return await self._storage.mount_share(share) is not None
+        except Exception as e:
+            self._logger.warning(f"Failed to mount share {share.get('id')}: {e}")
+            return False
+
+    async def _retry_offline_shares(self, shares: List[Dict[str, Any]]) -> None:
+        """Retry shares that were offline at boot over a short, bounded schedule.
+
+        Covers the reboot race where the NAS (or the LAN) isn't reachable yet
+        when initialize() runs. Drops each share as it connects and exits once
+        all are mounted or the schedule is exhausted — this is a boot catch-up,
+        deliberately NOT an ongoing reconnection loop (a share going offline
+        while running is out of scope; the appliance is rebooted, not repaired
+        live). Each successful mount triggers a Navidrome rescan via mount_share.
+        """
+        pending = list(shares)
+        for delay in _SHARE_REMOUNT_RETRY_DELAYS_S:
+            await asyncio.sleep(delay)
+            pending = [s for s in pending if not await self._try_mount_share(s)]
+            if not pending:
+                self._logger.info("All boot-offline shares remounted")
+                return
+        self._logger.warning(
+            "Gave up remounting %d share(s) still offline: %s",
+            len(pending),
+            [s.get("id") for s in pending],
+        )
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
