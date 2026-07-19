@@ -581,3 +581,56 @@ class TestOfflineShareNames:
         source._storage.get_mounted_share_ids = Mock(return_value=set())
 
         assert await source.offline_share_names() == ["10.0.0.2", "b"]
+
+
+class TestBootRemountRetry:
+    """Boot remount of configured network shares + the bounded catch-up retry
+    for a NAS that was still offline when the backend booted (reboot race)."""
+
+    @pytest.mark.asyncio
+    async def test_all_mounted_spawns_no_retry(self, source):
+        source._data.list_shares = AsyncMock(return_value=[
+            {"id": "a"}, {"id": "b"},
+        ])
+        source._storage.mount_share = AsyncMock(return_value="/media/milo/x")
+
+        await source._mount_configured_shares()
+
+        assert source._storage.mount_share.await_count == 2
+        assert source._share_retry_task is None
+
+    @pytest.mark.asyncio
+    async def test_offline_share_spawns_retry(self, source):
+        source._data.list_shares = AsyncMock(return_value=[{"id": "a"}])
+        source._storage.mount_share = AsyncMock(return_value=None)  # offline
+
+        with patch(
+            "backend.sources.music_library.source._SHARE_REMOUNT_RETRY_DELAYS_S", ()
+        ):
+            await source._mount_configured_shares()
+            assert source._share_retry_task is not None
+            await source._share_retry_task  # exhausted schedule → gives up cleanly
+
+    @pytest.mark.asyncio
+    async def test_retry_remounts_when_nas_comes_up(self, source):
+        share = {"id": "a"}
+        # Offline on the first two attempts, then reachable.
+        source._storage.mount_share = AsyncMock(
+            side_effect=[None, None, "/media/milo/a"]
+        )
+
+        with patch(
+            "backend.sources.music_library.source.asyncio.sleep", AsyncMock()
+        ), patch(
+            "backend.sources.music_library.source._SHARE_REMOUNT_RETRY_DELAYS_S",
+            (1, 1, 1),
+        ):
+            await source._retry_offline_shares([share])
+
+        # Two retry rounds, the second one connects → stops early (3rd delay unused).
+        assert source._storage.mount_share.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_try_mount_share_is_fail_open(self, source):
+        source._storage.mount_share = AsyncMock(side_effect=OSError("boom"))
+        assert await source._try_mount_share({"id": "a"}) is False
