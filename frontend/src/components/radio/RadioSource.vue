@@ -29,23 +29,33 @@
         :fallback-name="displayStation?.name" :title="playerTitle"
         :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
         <!-- Track info: station kicker + title/artist when Shazam recognized a track,
-             station name alone otherwise. Desktop uses the shared PlayerInfoText;
-             mobile keeps its own compact markup (unchanged for now). -->
+             station name alone otherwise. Desktop uses the shared PlayerInfoText; mobile
+             renders its own compact title/subtitle pair (station identity conveyed via
+             the artwork-badge slot below instead of a text line). -->
         <template #info>
           <template v-if="radioStore.trackInfo">
             <PlayerInfoText class="desktop-only" :kicker="displayStation?.name" :kicker-icon="stationArtwork"
               :kicker-fallback-name="displayStation?.name" :title="radioStore.trackInfo.title"
               :secondary="radioStore.trackInfo.artist" />
-            <p class="player-title heading-4 mobile-only">{{ radioStore.trackInfo.title }} · {{
-              radioStore.trackInfo.artist }}</p>
-            <p class="player-title text-mono mobile-only radio-track-station">{{ displayStation?.name }}</p>
+            <p class="player-title text-body mobile-only">{{ radioStore.trackInfo.title }}</p>
+            <p class="player-subtitle text-body mobile-only">{{ radioStore.trackInfo.artist }}</p>
           </template>
           <template v-else>
             <PlayerInfoText class="desktop-only" :title="displayStation?.name" />
-            <p class="player-title heading-2 mobile-only">{{ displayStation?.name }}</p>
+            <p class="player-title text-body mobile-only">{{ displayStation?.name }}</p>
           </template>
         </template>
-        <!-- Radio controls with favorite and play/stop -->
+
+        <!-- Mobile only: station icon sits behind (pinned left), the track artwork
+             rides on top offset to the right and reveals in from the station's position
+             (AudioPlayer widens the frame and does the overlap/animation when this slot
+             is populated). -->
+        <template v-if="isMobile && radioStore.trackInfo" #artwork-badge>
+          <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="displayStation?.name" alt="" />
+        </template>
+
+        <!-- Radio controls: play/stop everywhere, favorite is desktop-only for now
+             (moves into the mobile mini-player's future expanded view). -->
         <template #controls>
           <div class="radio-controls">
             <Button v-if="!isMobile" variant="on-dark" :left-icon="isCurrentlyPlaying ? 'stop' : 'play'"
@@ -55,7 +65,7 @@
             </Button>
             <IconButton v-else :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="on-dark" :loading="isBuffering"
               @click="handlePlayPause" />
-            <IconButton :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark"
+            <IconButton v-if="!isMobile" :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark"
               @click="handleFavorite" />
           </div>
         </template>
@@ -81,6 +91,7 @@ import Button from '@/components/ui/Button.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue'
+import LazyImage from '@/components/ui/LazyImage.vue'
 import FavoritesView from './FavoritesView.vue'
 import SearchView from './SearchView.vue'
 import { getFaviconUrl } from '@/utils/faviconUrl'
@@ -269,15 +280,6 @@ async function loadAvailableCountries() {
 
 .radio-controls .btn {
   width: 100%;
-}
-
-/* Mobile-only station line under the compact "title · artist" line
-   (desktop/mobile switching itself is handled by AudioPlayer's shared
-   .desktop-only/.mobile-only classes). */
-@media (max-aspect-ratio: 4/3) {
-  .radio-track-station {
-    color: var(--color-text-contrast-50) !important;
-  }
 }
 
 /* Mobile: compact controls on the right */
