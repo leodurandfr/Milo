@@ -20,12 +20,14 @@
 
       <p class="text-mono ml-desc">{{ t('musicLibrary.shares.description') }}</p>
 
+      <!-- 2-up on desktop (NAS/shares left, USB right, wrapping as rows fill);
+           single column on mobile. -->
       <div class="ml-list">
         <!-- Network servers (SMB/NFS) — tap to edit. -->
         <ListItemButton v-for="share in store.shares" :key="share.id" variant="background"
           :title="shareTitle(share)" action="caret" @click="$emit('edit-share', share)">
           <template #icon>
-            <span class="ml-badge text-mono-small">{{ typeLabel(share.type) }}</span>
+            <SourceBadge>{{ typeLabel(share.type) }}</SourceBadge>
           </template>
           <template #subtitle>
             <span class="ml-sub text-body">
@@ -36,19 +38,33 @@
           </template>
         </ListItemButton>
 
+        <!-- No NAS share yet: tap through to the add-share wizard. -->
+        <ListItemButton v-if="!store.shares.length" variant="background" :title="t('musicLibrary.nas.title')"
+          action="caret" @click="$emit('add-share')">
+          <template #icon>
+            <SourceBadge>NAS</SourceBadge>
+          </template>
+          <template #subtitle>
+            <span class="ml-sub text-body">
+              <span class="ml-dot is-off" />
+              {{ t('musicLibrary.nas.notConnected') }}
+            </span>
+          </template>
+        </ListItemButton>
+
         <!-- USB storage — read-only status, always present (detected or not). -->
-        <div v-for="row in usbRows" :key="row.key" class="ml-static-row">
-          <span class="ml-static-row__icon">
-            <span class="ml-badge text-mono-small">USB</span>
-          </span>
-          <div class="ml-static-row__text">
-            <span class="heading-4">{{ row.label }}</span>
+        <ListItemButton v-for="row in usbRows" :key="row.key" variant="background" :interactive="false" action="none"
+          :title="row.label">
+          <template #icon>
+            <SourceBadge>USB</SourceBadge>
+          </template>
+          <template #subtitle>
             <span class="ml-sub text-body">
               <span class="ml-dot" :class="row.connected ? 'is-on' : 'is-off'" />
               {{ row.connected ? t('musicLibrary.usb.connected') : t('musicLibrary.usb.notConnected') }}
             </span>
-          </div>
-        </div>
+          </template>
+        </ListItemButton>
       </div>
     </SettingsSection>
 
@@ -59,16 +75,8 @@
 
       <p class="text-mono ml-desc">{{ t('musicLibrary.maintenance.description') }}</p>
 
-      <div class="ml-progress" :class="{ 'is-open': busy }">
-        <div class="ml-progress__inner">
-          <div v-if="hasBar" class="ml-progress__track" :class="{ 'is-indeterminate': indeterminate }">
-            <div class="ml-progress__fill" :style="fillStyle" />
-          </div>
-          <span class="ml-progress__label text-mono-small">
-            {{ t('musicLibrary.maintenance.refreshProgress', { count: store.scanCount }) }}
-          </span>
-        </div>
-      </div>
+      <ScanProgress :open="busy" :has-bar="hasBar" :indeterminate="indeterminate" :pct="progressPct ?? 0"
+        :label="t('musicLibrary.maintenance.refreshProgress', { count: store.scanCount })" />
 
       <Button variant="brand" size="medium" left-icon="arrowClockwise"
         :disabled="busy" @click="onRefresh">
@@ -91,6 +99,8 @@ import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import ScanProgress from '@/components/settings/categories/music-library/ScanProgress.vue';
+import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
 
 defineEmits(['add-share', 'edit-share']);
@@ -138,7 +148,6 @@ watch(() => store.scanCount, (count) => {
 
 const hasBar = computed(() => busy.value && !offlineShares.value.length);
 const indeterminate = computed(() => progressPct.value === null);
-const fillStyle = computed(() => (indeterminate.value ? {} : { width: `${progressPct.value}%` }));
 
 let polling = false;
 function trackScan() {
@@ -188,114 +197,16 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
+/* 2 columns on desktop (shares/NAS placeholder wrap against USB); a single
+   column on mobile, where two half-width rows would be too cramped to read. */
 .ml-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
-/* Progress reveal — mirrors ToggleSection's expand (grid-rows + opacity + margin);
-   the negative margin cancels the card's row gap while collapsed. */
-.ml-progress {
   display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  margin-top: calc(-1 * var(--space-04));
-  transition:
-    grid-template-rows var(--transition-fast),
-    opacity var(--transition-fast),
-    margin-top var(--transition-fast);
-}
-
-.ml-progress.is-open {
-  grid-template-rows: 1fr;
-  opacity: 1;
-  margin-top: 0;
-}
-
-.ml-progress__inner {
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
-}
-
-.ml-progress__track {
-  height: 8px;
-  background: var(--color-background-strong);
-  border-radius: var(--radius-01);
-  overflow: hidden;
-}
-
-.ml-progress__fill {
-  height: 100%;
-  background: var(--color-background-contrast);
-  border-radius: var(--radius-01);
-  transition: width var(--transition-medium);
-}
-
-/* Indeterminate variant (no pre-scan total): a segment sweeps instead of filling. */
-.ml-progress__track.is-indeterminate .ml-progress__fill {
-  width: 40%;
-  animation: ml-progress-indeterminate 1.1s ease-in-out infinite;
-}
-
-@keyframes ml-progress-indeterminate {
-  0% {
-    transform: translateX(-120%);
-  }
-
-  100% {
-    transform: translateX(280%);
-  }
-}
-
-.ml-progress__label {
-  color: var(--color-text-secondary);
 }
 
 .ml-maint-warn {
   color: var(--color-text-secondary);
-}
-
-/* Type badge in the row's icon slot (USB / SMB / NFS). */
-.ml-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  color: var(--color-text-secondary);
-  background: var(--color-background-neutral);
-}
-
-/* Read-only USB row — mirrors ListItemButton's background variant, no action. */
-.ml-static-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-02);
-  border-radius: var(--radius-05);
-  background: var(--color-background);
-  box-shadow: inset 0 0 0 1px var(--color-border);
-}
-
-.ml-static-row__icon {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-03);
-  overflow: hidden;
-}
-
-.ml-static-row__text {
-  flex: 1;
-  min-height: 40px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
 }
 
 /* Subtitle: status dot + host/label. */
@@ -328,18 +239,8 @@ onMounted(() => {
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .ml-static-row {
-    border-radius: var(--radius-04);
-  }
-
-  .ml-static-row__icon {
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-02);
-  }
-
-  .ml-static-row__text {
-    min-height: 32px;
+  .ml-list {
+    grid-template-columns: 1fr;
   }
 }
 </style>

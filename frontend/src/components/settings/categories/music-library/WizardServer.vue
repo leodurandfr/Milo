@@ -22,14 +22,12 @@
              (not selectable again). -->
         <ListItemButton v-for="server in servers" :key="`${server.type}:${server.host}`"
           variant="background" :title="server.name"
-          :subtitle="isConnected(server)
-            ? t('musicLibrary.shares.wizard.alreadyConnected')
-            : `${server.address} · ${typeLabel(server.type)}`"
+          :subtitle="isConnected(server) ? t('musicLibrary.shares.wizard.alreadyConnected') : server.address"
           :action="isConnected(server) ? 'none' : 'caret'"
           :disabled="isConnected(server)"
           @click="$emit('select', server)">
           <template #icon>
-            <span class="wiz-badge text-mono-small">{{ typeLabel(server.type) }}</span>
+            <SourceBadge>{{ typeLabel(server.type) }}</SourceBadge>
           </template>
         </ListItemButton>
       </div>
@@ -56,6 +54,7 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
@@ -118,20 +117,11 @@ onMounted(() => {
   gap: var(--space-02);
 }
 
+/* 2 columns on desktop; a single column on mobile (rows too cramped otherwise). */
 .wiz-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
-}
-
-.wiz-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  color: var(--color-text-secondary);
-  background: var(--color-background-strong);
 }
 
 .wiz-empty {
@@ -150,6 +140,10 @@ onMounted(() => {
   }
 
   .wiz-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .wiz-list {
     grid-template-columns: 1fr;
   }
 }

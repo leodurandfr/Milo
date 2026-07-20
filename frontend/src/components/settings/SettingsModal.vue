@@ -244,7 +244,8 @@
         @select="handleWizardSelect" @manual="handleWizardManual" />
 
       <WizardBrowse v-else-if="currentView === 'music-library-share-browse' && shareWizardServer" key="music-library-share-browse"
-        class="view-content" :server="shareWizardServer" @success="handleShareSaved" />
+        class="view-content" :server="shareWizardServer" @success="handleShareSaved"
+        @phase-change="shareWizardPhase = $event" />
 
       <ManageShare v-else-if="currentView === 'music-library-share-manual'" key="music-library-share-manual" class="view-content"
         mode="add" @success="handleShareSaved" />
@@ -359,6 +360,9 @@ const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendi
 const stationToEdit = ref(null);
 const shareToEdit = ref(null);
 const shareWizardServer = ref(null);
+// Mirrors WizardBrowse's internal phase so the header can name the current
+// action (sign-in vs folder pick) instead of just repeating the NAS name.
+const shareWizardPhase = ref('');
 const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
 const hotspotToAdopt = ref(null);
@@ -419,7 +423,9 @@ const headerTitle = computed(() => {
     'qobuz': t('audioSources.qobuz'),
     'music-library': t('audioSources.musicLibrary'),
     'music-library-share-add': t('musicLibrary.shares.addTitle'),
-    'music-library-share-browse': shareWizardServer.value?.name || t('musicLibrary.shares.wizard.browseTitle'),
+    'music-library-share-browse': shareWizardPhase.value === 'auth'
+      ? t('musicLibrary.shares.wizard.authTitle')
+      : t('musicLibrary.shares.wizard.browseTitle'),
     'music-library-share-manual': t('musicLibrary.shares.wizard.manualTitle'),
     'music-library-share-edit': t('musicLibrary.shares.editTitle'),
     'updates': t('settings.updates'),
@@ -540,11 +546,13 @@ function handleRadioStationAdded(station) {
 function handleAddShare() {
   shareToEdit.value = null;
   shareWizardServer.value = null;
+  shareWizardPhase.value = '';
   push('music-library-share-add');
 }
 
 function handleWizardSelect(server) {
   shareWizardServer.value = server;
+  shareWizardPhase.value = '';
   push('music-library-share-browse');
 }
 
@@ -565,6 +573,7 @@ function handleShareSaved() {
   prepareNavigation();
   shareToEdit.value = null;
   shareWizardServer.value = null;
+  shareWizardPhase.value = '';
 }
 
 // === MULTIROOM ZONE/CLIENT HANDLERS ===
