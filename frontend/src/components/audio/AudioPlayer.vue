@@ -20,23 +20,23 @@
           <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
 
           <div class="player-info">
-            <slot name="info">
-              <p :class="['player-title', source === 'radio' ? 'heading-2' : 'heading-3']">{{ title }}</p>
-              <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
-            </slot>
-            <slot name="progress"></slot>
-
+            <slot name="info"></slot>
           </div>
 
+          <!-- Progress bar + controls are pinned together at the bottom, 8px apart —
+               the info block above is what's centered in the remaining space, not this group. -->
+          <div class="player-bottom">
+            <slot name="progress"></slot>
 
-          <div class="controls">
-            <slot name="controls">
-              <!-- Default: Simple play/pause -->
-              <div class="playback-controls">
-                <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium" :loading="isLoading"
-                  @click="$emit('toggle-play')" />
-              </div>
-            </slot>
+            <div class="controls">
+              <slot name="controls">
+                <!-- Default: Simple play/pause -->
+                <div class="playback-controls">
+                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium" :loading="isLoading"
+                    @click="$emit('toggle-play')" />
+                </div>
+              </slot>
+            </div>
           </div>
         </div>
       </div>
@@ -61,12 +61,12 @@ const revealing = useScreensaverRevealPulse(1700)
 
 const props = defineProps({
   /**
-   * Audio source type ('radio', 'podcast', 'bluetooth', etc.)
+   * Audio source type ('radio', 'podcast', 'music_library')
    */
   source: {
     type: String,
     required: true,
-    validator: (value) => ['radio', 'podcast', 'bluetooth', 'mac', 'music_library'].includes(value)
+    validator: (value) => ['radio', 'podcast', 'music_library'].includes(value)
   },
 
   /**
@@ -115,14 +115,6 @@ const props = defineProps({
   },
 
   /**
-   * Subtitle (genre/bitrate, podcast name, etc.)
-   */
-  subtitle: {
-    type: String,
-    default: null
-  },
-
-  /**
    * Playback state
    */
   isPlaying: {
@@ -168,9 +160,9 @@ const playerClasses = computed(() => ({
   max-height: 720px;
   flex-direction: column;
   gap: var(--space-04);
-  padding: 0 var(--space-04);
+  padding: 0 var(--space-02);
   background: var(--color-background-neutral);
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-06);
   backdrop-filter: blur(var(--blur-02));
   -webkit-backdrop-filter: blur(var(--blur-02));
   -webkit-backface-visibility: hidden;
@@ -188,7 +180,7 @@ const playerClasses = computed(() => ({
   padding: 2px;
   opacity: 0.8;
   background: var(--stroke-glass);
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-06);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -238,7 +230,7 @@ const playerClasses = computed(() => ({
   z-index: 2;
   display: flex;
   flex-direction: column;
-  padding: var(--space-04) 0;
+  padding: var(--space-02) 0 var(--space-05) 0;
   gap: var(--space-04);
   overflow-y: auto;
 }
@@ -281,6 +273,7 @@ const playerClasses = computed(() => ({
   height: 100%;
   flex-direction: column;
   gap: var(--space-04);
+  padding: 0 var(--space-04);
 }
 
 :deep(.player-title) {
@@ -294,8 +287,7 @@ const playerClasses = computed(() => ({
 }
 
 :deep(.player-subtitle) {
-  color: var(--color-text-contrast);
-  cursor: pointer;
+  color: var(--color-text-contrast-50);
   margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -303,11 +295,19 @@ const playerClasses = computed(() => ({
   overflow: hidden;
 }
 
-:deep(.player-subtitle.text-mono) {
-  color: var(--color-text-contrast-50);
+/* Desktop/mobile split for slotted #info content — each source renders both
+   variants and lets this toggle pick one, instead of duplicating layout CSS
+   per source file. */
+:deep(.mobile-only) {
+  display: none;
 }
 
-
+.player-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+  padding: 0 var(--space-04);
+}
 
 .controls {
   display: flex;
@@ -374,7 +374,9 @@ const playerClasses = computed(() => ({
     gap: var(--space-01);
   }
 
-
+  .player-bottom {
+    flex-shrink: 0;
+  }
 
   /* Apply same styles to slotted content (fixes scoped CSS limitation) */
   :deep(.player-title) {
@@ -388,6 +390,14 @@ const playerClasses = computed(() => ({
 
   :deep(.player-subtitle) {
     display: none;
+  }
+
+  :deep(.desktop-only) {
+    display: none !important;
+  }
+
+  :deep(.mobile-only) {
+    display: block !important;
   }
 
   /* Hide progress bar on mobile by default */
@@ -433,7 +443,7 @@ const playerClasses = computed(() => ({
     min-width: 0;
   }
 
-  .audio-player.source-podcast .controls {
+  .audio-player.source-podcast .player-bottom {
     grid-column: 2;
     grid-row: 2;
   }
@@ -481,7 +491,7 @@ const playerClasses = computed(() => ({
     min-width: 0;
   }
 
-  .audio-player.source-music_library .controls {
+  .audio-player.source-music_library .player-bottom {
     grid-column: 2;
     grid-row: 2;
   }
@@ -495,7 +505,6 @@ const playerClasses = computed(() => ({
   .controls {
     gap: var(--space-02);
     justify-content: center;
-    flex-shrink: 0;
   }
 
 }

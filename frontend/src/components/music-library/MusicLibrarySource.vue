@@ -41,16 +41,11 @@
           :artwork="playerArtwork" :placeholder-artwork="albumPlaceholder"
           :title="playerTitle"
           :is-playing="isPlaying" :is-loading="isBuffering">
-          <!-- Track info: same text hierarchy + spacing as the radio player
-               (title / artist / album). Only the controls below differ per source. -->
+          <!-- Track info: same shared PlayerInfoText as the radio/podcast players.
+               Mobile keeps its own compact single-line markup (unchanged for now). -->
           <template #info>
-            <div class="ml-track-group ml-track--desktop">
-              <p class="player-title heading-2">{{ playerTitle }}</p>
-              <p v-if="playerArtist" class="player-subtitle heading-3">{{ playerArtist }}</p>
-            </div>
-            <p v-if="playerAlbum" class="player-subtitle text-mono ml-track--desktop">{{ playerAlbum }}</p>
-            <!-- Mobile: compact single line -->
-            <p class="player-title heading-4 ml-track--mobile">
+            <PlayerInfoText class="desktop-only" :title="playerTitle" :secondary="playerArtist" />
+            <p class="player-title heading-4 mobile-only">
               {{ playerTitle }}<template v-if="playerArtist"> · {{ playerArtist }}</template>
             </p>
           </template>
@@ -103,6 +98,7 @@ import { useI18n } from '@/services/i18n';
 import IconButton from '@/components/ui/IconButton.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
+import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import ProgressBar from './ProgressBar.vue';
 
@@ -144,7 +140,6 @@ const currentDurationSec = computed(() => Math.floor((durationMs.value || 0) / 1
 // === Player display (sticky through fade-out) ===
 const playerTitle = computed(() => store.displayTrack?.title || '');
 const playerArtist = computed(() => store.displayTrack?.artist || '');
-const playerAlbum = computed(() => store.displayTrack?.album || '');
 const playerArtwork = computed(() => store.displayTrack?.albumArtUrl || null);
 
 // === Header title per view ===
@@ -226,28 +221,6 @@ function handleSeek(positionSec) {
 
 ::-webkit-scrollbar {
   display: none;
-}
-
-/* Player info: same text hierarchy + spacing as the radio player — title +
-   artist grouped tight, album separated by player-info's own gap. */
-.ml-track-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
-.ml-track--mobile {
-  display: none;
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .ml-track--desktop {
-    display: none !important;
-  }
-
-  .ml-track--mobile {
-    display: block !important;
-  }
 }
 
 /* Docked-player controls: single transport row (shuffle … prev·play·next … like). */
