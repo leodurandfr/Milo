@@ -18,8 +18,11 @@
         </div>
       </div>
 
-      <!-- Right side: Info and controls with CSS staggering -->
-      <div class="content-section stagger-2">
+      <!-- Right side: Info and controls with CSS staggering.
+           Keyed on the screensaver reveal nonce so dismissing the screensaver
+           remounts just this column and replays its stagger — the artwork column
+           (left) stays put, giving a seamless cover-to-player continuity. -->
+      <div class="content-section stagger-2" :key="revealNonce">
         <!-- Action buttons (used by CD for eject/tracklist) -->
         <slot name="action-buttons" />
 
@@ -65,6 +68,7 @@
 import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
+import { useScreensaverRevealNonce } from '@/composables/useScreensaverReveal';
 import { useI18n } from '@/services/i18n';
 
 import PlaybackControls from './PlaybackControls.vue';
@@ -90,6 +94,10 @@ const props = defineProps({
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } = useSourceProgress(props.source);
+
+// Remount the right column (title/controls) to replay its entrance when the
+// screensaver is dismissed — the artwork column is left untouched on purpose.
+const revealNonce = useScreensaverRevealNonce();
 
 // Playback controls — sendCommand swallows + logs errors via the store.
 function sendSourceCommand(command) {

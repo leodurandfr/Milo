@@ -1,6 +1,6 @@
 <!-- AudioSourceStatus.vue -->
 <template>
-  <div class="source-status">
+  <div class="source-status" :class="{ 'screensaver-revealing': revealing }">
     <div class="source-status-content">
       <div class="source-status-inner">
         <!-- Device info section -->
@@ -46,9 +46,13 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { useI18n } from '@/services/i18n';
+import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal';
 import { formatDeviceNames } from '@/utils/deviceName';
 
 const { t } = useI18n();
+
+// Replay the card entrance when the screensaver is dismissed.
+const revealing = useScreensaverRevealPulse();
 
 // Props
 const props = defineProps({

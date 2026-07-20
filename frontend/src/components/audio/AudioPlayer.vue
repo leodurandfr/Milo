@@ -3,7 +3,7 @@
     <Transition name="audio-player" @after-leave="$emit('after-hide')">
       <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
            transition classes, so the enter/leave would be instant. -->
-      <div v-if="visible" class="audio-player" :class="playerClasses">
+      <div v-if="visible" class="audio-player" :class="[playerClasses, { 'audio-player-revealing': revealing }]">
         <!-- Background image - heavily zoomed and blurred -->
         <div class="player-art-background">
           <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
@@ -49,10 +49,15 @@ import { computed, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 
 const { isMobile } = useIsMobile()
+
+// Replay the slide-in entrance when the screensaver is dismissed (desktop only —
+// the screensaver never shows on mobile). Duration covers the spring-slow enter.
+const revealing = useScreensaverRevealPulse(1700)
 
 const props = defineProps({
   /**
@@ -526,6 +531,24 @@ const playerClasses = computed(() => ({
   .audio-player-leave-to {
     opacity: 0;
     transform: translateX(100px);
+  }
+
+  /* Screensaver reveal: replay the slide-in (same as the enter transition above)
+     when the screensaver is dismissed, without toggling the v-if/Transition. */
+  .audio-player.audio-player-revealing {
+    animation: audioPlayerReveal var(--transition-spring-slow) forwards;
+  }
+}
+
+@keyframes audioPlayerReveal {
+  from {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 

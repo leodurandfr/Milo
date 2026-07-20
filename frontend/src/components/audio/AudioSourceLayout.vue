@@ -10,7 +10,7 @@
     <!-- Content area: scrollable views -->
     <div
       class="content-container"
-      :class="{ 'has-player': showPlayer }"
+      :class="{ 'has-player': showPlayer, 'screensaver-revealing': revealing }"
     >
       <NavigationHeader
         ref="headerRef"
@@ -51,6 +51,7 @@ import { ref, computed, onBeforeUpdate } from 'vue'
 import NavigationHeader from '@/components/ui/NavigationHeader.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useViewTransition } from '@/composables/useViewTransition'
+import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 
 const layoutRef = ref(null)
 const headerRef = ref(null)
@@ -216,6 +217,9 @@ onBeforeUpdate(() => {
 
 // Mobile detection for padding-bottom
 const { isMobile } = useIsMobile()
+
+// Replay the content entrance when the screensaver is dismissed.
+const revealing = useScreensaverRevealPulse()
 
 // Computed padding for mobile player
 const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)

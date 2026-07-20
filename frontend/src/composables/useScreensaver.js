@@ -14,9 +14,17 @@ import { useI18n } from '@/services/i18n';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 import { AIRPLAY_MIN_ARTWORK_PX } from '@/constants/imageQuality';
+import cdPlaceholder from '@/assets/cd/cd-placeholder.jpg';
 
 /** Minimum ms between activity event processing. */
 const ACTIVITY_THROTTLE_MS = 500;
+
+// Media sources: the screensaver shows only while audio is actually playing, so
+// pausing closes it (the backend otherwise keeps the last track's metadata
+// stale). The two passive receivers below have no play/pause concept — their
+// screensaver stays up while the sender is connected (source_state 'active').
+const PLAYBACK_GATED_SOURCES = ['radio', 'podcast', 'airplay', 'dlna', 'qobuz', 'music_library', 'spotify', 'cd'];
+const PASSIVE_SOURCES = ['bluetooth', 'mac'];
 
 /**
  * Manages the audio screensaver lifecycle: visibility, inactivity timer,
@@ -51,8 +59,25 @@ export function useScreensaver() {
     isPositionInitialized: libraryProgressReady,
   } = useSourceProgress('music_library');
 
+  const {
+    currentPosition: spotifyPosition,
+    duration: spotifyDuration,
+    progressPercentage: spotifyProgressPercentage,
+    isPositionInitialized: spotifyProgressReady,
+  } = useSourceProgress('spotify');
+
+  const {
+    currentPosition: cdPosition,
+    duration: cdDuration,
+    progressPercentage: cdProgressPercentage,
+    isPositionInitialized: cdProgressReady,
+  } = useSourceProgress('cd');
+
   // --- Reactive state ---
   const isScreensaverVisible = ref(false);
+  // Bumped on each close (visible → hidden) so a revealed source view can replay
+  // its entrance animation — consumed via useScreensaverReveal.
+  const screensaverRevealNonce = ref(0);
   let inactivityTimer = null;
   let lastActivityTime = 0;
 
@@ -64,9 +89,13 @@ export function useScreensaver() {
 
   const shouldMonitorInactivity = computed(() => {
     if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
+    if (unifiedStore.systemState.source_state !== 'active') return false;
     const source = unifiedStore.systemState.active_source;
-    const state = unifiedStore.systemState.source_state;
-    return ['radio', 'podcast', 'bluetooth', 'mac', 'airplay', 'dlna', 'qobuz', 'music_library'].includes(source) && state === 'active';
+    if (PASSIVE_SOURCES.includes(source)) return true;
+    if (PLAYBACK_GATED_SOURCES.includes(source)) {
+      return unifiedStore.systemState.metadata?.is_playing === true;
+    }
+    return false;
   });
 
   // --- Timer management ---
@@ -185,12 +214,37 @@ export function useScreensaver() {
       };
     }
 
+    // Spotify + CD: active players with rich metadata, rendered exactly like
+    // music_library (cover + title/artist + progress bar, no bottom bar), read
+    // straight from the shared metadata mirror. CD often ships no cover art —
+    // fall back to the same disc placeholder AudioPlayerFull uses rather than a
+    // generated text avatar.
+    if (source === 'spotify') {
+      const metadata = unifiedStore.systemState.metadata || {};
+      return {
+        mode: 'media',
+        artwork: metadata.album_art_url || null,
+        title: metadata.title || '',
+        subtitle: metadata.artist || null,
+      };
+    }
+
+    if (source === 'cd') {
+      const metadata = unifiedStore.systemState.metadata || {};
+      return {
+        mode: 'media',
+        artwork: metadata.album_art_url || cdPlaceholder,
+        title: metadata.title || '',
+        subtitle: metadata.artist || null,
+      };
+    }
+
     // Qobuz + DLNA: passive players (external control, rich metadata) like
-    // AirPlay. They keep the last track's metadata while paused and stay active,
-    // so a bare media layout suffices — no "connected but idle" fallback. The
-    // bottom bar mirrors their main view's source bar (source glyph + client
-    // name; DLNA renderers often send no name, so the bar simply hides). No
-    // progress bar — neither shows one in its main view (showControls=false).
+    // AirPlay. Visibility is gated on is_playing, so a bare media layout suffices
+    // here — no "connected but idle" fallback. The bottom bar mirrors their main
+    // view's source bar (source glyph + client name; DLNA renderers often send no
+    // name, so the bar simply hides). No progress bar — neither shows one in its
+    // main view (showControls=false).
     if (source === 'qobuz' || source === 'dlna') {
       const metadata = unifiedStore.systemState.metadata || {};
       return {
@@ -207,15 +261,13 @@ export function useScreensaver() {
       const metadata = unifiedStore.systemState.metadata || {};
       const deviceName = metadata.client_name || null;
 
-      // Rich media layout only while audio is actually flowing AND the sender
-      // pushes a real cover (>300px — same gate as the main now-playing view).
-      // When playback stops but the route stays connected (e.g. quitting the
-      // sender app: AirPlay emits `pend`, not `disc`), the backend keeps the
-      // stale title/artwork but flips is_playing=false — so we fall back to the
-      // simple "Connected to <device>" card rather than show a cover for audio
-      // that no longer plays.
-      const showRichMedia = !!metadata.is_playing && !!metadata.title &&
-        !!metadata.artist && (metadata.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
+      // Visibility already guarantees is_playing (a pause closes the screensaver).
+      // Show the rich media card only when the sender also pushes real metadata +
+      // a real cover (>300px — same gate as the main now-playing view); a stream
+      // that plays with no usable metadata (e.g. a game or web video) falls back
+      // to the simple "Connected to <device>" card instead of an empty cover.
+      const showRichMedia = !!metadata.title && !!metadata.artist &&
+        (metadata.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
 
       if (showRichMedia) {
         return {
@@ -290,10 +342,32 @@ export function useScreensaver() {
       };
     }
 
+    if (source === 'spotify') {
+      return {
+        currentPosition: spotifyPosition.value,
+        duration: spotifyDuration.value,
+        progressPercentage: spotifyProgressPercentage.value,
+        isReady: spotifyProgressReady.value,
+      };
+    }
+
+    if (source === 'cd') {
+      return {
+        currentPosition: cdPosition.value,
+        duration: cdDuration.value,
+        progressPercentage: cdProgressPercentage.value,
+        isReady: cdProgressReady.value,
+      };
+    }
+
     return null;
   });
 
   // --- Watchers ---
+
+  watch(isScreensaverVisible, (visible, wasVisible) => {
+    if (wasVisible && !visible) screensaverRevealNonce.value += 1;
+  });
 
   watch(shouldMonitorInactivity, (shouldMonitor) => {
     if (shouldMonitor) {
@@ -324,6 +398,7 @@ export function useScreensaver() {
 
   return {
     isScreensaverVisible,
+    screensaverRevealNonce,
     screensaverData,
     screensaverProgress,
     closeScreensaver,

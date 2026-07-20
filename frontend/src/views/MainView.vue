@@ -16,6 +16,8 @@
 
     <AudioScreensaver
       :is-visible="isScreensaverVisible"
+      :progress-converges="progressConverges"
+      :artwork-rises="artworkRises"
       :mode="screensaverData.mode || 'media'"
       :source-type="screensaverData.sourceType"
       :artwork="screensaverData.artwork"
@@ -32,9 +34,11 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, inject, defineAsyncComponent } from 'vue';
+import { computed, ref, watch, inject, provide, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useCdStore } from '@/stores/cdStore';
 import { useScreensaver } from '@/composables/useScreensaver';
+import { SCREENSAVER_REVEAL_NONCE } from '@/composables/useScreensaverReveal';
 import { useRichDisplay } from '@/composables/useRichDisplay';
 import { useTimer } from '@/composables/useTimer';
 
@@ -54,7 +58,26 @@ const unifiedStore = useUnifiedAudioStore();
 const timer = useTimer();
 
 // === Audio Screensaver ===
-const { isScreensaverVisible, screensaverData, screensaverProgress, closeScreensaver } = useScreensaver();
+const { isScreensaverVisible, screensaverRevealNonce, screensaverData, screensaverProgress, closeScreensaver } = useScreensaver();
+
+// Let revealed source views replay their entrance when the screensaver closes.
+provide(SCREENSAVER_REVEAL_NONCE, screensaverRevealNonce);
+
+// Whether the screensaver's progress bar should fly to AudioPlayerFull's bar
+// position on close: only when the revealed player actually shows a bar there —
+// Spotify always does, CD only when showing the player (not its tracklist).
+const cdStore = useCdStore();
+const progressConverges = computed(() => {
+  const source = unifiedStore.systemState.active_source;
+  return source === 'spotify' || (source === 'cd' && !cdStore.showTracklist);
+});
+
+// The screensaver artwork stays fixed only when the revealed view shows a cover
+// at the same spot (the AudioPlayerFull sources). For the AudioSourceLayout
+// sources there's no matching cover, so it rises + fades with the rest.
+const artworkRises = computed(() =>
+  ['radio', 'podcast', 'music_library'].includes(unifiedStore.systemState.active_source)
+);
 
 // Dismiss screensaver when App.vue signals (e.g., new pending client detected)
 const dismissScreensaverSignal = inject('dismissScreensaver', ref(0));
