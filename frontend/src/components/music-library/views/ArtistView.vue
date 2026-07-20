@@ -5,12 +5,7 @@
 
     <template v-else>
       <div class="albums-grid">
-        <AlbumCard
-          v-for="album in albums"
-          :key="album.id"
-          :album="album"
-          @click="$emit('select-album', album)"
-        />
+        <AlbumCard v-for="album in albums" :key="album.id" :album="album" @click="$emit('select-album', album)" />
       </div>
     </template>
   </div>
@@ -56,7 +51,15 @@ watch(() => props.artistId, async (id) => {
 
 .albums-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--space-04);
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  row-gap: var(--space-05);
+  column-gap: var(--space-04);
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .albums-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    column-gap: var(--space-03);
+  }
 }
 </style>

@@ -244,6 +244,5 @@ onMounted(() => {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     column-gap: var(--space-03);
   }
-
 }
 </style>
