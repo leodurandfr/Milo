@@ -14,19 +14,35 @@
 -->
 <template>
   <SettingsContainer>
-    <!-- Breadcrumb: server › share › sub… (each crumb navigates up) -->
-    <div class="wb-crumbs text-mono-small">
-      <button type="button" class="wb-crumb" :disabled="crumbsLocked" @click="load('')">
-        {{ server.name }}
-      </button>
-      <template v-for="(seg, i) in crumbs" :key="i">
-        <span class="wb-sep">›</span>
-        <button type="button" class="wb-crumb" :disabled="crumbsLocked"
-          @click="goToCrumb(i)">{{ seg }}</button>
-      </template>
-    </div>
+    <!-- Indexing settled — how many tracks this share contributed. A standalone
+         card (like the rest of the app's MessageContent screens), not nested in
+         a SettingsSection, so no breadcrumb above it either. -->
+    <MessageContent v-if="phase === 'indexed'" icon="check"
+      :title="t('musicLibrary.shares.wizard.indexedTitle')"
+      :subtitle="indexEmpty
+        ? t('musicLibrary.shares.wizard.indexedEmpty')
+        : (indexTotalMode
+          ? t('musicLibrary.shares.wizard.indexedTotal', { count: finalFound })
+          : t('musicLibrary.shares.wizard.indexedShare', { count: finalFound }))"
+      :cta-label="t('musicLibrary.shares.wizard.done')" :cta-variant="indexEmpty ? 'background-strong' : 'brand'"
+      :cta-click="leave" />
 
-    <SettingsSection>
+    <SettingsSection v-else>
+      <!-- Auth step: no folder path to show yet — just the NAS being signed into. -->
+      <h2 v-if="phase === 'auth'" class="heading-2">{{ server.name }}</h2>
+
+      <!-- Breadcrumb: server › share › sub… (each crumb navigates up) -->
+      <div v-else class="wb-crumbs">
+        <button type="button" class="wb-crumb text-mono-small" :disabled="crumbsLocked" @click="load('')">
+          {{ server.name }}
+        </button>
+        <template v-for="(seg, i) in crumbs" :key="i">
+          <SvgIcon name="caretRight" :size="16" class="wb-sep" />
+          <button type="button" class="wb-crumb text-mono-small" :disabled="crumbsLocked"
+            @click="goToCrumb(i)">{{ seg }}</button>
+        </template>
+      </div>
+
       <!-- Auth step -->
       <template v-if="phase === 'auth'">
         <div class="wb-form">
@@ -66,27 +82,12 @@
         </Button>
       </template>
 
-      <!-- Mounted — indexing runs; the live count validates there's music here. -->
+      <!-- Mounted — indexing runs; the live count validates there's music here.
+           No CTA: it settles into 'indexed' on its own once the scan finishes. -->
       <template v-else-if="phase === 'indexing'">
-        <div class="wb-center"><LoadingSpinner :size="40" /></div>
-        <p class="wb-note text-mono">{{ t('musicLibrary.shares.wizard.indexing') }}</p>
-        <p class="wb-count text-mono">{{ t('musicLibrary.shares.wizard.indexingCount', { count: liveFound }) }}</p>
-        <Button variant="background-strong" size="medium" @click="leave">
-          {{ t('musicLibrary.shares.wizard.done') }}
-        </Button>
-      </template>
-
-      <!-- Indexing settled — how many tracks this share contributed. -->
-      <template v-else-if="phase === 'indexed'">
-        <p v-if="indexEmpty" class="wb-warn text-mono">{{ t('musicLibrary.shares.wizard.indexedEmpty') }}</p>
-        <p v-else class="wb-success text-mono">
-          {{ indexTotalMode
-            ? t('musicLibrary.shares.wizard.indexedTotal', { count: finalFound })
-            : t('musicLibrary.shares.wizard.indexedShare', { count: finalFound }) }}
-        </p>
-        <Button variant="brand" size="medium" @click="leave">
-          {{ t('musicLibrary.shares.wizard.done') }}
-        </Button>
+        <h2 class="heading-2">{{ t('musicLibrary.shares.wizard.indexing') }}</h2>
+        <ScanProgress open :indeterminate="true"
+          :label="t('musicLibrary.shares.wizard.indexingCount', { count: liveFound })" />
       </template>
 
       <!-- Browsing entries -->
@@ -108,32 +109,37 @@
         </template>
 
         <p v-if="errorMsg" class="wb-error text-mono">{{ errorMsg }}</p>
-
-        <!-- Pick the current folder (SMB, once inside a share) -->
-        <Button v-if="canUseFolder" variant="brand" size="medium" :loading="creating" @click="useThisFolder">
-          {{ t('musicLibrary.shares.wizard.useFolder', { name: currentName }) }}
-        </Button>
       </template>
     </SettingsSection>
+
+    <!-- Pick the current folder (SMB, once inside a share) — sticky, so it's
+         reachable from anywhere in the entries list. -->
+    <Button v-if="phase === 'browsing' && canUseFolder" variant="brand" size="medium" class="apply-button-sticky"
+      :loading="creating" @click="useThisFolder">
+      {{ t('musicLibrary.shares.wizard.useFolder', { name: currentName }) }}
+    </Button>
   </SettingsContainer>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue';
+import { ref, reactive, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useTimer } from '@/composables/useTimer';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import ScanProgress from '@/components/settings/categories/music-library/ScanProgress.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
 
 const props = defineProps({
   server: { type: Object, required: true }, // { name, host, type }
 });
-const emit = defineEmits(['success']);
+const emit = defineEmits(['success', 'phase-change']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
@@ -141,6 +147,9 @@ const timer = useTimer();
 
 // phase: loading | auth | browsing | error | done | indexing | indexed
 const phase = ref('loading');
+// Lets the parent's NavigationHeader name the current action (sign-in vs
+// folder pick) instead of just repeating the NAS name throughout.
+watch(phase, (p) => emit('phase-change', p), { immediate: true });
 const path = ref('');          // last successfully-loaded path ('' = top level)
 const pendingPath = ref('');   // path currently being loaded (kept across the auth prompt)
 const entries = ref([]);
@@ -338,7 +347,6 @@ load('');
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-01);
-  padding: 0 var(--space-02);
   color: var(--color-text-secondary);
 }
 
@@ -348,10 +356,6 @@ load('');
   background: none;
   border: none;
   cursor: pointer;
-}
-
-.wb-crumb:last-of-type {
-  color: var(--color-text);
 }
 
 .wb-crumb:disabled {
@@ -414,15 +418,11 @@ load('');
   color: var(--color-warning);
 }
 
-.wb-count {
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
-.wb-success {
-  padding: var(--space-03);
-  background: var(--color-success-subtle);
-  border-radius: var(--radius-04);
-  color: var(--color-success);
+/* Pinned to the bottom of the scroll area (mirrors ManageShare's save button). */
+.apply-button-sticky {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
 }
 </style>

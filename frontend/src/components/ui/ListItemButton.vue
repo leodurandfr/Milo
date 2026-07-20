@@ -1,8 +1,9 @@
 <!-- frontend/src/components/ui/ListItemButton.vue -->
 <template>
-  <button type="button" v-press="action !== 'toggle' && action !== 'radio'"
-    :class="['list-item-button', `list-item-button--${variant}`, { 'action-pressed': actionPressed }]"
-    :disabled="disabled" @click="handleClick" @pointerdown="handlePointerDown">
+  <component :is="interactive ? 'button' : 'div'" v-bind="interactive ? { type: 'button', disabled } : {}"
+    v-press="interactive && action !== 'toggle' && action !== 'radio'"
+    :class="['list-item-button', `list-item-button--${variant}`, { 'action-pressed': actionPressed, 'list-item-button--static': !interactive }]"
+    @click="handleClick" @pointerdown="handlePointerDown">
     <div v-if="$slots.icon" class="list-item-button__icon" :class="`list-item-button__icon--${iconVariant}`">
       <slot name="icon"></slot>
     </div>
@@ -23,7 +24,7 @@
         :disabled="disabled" />
       <Radio v-else-if="action === 'radio'" :model-value="modelValue" :disabled="disabled" />
     </div>
-  </button>
+  </component>
 </template>
 
 <script setup>
@@ -59,6 +60,12 @@ const props = defineProps({
   disabled: {
     type: Boolean,
     default: false
+  },
+  // false → renders as a plain <div> (no button semantics, no press feedback, no
+  // disabled greying) for purely informational rows, e.g. a read-only status row.
+  interactive: {
+    type: Boolean,
+    default: true
   },
   iconVariant: {
     type: String,
@@ -103,7 +110,7 @@ function handlePointerDown() {
 }
 
 function handleClick(event) {
-  if (props.disabled) return;
+  if (!props.interactive || props.disabled) return;
 
   // For toggle/radio actions, also toggle the modelValue
   if (props.action === 'toggle' || props.action === 'radio') {
@@ -134,6 +141,10 @@ function handleClick(event) {
 
 .list-item-button:disabled {
   cursor: not-allowed;
+}
+
+.list-item-button--static {
+  cursor: default;
 }
 
 .list-item-button:disabled .list-item-button__text {

@@ -590,10 +590,11 @@
       "add": "Add server",
       "save": "Save",
       "remove": "Remove server",
-      "confirmRemove": "Tap again to remove",
+      "confirmRemove": "Confirm removal",
       "errorGeneric": "Could not save the share. Check the details and try again.",
       "wizard": {
-        "browseTitle": "Choose a folder",
+        "browseTitle": "Select source folder",
+        "authTitle": "Sign in to the NAS",
         "manualTitle": "Add manually",
         "serverTitle": "Choose your NAS",
         "serverDesc": "Servers found on your network. Pick yours to connect.",
@@ -615,6 +616,7 @@
         "done": "Done",
         "indexing": "Indexing your music…",
         "indexingCount": "{count} tracks found",
+        "indexedTitle": "Library connected and imported",
         "indexedShare": "{count} tracks found on this share.",
         "indexedTotal": "{count} tracks in your library.",
         "indexedEmpty": "Connected, but no music was found in this folder."
@@ -625,6 +627,10 @@
       "title": "USB storage",
       "connected": "Connected",
       "notConnected": "Not connected"
+    },
+    "nas": {
+      "title": "NAS server",
+      "notConnected": "None connected"
     },
     "maintenance": {
       "title": "Library refresh",
