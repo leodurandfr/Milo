@@ -520,7 +520,7 @@ img.player-artwork.loaded {
     width: 48px;
     height: 48px;
     min-width: 48px;
-    transition: width 0.3s ease-out;
+    transition: width var(--transition-medium);
   }
 
   .player-artwork {
@@ -633,12 +633,14 @@ img.player-artwork.loaded {
     z-index: 0;
   }
 
-  /* Track artwork: on top of the station. It reveals from the station's exact
-     position — starts fully overlapping it (translateX(-24px)) and transparent,
-     then slides to its offset-right resting spot and fades in as the image
-     loads (.loaded), a coordinated reveal synced with the frame widening and the
-     text shifting right. left:24px (not right:0) keeps its anchor stable while
-     the frame animates its width. */
+  /* Track artwork: on top of the station, offset right so the pair overlaps by
+     half. left:24px (not right:0) keeps its anchor stable while the frame
+     animates its width. The reveal slide is driven by the animation below, not
+     by .loaded: it must play once when the two-thumbnail state first appears and
+     stay decoupled from the image's network load — a cached bitmap still slides
+     in from the station's position (translateX(-24px)→0) instead of popping at
+     rest. Opacity stays tied to .loaded (base img.player-artwork rule) so the
+     bitmap fades in as it decodes. */
   .player-artwork-frame.has-badge .player-artwork {
     position: absolute;
     top: 0;
@@ -646,14 +648,11 @@ img.player-artwork.loaded {
     width: 48px;
     height: 48px;
     z-index: 1;
-    opacity: 0;
-    transform: translateX(-24px);
-    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
-  }
-
-  .player-artwork-frame.has-badge .player-artwork.loaded {
-    opacity: 1;
-    transform: translateX(0);
+    /* Runs on class-apply (state appears), not on src change — a song change
+       keeps the element and the .has-badge class, so it doesn't re-slide; the
+       new cover just fades in place. Synced with the frame widening 48→72 and
+       the text shifting right (same 300ms easeOutCubic). */
+    animation: musicImgReveal 0.3s var(--easeOutCubic);
   }
 }
 
@@ -705,6 +704,19 @@ img.player-artwork.loaded {
 
   to {
     opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Mobile radio: the track thumbnail slides out from the station's position
+   (fully overlapping) to its half-overlap resting spot. Transform only —
+   opacity is handled separately by the .loaded fade. */
+@keyframes musicImgReveal {
+  from {
+    transform: translateX(-24px);
+  }
+
+  to {
     transform: translateX(0);
   }
 }
