@@ -358,6 +358,26 @@
     animation: fadeIn var(--transition-normal);
 }
 
+/* Replays a source view's entrance when the audio screensaver is dismissed.
+   Toggled by useScreensaverRevealPulse on views that have no stagger of their
+   own (AudioSourceLayout, AudioSourceStatus). Matches the app's stagger feel:
+   springy slide-up + a quicker fade. */
+.screensaver-revealing {
+    animation:
+        screensaverRevealRise var(--transition-spring) both,
+        screensaverRevealFade 0.4s ease both;
+}
+
+@keyframes screensaverRevealRise {
+    from { transform: translateY(var(--space-06)); }
+    to { transform: translateY(0); }
+}
+
+@keyframes screensaverRevealFade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;

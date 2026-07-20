@@ -1,6 +1,6 @@
 <template>
-  <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }"
-    @pointerdown.stop="handleClose">
+  <Transition name="screensaver">
+    <div v-if="isVisible" class="screensaver-overlay" @pointerdown.stop="handleClose">
     <!-- ===== MEDIA MODE (radio, podcast) ===== -->
     <template v-if="mode === 'media'">
       <!-- Full-screen blurred background -->
@@ -19,7 +19,7 @@
       <!-- Main content: full-width horizontal layout -->
       <div class="now-playing-screensaver">
         <!-- Left: Artwork -->
-        <div class="artwork-section stagger-1">
+        <div class="artwork-section stagger-1" :class="{ 'artwork-leave-rise': artworkRises }">
           <div class="artwork-container">
             <div class="artwork">
               <img v-if="displayArtwork" :src="displayArtwork" :alt="title"
@@ -42,7 +42,8 @@
             <span class="station-name heading-4">{{ stationName }}</span>
           </div>
 
-          <div v-if="progress" class="progress-section stagger-4">
+          <div v-if="progress" class="progress-section stagger-4"
+            :class="{ 'progress-leave-converge': progressConverges }">
             <ConnectProgressBar
               :current-position="progress.currentPosition"
               :duration="progress.duration"
@@ -62,7 +63,8 @@
         <h1 class="simple-device-name heading-1">{{ subtitle }}</h1>
       </div>
     </template>
-  </div>
+    </div>
+  </Transition>
 </template>
 
 <script setup>
@@ -71,14 +73,19 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 import ConnectProgressBar from './ConnectProgressBar.vue';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
-import { useTimer } from '@/composables/useTimer';
-
-const timer = useTimer();
 
 const props = defineProps({
   isVisible: {
     type: Boolean,
     required: true
+  },
+  progressConverges: {
+    type: Boolean,
+    default: false
+  },
+  artworkRises: {
+    type: Boolean,
+    default: false
   },
   mode: {
     type: String,
@@ -127,8 +134,6 @@ const props = defineProps({
 
 const emit = defineEmits(['close']);
 
-const isClosing = ref(false);
-
 // Artwork validation — falls back to generated avatar on error or tiny image
 const artworkError = ref(false);
 watch(() => props.artwork, () => { artworkError.value = false; });
@@ -156,28 +161,23 @@ const haloUrl = computed(() => {
 });
 const showBottomBar = computed(() => !!props.stationName);
 
+// Emit immediately; the parent flips isVisible and <Transition> plays the leave
+// animation. So a programmatic close (playback paused/stopped) fades out exactly
+// like a user dismiss — and a resume mid-fade cancels the leave automatically.
 function handleClose() {
-  if (isClosing.value) return;
-
-  isClosing.value = true;
-
-  // Wait for the end of the animation (300ms) before actually closing
-  timer.setTimeout(() => {
-    isClosing.value = false;
-    emit('close');
-  }, 300);
+  emit('close');
 }
-
-// Reset state when the screensaver reappears
-watch(() => props.isVisible, (visible) => {
-  if (visible) {
-    isClosing.value = false;
-  }
-});
 </script>
 
 <style scoped>
 .screensaver-overlay {
+  /* Distance the progress bar travels up on leave to land exactly where
+     AudioPlayerFull shows it (above the play controls): controls row height
+     (play-pause 90px + its vertical padding) + controls-section gap − the bar's
+     resting padding-bottom. The title travels half of it (it centers in the
+     freed space). Bar is bottom-anchored in the player, so this holds for CD's
+     action-buttons layout too. */
+  --screensaver-leave-dy: calc(90px + 2 * var(--space-01) + var(--space-05) - var(--space-06));
   position: fixed;
   top: 0;
   left: 0;
@@ -189,13 +189,95 @@ watch(() => props.isVisible, (visible) => {
   justify-content: center;
   cursor: pointer;
   z-index: 7000;
-  animation: fadeIn 400ms ease-out;
   contain: layout paint;
 }
 
-/* Closing animation */
-.screensaver-overlay.closing {
+/* Enter/leave via <Transition>: the leave animation plays for every close —
+   user dismiss AND programmatic hide (playback paused/stopped). */
+.screensaver-enter-active {
+  animation: fadeIn 400ms ease-out;
+}
+
+.screensaver-leave-active {
   animation: fadeOut 300ms ease-out forwards;
+}
+
+/* Artwork rises + fades on leave only for sources whose revealed view has no
+   matching cover (Radio/Podcast/Music Library → AudioSourceLayout). The
+   AudioPlayerFull sources keep it fixed for cover continuity, so this class is
+   not applied there. */
+.screensaver-overlay.screensaver-leave-active .artwork-section.artwork-leave-rise {
+  animation: screensaverLeaveUp 300ms ease-out forwards;
+}
+
+/* On leave each element lifts up as it fades to finish exactly where its
+   AudioPlayerFull counterpart sits, so the crossfade reads as one set of
+   elements repositioning rather than two overlapping layouts. The artwork and
+   the station/source bar are NOT translated — they already sit at the same spot
+   in both views, so they only fade in place (via the overlay opacity) and stay
+   superimposed. Rules are more specific than the .stagger-* enter rule so they
+   win; the explicit `from` keeps opacity from snapping to the stagger base (0)
+   when the enter animation is replaced. */
+.screensaver-overlay.screensaver-leave-active .track-info {
+  animation: screensaverLeaveTitleUp 300ms ease-out forwards;
+}
+
+/* Progress: default gentle rise (CD, podcast, music_library …) — like the rest
+   of the content, no convergence. CD's player can show its tracklist instead of
+   the bar, so there's no reliable target to rise to. */
+.screensaver-overlay.screensaver-leave-active .progress-section {
+  animation: screensaverLeaveUp 300ms ease-out forwards;
+}
+
+/* Convergence (Spotify always, CD when showing the player not its tracklist):
+   rise all the way to AudioPlayerFull's bar position (above the controls) so the
+   two bars read as one during the crossfade. Gated by the progressConverges prop. */
+.screensaver-overlay.screensaver-leave-active .progress-section.progress-leave-converge {
+  animation: screensaverLeaveProgressUp 300ms ease-out forwards;
+}
+
+.screensaver-overlay.screensaver-leave-active .simple-screensaver {
+  animation: screensaverLeaveUp 300ms ease-out forwards;
+}
+
+/* Progress bar → up to AudioPlayerFull's bar position (above the controls). */
+@keyframes screensaverLeaveProgressUp {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--screensaver-leave-dy)));
+  }
+}
+
+/* Title/subtitle → half that distance (centers in the space the controls free). */
+@keyframes screensaverLeaveTitleUp {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(calc(-0.5 * var(--screensaver-leave-dy)));
+  }
+}
+
+/* Simple mode (Bluetooth/Mac) → the revealed status card is a centered layout
+   with no matching anchor, so a plain gentle rise. */
+@keyframes screensaverLeaveUp {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--space-06)));
+  }
 }
 
 @keyframes fadeIn {
