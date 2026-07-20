@@ -3,7 +3,8 @@
     <Transition name="audio-player" @after-leave="$emit('after-hide')">
       <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
            transition classes, so the enter/leave would be instant. -->
-      <div v-if="visible" class="audio-player" :class="[playerClasses, { 'audio-player-revealing': revealing }]">
+      <div v-if="visible" class="audio-player" :class="[playerClasses, { 'audio-player-revealing': revealing }]"
+        @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
         <!-- Background image - heavily zoomed and blurred -->
         <div class="player-art-background">
           <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
@@ -13,14 +14,28 @@
 
         <div class="player-content">
           <!-- Artwork: falls back to inline-SVG avatar (font-aware) when no valid artwork,
-             then to placeholderArtwork for sources that ship a static image (e.g. podcasts). -->
-          <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork" @load="handleArtworkLoad"
-            @error="artworkError = true" />
-          <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
-          <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
+             then to placeholderArtwork for sources that ship a static image (e.g. podcasts).
+             Frame hosts an optional #artwork-badge (mobile radio: station icon sitting
+             behind the track artwork, which rides on top) — needs a real box since two of
+             the three branches below are void <img> elements and can't host a child. -->
+          <div class="player-artwork-frame" :class="{ 'has-badge': !!$slots['artwork-badge'] }">
+            <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
+              :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
+            <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
+            <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
+            <slot name="artwork-badge"></slot>
+          </div>
 
           <div class="player-info">
-            <slot name="info"></slot>
+            <!-- Track text crossfade+slides only on a swipe (next/prev); every other
+                 change — radio's station→metadata reveal, autoplay, source switch —
+                 swaps instantly (transition name resolves to the no-op 'track-none').
+                 Direction follows the finger, set in onTouchEnd. -->
+            <Transition :name="trackTransitionName" mode="out-in" @after-enter="onTrackEnter">
+              <div class="player-info-inner" :key="title">
+                <slot name="info"></slot>
+              </div>
+            </Transition>
           </div>
 
           <!-- Progress bar + controls are pinned together at the bottom, 8px apart —
@@ -49,11 +64,13 @@ import { computed, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useTimer } from '@/composables/useTimer'
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 
 const { isMobile } = useIsMobile()
+const timer = useTimer()
 
 // Replay the slide-in entrance when the screensaver is dismissed (desktop only —
 // the screensaver never shows on mobile). Duration covers the spring-slow enter.
@@ -128,26 +145,100 @@ const props = defineProps({
   isLoading: {
     type: Boolean,
     default: false
+  },
+
+  /**
+   * Enable the mobile horizontal-swipe gesture (next/prev). Off by default so
+   * radio — which has no track-skip concept in the mini-player — never captures
+   * swipes nor animates its station→metadata reveal as if it were one.
+   */
+  swipeEnabled: {
+    type: Boolean,
+    default: false
   }
 })
 
-defineEmits(['toggle-play', 'after-hide'])
+const emit = defineEmits(['toggle-play', 'after-hide', 'swipe-next', 'swipe-prev'])
 
 // Artwork validation — falls back to inline SVG / placeholder on error or tiny image (e.g. 1x1 tracking pixel)
 const artworkError = ref(false)
-watch(() => props.artwork, () => { artworkError.value = false })
+// Fade the real artwork in on load instead of popping over the neutral box —
+// reset on every src change so a new track/station image fades rather than snaps.
+const artworkLoaded = ref(false)
+watch(() => props.artwork, () => { artworkError.value = false; artworkLoaded.value = false })
 const validArtwork = computed(() => props.artwork && !artworkError.value ? props.artwork : null)
 const fallbackSvg = computed(() => props.fallbackName ? generateStationAvatarSvg(props.fallbackName) : '')
 
 function handleArtworkLoad(e) {
   if (e.target.naturalWidth < MIN_IMAGE_SIZE || e.target.naturalHeight < MIN_IMAGE_SIZE) {
     artworkError.value = true
+    return
   }
+  artworkLoaded.value = true
 }
 
 const playerClasses = computed(() => ({
   [`source-${props.source}`]: true
 }))
+
+// Mobile-only horizontal swipe on the fixed docked player. touchmove is left
+// non-passive so a confirmed horizontal drag can preventDefault without fighting
+// page scroll; a plain tap never crosses the distance threshold.
+const SWIPE_THRESHOLD_PX = 40
+let touchStartX = 0
+let touchStartY = 0
+let touchTracking = false
+
+// Track-text transition is armed only for the brief window around a swipe, then
+// resolves back to the no-op 'track-none'. swipeDir drives the slide direction so
+// the text follows the finger. Cleared on the transition's after-enter, with a
+// fallback timer for swipes that produce no track change (e.g. end of queue).
+const swiping = ref(false)
+const swipeDir = ref('left')
+let swipeResetHandle = null
+const trackTransitionName = computed(() => {
+  if (!swiping.value) return 'track-none'
+  return swipeDir.value === 'right' ? 'track-right' : 'track-left'
+})
+
+function onTrackEnter() {
+  swiping.value = false
+  if (swipeResetHandle) timer.clear(swipeResetHandle)
+}
+
+function onTouchStart(e) {
+  if (!isMobile.value || !props.swipeEnabled) return
+  const touch = e.touches[0]
+  touchStartX = touch.clientX
+  touchStartY = touch.clientY
+  touchTracking = true
+}
+
+function onTouchMove(e) {
+  if (!touchTracking) return
+  const touch = e.touches[0]
+  const dx = touch.clientX - touchStartX
+  const dy = touch.clientY - touchStartY
+  if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+    e.preventDefault()
+  }
+}
+
+function onTouchEnd(e) {
+  if (!touchTracking) return
+  touchTracking = false
+  const touch = e.changedTouches[0]
+  const dx = touch.clientX - touchStartX
+  const dy = touch.clientY - touchStartY
+  if (Math.abs(dx) > SWIPE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    // Finger right → next, finger left → prev; the slide follows the finger.
+    swipeDir.value = dx > 0 ? 'right' : 'left'
+    swiping.value = true
+    if (swipeResetHandle) timer.clear(swipeResetHandle)
+    swipeResetHandle = timer.setTimeout(() => { swiping.value = false }, 1200)
+    emit(dx > 0 ? 'swipe-next' : 'swipe-prev')
+  }
+}
 </script>
 
 <style scoped>
@@ -161,7 +252,7 @@ const playerClasses = computed(() => ({
   flex-direction: column;
   gap: var(--space-04);
   padding: 0 var(--space-02);
-  background: var(--color-background-neutral);
+  background: var(--color-background-medium-32);
   border-radius: var(--radius-06);
   backdrop-filter: blur(var(--blur-02));
   -webkit-backdrop-filter: blur(var(--blur-02));
@@ -177,7 +268,7 @@ const playerClasses = computed(() => ({
   content: '';
   position: absolute;
   inset: 0;
-  padding: 2px;
+  padding: 1px;
   opacity: 0.8;
   background: var(--stroke-glass);
   border-radius: var(--radius-06);
@@ -235,9 +326,20 @@ const playerClasses = computed(() => ({
   overflow-y: auto;
 }
 
-.player-artwork {
+.player-artwork-frame {
+  position: relative;
   width: 100%;
   aspect-ratio: 1;
+  /* In the parent flex column, flex-shrink: 1 (default) lets aspect-ratio be
+     overridden when vertical space is tight; pinning it preserves the 1:1
+     box for both <img> (which has intrinsic size) and the <div v-html=svg>
+     wrapper (whose content is the SVG sized below). */
+  flex-shrink: 0;
+}
+
+.player-artwork {
+  width: 100%;
+  height: 100%;
   border-radius: var(--radius-04);
   object-fit: cover;
   background: var(--color-background-neutral);
@@ -245,11 +347,19 @@ const playerClasses = computed(() => ({
      is clipped natively by border-radius — this matters only for the <div>
      wrapper case.) */
   overflow: hidden;
-  /* In the parent flex column, flex-shrink: 1 (default) lets aspect-ratio be
-     overridden when vertical space is tight; pinning it preserves the 1:1
-     box for both <img> (which has intrinsic size) and the <div v-html=svg>
-     wrapper (whose content is the SVG sized below). */
-  flex-shrink: 0;
+  display: block;
+}
+
+/* Fade the real artwork <img> in on load (the SVG-avatar div and the static
+   placeholder img are excluded — they have no load event and must stay
+   visible). */
+img.player-artwork:not(.placeholder) {
+  opacity: 0;
+  transition: opacity 0.25s ease-out;
+}
+
+img.player-artwork.loaded {
+  opacity: 1;
 }
 
 /* Inline-SVG fallback: let the SVG sit in normal flow with width:100% and
@@ -274,6 +384,47 @@ const playerClasses = computed(() => ({
   flex-direction: column;
   gap: var(--space-04);
   padding: 0 var(--space-04);
+}
+
+.player-info-inner {
+  display: flex;
+  flex-direction: column;
+  /* Explicit `inherit` (gap isn't inherited by default) mirrors whatever
+     .player-info currently has — var(--space-04) desktop, var(--space-01) mobile —
+     without duplicating the token here. */
+  gap: inherit;
+  width: 100%;
+}
+
+/* Direction-aware track-text slide (swipe only — see trackTransitionName).
+   The content follows the finger: swipe-right slides the row rightward (old
+   exits right, new enters from the left), swipe-left the mirror. 'track-none'
+   has no rules, so every non-swipe change swaps instantly. */
+.track-right-enter-active,
+.track-right-leave-active,
+.track-left-enter-active,
+.track-left-leave-active {
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+}
+
+.track-right-enter-from {
+  opacity: 0;
+  transform: translateX(-16px);
+}
+
+.track-right-leave-to {
+  opacity: 0;
+  transform: translateX(16px);
+}
+
+.track-left-enter-from {
+  opacity: 0;
+  transform: translateX(16px);
+}
+
+.track-left-leave-to {
+  opacity: 0;
+  transform: translateX(-16px);
 }
 
 :deep(.player-title) {
@@ -341,12 +492,13 @@ const playerClasses = computed(() => ({
     max-height: none;
     flex-direction: row;
     align-items: center;
-    padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
-    border-radius: var(--radius-06);
+    padding: var(--space-02) var(--space-03) var(--space-02) var(--space-02);
+    border-radius: var(--radius-05);
+    box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.24);
   }
 
   .audio-player::before {
-    border-radius: var(--radius-06);
+    border-radius: var(--radius-05);
   }
 
   .player-content {
@@ -355,8 +507,20 @@ const playerClasses = computed(() => ({
     align-items: center;
     overflow-y: visible;
     padding: 0;
-    gap: var(--space-04);
+    gap: var(--space-03);
     width: 100%;
+    position: static;
+  }
+
+  /* Single 48px row layout, shared by all three sources (radio, podcast,
+     music library) — artwork | title+subtitle | one play/pause(-ish) button.
+     Width is animated so the radio station→track reveal (frame 48→72) shifts the
+     title/subtitle text rightward in sync with the track image sliding in. */
+  .player-artwork-frame {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    transition: width 0.3s ease-out;
   }
 
   .player-artwork {
@@ -376,6 +540,9 @@ const playerClasses = computed(() => ({
 
   .player-bottom {
     flex-shrink: 0;
+    padding: 0;
+    gap: 0;
+
   }
 
   /* Apply same styles to slotted content (fixes scoped CSS limitation) */
@@ -388,10 +555,6 @@ const playerClasses = computed(() => ({
     display: block;
   }
 
-  :deep(.player-subtitle) {
-    display: none;
-  }
-
   :deep(.desktop-only) {
     display: none !important;
   }
@@ -400,106 +563,42 @@ const playerClasses = computed(() => ({
     display: block !important;
   }
 
-  /* Hide progress bar on mobile by default */
+  /* Hide progress bar on mobile by default (radio has none) */
   .player-content :deep(.progress-bar) {
     display: none;
   }
 
-  /* Show progress bar for podcasts on mobile */
-  .audio-player.source-podcast .player-content :deep(.progress-bar) {
-    display: flex;
-  }
-
-  /* Podcasts mobile: Compact vertical layout with 3 lines */
-  .audio-player.source-podcast {
-    flex-direction: column !important;
-    gap: var(--space-03);
-    padding: var(--space-03);
-  }
-
-  .audio-player.source-podcast .player-content {
-    display: grid !important;
-    grid-template-columns: 88px 1fr;
-    grid-template-rows: 1fr auto;
-    column-gap: var(--space-03);
-    row-gap: var(--space-01);
-  }
-
-  .audio-player.source-podcast .player-artwork {
-    grid-row: 1 / -1;
-    width: 88px;
-    height: auto;
-    min-width: 88px;
-    align-self: center;
-  }
-
-  .audio-player.source-podcast .player-info {
-    grid-column: 2;
-    grid-row: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--space-01);
-    min-width: 0;
-  }
-
-  .audio-player.source-podcast .player-bottom {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
-  .audio-player.source-podcast :deep(.speed-selector),
-  .audio-player.source-podcast :deep(.playback-controls > :first-child) {
-    display: flex !important;
-  }
-
-  /* Show progress bar for music library on mobile */
+  /* Podcast/music library mobile: progress becomes a thin full-width strip
+     pinned to the very bottom of the card. It's positioned relative to
+     .audio-player itself (the nearest positioned ancestor) so it spans the
+     whole card and gets clipped by the card's own border-radius/overflow —
+     no manual inset needed for the rounded corners. */
+  .audio-player.source-podcast .player-content :deep(.progress-bar),
   .audio-player.source-music_library .player-content :deep(.progress-bar) {
     display: flex;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    padding: 0;
+    gap: 0;
   }
 
-  /* Music library mobile: compact layout (art | title + progress / controls) */
-  .audio-player.source-music_library {
-    flex-direction: column !important;
-    gap: var(--space-03);
-    padding: var(--space-03);
-  }
-
-  .audio-player.source-music_library .player-content {
-    display: grid !important;
-    grid-template-columns: 88px 1fr;
-    grid-template-rows: 1fr auto;
-    column-gap: var(--space-03);
-    row-gap: var(--space-01);
-  }
-
-  .audio-player.source-music_library .player-artwork {
-    grid-row: 1 / -1;
-    width: 88px;
-    height: auto;
-    min-width: 88px;
-    align-self: center;
-  }
-
-  .audio-player.source-music_library .player-info {
-    grid-column: 2;
-    grid-row: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--space-01);
-    min-width: 0;
-  }
-
-  .audio-player.source-music_library .player-bottom {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
-  /* Compact mobile player keeps only the core transport; shuffle/like are
-     desktop-only and queue lives in the header. */
-  .audio-player.source-music_library :deep(.ml-transport-extra) {
+  .audio-player.source-podcast .player-content :deep(.progress-bar) .time,
+  .audio-player.source-music_library .player-content :deep(.progress-bar) .time {
     display: none;
+  }
+
+  .audio-player.source-podcast .player-content :deep(.progress-container),
+  .audio-player.source-music_library .player-content :deep(.progress-container) {
+    height: 100%;
+    border-radius: 0;
+  }
+
+  .audio-player.source-podcast .player-content :deep(.progress),
+  .audio-player.source-music_library .player-content :deep(.progress) {
+    border-radius: 0;
   }
 
   .controls {
@@ -507,6 +606,55 @@ const playerClasses = computed(() => ({
     justify-content: center;
   }
 
+  /* Compact mobile player keeps only play/pause; shuffle/prev/next/like are
+     desktop-only — the swipe gesture covers prev/next on mobile instead. */
+  .audio-player.source-music_library :deep(.ml-transport-extra) {
+    display: none;
+  }
+
+  /* Radio, track detected: two 48px thumbnails overlapping by half. The station
+     icon sits behind, pinned left; the track artwork rides on top, offset right.
+     Frame widens to 72px (48 + 24 overlap) so the flex layout reserves the pair's
+     full width and the title/subtitle clears it instead of overlapping. */
+  .player-artwork-frame.has-badge {
+    width: 72px;
+  }
+
+  /* Station icon: behind, pinned left. Extra .player-artwork-frame ancestor
+     (rather than a bare :deep()) so this reliably outranks LazyImage's own
+     scoped `.lazy-image { position: relative }`. */
+  .player-artwork-frame.has-badge :deep(.player-artwork-badge) {
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-03);
+    z-index: 0;
+  }
+
+  /* Track artwork: on top of the station. It reveals from the station's exact
+     position — starts fully overlapping it (translateX(-24px)) and transparent,
+     then slides to its offset-right resting spot and fades in as the image
+     loads (.loaded), a coordinated reveal synced with the frame widening and the
+     text shifting right. left:24px (not right:0) keeps its anchor stable while
+     the frame animates its width. */
+  .player-artwork-frame.has-badge .player-artwork {
+    position: absolute;
+    top: 0;
+    left: 24px;
+    width: 48px;
+    height: 48px;
+    z-index: 1;
+    opacity: 0;
+    transform: translateX(-24px);
+    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+  }
+
+  .player-artwork-frame.has-badge .player-artwork.loaded {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 /* Vue Transition: Desktop - slide from right with fade */

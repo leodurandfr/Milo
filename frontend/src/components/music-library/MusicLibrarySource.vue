@@ -4,7 +4,7 @@
       :header-title="currentTitle" :header-show-back="canGoBack"
       header-icon="music_library" header-variant="background-neutral" gradient="music-library"
       :header-actions-key="currentView" :content-key="currentView"
-      :player-mobile-height="184" :pending-scroll-restore="pendingScrollRestore"
+      :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
       @header-back="goBack" @scroll-restored="onScrollRestored">
 
       <!-- Header actions (home only): queue + search -->
@@ -40,14 +40,14 @@
         <AudioPlayer :visible="shouldShowPlayer" source="music_library"
           :artwork="playerArtwork" :placeholder-artwork="albumPlaceholder"
           :title="playerTitle"
-          :is-playing="isPlaying" :is-loading="isBuffering">
-          <!-- Track info: same shared PlayerInfoText as the radio/podcast players.
-               Mobile keeps its own compact single-line markup (unchanged for now). -->
+          :is-playing="isPlaying" :is-loading="isBuffering" swipe-enabled
+          @swipe-next="store.next()" @swipe-prev="store.previous()">
+          <!-- Track info: same shared PlayerInfoText as the radio/podcast players;
+               mobile shows the same title/artist pair as its own compact lines. -->
           <template #info>
             <PlayerInfoText class="desktop-only" :title="playerTitle" :secondary="playerArtist" />
-            <p class="player-title heading-4 mobile-only">
-              {{ playerTitle }}<template v-if="playerArtist"> · {{ playerArtist }}</template>
-            </p>
+            <p class="player-title text-body mobile-only">{{ playerTitle }}</p>
+            <p v-if="playerArtist" class="player-subtitle text-body mobile-only">{{ playerArtist }}</p>
           </template>
 
           <template #progress>
@@ -57,6 +57,9 @@
             </div>
           </template>
 
+          <!-- Mobile keeps only play/pause; prev/next/shuffle/like are desktop-only —
+               the mini-player's swipe gesture covers next (right) / prev (left), the
+               rest move into the future expanded mini-player view. -->
           <template #controls>
             <div class="ml-controls" @click.stop>
               <div class="playback-controls">
@@ -64,10 +67,12 @@
                   :color="store.shuffle ? 'var(--color-brand)' : undefined"
                   @click="store.toggleShuffle()" />
                 <div class="ml-transport-main">
-                  <IconButton icon="previous" variant="on-dark" size="small" @click="store.previous()" />
+                  <IconButton icon="previous" variant="on-dark" size="small" class="ml-transport-extra"
+                    @click="store.previous()" />
                   <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
                     :loading="isBuffering" @click="togglePlayPause" />
-                  <IconButton icon="next" variant="on-dark" size="small" @click="store.next()" />
+                  <IconButton icon="next" variant="on-dark" size="small" class="ml-transport-extra"
+                    @click="store.next()" />
                 </div>
                 <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="small"
                   class="ml-transport-extra" @click="store.toggleCurrentStar()" />

@@ -4,7 +4,7 @@
     :header-subtitle="currentSubtitle"
     :header-show-back="canGoBack" header-icon="podcast" header-variant="background-neutral"
     :header-actions-key="currentView" :content-key="currentView"
-    :player-mobile-height="184" :pending-scroll-restore="pendingScrollRestore" gradient="podcast" @header-back="goBack"
+    :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore" gradient="podcast" @header-back="goBack"
     @scroll-restored="onScrollRestored">
     <!-- Header actions (only on home view) -->
     <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
@@ -49,12 +49,15 @@
     <!-- Player slot: AudioPlayer component -->
     <template #player>
       <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
-        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
-        <!-- Track info: podcast name kicker + episode title. Desktop uses the
-             shared PlayerInfoText; mobile keeps its own compact markup (unchanged for now). -->
+        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" swipe-enabled
+        @swipe-next="seekForward" @swipe-prev="seekBackward">
+        <!-- Track info: podcast name kicker + episode title. Desktop uses the shared
+             PlayerInfoText; mobile shows the same title/podcast-name pair as its own
+             compact title/subtitle lines. -->
         <template #info>
           <PlayerInfoText class="desktop-only" :kicker="podcastName" :title="episodeName" />
-          <p class="player-title heading-3 mobile-only">{{ episodeName }}</p>
+          <p class="player-title text-body mobile-only">{{ episodeName }}</p>
+          <p v-if="podcastName" class="player-subtitle text-body mobile-only">{{ podcastName }}</p>
         </template>
 
         <!-- Progress bar (seekable) -->
@@ -65,21 +68,20 @@
           </div>
         </template>
 
-        <!-- Podcast controls with speed and seek -->
+        <!-- Podcast controls: play/pause everywhere; seek buttons + speed selector are
+             desktop-only — on mobile the mini-player's swipe gesture covers +30s (right)
+             / -15s (left), speed moves into the future expanded mini-player view. -->
         <template #controls>
-
-
-          <!-- Playback controls -->
           <div class="playback-controls" @click.stop>
-            <IconButton icon="rewind15" variant="on-dark" size="small" @click="seekBackward" />
+            <IconButton icon="rewind15" variant="on-dark" size="small" class="desktop-only" @click="seekBackward" />
 
             <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
               :loading="isBuffering" @click="togglePlayPause" />
 
-            <IconButton icon="forward30" variant="on-dark" size="small" @click="seekForward" />
+            <IconButton icon="forward30" variant="on-dark" size="small" class="desktop-only" @click="seekForward" />
           </div>
 
-          <div class="speed-selector" @click.stop>
+          <div class="speed-selector desktop-only" @click.stop>
             <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal" @change="handleSpeedChange" />
           </div>
         </template>
