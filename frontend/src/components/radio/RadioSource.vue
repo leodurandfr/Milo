@@ -33,12 +33,12 @@
              renders its own compact title/subtitle pair (station identity conveyed via
              the artwork-badge slot below instead of a text line). -->
         <template #info>
-          <template v-if="radioStore.trackInfo">
+          <template v-if="displayTrackInfo">
             <PlayerInfoText class="desktop-only" :kicker="displayStation?.name" :kicker-icon="stationArtwork"
-              :kicker-fallback-name="displayStation?.name" :title="radioStore.trackInfo.title"
-              :secondary="radioStore.trackInfo.artist" />
-            <p class="player-title text-body mobile-only">{{ radioStore.trackInfo.title }}</p>
-            <p class="player-subtitle text-body mobile-only">{{ radioStore.trackInfo.artist }}</p>
+              :kicker-fallback-name="displayStation?.name" :title="displayTrackInfo.title"
+              :secondary="displayTrackInfo.artist" />
+            <p class="player-title text-body mobile-only">{{ displayTrackInfo.title }}</p>
+            <p class="player-subtitle text-body mobile-only">{{ displayTrackInfo.artist }}</p>
           </template>
           <template v-else>
             <PlayerInfoText class="desktop-only" :title="displayStation?.name" />
@@ -49,8 +49,9 @@
         <!-- Mobile only: station icon sits behind (pinned left), the track artwork
              rides on top offset to the right and reveals in from the station's position
              (AudioPlayer widens the frame and does the overlap/animation when this slot
-             is populated). -->
-        <template v-if="isMobile && radioStore.trackInfo" #artwork-badge>
+             is populated). Gated on the track cover: a recognized track without an
+             image stays single-image (station) + title/artist text, no overlap. -->
+        <template v-if="isMobile && displayTrackInfo?.artwork" #artwork-badge>
           <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="displayStation?.name" alt="" />
         </template>
 
@@ -110,10 +111,16 @@ const timer = useTimer()
 // the fade-out animation completes (onFadeOutStart below). Mirrors the podcast
 // store's displayEpisode pattern.
 const displayStation = ref(null)
+const displayTrackInfo = ref(null)
 watch(
   () => radioStore.currentStation,
-  (station) => {
-    if (station) displayStation.value = station
+  (station, prev) => {
+    if (!station) return
+    displayStation.value = station
+    // A different station's metadata invalidates the previous track overlay —
+    // drop it so a stale cover/title can't linger over the new station while it
+    // buffers (before its own track is recognized).
+    if (prev && station.id !== prev.id) displayTrackInfo.value = null
   },
   { immediate: true }
 )
@@ -132,10 +139,30 @@ const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShow
       // the player is still meant to be hidden. A stop→replay inside this
       // window re-shows the player; clearing then would blank a live station.
       timer.setTimeout(() => {
-        if (!shouldShowNowPlayingLayout.value) displayStation.value = null
+        if (!shouldShowNowPlayingLayout.value) {
+          displayStation.value = null
+          displayTrackInfo.value = null
+        }
       }, 600)
     }
   })
+
+// Mirror displayStation for the recognized track. trackInfo is derived from
+// metadata and drops to null the instant the source stops, which would collapse
+// the two-thumbnail layout to station-only before the player runs its exit
+// transition. Snapshotting keeps the last track (image + text) shown so it fades
+// out with the player, and lingers alongside the station. Cleared immediately
+// when the song is merely no longer recognized while the station keeps playing
+// (revert to station-only), on a station change (above), and on fade-out
+// completion above. (ref declared with displayStation so that watch can reset it.)
+watch(
+  () => radioStore.trackInfo,
+  (info) => {
+    if (info) displayTrackInfo.value = info
+    else if (isCurrentlyPlaying.value) displayTrackInfo.value = null
+  },
+  { immediate: true }
+)
 
 // Reactive favorite state for the displayed station: the snapshot itself is
 // frozen during the linger, so derive the heart icon from the live list.
@@ -162,14 +189,15 @@ const bufferingStationId = computed(() => {
 // Reads the displayStation snapshot so it survives the stop → fade-out window.
 const stationArtwork = computed(() => getFaviconUrl(displayStation.value?.favicon))
 
-// Player display: use track info when available, fallback to station info
+// Player display: use the snapshotted track info when available (so it survives
+// the stop → fade-out window), fallback to station info.
 const playerArtwork = computed(() => {
-  if (radioStore.trackInfo?.artwork) return radioStore.trackInfo.artwork
+  if (displayTrackInfo.value?.artwork) return displayTrackInfo.value.artwork
   return stationArtwork.value
 })
 
 const playerTitle = computed(() => {
-  if (radioStore.trackInfo) return radioStore.trackInfo.title
+  if (displayTrackInfo.value) return displayTrackInfo.value.title
   return displayStation.value?.name
 })
 
