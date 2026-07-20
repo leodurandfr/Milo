@@ -11,34 +11,39 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-        <!-- Favorites View -->
-        <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
-          :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
-          :buffering-station-id="bufferingStationId" @play-station="playStation" />
+      <!-- Favorites View -->
+      <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
+        :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
+        :buffering-station-id="bufferingStationId" @play-station="playStation" />
 
-        <!-- Search View -->
-        <SearchView v-else key="search" :country-options="countryOptions" :genre-options="genreOptions"
-          :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
-          :buffering-station-id="bufferingStationId" :is-loading="radioStore.loading" :has-error="radioStore.hasError"
-          :network-error="radioStore.networkError"
-          @search="handleSearch" @retry="retrySearch" @play-station="playStation" />
+      <!-- Search View -->
+      <SearchView v-else key="search" :country-options="countryOptions" :genre-options="genreOptions"
+        :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
+        :buffering-station-id="bufferingStationId" :is-loading="radioStore.loading" :has-error="radioStore.hasError"
+        :network-error="radioStore.networkError" @search="handleSearch" @retry="retrySearch"
+        @play-station="playStation" />
     </template>
 
     <template #player="{ isMobile }">
-      <AudioPlayer v-if="displayStation" :visible="shouldShowNowPlayingLayout" source="radio"
-        :artwork="playerArtwork" :fallback-name="displayStation?.name" :title="playerTitle"
-        :subtitle="playerSubtitle" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
-        <!-- Track info: 3-line layout when Shazam recognized a track -->
-        <template v-if="radioStore.trackInfo" #info>
-          <!-- Desktop: 3-line layout — title + artist grouped tighter than the station line -->
-          <div class="radio-track-group radio-track--desktop">
-            <p class="player-title heading-2">{{ radioStore.trackInfo.title }}</p>
-            <p class="player-subtitle heading-3">{{ radioStore.trackInfo.artist }}</p>
-          </div>
-          <p class="player-subtitle text-mono radio-track--desktop">{{ displayStation?.name }}</p>
-          <!-- Mobile: 2-line compact layout -->
-          <p class="player-title heading-4 radio-track--mobile">{{ radioStore.trackInfo.title }} · {{ radioStore.trackInfo.artist }}</p>
-          <p class="player-title text-mono radio-track--mobile radio-track-station">{{ displayStation?.name }}</p>
+      <AudioPlayer v-if="displayStation" :visible="shouldShowNowPlayingLayout" source="radio" :artwork="playerArtwork"
+        :fallback-name="displayStation?.name" :title="playerTitle"
+        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
+        <!-- Track info: station kicker + title/artist when Shazam recognized a track,
+             station name alone otherwise. Desktop uses the shared PlayerInfoText;
+             mobile keeps its own compact markup (unchanged for now). -->
+        <template #info>
+          <template v-if="radioStore.trackInfo">
+            <PlayerInfoText class="desktop-only" :kicker="displayStation?.name" :kicker-icon="stationArtwork"
+              :kicker-fallback-name="displayStation?.name" :title="radioStore.trackInfo.title"
+              :secondary="radioStore.trackInfo.artist" />
+            <p class="player-title heading-4 mobile-only">{{ radioStore.trackInfo.title }} · {{
+              radioStore.trackInfo.artist }}</p>
+            <p class="player-title text-mono mobile-only radio-track-station">{{ displayStation?.name }}</p>
+          </template>
+          <template v-else>
+            <PlayerInfoText class="desktop-only" :title="displayStation?.name" />
+            <p class="player-title heading-2 mobile-only">{{ displayStation?.name }}</p>
+          </template>
         </template>
         <!-- Radio controls with favorite and play/stop -->
         <template #controls>
@@ -69,12 +74,13 @@ import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisi
 import { useTimer } from '@/composables/useTimer'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
-import { genreOptions as createGenreOptions, getTranslatedGenreName } from '@/constants/musicGenres'
+import { genreOptions as createGenreOptions } from '@/constants/musicGenres'
 import { countryOptions as createCountryOptions } from '@/constants/countries'
 import IconButton from '@/components/ui/IconButton.vue'
 import Button from '@/components/ui/Button.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
+import PlayerInfoText from '@/components/audio/PlayerInfoText.vue'
 import FavoritesView from './FavoritesView.vue'
 import SearchView from './SearchView.vue'
 import { getFaviconUrl } from '@/utils/faviconUrl'
@@ -154,38 +160,6 @@ const playerArtwork = computed(() => {
 const playerTitle = computed(() => {
   if (radioStore.trackInfo) return radioStore.trackInfo.title
   return displayStation.value?.name
-})
-
-const playerSubtitle = computed(() => {
-  if (radioStore.trackInfo) return radioStore.trackInfo.artist
-  return stationMetadata.value
-})
-
-// Station metadata (genre + bitrate)
-const stationMetadata = computed(() => {
-  const station = displayStation.value
-  if (!station) return ''
-
-  const genre = getTranslatedGenreName(getCurrentLanguage(), station.genre || '')
-  const bitrate = station.bitrate
-
-  // Both genre and bitrate
-  if (genre && bitrate && bitrate > 0) {
-    return `${genre} • ${bitrate} kbps`
-  }
-
-  // Only genre
-  if (genre) {
-    return genre
-  }
-
-  // Only bitrate
-  if (bitrate && bitrate > 0) {
-    return `${bitrate} kbps`
-  }
-
-  // Neither
-  return ''
 })
 
 const countryOptions = computed(() => {
@@ -297,25 +271,10 @@ async function loadAvailableCountries() {
   width: 100%;
 }
 
-/* Track info: mobile/desktop responsive variants */
-.radio-track--mobile {
-  display: none;
-}
-
-/* Group title + artist with a tighter gap than player-info's own spacing */
-.radio-track-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
+/* Mobile-only station line under the compact "title · artist" line
+   (desktop/mobile switching itself is handled by AudioPlayer's shared
+   .desktop-only/.mobile-only classes). */
 @media (max-aspect-ratio: 4/3) {
-  .radio-track--desktop {
-    display: none !important;
-  }
-  .radio-track--mobile {
-    display: block !important;
-  }
   .radio-track-station {
     color: var(--color-text-contrast-50) !important;
   }

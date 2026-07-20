@@ -49,7 +49,14 @@
     <!-- Player slot: AudioPlayer component -->
     <template #player>
       <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
-        :subtitle="podcastName" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
+        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
+        <!-- Track info: podcast name kicker + episode title. Desktop uses the
+             shared PlayerInfoText; mobile keeps its own compact markup (unchanged for now). -->
+        <template #info>
+          <PlayerInfoText class="desktop-only" :kicker="podcastName" :title="episodeName" />
+          <p class="player-title heading-3 mobile-only">{{ episodeName }}</p>
+        </template>
+
         <!-- Progress bar (seekable) -->
         <template #progress>
           <div @click.stop>
@@ -95,6 +102,7 @@ import { logger } from '@/services/logger'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
+import PlayerInfoText from '@/components/audio/PlayerInfoText.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
