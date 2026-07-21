@@ -107,6 +107,7 @@ import { i18n, useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { wsEventRegistry } from '@/schemas/ws';
 import { logger } from '@/services/logger';
+import { isKiosk } from '@/utils/kiosk';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
@@ -409,10 +410,9 @@ watch(isReady, (ready) => {
 // Only applied on the Pi kiosk (localhost). Remote browsers (e.g. milo.local
 // from another device) keep their native colors — same pattern as ui_scale.
 const COLOR_FILTER_MAX_ALPHA = 0.40;
-const isKiosk = window.location.hostname === 'localhost';
 
 const colorFilterActive = computed(() => {
-  if (!isKiosk) return false;
+  if (!isKiosk()) return false;
   const cf = settingsStore.screenColorFilter;
   return cf?.enabled && cf?.warmth > 0;
 });

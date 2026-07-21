@@ -300,13 +300,6 @@ function handleClose() {
   }
 }
 
-/* Hide the screensaver in mobile/portrait mode */
-@media (max-aspect-ratio: 4/3) {
-  .screensaver-overlay {
-    display: none !important;
-  }
-}
-
 /* Full-screen blurred background */
 .artwork-background {
   position: absolute;

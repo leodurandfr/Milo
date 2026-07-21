@@ -7,6 +7,7 @@
  */
 import { onMounted, onUnmounted } from 'vue';
 import { apiCall } from '@/services/apiCall';
+import { isKiosk } from '@/utils/kiosk';
 
 let lastActivityTime = 0;
 const THROTTLE_DELAY = 2000; // Minimum 2 seconds between each notification
@@ -32,6 +33,11 @@ export function useScreenActivity() {
   };
 
   const setupListeners = () => {
+    // Only the Pi kiosk drives the physical screen. Remote browsers skip the
+    // listeners entirely so they don't emit pings the backend would ignore
+    // anyway (it enforces the same loopback-only rule server-side).
+    if (!isKiosk()) return;
+
     // Touch events (mobile/tablet/touchscreen)
     document.addEventListener('touchstart', notifyActivity, { passive: true });
 

@@ -11,6 +11,7 @@ import { usePodcastStore } from '@/stores/podcastStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useI18n } from '@/services/i18n';
+import { isKiosk } from '@/utils/kiosk';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 import { AIRPLAY_MIN_ARTWORK_PX } from '@/constants/imageQuality';
@@ -88,6 +89,10 @@ export function useScreensaver() {
   );
 
   const shouldMonitorInactivity = computed(() => {
+    // Pi-screen-only: the screensaver is the physical display's idle state, so a
+    // remote Mac/iPhone viewing the UI never shows it (matches ui_scale + color
+    // filter). Also removes the need for the portrait CSS hide hack it once used.
+    if (!isKiosk()) return false;
     if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
     if (unifiedStore.systemState.source_state !== 'active') return false;
     const source = unifiedStore.systemState.active_source;

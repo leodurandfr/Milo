@@ -2,7 +2,7 @@
 """
 Settings Routes – Version with app deactivation and process stopping
 """
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from typing import Any, Callable, Dict, Optional
 from backend.core.models.audio_state import AudioSource
 from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
@@ -544,9 +544,22 @@ def create_settings_router(
         )
 
     @router.post("/screen-activity")
-    async def notify_screen_activity():
-        """Endpoint to notify screen activity from the frontend (touch, mouse, keyboard)"""
+    async def notify_screen_activity(request: Request):
+        """Wake the physical screen on activity from the *local* Pi kiosk only.
+
+        The same frontend runs on the Pi's touchscreen and on remote browsers
+        (milo.local from a Mac/iPhone), so we must not let a remote interaction
+        wake the Pi. The kiosk loads http://localhost and thus reaches the backend
+        over loopback; nginx sets X-Real-IP to the real client address
+        authoritatively (remote clients cannot spoof it). Non-loopback requests are
+        acknowledged but ignored.
+        """
         async with api_error_handler("Error notifying screen activity", logger):
+            client_ip = request.headers.get("x-real-ip") or (
+                request.client.host if request.client else ""
+            )
+            if client_ip not in ("127.0.0.1", "::1"):
+                return {"status": "success", "activity_time_reset": False}
             await screen_controller.on_touch_detected()
             return {"status": "success", "activity_time_reset": True}
 
