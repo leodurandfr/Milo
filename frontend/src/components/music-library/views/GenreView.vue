@@ -1,32 +1,35 @@
 <template>
   <div class="genre-view">
-    <MessageContent v-if="loading && !songs.length" loading :title="t('musicLibrary.loading')" />
-    <MessageContent v-else-if="!songs.length" :title="t('musicLibrary.noTracks')" />
+    <div class="transition-container">
+      <Transition name="content-swap">
+        <MessageContent v-if="loading && !songs.length" key="loading" loading :title="t('musicLibrary.loading')" />
+        <MessageContent v-else-if="!songs.length" key="notfound" :title="t('musicLibrary.noTracks')" />
+        <div v-else key="loaded" class="content-stack">
+          <div class="genre-actions">
+            <p class="genre-count text-mono">{{ t('musicLibrary.tracksCount', { count: songs.length }) }}</p>
+            <div class="genre-buttons">
+              <Button variant="brand" left-icon="play" @click="playFrom(0)">{{ t('musicLibrary.play') }}</Button>
+              <Button variant="background-strong" @click="shufflePlay">{{ t('musicLibrary.shuffle') }}</Button>
+            </div>
+          </div>
 
-    <template v-else>
-      <div class="genre-actions">
-        <p class="genre-count text-mono">{{ t('musicLibrary.tracksCount', { count: songs.length }) }}</p>
-        <div class="genre-buttons">
-          <Button variant="brand" left-icon="play" @click="playFrom(0)">{{ t('musicLibrary.play') }}</Button>
-          <Button variant="background-strong" @click="shufflePlay">{{ t('musicLibrary.shuffle') }}</Button>
+          <div class="tracks">
+            <TrackRow
+              v-for="(song, idx) in songs"
+              :key="song.id"
+              :song="song"
+              :number="idx + 1"
+              :current="song.id === store.currentTrackId"
+              :playing="store.isPlaying"
+              show-artist
+              show-menu
+              @play="playFrom(idx)"
+              @menu="store.requestAddToPlaylist([song.id])"
+            />
+          </div>
         </div>
-      </div>
-
-      <div class="tracks">
-        <TrackRow
-          v-for="(song, idx) in songs"
-          :key="song.id"
-          :song="song"
-          :number="idx + 1"
-          :current="song.id === store.currentTrackId"
-          :playing="store.isPlaying"
-          show-artist
-          show-menu
-          @play="playFrom(idx)"
-          @menu="store.requestAddToPlaylist([song.id])"
-        />
-      </div>
-    </template>
+      </Transition>
+    </div>
   </div>
 </template>
 
@@ -70,6 +73,23 @@ watch(() => props.genre, async (genre) => {
 
 <style scoped>
 .genre-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+
+.transition-container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.transition-container > * {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;
+}
+
+.content-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);

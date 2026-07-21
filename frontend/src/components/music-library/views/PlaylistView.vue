@@ -1,66 +1,70 @@
 <template>
   <div class="playlist-view">
-    <MessageContent v-if="loading && !playlist" loading :title="t('musicLibrary.loading')" />
-    <MessageContent v-else-if="!playlist" :title="t('musicLibrary.notFound')" />
+    <div class="transition-container">
+      <Transition name="content-swap">
+        <MessageContent v-if="loading && !playlist" key="loading" loading :title="t('musicLibrary.loading')" />
+        <MessageContent v-else-if="!playlist" key="notfound" :title="t('musicLibrary.notFound')" />
 
-    <template v-else>
-      <TracklistHeader
-        :cover-id="playlist.coverArt"
-        :title="playlist.name"
-        :subtitle="subtitle"
-        @play="playFrom(0)"
-        @shuffle="shufflePlay"
-      >
-        <template #actions>
-          <Button
-            :variant="editing ? 'brand' : 'background-strong'"
-            @click="toggleEdit"
+        <div v-else key="loaded" class="content-stack">
+          <TracklistHeader
+            :cover-id="playlist.coverArt"
+            :title="playlist.name"
+            :subtitle="subtitle"
+            @play="playFrom(0)"
+            @shuffle="shufflePlay"
           >
-            {{ editing ? t('musicLibrary.playlists.done') : t('musicLibrary.playlists.edit') }}
-          </Button>
-        </template>
-      </TracklistHeader>
+            <template #actions>
+              <Button
+                :variant="editing ? 'brand' : 'background-strong'"
+                @click="toggleEdit"
+              >
+                {{ editing ? t('musicLibrary.playlists.done') : t('musicLibrary.playlists.edit') }}
+              </Button>
+            </template>
+          </TracklistHeader>
 
-      <!-- Edit toolbar: rename + delete (two-tap confirm) + reorder hint. -->
-      <div v-if="editing" class="edit-toolbar">
-        <Button variant="background-strong" size="small" @click="renameOpen = true">
-          {{ t('musicLibrary.playlists.rename') }}
-        </Button>
-        <Button variant="important" size="small" :loading="deleting" @click="handleDelete">
-          {{ confirmDelete ? t('musicLibrary.playlists.confirmDelete') : t('musicLibrary.playlists.delete') }}
-        </Button>
-        <p v-if="tracks.length" class="edit-hint text-mono">{{ t('musicLibrary.playlists.reorderHint') }}</p>
-      </div>
+          <!-- Edit toolbar: rename + delete (two-tap confirm) + reorder hint. -->
+          <div v-if="editing" class="edit-toolbar">
+            <Button variant="background-strong" size="small" @click="renameOpen = true">
+              {{ t('musicLibrary.playlists.rename') }}
+            </Button>
+            <Button variant="important" size="small" :loading="deleting" @click="handleDelete">
+              {{ confirmDelete ? t('musicLibrary.playlists.confirmDelete') : t('musicLibrary.playlists.delete') }}
+            </Button>
+            <p v-if="tracks.length" class="edit-hint text-mono">{{ t('musicLibrary.playlists.reorderHint') }}</p>
+          </div>
 
-      <MessageContent v-if="!tracks.length" :title="t('musicLibrary.noTracks')" />
+          <MessageContent v-if="!tracks.length" :title="t('musicLibrary.noTracks')" />
 
-      <div v-else class="tracks" :class="{ reordering: editing }">
-        <div
-          v-for="(song, idx) in tracks"
-          :key="song.id"
-          class="drag-item"
-          :class="{
-            'drag-item--dragging': dragState.index === idx,
-            'drag-item--transition': dragState.index !== -1 && dragState.index !== idx,
-          }"
-          :style="getDragItemStyle(idx)"
-        >
-          <TrackRow
-            :song="song"
-            :number="idx + 1"
-            :current="song.id === store.currentTrackId"
-            :playing="store.isPlaying"
-            show-artist
-            :show-menu="!editing"
-            :editing="editing"
-            @play="playFrom(idx)"
-            @menu="store.requestAddToPlaylist([song.id])"
-            @remove="removeAt(idx)"
-            @grip-down="onGripDown($event, idx)"
-          />
+          <div v-else class="tracks" :class="{ reordering: editing }">
+            <div
+              v-for="(song, idx) in tracks"
+              :key="song.id"
+              class="drag-item"
+              :class="{
+                'drag-item--dragging': dragState.index === idx,
+                'drag-item--transition': dragState.index !== -1 && dragState.index !== idx,
+              }"
+              :style="getDragItemStyle(idx)"
+            >
+              <TrackRow
+                :song="song"
+                :number="idx + 1"
+                :current="song.id === store.currentTrackId"
+                :playing="store.isPlaying"
+                show-artist
+                :show-menu="!editing"
+                :editing="editing"
+                @play="playFrom(idx)"
+                @menu="store.requestAddToPlaylist([song.id])"
+                @remove="removeAt(idx)"
+                @grip-down="onGripDown($event, idx)"
+              />
+            </div>
+          </div>
         </div>
-      </div>
-    </template>
+      </Transition>
+    </div>
 
     <PlaylistNameModal
       :is-open="renameOpen"
@@ -262,6 +266,23 @@ onUnmounted(removeDragListeners);
 
 <style scoped>
 .playlist-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+
+.transition-container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.transition-container > * {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;
+}
+
+.content-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
