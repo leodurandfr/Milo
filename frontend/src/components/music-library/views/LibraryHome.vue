@@ -4,61 +4,76 @@
     <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll"
       inactive-variant="background-neutral" />
 
-    <!-- Tab content cross-fades on tab switch (fade-out → fade-in), mirroring the
-         view-to-view transition in AudioSourceLayout. The keyed wrapper is what
-         drives the transition; it also carries the flex-column layout. -->
-    <Transition name="fade-slide" mode="out-in">
+    <!-- Tab switch: same overlapping fade-slide crossfade as AudioSourceLayout's view
+         transition — leaving + entering tab-content share one grid cell (.tab-transition),
+         no out-in gap — so switching tabs feels as fast as switching views. -->
+    <div class="tab-transition"><Transition name="fade-slide">
       <div :key="store.activeTab" class="tab-content">
         <!-- ALBUMS -->
         <template v-if="store.activeTab === 'albums'">
-          <div v-if="store.albumsLoading && !store.albums.length" class="albums-grid">
-            <SkeletonAlbumCard v-for="i in 12" :key="`skeleton-${i}`" />
+          <div class="transition-container">
+            <Transition name="content-swap">
+              <div v-if="!store.albums.length && (store.albumsLoading || !store.albumsLoaded)" key="loading"
+                class="albums-grid">
+                <SkeletonAlbumCard v-for="i in 12" :key="`skeleton-${i}`" />
+              </div>
+              <MessageContent v-else-if="!store.albums.length" key="empty" :loading="store.isScanning"
+                :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.emptyLibrary')"
+                :subtitle="store.isScanning ? buildingSubtitle : t('musicLibrary.emptyLibraryHint')" />
+              <div v-else key="loaded">
+                <div class="albums-grid">
+                  <AlbumCard v-for="album in store.albums" :key="album.id" :album="album"
+                    @click="$emit('select-album', album)" />
+                </div>
+                <div ref="sentinelRef" class="scroll-sentinel"></div>
+              </div>
+            </Transition>
           </div>
-          <MessageContent v-else-if="!store.albums.length" :loading="store.isScanning"
-            :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.emptyLibrary')"
-            :subtitle="store.isScanning ? buildingSubtitle : t('musicLibrary.emptyLibraryHint')" />
-          <template v-else>
-            <div class="albums-grid">
-              <AlbumCard v-for="album in store.albums" :key="album.id" :album="album"
-                @click="$emit('select-album', album)" />
-            </div>
-            <div ref="sentinelRef" class="scroll-sentinel"></div>
-          </template>
         </template>
 
         <!-- ARTISTS -->
         <template v-else-if="store.activeTab === 'artists'">
-          <div v-if="store.artistsLoading && !store.artistIndex.length" class="rows-list">
-            <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" rounded-cover />
-          </div>
-          <MessageContent v-else-if="!store.artistIndex.length" :loading="store.isScanning"
-            :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noArtists')"
-            :subtitle="store.isScanning ? buildingSubtitle : ''" />
-          <div v-else class="index-list">
-            <div v-for="bucket in store.artistIndex" :key="bucket.name" class="index-bucket">
-              <p class="index-label text-mono">{{ bucket.name }}</p>
-              <MediaRow v-for="artist in bucket.artist" :key="artist.id" :cover-id="artist.coverArt"
-                :title="artist.name" :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
-                rounded-cover @click="$emit('select-artist', artist)" />
-            </div>
+          <div class="transition-container">
+            <Transition name="content-swap">
+              <div v-if="!store.artistIndex.length && (store.artistsLoading || !store.artistsLoaded)" key="loading"
+                class="rows-list">
+                <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" rounded-cover />
+              </div>
+              <MessageContent v-else-if="!store.artistIndex.length" key="empty" :loading="store.isScanning"
+                :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noArtists')"
+                :subtitle="store.isScanning ? buildingSubtitle : ''" />
+              <div v-else key="loaded" class="index-list">
+                <div v-for="bucket in store.artistIndex" :key="bucket.name" class="index-bucket">
+                  <p class="index-label text-mono">{{ bucket.name }}</p>
+                  <MediaRow v-for="artist in bucket.artist" :key="artist.id" :cover-id="artist.coverArt"
+                    :title="artist.name" :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
+                    rounded-cover @click="$emit('select-artist', artist)" />
+                </div>
+              </div>
+            </Transition>
           </div>
         </template>
 
         <!-- GENRES -->
         <template v-else-if="store.activeTab === 'genres'">
-          <div v-if="store.genresLoading && !store.genres.length" class="rows-list">
-            <SkeletonGenreRow v-for="i in 10" :key="`skeleton-${i}`" />
-          </div>
-          <MessageContent v-else-if="!store.genres.length" :loading="store.isScanning"
-            :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noGenres')"
-            :subtitle="store.isScanning ? buildingSubtitle : ''" />
-          <div v-else class="rows-list">
-            <div v-for="genre in store.genres" :key="genre.value" v-press class="genre-row"
-              @click="$emit('select-genre', genre)">
-              <span class="genre-name heading-3">{{ genre.value }}</span>
-              <span class="genre-count text-mono">{{ t('musicLibrary.songsCount', { count: genre.songCount || 0 })
-              }}</span>
-            </div>
+          <div class="transition-container">
+            <Transition name="content-swap">
+              <div v-if="!store.genres.length && (store.genresLoading || !store.genresLoaded)" key="loading"
+                class="rows-list">
+                <SkeletonGenreRow v-for="i in 10" :key="`skeleton-${i}`" />
+              </div>
+              <MessageContent v-else-if="!store.genres.length" key="empty" :loading="store.isScanning"
+                :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noGenres')"
+                :subtitle="store.isScanning ? buildingSubtitle : ''" />
+              <div v-else key="loaded" class="rows-list">
+                <div v-for="genre in store.genres" :key="genre.value" v-press class="genre-row"
+                  @click="$emit('select-genre', genre)">
+                  <span class="genre-name heading-3">{{ genre.value }}</span>
+                  <span class="genre-count text-mono">{{ t('musicLibrary.songsCount', { count: genre.songCount || 0 })
+                  }}</span>
+                </div>
+              </div>
+            </Transition>
           </div>
         </template>
 
@@ -69,20 +84,25 @@
               {{ t('musicLibrary.playlists.newPlaylist') }}
             </Button>
           </div>
-          <div v-if="store.playlistsLoading && !store.playlists.length" class="rows-list">
-            <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
-          </div>
-          <MessageContent v-else-if="!store.playlists.length" :loading="store.isScanning"
-            :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noPlaylists')"
-            :subtitle="store.isScanning ? buildingSubtitle : ''" />
-          <div v-else class="rows-list">
-            <MediaRow v-for="playlist in store.playlists" :key="playlist.id" :cover-id="playlist.coverArt"
-              :title="playlist.name" :subtitle="t('musicLibrary.songsCount', { count: playlist.songCount || 0 })"
-              @click="$emit('select-playlist', playlist)" />
+          <div class="transition-container">
+            <Transition name="content-swap">
+              <div v-if="!store.playlists.length && (store.playlistsLoading || !store.playlistsLoaded)" key="loading"
+                class="rows-list">
+                <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
+              </div>
+              <MessageContent v-else-if="!store.playlists.length" key="empty" :loading="store.isScanning"
+                :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noPlaylists')"
+                :subtitle="store.isScanning ? buildingSubtitle : ''" />
+              <div v-else key="loaded" class="rows-list">
+                <MediaRow v-for="playlist in store.playlists" :key="playlist.id" :cover-id="playlist.coverArt"
+                  :title="playlist.name" :subtitle="t('musicLibrary.songsCount', { count: playlist.songCount || 0 })"
+                  @click="$emit('select-playlist', playlist)" />
+              </div>
+            </Transition>
           </div>
         </template>
       </div>
-    </Transition>
+    </Transition></div>
 
     <PlaylistNameModal :is-open="createOpen" :title="t('musicLibrary.playlists.createTitle')"
       :submit-label="t('musicLibrary.playlists.create')" :loading="creating" @close="createOpen = false"
@@ -177,6 +197,38 @@ onMounted(() => {
   flex-direction: column;
   gap: var(--space-05);
   width: 100%;
+}
+
+/* Stacks each tab's skeleton / empty / loaded states in one cell so content-swap
+   crossfades them (no layout jump) when a tab's data lands. */
+.transition-container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.transition-container > * {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;
+}
+
+/* Overlapping tab-switch crossfade (matches AudioSourceLayout's view transition):
+   both tab-contents occupy one grid cell so there's no out-in blank beat. */
+.tab-transition {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+:deep(.fade-slide-enter-active),
+:deep(.fade-slide-leave-active) {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;
+}
+
+:deep(.fade-slide-enter-active) {
+  transition-delay: 100ms;
 }
 
 .albums-grid {
