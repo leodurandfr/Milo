@@ -482,7 +482,7 @@ img.player-artwork.loaded {
     position: fixed;
     /* bottom: calc(max(var(--space-06), env(safe-area-inset-bottom, 0px)) + var(--space-05)); */
     /* bottom: env(safe-area-inset-bottom, 0px); */
-    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-08));
+    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-06));
 
     margin: 0;
     left: 50%;
@@ -727,7 +727,7 @@ img.player-artwork.loaded {
   .audio-player-enter-active,
   .audio-player-leave-active {
     position: fixed;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-08));
+    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-06));
     left: 50%;
   }
 
