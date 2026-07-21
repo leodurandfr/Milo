@@ -471,7 +471,7 @@ onMounted(() => {
 <style scoped>
 .drag-zone {
   position: fixed;
-  width: 280px;
+  width: 33vw;
   bottom: calc(0px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
@@ -724,6 +724,7 @@ onMounted(() => {
 @media (max-aspect-ratio: 4/3) {
   .drag-zone {
     height: 5%;
+    width: 66vw;
   }
 
   .desktop-only {
