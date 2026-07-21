@@ -1,12 +1,17 @@
 <template>
   <div v-press class="media-row" @click="$emit('click')">
     <LazyImage
+      ref="lazyImg"
       :src="store.thumbUrl(coverId)"
       :fallback="roundedCover ? artistPlaceholder : albumPlaceholder"
       :alt="title"
       lazy
       :class="['media-cover', { rounded: roundedCover }]"
-    />
+    >
+      <transition name="content-fade">
+        <div v-if="!contentReady" class="cover-skeleton shimmer"></div>
+      </transition>
+    </LazyImage>
     <div class="media-details">
       <p class="media-title heading-3">{{ title }}</p>
       <p v-if="subtitle" class="media-subtitle text-mono">{{ subtitle }}</p>
@@ -15,12 +20,14 @@
 </template>
 
 <script setup>
+import { ref } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import artistPlaceholder from '@/assets/images/artist-placeholder.svg';
+import { useLazyImageSkeleton } from '@/composables/useLazyImageSkeleton';
 
-defineProps({
+const props = defineProps({
   // Navidrome coverArt id (may be empty → placeholder fallback). Album/playlist/
   // song rows fall back to the CD placeholder; artist rows (roundedCover) fall
   // back to the static artist placeholder.
@@ -46,6 +53,8 @@ defineProps({
 defineEmits(['click']);
 
 const store = useMusicLibraryStore();
+const lazyImg = ref(null);
+const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.coverId);
 </script>
 
 <style scoped>
@@ -72,6 +81,23 @@ const store = useMusicLibraryStore();
 
 .media-cover.rounded {
   border-radius: 50%;
+}
+
+.cover-skeleton {
+  position: absolute;
+  inset: 0;
+  --shimmer-base: var(--color-background-strong);
+  --shimmer-highlight: var(--color-background-neutral);
+}
+
+/* Leave-only: the skeleton mounts at full opacity, then fades once the cover
+   (real or fallback) is ready, so it always paints at least once. */
+.content-fade-leave-active {
+  transition: opacity var(--transition-normal-leave);
+}
+
+.content-fade-leave-to {
+  opacity: 0;
 }
 
 .media-details {
