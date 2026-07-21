@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { isKiosk } from '@/utils/kiosk';
 
 // Non-source dock apps; the full dock roster is sources + utilities.
 const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'settings'];
@@ -475,10 +476,9 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function applyUiScale(scale) {
-    const isKiosk = window.location.hostname === 'localhost';
     const appEl = document.getElementById('app');
     if (!appEl) return;
-    if (!isKiosk || scale === 1.0) {
+    if (!isKiosk() || scale === 1.0) {
       appEl.style.transform = '';
       appEl.style.transformOrigin = '';
       appEl.style.width = '';
