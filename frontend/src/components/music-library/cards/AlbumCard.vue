@@ -1,12 +1,17 @@
 <template>
   <div v-press class="album-card" @click="$emit('click')">
     <LazyImage
+      ref="lazyImg"
       :src="store.gridUrl(album.coverArt)"
       :fallback="albumPlaceholder"
       :alt="album.name"
       lazy
       class="album-cover"
-    />
+    >
+      <transition name="content-fade">
+        <div v-if="!contentReady" class="cover-skeleton shimmer"></div>
+      </transition>
+    </LazyImage>
     <div class="album-info">
       <p class="album-name heading-4">{{ album.name }}</p>
       <p v-if="album.artist" class="album-artist text-mono">{{ album.artist }}</p>
@@ -15,11 +20,13 @@
 </template>
 
 <script setup>
+import { ref } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
+import { useLazyImageSkeleton } from '@/composables/useLazyImageSkeleton';
 
-defineProps({
+const props = defineProps({
   album: {
     type: Object,
     required: true,
@@ -29,6 +36,8 @@ defineProps({
 defineEmits(['click']);
 
 const store = useMusicLibraryStore();
+const lazyImg = ref(null);
+const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.album.coverArt);
 </script>
 
 <style scoped>
@@ -45,6 +54,23 @@ const store = useMusicLibraryStore();
   width: 100%;
   border-radius: var(--radius-04);
   background: var(--color-background-neutral-50);
+}
+
+.cover-skeleton {
+  position: absolute;
+  inset: 0;
+  --shimmer-base: var(--color-background-strong);
+  --shimmer-highlight: var(--color-background-neutral);
+}
+
+/* Leave-only: the skeleton mounts at full opacity, then fades once the cover
+   (real or fallback) is ready, so it always paints at least once. */
+.content-fade-leave-active {
+  transition: opacity var(--transition-normal-leave);
+}
+
+.content-fade-leave-to {
+  opacity: 0;
 }
 
 .album-info {

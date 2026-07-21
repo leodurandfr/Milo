@@ -11,8 +11,9 @@
       <div :key="store.activeTab" class="tab-content">
         <!-- ALBUMS -->
         <template v-if="store.activeTab === 'albums'">
-          <MessageContent v-if="store.albumsLoading && !store.albums.length" loading
-            :title="t('musicLibrary.loading')" />
+          <div v-if="store.albumsLoading && !store.albums.length" class="albums-grid">
+            <SkeletonAlbumCard v-for="i in 12" :key="`skeleton-${i}`" />
+          </div>
           <MessageContent v-else-if="!store.albums.length" :loading="store.isScanning"
             :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.emptyLibrary')"
             :subtitle="store.isScanning ? buildingSubtitle : t('musicLibrary.emptyLibraryHint')" />
@@ -27,8 +28,9 @@
 
         <!-- ARTISTS -->
         <template v-else-if="store.activeTab === 'artists'">
-          <MessageContent v-if="store.artistsLoading && !store.artistIndex.length" loading
-            :title="t('musicLibrary.loading')" />
+          <div v-if="store.artistsLoading && !store.artistIndex.length" class="rows-list">
+            <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" rounded-cover />
+          </div>
           <MessageContent v-else-if="!store.artistIndex.length" :loading="store.isScanning"
             :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noArtists')"
             :subtitle="store.isScanning ? buildingSubtitle : ''" />
@@ -44,8 +46,9 @@
 
         <!-- GENRES -->
         <template v-else-if="store.activeTab === 'genres'">
-          <MessageContent v-if="store.genresLoading && !store.genres.length" loading
-            :title="t('musicLibrary.loading')" />
+          <div v-if="store.genresLoading && !store.genres.length" class="rows-list">
+            <SkeletonGenreRow v-for="i in 10" :key="`skeleton-${i}`" />
+          </div>
           <MessageContent v-else-if="!store.genres.length" :loading="store.isScanning"
             :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noGenres')"
             :subtitle="store.isScanning ? buildingSubtitle : ''" />
@@ -66,8 +69,9 @@
               {{ t('musicLibrary.playlists.newPlaylist') }}
             </Button>
           </div>
-          <MessageContent v-if="store.playlistsLoading && !store.playlists.length" loading
-            :title="t('musicLibrary.loading')" />
+          <div v-if="store.playlistsLoading && !store.playlists.length" class="rows-list">
+            <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
+          </div>
           <MessageContent v-else-if="!store.playlists.length" :loading="store.isScanning"
             :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noPlaylists')"
             :subtitle="store.isScanning ? buildingSubtitle : ''" />
@@ -96,6 +100,9 @@ import Button from '@/components/ui/Button.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import AlbumCard from '../cards/AlbumCard.vue';
 import MediaRow from '../cards/MediaRow.vue';
+import SkeletonAlbumCard from '../cards/SkeletonAlbumCard.vue';
+import SkeletonMediaRow from '../cards/SkeletonMediaRow.vue';
+import SkeletonGenreRow from '../cards/SkeletonGenreRow.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
 
 defineEmits(['select-album', 'select-artist', 'select-genre', 'select-playlist']);
