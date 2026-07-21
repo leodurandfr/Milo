@@ -479,3 +479,19 @@
 .loading-fade-leave-to {
     opacity: 0;
 }
+
+/* Content crossfade: skeleton → loaded-content swap inside a view. Pair with a
+   grid-overlay parent (both states share one cell) so there's no layout jump.
+   Distinct from the faster, card-level .loading-fade. */
+.content-swap-enter-active {
+    transition: opacity var(--transition-normal);
+}
+
+.content-swap-leave-active {
+    transition: opacity var(--transition-normal-leave);
+}
+
+.content-swap-enter-from,
+.content-swap-leave-to {
+    opacity: 0;
+}

@@ -1,51 +1,55 @@
 <template>
   <div class="album-view">
-    <MessageContent v-if="loading && !album" loading :title="t('musicLibrary.loading')" />
-    <MessageContent v-else-if="!album" :title="t('musicLibrary.notFound')" />
+    <div class="transition-container">
+      <Transition name="content-swap">
+        <MessageContent v-if="loading && !album" key="loading" loading :title="t('musicLibrary.loading')" />
+        <MessageContent v-else-if="!album" key="notfound" :title="t('musicLibrary.notFound')" />
 
-    <template v-else>
-      <TracklistHeader
-        :cover-id="album.coverArt"
-        :title="album.name"
-        :subtitle="subtitle"
-        show-favorite
-        :is-favorite="albumStarred"
-        @play="playFrom(0)"
-        @shuffle="shufflePlay"
-        @toggle-favorite="store.toggleStar('album', album.id, album.starred)"
-      >
-        <template #actions>
-          <IconButton
-            icon="threeDots"
-            variant="background-strong"
-            :aria-label="t('musicLibrary.playlists.addToPlaylist')"
-            @click="addAlbumToPlaylist"
-          />
-        </template>
-      </TracklistHeader>
+        <div v-else key="loaded" class="content-stack">
+          <TracklistHeader
+            :cover-id="album.coverArt"
+            :title="album.name"
+            :subtitle="subtitle"
+            show-favorite
+            :is-favorite="albumStarred"
+            @play="playFrom(0)"
+            @shuffle="shufflePlay"
+            @toggle-favorite="store.toggleStar('album', album.id, album.starred)"
+          >
+            <template #actions>
+              <IconButton
+                icon="threeDots"
+                variant="background-strong"
+                :aria-label="t('musicLibrary.playlists.addToPlaylist')"
+                @click="addAlbumToPlaylist"
+              />
+            </template>
+          </TracklistHeader>
 
-      <div class="tracks">
-        <template v-for="group in discGroups" :key="group.disc">
-          <!-- Disc separator, only for genuine multi-disc releases. -->
-          <p v-if="multiDisc" class="disc-header text-mono-small">
-            {{ group.title || t('musicLibrary.discLabel', { number: group.disc }) }}
-          </p>
-          <TrackRow
-            v-for="(item, i) in group.songs"
-            :key="item.song.id"
-            :song="item.song"
-            :number="item.song.track || i + 1"
-            :current="item.song.id === store.currentTrackId"
-            :playing="store.isPlaying"
-            :show-artist="isVariousArtists"
-            :feat="featuredBySong[item.song.id] || ''"
-            show-menu
-            @play="playFrom(item.index)"
-            @menu="store.requestAddToPlaylist([item.song.id])"
-          />
-        </template>
-      </div>
-    </template>
+          <div class="tracks">
+            <template v-for="group in discGroups" :key="group.disc">
+              <!-- Disc separator, only for genuine multi-disc releases. -->
+              <p v-if="multiDisc" class="disc-header text-mono-small">
+                {{ group.title || t('musicLibrary.discLabel', { number: group.disc }) }}
+              </p>
+              <TrackRow
+                v-for="(item, i) in group.songs"
+                :key="item.song.id"
+                :song="item.song"
+                :number="item.song.track || i + 1"
+                :current="item.song.id === store.currentTrackId"
+                :playing="store.isPlaying"
+                :show-artist="isVariousArtists"
+                :feat="featuredBySong[item.song.id] || ''"
+                show-menu
+                @play="playFrom(item.index)"
+                @menu="store.requestAddToPlaylist([item.song.id])"
+              />
+            </template>
+          </div>
+        </div>
+      </Transition>
+    </div>
   </div>
 </template>
 
@@ -187,6 +191,23 @@ watch(() => props.albumId, async (id) => {
 
 <style scoped>
 .album-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+
+.transition-container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.transition-container > * {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;
+}
+
+.content-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);

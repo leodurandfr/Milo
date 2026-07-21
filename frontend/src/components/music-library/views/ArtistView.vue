@@ -1,13 +1,14 @@
 <template>
   <div class="artist-view">
-    <MessageContent v-if="loading && !artist" loading :title="t('musicLibrary.loading')" />
-    <MessageContent v-else-if="!artist" :title="t('musicLibrary.notFound')" />
-
-    <template v-else>
-      <div class="albums-grid">
-        <AlbumCard v-for="album in albums" :key="album.id" :album="album" @click="$emit('select-album', album)" />
-      </div>
-    </template>
+    <div class="transition-container">
+      <Transition name="content-swap">
+        <MessageContent v-if="loading && !artist" key="loading" loading :title="t('musicLibrary.loading')" />
+        <MessageContent v-else-if="!artist" key="notfound" :title="t('musicLibrary.notFound')" />
+        <div v-else key="loaded" class="albums-grid">
+          <AlbumCard v-for="album in albums" :key="album.id" :album="album" @click="$emit('select-album', album)" />
+        </div>
+      </Transition>
+    </div>
   </div>
 </template>
 
@@ -47,6 +48,17 @@ watch(() => props.artistId, async (id) => {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
+}
+
+.transition-container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.transition-container > * {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;
 }
 
 .albums-grid {
