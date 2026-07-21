@@ -1,7 +1,8 @@
 <!-- frontend/src/components/ui/Dock.vue -->
 <template>
-  <!-- Invisible drag zone -->
-  <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click.stop="onDragZoneClick"></div>
+  <!-- Swipe region marker (inert): defines the bottom band geometry; the gesture
+       is detected at the document level so this never intercepts taps -->
+  <div ref="dragZone" class="drag-zone"></div>
 
   <!-- Drag indicator -->
   <div class="dock-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }" @click.stop="onIndicatorClick">
@@ -190,7 +191,10 @@ const startHideTimer = () => {
 const resetHideTimer = () => isVisible.value && startHideTimer();
 
 const showDock = () => {
-  if (isVisible.value) return;
+  // The dock must never coexist with a modal (which sits above it at a higher
+  // z-index). Refuse to open while any modal overlay is on screen — this covers
+  // every reveal path: swipe, pill, and the source-stopped auto-reveal in App.vue.
+  if (isVisible.value || document.querySelector('.modal-overlay')) return;
   isVisible.value = true;
   isFullyVisible.value = false;
 
@@ -333,12 +337,6 @@ const moveIndicatorTo = (index) => {
 };
 
 // === CLICK HANDLERS ===
-const onDragZoneClick = () => {
-  if (!isDesktop() && !isDragging.value && !isVisible.value) {
-    showDock();
-  }
-};
-
 const onIndicatorClick = () => {
   if (!isDragging.value && !isVisible.value) {
     showDock();
@@ -360,6 +358,8 @@ const handleAppClick = (appId, index) => {
     const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
     if (action && action.handler) {
       action.handler();
+      // A feature action opens a modal — the dock must not linger behind it.
+      hideDock();
     }
   }
 };
@@ -386,6 +386,8 @@ const handleAdditionalAppClick = (appId) => {
     const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
     if (action && action.handler) {
       action.handler();
+      // A feature action opens a modal — the dock must not linger behind it.
+      hideDock();
     }
   }
 
@@ -474,15 +476,10 @@ onMounted(() => {
   left: 50%;
   transform: translateX(-50%);
   height: 12%;
-  opacity: 0.2;
   z-index: 3999;
-  cursor: grab;
-  user-select: none;
-}
-
-.drag-zone.dragging {
-  cursor: grabbing;
-  height: 50%;
+  /* Inert marker: only defines the swipe region for document-level detection —
+     must never intercept taps meant for the content beneath it. */
+  pointer-events: none;
 }
 
 .additional-apps-container {

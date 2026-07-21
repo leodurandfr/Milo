@@ -48,14 +48,12 @@ export function useDockDrag({
   let dragStartTime = 0;
   let dragActionTaken = false;
   let dragGraceTimeout = null;
+  let startedInBand = false;
 
   // Additional-apps drag state
   let isDraggingAdditional = false;
   let additionalDragStartY = 0;
   let additionalDragMoved = false;
-
-  // Inline reference to the touchmove-prevent handler so we can remove it
-  const preventTouchMove = (e) => e.preventDefault();
 
   // === Event coordinate helpers ===
   const getEventY = (e) => e.type.includes('touch') || e.pointerType === 'touch'
@@ -101,6 +99,7 @@ export function useDockDrag({
     dragCurrentY = dragStartY;
     dragStartTime = Date.now();
     dragActionTaken = false;
+    startedInBand = false;
 
     if (dragGraceTimeout) {
       timer.clear(dragGraceTimeout);
@@ -111,6 +110,43 @@ export function useDockDrag({
     // (volume hold sets gestureStartPosition on pointerdown)
     if (gestureStartPosition.value.x === 0 && gestureStartPosition.value.y === 0) {
       resetGestureState();
+    }
+  };
+
+  // Did the gesture start inside the bottom drag band? The band's geometry is
+  // defined in CSS (.drag-zone, responsive) — we read its rect rather than
+  // duplicate the sizing here. The element stays pointer-events:none, used only
+  // as a coordinate marker, so it never intercepts taps.
+  const pointInBand = (e) => {
+    const zone = dragZone.value;
+    if (!zone) return false;
+    const rect = zone.getBoundingClientRect();
+    const x = getEventX(e);
+    const y = getEventY(e);
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  };
+
+  // Document-level gesture start. Nothing is captured here (no preventDefault /
+  // stopPropagation), so a plain tap flows through to whatever is underneath.
+  const onDocumentDragStart = (e) => {
+    // Document-level detection sees through z-index stacking, so ignore gestures
+    // over an open modal (z 5000, above the dock) — otherwise a swipe inside one
+    // would open the dock behind it and hijack the modal's own scroll. Mirrors
+    // the guard in onClickOutside.
+    if (e.target.closest('.modal-overlay, .modal-shell, .modal-scroller')) return;
+
+    if (isVisible.value) {
+      // Dock open: allow a swipe-down-to-close begun on the dock itself (not the
+      // overflow panel, which runs its own gesture stream).
+      if (dock.value && dock.value.contains(e.target)) {
+        onDragStart(e);
+      }
+      return;
+    }
+    // Dock hidden: only a gesture starting in the bottom band can open it.
+    if (pointInBand(e)) {
+      onDragStart(e);
+      startedInBand = true;
     }
   };
 
@@ -135,6 +171,8 @@ export function useDockDrag({
     }
 
     if (!isDragging.value) return;
+
+    if (startedInBand) e.preventDefault();
 
     const currentY = getEventY(e);
     const currentX = getEventX(e);
@@ -204,18 +242,12 @@ export function useDockDrag({
 
   // === Lifecycle ===
   const setupDragEvents = () => {
-    const zone = dragZone.value;
-    const dockEl = dock.value;
-    if (!zone) return;
-
-    zone.addEventListener('mousedown', onDragStart);
-    zone.addEventListener('touchstart', onDragStart, { passive: false });
-    zone.addEventListener('touchmove', preventTouchMove, { passive: false });
-
-    if (dockEl) {
-      dockEl.addEventListener('mousedown', onDragStart);
-      dockEl.addEventListener('touchstart', onDragStart, { passive: false });
-    }
+    // Gesture start is detected at the document level and gated by region
+    // (bottom band when hidden, dock element when visible). The .drag-zone
+    // element is pointer-events:none and captures nothing, so taps fall through
+    // to the content beneath it.
+    document.addEventListener('mousedown', onDocumentDragStart);
+    document.addEventListener('touchstart', onDocumentDragStart, { passive: true });
 
     document.addEventListener('mousemove', onDragMove);
     document.addEventListener('mouseup', onDragEnd);
@@ -227,21 +259,10 @@ export function useDockDrag({
   };
 
   const removeDragEvents = () => {
-    const zone = dragZone.value;
-    const dockEl = dock.value;
-
-    if (zone) {
-      zone.removeEventListener('mousedown', onDragStart);
-      zone.removeEventListener('touchstart', onDragStart);
-      zone.removeEventListener('touchmove', preventTouchMove);
-    }
-    if (dockEl) {
-      dockEl.removeEventListener('mousedown', onDragStart);
-      dockEl.removeEventListener('touchstart', onDragStart);
-    }
-
     removeAdditionalDragEvents();
 
+    document.removeEventListener('mousedown', onDocumentDragStart);
+    document.removeEventListener('touchstart', onDocumentDragStart);
     document.removeEventListener('mousemove', onDragMove);
     document.removeEventListener('mouseup', onDragEnd);
     document.removeEventListener('touchmove', onDragMove);
