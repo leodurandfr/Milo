@@ -20,6 +20,7 @@
         :variant="headerVariant"
         :icon="headerIcon"
         :actions-key="headerActionsKey"
+        :title-muted="headerTitleMuted"
         @back="$emit('header-back')"
       >
         <template #actions="slotProps">
@@ -99,6 +100,13 @@ const props = defineProps({
   headerVariant: {
     type: String,
     default: 'background-neutral'
+  },
+  /**
+   * Render the header title in the secondary (muted) text color
+   */
+  headerTitleMuted: {
+    type: Boolean,
+    default: false
   },
   /**
    * Header icon
