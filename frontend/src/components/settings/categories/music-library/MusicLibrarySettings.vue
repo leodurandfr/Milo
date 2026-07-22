@@ -75,7 +75,7 @@
 
       <p class="text-mono ml-desc">{{ t('musicLibrary.maintenance.description') }}</p>
 
-      <ScanProgress :open="busy" :has-bar="hasBar" :indeterminate="indeterminate" :pct="progressPct ?? 0"
+      <ScanProgress :open="busy" :has-bar="hasBar"
         :label="t('musicLibrary.maintenance.refreshProgress', { count: store.scanCount })" />
 
       <Button variant="brand" size="medium" left-icon="arrowClockwise"
@@ -112,42 +112,24 @@ function typeLabel(type) {
   return type === 'nfs' ? 'NFS' : 'SMB';
 }
 
-// Row heading: friendly server/label name + the folder it points at, e.g.
-// "NAS-Leo / music". The host (IP) rides the subtitle beside the status dot.
 function shareTitle(share) {
   const path = (share.path || '').replace(/^\/+/, '');
   return path ? `${share.name} / ${path}` : share.name;
 }
 
-// USB rows — one per mounted device, or a single placeholder so USB is always
-// listed as a possible source (with a live plugged-in / not state).
 const usbRows = computed(() =>
   store.usbDevices.length
     ? store.usbDevices.map((d) => ({ key: d.mountpoint, label: d.label, connected: true }))
     : [{ key: 'usb-none', label: t('musicLibrary.usb.title'), connected: false }]
 );
 
-// No scan WS event, so this view polls the status while a scan runs. `started`
-// waits for Navidrome's counter to reset below the pre-scan `total` before the
-// bar trusts it (the idle count equals `total`, which would flash the bar full).
+// No scan WS event: poll the status while a scan runs.
 const timer = useTimer();
 const inFlight = ref(false);
 const offlineShares = ref([]);
-const total = ref(0);
-const started = ref(false);
 
 const busy = computed(() => inFlight.value || store.isScanning);
-const progressPct = computed(() => {
-  if (total.value <= 0) return null;
-  if (!started.value) return 0;
-  return Math.min(100, Math.max(0, Math.round((store.scanCount / total.value) * 100)));
-});
-watch(() => store.scanCount, (count) => {
-  if (store.isScanning && total.value > 0 && count < total.value) started.value = true;
-});
-
 const hasBar = computed(() => busy.value && !offlineShares.value.length);
-const indeterminate = computed(() => progressPct.value === null);
 
 let polling = false;
 function trackScan() {
@@ -170,8 +152,6 @@ watch(() => store.isScanning, (scanning) => { if (scanning) trackScan(); });
 
 async function onRefresh() {
   if (busy.value) return;
-  total.value = store.scanCount;
-  started.value = false;
   inFlight.value = true;
   offlineShares.value = [];
   const result = await store.refreshLibrary();
@@ -184,7 +164,6 @@ async function onRefresh() {
 }
 
 onMounted(() => {
-  // Preloaded on modal open is not guaranteed; fetch (cached) on mount.
   store.loadShares();
   store.loadUsbDevices();
   store.refreshScanStatus();

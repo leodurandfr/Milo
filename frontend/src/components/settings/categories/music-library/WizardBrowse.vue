@@ -86,7 +86,7 @@
            No CTA: it settles into 'indexed' on its own once the scan finishes. -->
       <template v-else-if="phase === 'indexing'">
         <h2 class="heading-2">{{ t('musicLibrary.shares.wizard.indexing') }}</h2>
-        <ScanProgress open :indeterminate="true"
+        <ScanProgress open
           :label="t('musicLibrary.shares.wizard.indexingCount', { count: liveFound })" />
       </template>
 
