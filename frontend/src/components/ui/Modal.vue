@@ -53,7 +53,7 @@ const closeButtonWrapper = ref(null);
 const contentInner = ref(null);
 
 // Animated height: observe contentInner, write clip + scroller through one writer.
-const { setTargetHeight, resetFirstResize, requestHeightDelta } = useAnimatedHeight(contentInner, {
+const { setTargetHeight, resetFirstResize, endFirstResize, requestHeightDelta } = useAnimatedHeight(contentInner, {
   clipRef: modalClip,
   scrollerRef: modalScroller,
   threshold: 2,
@@ -222,6 +222,7 @@ async function openModal() {
 
   const finalTimeout = timer.setTimeout(() => {
     isAnimating.value = false;
+    endFirstResize();
     // Add activity listeners and start the inactivity timer
     addActivityListeners();
     resetInactivityTimer();
