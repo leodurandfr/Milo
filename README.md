@@ -210,7 +210,7 @@ Control Milō from your other devices:
 - [🔌 API Overview](docs/api-overview.md) — REST + WebSocket surface at a glance
 - [💻 Developer Guide](docs/development.md) — Setup, adding sources, testing, contributing
 - [🔧 Wiring Reference](docs/hardware/wiring.md) — Physical connections (Pi + HiFiBerry)
-- [📖 User Manual](docs/manual/manual_en.md) — End-user guide ([French](docs/manual/manual_fr.md))
+- [📖 User Manual](docs/manual/manual_en.md) — End-user guide
 
 ## License
 
