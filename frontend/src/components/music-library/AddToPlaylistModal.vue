@@ -10,11 +10,11 @@
     <div class="add-to-playlist">
       <NavigationHeader :title="t('musicLibrary.playlists.addToPlaylist')">
         <template #actions>
-          <IconButton icon="plus" variant="on-dark" @click="showCreate = !showCreate" />
+          <IconButton icon="plus" variant="on-dark" @click="setCreateOpen(!showCreate)" />
         </template>
       </NavigationHeader>
 
-      <SettingsSection>
+      <SettingsSection class="add-to-playlist__section">
         <ListItemButton
           v-for="pl in store.playlists"
           :key="pl.id"
@@ -30,28 +30,30 @@
           </template>
         </ListItemButton>
 
-        <template v-if="showCreate">
-          <div class="add-to-playlist__divider"></div>
+        <div ref="createExpandRef" class="add-to-playlist__expand" :class="{ 'is-open': showCreate }">
+          <div class="add-to-playlist__expand-inner">
+            <div class="add-to-playlist__divider"></div>
 
-          <div class="add-to-playlist__create">
-            <InputText
-              v-model="newName"
-              :placeholder="t('musicLibrary.playlists.namePlaceholder')"
-              :maxlength="255"
-              @submit="createAndAdd"
-            />
-            <Button variant="brand" left-icon="plus" :loading="creating" :disabled="creating || !newName.trim()" @click="createAndAdd">
-              {{ t('musicLibrary.playlists.create') }}
-            </Button>
+            <div class="add-to-playlist__create">
+              <InputText
+                v-model="newName"
+                :placeholder="t('musicLibrary.playlists.namePlaceholder')"
+                :maxlength="255"
+                @submit="createAndAdd"
+              />
+              <Button variant="brand" left-icon="plus" :loading="creating" :disabled="creating || !newName.trim()" @click="createAndAdd">
+                {{ t('musicLibrary.playlists.create') }}
+              </Button>
+            </div>
           </div>
-        </template>
+        </div>
       </SettingsSection>
     </div>
   </Modal>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import Modal from '@/components/ui/Modal.vue';
@@ -87,6 +89,26 @@ const creating = ref(false);
 const showCreate = ref(false);
 const addedIds = ref(new Set());
 
+const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
+const modalContentInnerRef = inject('modalContentInnerRef', null);
+const createExpandRef = ref(null);
+
+function setCreateOpen(next) {
+  if (modalRequestHeightDelta && createExpandRef.value && modalContentInnerRef?.value) {
+    const el = createExpandRef.value;
+    const before = modalContentInnerRef.value.offsetHeight;
+    el.style.transition = 'none';
+    el.classList.toggle('is-open', next);
+    el.offsetHeight;
+    const after = modalContentInnerRef.value.offsetHeight;
+    el.classList.toggle('is-open', showCreate.value);
+    el.offsetHeight;
+    el.style.transition = '';
+    modalRequestHeightDelta(after - before);
+  }
+  showCreate.value = next;
+}
+
 // Fresh state + a current playlist list each time the picker opens.
 watch(() => props.isOpen, (open) => {
   if (!open) return;
@@ -114,7 +136,7 @@ async function createAndAdd() {
   creating.value = false;
   if (created) {
     newName.value = '';
-    showCreate.value = false;
+    setCreateOpen(false);
     addedIds.value = new Set(addedIds.value).add(created.id);
   }
 }
@@ -130,6 +152,34 @@ async function createAndAdd() {
 .add-to-playlist__cover {
   width: 100%;
   height: 100%;
+}
+
+.add-to-playlist__section {
+  overflow: hidden;
+}
+
+.add-to-playlist__expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-top: calc(-1 * var(--space-04));
+  transition:
+    grid-template-rows var(--transition-fast),
+    opacity var(--transition-fast),
+    margin-top var(--transition-fast);
+}
+
+.add-to-playlist__expand.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  margin-top: 0;
+}
+
+.add-to-playlist__expand-inner {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
 }
 
 .add-to-playlist__divider {
