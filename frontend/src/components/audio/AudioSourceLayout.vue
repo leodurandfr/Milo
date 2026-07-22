@@ -248,6 +248,15 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   display: none;
 }
 
+/* iOS only (via the WebKit-only -webkit-touch-callout probe): suppress the
+   rubber-band overscroll that bounces content away from the top on drag-down.
+   Chrome Android is left untouched so its native pull-to-refresh still works. */
+@supports (-webkit-touch-callout: none) {
+  .audio-source-layout {
+    overscroll-behavior-y: none;
+  }
+}
+
 /* Background gradient (Radio/Podcast) */
 .background-gradient {
   position: absolute;
