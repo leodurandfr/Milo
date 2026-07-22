@@ -41,9 +41,10 @@
           :artwork="playerArtwork" :placeholder-artwork="albumPlaceholder"
           :title="playerTitle"
           :is-playing="isPlaying" :is-loading="isBuffering" swipe-enabled
-          @swipe-next="store.next()" @swipe-prev="store.previous()">
-          <!-- Track info: same shared PlayerInfoText as the radio/podcast players;
-               mobile shows the same title/artist pair as its own compact lines. -->
+          :tracks="store.queue" :current-index="store.queueIndex"
+          @swipe-next="store.next()" @swipe-prev="store.swipePrevious()">
+          <!-- Track info (desktop + non-swipe fallback). On mobile the swipe
+               carousel renders its own title/artist from the queue (see AudioPlayer). -->
           <template #info>
             <PlayerInfoText class="desktop-only" :title="playerTitle" :secondary="playerArtist" />
             <p class="player-title text-body mobile-only">{{ playerTitle }}</p>
@@ -122,7 +123,7 @@ const timer = useTimer();
 
 // Scroll-aware navigation stack (save/restore across push/back).
 const audioLayoutRef = ref(null);
-const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null);
+const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null);
 const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef });
 
