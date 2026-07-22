@@ -35,7 +35,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'background-strong',
-    validator: (value) => ['background-strong', 'on-dark', 'on-grey', 'rounded'].includes(value)
+    validator: (value) => ['background-strong', 'on-dark', 'on-grey', 'rounded', 'brand'].includes(value)
   },
   size: {
     type: String,
@@ -70,6 +70,8 @@ const iconColor = computed(() => {
   } else if (props.variant === 'rounded') {
     return 'var(--color-text)';
   } else if (props.variant === 'on-dark') {
+    return 'var(--color-text-contrast)';
+  } else if (props.variant === 'brand') {
     return 'var(--color-text-contrast)';
   } else {
     // background-strong
@@ -150,6 +152,11 @@ function handleClick(event) {
   backdrop-filter: blur(var(--blur-02));
 }
 
+.icon-button--brand {
+  background: var(--color-brand);
+  color: var(--color-text-contrast);
+}
+
 .icon-button--rounded {
   --glass-radius: 50%;
   border-radius: 50% !important;
@@ -199,5 +206,10 @@ function handleClick(event) {
 .icon-button--rounded.icon-button--loading {
   background: var(--color-background-neutral-50);
   color: var(--color-text);
+}
+
+.icon-button--brand.icon-button--loading {
+  background: var(--color-brand);
+  color: var(--color-text-contrast);
 }
 </style>

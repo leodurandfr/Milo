@@ -9,13 +9,22 @@
       <!-- Real content -->
       <transition name="content-fade">
         <div v-if="!loading && episode" key="loaded" class="details-content">
-          <EpisodeCard
-            :episode="enrichedEpisode"
-            contrast
-            @select="handlePlayClick"
-            @play="handlePlayClick"
-            @select-podcast="handleSelectPodcast"
-          />
+          <DetailHeader
+            :image-src="episode.image_url || episode.podcast?.image_url"
+            :fallback="episodePlaceholder"
+            :title="episode.name"
+            :subtitle="episode.podcast?.name"
+            :subtitle-clickable="!!episode.podcast"
+            :subtitle-meta="subtitleMeta"
+            :show-play="false"
+            :show-shuffle="false"
+            @select-artist="handleSelectPodcast"
+          >
+            <template #actions>
+              <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="brand" size="medium"
+                :loading="isCurrentEpisodeBuffering" @click="handlePlayClick" />
+            </template>
+          </DetailHeader>
 
           <div class="description-block">
             <h3 class="text-mono description-title">{{ t('podcasts.description') }}</h3>
@@ -30,11 +39,14 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useEpisodePlaybackStatus } from '@/composables/useEpisodePlaybackStatus'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
-import EpisodeCard from './EpisodeCard.vue'
+import DetailHeader from '@/components/audio/DetailHeader.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import SkeletonEpisodeDetails from './SkeletonEpisodeDetails.vue'
+import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
 
@@ -50,13 +62,18 @@ const emit = defineEmits(['play-episode', 'select-podcast'])
 const podcastStore = usePodcastStore()
 const episode = ref(null)
 
-// Enriched episode with podcast info for EpisodeCard
-const enrichedEpisode = computed(() => {
-  if (!episode.value) return null
-  return {
-    ...episode.value,
-    podcast: episode.value.podcast || null
-  }
+const {
+  isCurrentlyPlaying,
+  isCurrentEpisodeBuffering,
+  formattedDate,
+  statusLabel,
+  pause,
+} = useEpisodePlaybackStatus(episode)
+
+const subtitleMeta = computed(() => {
+  const parts = [statusLabel.value];
+  if (formattedDate.value) parts.push(formattedDate.value);
+  return parts.join(' · ');
 })
 
 const { loading, execute: loadEpisode } = useAsyncData(async () => {
@@ -69,12 +86,16 @@ const { loading, execute: loadEpisode } = useAsyncData(async () => {
   podcastStore.enrichEpisodesWithProgress([episode.value])
 }, { logTag: 'podcast' })
 
-function handlePlayClick() {
-  emit('play-episode', episode.value)
+async function handlePlayClick() {
+  if (isCurrentlyPlaying.value) {
+    await pause()
+  } else {
+    emit('play-episode', episode.value)
+  }
 }
 
-function handleSelectPodcast(podcast) {
-  emit('select-podcast', podcast)
+function handleSelectPodcast() {
+  if (episode.value?.podcast) emit('select-podcast', episode.value.podcast)
 }
 
 watch(() => props.uuid, loadEpisode, { immediate: false })

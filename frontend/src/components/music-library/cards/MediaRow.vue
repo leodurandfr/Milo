@@ -1,6 +1,10 @@
 <template>
   <div v-press class="media-row" @click="$emit('click')">
+    <div v-if="icon" class="media-cover media-cover--icon">
+      <SvgIcon :name="icon" :size="28" />
+    </div>
     <LazyImage
+      v-else
       ref="lazyImg"
       :src="store.thumbUrl(coverId)"
       :fallback="roundedCover ? artistPlaceholder : albumPlaceholder"
@@ -23,6 +27,7 @@
 import { ref } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import artistPlaceholder from '@/assets/images/artist-placeholder.svg';
 import { useLazyImageSkeleton } from '@/composables/useLazyImageSkeleton';
@@ -47,6 +52,10 @@ const props = defineProps({
   roundedCover: {
     type: Boolean,
     default: false,
+  },
+  icon: {
+    type: String,
+    default: '',
   },
 });
 
@@ -81,6 +90,13 @@ const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.coverId);
 
 .media-cover.rounded {
   border-radius: 50%;
+}
+
+.media-cover--icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-brand);
 }
 
 .cover-skeleton {

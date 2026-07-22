@@ -84,6 +84,11 @@
               {{ t('musicLibrary.playlists.newPlaylist') }}
             </Button>
           </div>
+
+          <MediaRow icon="heart" :title="t('musicLibrary.playlists.likedSongs')"
+            :subtitle="t('musicLibrary.songsCount', { count: store.likedSongsCount })"
+            @click="$emit('select-liked')" />
+
           <div class="transition-container">
             <Transition name="content-swap">
               <div v-if="!store.playlists.length && (store.playlistsLoading || !store.playlistsLoaded)" key="loading"
@@ -125,7 +130,7 @@ import SkeletonMediaRow from '../cards/SkeletonMediaRow.vue';
 import SkeletonGenreRow from '../cards/SkeletonGenreRow.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
 
-defineEmits(['select-album', 'select-artist', 'select-genre', 'select-playlist']);
+defineEmits(['select-album', 'select-artist', 'select-genre', 'select-playlist', 'select-liked']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
@@ -164,7 +169,10 @@ function loadTab(tab) {
   if (tab === 'albums') store.loadAlbums();
   else if (tab === 'artists') store.loadArtists();
   else if (tab === 'genres') store.loadGenres();
-  else store.loadPlaylists();
+  else {
+    store.loadPlaylists();
+    store.loadLikedSongs();
+  }
 }
 
 watch(() => store.activeTab, loadTab);

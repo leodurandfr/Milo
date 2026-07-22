@@ -408,6 +408,18 @@ async def unstar(
         return {"status": "success"}
 
 
+@router.get("/starred")
+async def get_starred(
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Starred songs (Subsonic getStarred2) — backs the virtual "Liked Songs"
+    playlist. Songs only; albums/artists aren't surfaced as favourites."""
+    async with _catalog_errors("Error listing starred songs", source):
+        client = await _require_client(source)
+        starred = await client.get_starred()
+        return {"songs": starred["song"]}
+
+
 # === Scan status ===
 
 @router.get("/scan-status")

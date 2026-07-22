@@ -72,8 +72,8 @@ defineProps({
 }
 
 .variant-row .skeleton-row-image {
-  width: 128px;
-  height: 128px;
+  width: 150px;
+  height: 150px;
   flex-shrink: 0;
   border-radius: var(--radius-02);
 }
@@ -109,13 +109,14 @@ defineProps({
 
 /* === ROW VARIANT MOBILE === */
 @media (max-aspect-ratio: 4/3) {
-  .variant-row .skeleton-row-image {
-    width: 64px;
-    height: 64px;
+  .variant-row {
+    flex-direction: column;
   }
 
-  .variant-row .skeleton-meta {
-    display: none;
+  .variant-row .skeleton-row-image {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
   }
 }
 </style>

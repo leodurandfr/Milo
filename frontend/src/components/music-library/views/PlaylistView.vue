@@ -6,22 +6,24 @@
         <MessageContent v-else-if="!playlist" key="notfound" :title="t('musicLibrary.notFound')" />
 
         <div v-else key="loaded" class="content-stack">
-          <TracklistHeader
-            :cover-id="playlist.coverArt"
+          <DetailHeader
+            :image-src="store.coverUrl(playlist.coverArt, 600)"
+            :fallback="albumPlaceholder"
             :title="playlist.name"
             :subtitle-meta="subtitle"
             @play="playFrom(0)"
             @shuffle="shufflePlay"
           >
             <template #actions>
-              <Button
+              <IconButton
+                icon="threeDots"
                 :variant="editing ? 'brand' : 'on-dark'"
+                size="small"
+                :aria-label="editing ? t('musicLibrary.playlists.done') : t('musicLibrary.playlists.edit')"
                 @click="toggleEdit"
-              >
-                {{ editing ? t('musicLibrary.playlists.done') : t('musicLibrary.playlists.edit') }}
-              </Button>
+              />
             </template>
-          </TracklistHeader>
+          </DetailHeader>
 
           <!-- Edit toolbar: rename + delete (two-tap confirm) + reorder hint. -->
           <div v-if="editing" class="edit-toolbar">
@@ -87,9 +89,11 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { totalMinutes } from '../format.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import Button from '@/components/ui/Button.vue';
-import TracklistHeader from '../cards/TracklistHeader.vue';
+import IconButton from '@/components/ui/IconButton.vue';
+import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
+import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
 const props = defineProps({
   playlistId: {
