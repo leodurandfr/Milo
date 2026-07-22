@@ -61,7 +61,7 @@ import { totalMinutes } from '../format.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import TracklistHeader from '../cards/TracklistHeader.vue';
-import TrackRow from '../cards/TrackRow.vue';
+import TrackRow from '@/components/audio/TrackRow.vue';
 
 const props = defineProps({
   albumId: {
@@ -216,7 +216,7 @@ watch(() => props.albumId, async (id) => {
 .tracks {
   display: flex;
   flex-direction: column;
-  gap: var(--space-01);
+  gap: 0;
 }
 
 .disc-header {

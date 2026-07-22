@@ -85,7 +85,7 @@ import { useDebounce } from '@/composables/useDebounce';
 import InputText from '@/components/ui/InputText.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import MediaRow from '../cards/MediaRow.vue';
-import TrackRow from '../cards/TrackRow.vue';
+import TrackRow from '@/components/audio/TrackRow.vue';
 
 defineEmits(['select-album', 'select-artist']);
 
@@ -153,6 +153,6 @@ function playSong(index) {
 .tracks {
   display: flex;
   flex-direction: column;
-  gap: var(--space-01);
+  gap: 0;
 }
 </style>

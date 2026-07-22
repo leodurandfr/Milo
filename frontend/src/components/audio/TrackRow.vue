@@ -1,16 +1,22 @@
+<!-- Shared track row for tracklists (CD + Music Library).
+     Flat divider-list look (bottom border, whole row turns brand on current);
+     superset of features behind flags: per-track artist line, "feat." label,
+     ⋯ overflow menu, and playlist edit-mode (remove + drag grip). -->
 <template>
   <div v-press="!editing" class="track-row" :class="{ current, editing }" @click="onRowClick">
     <div class="track-index">
       <!-- Animated bars while this row is the one playing; otherwise the number. -->
-      <div v-if="current && playing" class="playing-bars" aria-hidden="true">
-        <span></span><span></span><span></span>
+      <div v-if="current && playing" class="playing-indicator" aria-hidden="true">
+        <span class="bar"></span>
+        <span class="bar"></span>
+        <span class="bar"></span>
       </div>
       <span v-else class="track-number text-mono">{{ number }}</span>
     </div>
 
     <div class="track-main">
       <div class="track-title-row">
-        <p class="track-title heading-4">{{ song.title || song.name }}</p>
+        <p class="track-title text-body">{{ displayTitle }}</p>
         <span v-if="feat" class="track-feat text-mono-small">{{ t('musicLibrary.featuring', { artists: feat }) }}</span>
       </div>
       <p v-if="showArtist && song.artist" class="track-artist text-mono">{{ song.artist }}</p>
@@ -30,7 +36,7 @@
       </div>
     </div>
     <template v-else>
-      <span class="track-duration text-mono">{{ formatDuration(song.duration) }}</span>
+      <span class="track-duration text-mono-small">{{ formatDuration(song.duration) }}</span>
       <button v-if="showMenu" v-press type="button" class="track-icon-btn track-menu"
         :aria-label="t('musicLibrary.playlists.addToPlaylist')"
         @pointerdown.stop @click.stop="$emit('menu')">
@@ -41,21 +47,22 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
-import { formatDuration } from '../format.js';
 
 const props = defineProps({
+  // Track data: reads `.title || .name`, `.artist`, `.duration` (seconds).
   song: {
     type: Object,
     required: true,
   },
-  // Display position (1-based) shown in the index column.
+  // Display position shown in the index column.
   number: {
     type: [Number, String],
     required: true,
   },
-  // This row is the active queue entry.
+  // This row is the active entry.
   current: {
     type: Boolean,
     default: false,
@@ -70,8 +77,7 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
-  // Featured guests shown right-aligned by the title ("feat. …"). Used by the
-  // album view for tracks whose artists go beyond the album artist. '' = hidden.
+  // Featured guests shown right of the title ("feat. …"). '' = hidden.
   feat: {
     type: String,
     default: '',
@@ -86,14 +92,33 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // Shown when the track carries no title/name (e.g. CD "Track {n}").
+  fallbackTitle: {
+    type: String,
+    default: '',
+  },
 });
 
 const emit = defineEmits(['play', 'menu', 'remove', 'grip-down']);
 
 const { t } = useI18n();
 
+const displayTitle = computed(() => props.song.title || props.song.name || props.fallbackTitle);
+
 function onRowClick() {
-  if (!props.editing) emit('play');
+  if (!props.editing) emit('play', props.number);
+}
+
+// Catalog durations are in seconds; "m:ss" or "h:mm:ss" when past an hour.
+function formatDuration(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
+  return `${m}:${String(sec).padStart(2, '0')}`;
 }
 </script>
 
@@ -103,19 +128,19 @@ function onRowClick() {
   flex-direction: row;
   align-items: center;
   gap: var(--space-03);
-  padding: var(--space-02) var(--space-03);
-  border-radius: var(--radius-03);
+  padding: var(--space-04) 0;
+  border-bottom: 1px solid var(--color-border);
   cursor: pointer;
   min-width: 0;
-  transition: background var(--transition-fast);
+  transition: var(--transition-press);
+}
+
+.track-row:last-child {
+  border-bottom: none;
 }
 
 .track-row.editing {
   cursor: default;
-}
-
-.track-row.current {
-  background: var(--color-background-neutral-50);
 }
 
 .track-index {
@@ -128,10 +153,6 @@ function onRowClick() {
 
 .track-number {
   color: var(--color-text-secondary);
-}
-
-.track-row.current .track-number {
-  color: var(--color-brand);
 }
 
 .track-main {
@@ -159,16 +180,11 @@ function onRowClick() {
   white-space: nowrap;
 }
 
-/* Featured-guest label, sitting 8px (--space-02, the row gap) after the title —
-   not pushed to the row's right edge. */
+/* Featured-guest label, sitting one row-gap after the title. */
 .track-feat {
   flex-shrink: 0;
   color: var(--color-text-secondary);
   white-space: nowrap;
-}
-
-.track-row.current .track-title {
-  color: var(--color-brand);
 }
 
 .track-artist {
@@ -182,6 +198,15 @@ function onRowClick() {
 .track-duration {
   flex-shrink: 0;
   color: var(--color-text-secondary);
+}
+
+/* Current track: all columns in brand color (no background highlight). */
+.track-row.current .track-number,
+.track-row.current .track-title,
+.track-row.current .track-duration,
+.track-row.current .track-artist,
+.track-row.current .track-feat {
+  color: var(--color-brand);
 }
 
 /* Inline icon buttons (⋯ menu, remove) — ghost style, no filled surface. */
@@ -227,26 +252,39 @@ function onRowClick() {
 }
 
 /* Now-playing equalizer bars */
-.playing-bars {
+.playing-indicator {
   display: flex;
   align-items: flex-end;
+  justify-content: center;
   gap: 2px;
-  height: 16px;
+  height: 14px;
 }
 
-.playing-bars span {
+.playing-indicator .bar {
+  display: block;
   width: 3px;
   background: var(--color-brand);
-  border-radius: var(--radius-01);
-  animation: eq-bar 900ms ease-in-out infinite;
+  border-radius: 1px;
+  animation: bar-bounce 0.8s ease-in-out infinite;
 }
 
-.playing-bars span:nth-child(1) { animation-delay: 0ms; }
-.playing-bars span:nth-child(2) { animation-delay: 220ms; }
-.playing-bars span:nth-child(3) { animation-delay: 440ms; }
+.playing-indicator .bar:nth-child(1) {
+  height: 60%;
+  animation-delay: 0s;
+}
 
-@keyframes eq-bar {
-  0%, 100% { height: 5px; }
-  50% { height: 16px; }
+.playing-indicator .bar:nth-child(2) {
+  height: 100%;
+  animation-delay: 0.15s;
+}
+
+.playing-indicator .bar:nth-child(3) {
+  height: 40%;
+  animation-delay: 0.3s;
+}
+
+@keyframes bar-bounce {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
 }
 </style>

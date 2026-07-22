@@ -28,7 +28,7 @@
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
-import TrackRow from '../cards/TrackRow.vue';
+import TrackRow from '@/components/audio/TrackRow.vue';
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
@@ -44,6 +44,6 @@ const store = useMusicLibraryStore();
 .tracks {
   display: flex;
   flex-direction: column;
-  gap: var(--space-01);
+  gap: 0;
 }
 </style>
