@@ -9,7 +9,8 @@
   </div>
 
   <!-- Navigation dock -->
-  <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
+  <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }"
+    :style="{ '--dock-fit-scale': fitScale }">
     <!-- Additional Apps - Mobile only -->
     <div v-if="additionalAppsInDOM && additionalDockApps.length > 0" ref="additionalAppsContainer"
       class="additional-apps-container glass-surface glass-border mobile-only" :class="{ visible: showAdditionalApps }">
@@ -83,7 +84,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick, inject } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useTimer } from '@/composables/useTimer';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -180,6 +181,20 @@ const { isMobile } = useIsMobile();
 const isDesktop = () => !isMobile.value;
 
 const getDockItemDelay = (index) => `${DOCK_ANIM_INITIAL_DELAY + index * DOCK_ANIM_STAGGER}s`;
+
+const DOCK_VIEWPORT_MARGIN = 32;
+const fitScale = ref(1);
+
+const getAvailableWidth = () => {
+  const app = document.getElementById('app');
+  return app?.style.transform ? app.clientWidth : window.innerWidth;
+};
+
+const updateFitScale = () => {
+  const natural = dock.value?.offsetWidth;
+  if (!natural) return;
+  fitScale.value = Math.min(1, (getAvailableWidth() - DOCK_VIEWPORT_MARGIN) / natural);
+};
 
 // === DOCK SHOW/HIDE ===
 const startHideTimer = () => {
@@ -455,6 +470,8 @@ watch(() => unifiedStore.systemState.active_source, (newSource) => {
   }
 });
 
+watch([allEnabledApps, isMobile], () => nextTick(updateFitScale));
+
 onMounted(() => {
   drag.setupDragEvents();
 
@@ -463,7 +480,12 @@ onMounted(() => {
   }
 
   timer.setTimeout(() => showDragIndicator.value = true, 800);
+
+  nextTick(updateFitScale);
+  window.addEventListener('resize', updateFitScale);
 });
+
+onUnmounted(() => window.removeEventListener('resize', updateFitScale));
 // hideTimeout / additionalHideTimeout are auto-cleared on unmount by useTimer;
 // the drag and volumeHold composables register their own onUnmounted hooks internally.
 </script>
@@ -567,6 +589,7 @@ onMounted(() => {
   gap: var(--space-03);
   z-index: 0;
   overflow: hidden;
+  transform: scale(var(--dock-fit-scale, 1));
 }
 
 .additional-app-content {
