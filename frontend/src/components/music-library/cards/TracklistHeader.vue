@@ -81,8 +81,8 @@ const store = useMusicLibraryStore();
 
 .tracklist-cover {
   flex-shrink: 0;
-  width: 180px;
-  height: 180px;
+  width: 128px;
+  height: 128px;
   border-radius: var(--radius-05);
   background: var(--color-background-neutral-50);
 }
