@@ -516,7 +516,8 @@
       "tracks": "Tracks"
     },
     "albumDetails": "Album details",
-    "artistDetails": "Artist details",
+    "artistAlbum": "Album by {artist}",
+    "artistAlbums": "Albums by {artist}",
     "variousArtists": "Various Artists",
     "featuring": "feat. {artists}",
     "genre": "Genre",
