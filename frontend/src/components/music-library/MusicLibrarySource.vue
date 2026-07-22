@@ -123,7 +123,7 @@ const timer = useTimer();
 
 // Scroll-aware navigation stack (save/restore across push/back).
 const audioLayoutRef = ref(null);
-const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null);
+const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null);
 const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef });
 
