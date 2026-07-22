@@ -24,7 +24,7 @@ import { onMounted, onUnmounted, nextTick, watch } from 'vue';
  * @param {boolean} [options.skipFirstResize=true] - init without spring (modal open)
  * @param {Function} [options.getExtraHeight] - extra px to add (scroller padding)
  * @param {Function} [options.getMaxHeight]   - max available height (viewport cap)
- * @returns {{ setTargetHeight: Function, requestHeightDelta: Function, resetFirstResize: Function }}
+ * @returns {{ setTargetHeight: Function, requestHeightDelta: Function, resetFirstResize: Function, endFirstResize: Function }}
  */
 export function useAnimatedHeight(contentRef, options = {}) {
   const {
@@ -139,10 +139,8 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
       const raw = entries[0].contentRect.height + (getExtraHeight ? getExtraHeight() : 0);
 
-      // First resize (modal open / data loaded): initialize without a spring.
       if (isFirstResize) {
         setTargetHeight(raw, { immediate: true });
-        isFirstResize = false;
         return;
       }
 
@@ -166,6 +164,10 @@ export function useAnimatedHeight(contentRef, options = {}) {
     isFirstResize = true;
   }
 
+  function endFirstResize() {
+    isFirstResize = false;
+  }
+
   // Re-observe when the content element toggles (v-if on modal open/close).
   watch(contentRef, (newRef) => {
     if (newRef) setupObserver();
@@ -183,5 +185,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
     setTargetHeight,
     requestHeightDelta,
     resetFirstResize,
+    endFirstResize,
   };
 }
