@@ -86,7 +86,7 @@ import { totalMinutes } from '../format.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import Button from '@/components/ui/Button.vue';
 import TracklistHeader from '../cards/TracklistHeader.vue';
-import TrackRow from '../cards/TrackRow.vue';
+import TrackRow from '@/components/audio/TrackRow.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
 
 const props = defineProps({
@@ -304,7 +304,7 @@ onUnmounted(removeDragListeners);
 .tracks {
   display: flex;
   flex-direction: column;
-  gap: var(--space-01);
+  gap: 0;
 }
 
 .drag-item {

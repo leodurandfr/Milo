@@ -20,9 +20,11 @@
           <span v-if="releaseYear" class="text-mono-small tracklist-year">{{ releaseYear }}</span>
         </div>
         <div class="tracklist-scroll">
-          <TrackCard v-for="track in cdStore.tracks" :key="track.number" :track="track"
-            :isCurrent="track.number === cdStore.currentTrack"
-            :isPlaying="track.number === cdStore.currentTrack && cdStore.isPlaying"
+          <TrackRow v-for="track in cdStore.tracks" :key="track.number" :song="track"
+            :number="track.number"
+            :current="track.number === cdStore.currentTrack"
+            :playing="track.number === cdStore.currentTrack && cdStore.isPlaying"
+            :fallback-title="t('audioSources.cdSource.trackN', { n: track.number })"
             @play="cdStore.playTrack($event)" />
         </div>
       </div>
@@ -37,7 +39,7 @@ import { useCdStore } from '@/stores/cdStore';
 
 import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 import IconButton from '@/components/ui/IconButton.vue';
-import TrackCard from './TrackCard.vue';
+import TrackRow from '@/components/audio/TrackRow.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
 
 const { t } = useI18n();
