@@ -2,7 +2,7 @@
 <template>
   <component :is="interactive ? 'button' : 'div'" v-bind="interactive ? { type: 'button', disabled } : {}"
     v-press="interactive && action !== 'toggle' && action !== 'radio'"
-    :class="['list-item-button', `list-item-button--${variant}`, { 'action-pressed': actionPressed, 'list-item-button--static': !interactive }]"
+    :class="['list-item-button', `list-item-button--${variant}`, { 'action-pressed': actionPressed, 'list-item-button--static': !interactive, 'list-item-button--radio': action === 'radio' }]"
     @click="handleClick" @pointerdown="handlePointerDown">
     <div v-if="$slots.icon" class="list-item-button__icon" :class="`list-item-button__icon--${iconVariant}`">
       <slot name="icon"></slot>
@@ -147,6 +147,11 @@ function handleClick(event) {
   cursor: default;
 }
 
+/* Extra right padding so the 32px radio sits as far from the right edge as it does top/bottom. */
+.list-item-button--radio {
+  padding-right: calc(var(--space-02) + var(--space-01));
+}
+
 .list-item-button:disabled .list-item-button__text {
   color: var(--color-text-light);
 }
@@ -265,6 +270,10 @@ function handleClick(event) {
     width: 36px;
     height: 36px;
     border-radius: var(--radius-02);
+  }
+
+  .list-item-button--radio {
+    padding-right: calc(var(--space-02) + var(--space-01) / 2);
   }
 
   .list-item-button__icon--full :deep(img),
