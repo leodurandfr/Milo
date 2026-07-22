@@ -11,15 +11,15 @@
             :title="album.name"
             :subtitle="subtitle"
             show-favorite
+            :show-shuffle="false"
             :is-favorite="albumStarred"
             @play="playFrom(0)"
-            @shuffle="shufflePlay"
             @toggle-favorite="store.toggleStar('album', album.id, album.starred)"
           >
             <template #actions>
               <IconButton
                 icon="threeDots"
-                variant="background-strong"
+                variant="on-dark"
                 :aria-label="t('musicLibrary.playlists.addToPlaylist')"
                 @click="addAlbumToPlaylist"
               />
@@ -159,20 +159,14 @@ const subtitle = computed(() => {
   else if (album.value.artist) parts.push(album.value.artist);
   if (album.value.year) parts.push(String(album.value.year));
   parts.push(t('musicLibrary.tracksCount', { count: album.value.songCount || songs.value.length }));
+  let result = parts.join(' · ');
   const mins = totalMinutes(album.value.duration);
-  if (mins) parts.push(`${mins} ${t('musicLibrary.minutesShort')}`);
-  return parts.join(' · ');
+  if (mins) result += `, ${mins} ${t('musicLibrary.minutesShort')}`;
+  return result;
 });
 
 function playFrom(index) {
   store.playContext(songs.value, index, false);
-}
-
-function shufflePlay() {
-  if (!songs.value.length) return;
-  // Pin a random track first, backend shuffles the remainder → true shuffle feel.
-  const start = Math.floor(Math.random() * songs.value.length);
-  store.playContext(songs.value, start, true);
 }
 
 // Add the whole album to a playlist (all tracks; the user prunes them afterwards

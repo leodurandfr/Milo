@@ -15,7 +15,7 @@
           >
             <template #actions>
               <Button
-                :variant="editing ? 'brand' : 'background-strong'"
+                :variant="editing ? 'brand' : 'on-dark'"
                 @click="toggleEdit"
               >
                 {{ editing ? t('musicLibrary.playlists.done') : t('musicLibrary.playlists.edit') }}
