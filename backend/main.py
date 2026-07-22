@@ -288,7 +288,7 @@ app.include_router(network_router)
 discovery_router = create_discovery_router(network_service, wifi_adoption_service)
 app.include_router(discovery_router)
 
-app.include_router(create_qobuz_account_router())
+app.include_router(create_qobuz_account_router(systemd_manager))
 
 app.add_api_websocket_route("/ws", websocket_server.websocket_endpoint)
 
