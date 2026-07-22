@@ -7,12 +7,17 @@ PartOf=milo-backend.service
 [Service]
 Type=simple
 EnvironmentFile=-/var/lib/milo/snapclient.env
-ExecStart=/bin/sh -c '/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard camilladsp --mixer software --player alsa:buffer_time=${MILO_SNAPCLIENT_BUFFER_TIME:-80},fragments=${MILO_SNAPCLIENT_FRAGMENTS:-4} --hostID $(cat /sys/class/net/eth0/address 2>/dev/null || cat /sys/class/net/wlan0/address 2>/dev/null || echo "milo-local")'
+ExecStart=/bin/sh -c 'exec /usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard camilladsp --mixer software --player alsa:buffer_time=${MILO_SNAPCLIENT_BUFFER_TIME:-80},fragments=${MILO_SNAPCLIENT_FRAGMENTS:-4} --hostID $(cat /sys/class/net/eth0/address 2>/dev/null || cat /sys/class/net/wlan0/address 2>/dev/null || echo "milo-local")'
 User=milo
 Group=audio
 Restart=on-failure
 RestartSec=5
 MemoryMax=128M
+
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=12
+LimitRTPRIO=20
+LimitMEMLOCK=infinity
 
 # Lifecycle: started/stopped exclusively by AudioRoutingService._sync_snapcast_state
 # based on settings.routing.multiroom_enabled. Intentionally not WantedBy any target.

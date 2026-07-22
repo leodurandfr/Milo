@@ -13,5 +13,10 @@ Restart=on-failure
 RestartSec=5
 MemoryMax=256M
 
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=10
+LimitRTPRIO=20
+LimitMEMLOCK=infinity
+
 # Lifecycle: started/stopped exclusively by AudioRoutingService._sync_snapcast_state
 # based on settings.routing.multiroom_enabled. Intentionally not WantedBy any target.

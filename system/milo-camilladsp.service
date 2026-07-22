@@ -42,6 +42,11 @@ RestartSec=3s
 # Resource limits
 MemoryMax=256M
 
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=15
+LimitRTPRIO=20
+LimitMEMLOCK=infinity
+
 # Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
