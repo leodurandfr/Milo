@@ -16,6 +16,11 @@ ExecStart=/usr/local/bin/milo-client-snapclient-launcher
 Restart=on-failure
 RestartSec=5
 
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=12
+LimitRTPRIO=20
+LimitMEMLOCK=infinity
+
 StandardOutput=journal
 StandardError=journal
 
