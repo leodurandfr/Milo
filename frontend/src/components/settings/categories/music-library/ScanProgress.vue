@@ -1,14 +1,15 @@
 <!-- frontend/src/components/settings/categories/music-library/ScanProgress.vue -->
 <!--
   Navidrome scan progress bar — shared by the maintenance "Library refresh"
-  section and the add-share wizard's post-connect indexing screen, so both
-  render the same reveal/bar/indeterminate-sweep visuals from one place.
+  section and the add-share wizard's post-connect indexing screen. Navidrome
+  never reports a scan's target count, so the bar always sweeps; the label
+  carries the live track count.
 -->
 <template>
   <div class="scan-progress" :class="{ 'is-open': open }">
     <div class="scan-progress__inner">
-      <div v-if="hasBar" class="scan-progress__track" :class="{ 'is-indeterminate': indeterminate }">
-        <div class="scan-progress__fill" :style="fillStyle" />
+      <div v-if="hasBar" class="scan-progress__track">
+        <div class="scan-progress__fill" />
       </div>
       <span class="scan-progress__label text-mono-small">{{ label }}</span>
     </div>
@@ -16,17 +17,11 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
-
-const props = defineProps({
+defineProps({
   open: { type: Boolean, default: false },
   hasBar: { type: Boolean, default: true },
-  indeterminate: { type: Boolean, default: false },
-  pct: { type: Number, default: 0 },
   label: { type: String, required: true },
 });
-
-const fillStyle = computed(() => (props.indeterminate ? {} : { width: `${props.pct}%` }));
 </script>
 
 <style scoped>
@@ -64,16 +59,12 @@ const fillStyle = computed(() => (props.indeterminate ? {} : { width: `${props.p
   overflow: hidden;
 }
 
+/* A segment sweeps across the track (no known total to fill toward). */
 .scan-progress__fill {
+  width: 40%;
   height: 100%;
   background: var(--color-background-contrast);
   border-radius: var(--radius-01);
-  transition: width var(--transition-medium);
-}
-
-/* Indeterminate variant (no known total): a segment sweeps instead of filling. */
-.scan-progress__track.is-indeterminate .scan-progress__fill {
-  width: 40%;
   animation: scan-progress-indeterminate 1.1s ease-in-out infinite;
 }
 
