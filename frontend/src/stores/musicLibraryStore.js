@@ -73,6 +73,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       title: m.title,
       artist: m.artist,
       album: m.album,
+      albumId: m.album_id,
+      artistId: m.artist_id,
       albumArtUrl: m.album_art_url,
     };
   });

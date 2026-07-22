@@ -42,7 +42,8 @@
           :title="playerTitle"
           :is-playing="isPlaying" :is-loading="isBuffering" swipe-enabled
           :tracks="store.queue" :current-index="store.queueIndex"
-          @swipe-next="store.next()" @swipe-prev="store.swipePrevious()">
+          @swipe-next="store.next()" @swipe-prev="store.swipePrevious()"
+          @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
           <!-- Track info (desktop + non-swipe fallback). On mobile the swipe
                carousel renders its own title/artist from the queue (see AudioPlayer). -->
           <template #info>
@@ -180,6 +181,16 @@ function openGenre(genre) {
 }
 function openPlaylist(playlist) {
   push('playlist', { playlistId: playlist.id, playlistName: playlist.name });
+}
+// From the docked player's artwork/artist-line clicks — only the currently
+// displayed track's ids are known here (no album/artist track counts).
+function openPlayerAlbum() {
+  const albumId = store.displayTrack?.albumId;
+  if (albumId) openAlbum({ id: albumId, name: store.displayTrack.album });
+}
+function openPlayerArtist() {
+  const artistId = store.displayTrack?.artistId;
+  if (artistId) openArtist({ id: artistId, name: store.displayTrack.artist });
 }
 function goToSearch() {
   push('search');
