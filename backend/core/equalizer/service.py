@@ -830,8 +830,10 @@ class CamillaDSPService:
         if not self._connected:
             return {"available": False}
 
-        capture = await self._run(self._client.levels.capture_peak)
-        playback = await self._run(self._client.levels.playback_peak)
+        capture, playback = await asyncio.gather(
+            self._run(self._client.levels.capture_peak),
+            self._run(self._client.levels.playback_peak),
+        )
         return {"available": True, "input_peak": capture, "output_peak": playback}
 
     # === Preset Management ===
