@@ -11,20 +11,20 @@
     <div class="tracklist-meta">
       <div class="tracklist-titles">
         <h2 class="tracklist-title heading-1">{{ title }}</h2>
-        <p v-if="subtitle" class="tracklist-subtitle text-mono">{{ subtitle }}</p>
+        <p v-if="subtitle" class="tracklist-subtitle text-body">{{ subtitle }}</p>
       </div>
 
       <div class="tracklist-actions">
         <Button variant="brand" left-icon="play" @click="$emit('play')">
           {{ t('musicLibrary.play') }}
         </Button>
-        <Button variant="background-strong" @click="$emit('shuffle')">
+        <Button v-if="showShuffle" variant="on-dark" @click="$emit('shuffle')">
           {{ t('musicLibrary.shuffle') }}
         </Button>
         <IconButton
           v-if="showFavorite"
           :icon="isFavorite ? 'heart' : 'heartOff'"
-          variant="background-strong"
+          variant="on-dark"
           @click="$emit('toggle-favorite')"
         />
         <!-- Extra actions (e.g. the playlist Edit/Done toggle). -->
@@ -55,6 +55,10 @@ defineProps({
     type: String,
     default: '',
   },
+  showShuffle: {
+    type: Boolean,
+    default: true,
+  },
   showFavorite: {
     type: Boolean,
     default: false,
@@ -75,16 +79,18 @@ const store = useMusicLibraryStore();
 .tracklist-header {
   display: flex;
   flex-direction: row;
-  gap: var(--space-05);
   align-items: flex-end;
+  gap: var(--space-03);
+  background: var(--color-background-contrast);
+  border-radius: var(--radius-04);
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
 }
 
 .tracklist-cover {
   flex-shrink: 0;
   width: 128px;
   height: 128px;
-  border-radius: var(--radius-05);
-  background: var(--color-background-neutral-50);
+  border-radius: var(--radius-02);
 }
 
 .tracklist-meta {
@@ -104,7 +110,7 @@ const store = useMusicLibraryStore();
 
 .tracklist-title {
   margin: 0;
-  color: var(--color-text);
+  color: var(--color-text-contrast);
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -113,7 +119,7 @@ const store = useMusicLibraryStore();
 
 .tracklist-subtitle {
   margin: 0;
-  color: var(--color-text-secondary);
+  color: var(--color-text-contrast-50);
 }
 
 .tracklist-actions {
@@ -125,15 +131,9 @@ const store = useMusicLibraryStore();
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .tracklist-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--space-04);
-  }
-
   .tracklist-cover {
-    width: 140px;
-    height: 140px;
+    width: 96px;
+    height: 96px;
   }
 }
 </style>
