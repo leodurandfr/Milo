@@ -23,6 +23,8 @@
               :playing="store.isPlaying"
               show-artist
               show-menu
+              show-cover
+              :cover-url="store.thumbUrl(song.coverArt)"
               @play="playFrom(idx)"
               @menu="store.requestAddToPlaylist([song.id])"
             />

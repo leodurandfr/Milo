@@ -1,17 +1,16 @@
-<!-- Shared track row for tracklists (CD + Music Library).
-     Flat divider-list look (bottom border, whole row turns brand on current);
-     superset of features behind flags: per-track artist line, "feat." label,
-     ⋯ overflow menu, and playlist edit-mode (remove + drag grip). -->
 <template>
   <div v-press="!editing" class="track-row" :class="{ current, editing }" @click="onRowClick">
     <div class="track-index">
-      <!-- Animated bars while this row is the one playing; otherwise the number. -->
-      <div v-if="current && playing" class="playing-indicator" aria-hidden="true">
-        <span class="bar"></span>
-        <span class="bar"></span>
-        <span class="bar"></span>
+      <div class="track-position">
+        <div v-if="current && playing" class="playing-indicator" aria-hidden="true">
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+        </div>
+        <span v-else class="track-number text-mono">{{ number }}</span>
       </div>
-      <span v-else class="track-number text-mono">{{ number }}</span>
+      <LazyImage v-if="showCover" :src="coverUrl" :fallback="albumPlaceholder"
+        :alt="displayTitle" lazy class="track-cover" />
     </div>
 
     <div class="track-main">
@@ -22,9 +21,6 @@
       <p v-if="showArtist && song.artist" class="track-artist text-mono">{{ song.artist }}</p>
     </div>
 
-    <!-- Edit mode: remove + drag grip. Otherwise: duration + optional ⋯ menu.
-         @pointerdown.stop keeps the tap from bubbling to the row's v-press, which
-         would otherwise capture the pointer and steal the resulting click. -->
     <div v-if="editing" class="track-edit">
       <button v-press type="button" class="track-icon-btn track-remove"
         :aria-label="t('musicLibrary.playlists.remove')"
@@ -50,50 +46,51 @@
 import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import LazyImage from '@/components/ui/LazyImage.vue';
+import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
 const props = defineProps({
-  // Track data: reads `.title || .name`, `.artist`, `.duration` (seconds).
   song: {
     type: Object,
     required: true,
   },
-  // Display position shown in the index column.
   number: {
     type: [Number, String],
     required: true,
   },
-  // This row is the active entry.
   current: {
     type: Boolean,
     default: false,
   },
-  // Playback is actively running (vs. paused) for the current row.
   playing: {
     type: Boolean,
     default: false,
   },
-  // Show the per-track artist line (mixed contexts: genre/playlist/search/queue).
   showArtist: {
     type: Boolean,
     default: false,
   },
-  // Featured guests shown right of the title ("feat. …"). '' = hidden.
   feat: {
     type: String,
     default: '',
   },
-  // Show the ⋯ overflow (add-to-playlist). Suppressed in edit mode.
   showMenu: {
     type: Boolean,
     default: false,
   },
-  // Playlist edit mode: swap play-on-tap for a remove button + drag grip.
   editing: {
     type: Boolean,
     default: false,
   },
-  // Shown when the track carries no title/name (e.g. CD "Track {n}").
   fallbackTitle: {
+    type: String,
+    default: '',
+  },
+  showCover: {
+    type: Boolean,
+    default: false,
+  },
+  coverUrl: {
     type: String,
     default: '',
   },
@@ -109,7 +106,6 @@ function onRowClick() {
   if (!props.editing) emit('play', props.number);
 }
 
-// Catalog durations are in seconds; "m:ss" or "h:mm:ss" when past an hour.
 function formatDuration(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds || 0));
   const h = Math.floor(s / 3600);
@@ -145,10 +141,24 @@ function formatDuration(totalSeconds) {
 
 .track-index {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+.track-position {
   width: 28px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.track-cover {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-02);
+  background: var(--color-background-neutral-12);
 }
 
 .track-number {
@@ -180,7 +190,6 @@ function formatDuration(totalSeconds) {
   white-space: nowrap;
 }
 
-/* Featured-guest label, sitting one row-gap after the title. */
 .track-feat {
   flex-shrink: 0;
   color: var(--color-text-secondary);
@@ -200,7 +209,6 @@ function formatDuration(totalSeconds) {
   color: var(--color-text-secondary);
 }
 
-/* Current track: all columns in brand color (no background highlight). */
 .track-row.current .track-number,
 .track-row.current .track-title,
 .track-row.current .track-duration,
@@ -209,7 +217,6 @@ function formatDuration(totalSeconds) {
   color: var(--color-brand);
 }
 
-/* Inline icon buttons (⋯ menu, remove) — ghost style, no filled surface. */
 .track-icon-btn {
   flex-shrink: 0;
   display: flex;
@@ -229,7 +236,6 @@ function formatDuration(totalSeconds) {
   color: var(--color-error);
 }
 
-/* Edit mode: remove + drag grip side by side. */
 .track-edit {
   flex-shrink: 0;
   display: flex;
@@ -251,7 +257,6 @@ function formatDuration(totalSeconds) {
   -webkit-user-select: none;
 }
 
-/* Now-playing equalizer bars */
 .playing-indicator {
   display: flex;
   align-items: flex-end;
