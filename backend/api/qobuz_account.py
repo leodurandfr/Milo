@@ -27,8 +27,8 @@ QOBUZ_PROXY_INTERNAL = "http://127.0.0.1:8689"
 QOBUZ_PROXY_PORT = 8689
 
 
-def create_qobuz_account_router() -> APIRouter:
-    """Create the Qobuz account relay router (no service dependencies)."""
+def create_qobuz_account_router(systemd_manager) -> APIRouter:
+    """Create the Qobuz account relay router."""
     router = APIRouter(prefix="/api/qobuz/account", tags=["qobuz"])
 
     @router.get("")
@@ -70,7 +70,15 @@ def create_qobuz_account_router() -> APIRouter:
         to reach Milō, so the flow — and its /auth/callback, which exchanges the
         code and starts the speaker — stays on the proxy. `origin` must point
         back at qobuz-proxy for the callback to land there.
+
+        milo-qobuz.service isn't necessarily running (it only starts when Qobuz
+        becomes the active source), so ensure it's up first — a no-op if it's
+        already active — or the browser hits connection-refused on :8689.
         """
+        if not await systemd_manager.start("milo-qobuz.service"):
+            logger.error("Could not start milo-qobuz.service for login-url")
+            raise HTTPException(status_code=503, detail="qobuz-proxy could not be started")
+
         host = request.url.hostname or "milo.local"
         base = f"http://{host}:{QOBUZ_PROXY_PORT}"
         login_url = f"{base}/auth/login?{urlencode({'origin': base})}"
