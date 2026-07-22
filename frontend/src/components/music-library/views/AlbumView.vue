@@ -9,7 +9,8 @@
           <TracklistHeader
             :cover-id="album.coverArt"
             :title="album.name"
-            :subtitle="subtitle"
+            :subtitle="subtitleArtist"
+            :subtitle-meta="subtitleMeta"
             show-favorite
             :show-shuffle="false"
             :is-favorite="albumStarred"
@@ -57,7 +58,7 @@
 import { ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
-import { totalMinutes } from '../format.js';
+import { totalMinutes, formatAudioQuality } from '../format.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import TracklistHeader from '../cards/TracklistHeader.vue';
@@ -82,27 +83,31 @@ const songs = computed(() => album.value?.song || []);
 // entries in song.artists[] beyond this one.
 const albumArtistId = computed(() => album.value?.artistId ?? null);
 
-// A true "Various Artists" release: at least one track's PRIMARY artist isn't the
-// album artist. A single-artist album with featured guests keeps the album artist
-// primary on every track (guests only trail it), so it stays non-various and
-// instead surfaces per-track "feat." labels. Falls back to distinct display names
-// when a source doesn't provide the structured artists[] array.
+// A true "Various Artists" release: the album artist isn't credited as the PRIMARY
+// artist on a majority of tracks. A single-artist album keeps its artist as primary
+// on (nearly) every track, so an occasional mistagged outlier (a posse-cut or skit
+// whose own artist tag names only a guest, with nothing pointing back to the real
+// album artist) doesn't flip it — only a majority mismatch does. True compilations
+// have no single artist covering a majority, however the tracks are tagged (even
+// when they share some other uniform album-level credit, since that never appears
+// as any individual track's own primary artist).
 const isVariousArtists = computed(() => {
   const list = songs.value;
   if (!list.length) return false;
-  const withArtists = list.filter((s) => s.artists?.length);
-  if (!withArtists.length) {
-    return new Set(list.map((s) => s.artist).filter(Boolean)).size > 1;
-  }
   const id = albumArtistId.value;
   const name = album.value?.artist;
-  return withArtists.some((s) =>
-    id ? s.artists[0].id !== id : s.artists[0].name !== name
-  );
+  const matches = list.filter((s) => {
+    if (s.artists?.length) return id ? s.artists[0].id === id : s.artists[0].name === name;
+    return name ? s.artist === name : false;
+  });
+  return matches.length * 2 <= list.length;
 });
 
-// song.id → "Guest A, Guest B": a track's artists minus the album artist. Empty
-// for a pure album-artist track and for true compilations (which show the full
+// song.id → "Guest A, Guest B": a track's artists minus the album artist. Covers
+// both a genuine guest trailing the primary artist AND a mistagged outlier track
+// whose own artist tag names someone else entirely (no album artist in artists[]
+// at all) — that track still gets a "feat." label naming whoever IS credited,
+// rather than showing nothing. Empty for true compilations (which show the full
 // per-track artist instead, via show-artist).
 const featuredBySong = computed(() => {
   const map = {};
@@ -152,17 +157,22 @@ const albumStarred = computed(() =>
   album.value ? store.isStarred('album', album.value.id, album.value.starred) : false
 );
 
-const subtitle = computed(() => {
+const subtitleArtist = computed(() => {
+  if (!album.value) return '';
+  if (isVariousArtists.value) return t('musicLibrary.variousArtists');
+  return album.value.artist || '';
+});
+
+const subtitleMeta = computed(() => {
   if (!album.value) return '';
   const parts = [];
-  if (isVariousArtists.value) parts.push(t('musicLibrary.variousArtists'));
-  else if (album.value.artist) parts.push(album.value.artist);
   if (album.value.year) parts.push(String(album.value.year));
   parts.push(t('musicLibrary.tracksCount', { count: album.value.songCount || songs.value.length }));
-  let result = parts.join(' · ');
   const mins = totalMinutes(album.value.duration);
-  if (mins) result += `, ${mins} ${t('musicLibrary.minutesShort')}`;
-  return result;
+  if (mins) parts.push(`${mins} ${t('musicLibrary.minutesShort')}`);
+  const quality = formatAudioQuality(songs.value[0]?.bitDepth, songs.value[0]?.samplingRate);
+  if (quality) parts.push(quality);
+  return parts.join(' · ');
 });
 
 function playFrom(index) {

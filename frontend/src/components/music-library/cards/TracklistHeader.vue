@@ -11,7 +11,11 @@
     <div class="tracklist-meta">
       <div class="tracklist-titles">
         <h2 class="tracklist-title heading-1">{{ title }}</h2>
-        <p v-if="subtitle" class="tracklist-subtitle text-body">{{ subtitle }}</p>
+        <p v-if="subtitle || subtitleMeta" class="tracklist-subtitle">
+          <span v-if="subtitle" class="text-body">{{ subtitle }}</span>
+          <span v-if="subtitle && subtitleMeta" class="text-mono"> · </span>
+          <span v-if="subtitleMeta" class="text-mono">{{ subtitleMeta }}</span>
+        </p>
       </div>
 
       <div class="tracklist-actions">
@@ -52,6 +56,10 @@ defineProps({
     required: true,
   },
   subtitle: {
+    type: String,
+    default: '',
+  },
+  subtitleMeta: {
     type: String,
     default: '',
   },
@@ -120,6 +128,10 @@ const store = useMusicLibraryStore();
 .tracklist-subtitle {
   margin: 0;
   color: var(--color-text-contrast-50);
+}
+
+.tracklist-subtitle .text-body {
+  color: var(--color-text-light);
 }
 
 .tracklist-actions {
