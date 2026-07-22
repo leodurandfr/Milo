@@ -1,29 +1,21 @@
-<!--
-  Single-field modal for naming a playlist. Reused for both create (empty name)
-  and rename (seeded with the current name). Dumb by design: it emits submit(name)
-  and the parent performs the async write, drives :loading, and closes it.
--->
 <template>
   <Modal :is-open="isOpen" @close="$emit('close')">
     <div class="playlist-name-modal">
-      <h2 class="heading-2 playlist-name-modal__title">{{ title }}</h2>
+      <NavigationHeader :title="title" />
 
-      <InputText
-        v-model="name"
-        :placeholder="placeholder || t('musicLibrary.playlists.namePlaceholder')"
-        :maxlength="255"
-        @submit="handleSubmit"
-      />
-
-      <Button
-        variant="brand"
-        size="medium"
-        :loading="loading"
-        :disabled="loading || !name.trim()"
-        @click="handleSubmit"
-      >
-        {{ submitLabel }}
-      </Button>
+      <SettingsSection>
+        <div class="playlist-name-modal__field">
+          <InputText
+            v-model="name"
+            :placeholder="placeholder || t('musicLibrary.playlists.namePlaceholder')"
+            :maxlength="255"
+            @submit="handleSubmit"
+          />
+          <Button variant="brand" :loading="loading" :disabled="loading || !name.trim()" @click="handleSubmit">
+            {{ submitLabel }}
+          </Button>
+        </div>
+      </SettingsSection>
     </div>
   </Modal>
 </template>
@@ -32,8 +24,10 @@
 import { ref, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import Modal from '@/components/ui/Modal.vue';
+import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
 
 const props = defineProps({
   isOpen: {
@@ -67,7 +61,6 @@ const emit = defineEmits(['close', 'submit']);
 const { t } = useI18n();
 const name = ref('');
 
-// Seed (or clear) the field each time the modal opens.
 watch(() => props.isOpen, (open) => {
   if (open) name.value = props.initialName;
 }, { immediate: true });
@@ -83,11 +76,13 @@ function handleSubmit() {
 .playlist-name-modal {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-02);
 }
 
-.playlist-name-modal__title {
-  margin: 0;
-  color: var(--color-text);
+.playlist-name-modal__field {
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-02);
+  align-items: center;
 }
 </style>
