@@ -792,6 +792,8 @@ class MusicLibrarySource(MpvAudioSource):
             "title": current.get("title"),
             "artist": current.get("artist"),
             "album": current.get("album"),
+            "album_id": current.get("albumId"),
+            "artist_id": current.get("artistId"),
             "album_art_url": self._cover_url(current),
             "position": self._position * 1000,
             "duration": self._duration * 1000,

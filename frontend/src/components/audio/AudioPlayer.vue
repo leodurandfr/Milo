@@ -18,7 +18,9 @@
              Frame hosts an optional #artwork-badge (mobile radio: station icon sitting
              behind the track artwork, which rides on top) — needs a real box since two of
              the three branches below are void <img> elements and can't host a child. -->
-          <div class="player-artwork-frame" :class="{ 'has-badge': !!$slots['artwork-badge'] }">
+          <div class="player-artwork-frame"
+            :class="{ 'has-badge': !!$slots['artwork-badge'], clickable: hasEntityLinks }"
+            @click="hasEntityLinks && $emit('artwork-click')">
             <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
               :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
             <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
@@ -41,7 +43,8 @@
             <!-- Every non-swipe case (radio, podcast, desktop): instant swap, the
                  'track-none' transition has no CSS so it resolves immediately. -->
             <Transition v-else name="track-none" mode="out-in">
-              <div class="player-info-inner" :key="title">
+              <div class="player-info-inner" :key="title" :class="{ 'has-entity-links': hasEntityLinks }"
+                @click="onInfoClick">
                 <slot name="info"></slot>
               </div>
             </Transition>
@@ -182,7 +185,18 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['toggle-play', 'after-hide', 'swipe-next', 'swipe-prev'])
+const emit = defineEmits(['toggle-play', 'after-hide', 'swipe-next', 'swipe-prev', 'artwork-click', 'secondary-click'])
+
+// Only music_library has album/artist pages to link to — radio/podcast render
+// the same artwork frame and #player-info-secondary line but have nothing to
+// navigate to, so they get neither the pointer cursor nor the click emit.
+const hasEntityLinks = computed(() => props.source === 'music_library')
+
+// Delegated: .player-info-secondary is rendered by the slotted PlayerInfoText,
+// not by this component, so it's caught by class rather than a direct handler.
+function onInfoClick(e) {
+  if (hasEntityLinks.value && e.target.closest('.player-info-secondary')) emit('secondary-click')
+}
 
 // Artwork validation — falls back to inline SVG / placeholder on error or tiny image (e.g. 1x1 tracking pixel)
 const artworkError = ref(false)
@@ -433,6 +447,10 @@ function onTouchEnd(e) {
   flex-shrink: 0;
 }
 
+.player-artwork-frame.clickable {
+  cursor: pointer;
+}
+
 .player-artwork {
   width: 100%;
   height: 100%;
@@ -509,6 +527,10 @@ img.player-artwork.loaded {
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.player-info-inner.has-entity-links :deep(.player-info-secondary) {
+  cursor: pointer;
 }
 
 /* Desktop/mobile split for slotted #info content — each source renders both
