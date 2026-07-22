@@ -26,12 +26,21 @@
             <slot name="artwork-badge"></slot>
           </div>
 
-          <div class="player-info">
-            <!-- Track text crossfade+slides only on a swipe (next/prev); every other
-                 change — radio's station→metadata reveal, autoplay, source switch —
-                 swaps instantly (transition name resolves to the no-op 'track-none').
-                 Direction follows the finger, set in onTouchEnd. -->
-            <Transition :name="trackTransitionName" mode="out-in" @after-enter="onTrackEnter">
+          <div class="player-info" :class="{ 'player-info-carousel': carousel }">
+            <!-- Mobile swipe (music library): a 3-cell strip [prev｜current｜next]
+                 driven by the carousel's own viewIndex into the queue, so the
+                 text is rendered locally and never reindexes against the backend
+                 skip echo mid-animation. -->
+            <div v-if="carousel" ref="trackEl" class="player-info-track" :style="trackStyle"
+              @transitionend.self="onSettleEnd">
+              <div v-for="cell in cells" :key="cell.pos" class="player-info-cell">
+                <p class="player-title text-body">{{ cell.title }}</p>
+                <p v-if="cell.artist" class="player-subtitle text-body">{{ cell.artist }}</p>
+              </div>
+            </div>
+            <!-- Every non-swipe case (radio, podcast, desktop): instant swap, the
+                 'track-none' transition has no CSS so it resolves immediately. -->
+            <Transition v-else name="track-none" mode="out-in">
               <div class="player-info-inner" :key="title">
                 <slot name="info"></slot>
               </div>
@@ -60,7 +69,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -155,6 +164,21 @@ const props = defineProps({
   swipeEnabled: {
     type: Boolean,
     default: false
+  },
+
+  /**
+   * The play queue and the current index within it — the swipe carousel reads
+   * the adjacent entries' title/artist locally so its animation never waits for
+   * (nor reindexes against) the backend skip echo. Each entry uses the Subsonic
+   * song shape (title/name + artist). Only consulted when swipeEnabled.
+   */
+  tracks: {
+    type: Array,
+    default: () => []
+  },
+  currentIndex: {
+    type: Number,
+    default: -1
   }
 })
 
@@ -181,33 +205,84 @@ const playerClasses = computed(() => ({
   [`source-${props.source}`]: true
 }))
 
-// Mobile-only horizontal swipe on the fixed docked player. touchmove is left
-// non-passive so a confirmed horizontal drag can preventDefault without fighting
-// page scroll; a plain tap never crosses the distance threshold.
+// Mobile swipe carousel (music library) — only on the fixed docked player.
+const carousel = computed(() => isMobile.value && props.swipeEnabled)
 const SWIPE_THRESHOLD_PX = 40
+const SETTLE_MS = 300
 let touchStartX = 0
 let touchStartY = 0
 let touchTracking = false
 
-// Track-text transition is armed only for the brief window around a swipe, then
-// resolves back to the no-op 'track-none'. swipeDir drives the slide direction so
-// the text follows the finger. Cleared on the transition's after-enter, with a
-// fallback timer for swipes that produce no track change (e.g. end of queue).
-const swiping = ref(false)
-const swipeDir = ref('left')
-let swipeResetHandle = null
-const trackTransitionName = computed(() => {
-  if (!swiping.value) return 'track-none'
-  return swipeDir.value === 'right' ? 'track-right' : 'track-left'
+// The carousel owns its own index into the queue and reads its three cells from
+// it, NOT from the live backend index — so the skip echo (which reindexes
+// queueIndex almost instantly) can't swap cell contents out from under the
+// settle animation. It re-syncs to the store only between swipes.
+const viewIndex = ref(props.currentIndex)
+watch(() => props.currentIndex, (ci) => { if (!committing) viewIndex.value = ci })
+
+const CELL_OFFSETS = [-1, 0, 1]
+const cells = computed(() => CELL_OFFSETS.map((offset) => {
+  const song = props.tracks[viewIndex.value + offset]
+  return {
+    pos: offset,
+    title: song ? (song.title || song.name || '') : '',
+    artist: song ? (song.artist || '') : ''
+  }
+}))
+const hasNextCell = computed(() => viewIndex.value >= 0 && viewIndex.value + 1 < props.tracks.length)
+const hasPrevCell = computed(() => viewIndex.value > 0)
+
+// Resting is 'center' (translateX(-100%), middle cell centred). A drag follows
+// the finger; on release it settles to 'next' (-200%) / 'prev' (0%) or back.
+// dragging and suppressTransition drop the CSS transition for instant moves.
+const trackEl = ref(null)
+const dragging = ref(false)
+const dragX = ref(0)
+const settle = ref('center')
+const suppressTransition = ref(false)
+
+const trackStyle = computed(() => {
+  if (dragging.value) {
+    return { transform: `translateX(calc(-100% + ${dragX.value}px))`, transition: 'none' }
+  }
+  const pos = settle.value === 'next' ? '-200%' : settle.value === 'prev' ? '0%' : '-100%'
+  return suppressTransition.value
+    ? { transform: `translateX(${pos})`, transition: 'none' }
+    : { transform: `translateX(${pos})` }
 })
 
-function onTrackEnter() {
-  swiping.value = false
-  if (swipeResetHandle) timer.clear(swipeResetHandle)
+let committing = false
+let committedDir = 0
+let rehomeHandle = null
+
+// Settle finished: advance the local index onto the committed neighbour and snap
+// the strip back to centre. The neighbour text is already centred, so the snap is
+// invisible.
+function rehome() {
+  if (!committing) return
+  if (rehomeHandle) { timer.clear(rehomeHandle); rehomeHandle = null }
+  viewIndex.value += committedDir
+  committing = false
+  committedDir = 0
+  suppressTransition.value = true
+  settle.value = 'center'
+  dragX.value = 0
+  nextTick(() => {
+    // Force a reflow so the snapped (transition:none) position commits before the
+    // transition is re-enabled — else this microtask runs pre-paint, the browser
+    // never sees the 'none' frame, and the snap animates instead.
+    trackEl.value?.getBoundingClientRect()
+    suppressTransition.value = false
+  })
+}
+
+function onSettleEnd() {
+  rehome()
 }
 
 function onTouchStart(e) {
-  if (!isMobile.value || !props.swipeEnabled) return
+  if (!carousel.value) return
+  if (committing) rehome() // finish a pending swipe before starting a new one
   const touch = e.touches[0]
   touchStartX = touch.clientX
   touchStartY = touch.clientY
@@ -219,24 +294,45 @@ function onTouchMove(e) {
   const touch = e.touches[0]
   const dx = touch.clientX - touchStartX
   const dy = touch.clientY - touchStartY
-  if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
-    e.preventDefault()
+  if (!dragging.value) {
+    // Capture only once the drag is confirmed horizontal — vertical scrolls and
+    // taps pass through untouched.
+    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      dragging.value = true
+      settle.value = 'center'
+    } else {
+      return
+    }
   }
+  e.preventDefault()
+  // Rubber-band toward a missing neighbour (queue end) so it snaps back.
+  const towardMissing = dx < 0 ? !hasNextCell.value : !hasPrevCell.value
+  dragX.value = towardMissing ? dx * 0.25 : dx
 }
 
 function onTouchEnd(e) {
   if (!touchTracking) return
   touchTracking = false
+  const wasDragging = dragging.value
+  dragging.value = false
+  if (!wasDragging) return
   const touch = e.changedTouches[0]
   const dx = touch.clientX - touchStartX
   const dy = touch.clientY - touchStartY
-  if (Math.abs(dx) > SWIPE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy) * 1.5) {
-    // Finger right → next, finger left → prev; the slide follows the finger.
-    swipeDir.value = dx > 0 ? 'right' : 'left'
-    swiping.value = true
-    if (swipeResetHandle) timer.clear(swipeResetHandle)
-    swipeResetHandle = timer.setTimeout(() => { swiping.value = false }, 1200)
-    emit(dx > 0 ? 'swipe-next' : 'swipe-prev')
+  const goingNext = dx < 0
+  const passed = Math.abs(dx) > SWIPE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy) * 1.5
+  const hasNeighbour = goingNext ? hasNextCell.value : hasPrevCell.value
+  if (passed && hasNeighbour) {
+    // Finger left → next, finger right → prev.
+    committedDir = goingNext ? 1 : -1
+    settle.value = goingNext ? 'next' : 'prev'
+    committing = true
+    if (rehomeHandle) timer.clear(rehomeHandle)
+    rehomeHandle = timer.setTimeout(rehome, SETTLE_MS + 120) // fallback if transitionend is missed
+    emit(goingNext ? 'swipe-next' : 'swipe-prev')
+  } else {
+    settle.value = 'center'
+    dragX.value = 0
   }
 }
 </script>
@@ -396,37 +492,6 @@ img.player-artwork.loaded {
   width: 100%;
 }
 
-/* Direction-aware track-text slide (swipe only — see trackTransitionName).
-   The content follows the finger: swipe-right slides the row rightward (old
-   exits right, new enters from the left), swipe-left the mirror. 'track-none'
-   has no rules, so every non-swipe change swaps instantly. */
-.track-right-enter-active,
-.track-right-leave-active,
-.track-left-enter-active,
-.track-left-leave-active {
-  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
-}
-
-.track-right-enter-from {
-  opacity: 0;
-  transform: translateX(-16px);
-}
-
-.track-right-leave-to {
-  opacity: 0;
-  transform: translateX(16px);
-}
-
-.track-left-enter-from {
-  opacity: 0;
-  transform: translateX(16px);
-}
-
-.track-left-leave-to {
-  opacity: 0;
-  transform: translateX(-16px);
-}
-
 :deep(.player-title) {
   color: var(--color-text-contrast);
   overflow: hidden;
@@ -534,6 +599,32 @@ img.player-artwork.loaded {
     flex: 1;
     text-align: left;
     padding: 0;
+    min-width: 0;
+    gap: var(--space-01);
+  }
+
+  /* Swipe carousel: .player-info becomes the clipped viewport; the strip holds
+     the three text cells side by side and slides horizontally. Only present in
+     the DOM on mobile music-library (v-if="carousel"). */
+  .player-info-carousel {
+    overflow: hidden;
+    position: relative;
+  }
+
+  .player-info-track {
+    display: flex;
+    width: 100%;
+    will-change: transform;
+    /* Settle only on release; the finger-follow and the re-home snap pass an
+       inline `transition: none` to override this. Duration mirrors SETTLE_MS. */
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .player-info-cell {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    flex: 0 0 100%;
     min-width: 0;
     gap: var(--space-01);
   }

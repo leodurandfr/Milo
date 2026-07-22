@@ -151,6 +151,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const resume = () => send('resume');
   const next = () => send('next');
   const previous = () => send('prev');
+  // Swipe-prev always steps to the actual previous track. The button's previous()
+  // ('prev') restarts the current track when >3s in — right for a tap, wrong under
+  // the swipe carousel, which is already showing the previous track's text and
+  // would glitch back to the current one on a restart. play_index skips outright.
+  const swipePrevious = () =>
+    queueIndex.value > 0 ? playIndex(queueIndex.value - 1) : Promise.resolve(false);
   const stop = () => send('stop');
   // Live shuffle toggle: reorders only the upcoming tracks (the current one keeps
   // playing). Sends the target state, not a flip, so a stale tap can't invert it.
@@ -647,6 +653,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     resume,
     next,
     previous,
+    swipePrevious,
     stop,
     setShuffle,
     toggleShuffle,
