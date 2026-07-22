@@ -43,7 +43,7 @@ const equalizerStore = useEqualizerStore();
 const audioStore = useUnifiedAudioStore();
 const timer = useTimer();
 
-// Levels arrive over WS (`equalizer`/`levels`, ~4 Hz) while this keepalive is
+// Levels arrive over WS (`equalizer`/`levels`, ~10 Hz) while this keepalive is
 // re-posted; the backend stops sampling ~15 s after the meters unmount.
 const KEEPALIVE_INTERVAL = 5000;
 

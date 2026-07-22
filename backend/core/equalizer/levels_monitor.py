@@ -24,7 +24,7 @@ SILENT_PEAK = [-80.0, -80.0]
 class LevelsMonitor:
     """Samples CamillaDSP output levels while a UI keepalive is fresh."""
 
-    SAMPLE_INTERVAL = 0.25  # 4 Hz — meter smoothness comes from the UI's local peak decay
+    SAMPLE_INTERVAL = 0.1   # 10 Hz — fast enough that the UI's CSS transition reads as continuous motion
     KEEPALIVE_TTL = 15.0    # sampling survives this long past the last keepalive
 
     def __init__(self, state_machine, equalizer_router, camilladsp_service):

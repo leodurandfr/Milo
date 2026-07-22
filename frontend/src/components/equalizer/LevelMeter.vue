@@ -184,7 +184,7 @@ watch(() => props.level, (newLevel) => {
   height: 100%;
   background: var(--color-brand);
   border-radius: var(--radius-01);
-  transition: width 50ms linear, height 50ms linear;
+  transition: width 100ms linear, height 100ms linear;
 }
 
 .level-meter.vertical .meter-bar {
@@ -205,7 +205,7 @@ watch(() => props.level, (newLevel) => {
   width: 2px;
   height: 100%;
   background: var(--color-text-secondary);
-  transition: left 50ms linear, bottom 50ms linear;
+  transition: left 100ms linear, bottom 100ms linear;
 }
 
 .level-meter.vertical .peak-indicator {
