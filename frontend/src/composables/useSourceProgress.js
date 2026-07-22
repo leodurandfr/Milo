@@ -4,9 +4,25 @@ import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useTimer } from '@/composables/useTimer';
 
-export function useSourceProgress(source) {
+export function useSourceProgress(source, { compensateStaleness = false } = {}) {
   const unifiedStore = useUnifiedAudioStore();
   const timer = useTimer();
+
+  // Seed value for localPosition. Normally the raw broadcast position; when
+  // compensateStaleness is set (e.g. the Lyrics modal, which mounts mid-song and
+  // needs tight line-level sync), advance it by how long ago that value was
+  // received so a new instance isn't behind by the source's broadcast interval.
+  // Live updates set the store timestamp in the same tick → staleness ≈ 0, so
+  // steady-state behaviour is unchanged.
+  function seedFrom(position) {
+    if (!compensateStaleness) return position;
+    const meta = unifiedStore.systemState.metadata || {};
+    const ts = unifiedStore.positionTimestamp;
+    if (!ts || !meta.is_playing || meta.is_buffering) return position;
+    const seeded = position + Math.max(0, performance.now() - ts);
+    const dur = meta.duration || 0;
+    return dur > 0 ? Math.min(seeded, dur) : seeded;
+  }
 
   const localPosition = ref(null);
   let intervalId = null;
@@ -30,7 +46,7 @@ export function useSourceProgress(source) {
     ],
     ([newPosition]) => {
       if (newPosition !== undefined && !isApiSyncing) {
-        localPosition.value = newPosition;
+        localPosition.value = seedFrom(newPosition);
       }
     },
     { immediate: true }

@@ -34,6 +34,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const showVolumeBar = ref(false);
   let volumeBarHideTimer = null;
 
+  // performance.now() timestamp of when metadata.position last *changed*. Lets a
+  // freshly-created position consumer (e.g. the Lyrics modal opened mid-song)
+  // compensate for how stale the last broadcast is — position events are periodic
+  // and source-dependent (AirPlay only every 30s), so the stored value can lag by
+  // seconds. Updated only on a real value change so it tracks the true reading age.
+  const positionTimestamp = ref(0);
+
   // Transient command error (set on sendCommand failure, consumed by App.vue)
   const commandError = ref(null);
 
@@ -150,11 +157,15 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     const result = validateSchema(SystemStateSchema, newState, `SystemState from ${source}`);
 
     if (result.success) {
+      const newMetadata = result.data.metadata || {};
+      if (newMetadata.position !== systemState.value.metadata?.position) {
+        positionTimestamp.value = performance.now();
+      }
       systemState.value = {
         active_source: result.data.active_source,
         source_state: result.data.source_state,
         transitioning: result.data.transitioning,
-        metadata: result.data.metadata || {},
+        metadata: newMetadata,
         error: result.data.error || null,
         multiroom_enabled: result.data.multiroom_enabled,
         equalizer_effects_enabled: result.data.equalizer_effects_enabled
@@ -172,6 +183,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // Ignore stale events from a previous source during transitions
     if (payload.source !== systemState.value.active_source) return;
     if (systemState.value.metadata) {
+      if (payload.position !== systemState.value.metadata.position) {
+        positionTimestamp.value = performance.now();
+      }
       systemState.value.metadata.position = payload.position;
       systemState.value.metadata.duration = payload.duration;
     }
@@ -228,6 +242,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // State
     systemState,
     volumeState,
+    positionTimestamp,
     showVolumeBar,
     commandError,
     transientNotice,

@@ -22,6 +22,7 @@
       <Dock
         @open-equalizer="isEqualizerOpen = true"
         @open-multiroom="isMultiroomOpen = true"
+        @open-lyrics="isLyricsOpen = true"
         @open-settings="isSettingsOpen = true"
       />
 
@@ -31,6 +32,10 @@
 
       <Modal :is-open="isMultiroomOpen" @close="isMultiroomOpen = false">
         <MultiroomModal />
+      </Modal>
+
+      <Modal :is-open="isLyricsOpen" @close="isLyricsOpen = false">
+        <LyricsModal />
       </Modal>
 
       <Modal :is-open="isSettingsOpen" @close="closeSettings">
@@ -78,6 +83,9 @@ const EqualizerModal = defineAsyncComponent(() =>
 );
 const MultiroomModal = defineAsyncComponent(() =>
   import('@/components/multiroom/MultiroomModal.vue')
+);
+const LyricsModal = defineAsyncComponent(() =>
+  import('@/components/lyrics/LyricsModal.vue')
 );
 const SettingsModal = defineAsyncComponent(() =>
   import('@/components/settings/SettingsModal.vue')
@@ -425,6 +433,7 @@ const colorFilterStyle = computed(() => {
 
 const isEqualizerOpen = ref(false);
 const isMultiroomOpen = ref(false);
+const isLyricsOpen = ref(false);
 const isSettingsOpen = ref(false);
 
 // Settings navigation - supports direct navigation to sub-views
@@ -451,10 +460,12 @@ const dismissScreensaverSignal = ref(0);
 
 provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openMultiroom', () => isMultiroomOpen.value = true);
+provide('openLyrics', () => isLyricsOpen.value = true);
 provide('openSettings', openSettings);
 provide('closeModals', () => {
   isEqualizerOpen.value = false;
   isMultiroomOpen.value = false;
+  isLyricsOpen.value = false;
   closeSettings();
 });
 provide('registerDockControl', registerDockControl);
@@ -745,6 +756,7 @@ onMounted(async () => {
   Promise.all([
     import('@/components/equalizer/EqualizerModal.vue'),
     import('@/components/multiroom/MultiroomModal.vue'),
+    import('@/components/lyrics/LyricsModal.vue'),
     import('@/components/settings/SettingsModal.vue'),
     import('@/components/ui/VirtualKeyboard.vue')
   ]);

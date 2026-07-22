@@ -1,4 +1,10 @@
 {
+  "lyrics": {
+    "title": "Lyrics",
+    "loading": "Finding lyrics…",
+    "noLyrics": "No lyrics found",
+    "notPlaying": "Nothing playing"
+  },
   "app": {
     "connectionUnavailable": "Connection unavailable",
     "connecting": "Connecting..."

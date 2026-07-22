@@ -110,6 +110,7 @@ const DOCK_ANIM_STAGGER = 0.015;        // Stagger between items in seconds
 const ALL_ADDITIONAL_ACTIONS = computed(() => [
   { id: 'equalizer', icon: 'equalizer', title: t('equalizer.title'), handler: () => emit('open-equalizer') },
   { id: 'multiroom', icon: 'multiroom', title: t('audioSources.multiroom'), handler: () => emit('open-multiroom') },
+  { id: 'lyrics', icon: 'lyrics', title: t('lyrics.title'), handler: () => emit('open-lyrics') },
   { id: 'settings', icon: 'settings', title: t('common.settings'), handler: () => emit('open-settings') }
 ]);
 
@@ -154,7 +155,7 @@ const volumeControlsWithSteps = computed(() => {
 });
 
 // === EMISSIONS ===
-const emit = defineEmits(['open-equalizer', 'open-multiroom', 'open-settings']);
+const emit = defineEmits(['open-equalizer', 'open-multiroom', 'open-lyrics', 'open-settings']);
 
 // === TEMPLATE REFS ===
 const dragZone = ref(null);
