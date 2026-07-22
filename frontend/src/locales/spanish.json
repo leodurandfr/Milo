@@ -2,7 +2,6 @@
   "lyrics": {
     "title": "Letra",
     "loading": "Buscando la letra de",
-    "loadingConnector": "de",
     "noLyrics": "No se encontró la letra",
     "notPlaying": "No hay reproducción"
   },

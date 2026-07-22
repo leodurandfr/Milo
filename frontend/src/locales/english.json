@@ -2,7 +2,6 @@
   "lyrics": {
     "title": "Lyrics",
     "loading": "Searching for the lyrics of",
-    "loadingConnector": "by",
     "noLyrics": "No lyrics found",
     "notPlaying": "Nothing playing"
   },

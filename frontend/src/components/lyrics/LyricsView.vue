@@ -29,9 +29,9 @@
               <LoadingSpinner :size="56" />
               <div class="lyrics-view-loading">
                 <p class="text-body lyrics-view-loading-label">{{ t('lyrics.loading') }}</p>
-                <p class="heading-3 lyrics-view-loading-track">
+                <p class="text-body lyrics-view-loading-track">
                   <span>{{ lyricsStore.trackTitle }}</span>
-                  <span class="lyrics-view-loading-sep">{{ t('lyrics.loadingConnector') }}</span>
+                  <span class="lyrics-view-loading-sep">·</span>
                   <span>{{ lyricsStore.trackArtist }}</span>
                 </p>
               </div>
@@ -209,7 +209,7 @@ onUnmounted(() => {
 }
 
 .lyrics-view-loading-sep {
-  color: var(--color-text-contrast-50);
+  color: var(--color-text-contrast);
 }
 
 /* Full-screen enter/leave. */

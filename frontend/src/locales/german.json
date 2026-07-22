@@ -2,7 +2,6 @@
   "lyrics": {
     "title": "Songtext",
     "loading": "Songtext wird gesucht für",
-    "loadingConnector": "von",
     "noLyrics": "Kein Songtext gefunden",
     "notPlaying": "Nichts wird abgespielt"
   },

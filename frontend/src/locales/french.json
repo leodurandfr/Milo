@@ -2,7 +2,6 @@
   "lyrics": {
     "title": "Paroles",
     "loading": "Recherche des paroles de",
-    "loadingConnector": "de",
     "noLyrics": "Aucune parole trouvée",
     "notPlaying": "Aucune lecture en cours"
   },
