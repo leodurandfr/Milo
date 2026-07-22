@@ -1,7 +1,7 @@
 <template>
   <div class="music-library-source">
     <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
-      :header-title="currentTitle" :header-show-back="canGoBack"
+      :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="detailsTitleView"
       header-icon="music_library" header-variant="background-neutral" gradient="music-library"
       :header-actions-key="currentView" :content-key="currentView"
       :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
@@ -151,15 +151,19 @@ const playerArtwork = computed(() => store.displayTrack?.albumArtUrl || null);
 // === Header title per view ===
 const currentTitle = computed(() => {
   switch (currentView.value) {
-    case 'album': return currentParams.value.albumName || t('musicLibrary.album');
-    case 'artist': return currentParams.value.artistName || t('musicLibrary.artist');
+    case 'album': return t('musicLibrary.albumDetails');
+    case 'artist': return t('musicLibrary.artistDetails');
     case 'genre': return currentParams.value.genreLabel || t('musicLibrary.genre');
-    case 'playlist': return currentParams.value.playlistName || t('musicLibrary.playlist');
+    case 'playlist': return t('musicLibrary.playlistDetails');
     case 'search': return t('musicLibrary.search');
     case 'queue': return t('musicLibrary.queue');
     default: return t('audioSources.musicLibrary');
   }
 });
+
+const detailsTitleView = computed(() =>
+  ['album', 'artist', 'playlist'].includes(currentView.value)
+);
 
 // === Navigation ===
 function openAlbum(album) {

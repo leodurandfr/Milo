@@ -2,7 +2,9 @@
   <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayerLayout"
     :header-title="currentTitle"
     :header-subtitle="currentSubtitle"
-    :header-show-back="canGoBack" header-icon="podcast" header-variant="background-neutral"
+    :header-show-back="canGoBack"
+    :header-title-muted="currentView === 'podcast-details' || currentView === 'episode-details'"
+    header-icon="podcast" header-variant="background-neutral"
     :header-actions-key="currentView" :content-key="currentView"
     :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore" gradient="podcast" @header-back="goBack"
     @scroll-restored="onScrollRestored">

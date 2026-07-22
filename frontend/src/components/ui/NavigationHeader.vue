@@ -9,7 +9,7 @@
       <Transition name="header-fade">
         <div v-if="showBack" :key="'back-' + title + '-' + subtitle" class="back-navigation-header">
           <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'on-dark' : 'background-strong'" @click="handleBack" />
-          <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
+          <h2 v-if="!subtitle" class="heading-1" :class="{ 'title-muted': titleMuted }">{{ title }}</h2>
           <h2 v-else class="heading-1">
             <span class="title-subtitle">{{ subtitle }}</span>
             <span class="title-main">{{ title }}</span>
@@ -17,14 +17,14 @@
         </div>
         <div v-else-if="icon" :key="'icon-' + title + '-' + subtitle" class="title-with-icon">
           <AppIcon :name="icon" :size="48" class="header-icon" />
-          <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
+          <h2 v-if="!subtitle" class="heading-1" :class="{ 'title-muted': titleMuted }">{{ title }}</h2>
           <h2 v-else class="heading-1">
             <span class="title-subtitle">{{ subtitle }}</span>
             <span class="title-main">{{ title }}</span>
           </h2>
         </div>
         <div v-else :key="'title-' + title + '-' + subtitle" class="title-only">
-          <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
+          <h2 v-if="!subtitle" class="heading-1" :class="{ 'title-muted': titleMuted }">{{ title }}</h2>
           <h2 v-else class="heading-1">
             <span class="title-subtitle">{{ subtitle }}</span>
             <span class="title-main">{{ title }}</span>
@@ -74,6 +74,10 @@ const props = defineProps({
   actionsKey: {
     type: String,
     default: 'default'
+  },
+  titleMuted: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -110,6 +114,10 @@ function handleBack() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.navigation-header h2.title-muted {
+  color: var(--color-text-secondary);
 }
 
 /* Header content - grid stacking ensures both entering/leaving elements overlap cleanly */
