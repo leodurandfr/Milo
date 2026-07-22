@@ -34,9 +34,7 @@
         <MultiroomModal />
       </Modal>
 
-      <Modal :is-open="isLyricsOpen" @close="isLyricsOpen = false">
-        <LyricsModal />
-      </Modal>
+      <LyricsView :is-open="isLyricsOpen" @close="isLyricsOpen = false" />
 
       <Modal :is-open="isSettingsOpen" @close="closeSettings">
         <SettingsModal :initial-view="settingsInitialView" />
@@ -84,8 +82,8 @@ const EqualizerModal = defineAsyncComponent(() =>
 const MultiroomModal = defineAsyncComponent(() =>
   import('@/components/multiroom/MultiroomModal.vue')
 );
-const LyricsModal = defineAsyncComponent(() =>
-  import('@/components/lyrics/LyricsModal.vue')
+const LyricsView = defineAsyncComponent(() =>
+  import('@/components/lyrics/LyricsView.vue')
 );
 const SettingsModal = defineAsyncComponent(() =>
   import('@/components/settings/SettingsModal.vue')
@@ -756,7 +754,7 @@ onMounted(async () => {
   Promise.all([
     import('@/components/equalizer/EqualizerModal.vue'),
     import('@/components/multiroom/MultiroomModal.vue'),
-    import('@/components/lyrics/LyricsModal.vue'),
+    import('@/components/lyrics/LyricsView.vue'),
     import('@/components/settings/SettingsModal.vue'),
     import('@/components/ui/VirtualKeyboard.vue')
   ]);

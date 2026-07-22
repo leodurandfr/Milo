@@ -1,7 +1,8 @@
 {
   "lyrics": {
     "title": "Testo",
-    "loading": "Ricerca del testo…",
+    "loading": "Ricerca del testo di",
+    "loadingConnector": "di",
     "noLyrics": "Nessun testo trovato",
     "notPlaying": "Nessuna riproduzione"
   },
