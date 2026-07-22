@@ -16,6 +16,20 @@
 
       <SettingsSection class="add-to-playlist__section">
         <ListItemButton
+          variant="background"
+          action="radio"
+          icon-variant="standard"
+          :title="t('musicLibrary.playlists.likedSongs')"
+          :model-value="likedChecked"
+          :disabled="busy || checkingExisting"
+          @click="toggleLiked"
+        >
+          <template #icon>
+            <SvgIcon name="heart" class="add-to-playlist__liked-heart" />
+          </template>
+        </ListItemButton>
+
+        <ListItemButton
           v-for="pl in store.playlists"
           :key="pl.id"
           variant="background"
@@ -53,12 +67,13 @@
 </template>
 
 <script setup>
-import { ref, watch, inject } from 'vue';
+import { ref, computed, watch, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import Modal from '@/components/ui/Modal.vue';
 import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import IconButton from '@/components/ui/IconButton.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
@@ -89,6 +104,20 @@ const creating = ref(false);
 const showCreate = ref(false);
 const addedIds = ref(new Set());
 const checkingExisting = ref(false);
+
+const likedChecked = computed(() =>
+  props.songIds.length > 0 && props.songIds.every((id) => store.likedSongIds.has(id))
+);
+
+async function toggleLiked() {
+  if (busy.value) return;
+  busy.value = true;
+  const on = !likedChecked.value;
+  for (const id of props.songIds) {
+    await store.setSongFavorite(id, on);
+  }
+  busy.value = false;
+}
 
 const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
 const modalContentInnerRef = inject('modalContentInnerRef', null);
@@ -131,7 +160,7 @@ watch(() => props.isOpen, async (open) => {
   creating.value = false;
   showCreate.value = false;
   addedIds.value = new Set();
-  await store.loadPlaylists();
+  await Promise.all([store.loadPlaylists(), store.loadLikedSongs()]);
   await refreshAddedIds();
 });
 
@@ -180,6 +209,10 @@ async function createAndAdd() {
 .add-to-playlist__cover {
   width: 100%;
   height: 100%;
+}
+
+.add-to-playlist__liked-heart {
+  color: var(--color-brand);
 }
 
 .add-to-playlist__section {

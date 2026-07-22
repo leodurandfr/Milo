@@ -17,9 +17,11 @@
       <template #content>
         <LibraryHome v-if="currentView === 'home'" key="home"
           @select-album="openAlbum" @select-artist="openArtist"
-          @select-genre="openGenre" @select-playlist="openPlaylist" />
+          @select-genre="openGenre" @select-playlist="openPlaylist"
+          @select-liked="openLikedSongs" />
 
-        <AlbumView v-else-if="currentView === 'album'" key="album" :album-id="currentParams.albumId" />
+        <AlbumView v-else-if="currentView === 'album'" key="album" :album-id="currentParams.albumId"
+          @select-artist="openArtist" />
 
         <ArtistView v-else-if="currentView === 'artist'" key="artist" :artist-id="currentParams.artistId"
           @select-album="openAlbum" />
@@ -33,6 +35,8 @@
           @select-album="openAlbum" @select-artist="openArtist" />
 
         <QueueView v-else-if="currentView === 'queue'" key="queue" />
+
+        <LikedSongsView v-else-if="currentView === 'liked'" key="liked" />
       </template>
 
       <!-- Docked player -->
@@ -116,6 +120,7 @@ import GenreView from './views/GenreView.vue';
 import PlaylistView from './views/PlaylistView.vue';
 import SearchView from './views/SearchView.vue';
 import QueueView from './views/QueueView.vue';
+import LikedSongsView from './views/LikedSongsView.vue';
 import AddToPlaylistModal from './AddToPlaylistModal.vue';
 
 const store = useMusicLibraryStore();
@@ -159,6 +164,7 @@ const currentTitle = computed(() => {
         : t('musicLibrary.artistAlbums', { artist: currentParams.value.artistName });
     case 'genre': return currentParams.value.genreLabel || t('musicLibrary.genre');
     case 'playlist': return t('musicLibrary.playlistDetails');
+    case 'liked': return t('musicLibrary.playlists.likedSongs');
     case 'search': return t('musicLibrary.search');
     case 'queue': return t('musicLibrary.queue');
     default: return t('audioSources.musicLibrary');
@@ -181,6 +187,9 @@ function openGenre(genre) {
 }
 function openPlaylist(playlist) {
   push('playlist', { playlistId: playlist.id, playlistName: playlist.name });
+}
+function openLikedSongs() {
+  push('liked');
 }
 // From the docked player's artwork/artist-line clicks — only the currently
 // displayed track's ids are known here (no album/artist track counts).
@@ -217,6 +226,7 @@ const libraryLooksEmpty = computed(() => store.albumsLoaded && !store.albums.len
 
 onMounted(() => {
   store.refreshScanStatus();
+  store.loadLikedSongs();
   timer.setInterval(() => {
     if (store.isScanning || libraryLooksEmpty.value) store.refreshScanStatus();
   }, SCAN_POLL_INTERVAL_MS);

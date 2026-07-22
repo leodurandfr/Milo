@@ -6,26 +6,17 @@
         <MessageContent v-else-if="!album" key="notfound" :title="t('musicLibrary.notFound')" />
 
         <div v-else key="loaded" class="content-stack">
-          <TracklistHeader
-            :cover-id="album.coverArt"
+          <DetailHeader
+            :image-src="store.coverUrl(album.coverArt, 600)"
+            :fallback="albumPlaceholder"
             :title="album.name"
             :subtitle="subtitleArtist"
             :subtitle-meta="subtitleMeta"
-            show-favorite
+            :subtitle-clickable="!isVariousArtists"
             :show-shuffle="false"
-            :is-favorite="albumStarred"
             @play="playFrom(0)"
-            @toggle-favorite="store.toggleStar('album', album.id, album.starred)"
-          >
-            <template #actions>
-              <IconButton
-                icon="threeDots"
-                variant="on-dark"
-                :aria-label="t('musicLibrary.playlists.addToPlaylist')"
-                @click="addAlbumToPlaylist"
-              />
-            </template>
-          </TracklistHeader>
+            @select-artist="selectArtist"
+          />
 
           <div class="tracks">
             <template v-for="group in discGroups" :key="group.disc">
@@ -60,9 +51,9 @@ import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { totalMinutes, formatAudioQuality } from '../format.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
-import IconButton from '@/components/ui/IconButton.vue';
-import TracklistHeader from '../cards/TracklistHeader.vue';
+import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
+import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
 const props = defineProps({
   albumId: {
@@ -70,6 +61,8 @@ const props = defineProps({
     required: true,
   },
 });
+
+const emit = defineEmits(['select-artist']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
@@ -153,10 +146,6 @@ const discGroups = computed(() => {
 
 const multiDisc = computed(() => discGroups.value.length > 1);
 
-const albumStarred = computed(() =>
-  album.value ? store.isStarred('album', album.value.id, album.value.starred) : false
-);
-
 const subtitleArtist = computed(() => {
   if (!album.value) return '';
   if (isVariousArtists.value) return t('musicLibrary.variousArtists');
@@ -179,11 +168,8 @@ function playFrom(index) {
   store.playContext(songs.value, index, false);
 }
 
-// Add the whole album to a playlist (all tracks; the user prunes them afterwards
-// in the playlist's edit mode).
-function addAlbumToPlaylist() {
-  const ids = songs.value.map((s) => s.id).filter(Boolean);
-  if (ids.length) store.requestAddToPlaylist(ids);
+function selectArtist() {
+  if (albumArtistId.value) emit('select-artist', { id: albumArtistId.value, name: album.value.artist });
 }
 
 watch(() => props.albumId, async (id) => {

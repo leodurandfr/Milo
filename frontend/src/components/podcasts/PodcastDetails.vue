@@ -9,16 +9,24 @@
       <!-- Real content -->
       <transition name="content-fade">
         <div v-if="!loading && podcast" key="loaded" class="details-content">
-          <!-- Podcast Card (row variant) -->
-          <PodcastCard
-            :podcast="podcast"
-            variant="row"
-            :clickable="false"
-            contrast
-            showActions
-            @subscribe="handleSubscribe"
-            @unsubscribe="handleUnsubscribe"
-          />
+          <DetailHeader
+            :image-src="podcast.image_url"
+            :fallback="podcastPlaceholder"
+            :title="podcast.name"
+            :subtitle="podcast.publisher || podcast.author"
+            :subtitle-meta="`${podcast.total_episodes} ${t('podcasts.episodesCount2')}`"
+            :show-play="false"
+            :show-shuffle="false"
+          >
+            <template #actions>
+              <Button v-if="!podcast.is_subscribed" variant="brand" size="small" @click="handleSubscribe">
+                {{ t('podcasts.subscribe') }}
+              </Button>
+              <Button v-else variant="on-dark" size="small" @click="handleUnsubscribe">
+                {{ t('podcasts.unsubscribe') }}
+              </Button>
+            </template>
+          </DetailHeader>
 
           <!-- Episodes list -->
           <div class="episodes-section">
@@ -56,10 +64,11 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
-import PodcastCard from './PodcastCard.vue'
+import DetailHeader from '@/components/audio/DetailHeader.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
 import SkeletonPodcastDetails from './SkeletonPodcastDetails.vue'
+import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
 

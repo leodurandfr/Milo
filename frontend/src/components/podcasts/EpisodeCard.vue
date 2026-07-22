@@ -1,5 +1,5 @@
 <template>
-  <div v-press class="episode-card" :class="{ clickable, contrast }" @click="handleCardClick">
+  <div v-press class="episode-card" :class="{ clickable }" @click="handleCardClick">
     <LazyImage
       :src="episode.image_url || episode.podcast?.image_url"
       :fallback="episodePlaceholder"
@@ -28,9 +28,9 @@
       </div>
 
       <div class="card-actions">
-        <IconButton v-if="showCompleteButton" icon="close" :variant="contrast ? 'on-dark' : 'background-strong'" size="medium"
+        <IconButton v-if="showCompleteButton" icon="close" variant="background-strong" size="medium"
           @pointerdown.stop @click.stop="emit('complete', episode)" />
-        <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" :variant="contrast ? 'on-dark' : 'background-strong'" size="medium"
+        <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="background-strong" size="medium"
           :loading="isCurrentEpisodeBuffering" @pointerdown.stop @click.stop="handlePlayClick" />
       </div>
     </div>
@@ -38,26 +38,14 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { usePodcastStore } from '@/stores/podcastStore'
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
+import { computed, toRef } from 'vue'
+import { useEpisodePlaybackStatus } from '@/composables/useEpisodePlaybackStatus'
 import { useI18n } from '@/services/i18n'
 import IconButton from '@/components/ui/IconButton.vue'
 import LazyImage from '@/components/ui/LazyImage.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
-const { t, currentLanguage } = useI18n()
-
-const LANGUAGE_TO_LOCALE = {
-  english: 'en-US',
-  french: 'fr-FR',
-  spanish: 'es-ES',
-  german: 'de-DE',
-  italian: 'it-IT',
-  portuguese: 'pt-BR',
-  chinese: 'zh-CN',
-  hindi: 'hi-IN'
-}
+const { t } = useI18n()
 
 const props = defineProps({
   episode: {
@@ -71,17 +59,21 @@ const props = defineProps({
   clickable: {
     type: Boolean,
     default: true
-  },
-  contrast: {
-    type: Boolean,
-    default: false
   }
 })
 
 const emit = defineEmits(['select', 'play', 'complete', 'select-podcast'])
 
-const podcastStore = usePodcastStore()
-const unifiedStore = useUnifiedAudioStore()
+const {
+  isCurrentlyPlaying,
+  isCurrentEpisodeBuffering,
+  isCompleted,
+  hasProgress,
+  timeRemaining,
+  formattedDuration,
+  formattedDate,
+  pause,
+} = useEpisodePlaybackStatus(toRef(props, 'episode'))
 
 function handleCardClick() {
   if (props.clickable) {
@@ -94,116 +86,18 @@ function handlePodcastClick() {
     emit('select-podcast', props.episode.podcast)
   }
 }
+
 const podcastName = computed(() => {
   return props.episode.podcast?.name || ''
 })
 
-// Check if this episode is the current one (playing or paused)
-const isCurrentEpisode = computed(() => {
-  return podcastStore.currentEpisode?.uuid === props.episode.uuid
-})
-
-const isPodcastActive = computed(() => unifiedStore.systemState.active_source === 'podcast')
-
-const isCurrentlyPlaying = computed(() => {
-  return isCurrentEpisode.value && isPodcastActive.value &&
-    (unifiedStore.systemState.metadata?.is_playing || false)
-})
-
-const isCurrentEpisodeBuffering = computed(() => {
-  return podcastStore.isEpisodePending(props.episode.uuid) ||
-    (isCurrentEpisode.value && isPodcastActive.value &&
-      (unifiedStore.systemState.metadata?.is_buffering || false))
-})
-
 async function handlePlayClick() {
   if (isCurrentlyPlaying.value) {
-    await podcastStore.pause()
+    await pause()
   } else {
     emit('play', props.episode)
   }
 }
-
-// Progress for a non-current episode: prefer the live cache entry (kept fresh
-// via WebSocket while something plays), fall back to the API snapshot on the prop.
-const episodeProgress = computed(() =>
-  podcastStore.getEpisodeProgress(props.episode.uuid) || props.episode.playback_progress || null
-)
-
-const isCompleted = computed(() => {
-  // The current episode is shown as playing/remaining, never "already listened"
-  if (isCurrentEpisode.value) return false
-  return episodeProgress.value?.completed === true
-})
-
-const hasProgress = computed(() => {
-  // If this is the current episode, read live position from unified store (ms)
-  if (isCurrentEpisode.value) {
-    return (unifiedStore.systemState.metadata?.position || 0) > 0
-  }
-  return (episodeProgress.value?.position || 0) > 0
-})
-
-const timeRemaining = computed(() => {
-  let remaining
-
-  // If this is the current episode, use live data (unified store, ms → s)
-  if (isCurrentEpisode.value) {
-    const meta = unifiedStore.systemState.metadata
-    remaining = Math.floor(((meta?.duration || 0) - (meta?.position || 0)) / 1000)
-  } else {
-    const progress = episodeProgress.value
-    if (!progress) return ''
-    remaining = progress.duration - progress.position
-  }
-
-  // Check if episode is completed (less than 5 seconds remaining)
-  if (remaining <= 5) {
-    return t('podcasts.episodeCompleted')
-  }
-
-  return formatDuration(remaining) + ' ' + t('podcasts.remaining')
-})
-
-const formattedDuration = computed(() => {
-  // If this is the current episode, use live duration from unified store (ms → s)
-  if (isCurrentEpisode.value) {
-    return formatDuration(Math.floor((unifiedStore.systemState.metadata?.duration || 0) / 1000))
-  }
-  // Otherwise, use episode's static duration
-  return formatDuration(props.episode.duration || 0)
-})
-
-const formattedDate = computed(() => {
-  if (!props.episode.date_published) return ''
-  return formatRelativeDate(props.episode.date_published)
-})
-
-function formatDuration(seconds) {
-  if (!seconds || seconds <= 0) return '0 min'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m}min`
-  return `${m} min`
-}
-
-function formatRelativeDate(epochSeconds) {
-  const date = new Date(epochSeconds * 1000)
-  const now = new Date()
-  const diff = now - date
-  const days = Math.floor(diff / 86400000)
-
-  if (days === 0) return t('podcasts.today')
-  if (days === 1) return t('podcasts.yesterday')
-
-  const locale = LANGUAGE_TO_LOCALE[currentLanguage.value] || 'en-US'
-  const day = date.getDate()
-  const month = date.toLocaleDateString(locale, { month: 'short' }).replace('.', '')
-  const capitalized = month.charAt(0).toUpperCase() + month.slice(1)
-  return `${day} ${capitalized}`
-}
-
-
 </script>
 
 <style scoped>
@@ -219,7 +113,6 @@ function formatRelativeDate(epochSeconds) {
 .episode-card.clickable {
   cursor: pointer;
 }
-
 
 .card-image {
   width: 128px;
@@ -317,22 +210,5 @@ function formatRelativeDate(epochSeconds) {
   .episode-meta {
     display: flex;
   }
-}
-
-/* === CONTRAST VARIANT === */
-.episode-card.contrast {
-  background: var(--color-background-contrast);
-}
-
-.episode-card.contrast .episode-name {
-  color: var(--color-text-contrast);
-}
-
-.episode-card.contrast .podcast-name {
-  color: var(--color-brand);
-}
-
-.episode-card.contrast .episode-meta {
-  color: var(--color-text-contrast-50);
 }
 </style>

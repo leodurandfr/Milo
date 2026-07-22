@@ -88,35 +88,53 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   function clearDisplayTrack() { displayTrack.value = null; }
 
   // =========================================================================
-  // FAVORITES (star) — optimistic local overrides over payload `starred`
+  // FAVORITES — starred songs behind the virtual "Liked Songs" playlist
   // =========================================================================
-  // key `${kind}:${id}` → boolean. Absent means "trust the payload's starred".
-  const starOverrides = ref({});
-  const starKey = (kind, id) => `${kind}:${id}`;
+  const likedSongs = ref([]);
+  const likedSongIds = ref(new Set());
+  const likedSongsLoading = ref(false);
+  const likedSongsLoaded = ref(false);
 
-  function isStarred(kind, id, rawStarred) {
-    const k = starKey(kind, id);
-    if (Object.prototype.hasOwnProperty.call(starOverrides.value, k)) {
-      return starOverrides.value[k];
+  async function loadLikedSongs({ force = false } = {}) {
+    if (likedSongsLoaded.value && !force) return;
+    likedSongsLoading.value = true;
+    const result = await apiCall.get(`${BASE}/starred`, {
+      category: 'musicLibrary',
+      message: 'Error loading liked songs',
+      checkStatus: true,
+    });
+    if (result.ok && Array.isArray(result.data?.songs)) {
+      likedSongs.value = result.data.songs;
+      likedSongIds.value = new Set(result.data.songs.map((s) => s.id));
+      likedSongsLoaded.value = true;
     }
-    return !!rawStarred;
+    likedSongsLoading.value = false;
   }
 
-  async function toggleStar(kind, id, rawStarred) {
-    if (!id) return false;
-    const current = isStarred(kind, id, rawStarred);
-    const next = !current;
-    starOverrides.value = { ...starOverrides.value, [starKey(kind, id)]: next };
+  const isSongLiked = (id) => likedSongIds.value.has(id);
+  const likedSongsCount = computed(() => likedSongIds.value.size);
 
-    const result = await apiCall.post(`${BASE}/${next ? 'star' : 'unstar'}`,
-      { id, kind }, {
+  async function setSongFavorite(id, on) {
+    if (!id || isSongLiked(id) === on) return true;
+    const removed = on ? null : likedSongs.value.find((s) => s.id === id) || null;
+    const nextIds = new Set(likedSongIds.value);
+    if (on) nextIds.add(id);
+    else nextIds.delete(id);
+    likedSongIds.value = nextIds;
+    if (!on) likedSongs.value = likedSongs.value.filter((s) => s.id !== id);
+
+    const result = await apiCall.post(`${BASE}/${on ? 'star' : 'unstar'}`,
+      { id, kind: 'song' }, {
         category: 'musicLibrary',
-        message: `Error ${next ? 'starring' : 'unstarring'} item`,
+        message: `Error ${on ? 'starring' : 'unstarring'} song`,
       });
 
     if (!result.ok || result.data?.status !== 'success') {
-      // Revert the optimistic flip on failure.
-      starOverrides.value = { ...starOverrides.value, [starKey(kind, id)]: current };
+      const revert = new Set(likedSongIds.value);
+      if (on) revert.delete(id);
+      else revert.add(id);
+      likedSongIds.value = revert;
+      if (removed) likedSongs.value = [...likedSongs.value, removed];
       return false;
     }
     return true;
@@ -124,12 +142,13 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   // Star state of the currently-playing track (for the docked player heart).
   const currentStarred = computed(() => {
-    const song = queue.value[queueIndex.value];
-    return isStarred('song', currentTrackId.value, song?.starred);
+    const id = currentTrackId.value;
+    if (!id) return false;
+    if (likedSongsLoaded.value) return isSongLiked(id);
+    return !!queue.value[queueIndex.value]?.starred;
   });
   function toggleCurrentStar() {
-    const song = queue.value[queueIndex.value];
-    return toggleStar('song', currentTrackId.value, song?.starred);
+    return setSongFavorite(currentTrackId.value, !currentStarred.value);
   }
 
   // =========================================================================
@@ -618,6 +637,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (artistsLoaded.value) tasks.push(loadArtists({ force: true }));
     if (genresLoaded.value) tasks.push(loadGenres({ force: true }));
     if (playlistsLoaded.value) tasks.push(loadPlaylists({ force: true }));
+    if (likedSongsLoaded.value) tasks.push(loadLikedSongs({ force: true }));
     if (sharesLoaded.value) tasks.push(loadShares({ force: true }));
     if (usbLoaded.value) tasks.push(loadUsbDevices());
     await Promise.allSettled(tasks);
@@ -642,9 +662,15 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     isPlaying,
     isBuffering,
 
-    // Favorites
-    isStarred,
-    toggleStar,
+    // Favorites (liked songs)
+    likedSongs,
+    likedSongIds,
+    likedSongsLoading,
+    likedSongsLoaded,
+    likedSongsCount,
+    loadLikedSongs,
+    isSongLiked,
+    setSongFavorite,
     currentStarred,
     toggleCurrentStar,
 

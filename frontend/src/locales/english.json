@@ -549,6 +549,7 @@
     "discLabel": "Disc {number}",
     "playlists": {
       "newPlaylist": "New playlist",
+      "likedSongs": "Liked Songs",
       "createTitle": "New playlist",
       "renameTitle": "Rename playlist",
       "namePlaceholder": "Playlist name",

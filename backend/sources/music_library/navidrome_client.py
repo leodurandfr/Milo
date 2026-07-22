@@ -467,6 +467,23 @@ class NavidromeClient:
         """Remove a star set by :meth:`star` (Subsonic ``unstar``)."""
         return await self._set_star("unstar", item_id, kind)
 
+    async def get_starred(self) -> Dict[str, List[Dict[str, Any]]]:
+        """All starred items (Subsonic ``getStarred2``, id3 shape).
+
+        Returns the ``starred2`` envelope normalised to
+        ``{"song": [...], "album": [...], "artist": [...]}`` — the read side of
+        :meth:`star`/:meth:`unstar`, so favourites can actually be enumerated
+        (the browse payloads only carry a per-item ``starred`` flag)."""
+        response = await self._make_request("getStarred2")
+        if not response or response.get("_network_error"):
+            return {"song": [], "album": [], "artist": []}
+        starred = response.get("starred2", {}) or {}
+        return {
+            "song": starred.get("song", []) or [],
+            "album": starred.get("album", []) or [],
+            "artist": starred.get("artist", []) or [],
+        }
+
     async def _set_star(self, endpoint: str, item_id: str, kind: str) -> bool:
         param = {"song": "id", "album": "albumId", "artist": "artistId"}.get(
             kind, "id"
