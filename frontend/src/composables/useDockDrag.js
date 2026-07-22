@@ -49,10 +49,6 @@ export function useDockDrag({
   let dragActionTaken = false;
   let dragGraceTimeout = null;
   let startedInBand = false;
-  // A mouse drag always ends in a real `click` on mouseup (unlike touch, where
-  // preventDefault on touchmove suppresses the synthetic click) — that click
-  // would otherwise bubble to onClickOutside and instantly re-close the dock
-  // the same gesture just opened. Swallow exactly one trailing click per drag.
   let suppressNextClick = false;
   let suppressClickTimeout = null;
 
@@ -209,13 +205,9 @@ export function useDockDrag({
     if (Math.abs(deltaY) >= threshold && !dragActionTaken) {
       dragActionTaken = true;
 
-      // A mouse gesture is about to fire a trailing click on mouseup — swallow
-      // it once so onClickOutside doesn't undo the show/hide this drag just did.
-      if (!e.type.includes('touch')) {
-        suppressNextClick = true;
-        if (suppressClickTimeout) timer.clear(suppressClickTimeout);
-        suppressClickTimeout = timer.setTimeout(() => { suppressNextClick = false; }, 2000);
-      }
+      suppressNextClick = true;
+      if (suppressClickTimeout) timer.clear(suppressClickTimeout);
+      suppressClickTimeout = timer.setTimeout(() => { suppressNextClick = false; }, 400);
 
       if (deltaY > 0 && !isVisible.value) {
         onShow();
@@ -245,12 +237,15 @@ export function useDockDrag({
     onResetHideTimer();
   };
 
+  const onDocumentClickCapture = (event) => {
+    if (!suppressNextClick) return;
+    suppressNextClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   // === Click-outside ===
   const onClickOutside = (event) => {
-    if (suppressNextClick) {
-      suppressNextClick = false;
-      return;
-    }
     if (!isVisible.value ||
       (dockContainer.value && dockContainer.value.contains(event.target)) ||
       event.target.closest('.modal-overlay, .modal-shell, .modal-scroller')) {
@@ -272,6 +267,7 @@ export function useDockDrag({
     document.addEventListener('mouseup', onDragEnd);
     document.addEventListener('touchmove', onDragMove, { passive: false });
     document.addEventListener('touchend', onDragEnd);
+    document.addEventListener('click', onDocumentClickCapture, true);
     document.addEventListener('click', onClickOutside);
     document.addEventListener('pointerup', onVolumeHoldEnd);
     document.addEventListener('pointercancel', onVolumeHoldEnd);
@@ -286,6 +282,7 @@ export function useDockDrag({
     document.removeEventListener('mouseup', onDragEnd);
     document.removeEventListener('touchmove', onDragMove);
     document.removeEventListener('touchend', onDragEnd);
+    document.removeEventListener('click', onDocumentClickCapture, true);
     document.removeEventListener('click', onClickOutside);
     document.removeEventListener('pointerup', onVolumeHoldEnd);
     document.removeEventListener('pointercancel', onVolumeHoldEnd);
