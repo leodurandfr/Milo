@@ -9,7 +9,7 @@
           <TracklistHeader
             :cover-id="playlist.coverArt"
             :title="playlist.name"
-            :subtitle="subtitle"
+            :subtitle-meta="subtitle"
             @play="playFrom(0)"
             @shuffle="shufflePlay"
           >

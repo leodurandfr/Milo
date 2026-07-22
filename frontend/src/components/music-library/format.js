@@ -19,3 +19,10 @@ export function formatDuration(totalSeconds) {
 export function totalMinutes(totalSeconds) {
   return Math.round((totalSeconds || 0) / 60);
 }
+
+export function formatAudioQuality(bitDepth, samplingRate) {
+  if (!bitDepth || !samplingRate) return '';
+  const khz = samplingRate / 1000;
+  const khzLabel = Number.isInteger(khz) ? khz : khz.toFixed(1);
+  return `${bitDepth}B-${khzLabel}kHz`;
+}
