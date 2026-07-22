@@ -37,6 +37,11 @@ RestartSec=3s
 CPUQuota=80%
 MemoryMax=256M
 
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=15
+LimitRTPRIO=20
+LimitMEMLOCK=infinity
+
 # Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
