@@ -47,7 +47,6 @@
       @change="handleScreensaverToggle"
     >
       <div class="screensaver-content">
-        <p class="screensaver-source-note text-mono">{{ t('screenSettings.screensaverSourceNote') }}</p>
         <SettingItem :label="t('screenSettings.screensaverDelay')">
           <ButtonGroup
             :model-value="config.screensaver_delay_seconds"
@@ -276,10 +275,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-}
-
-.screensaver-source-note {
-  color: var(--color-brand);
 }
 
 .screensaver-content :deep(.setting-item) {
