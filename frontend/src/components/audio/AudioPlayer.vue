@@ -304,7 +304,7 @@ function onTouchMove(e) {
       return
     }
   }
-  e.preventDefault()
+  if (e.cancelable) e.preventDefault()
   // Rubber-band toward a missing neighbour (queue end) so it snaps back.
   const towardMissing = dx < 0 ? !hasNextCell.value : !hasPrevCell.value
   dragX.value = towardMissing ? dx * 0.25 : dx
@@ -566,6 +566,10 @@ img.player-artwork.loaded {
     border-radius: var(--radius-05);
   }
 
+  .audio-player.source-music_library {
+    touch-action: pan-y;
+  }
+
   .player-content {
     flex-direction: row;
     flex-wrap: wrap;
@@ -609,6 +613,10 @@ img.player-artwork.loaded {
   .player-info-carousel {
     overflow: hidden;
     position: relative;
+    margin-left: calc(-1 * var(--space-03));
+    margin-right: calc(-1 * (var(--space-03) - var(--space-01)));
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--space-02), #000 calc(100% - var(--space-05)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--space-02), #000 calc(100% - var(--space-05)), transparent 100%);
   }
 
   .player-info-track {
@@ -627,6 +635,7 @@ img.player-artwork.loaded {
     flex: 0 0 100%;
     min-width: 0;
     gap: var(--space-01);
+    padding-left: var(--space-02);
   }
 
   .player-bottom {
