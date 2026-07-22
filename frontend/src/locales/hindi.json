@@ -2,7 +2,6 @@
   "lyrics": {
     "title": "बोल",
     "loading": "इसके बोल खोजे जा रहे हैं",
-    "loadingConnector": "—",
     "noLyrics": "कोई बोल नहीं मिला",
     "notPlaying": "कुछ नहीं चल रहा"
   },
