@@ -24,6 +24,11 @@ const LOG_LEVELS = {
   none: 4
 };
 
+// WS event types too chatty to log (high-frequency, low signal)
+const MUTED_WS_EVENTS = new Set([
+  'settings.fan_status_changed'
+]);
+
 // Category colors for visual distinction in console
 const CATEGORY_STYLES = {
   store: 'color: #42b883; font-weight: bold',     // Vue green
@@ -184,6 +189,7 @@ class Logger {
    * @param {object} data
    */
   ws(direction, eventType, data = null) {
+    if (MUTED_WS_EVENTS.has(eventType)) return;
     const icon = direction === 'sent' ? '→' :
                  direction === 'received' ? '←' : '✕';
     const level = direction === 'error' ? 'error' : 'debug';
