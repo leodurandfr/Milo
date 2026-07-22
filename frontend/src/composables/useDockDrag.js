@@ -49,6 +49,12 @@ export function useDockDrag({
   let dragActionTaken = false;
   let dragGraceTimeout = null;
   let startedInBand = false;
+  // A mouse drag always ends in a real `click` on mouseup (unlike touch, where
+  // preventDefault on touchmove suppresses the synthetic click) — that click
+  // would otherwise bubble to onClickOutside and instantly re-close the dock
+  // the same gesture just opened. Swallow exactly one trailing click per drag.
+  let suppressNextClick = false;
+  let suppressClickTimeout = null;
 
   // Additional-apps drag state
   let isDraggingAdditional = false;
@@ -100,6 +106,7 @@ export function useDockDrag({
     dragStartTime = Date.now();
     dragActionTaken = false;
     startedInBand = false;
+    suppressNextClick = false;
 
     if (dragGraceTimeout) {
       timer.clear(dragGraceTimeout);
@@ -202,6 +209,14 @@ export function useDockDrag({
     if (Math.abs(deltaY) >= threshold && !dragActionTaken) {
       dragActionTaken = true;
 
+      // A mouse gesture is about to fire a trailing click on mouseup — swallow
+      // it once so onClickOutside doesn't undo the show/hide this drag just did.
+      if (!e.type.includes('touch')) {
+        suppressNextClick = true;
+        if (suppressClickTimeout) timer.clear(suppressClickTimeout);
+        suppressClickTimeout = timer.setTimeout(() => { suppressNextClick = false; }, 2000);
+      }
+
       if (deltaY > 0 && !isVisible.value) {
         onShow();
       } else if (deltaY < 0 && isVisible.value) {
@@ -232,6 +247,10 @@ export function useDockDrag({
 
   // === Click-outside ===
   const onClickOutside = (event) => {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      return;
+    }
     if (!isVisible.value ||
       (dockContainer.value && dockContainer.value.contains(event.target)) ||
       event.target.closest('.modal-overlay, .modal-shell, .modal-scroller')) {
@@ -277,6 +296,10 @@ export function useDockDrag({
     if (dragGraceTimeout) {
       timer.clear(dragGraceTimeout);
       dragGraceTimeout = null;
+    }
+    if (suppressClickTimeout) {
+      timer.clear(suppressClickTimeout);
+      suppressClickTimeout = null;
     }
     resetGestureState();
   };
