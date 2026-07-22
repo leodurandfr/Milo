@@ -1,7 +1,5 @@
 # Milō User Manual
 
-> 🇫🇷 [Version française](manual_fr.md)
-
 ---
 
 # Installation
@@ -109,7 +107,7 @@ The Dock is Milō's main navigation bar, located at the bottom of the screen. It
 
 The Dock shows the icons of the enabled items, organized into two groups:
 
-**Audio sources**: Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Mac.
+**Audio sources**: Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Qobuz, Music Library, Mac, CD.
 
 **Features** (after the separator): Equalizer, Multiroom, Settings.
 
@@ -307,6 +305,54 @@ Milō shows the artwork, title, artist, and album. Playback is controlled from t
 
 ---
 
+## Qobuz Connect
+
+Milō appears as a Qobuz Connect device on your network, so you can cast lossless audio to it straight from the Qobuz app.
+
+### One-time sign-in
+
+Before Milō can appear in Qobuz, you sign in once with your Qobuz account in [Settings > Qobuz](#qobuz). Milō stays connected afterwards — you only do this again if you sign out.
+
+### Connecting
+
+1. Open the **Qobuz** app on your phone, tablet, or computer.
+2. Start a track.
+3. Tap the **devices / cast** icon.
+4. Select **Milō** from the list.
+
+### Display
+
+Milō shows the album artwork, track title, artist, and album. Playback is controlled from the Qobuz app — like AirPlay, Milō shows no control buttons, and the progress bar stays inactive.
+
+> *Related settings:* [*Settings > Qobuz*](#qobuz)
+
+
+---
+
+## Music Library
+
+Music Library plays your own music collection — from a **USB drive** plugged into Milō or from a **network share** (SMB/NFS) on your NAS or computer. Milō indexes the files and lets you browse them with full artwork and metadata.
+
+### Adding your music
+
+* **USB drive**: plug it in. Milō detects it automatically, mounts it, and starts building the library.
+* **Network share**: add it in [Settings > Music Library](#music-library-1) with the share's address and, if needed, a username and password.
+
+### Building the library
+
+The first time Milō indexes a collection it shows a **"building library…"** state with a live count of indexed tracks. Large libraries take a few minutes; you can keep using Milō while it works, and the catalog appears on its own when it's ready.
+
+### Browsing and playback
+
+Browse by **Artists**, **Albums**, **Genres**, or **Playlists**, or **search** the whole library. Tap an album, playlist, or track to start playback — Milō builds a queue from whatever context you picked and plays it back-to-back, gapless and bit-perfect (no quality loss).
+
+During playback Milō shows the album artwork, track title, artist, album, and a progress bar, with full transport controls (play/pause, next/previous, seek).
+
+> *Related settings:* [*Settings > Music Library*](#music-library-1)
+
+
+---
+
 # Equalizer (DSP)
 
 Milō includes an audio processor that lets you adjust the sound to your taste. The equalizer is reachable from the Dock.
@@ -429,7 +475,7 @@ Manage your Milō's Wi-Fi connection.
 
 Customize the Dock's contents and order:
 
-* **Enable / Disable** each audio source (Spotify, Bluetooth, AirPlay, Radio, Podcasts, Mac) and each feature (Equalizer, Multiroom).
+* **Enable / Disable** each audio source (Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Qobuz, Music Library, Mac, CD) and each feature (Equalizer, Multiroom).
 * **Reorder** the icons to your preference.
 
 
@@ -516,6 +562,21 @@ Tap **Add a station** to create an entry with your own audio stream URL. Only th
 
 * **API credentials**: user ID and API key to access the podcast catalog.
 * **API usage**: number of requests used this month and the reset date.
+
+
+---
+
+## Qobuz
+
+* **Account**: sign in with your Qobuz account so Milō can appear as a Qobuz Connect device. The screen shows whether you are signed in, and lets you sign out. Signing in is a one-time step.
+
+
+---
+
+## Music Library
+
+* **Network shares**: add, view, or remove SMB/NFS shares. For each share you provide its address (host and path) and, if the share is protected, a username and password. USB drives need no configuration here — they are detected automatically when plugged in.
+* **Library status**: shows whether Milō is currently indexing and how many tracks have been found.
 
 
 ---

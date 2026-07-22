@@ -39,12 +39,16 @@ else is the static SPA).
 | Errors | `/api/errors` | Receive frontend error reports → `errors.log` |
 | Health | `/api/health`, `/api/ping`, `/api/initial-state` | Liveness + initial-state snapshot |
 | Hardware | `/api/bt-remote`, `/api/ir-remote`, `/api/fan` | Bluetooth/IR remote + fan control |
-| Sources | `/api/radio`, `/api/podcast`, `/api/cd`, `/api/airplay` | Source-specific endpoints (browsing, favorites, binary artwork…) |
+| Sources | `/api/radio`, `/api/podcast`, `/api/cd`, `/api/airplay`, `/api/dlna`, `/api/qobuz`, `/api/music-library` | Source-specific endpoints (browsing, favorites, binary/proxied artwork, scan status…) |
 
 Mute-receiver sources (Bluetooth, Mac) have **no** dedicated routes — they are driven entirely
-through `/api/audio/control/{source}`. API conventions (verbs, the `status` envelope, the
-per-layer error policy) are spelled out in [CLAUDE.md](../CLAUDE.md) and the
-[Developer Guide](development.md).
+through `/api/audio/control/{source}`. Passive receivers expose only what the sender can't
+deliver: DLNA and Qobuz have **no playback-control routes** (the external app drives them) —
+`/api/dlna` serves proxied artwork, and Qobuz's only surface is the `/api/qobuz/account/*`
+one-time-login relay. Music Library (Family C) is UI-controlled, so `/api/music-library` is the
+richest of the three (Subsonic-backed browsing, cover-art proxy, `scan-status`). API conventions
+(verbs, the `status` envelope, the per-layer error policy) are spelled out in
+[CLAUDE.md](../CLAUDE.md) and the [Developer Guide](development.md).
 
 ## WebSocket
 

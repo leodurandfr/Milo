@@ -72,7 +72,8 @@ backend/
 │   ├── podcast/              # PodcastSource + routes + podcastindex_api
 │   ├── cd/                   # CDSource + routes
 │   ├── dlna/                 # DlnaSource + metadata_reader (UPnP bridge) + routes
-│   └── qobuz/                # QobuzSource + monitor (qobuz-proxy /api/status poll)
+│   ├── qobuz/                # QobuzSource + monitor (qobuz-proxy /api/status poll)
+│   └── music_library/        # MusicLibrarySource + navidrome_client + storage + data + routes
 ├── api/                       # REST API routes
 ├── hardware/                  # Hardware controllers (rotary, IR remote, BT remote, screen)
 ├── ws/                        # WebSocket server + manager
@@ -99,6 +100,7 @@ frontend/src/
 │   ├── dlna/                 # DLNA source UI
 │   ├── equalizer/            # Equalizer / DSP controls
 │   ├── multiroom/            # Multiroom (Snapcast) controls
+│   ├── music-library/        # Music Library source UI (browse + tracklist + queue)
 │   ├── navigation/           # Navigation stack
 │   ├── network/              # Network / WiFi settings
 │   ├── podcasts/             # Podcast source UI
@@ -118,6 +120,7 @@ frontend/src/
 │   ├── radioStore.js         # Radio stations + playback
 │   ├── podcastStore.js       # Podcasts + playback progress
 │   ├── cdStore.js            # CD playback
+│   ├── musicLibraryStore.js  # Music Library catalog + queue + scan state
 │   ├── discoveryStore.js     # mDNS discovery
 │   └── systemStore.js        # System info / updates
 ├── composables/              # Vue composables (useSourceProgress, useVolumeThrottle, ...)
