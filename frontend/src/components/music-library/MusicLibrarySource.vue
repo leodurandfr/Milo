@@ -73,6 +73,8 @@
                   :color="store.shuffle ? 'var(--color-brand)' : undefined"
                   @click="store.toggleShuffle()" />
                 <div class="ml-transport-main">
+                  <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="small"
+                    class="mobile-only" @click="store.toggleCurrentStar()" />
                   <IconButton icon="previous" variant="on-dark" size="small" class="ml-transport-extra"
                     @click="store.previous()" />
                   <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"

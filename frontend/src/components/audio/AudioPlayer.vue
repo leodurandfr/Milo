@@ -4,7 +4,7 @@
       <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
            transition classes, so the enter/leave would be instant. -->
       <div v-if="visible" class="audio-player" :class="[playerClasses, { 'audio-player-revealing': revealing }]"
-        @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
+        @click="onBarClick" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
         <!-- Background image - heavily zoomed and blurred -->
         <div class="player-art-background">
           <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
@@ -19,8 +19,8 @@
              behind the track artwork, which rides on top) — needs a real box since two of
              the three branches below are void <img> elements and can't host a child. -->
           <div class="player-artwork-frame"
-            :class="{ 'has-badge': !!$slots['artwork-badge'], clickable: hasEntityLinks }"
-            @click="hasEntityLinks && $emit('artwork-click')">
+            :class="{ 'has-badge': !!$slots['artwork-badge'], clickable: hasEntityLinks || expandable }"
+            @click="onMiniArtworkClick">
             <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
               :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
             <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
@@ -58,6 +58,51 @@
             <div class="controls">
               <slot name="controls">
                 <!-- Default: Simple play/pause -->
+                <div class="playback-controls">
+                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium" :loading="isLoading"
+                    @click="$emit('toggle-play')" />
+                </div>
+              </slot>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <Teleport to="body">
+    <Transition name="audio-expand">
+      <div v-if="expanded" class="audio-player-expanded" :class="playerClasses" :style="expandStyle"
+        @touchstart="onExpandTouchStart" @touchmove="onExpandTouchMove" @touchend="onExpandTouchEnd">
+        <div class="player-art-background">
+          <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
+          <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
+          <img v-else-if="placeholderArtwork" :src="placeholderArtwork" alt="" class="background-image" />
+        </div>
+
+        <div class="expanded-content">
+          <div class="expanded-header">
+            <IconButton icon="caretDown" variant="on-dark" size="small" @click="collapse" />
+          </div>
+
+          <div class="expanded-artwork" :class="{ clickable: hasEntityLinks }" @click="onExpandedArtworkClick">
+            <img v-if="validArtwork" :src="validArtwork" :alt="title" class="expanded-artwork-img"
+              @error="artworkError = true" />
+            <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="expanded-artwork-img" :aria-label="title" />
+            <img v-else :src="placeholderArtwork" :alt="title" class="expanded-artwork-img placeholder" />
+          </div>
+
+          <div class="expanded-info" @click="onExpandedInfoClick">
+            <slot name="info"></slot>
+          </div>
+
+          <div class="expanded-bottom">
+            <div class="expanded-progress">
+              <slot name="progress"></slot>
+            </div>
+
+            <div class="expanded-controls">
+              <slot name="controls">
                 <div class="playback-controls">
                   <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium" :loading="isLoading"
                     @click="$emit('toggle-play')" />
@@ -195,7 +240,85 @@ const hasEntityLinks = computed(() => props.source === 'music_library')
 // Delegated: .player-info-secondary is rendered by the slotted PlayerInfoText,
 // not by this component, so it's caught by class rather than a direct handler.
 function onInfoClick(e) {
+  if (expandable.value) return
   if (hasEntityLinks.value && e.target.closest('.player-info-secondary')) emit('secondary-click')
+}
+
+const EXPANDABLE_SOURCES = ['podcast', 'music_library']
+const expanded = ref(false)
+const expandable = computed(() => isMobile.value && EXPANDABLE_SOURCES.includes(props.source))
+
+function collapse() {
+  expanded.value = false
+}
+
+function onBarClick() {
+  if (expandable.value && !expanded.value) expanded.value = true
+}
+
+function onMiniArtworkClick() {
+  if (!expandable.value && hasEntityLinks.value) emit('artwork-click')
+}
+
+function onExpandedArtworkClick() {
+  if (hasEntityLinks.value) { emit('artwork-click'); collapse() }
+}
+function onExpandedInfoClick(e) {
+  if (hasEntityLinks.value && e.target.closest('.player-info-secondary')) { emit('secondary-click'); collapse() }
+}
+
+watch(() => props.visible, (v) => { if (!v) expanded.value = false })
+watch(isMobile, (m) => { if (!m) expanded.value = false })
+
+const EXPAND_CLOSE_THRESHOLD_PX = 100
+const expandDragging = ref(false)
+const expandDragY = ref(0)
+let expandStartX = 0
+let expandStartY = 0
+let expandTracking = false
+
+const expandStyle = computed(() => {
+  if (expandDragging.value) {
+    return { transform: `translateY(${expandDragY.value}px)`, transition: 'none' }
+  }
+  return expandDragY.value > 0 ? { transform: `translateY(${expandDragY.value}px)` } : {}
+})
+
+function onExpandTouchStart(e) {
+  const touch = e.touches[0]
+  expandStartX = touch.clientX
+  expandStartY = touch.clientY
+  expandTracking = true
+  expandDragging.value = false
+}
+
+function onExpandTouchMove(e) {
+  if (!expandTracking) return
+  const touch = e.touches[0]
+  const dx = touch.clientX - expandStartX
+  const dy = touch.clientY - expandStartY
+  if (!expandDragging.value) {
+    if (dy > 10 && dy > Math.abs(dx)) {
+      expandDragging.value = true
+    } else {
+      return
+    }
+  }
+  expandDragY.value = Math.max(0, dy)
+}
+
+function onExpandTouchEnd() {
+  if (!expandTracking) return
+  expandTracking = false
+  const wasDragging = expandDragging.value
+  expandDragging.value = false
+  if (!wasDragging) return
+  if (expandDragY.value > EXPAND_CLOSE_THRESHOLD_PX) {
+    collapse()
+    expandDragY.value = 0
+  } else {
+    nextTick(() => { expandDragY.value = 0 })
+  }
 }
 
 // Artwork validation — falls back to inline SVG / placeholder on error or tiny image (e.g. 1x1 tracking pixel)
@@ -677,11 +800,11 @@ img.player-artwork.loaded {
     display: block;
   }
 
-  :deep(.desktop-only) {
+  .audio-player :deep(.desktop-only) {
     display: none !important;
   }
 
-  :deep(.mobile-only) {
+  .audio-player :deep(.mobile-only) {
     display: block !important;
   }
 
@@ -880,5 +1003,115 @@ img.player-artwork.loaded {
     opacity: 0;
     transform: translate(-50%, 120px);
   }
+}
+
+.audio-player-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 4500;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-background-neutral);
+  will-change: transform;
+  transition: transform var(--transition-spring);
+}
+
+.audio-player-expanded .expanded-content {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+  padding:
+    calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-02))
+    var(--space-05)
+    max(var(--space-06), env(safe-area-inset-bottom, 0px));
+}
+
+.expanded-header {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.expanded-artwork {
+  align-self: center;
+  width: min(70vw, 340px);
+  aspect-ratio: 1;
+  flex-shrink: 1;
+  min-height: 0;
+  margin-top: auto;
+}
+
+.expanded-artwork.clickable {
+  cursor: pointer;
+}
+
+.expanded-artwork-img {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-05);
+  object-fit: cover;
+  background: var(--color-background-neutral);
+  overflow: hidden;
+  display: block;
+  box-shadow: 0px 8px 32px rgba(0, 0, 0, 0.32);
+}
+
+.expanded-artwork-img :deep(svg) {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.expanded-info {
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.expanded-info :deep(.player-info-text) {
+  align-items: center;
+}
+
+.expanded-bottom {
+  flex-shrink: 0;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+
+.expanded-progress {
+  flex-shrink: 0;
+}
+
+.expanded-controls {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-04);
+}
+
+.audio-player-expanded.source-music_library :deep(.ml-controls .playback-controls) {
+  width: 100%;
+  justify-content: space-between;
+  padding: 0 var(--space-02);
+}
+
+.audio-expand-enter-active {
+  transition: transform var(--transition-spring);
+}
+
+.audio-expand-leave-active {
+  transition: transform 0.4s cubic-bezier(0.5, 0, 0, 1);
+}
+
+.audio-expand-enter-from,
+.audio-expand-leave-to {
+  transform: translateY(100%);
 }
 </style>
