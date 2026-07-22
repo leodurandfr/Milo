@@ -19,30 +19,50 @@ export const useLyricsStore = defineStore('lyrics', () => {
 
   let abortController = null;
 
+  // Per-track result cache (artist|||title → {found, synced, plain}). Reopening
+  // the view for a track already looked up this session resolves instantly, with
+  // no loader — lyrics never change, so a memory cache is enough for the appliance.
+  const cache = new Map();
+
   async function loadLyrics() {
     const unifiedStore = useUnifiedAudioStore();
     const meta = unifiedStore.systemState.metadata || {};
     const artist = (meta.artist || '').trim();
     const title = (meta.title || '').trim();
 
-    // Reset before the request resolves so the previous track's lyrics never
-    // flash on a new one (Option A: refetch per track change).
-    found.value = false;
-    synced.value = null;
-    plain.value = null;
-    trackArtist.value = artist;
-    trackTitle.value = title;
-
     if (abortController) {
       abortController.abort();
       abortController = null;
     }
 
+    trackArtist.value = artist;
+    trackTitle.value = title;
+
     // Nothing playing, or a mute receiver with no metadata → empty state, no request.
     if (!artist || !title) {
+      found.value = false;
+      synced.value = null;
+      plain.value = null;
       loading.value = false;
       return;
     }
+
+    // Cache hit → populate straight from memory, no request and no loader flash.
+    const key = `${artist}|||${title}`;
+    const cached = cache.get(key);
+    if (cached) {
+      found.value = cached.found;
+      synced.value = cached.synced;
+      plain.value = cached.plain;
+      loading.value = false;
+      return;
+    }
+
+    // Miss → reset before the request resolves so the previous track's lyrics
+    // never flash on a new one (Option A: refetch per track change).
+    found.value = false;
+    synced.value = null;
+    plain.value = null;
 
     abortController = new AbortController();
     const { signal } = abortController;
@@ -71,6 +91,8 @@ export const useLyricsStore = defineStore('lyrics', () => {
       found.value = !!result.data.found;
       synced.value = result.data.synced || null;
       plain.value = result.data.plain || null;
+      // Cache the resolved lookup (found or not) so reopening this track is instant.
+      cache.set(key, { found: found.value, synced: synced.value, plain: plain.value });
     }
   }
 

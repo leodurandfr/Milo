@@ -1,16 +1,19 @@
 <!-- LyricsContent.vue — renders synced (highlight + auto-scroll) or plain lyrics.
      Keyed on the active source by the parent so useSourceProgress re-instantiates
-     if the source changes while the modal is open. -->
+     if the source changes while the view is open. -->
 <template>
   <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-synced': isSynced }">
     <template v-if="isSynced">
+      <!-- One uniform size; the three states differ only in opacity: the active
+           line is fully lit, lines still to come are bright, past lines fade
+           back. Opacity transitions per line so the highlight glides rather
+           than snapping as the song advances. -->
       <p v-for="(line, i) in synced" :key="i" :ref="el => setLineRef(el, i)"
-        class="lyrics-line heading-2"
-        :class="{ 'is-active': i === activeIndex, 'is-past': i < activeIndex }">
+        class="lyrics-line display-1" :class="lineStateClass(i)">
         {{ line.line || '♪' }}
       </p>
     </template>
-    <div v-else class="lyrics-plain text-body">{{ plain }}</div>
+    <div v-else class="lyrics-plain display-1">{{ plain }}</div>
   </div>
 </template>
 
@@ -24,7 +27,7 @@ import { useSourceProgress } from '@/composables/useSourceProgress';
 // fixed, empirically-tuned offset to the highlight while multiroom is active;
 // direct mode has no buffer, so no offset. Sign convention: positive advances the
 // highlight (lyrics run ahead of the raw position); negative would delay it.
-const MULTIROOM_LEAD_MS = 300;
+const MULTIROOM_LEAD_MS = 500;
 
 const props = defineProps({
   source: { type: String, required: true },
@@ -61,6 +64,14 @@ const activeIndex = computed(() => {
   return idx;
 });
 
+// Per-line state → opacity only (size is uniform). Active line is fully lit,
+// lines still to come stay bright, past lines fade back.
+function lineStateClass(i) {
+  if (i === activeIndex.value) return 'is-active';
+  if (i > activeIndex.value) return 'is-upcoming';
+  return 'is-past';
+}
+
 const scrollRef = ref(null);
 const lineRefs = [];
 function setLineRef(el, i) {
@@ -90,37 +101,61 @@ watch(activeIndex, (i) => {
 <style scoped>
 .lyrics-scroll {
   /* position:relative so the lines' offsetTop is measured against this
-     container — centerLine()'s scroll math depends on it. */
+     container — centerLine()'s scroll math depends on it. Fills the
+     full-screen body; scrolls internally. */
   position: relative;
-  height: min(60vh, 34rem);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: var(--space-04);
+  padding: var(--space-06);
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-05);
+  /* Hide the scrollbar — auto-scroll drives this, it isn't hand-scrolled. */
+  scrollbar-width: none;
+  /* Soft fade over the bottom portion so lines dissolve as they scroll off,
+     rather than hitting a hard edge (keywords, not hex → stylelint-safe). */
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 100%);
 }
 
-/* Room above/below so the first and last lines can reach the vertical center. */
+.lyrics-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Room above/below so the first and last lines can reach the vertical center
+   (vh, not %, since % padding resolves against width — huge on a wide screen). */
 .lyrics-scroll.is-synced {
-  padding-block: 38%;
+  padding-block: 42vh;
   text-align: center;
 }
 
+/* Light-on-dark over the blurred artwork backdrop; state modulates brightness
+   through opacity only (color stays contrast-white so stylelint's
+   no-color-literal rule holds). Opacity eases so the highlight glides. */
 .lyrics-line {
-  color: var(--color-text-light);
-  transition: color var(--transition-fast), opacity var(--transition-fast);
+  color: var(--color-text-contrast);
+  transition: opacity var(--transition-in-out);
 }
 
 .lyrics-line.is-active {
-  color: var(--color-text);
+  opacity: 1;
+}
+
+.lyrics-line.is-upcoming {
+  opacity: 0.45;
 }
 
 .lyrics-line.is-past {
-  opacity: 0.55;
+  opacity: 0.1;
 }
 
+/* Plain fallback (radio / no position clock): large, centered, airy — not a
+   raw text block. */
 .lyrics-plain {
-  color: var(--color-text);
+  color: var(--color-text-contrast);
   white-space: pre-wrap;
+  text-align: center;
+  opacity: 0.9;
 }
 </style>

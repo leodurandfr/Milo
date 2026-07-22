@@ -1,7 +1,8 @@
 {
   "lyrics": {
     "title": "歌词",
-    "loading": "正在查找歌词…",
+    "loading": "正在查找歌词",
+    "loadingConnector": "-",
     "noLyrics": "未找到歌词",
     "notPlaying": "未在播放"
   },
