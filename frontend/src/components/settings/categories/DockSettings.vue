@@ -79,6 +79,18 @@
         </ListItemButton>
 
         <ListItemButton
+          :title="t('lyrics.title')"
+          :model-value="config.lyrics"
+          variant="background"
+          action="toggle"
+          @update:model-value="(val) => handleToggle('lyrics', val)"
+        >
+          <template #icon>
+            <AppIcon name="lyrics" :size="40" />
+          </template>
+        </ListItemButton>
+
+        <ListItemButton
           :title="t('common.settings')"
           :model-value="config.settings"
           variant="background"

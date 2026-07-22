@@ -24,7 +24,7 @@ const props = defineProps({
   name: {
     type: String,
     required: true,
-    validator: (value) => [...ALL_AUDIO_SOURCES, 'multiroom', 'equalizer', 'settings', 'milo', 'milo-client'].includes(value)
+    validator: (value) => [...ALL_AUDIO_SOURCES, 'multiroom', 'equalizer', 'lyrics', 'settings', 'milo', 'milo-client'].includes(value)
   },
   size: {
     type: [String, Number],
@@ -46,6 +46,7 @@ const iconMapping = {
   'music_library': 'music-library',
   'multiroom': 'multiroom',
   'equalizer': 'equalizer',
+  'lyrics': 'lyrics',
   'settings': 'settings',
   'milo': 'milo',
   'milo-client': 'milo-client'

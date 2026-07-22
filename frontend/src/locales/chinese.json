@@ -1,4 +1,10 @@
 {
+  "lyrics": {
+    "title": "歌词",
+    "loading": "正在查找歌词…",
+    "noLyrics": "未找到歌词",
+    "notPlaying": "未在播放"
+  },
   "app": {
     "connectionUnavailable": "连接不可用",
     "connecting": "正在连接..."

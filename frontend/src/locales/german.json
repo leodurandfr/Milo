@@ -1,4 +1,10 @@
 {
+  "lyrics": {
+    "title": "Songtext",
+    "loading": "Songtext wird gesucht…",
+    "noLyrics": "Kein Songtext gefunden",
+    "notPlaying": "Nichts wird abgespielt"
+  },
   "app": {
     "connectionUnavailable": "Verbindung nicht verfügbar",
     "connecting": "Verbindung wird hergestellt..."

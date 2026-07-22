@@ -1,4 +1,10 @@
 {
+  "lyrics": {
+    "title": "बोल",
+    "loading": "बोल खोजे जा रहे हैं…",
+    "noLyrics": "कोई बोल नहीं मिला",
+    "notPlaying": "कुछ नहीं चल रहा"
+  },
   "app": {
     "connectionUnavailable": "कनेक्शन उपलब्ध नहीं",
     "connecting": "कनेक्ट हो रहा है..."

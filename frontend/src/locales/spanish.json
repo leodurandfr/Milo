@@ -1,4 +1,10 @@
 {
+  "lyrics": {
+    "title": "Letra",
+    "loading": "Buscando la letra…",
+    "noLyrics": "No se encontró la letra",
+    "notPlaying": "No hay reproducción"
+  },
   "app": {
     "connectionUnavailable": "Conexión no disponible",
     "connecting": "Conectando..."

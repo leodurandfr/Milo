@@ -183,6 +183,9 @@ def _create_service(name: str) -> Any:
         "hostname_conflict_service": lambda: _import("backend.core.system", "HostnameConflictService")(systemd_manager=get_service("systemd_manager")),
         "connectivity_service": lambda: _import("backend.core.connectivity", "ConnectivityService")(),
 
+        # Lyrics (transverse Lyrics app — LRCLIB lookup + disk cache; no source, no boot init)
+        "lyrics_service": lambda: _import("backend.core.lyrics", "LyricsService")(),
+
         # Update services
         "update_service": lambda: _import("backend.core.updates", "UpdateService")(systemd_manager=get_service("systemd_manager")),
         "satellite_update_service": lambda: _import("backend.core.updates", "SatelliteUpdateService")(

@@ -7,7 +7,7 @@ import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import { isKiosk } from '@/utils/kiosk';
 
 // Non-source dock apps; the full dock roster is sources + utilities.
-const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'settings'];
+const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'lyrics', 'settings'];
 
 function buildDockAppsMap(enabledApps) {
   return Object.fromEntries(

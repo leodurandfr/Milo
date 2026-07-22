@@ -38,6 +38,7 @@ from backend.api.network import create_network_router
 from backend.api.discovery import create_discovery_router
 from backend.api.multiroom import create_multiroom_router
 from backend.api.qobuz_account import create_qobuz_account_router
+from backend.api.lyrics import create_lyrics_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
 
@@ -289,6 +290,8 @@ discovery_router = create_discovery_router(network_service, wifi_adoption_servic
 app.include_router(discovery_router)
 
 app.include_router(create_qobuz_account_router(systemd_manager))
+
+app.include_router(create_lyrics_router(get_service("lyrics_service")))
 
 app.add_api_websocket_route("/ws", websocket_server.websocket_endpoint)
 
