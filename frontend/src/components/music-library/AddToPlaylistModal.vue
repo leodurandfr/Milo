@@ -1,7 +1,7 @@
 <!--
   "Add to playlist" picker, hosted once at the source root and opened from any
   track row's ⋯ menu via store.requestAddToPlaylist(songIds). A single view:
-  existing playlists (radio fills once the songs have been added to it) plus
+  existing playlists (radio toggles add/remove of the current songIds) plus
   an inline name+create row for a brand new one. Stays open across multiple
   adds — the user closes it via the Modal's own close button when done.
 -->
@@ -22,8 +22,8 @@
           action="radio"
           :title="pl.name"
           :model-value="addedIds.has(pl.id)"
-          :disabled="busy || addedIds.has(pl.id)"
-          @click="addTo(pl)"
+          :disabled="busy || checkingExisting"
+          @click="toggleIn(pl)"
         >
           <template #icon>
             <LazyImage class="add-to-playlist__cover" :src="store.thumbUrl(pl.coverArt)" :fallback="albumPlaceholder" :alt="pl.name" lazy />
@@ -88,6 +88,7 @@ const busy = ref(false);
 const creating = ref(false);
 const showCreate = ref(false);
 const addedIds = ref(new Set());
+const checkingExisting = ref(false);
 
 const modalRequestHeightDelta = inject('modalRequestHeightDelta', null);
 const modalContentInnerRef = inject('modalContentInnerRef', null);
@@ -109,23 +110,50 @@ function setCreateOpen(next) {
   showCreate.value = next;
 }
 
+async function refreshAddedIds() {
+  checkingExisting.value = true;
+  const matches = await Promise.all(
+    store.playlists.map(async (pl) => {
+      const playlist = await store.fetchPlaylist(pl.id);
+      const entryIds = new Set((playlist?.entry || []).map((song) => song.id));
+      return props.songIds.every((id) => entryIds.has(id)) ? pl.id : null;
+    })
+  );
+  addedIds.value = new Set(matches.filter(Boolean));
+  checkingExisting.value = false;
+}
+
 // Fresh state + a current playlist list each time the picker opens.
-watch(() => props.isOpen, (open) => {
+watch(() => props.isOpen, async (open) => {
   if (!open) return;
   newName.value = '';
   busy.value = false;
   creating.value = false;
   showCreate.value = false;
   addedIds.value = new Set();
-  store.loadPlaylists();
+  await store.loadPlaylists();
+  await refreshAddedIds();
 });
 
-async function addTo(pl) {
-  if (busy.value || addedIds.value.has(pl.id)) return;
+async function removeFrom(pl) {
+  const playlist = await store.fetchPlaylist(pl.id);
+  const remainingIds = (playlist?.entry || [])
+    .filter((song) => !props.songIds.includes(song.id))
+    .map((song) => song.id);
+  return store.setPlaylistTracks(pl.id, remainingIds);
+}
+
+async function toggleIn(pl) {
+  if (busy.value) return;
   busy.value = true;
-  const ok = await store.addToPlaylist(pl.id, props.songIds);
+  const wasAdded = addedIds.value.has(pl.id);
+  const ok = wasAdded ? await removeFrom(pl) : await store.addToPlaylist(pl.id, props.songIds);
   busy.value = false;
-  if (ok) addedIds.value = new Set(addedIds.value).add(pl.id);
+  if (!ok) return;
+  const next = new Set(addedIds.value);
+  if (wasAdded) next.delete(pl.id);
+  else next.add(pl.id);
+  addedIds.value = next;
 }
 
 async function createAndAdd() {
@@ -156,13 +184,14 @@ async function createAndAdd() {
 
 .add-to-playlist__section {
   overflow: hidden;
+  gap: var(--space-02);
 }
 
 .add-to-playlist__expand {
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
-  margin-top: calc(-1 * var(--space-04));
+  margin-top: calc(-1 * var(--space-02));
   transition:
     grid-template-rows var(--transition-fast),
     opacity var(--transition-fast),
