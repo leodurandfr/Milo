@@ -135,8 +135,10 @@ export function useDockDrag({
     // Document-level detection sees through z-index stacking, so ignore gestures
     // over an open modal (z 5000, above the dock) — otherwise a swipe inside one
     // would open the dock behind it and hijack the modal's own scroll. Mirrors
-    // the guard in onClickOutside.
-    if (e.target.closest('.modal-overlay, .modal-shell, .modal-scroller')) return;
+    // the guard in onClickOutside. Lyrics is a full-screen slot (not a modal)
+    // that repurposes the same swipe-up/down gesture for its own playback bar,
+    // so it gets the same exclusion.
+    if (e.target.closest('.modal-overlay, .modal-shell, .modal-scroller, .lyrics-view')) return;
 
     if (isVisible.value) {
       // Dock open: allow a swipe-down-to-close begun on the dock itself (not the
@@ -248,7 +250,7 @@ export function useDockDrag({
   const onClickOutside = (event) => {
     if (!isVisible.value ||
       (dockContainer.value && dockContainer.value.contains(event.target)) ||
-      event.target.closest('.modal-overlay, .modal-shell, .modal-scroller')) {
+      event.target.closest('.modal-overlay, .modal-shell, .modal-scroller, .lyrics-view')) {
       return;
     }
     onHide();

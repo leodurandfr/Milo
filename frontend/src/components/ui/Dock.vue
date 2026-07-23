@@ -5,7 +5,8 @@
   <div ref="dragZone" class="drag-zone"></div>
 
   <!-- Drag indicator -->
-  <div class="dock-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }" @click.stop="onIndicatorClick">
+  <div class="dock-indicator" :class="{ hidden: isVisible || lyricsStore.isOpen, visible: showDragIndicator && !lyricsStore.isOpen }"
+    @click.stop="onIndicatorClick">
   </div>
 
   <!-- Navigation dock -->
@@ -86,6 +87,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useLyricsStore } from '@/stores/lyricsStore';
 import { useTimer } from '@/composables/useTimer';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useI18n } from '@/services/i18n';
@@ -99,6 +101,7 @@ import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSou
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
+const lyricsStore = useLyricsStore();
 const registerDockControl = inject('registerDockControl', null);
 
 // === ANIMATION TIMING ===
@@ -208,9 +211,12 @@ const resetHideTimer = () => isVisible.value && startHideTimer();
 
 const showDock = () => {
   // The dock must never coexist with a modal (which sits above it at a higher
-  // z-index). Refuse to open while any modal overlay is on screen — this covers
-  // every reveal path: swipe, pill, and the source-stopped auto-reveal in App.vue.
-  if (isVisible.value || document.querySelector('.modal-overlay')) return;
+  // z-index) or with Lyrics (a full-screen slot, not a modal, that owns the
+  // same swipe gesture for its own playback bar — see useDockDrag's
+  // .lyrics-view exclusion). Refuse to open while either is on screen — this
+  // covers every reveal path: swipe, pill, and the source-stopped auto-reveal
+  // in App.vue.
+  if (isVisible.value || document.querySelector('.modal-overlay') || lyricsStore.isOpen) return;
   isVisible.value = true;
   isFullyVisible.value = false;
 
@@ -472,6 +478,10 @@ watch(() => unifiedStore.systemState.active_source, (newSource) => {
 });
 
 watch([allEnabledApps, isMobile], () => nextTick(updateFitScale));
+
+// Lyrics opening must never leave the dock lingering behind it — hideDock()
+// runs its normal fade/slide-away animation rather than an abrupt cut.
+watch(() => lyricsStore.isOpen, (open) => { if (open) hideDock(); });
 
 onMounted(() => {
   drag.setupDragEvents();

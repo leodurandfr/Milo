@@ -43,6 +43,8 @@
         <LyricsContent v-else :key="`content-${activeSource}`" :source="activeSource"
           :synced="lyricsStore.synced" :plain="lyricsStore.plain" />
       </Transition>
+
+      <LyricsPlaybackBar v-if="showPlaybackBar" :source="activeSource" />
     </div>
   </div>
 </template>
@@ -58,6 +60,7 @@ import IconButton from '@/components/ui/IconButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LyricsContent from './LyricsContent.vue';
 import LyricsLoadingState from './LyricsLoadingState.vue';
+import LyricsPlaybackBar from './LyricsPlaybackBar.vue';
 
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
@@ -110,6 +113,16 @@ const emptyState = computed(() => {
     };
   }
   return { message: t('lyrics.noLyrics'), showTrack: true };
+});
+
+// The playback bar needs an actual track identity to show anything useful —
+// same presence check as emptyState's "no lyrics found for" branch, but
+// independent of whether lyrics were actually found for it.
+const showPlaybackBar = computed(() => {
+  const source = activeSource.value;
+  if (!isLyricsCompatible(source)) return false;
+  const identity = getTrackIdentity(source, unifiedStore.systemState.metadata);
+  return !!(identity.artist && identity.title);
 });
 
 // Escape to close.

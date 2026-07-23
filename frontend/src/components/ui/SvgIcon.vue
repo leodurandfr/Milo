@@ -71,6 +71,7 @@ import bluetoothIcon from '@/assets/icons/bluetooth.svg?raw'
 import infraredIcon from '@/assets/icons/infrared.svg?raw'
 import shuffleIcon from '@/assets/icons/shuffle.svg?raw'
 import lyricsIcon from '@/assets/icons/lyrics.svg?raw'
+import swipeIndicatorIcon from '@/assets/icons/swipe-indicator.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -121,7 +122,8 @@ const icons = {
   bluetooth: bluetoothIcon,
   infrared: infraredIcon,
   shuffle: shuffleIcon,
-  lyrics: lyricsIcon
+  lyrics: lyricsIcon,
+  swipeIndicator: swipeIndicatorIcon
 }
 
 const props = defineProps({
@@ -190,10 +192,12 @@ const svgContent = computed(() => {
     // For responsive sizing, let CSS handle dimensions
     cleanedIcon = cleanedIcon.replace('<svg', '<svg class="svg-responsive"')
   } else {
-    // For fixed pixel sizing, set dimensions directly
+    // For fixed pixel sizing, set dimensions directly. Lookbehind excludes
+    // compound attributes like stroke-width="…" — a plain /width="[^"]*"/g
+    // also matches inside "stroke-width=", corrupting the stroke thickness.
     cleanedIcon = cleanedIcon
-      .replace(/width="[^"]*"/g, `width="${props.size}"`)
-      .replace(/height="[^"]*"/g, `height="${props.size}"`)
+      .replace(/(?<!-)\bwidth="[^"]*"/g, `width="${props.size}"`)
+      .replace(/(?<!-)\bheight="[^"]*"/g, `height="${props.size}"`)
       .replace('<svg', `<svg width="${props.size}" height="${props.size}"`)
   }
 
