@@ -26,15 +26,7 @@
         <div class="lyrics-view-body">
           <Transition name="lyrics-fade" mode="out-in">
             <div v-if="lyricsStore.loading" key="loading" class="lyrics-view-state">
-              <LoadingSpinner :size="56" />
-              <div class="lyrics-view-loading">
-                <p class="text-body lyrics-view-loading-label">{{ t('lyrics.loading') }}</p>
-                <p class="text-body lyrics-view-track-line">
-                  <span>{{ lyricsStore.trackTitle }}</span>
-                  <span class="lyrics-view-track-sep">·</span>
-                  <span>{{ lyricsStore.trackArtist }}</span>
-                </p>
-              </div>
+              <LyricsLoadingState :track-title="lyricsStore.trackTitle" :track-artist="lyricsStore.trackArtist" />
             </div>
 
             <div v-else-if="!lyricsStore.found" key="empty" class="lyrics-view-state">
@@ -64,9 +56,9 @@ import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/l
 import { getFaviconUrl } from '@/utils/faviconUrl';
 
 import IconButton from '@/components/ui/IconButton.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LyricsContent from './LyricsContent.vue';
+import LyricsLoadingState from './LyricsLoadingState.vue';
 
 const props = defineProps({
   isOpen: { type: Boolean, required: true }
@@ -213,30 +205,14 @@ onUnmounted(() => {
   gap: var(--space-04);
 }
 
-.lyrics-view-state > :deep(.loading-spinner) {
-  color: var(--color-text-contrast);
-}
-
 .lyrics-view-msg {
   color: var(--color-text-contrast-50);
 }
 
-/* Loading copy: dimmed label above, the searched track highlighted below. */
-.lyrics-view-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-01);
-  text-align: center;
-}
-
-.lyrics-view-loading-label {
-  color: var(--color-text-contrast-50);
-}
-
 /* Title + artist bright, the connector ("de"/"by"/…) dimmed. Flex gap gives the
-   inter-word spacing so it wraps cleanly on a long title/artist. Shared by the
-   loading state and the "no lyrics found for" empty state. */
+   inter-word spacing so it wraps cleanly on a long title/artist. Used by the
+   "no lyrics found for" empty state (the loading state has its own copy in
+   LyricsLoadingState). */
 .lyrics-view-track-line {
   display: flex;
   flex-wrap: wrap;
