@@ -18,7 +18,17 @@ NM Connectivity enum (from nm-dbus-interface.h):
 Only FULL is treated as online. Fails open: if D-Bus or NetworkManager is
 unavailable (e.g. dev environment, NM down), the service stays at
 online=True so the UI never shows a false offline banner.
+
+The initial read is the cached property (kept fast and non-blocking, since
+this runs inside the backend's startup gather), but the cached value can
+still be UNKNOWN right after boot if NM's own periodic/interface-triggered
+check hasn't run yet — reading it as-is produced a false "offline" banner on
+every reboot. A background task forces one fresh NM probe (CheckConnectivity)
+shortly after startup and broadcasts a correction if it disagrees, so the
+banner self-corrects within seconds instead of waiting up to NM's 5-minute
+recheck interval.
 """
+import asyncio
 import logging
 from typing import Optional
 
@@ -37,6 +47,8 @@ NM_IFACE = "org.freedesktop.NetworkManager"
 DBUS_PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
 
 NM_CONNECTIVITY_FULL = 4
+
+NM_CHECK_CONNECTIVITY_TIMEOUT = 15  # seconds; bounds the background forced probe
 
 
 class ConnectivityService:
@@ -61,7 +73,10 @@ class ConnectivityService:
         return self._online
 
     async def initialize(self) -> bool:
-        """Connect to system bus, read initial state, subscribe to changes."""
+        """Connect to system bus, read initial (cached) state, subscribe to
+        changes, then schedule a background forced re-check — kept off this
+        method's critical path since it runs inside the backend's startup
+        gather and must not delay boot when the network is genuinely down."""
         try:
             self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
             introspect = await self._bus.introspect(NM_SERVICE, NM_PATH)
@@ -80,6 +95,7 @@ class ConnectivityService:
                 "online" if self._online else "offline",
                 connectivity,
             )
+            self._bg.spawn(self._recheck_fresh(nm_iface), label="initial_recheck")
             return True
         except Exception as exc:
             logger.warning(
@@ -88,6 +104,33 @@ class ConnectivityService:
             )
             self._online = True
             return False
+
+    async def _recheck_fresh(self, nm_iface) -> None:
+        """Force NM to re-probe once, since the cached property read at
+        startup can still be UNKNOWN right after boot, before NM's own
+        periodic/interface-triggered check has had a chance to run. Runs as
+        a background task so a slow or failed probe never delays boot."""
+        try:
+            connectivity = await asyncio.wait_for(
+                nm_iface.call_check_connectivity(), timeout=NM_CHECK_CONNECTIVITY_TIMEOUT
+            )
+        except Exception as exc:
+            logger.warning("NM forced connectivity re-check failed: %s", exc)
+            return
+
+        new_online = connectivity == NM_CONNECTIVITY_FULL
+        if new_online == self._online:
+            return
+
+        previous = self._online
+        self._online = new_online
+        logger.info(
+            "Connectivity (forced re-check): %s → %s (NM=%s)",
+            "online" if previous else "offline",
+            "online" if new_online else "offline",
+            connectivity,
+        )
+        await self._broadcast()
 
     def _on_properties_changed(self, iface: str, changed: dict, _invalidated: list) -> None:
         """D-Bus PropertiesChanged callback. Filters NM Connectivity changes."""
