@@ -1,11 +1,17 @@
 [Unit]
 Description=Milo Navidrome (Music Library catalog engine)
 Documentation=https://www.navidrome.org/docs/
-# Always-on catalog daemon for the music_library source. Localhost-only, indexes
-# /media/milo. Bound to the backend so it stops with the appliance; the backend
-# reaches it lazily (only when the source activates), so no strict "before backend".
+# Always-on catalog daemon for the music_library source (unlike the per-source
+# BindsTo units such as milo-music-library/radio/spotify — those are started
+# on-demand by the backend's own source lifecycle, this one just needs to be up
+# whenever the backend is). Localhost-only, indexes /media/milo. PartOf=, like
+# milo-camilladsp/milo-snapserver-multiroom/milo-snapclient-multiroom, propagates
+# both stop AND restart from the backend — BindsTo= only propagates stop, so a
+# backend restart (crash, Restart=always, manual `systemctl restart`) would leave
+# Navidrome dead until the whole appliance rebooted. The backend reaches it lazily
+# (only when the source activates), so no strict "before backend".
 After=local-fs.target milo-backend.service
-BindsTo=milo-backend.service
+PartOf=milo-backend.service
 
 # Re-apply the baked catalog config from the single source of truth before we
 # start, so a device provisioned before an album-grouping/PID change picks it up
