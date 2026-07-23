@@ -207,7 +207,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, inject } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -248,10 +248,19 @@ const emit = defineEmits([
   'volume-change',
   'mute-toggle',
   'client-volume-change',
-  'client-mute-toggle',
-  'before-expand',   // Emits height delta before zone expansion
-  'before-collapse'  // Emits height delta before zone collapse
+  'client-mute-toggle'
 ]);
+
+// Modal height coordination (null outside a Modal). Expand and collapse both get the
+// spring/bounce, via a different clip driver each:
+// - expand   → requestHeightDelta: the rows appear at full height at once, the clip
+//   springs to reveal them and overshoots into empty space above (the bounce).
+// - collapse → springCollapse: the wrapper eases its OWN height full → 0 on the SAME
+//   spring curve (masking its rows in place, items below rise), while the clip springs
+//   to the collapsed height. Synced → no gap; the clip's end bounce dips into the
+//   modal's bottom padding. Correct wherever the zone sits in the list.
+const requestHeightDelta = inject('modalRequestHeightDelta', null);
+const springCollapse = inject('modalSpringCollapse', null);
 
 // === LOCAL STATE ===
 const isExpanded = ref(false);
@@ -260,7 +269,8 @@ const clientLocalVolumes = ref({});
 
 // Ref for measuring expanded content height
 const expandedContentRef = ref(null);
-// Explicit height for the wrapper (enables single-step ResizeObserver update)
+// Explicit height for the wrapper: snaps to full instantly on expand (Modal clip
+// springs to reveal), eases to 0 on collapse (Modal clip follows it 1:1).
 const expandedWrapperHeight = ref('0px');
 
 // Clear local volume when backend confirms the update (via WebSocket)
@@ -353,36 +363,27 @@ function toggleExpand() {
   if (!canExpand.value) return;
 
   if (!isExpanded.value) {
-    // OPENING: Calculate full height (offsetHeight + margin-top)
+    // OPEN: the rows snap to full height at once (no wrapper transition when expanded);
+    // the Modal clip springs to reveal them and overshoots slightly (the bounce).
+    // Pre-announce the exact delta: full rows height added, minus the .multiroom-item
+    // padding-bottom that's removed when expanded (--space-04 = 16px).
     if (expandedContentRef.value) {
       const el = expandedContentRef.value;
       const marginTop = parseFloat(getComputedStyle(el).marginTop) || 0;
       const fullHeight = el.offsetHeight + marginTop;
-
-      // Account for padding-bottom removed from .multiroom-item when expanded (--space-04 = 16px)
-      const paddingOffset = 16;
-      const heightDelta = fullHeight - paddingOffset;
-
-      // Tell parent to pre-allocate space on clients-list
-      emit('before-expand', heightDelta);
-
-      // Set local wrapper height (will animate via transition)
+      requestHeightDelta?.(fullHeight - 16);
       expandedWrapperHeight.value = `${fullHeight}px`;
     }
     isExpanded.value = true;
   } else {
-    // CLOSING: Get current height before collapsing
+    // CLOSE: measure the delta before mutating, then spring the clip to the collapsed
+    // height while the wrapper eases its own height full → 0 on the same curve (masking
+    // its rows in place). The clip's bounce dips into the modal's bottom padding.
     if (expandedContentRef.value) {
       const el = expandedContentRef.value;
       const marginTop = parseFloat(getComputedStyle(el).marginTop) || 0;
       const fullHeight = el.offsetHeight + marginTop;
-
-      // Account for padding-bottom restored to .multiroom-item when collapsed (--space-04 = 16px)
-      const paddingOffset = 16;
-      const heightDelta = fullHeight - paddingOffset;
-
-      // Tell parent to shrink space on clients-list
-      emit('before-collapse', heightDelta);
+      springCollapse?.(-(fullHeight - 16));
     }
     isExpanded.value = false;
     expandedWrapperHeight.value = '0px';
@@ -449,14 +450,17 @@ function handleClientMuteToggle(clientMacId, muted) {
   background: var(--color-background-neutral);
 }
 
-/* Zone: animate padding change to sync with wrapper height animation */
+/* Collapse eases the bottom padding back on the SAME spring curve as .expanded-wrapper
+   and the Modal clip, so the whole item stays in sync; expand removes it instantly so
+   the reveal is a single clip spring. */
 .multiroom-item.is-zone {
-  transition: padding-bottom var(--transition-fast);
+  transition: padding-bottom var(--transition-spring-light);
 }
 
-/* Remove bottom padding when zone is expanded (moved to .expanded-clients) */
+/* Remove bottom padding when the zone is expanded (moved to .expanded-clients) */
 .multiroom-item.is-zone.is-expanded {
   padding-bottom: 0;
+  transition: none;
 }
 
 /* === ITEM HEADER (zone/client row) === */
@@ -678,11 +682,20 @@ function handleClientMuteToggle(clientMacId, muted) {
 }
 
 /* === EXPANDED CLIENTS SECTION === */
-/* Wrapper animates height - parent pre-allocates space so Modal sees one change */
+/* Asymmetric height animation, keyed off .is-expanded (the target state):
+   - EXPAND → instant (transition:none below): the rows are there at once and the
+     Modal clip springs to reveal them (a single native CSS spring = the bounce).
+   - COLLAPSE → springs here full → 0 on the SAME curve as the Modal clip (--transition-
+     spring-light), so the two stay in sync (no gap). The wrapper masks its own rows in
+     place; its height clamps at 0 while the clip's bounce lands in the modal padding. */
 .expanded-wrapper {
   height: 0;
   overflow: hidden;
-  transition: height var(--transition-fast);
+  transition: height var(--transition-spring-light);
+}
+
+.multiroom-item.is-expanded .expanded-wrapper {
+  transition: none;
 }
 
 .expanded-clients {

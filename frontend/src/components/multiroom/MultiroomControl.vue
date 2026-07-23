@@ -18,8 +18,6 @@
           @mute-toggle="handleMuteToggle"
           @client-volume-change="handleClientVolumeChange"
           @client-mute-toggle="handleClientMuteToggle"
-          @before-expand="handleBeforeExpand"
-          @before-collapse="handleBeforeCollapse"
         />
       </div>
     </div>
@@ -27,7 +25,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, inject, nextTick } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
@@ -42,9 +40,6 @@ const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const snapcastStore = useSnapcastStore();
 const equalizerStore = useEqualizerStore();
-
-// Inject Modal's height request function for smooth height animations
-const requestHeightDelta = inject('modalRequestHeightDelta', null);
 
 const clientsWrapperRef = ref(null);
 
@@ -341,22 +336,6 @@ function updateNameWidth() {
 
   if (maxWidth > 0) {
     wrapper.style.setProperty('--name-width', `${Math.min(maxWidth, 200)}px`);
-  }
-}
-
-// === HEIGHT PRE-ALLOCATION HANDLERS ===
-// Called by MultiroomItem BEFORE zone expansion starts
-// Notifies Modal of the height delta so it can animate smoothly
-function handleBeforeExpand(heightDelta) {
-  if (requestHeightDelta) {
-    requestHeightDelta(heightDelta);
-  }
-}
-
-// Called by MultiroomItem BEFORE zone collapse starts
-function handleBeforeCollapse(heightDelta) {
-  if (requestHeightDelta) {
-    requestHeightDelta(-heightDelta);
   }
 }
 
