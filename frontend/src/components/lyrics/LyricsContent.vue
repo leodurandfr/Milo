@@ -2,22 +2,28 @@
      Keyed on the active source by the parent so useSourceProgress re-instantiates
      if the source changes while the view is open. -->
 <template>
-  <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced }" @scroll="handleScroll">
-    <template v-if="isSynced">
-      <!-- One uniform size; the three states differ only in opacity: the active
-           line is fully lit, lines still to come are bright, past lines fade
-           back. Opacity transitions per line so the highlight glides rather
-           than snapping as the song advances. -->
-      <p v-for="(line, i) in synced" :key="i" :ref="el => setLineRef(el, i)"
-        class="lyrics-line display-1" :class="lineStateClass(i)">
-        {{ line.line || '♪' }}
-      </p>
-    </template>
-    <template v-else>
-      <p v-for="(line, i) in plainLines" :key="i" class="lyrics-line display-1 is-plain-line">
-        {{ line }}
-      </p>
-    </template>
+  <div class="lyrics-content">
+    <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced }"
+      :style="{ opacity: ready ? 1 : 0 }" @scroll="handleScroll">
+      <template v-if="isSynced">
+        <!-- One uniform size; the three states differ only in opacity: the active
+             line is fully lit, lines still to come are bright, past lines fade
+             back. Opacity transitions per line so the highlight glides rather
+             than snapping as the song advances. -->
+        <p v-for="(line, i) in synced" :key="i" :ref="el => setLineRef(el, i)"
+          class="lyrics-line display-1" :class="lineStateClass(i)">
+          {{ line.line || '♪' }}
+        </p>
+      </template>
+      <template v-else>
+        <p v-for="(line, i) in plainLines" :key="i" class="lyrics-line display-1 is-plain-line">
+          {{ line }}
+        </p>
+      </template>
+    </div>
+    <div v-if="!ready" class="lyrics-content-loading">
+      <LoadingSpinner :size="48" />
+    </div>
   </div>
 </template>
 
@@ -26,6 +32,7 @@ import { computed, ref, watch, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 // Multiroom (Snapcast) inserts a playback buffer between the source position and
 // the audio the listener actually hears, so synced lyrics can feel off. Apply a
@@ -89,21 +96,21 @@ function setLineRef(el, i) {
 function centerLine(i, behavior) {
   const el = lineRefs[i];
   const container = scrollRef.value;
-  if (i < 0 || !el || !container) return;
+  if (i < 0 || !el || !container) return false;
   const top = el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
   container.scrollTo({ top, behavior });
+  return true;
 }
 
 // Keep the active line centered: snap instantly to the current line on the
 // first known position (opening mid-song), then follow smoothly as it advances.
-// flush:'post' guarantees the line refs exist; immediate covers the case where
-// the position is already known at mount so it's centered from the first frame.
-let hasCentered = false;
+const hasCenteredOnce = ref(false);
 watch(activeIndex, (i) => {
   if (i < 0) return;
-  centerLine(i, hasCentered ? 'smooth' : 'auto');
-  hasCentered = true;
+  if (centerLine(i, hasCenteredOnce.value ? 'smooth' : 'auto')) hasCenteredOnce.value = true;
 }, { immediate: true, flush: 'post' });
+
+const ready = computed(() => !isSynced.value || hasCenteredOnce.value);
 
 const scrollKey = computed(() => `${lyricsStore.trackArtist}|||${lyricsStore.trackTitle}`);
 
@@ -122,6 +129,23 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
 </script>
 
 <style scoped>
+.lyrics-content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lyrics-content-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-contrast);
+}
+
 .lyrics-scroll {
   /* position:relative so the lines' offsetTop is measured against this
      container — centerLine()'s scroll math depends on it. Fills the
@@ -130,6 +154,7 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  transition: opacity var(--transition-in-out);
   padding-inline: var(--space-06);
   display: flex;
   flex-direction: column;
