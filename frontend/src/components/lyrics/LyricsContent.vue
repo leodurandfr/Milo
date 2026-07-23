@@ -22,7 +22,7 @@
       </template>
     </div>
     <div v-if="!ready" class="lyrics-content-loading">
-      <LoadingSpinner :size="48" />
+      <LyricsLoadingState :track-title="lyricsStore.trackTitle" :track-artist="lyricsStore.trackArtist" />
     </div>
   </div>
 </template>
@@ -32,7 +32,7 @@ import { computed, ref, watch, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import LyricsLoadingState from './LyricsLoadingState.vue';
 
 // Multiroom (Snapcast) inserts a playback buffer between the source position and
 // the audio the listener actually hears, so synced lyrics can feel off. Apply a
