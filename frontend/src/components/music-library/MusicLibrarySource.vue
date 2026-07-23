@@ -48,12 +48,11 @@
           :tracks="store.queue" :current-index="store.queueIndex"
           @swipe-next="store.next()" @swipe-prev="store.swipePrevious()"
           @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
-          <!-- Track info (desktop + non-swipe fallback). On mobile the swipe
-               carousel renders its own title/artist from the queue (see AudioPlayer). -->
+          <!-- Track info: desktop sidebar uses PlayerInfoText. On mobile the docked bar
+               never reaches this slot — the swipe carousel renders its own title/artist
+               from the queue (see AudioPlayer) — so only the expanded card below applies. -->
           <template #info>
             <PlayerInfoText class="desktop-only" :title="playerTitle" :secondary="playerArtist" />
-            <p class="player-title text-body mobile-only">{{ playerTitle }}</p>
-            <p v-if="playerArtist" class="player-subtitle text-body mobile-only">{{ playerArtist }}</p>
             <!-- Expanded full-screen view: title / artist / album, equal gaps.
                  AudioPlayer shows .expanded-only only inside the expanded card. -->
             <div class="ml-expanded-info expanded-only">
