@@ -31,7 +31,9 @@
         <!-- Track info: station kicker + title/artist when Shazam recognized a track,
              station name alone otherwise. Desktop uses the shared PlayerInfoText; mobile
              renders its own compact title/subtitle pair (station identity conveyed via
-             the artwork-badge slot below instead of a text line). -->
+             the artwork-badge slot below instead of a text line). The expanded sheet gets
+             its own block, matching AudioPlayerFull's heading-1 title / heading-2 artist
+             hierarchy (Spotify/AirPlay/CD) so full-screen players stay visually consistent. -->
         <template #info>
           <template v-if="displayTrackInfo">
             <PlayerInfoText class="desktop-only" :kicker="displayStation?.name" :kicker-icon="stationArtwork"
@@ -44,6 +46,10 @@
             <PlayerInfoText class="desktop-only" :title="displayStation?.name" />
             <p class="player-title text-body mobile-only">{{ displayStation?.name }}</p>
           </template>
+          <div class="radio-expanded-info expanded-only">
+            <h1 class="radio-expanded-title heading-1">{{ displayTrackInfo ? displayTrackInfo.title : displayStation?.name }}</h1>
+            <p v-if="displayTrackInfo" class="radio-expanded-artist heading-2">{{ displayTrackInfo.artist }}</p>
+          </div>
         </template>
 
         <!-- Mobile only: station icon sits behind (pinned left), the track artwork
@@ -55,18 +61,14 @@
           <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="displayStation?.name" alt="" />
         </template>
 
-        <!-- Radio controls: play/stop everywhere, favorite is desktop-only for now
-             (moves into the mobile mini-player's future expanded view). -->
         <template #controls>
-          <div class="radio-controls">
-            <Button v-if="!isMobile" variant="on-dark" :left-icon="isCurrentlyPlaying ? 'stop' : 'play'"
+          <div class="radio-controls" @click.stop>
+            <Button variant="on-dark" :left-icon="isCurrentlyPlaying ? 'stop' : 'play'"
               :loading="isBuffering" @click="handlePlayPause">
               {{ isCurrentlyPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio')
               }}
             </Button>
-            <IconButton v-else :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="on-dark" :loading="isBuffering"
-              @click="handlePlayPause" />
-            <IconButton v-if="!isMobile" :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark"
+            <IconButton :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark"
               @click="handleFavorite" />
           </div>
         </template>
@@ -310,13 +312,44 @@ async function loadAvailableCountries() {
   width: 100%;
 }
 
-/* Mobile: compact controls on the right */
+/* Expanded full-screen sheet: mirrors AudioPlayerFull's title/artist hierarchy
+   (heading-1 title, heading-2 artist) for visual consistency across full-screen
+   players. Visibility (.expanded-only) is owned by AudioPlayer. */
+.radio-expanded-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-03);
+  width: 100%;
+}
+
+.radio-expanded-title,
+.radio-expanded-artist {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radio-expanded-title {
+  color: var(--color-text-contrast);
+}
+
+.radio-expanded-artist {
+  color: var(--color-text-contrast-50);
+}
+
+/* Mobile: same controls as desktop, just not stretched to the sidebar's full width */
 @media (max-aspect-ratio: 4/3) {
   .radio-controls {
     width: auto;
     justify-content: flex-end;
-    gap: var(--space-01);
-    flex-direction: row-reverse;
+    gap: var(--space-02);
+  }
+
+  .radio-controls .btn {
+    width: auto;
   }
 }
 </style>

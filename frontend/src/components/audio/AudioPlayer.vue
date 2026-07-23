@@ -260,7 +260,7 @@ function onInfoClick(e) {
   if (hasEntityLinks.value && e.target.closest('.player-info-secondary')) emit('secondary-click')
 }
 
-const EXPANDABLE_SOURCES = ['podcast', 'music_library']
+const EXPANDABLE_SOURCES = ['radio', 'podcast', 'music_library']
 const expanded = ref(false)
 const expandable = computed(() => isMobile.value && EXPANDABLE_SOURCES.includes(props.source))
 
@@ -1200,7 +1200,7 @@ img.player-artwork.loaded {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-06);
   overflow: hidden;
   background: var(--color-background-neutral);
   will-change: transform;
@@ -1216,15 +1216,22 @@ img.player-artwork.loaded {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
-  padding: var(--space-05) var(--space-04);
+  padding: var(--space-02);
+  /* Escape valve for when artwork + info + controls don't all fit (e.g. a tall
+     info block): the column scrolls instead of the artwork getting compressed. */
+  overflow-y: auto;
 }
 
-/* As large as the card width allows, capped by height so the controls stay on-screen. */
+/* Sized purely off the card's width — no vh-based cap, so shrinking the sheet's
+   height (drag/resize) never shrinks the artwork; .expanded-content scrolls
+   instead once things stop fitting. `flex: none` (not just flex-shrink: 0)
+   also pins flex-grow/flex-basis so the column layout can't compress its
+   height (derived from width via aspect-ratio) either. */
 .expanded-artwork {
   align-self: center;
-  width: min(100%, 54vh);
+  width: 100%;
   aspect-ratio: 1;
-  flex-shrink: 0;
+  flex: none;
 }
 
 .expanded-artwork.clickable {
@@ -1234,12 +1241,11 @@ img.player-artwork.loaded {
 .expanded-artwork-img {
   width: 100%;
   height: 100%;
-  border-radius: var(--radius-05);
+  border-radius: var(--radius-04);
   object-fit: cover;
   background: var(--color-background-neutral);
   overflow: hidden;
   display: block;
-  box-shadow: 0px 8px 32px rgba(0, 0, 0, 0.32);
 }
 
 .expanded-artwork-img :deep(svg) {
@@ -1248,10 +1254,14 @@ img.player-artwork.loaded {
   height: auto;
 }
 
-/* Fills the space between artwork and controls; its content is centred vertically. */
+/* Fills the space between artwork and controls when there's slack (grows,
+   content centred vertically) but — unlike .expanded-content/.expanded-card —
+   deliberately has NO min-height override, so its floor stays its own content
+   size (mirrors desktop .player-info): once content + artwork + controls don't
+   fit, this can't be squeezed smaller — .expanded-content overflows and
+   scrolls instead. */
 .expanded-info {
   flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1262,10 +1272,11 @@ img.player-artwork.loaded {
   align-items: center;
 }
 
-/* Expanded-only slot content (e.g. music library's 3-line title/artist/album).
-   Hidden in the docked bar and desktop sidebar; shown only inside the card. In
-   the info area the music-library desktop variant is hidden so the two don't
-   both render (the desktop-only CONTROLS in other sources stay untouched). */
+/* Expanded-only slot content (e.g. music library's / radio's heading-1/heading-2
+   title/artist). Hidden in the docked bar and desktop sidebar; shown only
+   inside the card. In the info area each source's desktop variant is hidden
+   there so the two don't both render (the desktop-only CONTROLS in other
+   sources stay untouched). */
 :deep(.expanded-only) {
   display: none;
 }
@@ -1274,7 +1285,8 @@ img.player-artwork.loaded {
   display: flex;
 }
 
-.expanded-card.source-music_library .expanded-info :deep(.desktop-only) {
+.expanded-card.source-music_library .expanded-info :deep(.desktop-only),
+.expanded-card.source-radio .expanded-info :deep(.desktop-only) {
   display: none;
 }
 
@@ -1288,6 +1300,10 @@ img.player-artwork.loaded {
 
 .expanded-progress {
   flex-shrink: 0;
+}
+
+.expanded-progress :deep(.progress-bar) {
+  padding: 0 var(--space-04);
 }
 
 .expanded-controls {

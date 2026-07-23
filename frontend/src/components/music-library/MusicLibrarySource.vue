@@ -54,12 +54,11 @@
                from the queue (see AudioPlayer) — so only the expanded card below applies. -->
           <template #info>
             <PlayerInfoText class="desktop-only" :title="playerTitle" :secondary="playerArtist" />
-            <!-- Expanded full-screen view: title / artist / album, equal gaps.
+            <!-- Expanded full-screen view: title / artist, equal gaps.
                  AudioPlayer shows .expanded-only only inside the expanded card. -->
             <div class="ml-expanded-info expanded-only">
               <p class="ml-expanded-title heading-2">{{ playerTitle }}</p>
               <p v-if="playerArtist" class="ml-expanded-line player-info-secondary text-body">{{ playerArtist }}</p>
-              <p v-if="playerAlbum" class="ml-expanded-line text-body">{{ playerAlbum }}</p>
             </div>
           </template>
 
@@ -80,8 +79,6 @@
                   :color="store.shuffle ? 'var(--color-brand)' : undefined"
                   @click="store.toggleShuffle()" />
                 <div class="ml-transport-main">
-                  <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
-                    class="mobile-only" @click="store.toggleCurrentStar()" />
                   <IconButton icon="previous" variant="on-dark" size="small" class="ml-transport-extra"
                     @click="store.previous()" />
                   <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
@@ -161,7 +158,6 @@ const currentDurationSec = computed(() => Math.floor((durationMs.value || 0) / 1
 // === Player display (sticky through fade-out) ===
 const playerTitle = computed(() => store.displayTrack?.title || '');
 const playerArtist = computed(() => store.displayTrack?.artist || '');
-const playerAlbum = computed(() => store.displayTrack?.album || '');
 const playerArtwork = computed(() => store.displayTrack?.albumArtUrl || null);
 
 // === Header title per view ===
@@ -267,13 +263,17 @@ function handleSeek(positionSec) {
   display: none;
 }
 
-/* Expanded full-screen info: title / artist / album stacked with one equal gap.
-   Visibility (.expanded-only) is owned by AudioPlayer; layout is column here. */
+/* Expanded full-screen info: title / artist stacked with one equal gap.
+   Visibility (.expanded-only) is owned by AudioPlayer; layout is column here.
+   Vertical padding uses --space-07 (32px on mobile, the only context this
+   renders in), not --space-06 (which shrinks to 24px on mobile) — so the
+   block always keeps at least 32px of breathing room from the artwork/controls. */
 .ml-expanded-info {
   flex-direction: column;
   align-items: center;
   gap: var(--space-03);
   width: 100%;
+  padding: var(--space-07) var(--space-06);
 }
 
 .ml-expanded-info p {
