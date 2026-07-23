@@ -91,6 +91,8 @@ function handleClick(event) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: fit-content;
+  aspect-ratio: 1 / 1;
   border: none;
   cursor: pointer;
   transition: background-color var(--transition-fast), var(--transition-press);
