@@ -28,28 +28,30 @@
       <AudioPlayer v-if="displayStation" :visible="shouldShowNowPlayingLayout" source="radio" :artwork="playerArtwork"
         :fallback-name="displayStation?.name" :title="playerTitle"
         :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
-        <!-- Track info: station kicker + title/artist when Shazam recognized a track,
-             station name alone otherwise. Desktop sidebar uses PlayerInfoText's vertical
-             layout with a kicker; the expanded sheet reuses the same PlayerInfoText but
-             with the kicker suppressed and its `expanded` prop bumping the typography to
-             heading-1 title / heading-2 artist, matching AudioPlayerFull's hierarchy
-             (Spotify/AirPlay/CD) so full-screen players stay visually consistent.
-             Mobile mini-bar renders its own compact title/subtitle pair (horizontal
-             layout) instead (station identity conveyed via the artwork-badge slot below). -->
+        <!-- Track info: PlayerInfoText's vertical layout renders identically in the
+             desktop sidebar and the mobile expanded sheet — same as podcast/music-library
+             (nothing hides .vertical-layout inside the expanded card for this source).
+             Kicker (station name + icon) only shows when the recognized track has
+             artwork — a textless "Station Name" line with nothing to back it up reads
+             as clutter, so a track with no artwork falls back to plain title/artist.
+             The horizontal-layout title/subtitle pair is only ever relevant to the
+             mobile docked mini-bar (CSS never shows .horizontal-layout inside the
+             expanded card), so `expanded` skips rendering it there entirely instead
+             of emitting always-hidden markup. -->
         <template #info="{ expanded }">
           <template v-if="displayTrackInfo">
-            <PlayerInfoText :class="expanded ? 'expanded-only' : 'vertical-layout'"
-              :kicker="expanded ? null : displayStation?.name" :kicker-icon="expanded ? null : stationArtwork"
-              :kicker-fallback-name="expanded ? null : displayStation?.name" :title="displayTrackInfo.title"
-              :secondary="displayTrackInfo.artist" :expanded="expanded" />
+            <PlayerInfoText class="vertical-layout"
+              :kicker="displayTrackInfo.artwork ? displayStation?.name : null"
+              :kicker-icon="displayTrackInfo.artwork ? stationArtwork : null"
+              :kicker-fallback-name="displayTrackInfo.artwork ? displayStation?.name : null"
+              :title="displayTrackInfo.title" :secondary="displayTrackInfo.artist" />
             <template v-if="!expanded">
               <p class="player-title text-body horizontal-layout">{{ displayTrackInfo.title }}</p>
               <p class="player-subtitle text-body horizontal-layout">{{ displayTrackInfo.artist }}</p>
             </template>
           </template>
           <template v-else>
-            <PlayerInfoText :class="expanded ? 'expanded-only' : 'vertical-layout'" :title="displayStation?.name"
-              :expanded="expanded" />
+            <PlayerInfoText class="vertical-layout" :title="displayStation?.name" />
             <p v-if="!expanded" class="player-title text-body horizontal-layout">{{ displayStation?.name }}</p>
           </template>
         </template>
@@ -63,15 +65,30 @@
           <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="displayStation?.name" alt="" />
         </template>
 
-        <template #controls>
+        <template #controls="{ expanded }">
           <div class="radio-controls" @click.stop>
-            <Button variant="on-dark" :left-icon="isCurrentlyPlaying ? 'stop' : 'play'"
-              :loading="isBuffering" @click="handlePlayPause">
-              {{ isCurrentlyPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio')
-              }}
-            </Button>
-            <IconButton :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="small"
-              @click="handleFavorite" />
+            <!-- Desktop sidebar / mobile expanded sheet: full on-dark Button with
+                 icon+text — NOT a ghost icon button, unlike podcast/music-library's
+                 transport. Radio's own convention, kept unconditionally as-is. -->
+            <div class="radio-controls-main vertical-layout">
+              <Button variant="on-dark" :left-icon="isCurrentlyPlaying ? 'stop' : 'play'"
+                :loading="isBuffering" @click="handlePlayPause">
+                {{ isCurrentlyPlaying ? t('audioSources.radioSource.stopRadio') :
+                  t('audioSources.radioSource.playRadio') }}
+              </Button>
+              <IconButton :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
+                @click="handleFavorite" />
+            </div>
+            <!-- Mobile docked mini-bar only: compact row has no room for a text button +
+                 heart — collapse to the single play/pause/stop ghost icon. Wrapped in
+                 .playback-controls so it picks up AudioPlayer.vue's mobile icon-shrink
+                 rule scoped to that class. `expanded` skips it in the sheet invocation
+                 entirely — CSS never shows .horizontal-layout inside the expanded card
+                 anyway, so rendering it there would only be always-hidden markup. -->
+            <div v-if="!expanded" class="playback-controls horizontal-layout">
+              <IconButton :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="ghost" size="medium"
+                :loading="isBuffering" @click="handlePlayPause" />
+            </div>
           </div>
         </template>
       </AudioPlayer>
@@ -304,26 +321,34 @@ async function loadAvailableCountries() {
 .radio-controls {
   display: flex;
   flex-wrap: nowrap;
+  align-items: center;
   gap: var(--space-02);
-  justify-content: space-between;
   z-index: 1;
   width: 100%;
 }
 
-.radio-controls .btn {
+/* .vertical-layout renders identically wherever it's shown — desktop sidebar
+   and the mobile expanded sheet alike (AudioPlayer.vue's layout toggle hides
+   it in the mobile docked mini-bar only, see .horizontal-layout below) — so
+   its width/justify rules must NOT be aspect-ratio-gated, or the sheet loses
+   parity with the desktop sidebar. */
+.radio-controls-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-02);
   width: 100%;
 }
 
-/* Mobile: same controls as desktop, just not stretched to the sidebar's full width */
+.radio-controls-main .btn {
+  width: 100%;
+}
+
+/* Mobile docked mini-bar: only the compact ghost icon button (.horizontal-layout)
+   renders — push it to the row's edge. */
 @media (max-aspect-ratio: 4/3) {
   .radio-controls {
-    width: auto;
     justify-content: flex-end;
-    gap: var(--space-02);
-  }
-
-  .radio-controls .btn {
-    width: auto;
   }
 }
 </style>

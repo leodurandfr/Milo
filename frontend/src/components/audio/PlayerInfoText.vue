@@ -1,13 +1,12 @@
 <template>
   <div class="player-info-text">
     <div v-if="kicker" class="player-info-kicker">
-      <LazyImage v-if="kickerIcon || kickerFallbackName" class="player-info-kicker-icon"
+      <LazyImage v-if="kickerIcon" class="player-info-kicker-icon"
         :src="kickerIcon" :fallback-name="kickerFallbackName" alt="" />
       <span class="player-info-kicker-label text-mono-small">{{ kicker }}</span>
     </div>
-    <component :is="expanded ? 'h1' : 'p'" class="player-info-title"
-      :class="expanded ? 'heading-1' : 'heading-2'">{{ title }}</component>
-    <p v-if="secondary" class="player-info-secondary" :class="expanded ? 'heading-2' : 'text-body'">{{ secondary }}</p>
+    <p class="player-info-title heading-2">{{ title }}</p>
+    <p v-if="secondary" class="player-info-secondary text-body">{{ secondary }}</p>
   </div>
 </template>
 
@@ -44,15 +43,6 @@ defineProps({
   secondary: {
     type: String,
     default: null
-  },
-  /**
-   * Renders the full-screen sheet typography (h1/heading-1 title,
-   * heading-2 secondary) instead of the docked variant (p/heading-2 title,
-   * text-body secondary).
-   */
-  expanded: {
-    type: Boolean,
-    default: false
   }
 })
 </script>

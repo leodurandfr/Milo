@@ -57,11 +57,16 @@
              PlayerInfoText's vertical layout (desktop sidebar and, since nothing
              hides it there, the mobile expanded sheet too); the mobile mini-bar's
              compact single-line horizontal layout renders its own title/podcast-name
-             pair instead. -->
-        <template #info>
+             pair instead. That pair is only ever relevant to the mobile docked
+             mini-bar (CSS never shows .horizontal-layout inside the expanded card),
+             so `expanded` skips rendering it there entirely instead of emitting
+             always-hidden markup. -->
+        <template #info="{ expanded }">
           <PlayerInfoText class="vertical-layout" :kicker="podcastName" :title="episodeName" />
-          <p class="player-title text-body horizontal-layout">{{ episodeName }}</p>
-          <p v-if="podcastName" class="player-subtitle text-body horizontal-layout">{{ podcastName }}</p>
+          <template v-if="!expanded">
+            <p class="player-title text-body horizontal-layout">{{ episodeName }}</p>
+            <p v-if="podcastName" class="player-subtitle text-body horizontal-layout">{{ podcastName }}</p>
+          </template>
         </template>
 
         <!-- Progress bar (seekable) -->

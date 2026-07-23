@@ -57,7 +57,7 @@
             <slot name="progress"></slot>
 
             <div class="controls">
-              <slot name="controls">
+              <slot name="controls" :expanded="false">
                 <!-- Default: Simple play/pause -->
                 <div class="playback-controls">
                   <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium" :loading="isLoading"
@@ -115,7 +115,7 @@
               </div>
 
               <div class="expanded-controls">
-                <slot name="controls">
+                <slot name="controls" :expanded="true">
                   <div class="playback-controls">
                     <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
                       :loading="isLoading" @click="$emit('toggle-play')" />
@@ -815,9 +815,13 @@ img.player-artwork.loaded {
    (compact single-line title/subtitle pair) — the #info slot's own layout
    toggle, orthogonal to desktop-only/mobile-only above: "vertical" also
    renders on the mobile expanded sheet for sources that reuse it there
-   (podcast, music-library), so naming it "desktop-only" would be wrong. */
+   (podcast, music-library), so naming it "desktop-only" would be wrong.
+   !important: an element carrying .horizontal-layout can also carry another
+   utility class with its own `display` (e.g. radio's .playback-controls,
+   `display: flex`) — same specificity, and without !important here the later
+   rule in the cascade would win regardless of aspect ratio. */
 :deep(.horizontal-layout) {
-  display: none;
+  display: none !important;
 }
 
 .player-bottom {
@@ -1279,21 +1283,6 @@ img.player-artwork.loaded {
   align-items: center;
 }
 
-/* Expanded-only slot content (radio/music-library's PlayerInfoText, rendered
-   with :expanded="true"). Hidden in the docked bar and desktop sidebar; shown
-   only inside the card. Both rules need !important: the marker class sits
-   directly on PlayerInfoText's own root, which has its own competing
-   `display: flex` from its own scoped style — without !important the winner
-   between the two would depend on cross-component bundle order, not this
-   ancestor scoping. */
-:deep(.expanded-only) {
-  display: none !important;
-}
-
-.expanded-card .expanded-info :deep(.expanded-only) {
-  display: flex !important;
-}
-
 /* Radio and music-library keep --space-03 (12px) between title/artist in the
    expanded sheet — wider than PlayerInfoText's own default --space-02 (8px). */
 .expanded-card.source-radio .expanded-info :deep(.player-info-text),
@@ -1313,6 +1302,18 @@ img.player-artwork.loaded {
   flex-direction: column;
   gap: var(--space-06);
   padding-bottom: var(--space-06);
+}
+
+/* Radio only: its controls (Button + heart) carry no side padding of their own
+   (unlike podcast/music-library's .playback-controls, which pads itself) — give
+   them the same 24px gutter as the section's own vertical spacing above. Gap is
+   zeroed instead of inherited: the base gap exists to separate the progress bar
+   from the controls, and radio has no #progress slot content — an empty
+   .expanded-progress would otherwise still claim that gap as blank space. */
+.expanded-card.source-radio .expanded-bottom {
+  gap: 0;
+  padding-left: var(--space-06);
+  padding-right: var(--space-06);
 }
 
 .expanded-progress {
