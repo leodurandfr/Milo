@@ -41,7 +41,7 @@
                     :interactive="true" @seek="seekTo" />
                 </div>
                 <div class="controls-wrapper">
-                  <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering"
+                  <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering" :hasNext="hasNext"
                     @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
                 </div>
               </template>
@@ -88,6 +88,11 @@ const props = defineProps({
   hideContent: {
     type: Boolean,
     default: false
+  },
+  // Default true: sources with no "last track" concept (Spotify, AirPlay) stay unaffected.
+  hasNext: {
+    type: Boolean,
+    default: true
   }
 });
 

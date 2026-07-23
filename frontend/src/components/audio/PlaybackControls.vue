@@ -7,7 +7,7 @@
       <LoadingSpinner v-if="isBuffering" size="inherit" class="play-pause-spinner" />
       <SvgIcon v-else :name="isPlaying ? 'pause' : 'play'" responsive class="icon-primary" />
     </div>
-    <div v-press @click="onNext" class="control-button next">
+    <div v-press @click="onNext" class="control-button next" :class="{ disabled: !hasNext }">
       <SvgIcon name="next" responsive class="icon-secondary" />
     </div>
   </div>
@@ -17,7 +17,7 @@
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
-defineProps({
+const props = defineProps({
   isPlaying: {
     type: Boolean,
     default: false
@@ -27,6 +27,11 @@ defineProps({
   isBuffering: {
     type: Boolean,
     default: false
+  },
+  // Default true: sources with no "last track" concept stay unaffected.
+  hasNext: {
+    type: Boolean,
+    default: true
   }
 });
 
@@ -34,7 +39,9 @@ const emit = defineEmits(['play-pause', 'previous', 'next']);
 
 const onPlayPause = () => emit('play-pause');
 const onPrevious = () => emit('previous');
-const onNext = () => emit('next');
+const onNext = () => {
+  if (props.hasNext) emit('next');
+};
 </script>
 
 <style scoped>
@@ -63,6 +70,12 @@ const onNext = () => emit('next');
 .control-button.play-pause {
   width: 90px;
   height: 90px;
+}
+
+.control-button.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 
