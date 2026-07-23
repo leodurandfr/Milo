@@ -84,7 +84,7 @@
                   <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
                     :loading="isBuffering" @click="togglePlayPause" />
                   <IconButton icon="next" variant="on-dark" size="small" class="ml-transport-extra"
-                    @click="store.next()" />
+                    :disabled="!hasNext" @click="store.next()" />
                 </div>
                 <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="small"
                   class="ml-transport-extra" @click="store.toggleCurrentStar()" />
@@ -247,6 +247,8 @@ function togglePlayPause() {
   if (isPlaying.value) store.pause();
   else store.resume();
 }
+// Mirrors backend's 'next' no-op on the queue's last track.
+const hasNext = computed(() => store.queueIndex >= 0 && store.queueIndex < store.queue.length - 1);
 function handleSeek(positionSec) {
   seekTo(positionSec * 1000);
 }

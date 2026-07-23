@@ -1,6 +1,6 @@
 <!-- CDSource.vue - CD Player (wrapper around AudioPlayerFull) -->
 <template>
-  <AudioPlayerFull source="cd" :hideContent="cdStore.showTracklist">
+  <AudioPlayerFull source="cd" :hideContent="cdStore.showTracklist" :hasNext="hasNext">
     <template #action-buttons>
       <div class="action-buttons">
         <IconButton :icon="cdStore.showTracklist ? 'close' : 'queue'" :variant="isMobile ? 'on-grey' : 'background-strong'"
@@ -56,6 +56,11 @@ const albumTitle = computed(() =>
 
 // Release year (MusicBrainz "YYYY" or empty) — shown next to the album when known
 const releaseYear = computed(() => cdStore.discInfo?.year || '');
+
+// Mirrors backend's next_track no-op on the last track.
+const hasNext = computed(() =>
+  !cdStore.currentTrack || cdStore.currentTrack < cdStore.tracks.length
+);
 </script>
 
 <style scoped>
