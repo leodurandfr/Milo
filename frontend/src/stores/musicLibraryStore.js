@@ -384,6 +384,15 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return result.ok ? result.data?.songs || [] : [];
   }
 
+  async function fetchGenreAlbums(genre) {
+    const result = await apiCall.get(`${BASE}/albums`, {
+      category: 'musicLibrary',
+      message: 'Error loading genre',
+      params: { type: 'byGenre', genre, size: 500 },
+    });
+    return result.ok ? result.data?.albums || [] : [];
+  }
+
   async function fetchPlaylist(playlistId) {
     const result = await apiCall.get(`${BASE}/playlist/${playlistId}`, {
       category: 'musicLibrary',
@@ -724,6 +733,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     fetchAlbum,
     fetchArtist,
     fetchGenreSongs,
+    fetchGenreAlbums,
     fetchPlaylist,
 
     // Search

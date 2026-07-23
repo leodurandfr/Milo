@@ -26,7 +26,8 @@
         <ArtistView v-else-if="currentView === 'artist'" key="artist" :artist-id="currentParams.artistId"
           @select-album="openAlbum" />
 
-        <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="currentParams.genre" />
+        <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="currentParams.genre"
+          @select-album="openAlbum" />
 
         <PlaylistView v-else-if="currentView === 'playlist'" key="playlist"
           :playlist-id="currentParams.playlistId" @deleted="goBack" />
