@@ -29,27 +29,29 @@
         :fallback-name="displayStation?.name" :title="playerTitle"
         :is-playing="isCurrentlyPlaying" :is-loading="isBuffering">
         <!-- Track info: station kicker + title/artist when Shazam recognized a track,
-             station name alone otherwise. Desktop uses the shared PlayerInfoText; mobile
-             renders its own compact title/subtitle pair (station identity conveyed via
-             the artwork-badge slot below instead of a text line). The expanded sheet gets
-             its own block, matching AudioPlayerFull's heading-1 title / heading-2 artist
-             hierarchy (Spotify/AirPlay/CD) so full-screen players stay visually consistent. -->
-        <template #info>
+             station name alone otherwise. Desktop sidebar uses PlayerInfoText's vertical
+             layout with a kicker; the expanded sheet reuses the same PlayerInfoText but
+             with the kicker suppressed and its `expanded` prop bumping the typography to
+             heading-1 title / heading-2 artist, matching AudioPlayerFull's hierarchy
+             (Spotify/AirPlay/CD) so full-screen players stay visually consistent.
+             Mobile mini-bar renders its own compact title/subtitle pair (horizontal
+             layout) instead (station identity conveyed via the artwork-badge slot below). -->
+        <template #info="{ expanded }">
           <template v-if="displayTrackInfo">
-            <PlayerInfoText class="desktop-only" :kicker="displayStation?.name" :kicker-icon="stationArtwork"
-              :kicker-fallback-name="displayStation?.name" :title="displayTrackInfo.title"
-              :secondary="displayTrackInfo.artist" />
-            <p class="player-title text-body mobile-only">{{ displayTrackInfo.title }}</p>
-            <p class="player-subtitle text-body mobile-only">{{ displayTrackInfo.artist }}</p>
+            <PlayerInfoText :class="expanded ? 'expanded-only' : 'vertical-layout'"
+              :kicker="expanded ? null : displayStation?.name" :kicker-icon="expanded ? null : stationArtwork"
+              :kicker-fallback-name="expanded ? null : displayStation?.name" :title="displayTrackInfo.title"
+              :secondary="displayTrackInfo.artist" :expanded="expanded" />
+            <template v-if="!expanded">
+              <p class="player-title text-body horizontal-layout">{{ displayTrackInfo.title }}</p>
+              <p class="player-subtitle text-body horizontal-layout">{{ displayTrackInfo.artist }}</p>
+            </template>
           </template>
           <template v-else>
-            <PlayerInfoText class="desktop-only" :title="displayStation?.name" />
-            <p class="player-title text-body mobile-only">{{ displayStation?.name }}</p>
+            <PlayerInfoText :class="expanded ? 'expanded-only' : 'vertical-layout'" :title="displayStation?.name"
+              :expanded="expanded" />
+            <p v-if="!expanded" class="player-title text-body horizontal-layout">{{ displayStation?.name }}</p>
           </template>
-          <div class="radio-expanded-info expanded-only">
-            <h1 class="radio-expanded-title heading-1">{{ displayTrackInfo ? displayTrackInfo.title : displayStation?.name }}</h1>
-            <p v-if="displayTrackInfo" class="radio-expanded-artist heading-2">{{ displayTrackInfo.artist }}</p>
-          </div>
         </template>
 
         <!-- Mobile only: station icon sits behind (pinned left), the track artwork
@@ -68,7 +70,7 @@
               {{ isCurrentlyPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio')
               }}
             </Button>
-            <IconButton :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="on-dark"
+            <IconButton :icon="displayStationIsFavorite ? 'heart' : 'heartOff'" variant="ghost" size="small"
               @click="handleFavorite" />
           </div>
         </template>
@@ -310,34 +312,6 @@ async function loadAvailableCountries() {
 
 .radio-controls .btn {
   width: 100%;
-}
-
-/* Expanded full-screen sheet: mirrors AudioPlayerFull's title/artist hierarchy
-   (heading-1 title, heading-2 artist) for visual consistency across full-screen
-   players. Visibility (.expanded-only) is owned by AudioPlayer. */
-.radio-expanded-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-  width: 100%;
-}
-
-.radio-expanded-title,
-.radio-expanded-artist {
-  margin: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.radio-expanded-title {
-  color: var(--color-text-contrast);
-}
-
-.radio-expanded-artist {
-  color: var(--color-text-contrast-50);
 }
 
 /* Mobile: same controls as desktop, just not stretched to the sidebar's full width */

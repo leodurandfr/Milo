@@ -35,7 +35,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'background-strong',
-    validator: (value) => ['background-strong', 'on-dark', 'on-grey', 'rounded', 'brand'].includes(value)
+    validator: (value) => ['background-strong', 'on-dark', 'on-grey', 'rounded', 'brand', 'ghost'].includes(value)
   },
   size: {
     type: String,
@@ -72,6 +72,8 @@ const iconColor = computed(() => {
   } else if (props.variant === 'on-dark') {
     return 'var(--color-text-contrast)';
   } else if (props.variant === 'brand') {
+    return 'var(--color-text-contrast)';
+  } else if (props.variant === 'ghost') {
     return 'var(--color-text-contrast)';
   } else {
     // background-strong
@@ -159,6 +161,26 @@ function handleClick(event) {
   color: var(--color-text-contrast);
 }
 
+/* Icon-only, no pill background — a flat padding regardless of size (this
+   comes after the SIZES blocks above so it wins their padding by cascade
+   order at both desktop and mobile) plus a bumped icon size for the small/
+   medium tiers, since without a background the icon needs to read bigger to
+   carry the same visual weight. Large is unused in this context. */
+.icon-button--ghost {
+  background: transparent;
+  padding: var(--space-02);
+}
+
+.icon-button--ghost.icon-button--small :deep(.svg-responsive) {
+  width: 34px;
+  height: 34px;
+}
+
+.icon-button--ghost.icon-button--medium :deep(.svg-responsive) {
+  width: 44px;
+  height: 44px;
+}
+
 .icon-button--rounded {
   --glass-radius: 50%;
   border-radius: 50% !important;
@@ -213,5 +235,18 @@ function handleClick(event) {
 .icon-button--brand.icon-button--loading {
   background: var(--color-brand);
   color: var(--color-text-contrast);
+}
+
+.icon-button--ghost.icon-button--loading {
+  background: transparent;
+  color: var(--color-text-contrast-50);
+}
+
+.icon-button--ghost.icon-button--medium :deep(.loading-spinner--medium) {
+  --spinner-size: 44px;
+}
+
+.icon-button--ghost.icon-button--medium :deep(.loading-spinner--medium .loading-spinner-content) {
+  transform: scale(0.85);
 }
 </style>
