@@ -2,7 +2,7 @@
      Keyed on the active source by the parent so useSourceProgress re-instantiates
      if the source changes while the view is open. -->
 <template>
-  <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced }">
+  <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced }" @scroll="handleScroll">
     <template v-if="isSynced">
       <!-- One uniform size; the three states differ only in opacity: the active
            line is fully lit, lines still to come are bright, past lines fade
@@ -22,8 +22,9 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useLyricsStore } from '@/stores/lyricsStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 
 // Multiroom (Snapcast) inserts a playback buffer between the source position and
@@ -40,7 +41,8 @@ const props = defineProps({
 });
 
 const unifiedStore = useUnifiedAudioStore();
-const { currentPosition, duration } = useSourceProgress(props.source, { compensateStaleness: true });
+const lyricsStore = useLyricsStore();
+const { currentPosition, duration, isPositionInitialized } = useSourceProgress(props.source, { compensateStaleness: true });
 
 const leadMs = computed(() =>
   unifiedStore.systemState.multiroom_enabled ? MULTIROOM_LEAD_MS : 0
@@ -59,7 +61,7 @@ const plainLines = computed(() => (isSynced.value || !props.plain ? [] : props.p
 
 // Index of the last line whose timestamp has passed the current position.
 const activeIndex = computed(() => {
-  if (!isSynced.value) return -1;
+  if (!isSynced.value || !isPositionInitialized.value) return -1;
   const pos = currentPosition.value + leadMs.value;
   const lines = props.synced;
   let idx = -1;
@@ -102,6 +104,21 @@ watch(activeIndex, (i) => {
   centerLine(i, hasCentered ? 'smooth' : 'auto');
   hasCentered = true;
 }, { immediate: true, flush: 'post' });
+
+const scrollKey = computed(() => `${lyricsStore.trackArtist}|||${lyricsStore.trackTitle}`);
+
+function restoreScroll() {
+  if (isSynced.value || !scrollRef.value) return;
+  scrollRef.value.scrollTop = lyricsStore.getScrollPosition(scrollKey.value);
+}
+
+function handleScroll() {
+  if (isSynced.value || !scrollRef.value) return;
+  lyricsStore.saveScrollPosition(scrollKey.value, scrollRef.value.scrollTop);
+}
+
+onMounted(restoreScroll);
+watch(scrollKey, restoreScroll, { flush: 'post' });
 </script>
 
 <style scoped>

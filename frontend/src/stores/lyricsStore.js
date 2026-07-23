@@ -43,6 +43,14 @@ export const useLyricsStore = defineStore('lyrics', () => {
   // no loader — lyrics never change, so a memory cache is enough for the appliance.
   const cache = new Map();
 
+  const scrollPositions = new Map();
+  function getScrollPosition(key) {
+    return scrollPositions.get(key) ?? 0;
+  }
+  function saveScrollPosition(key, top) {
+    scrollPositions.set(key, top);
+  }
+
   async function loadLyrics() {
     const unifiedStore = useUnifiedAudioStore();
     const activeSource = unifiedStore.systemState.active_source;
@@ -117,5 +125,8 @@ export const useLyricsStore = defineStore('lyrics', () => {
     }
   }
 
-  return { loading, found, synced, plain, trackArtist, trackTitle, loadLyrics };
+  return {
+    loading, found, synced, plain, trackArtist, trackTitle, loadLyrics,
+    getScrollPosition, saveScrollPosition
+  };
 });
