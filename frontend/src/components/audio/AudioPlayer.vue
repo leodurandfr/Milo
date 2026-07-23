@@ -466,8 +466,13 @@ const playerClasses = computed(() => ({
   [`source-${props.source}`]: true
 }))
 
-// Mobile swipe carousel (music library) — only on the fixed docked player.
-const carousel = computed(() => isMobile.value && props.swipeEnabled)
+// Mobile swipe gesture — only on the fixed docked player. swipeEnabled alone
+// covers seek-style sources (podcast: swipe always fires, no neighbour concept,
+// title stays the plain slotted text). The animated 3-cell text carousel is the
+// richer case (music library) and additionally needs a real queue to read
+// neighbour titles from — without one there's nothing to slide text in from.
+const swipeActive = computed(() => isMobile.value && props.swipeEnabled)
+const carousel = computed(() => swipeActive.value && props.tracks.length > 0)
 const SWIPE_THRESHOLD_PX = 40
 const SETTLE_MS = 300
 let touchStartX = 0
@@ -542,7 +547,7 @@ function onSettleEnd() {
 }
 
 function onTouchStart(e) {
-  if (!carousel.value) return
+  if (!swipeActive.value) return
   if (committing) rehome() // finish a pending swipe before starting a new one
   const touch = e.touches[0]
   touchStartX = touch.clientX
@@ -566,8 +571,10 @@ function onTouchMove(e) {
     }
   }
   if (e.cancelable) e.preventDefault()
-  // Rubber-band toward a missing neighbour (queue end) so it snaps back.
-  const towardMissing = dx < 0 ? !hasNextCell.value : !hasPrevCell.value
+  // Rubber-band toward a missing neighbour (queue end) so it snaps back. Only
+  // meaningful for the queue-backed carousel — a plain seek swipe (podcast) has
+  // no neighbour concept and always follows the finger at full strength.
+  const towardMissing = carousel.value && (dx < 0 ? !hasNextCell.value : !hasPrevCell.value)
   dragX.value = towardMissing ? dx * 0.25 : dx
 }
 
@@ -582,14 +589,17 @@ function onTouchEnd(e) {
   const dy = touch.clientY - touchStartY
   const goingNext = dx < 0
   const passed = Math.abs(dx) > SWIPE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy) * 1.5
-  const hasNeighbour = goingNext ? hasNextCell.value : hasPrevCell.value
+  // No carousel (podcast: plain seek swipe) → no neighbour to check, always fires.
+  const hasNeighbour = !carousel.value || (goingNext ? hasNextCell.value : hasPrevCell.value)
   if (passed && hasNeighbour) {
     // Finger left → next, finger right → prev.
-    committedDir = goingNext ? 1 : -1
-    settle.value = goingNext ? 'next' : 'prev'
-    committing = true
-    if (rehomeHandle) timer.clear(rehomeHandle)
-    rehomeHandle = timer.setTimeout(rehome, SETTLE_MS + 120) // fallback if transitionend is missed
+    if (carousel.value) {
+      committedDir = goingNext ? 1 : -1
+      settle.value = goingNext ? 'next' : 'prev'
+      committing = true
+      if (rehomeHandle) timer.clear(rehomeHandle)
+      rehomeHandle = timer.setTimeout(rehome, SETTLE_MS + 120) // fallback if transitionend is missed
+    }
     emit(goingNext ? 'swipe-next' : 'swipe-prev')
   } else {
     settle.value = 'center'
@@ -814,6 +824,13 @@ img.player-artwork.loaded {
   align-items: center;
   gap: var(--space-02);
   width: 100%;
+}
+
+/* Loading spinner replaces play/pause in place — dim it relative to the icon
+   so a buffering track doesn't flash full-strength, and keep it scoped here
+   (not IconButton.vue) since other IconButton consumers keep full opacity. */
+.audio-player :deep(.icon-button--on-dark.icon-button--loading) {
+  color: var(--color-text-contrast-50);
 }
 
 /* Mobile: Horizontal bottom panel layout */
@@ -1265,8 +1282,7 @@ img.player-artwork.loaded {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
-  /* Lift the progress bar + controls off the card's bottom edge. */
+  gap: var(--space-06);
   padding-bottom: var(--space-06);
 }
 
@@ -1306,6 +1322,23 @@ img.player-artwork.loaded {
 .expanded-card :deep(.icon--size-medium .svg-responsive) {
   width: 44px;
   height: 44px;
+}
+
+/* Loading spinner replaces the play/pause icon in place — the outer box stays
+   pinned to the same 44px as the enlarged play/pause icon (.icon--size-medium
+   above) so the button doesn't resize and the row doesn't jump. The visible
+   ring is then scaled down slightly within that fixed box, since it's meant to
+   read a touch smaller than the solid play/pause glyph, not the same size. */
+.expanded-card :deep(.loading-spinner--medium) {
+  --spinner-size: 44px;
+}
+
+.expanded-card :deep(.loading-spinner--medium .loading-spinner-content) {
+  transform: scale(0.85);
+}
+
+.expanded-card :deep(.icon-button--on-dark.icon-button--loading) {
+  color: var(--color-text-contrast-50);
 }
 
 /* shuffle + like sit as direct children of the row (the trio is nested in
