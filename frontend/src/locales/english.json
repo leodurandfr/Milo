@@ -2,6 +2,7 @@
   "lyrics": {
     "title": "Lyrics",
     "loading": "Searching for the lyrics of",
+    "preparing": "Loading the lyrics of",
     "noLyrics": "No lyrics found for",
     "notPlaying": "Nothing playing",
     "notCompatible": "Source not compatible with lyrics search",

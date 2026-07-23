@@ -1,11 +1,12 @@
-<!-- LyricsLoadingState.vue — spinner + "searching lyrics for track · artist" copy,
-     shared by LyricsView's initial fetch and LyricsContent's wait for a known
-     playback position, so the two loading phases read as one continuous screen. -->
+<!-- LyricsLoadingState.vue — spinner + "{label} track · artist" copy, shared by
+     LyricsView's initial fetch ("searching") and LyricsContent's wait for a
+     known playback position ("loading"), so the two read as one continuous
+     screen while still naming what's actually happening. -->
 <template>
   <div class="lyrics-loading-state">
     <LoadingSpinner :size="size" />
     <div class="lyrics-loading-copy">
-      <p class="text-body lyrics-loading-label">{{ t('lyrics.loading') }}</p>
+      <p class="text-body lyrics-loading-label">{{ t(labelKey) }}</p>
       <p class="text-body lyrics-loading-track-line">
         <span>{{ trackTitle }}</span>
         <span class="lyrics-loading-track-sep">·</span>
@@ -22,6 +23,7 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 defineProps({
   trackTitle: { type: String, default: '' },
   trackArtist: { type: String, default: '' },
+  labelKey: { type: String, default: 'lyrics.loading' },
   size: { type: Number, default: 56 }
 });
 

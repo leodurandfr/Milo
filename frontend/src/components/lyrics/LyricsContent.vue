@@ -22,7 +22,8 @@
       </template>
     </div>
     <div v-if="!ready" class="lyrics-content-loading">
-      <LyricsLoadingState :track-title="lyricsStore.trackTitle" :track-artist="lyricsStore.trackArtist" />
+      <LyricsLoadingState :track-title="lyricsStore.trackTitle" :track-artist="lyricsStore.trackArtist"
+        label-key="lyrics.preparing" />
     </div>
   </div>
 </template>
