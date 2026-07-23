@@ -24,7 +24,7 @@ import { onMounted, onUnmounted, nextTick, watch } from 'vue';
  * @param {boolean} [options.skipFirstResize=true] - init without spring (modal open)
  * @param {Function} [options.getExtraHeight] - extra px to add (scroller padding)
  * @param {Function} [options.getMaxHeight]   - max available height (viewport cap)
- * @returns {{ setTargetHeight: Function, requestHeightDelta: Function, resetFirstResize: Function, endFirstResize: Function }}
+ * @returns {{ setTargetHeight: Function, requestHeightDelta: Function, springClipDelta: Function, resetFirstResize: Function, endFirstResize: Function }}
  */
 export function useAnimatedHeight(contentRef, options = {}) {
   const {
@@ -41,6 +41,11 @@ export function useAnimatedHeight(contentRef, options = {}) {
   // Last target written to the CLIP (the animated anchor). The scroller is always
   // written exactly; the clip skips sub-threshold deltas, so this tracks the clip.
   let currentTargetPx = 0;
+  // While this timestamp is in the future, observer callbacks update ONLY the scroller
+  // (to the live content) and leave the clip alone — it's mid native-spring to a
+  // pre-set target and must finish its curve (incl. bounce) uninterrupted. See
+  // springClipDelta().
+  let scrollerFollowsUntil = 0;
 
   function clampPx(px) {
     let v = px;
@@ -125,10 +130,47 @@ export function useAnimatedHeight(contentRef, options = {}) {
    * There is no lock to schedule; the ResizeObserver reconciles the real height
    * once the child animation settles.
    *
+   * An intentional request means the modal is past its opening phase, so it ends
+   * the first-resize window here: otherwise, expanding an accordion during the
+   * modal's ~1s open animation would let the following observer callback overwrite
+   * this spring with a first-resize immediate snap (instant, no spring), and a
+   * window that expires mid-animation would jerk from immediate to spring.
+   *
    * @param {number} delta - px change (positive expand, negative collapse)
    */
   function requestHeightDelta(delta) {
+    isFirstResize = false;
+    scrollerFollowsUntil = 0;  // reclaim the clip if a collapse spring is mid-flight (re-open)
     setTargetHeight(measureContentPx() + delta);
+  }
+
+  /**
+   * Collapse companion to requestHeightDelta for when the CHILD reflows its OWN height
+   * with the SAME spring curve as the clip (e.g. a multiroom zone whose wrapper eases
+   * to 0 over --transition-spring-light, masking its rows in place). Springs ONLY the
+   * clip to the collapsed target — a native CSS spring, so it keeps the bounce — and,
+   * for `durationMs`, has the observer keep the SCROLLER matched to the live content
+   * instead of writing the clip (which must finish its curve uninterrupted).
+   *
+   * Because the child rides the same curve, clip and content stay equal through the
+   * collapse (no gap, no clip of the rows or of items below — the scroller tracks them
+   * so nothing is cut to the target early). The child bottoms out at 0 while the clip's
+   * end bounce dips below the collapsed height into the scroller's bottom padding —
+   * harmless for typical zones. Unlike requestHeightDelta, the scroller is NOT set to
+   * the target up front (that would clip the still-reflowing content instantly).
+   *
+   * @param {number} delta - negative px (collapse).
+   * @param {number} [durationMs=500] - how long the scroller follows the reflow; cover
+   *   the child's own transition settling (not the whole spring — content settles first).
+   */
+  function springClipDelta(delta, durationMs = 500) {
+    isFirstResize = false;
+    const clip = clipRef?.value;
+    if (!clip) return;
+    const target = clampPx(measureContentPx() + delta);
+    clip.style.height = `${target}px`;
+    currentTargetPx = target;
+    scrollerFollowsUntil = performance.now() + durationMs;
   }
 
   function setupObserver() {
@@ -141,6 +183,18 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
       if (isFirstResize) {
         setTargetHeight(raw, { immediate: true });
+        return;
+      }
+
+      // A child is reflowing its own height while the clip springs to a pre-set target
+      // (springClipDelta). Keep the scroller matched to the live content so the reflow
+      // isn't clipped, but leave the clip alone to finish its native spring/bounce.
+      if (performance.now() < scrollerFollowsUntil) {
+        const scroller = scrollerRef?.value;
+        if (scroller) {
+          scroller.style.height = `${clampPx(raw)}px`;
+          void scroller.offsetHeight;
+        }
         return;
       }
 
@@ -184,6 +238,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
   return {
     setTargetHeight,
     requestHeightDelta,
+    springClipDelta,
     resetFirstResize,
     endFirstResize,
   };

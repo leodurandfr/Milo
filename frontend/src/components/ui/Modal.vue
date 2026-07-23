@@ -53,7 +53,7 @@ const closeButtonWrapper = ref(null);
 const contentInner = ref(null);
 
 // Animated height: observe contentInner, write clip + scroller through one writer.
-const { setTargetHeight, resetFirstResize, endFirstResize, requestHeightDelta } = useAnimatedHeight(contentInner, {
+const { setTargetHeight, resetFirstResize, endFirstResize, requestHeightDelta, springClipDelta } = useAnimatedHeight(contentInner, {
   clipRef: modalClip,
   scrollerRef: modalScroller,
   threshold: 2,
@@ -81,9 +81,15 @@ const isAnimating = ref(false);
 // The scroller is the single scroll container + the scrollElRef for navigation.
 provide('modalContentRef', modalScroller);
 
-// Accordions (ToggleSection / Multiroom / Network) pre-announce intra-view height
-// changes through this so the clip springs in lock-step with their CSS animation.
+// Accordions (ToggleSection / Network) and multiroom zones on EXPAND pre-announce
+// intra-view height changes through this so the clip springs in lock-step.
 provide('modalRequestHeightDelta', requestHeightDelta);
+
+// Multiroom zone COLLAPSE: the item eases its own height to 0 on the same spring curve
+// while this springs the clip to the collapsed height (a native spring → bounce) and
+// keeps the scroller matched to the reflow. Frame and content stay in sync; the frame's
+// end bounce dips into the scroller's bottom padding. Correct wherever the zone sits.
+provide('modalSpringCollapse', springClipDelta);
 
 // contentInner ref so children can measure exact height deltas.
 provide('modalContentInnerRef', contentInner);
