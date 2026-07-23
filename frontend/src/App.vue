@@ -22,7 +22,7 @@
       <Dock
         @open-equalizer="isEqualizerOpen = true"
         @open-multiroom="isMultiroomOpen = true"
-        @open-lyrics="isLyricsOpen = true"
+        @open-lyrics="lyricsStore.open()"
         @open-settings="isSettingsOpen = true"
       />
 
@@ -33,8 +33,6 @@
       <Modal :is-open="isMultiroomOpen" @close="isMultiroomOpen = false">
         <MultiroomModal />
       </Modal>
-
-      <LyricsView :is-open="isLyricsOpen" @close="isLyricsOpen = false" />
 
       <Modal :is-open="isSettingsOpen" @close="closeSettings">
         <SettingsModal :initial-view="settingsInitialView" />
@@ -82,9 +80,6 @@ const EqualizerModal = defineAsyncComponent(() =>
 const MultiroomModal = defineAsyncComponent(() =>
   import('@/components/multiroom/MultiroomModal.vue')
 );
-const LyricsView = defineAsyncComponent(() =>
-  import('@/components/lyrics/LyricsView.vue')
-);
 const SettingsModal = defineAsyncComponent(() =>
   import('@/components/settings/SettingsModal.vue')
 );
@@ -100,6 +95,7 @@ const HostnameConflictView = defineAsyncComponent(() =>
 
 import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useLyricsStore } from '@/stores/lyricsStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
@@ -132,6 +128,7 @@ const SCREEN_FADE_DELAY = isFastBoot ? 100 : 500;
 
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
+const lyricsStore = useLyricsStore();
 const podcastStore = usePodcastStore();
 const radioStore = useRadioStore();
 const musicLibraryStore = useMusicLibraryStore();
@@ -431,7 +428,6 @@ const colorFilterStyle = computed(() => {
 
 const isEqualizerOpen = ref(false);
 const isMultiroomOpen = ref(false);
-const isLyricsOpen = ref(false);
 const isSettingsOpen = ref(false);
 
 // Settings navigation - supports direct navigation to sub-views
@@ -458,12 +454,12 @@ const dismissScreensaverSignal = ref(0);
 
 provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openMultiroom', () => isMultiroomOpen.value = true);
-provide('openLyrics', () => isLyricsOpen.value = true);
+provide('openLyrics', () => lyricsStore.open());
 provide('openSettings', openSettings);
 provide('closeModals', () => {
   isEqualizerOpen.value = false;
   isMultiroomOpen.value = false;
-  isLyricsOpen.value = false;
+  lyricsStore.close();
   closeSettings();
 });
 provide('registerDockControl', registerDockControl);
