@@ -163,22 +163,10 @@ function handleClick(event) {
 
 /* Icon-only, no pill background — a flat padding regardless of size (this
    comes after the SIZES blocks above so it wins their padding by cascade
-   order at both desktop and mobile) plus a bumped icon size for the small/
-   medium tiers, since without a background the icon needs to read bigger to
-   carry the same visual weight. Large is unused in this context. */
+   order at both desktop and mobile). */
 .icon-button--ghost {
   background: transparent;
   padding: var(--space-02);
-}
-
-.icon-button--ghost.icon-button--small :deep(.svg-responsive) {
-  width: 34px;
-  height: 34px;
-}
-
-.icon-button--ghost.icon-button--medium :deep(.svg-responsive) {
-  width: 44px;
-  height: 44px;
 }
 
 .icon-button--rounded {
@@ -240,13 +228,5 @@ function handleClick(event) {
 .icon-button--ghost.icon-button--loading {
   background: transparent;
   color: var(--color-text-contrast-50);
-}
-
-.icon-button--ghost.icon-button--medium :deep(.loading-spinner--medium) {
-  --spinner-size: 44px;
-}
-
-.icon-button--ghost.icon-button--medium :deep(.loading-spinner--medium .loading-spinner-content) {
-  transform: scale(0.85);
 }
 </style>
