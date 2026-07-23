@@ -2,8 +2,10 @@
   "lyrics": {
     "title": "Songtext",
     "loading": "Songtext wird gesucht für",
-    "noLyrics": "Kein Songtext gefunden",
-    "notPlaying": "Nichts wird abgespielt"
+    "noLyrics": "Kein Songtext gefunden für",
+    "notPlaying": "Nichts wird abgespielt",
+    "notCompatible": "Quelle nicht mit der Songtextsuche kompatibel",
+    "noTrackDetected": "Kein Titel erkannt"
   },
   "app": {
     "connectionUnavailable": "Verbindung nicht verfügbar",
