@@ -1,7 +1,11 @@
 <template>
   <div class="audio-source-view">
     <Transition name="audio-content" appear>
-      <div v-if="shouldShowSpotify" :key="contentKey" class="audio-source-slot">
+      <div v-if="lyricsStore.isOpen" key="lyrics" class="audio-source-slot lyrics-slot">
+        <LyricsView />
+      </div>
+
+      <div v-else-if="shouldShowSpotify" :key="contentKey" class="audio-source-slot">
         <SpotifySource />
       </div>
 
@@ -47,8 +51,12 @@
 import { computed, ref, watch, inject, defineAsyncComponent } from 'vue';
 import { useTimer } from '@/composables/useTimer';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useLyricsStore } from '@/stores/lyricsStore';
 import { useRichDisplay } from '@/composables/useRichDisplay';
 
+const LyricsView = defineAsyncComponent(() =>
+  import('../lyrics/LyricsView.vue')
+);
 const SpotifySource = defineAsyncComponent(() =>
   import('../spotify/SpotifySource.vue')
 );
@@ -76,6 +84,7 @@ const QobuzPlayer = defineAsyncComponent(() =>
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
 const unifiedStore = useUnifiedAudioStore();
+const lyricsStore = useLyricsStore();
 
 const activeSource = computed(() => unifiedStore.systemState.active_source);
 const sourceState = computed(() => unifiedStore.systemState.source_state);
@@ -276,6 +285,25 @@ const contentKey = computed(() => {
 .audio-content-leave-from {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+
+/* Lyrics fades in/out in place instead of using the generic slide — the spring
+   transform above would drag the blurred backdrop along with it. Both
+   directions are a plain opacity fade (the backdrop's own progressive reveal
+   is its own separate transition, see .lyrics-bg in LyricsView.vue). */
+.lyrics-slot.audio-content-enter-active,
+.lyrics-slot.audio-content-leave-active {
+  transition: opacity var(--transition-in-out);
+}
+.lyrics-slot.audio-content-enter-from,
+.lyrics-slot.audio-content-leave-to {
+  opacity: 0;
+  transform: none;
+}
+.lyrics-slot.audio-content-enter-to,
+.lyrics-slot.audio-content-leave-from {
+  opacity: 1;
+  transform: none;
 }
 
 </style>

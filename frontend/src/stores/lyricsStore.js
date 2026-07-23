@@ -27,6 +27,7 @@ export function getTrackIdentity(activeSource, metadata) {
 }
 
 export const useLyricsStore = defineStore('lyrics', () => {
+  const isOpen = ref(false);
   const loading = ref(false);
   const found = ref(false);
   const synced = ref(null); // [{ t: <ms>, line: <str> }] | null
@@ -125,7 +126,18 @@ export const useLyricsStore = defineStore('lyrics', () => {
     }
   }
 
+  // Opened from the dock, over whichever source view is currently on screen
+  // (AudioSourceView swaps its content-container slot to Lyrics — see there).
+  function open() {
+    isOpen.value = true;
+    loadLyrics();
+  }
+  function close() {
+    isOpen.value = false;
+  }
+
   return {
+    isOpen, open, close,
     loading, found, synced, plain, trackArtist, trackTitle, loadLyrics,
     getScrollPosition, saveScrollPosition
   };

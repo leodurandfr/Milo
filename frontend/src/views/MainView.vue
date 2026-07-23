@@ -36,6 +36,7 @@
 <script setup>
 import { computed, ref, watch, inject, provide, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useLyricsStore } from '@/stores/lyricsStore';
 import { useCdStore } from '@/stores/cdStore';
 import { useScreensaver } from '@/composables/useScreensaver';
 import { SCREENSAVER_REVEAL_NONCE } from '@/composables/useScreensaverReveal';
@@ -55,6 +56,7 @@ const AudioScreensaver = defineAsyncComponent(() =>
 );
 
 const unifiedStore = useUnifiedAudioStore();
+const lyricsStore = useLyricsStore();
 const timer = useTimer();
 
 // === Audio Screensaver ===
@@ -96,7 +98,10 @@ const lastVisiblePosition = ref('center');
 // AudioSourceView (which picks the component to render), so the logo can't
 // drift out of sync with what's actually on screen.
 const { richSource } = useRichDisplay();
-const logoVisible = computed(() => richSource.value === null);
+// Also hidden while Lyrics is open: it now renders as a content-container slot
+// (see AudioSourceView), and the logo's fixed z-index would otherwise float
+// over it whenever no rich player is behind Lyrics (e.g. active_source 'none').
+const logoVisible = computed(() => richSource.value === null && !lyricsStore.isOpen);
 
 // Update cached position only when logo is visible or transitioning
 watch(
