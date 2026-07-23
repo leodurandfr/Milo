@@ -21,6 +21,11 @@
     --color-background-contrast-32: #181d1e51;
     --color-background-contrast-80: #181d1ecc;
 
+    /* Solid near-black scrim base for bottom gradients over busy backdrops
+       (e.g. the Lyrics playback bar) — deliberately its own tone, not an
+       alpha variant of --color-background-contrast. */
+    --color-background-scrim: #191919;
+
     --color-background-medium-16: #77777728;
     --color-background-medium-32: #78787851;
 
