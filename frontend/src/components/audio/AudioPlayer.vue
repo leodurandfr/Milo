@@ -3,7 +3,8 @@
     <Transition name="audio-player" @after-leave="$emit('after-hide')">
       <!-- v-if, not v-show: a teleported v-show toggle (mobile) doesn't fire the
            transition classes, so the enter/leave would be instant. -->
-      <div v-if="visible" class="audio-player" :class="[playerClasses, { 'audio-player-revealing': revealing }]"
+      <div v-if="visible" class="audio-player"
+        :class="[playerClasses, { 'audio-player-revealing': revealing, 'expand-open': expanded }]"
         @click="onBarClick" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
         <!-- Background image - heavily zoomed and blurred -->
         <div class="player-art-background">
@@ -71,43 +72,56 @@
   </Teleport>
 
   <Teleport to="body">
-    <Transition name="audio-expand">
-      <div v-if="expanded" class="audio-player-expanded" :class="playerClasses" :style="expandStyle"
-        @touchstart="onExpandTouchStart" @touchmove="onExpandTouchMove" @touchend="onExpandTouchEnd">
-        <div class="player-art-background">
-          <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
-          <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
-          <img v-else-if="placeholderArtwork" :src="placeholderArtwork" alt="" class="background-image" />
+    <!-- JS hooks (`:css="false"`) own mount/unmount timing only; the open/close
+         motion is a CSS transition on cardStyle/scrimStyle driven by a single
+         offset, so the swipe-drag and the animation share one position value and
+         never fight over the transform. -->
+    <Transition :css="false" @enter="onExpandEnter" @leave="onExpandLeave">
+      <div v-if="expanded" class="audio-player-expanded" :style="scrimStyle" @click.self="collapse">
+        <!-- Dim layer: pointer-events none so taps fall through to the scrim's
+             @click.self; its opacity fades with the sheet position. -->
+        <div class="expanded-dim" :style="dimStyle"></div>
+        <!-- Wrapper carries the positioning transform; the button keeps its own
+             press-scale transform (which is !important and would otherwise clobber
+             the translateX(-50%) centring, jumping the button sideways on tap). -->
+        <div class="expanded-close" :style="closeStyle">
+          <IconButton icon="close" variant="rounded" size="large"
+            :aria-label="t('common.close')" @click="collapse" />
         </div>
 
-        <div class="expanded-content">
-          <div class="expanded-header">
-            <IconButton icon="caretDown" variant="on-dark" size="small" @click="collapse" />
+        <div class="expanded-card" :class="playerClasses" :style="cardStyle"
+          @touchstart="onExpandTouchStart" @touchmove="onExpandTouchMove" @touchend="onExpandTouchEnd">
+          <div class="player-art-background">
+            <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
+            <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
+            <img v-else-if="placeholderArtwork" :src="placeholderArtwork" alt="" class="background-image" />
           </div>
 
-          <div class="expanded-artwork" :class="{ clickable: hasEntityLinks }" @click="onExpandedArtworkClick">
-            <img v-if="validArtwork" :src="validArtwork" :alt="title" class="expanded-artwork-img"
-              @error="artworkError = true" />
-            <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="expanded-artwork-img" :aria-label="title" />
-            <img v-else :src="placeholderArtwork" :alt="title" class="expanded-artwork-img placeholder" />
-          </div>
-
-          <div class="expanded-info" @click="onExpandedInfoClick">
-            <slot name="info"></slot>
-          </div>
-
-          <div class="expanded-bottom">
-            <div class="expanded-progress">
-              <slot name="progress"></slot>
+          <div class="expanded-content">
+            <div class="expanded-artwork" :class="{ clickable: hasEntityLinks }" @click="onExpandedArtworkClick">
+              <img v-if="validArtwork" :src="validArtwork" :alt="title" class="expanded-artwork-img"
+                @error="artworkError = true" />
+              <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="expanded-artwork-img" :aria-label="title" />
+              <img v-else :src="placeholderArtwork" :alt="title" class="expanded-artwork-img placeholder" />
             </div>
 
-            <div class="expanded-controls">
-              <slot name="controls">
-                <div class="playback-controls">
-                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium" :loading="isLoading"
-                    @click="$emit('toggle-play')" />
-                </div>
-              </slot>
+            <div class="expanded-info" @click="onExpandedInfoClick">
+              <slot name="info"></slot>
+            </div>
+
+            <div class="expanded-bottom">
+              <div class="expanded-progress">
+                <slot name="progress"></slot>
+              </div>
+
+              <div class="expanded-controls">
+                <slot name="controls">
+                  <div class="playback-controls">
+                    <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
+                      :loading="isLoading" @click="$emit('toggle-play')" />
+                  </div>
+                </slot>
+              </div>
             </div>
           </div>
         </div>
@@ -125,8 +139,10 @@ import { useTimer } from '@/composables/useTimer'
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
+import { useI18n } from '@/services/i18n'
 
 const { isMobile } = useIsMobile()
+const { t } = useI18n()
 const timer = useTimer()
 
 // Replay the slide-in entrance when the screensaver is dismissed (desktop only —
@@ -248,12 +264,124 @@ const EXPANDABLE_SOURCES = ['podcast', 'music_library']
 const expanded = ref(false)
 const expandable = computed(() => isMobile.value && EXPANDABLE_SOURCES.includes(props.source))
 
+// One source of truth for the sheet's vertical position, in px (0 = fully open,
+// growing downward → toward closed). The open/close animation AND the swipe drag
+// both drive this single value, so there's no inline-style ↔ Vue-transition
+// handoff (which is what used to jump). `placing` is the pre-open frame where the
+// card is parked off-screen with the transition suppressed, before it animates up.
+const offsetY = ref(0)
+const expandDragging = ref(false)
+const placing = ref(false)
+
+// Timing for the non-drag moves. CSS var()s resolve fine inside an inline
+// transition string, so the tokens stay the single source of truth.
+const OPEN_TIMING = '0.62s cubic-bezier(0.16, 1, 0.3, 1)' // dynamic easeOutExpo
+const OPEN_MS = 620
+// easeOut (fast start), NOT easeIn: on a swipe-release the card must keep the
+// finger's downward momentum. easeIn barely moves for the first ~100ms, which
+// reads as a "stall"/lag right after you let go.
+const CLOSE_TIMING = '0.4s var(--easeOutCubic)'
+const CLOSE_MS = 400
+const SNAP_TIMING = 'var(--transition-medium)'
+const moveTiming = ref(OPEN_TIMING)
+
+function closedOffset() {
+  return typeof window !== 'undefined' ? window.innerHeight : 1000
+}
+
+// Scrim blur is derived from the SAME offset, so it always tracks the card's
+// position — eased over moveTiming during open/close, following the finger during
+// a drag. Full (--blur-03 = 24px) at rest, 0 once off-screen.
+const SCRIM_BLUR_MAX_PX = 24
+const SCRIM_BLUR_FALLOFF_PX = 300
+
+const cardStyle = computed(() => ({
+  transform: `translateY(${offsetY.value}px)`,
+  transition: (expandDragging.value || placing.value) ? 'none' : `transform ${moveTiming.value}`
+}))
+
+const scrimStyle = computed(() => {
+  // Blur is derived from the sheet position so it tracks the card everywhere:
+  // per-frame during a drag (transition none → follows the finger), and eased on
+  // open/close (transition set). Mobile-only view, so iOS handles the per-frame
+  // backdrop-filter fine.
+  const blur = SCRIM_BLUR_MAX_PX * Math.max(0, 1 - offsetY.value / SCRIM_BLUR_FALLOFF_PX)
+  const b = `blur(${blur.toFixed(1)}px)`
+  return {
+    backdropFilter: b,
+    WebkitBackdropFilter: b,
+    transition: (expandDragging.value || placing.value)
+      ? 'none'
+      : `backdrop-filter ${moveTiming.value}, -webkit-backdrop-filter ${moveTiming.value}`
+  }
+})
+
+// The top close button rises with the drag (mirror of the card sinking), capped
+// at the distance that tucks it above the top edge. Same position source as the
+// card, so it enters from the top on open and leaves upward on close.
+const CLOSE_UP_MAX_PX = 120
+function closeUpFor(y) {
+  return Math.min(y, CLOSE_UP_MAX_PX)
+}
+const closeStyle = computed(() => ({
+  transform: `translateX(-50%) translateY(${-closeUpFor(offsetY.value)}px)`,
+  transition: (expandDragging.value || placing.value) ? 'none' : `transform ${moveTiming.value}`
+}))
+
+// The dim backdrop fades out with the sheet position (same falloff as the blur),
+// on a dedicated layer so only the darkening fades — not the blur or the content.
+const dimStyle = computed(() => ({
+  opacity: Math.max(0, 1 - offsetY.value / SCRIM_BLUR_FALLOFF_PX).toFixed(3),
+  transition: (expandDragging.value || placing.value) ? 'none' : `opacity ${moveTiming.value}`
+}))
+
 function collapse() {
-  expanded.value = false
+  expanded.value = false // fires the <Transition> leave hook, which animates offsetY out
 }
 
 function onBarClick() {
-  if (expandable.value && !expanded.value) expanded.value = true
+  if (!expandable.value || expanded.value) return
+  // Park the card off-screen before it mounts so the enter hook animates it up
+  // from the very bottom (no first-paint flash at the rest position).
+  offsetY.value = closedOffset()
+  placing.value = true
+  moveTiming.value = OPEN_TIMING
+  expanded.value = true
+}
+
+// Transition JS hooks own only mount/unmount timing; the motion itself is the CSS
+// transition on cardStyle/scrimStyle, driven by offsetY.
+function onExpandEnter(el, done) {
+  moveTiming.value = OPEN_TIMING
+  nextTick(() => {
+    el.getBoundingClientRect() // commit the parked off-screen frame before animating
+    placing.value = false
+    offsetY.value = 0
+    timer.setTimeout(done, OPEN_MS)
+  })
+}
+
+function onExpandLeave(el, done) {
+  // A leaving element is detached from reactive :style updates, so a ref change
+  // here would NOT reach the card — it would freeze at the release point and then
+  // vanish. Drive the close on the DOM nodes directly instead. `el` is the scrim;
+  // the card is its child. The card starts from whatever transform it currently
+  // has (rest 0 OR a mid-drag offset), so the motion continues seamlessly.
+  const card = el.querySelector('.expanded-card')
+  const closeBtn = el.querySelector('.expanded-close')
+  const dim = el.querySelector('.expanded-dim')
+  const target = closedOffset()
+  el.style.transition = `backdrop-filter ${CLOSE_TIMING}, -webkit-backdrop-filter ${CLOSE_TIMING}`
+  if (card) card.style.transition = `transform ${CLOSE_TIMING}`
+  if (closeBtn) closeBtn.style.transition = `transform ${CLOSE_TIMING}`
+  if (dim) dim.style.transition = `opacity ${CLOSE_TIMING}`
+  el.getBoundingClientRect() // commit the current transform/blur/opacity as the transitions' start
+  el.style.backdropFilter = 'blur(0px)'
+  el.style.webkitBackdropFilter = 'blur(0px)'
+  if (card) card.style.transform = `translateY(${target}px)`
+  if (closeBtn) closeBtn.style.transform = `translateX(-50%) translateY(${-CLOSE_UP_MAX_PX}px)`
+  if (dim) dim.style.opacity = '0'
+  timer.setTimeout(done, CLOSE_MS)
 }
 
 function onMiniArtworkClick() {
@@ -270,19 +398,12 @@ function onExpandedInfoClick(e) {
 watch(() => props.visible, (v) => { if (!v) expanded.value = false })
 watch(isMobile, (m) => { if (!m) expanded.value = false })
 
+// Swipe-down-to-close: the card follows a downward drag (offsetY = drag distance)
+// and dismisses past the threshold; horizontal/upward drags and taps pass through.
 const EXPAND_CLOSE_THRESHOLD_PX = 100
-const expandDragging = ref(false)
-const expandDragY = ref(0)
 let expandStartX = 0
 let expandStartY = 0
 let expandTracking = false
-
-const expandStyle = computed(() => {
-  if (expandDragging.value) {
-    return { transform: `translateY(${expandDragY.value}px)`, transition: 'none' }
-  }
-  return expandDragY.value > 0 ? { transform: `translateY(${expandDragY.value}px)` } : {}
-})
 
 function onExpandTouchStart(e) {
   const touch = e.touches[0]
@@ -304,7 +425,10 @@ function onExpandTouchMove(e) {
       return
     }
   }
-  expandDragY.value = Math.max(0, dy)
+  // Own the gesture so the page behind doesn't scroll / native overscroll-bounce
+  // underneath the sheet (a common source of drag jitter).
+  if (e.cancelable) e.preventDefault()
+  offsetY.value = Math.max(0, dy)
 }
 
 function onExpandTouchEnd() {
@@ -313,11 +437,11 @@ function onExpandTouchEnd() {
   const wasDragging = expandDragging.value
   expandDragging.value = false
   if (!wasDragging) return
-  if (expandDragY.value > EXPAND_CLOSE_THRESHOLD_PX) {
-    collapse()
-    expandDragY.value = 0
+  if (offsetY.value > EXPAND_CLOSE_THRESHOLD_PX) {
+    collapse() // leave hook animates offsetY from here → off-screen, no jump
   } else {
-    nextTick(() => { expandDragY.value = 0 })
+    moveTiming.value = SNAP_TIMING
+    offsetY.value = 0 // snap back up
   }
 }
 
@@ -494,6 +618,12 @@ function onTouchEnd(e) {
   position: relative;
   overflow: hidden;
   z-index: 50;
+}
+
+/* While the expanded sheet is open, hide the docked mini-bar so its title doesn't
+   show through the scrim's blur as a ghost second title. */
+.audio-player.expand-open {
+  visibility: hidden;
 }
 
 /* Glass stroke border effect (matching both radio and podcast players exactly) */
@@ -1005,19 +1135,63 @@ img.player-artwork.loaded {
   }
 }
 
+/* Scrim: full-screen blurred backdrop, exactly like Modal.vue. Tapping it closes. */
 .audio-player-expanded {
   position: fixed;
   inset: 0;
   z-index: 4500;
   display: flex;
   flex-direction: column;
+  /* Modal-sized inset around the card: 8px side gutters, 32px bottom margin (or
+     the safe area if larger), and top clearance for the close button. The card
+     fills what remains. */
+  padding:
+    calc(max(var(--space-04), env(safe-area-inset-top, 0px)) + 64px)
+    var(--space-02)
+    max(32px, env(safe-area-inset-bottom, 0px));
+  /* Backdrop blur is driven inline (scrimStyle) from the sheet offset, so it
+     tracks the card through open, close and drag; this base value is just the
+     resting fallback. The dim darkening lives on .expanded-dim so it can fade
+     independently of the blur. */
+  backdrop-filter: blur(var(--blur-03));
+  -webkit-backdrop-filter: blur(var(--blur-03));
+}
+
+/* Dim darkening layer — its opacity is driven inline (dimStyle) so it fades with
+   the sheet position, over the blurred backdrop and under the card/close button. */
+.expanded-dim {
+  position: absolute;
+  inset: 0;
+  background: var(--color-background-medium-32);
+  pointer-events: none;
+}
+
+/* Top-centred rounded close button, mirroring Modal.vue's affordance. */
+.expanded-close {
+  position: absolute;
+  top: max(var(--space-04), env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+}
+
+/* The player itself: a rounded panel floating on the scrim. Slides up from the
+   bottom on open; the swipe-down drag + snap-back also move this. */
+.expanded-card {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-07);
   overflow: hidden;
   background: var(--color-background-neutral);
   will-change: transform;
-  transition: transform var(--transition-spring);
+  /* Transform is driven inline (cardStyle) from the sheet offset — no base
+     transition here, or it would fight the inline one during a drag. */
 }
 
-.audio-player-expanded .expanded-content {
+.expanded-card .expanded-content {
   position: relative;
   z-index: 2;
   flex: 1;
@@ -1025,25 +1199,15 @@ img.player-artwork.loaded {
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
-  padding:
-    calc(max(var(--space-05), env(safe-area-inset-top, 0px)) + var(--space-02))
-    var(--space-05)
-    max(var(--space-06), env(safe-area-inset-bottom, 0px));
+  padding: var(--space-05) var(--space-04);
 }
 
-.expanded-header {
-  flex-shrink: 0;
-  display: flex;
-  justify-content: flex-start;
-}
-
+/* As large as the card width allows, capped by height so the controls stay on-screen. */
 .expanded-artwork {
   align-self: center;
-  width: min(70vw, 340px);
+  width: min(100%, 54vh);
   aspect-ratio: 1;
-  flex-shrink: 1;
-  min-height: 0;
-  margin-top: auto;
+  flex-shrink: 0;
 }
 
 .expanded-artwork.clickable {
@@ -1067,8 +1231,13 @@ img.player-artwork.loaded {
   height: auto;
 }
 
+/* Fills the space between artwork and controls; its content is centred vertically. */
 .expanded-info {
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   text-align: center;
 }
 
@@ -1076,12 +1245,29 @@ img.player-artwork.loaded {
   align-items: center;
 }
 
+/* Expanded-only slot content (e.g. music library's 3-line title/artist/album).
+   Hidden in the docked bar and desktop sidebar; shown only inside the card. In
+   the info area the music-library desktop variant is hidden so the two don't
+   both render (the desktop-only CONTROLS in other sources stay untouched). */
+:deep(.expanded-only) {
+  display: none;
+}
+
+.expanded-card .expanded-info :deep(.expanded-only) {
+  display: flex;
+}
+
+.expanded-card.source-music_library .expanded-info :deep(.desktop-only) {
+  display: none;
+}
+
 .expanded-bottom {
   flex-shrink: 0;
-  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
+  /* Lift the progress bar + controls off the card's bottom edge. */
+  padding-bottom: var(--space-06);
 }
 
 .expanded-progress {
@@ -1096,22 +1282,36 @@ img.player-artwork.loaded {
   gap: var(--space-04);
 }
 
-.audio-player-expanded.source-music_library :deep(.ml-controls .playback-controls) {
+.expanded-card.source-music_library :deep(.ml-controls .playback-controls) {
   width: 100%;
   justify-content: space-between;
   padding: 0 var(--space-02);
 }
 
-.audio-expand-enter-active {
-  transition: transform var(--transition-spring);
+/* Icon-only transport (à la PlaybackControls.vue): drop the docked pill
+   background and set a clear size hierarchy. */
+.expanded-card :deep(.icon-button--on-dark),
+.expanded-card :deep(.icon-button--on-dark.icon-button--loading) {
+  background: transparent;
+  padding: var(--space-02);
 }
 
-.audio-expand-leave-active {
-  transition: transform 0.4s cubic-bezier(0.5, 0, 0, 1);
+/* prev/next (music-library trio) + rewind/forward (podcast): the mid tier. */
+.expanded-card :deep(.icon--size-small .svg-responsive) {
+  width: 34px;
+  height: 34px;
 }
 
-.audio-expand-enter-from,
-.audio-expand-leave-to {
-  transform: translateY(100%);
+/* play/pause: the largest. */
+.expanded-card :deep(.icon--size-medium .svg-responsive) {
+  width: 44px;
+  height: 44px;
+}
+
+/* shuffle + like sit as direct children of the row (the trio is nested in
+   .ml-transport-main), so this reaches only those two — kept smallest. */
+.expanded-card.source-music_library :deep(.ml-controls .playback-controls > .icon-button .svg-responsive) {
+  width: 24px;
+  height: 24px;
 }
 </style>
