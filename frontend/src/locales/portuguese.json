@@ -2,6 +2,7 @@
   "lyrics": {
     "title": "Letra",
     "loading": "Procurando a letra de",
+    "preparing": "Carregando a letra de",
     "noLyrics": "Nenhuma letra encontrada para",
     "notPlaying": "Nada em reprodução",
     "notCompatible": "Fonte não compatível com a busca de letras",

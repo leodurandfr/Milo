@@ -2,6 +2,7 @@
   "lyrics": {
     "title": "Songtext",
     "loading": "Songtext wird gesucht für",
+    "preparing": "Songtext wird geladen für",
     "noLyrics": "Kein Songtext gefunden für",
     "notPlaying": "Nichts wird abgespielt",
     "notCompatible": "Quelle nicht mit der Songtextsuche kompatibel",
