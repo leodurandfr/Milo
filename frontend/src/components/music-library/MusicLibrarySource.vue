@@ -49,17 +49,13 @@
           :tracks="store.queue" :current-index="store.queueIndex"
           @swipe-next="store.next()" @swipe-prev="store.swipePrevious()"
           @artwork-click="openPlayerAlbum" @secondary-click="openPlayerArtist">
-          <!-- Track info: desktop sidebar uses PlayerInfoText. On mobile the docked bar
-               never reaches this slot — the swipe carousel renders its own title/artist
-               from the queue (see AudioPlayer) — so only the expanded card below applies. -->
+          <!-- Track info: PlayerInfoText's vertical layout renders both the desktop
+               sidebar and the expanded full-screen sheet (nothing hides .vertical-layout
+               inside the expanded card for this source — same as podcast). On mobile the
+               docked bar never reaches this slot — the swipe carousel renders its
+               own title/artist from the queue (see AudioPlayer). -->
           <template #info>
-            <PlayerInfoText class="desktop-only" :title="playerTitle" :secondary="playerArtist" />
-            <!-- Expanded full-screen view: title / artist, equal gaps.
-                 AudioPlayer shows .expanded-only only inside the expanded card. -->
-            <div class="ml-expanded-info expanded-only">
-              <p class="ml-expanded-title heading-2">{{ playerTitle }}</p>
-              <p v-if="playerArtist" class="ml-expanded-line player-info-secondary text-body">{{ playerArtist }}</p>
-            </div>
+            <PlayerInfoText class="vertical-layout" :title="playerTitle" :secondary="playerArtist" />
           </template>
 
           <template #progress>
@@ -75,18 +71,18 @@
           <template #controls>
             <div class="ml-controls" @click.stop>
               <div class="playback-controls">
-                <IconButton icon="shuffle" variant="on-dark" size="small" class="ml-transport-extra"
+                <IconButton icon="shuffle" variant="ghost" size="small" class="ml-transport-extra"
                   :color="store.shuffle ? 'var(--color-brand)' : undefined"
                   @click="store.toggleShuffle()" />
                 <div class="ml-transport-main">
-                  <IconButton icon="previous" variant="on-dark" size="small" class="ml-transport-extra"
+                  <IconButton icon="previous" variant="ghost" size="small" class="ml-transport-extra"
                     @click="store.previous()" />
-                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
+                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
                     :loading="isBuffering" @click="togglePlayPause" />
-                  <IconButton icon="next" variant="on-dark" size="small" class="ml-transport-extra"
+                  <IconButton icon="next" variant="ghost" size="small" class="ml-transport-extra"
                     :disabled="!hasNext" @click="store.next()" />
                 </div>
-                <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="small"
+                <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="ghost" size="small"
                   class="ml-transport-extra" @click="store.toggleCurrentStar()" />
               </div>
             </div>
@@ -265,35 +261,6 @@ function handleSeek(positionSec) {
   display: none;
 }
 
-/* Expanded full-screen info: title / artist stacked with one equal gap.
-   Visibility (.expanded-only) is owned by AudioPlayer; layout is column here.
-   Vertical padding uses --space-07 (32px on mobile, the only context this
-   renders in), not --space-06 (which shrinks to 24px on mobile) — so the
-   block always keeps at least 32px of breathing room from the artwork/controls. */
-.ml-expanded-info {
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-  width: 100%;
-  padding: var(--space-07) var(--space-06);
-}
-
-.ml-expanded-info p {
-  margin: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ml-expanded-title {
-  color: var(--color-text-contrast);
-}
-
-.ml-expanded-line {
-  color: var(--color-text-contrast-50);
-}
-
 /* Docked-player controls: single transport row (shuffle … prev·play·next … like). */
 .ml-controls {
   display: flex;
@@ -313,10 +280,10 @@ function handleSeek(positionSec) {
 
 /* Desktop: shuffle pinned far-left, like far-right, trio centered between.
    Mobile keeps the trio centered (shuffle/like are hidden there). */
-@media (min-aspect-ratio: 4/3) {
+/* @media (min-aspect-ratio: 4/3) {
   .ml-controls .playback-controls {
     justify-content: space-between;
     padding: 0 var(--space-01);
   }
-}
+} */
 </style>

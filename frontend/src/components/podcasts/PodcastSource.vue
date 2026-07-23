@@ -53,13 +53,15 @@
       <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
         :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" swipe-enabled
         @swipe-next="seekForward" @swipe-prev="seekBackward">
-        <!-- Track info: podcast name kicker + episode title. Desktop uses the shared
-             PlayerInfoText; mobile shows the same title/podcast-name pair as its own
-             compact title/subtitle lines. -->
+        <!-- Track info: podcast name kicker + episode title, in the shared
+             PlayerInfoText's vertical layout (desktop sidebar and, since nothing
+             hides it there, the mobile expanded sheet too); the mobile mini-bar's
+             compact single-line horizontal layout renders its own title/podcast-name
+             pair instead. -->
         <template #info>
-          <PlayerInfoText class="desktop-only" :kicker="podcastName" :title="episodeName" />
-          <p class="player-title text-body mobile-only">{{ episodeName }}</p>
-          <p v-if="podcastName" class="player-subtitle text-body mobile-only">{{ podcastName }}</p>
+          <PlayerInfoText class="vertical-layout" :kicker="podcastName" :title="episodeName" />
+          <p class="player-title text-body horizontal-layout">{{ episodeName }}</p>
+          <p v-if="podcastName" class="player-subtitle text-body horizontal-layout">{{ podcastName }}</p>
         </template>
 
         <!-- Progress bar (seekable) -->
@@ -75,12 +77,12 @@
              / -15s (left), speed moves into the future expanded mini-player view. -->
         <template #controls>
           <div class="playback-controls" @click.stop>
-            <IconButton icon="rewind15" variant="on-dark" size="small" class="desktop-only" @click="seekBackward" />
+            <IconButton icon="rewind15" variant="ghost" size="small" class="desktop-only" @click="seekBackward" />
 
-            <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
+            <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
               :loading="isBuffering" @click="togglePlayPause" />
 
-            <IconButton icon="forward30" variant="on-dark" size="small" class="desktop-only" @click="seekForward" />
+            <IconButton icon="forward30" variant="ghost" size="small" class="desktop-only" @click="seekForward" />
           </div>
 
           <div class="speed-selector desktop-only" @click.stop>

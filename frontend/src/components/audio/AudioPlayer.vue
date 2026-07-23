@@ -46,7 +46,7 @@
             <Transition v-else name="track-none" mode="out-in">
               <div class="player-info-inner" :key="title" :class="{ 'has-entity-links': hasEntityLinks }"
                 @click="onInfoClick">
-                <slot name="info"></slot>
+                <slot name="info" :expanded="false"></slot>
               </div>
             </Transition>
           </div>
@@ -60,7 +60,7 @@
               <slot name="controls">
                 <!-- Default: Simple play/pause -->
                 <div class="playback-controls">
-                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium" :loading="isLoading"
+                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium" :loading="isLoading"
                     @click="$emit('toggle-play')" />
                 </div>
               </slot>
@@ -98,15 +98,15 @@
           </div>
 
           <div class="expanded-content">
-            <div class="expanded-artwork" :class="{ clickable: hasEntityLinks }" @click="onExpandedArtworkClick">
-              <img v-if="validArtwork" :src="validArtwork" :alt="title" class="expanded-artwork-img"
-                @error="artworkError = true" />
-              <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="expanded-artwork-img" :aria-label="title" />
-              <img v-else :src="placeholderArtwork" :alt="title" class="expanded-artwork-img placeholder" />
+            <div class="player-artwork-frame" :class="{ clickable: hasEntityLinks }" @click="onExpandedArtworkClick">
+              <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
+                :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
+              <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
+              <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
             </div>
 
             <div class="expanded-info" @click="onExpandedInfoClick">
-              <slot name="info"></slot>
+              <slot name="info" :expanded="true"></slot>
             </div>
 
             <div class="expanded-bottom">
@@ -117,7 +117,7 @@
               <div class="expanded-controls">
                 <slot name="controls">
                   <div class="playback-controls">
-                    <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
+                    <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
                       :loading="isLoading" @click="$emit('toggle-play')" />
                   </div>
                 </slot>
@@ -699,15 +699,22 @@ function onTouchEnd(e) {
   overflow-y: auto;
 }
 
+/* Shared by the docked frame (desktop sidebar + mobile mini-bar, sized via the
+   mobile media query below) and the expanded sheet's artwork (which keeps this
+   base square size — only the docked mobile override shrinks it to 48px). */
 .player-artwork-frame {
   position: relative;
+  align-self: center;
   width: 100%;
   aspect-ratio: 1;
   /* In the parent flex column, flex-shrink: 1 (default) lets aspect-ratio be
      overridden when vertical space is tight; pinning it preserves the 1:1
      box for both <img> (which has intrinsic size) and the <div v-html=svg>
-     wrapper (whose content is the SVG sized below). */
-  flex-shrink: 0;
+     wrapper (whose content is the SVG sized below). flex: none (not just
+     flex-shrink: 0) also pins flex-grow/flex-basis so the expanded sheet's
+     column layout can't compress this height (derived from width via
+     aspect-ratio) either. */
+  flex: none;
 }
 
 .player-artwork-frame.clickable {
@@ -796,10 +803,20 @@ img.player-artwork.loaded {
   cursor: pointer;
 }
 
-/* Desktop/mobile split for slotted #info content — each source renders both
-   variants and lets this toggle pick one, instead of duplicating layout CSS
-   per source file. */
+/* Desktop/mobile split for slotted #controls content that isn't available in
+   the compact mini-bar (podcast's seek buttons, speed selector) — each source
+   renders both variants and lets this toggle pick one, instead of duplicating
+   layout CSS per source file. */
 :deep(.mobile-only) {
+  display: none;
+}
+
+/* Vertical (column: kicker/title/secondary via PlayerInfoText) vs horizontal
+   (compact single-line title/subtitle pair) — the #info slot's own layout
+   toggle, orthogonal to desktop-only/mobile-only above: "vertical" also
+   renders on the mobile expanded sheet for sources that reuse it there
+   (podcast, music-library), so naming it "desktop-only" would be wrong. */
+:deep(.horizontal-layout) {
   display: none;
 }
 
@@ -824,13 +841,6 @@ img.player-artwork.loaded {
   align-items: center;
   gap: var(--space-02);
   width: 100%;
-}
-
-/* Loading spinner replaces play/pause in place — dim it relative to the icon
-   so a buffering track doesn't flash full-strength, and keep it scoped here
-   (not IconButton.vue) since other IconButton consumers keep full opacity. */
-.audio-player :deep(.icon-button--on-dark.icon-button--loading) {
-  color: var(--color-text-contrast-50);
 }
 
 /* Mobile: Horizontal bottom panel layout */
@@ -876,15 +886,18 @@ img.player-artwork.loaded {
   /* Single 48px row layout, shared by all three sources (radio, podcast,
      music library) — artwork | title+subtitle | one play/pause(-ish) button.
      Width is animated so the radio station→track reveal (frame 48→72) shifts the
-     title/subtitle text rightward in sync with the track image sliding in. */
-  .player-artwork-frame {
+     title/subtitle text rightward in sync with the track image sliding in.
+     Scoped to .audio-player (the docked bar) — the expanded sheet shares the
+     same .player-artwork-frame/.player-artwork classes but must stay full-size
+     even though it's also viewed under this same mobile aspect-ratio query. */
+  .audio-player .player-artwork-frame {
     width: 48px;
     height: 48px;
     min-width: 48px;
     transition: width var(--transition-medium);
   }
 
-  .player-artwork {
+  .audio-player .player-artwork {
     width: 48px;
     height: 48px;
     min-width: 48px;
@@ -955,6 +968,14 @@ img.player-artwork.loaded {
     display: block !important;
   }
 
+  .audio-player :deep(.vertical-layout) {
+    display: none !important;
+  }
+
+  .audio-player :deep(.horizontal-layout) {
+    display: block !important;
+  }
+
   /* Hide progress bar on mobile by default (radio has none) */
   .player-content :deep(.progress-bar) {
     display: none;
@@ -998,6 +1019,21 @@ img.player-artwork.loaded {
     justify-content: center;
   }
 
+  /* Compact mini-bar: the ghost variant's medium-tier bump (44px, sized for the
+     full desktop sidebar / expanded sheet) is too large next to the 48px
+     artwork thumbnail in this tight single row — drop back to SvgIcon's own
+     native mobile-medium size (24px, the pre-ghost default) instead of
+     inventing a new arbitrary value. Scoped to .audio-player so the desktop
+     sidebar and the expanded sheet keep the full 44px size. */
+  .audio-player .playback-controls :deep(.icon-button--ghost.icon-button--medium .svg-responsive) {
+    width: 24px;
+    height: 24px;
+  }
+
+  .audio-player .playback-controls :deep(.icon-button--ghost.icon-button--medium.icon-button--loading .loading-spinner--medium) {
+    --spinner-size: 24px;
+  }
+
   /* Compact mobile player keeps only play/pause; shuffle/prev/next/like are
      desktop-only — the swipe gesture covers prev/next on mobile instead. */
   .audio-player.source-music_library :deep(.ml-transport-extra) {
@@ -1007,15 +1043,17 @@ img.player-artwork.loaded {
   /* Radio, track detected: two 48px thumbnails overlapping by half. The station
      icon sits behind, pinned left; the track artwork rides on top, offset right.
      Frame widens to 72px (48 + 24 overlap) so the flex layout reserves the pair's
-     full width and the title/subtitle clears it instead of overlapping. */
-  .player-artwork-frame.has-badge {
+     full width and the title/subtitle clears it instead of overlapping.
+     #artwork-badge only ever renders in the docked bar, so these are scoped to
+     .audio-player alongside the 48px sizing above (never reached in the sheet). */
+  .audio-player .player-artwork-frame.has-badge {
     width: 72px;
   }
 
   /* Station icon: behind, pinned left. Extra .player-artwork-frame ancestor
      (rather than a bare :deep()) so this reliably outranks LazyImage's own
      scoped `.lazy-image { position: relative }`. */
-  .player-artwork-frame.has-badge :deep(.player-artwork-badge) {
+  .audio-player .player-artwork-frame.has-badge :deep(.player-artwork-badge) {
     position: absolute !important;
     top: 0;
     left: 0;
@@ -1033,7 +1071,7 @@ img.player-artwork.loaded {
      in from the station's position (translateX(-24px)→0) instead of popping at
      rest. Opacity stays tied to .loaded (base img.player-artwork rule) so the
      bitmap fades in as it decodes. */
-  .player-artwork-frame.has-badge .player-artwork {
+  .audio-player .player-artwork-frame.has-badge .player-artwork {
     position: absolute;
     top: 0;
     left: 24px;
@@ -1222,38 +1260,6 @@ img.player-artwork.loaded {
   overflow-y: auto;
 }
 
-/* Sized purely off the card's width — no vh-based cap, so shrinking the sheet's
-   height (drag/resize) never shrinks the artwork; .expanded-content scrolls
-   instead once things stop fitting. `flex: none` (not just flex-shrink: 0)
-   also pins flex-grow/flex-basis so the column layout can't compress its
-   height (derived from width via aspect-ratio) either. */
-.expanded-artwork {
-  align-self: center;
-  width: 100%;
-  aspect-ratio: 1;
-  flex: none;
-}
-
-.expanded-artwork.clickable {
-  cursor: pointer;
-}
-
-.expanded-artwork-img {
-  width: 100%;
-  height: 100%;
-  border-radius: var(--radius-04);
-  object-fit: cover;
-  background: var(--color-background-neutral);
-  overflow: hidden;
-  display: block;
-}
-
-.expanded-artwork-img :deep(svg) {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
 /* Fills the space between artwork and controls when there's slack (grows,
    content centred vertically) but — unlike .expanded-content/.expanded-card —
    deliberately has NO min-height override, so its floor stays its own content
@@ -1272,22 +1278,32 @@ img.player-artwork.loaded {
   align-items: center;
 }
 
-/* Expanded-only slot content (e.g. music library's / radio's heading-1/heading-2
-   title/artist). Hidden in the docked bar and desktop sidebar; shown only
-   inside the card. In the info area each source's desktop variant is hidden
-   there so the two don't both render (the desktop-only CONTROLS in other
-   sources stay untouched). */
+/* Expanded-only slot content (radio/music-library's PlayerInfoText, rendered
+   with :expanded="true"). Hidden in the docked bar and desktop sidebar; shown
+   only inside the card. Both rules need !important: the marker class sits
+   directly on PlayerInfoText's own root, which has its own competing
+   `display: flex` from its own scoped style — without !important the winner
+   between the two would depend on cross-component bundle order, not this
+   ancestor scoping. */
 :deep(.expanded-only) {
-  display: none;
+  display: none !important;
 }
 
 .expanded-card .expanded-info :deep(.expanded-only) {
-  display: flex;
+  display: flex !important;
 }
 
-.expanded-card.source-music_library .expanded-info :deep(.desktop-only),
-.expanded-card.source-radio .expanded-info :deep(.desktop-only) {
-  display: none;
+/* Radio and music-library keep --space-03 (12px) between title/artist in the
+   expanded sheet — wider than PlayerInfoText's own default --space-02 (8px). */
+.expanded-card.source-radio .expanded-info :deep(.player-info-text),
+.expanded-card.source-music_library .expanded-info :deep(.player-info-text) {
+  gap: var(--space-03);
+}
+
+/* Music-library only: 32px breathing room from artwork/controls on mobile
+   (the only context this renders in) — space-06 would shrink to 24px there. */
+.expanded-card.source-music_library .expanded-info :deep(.player-info-text) {
+  padding: var(--space-07) var(--space-06);
 }
 
 .expanded-bottom {
@@ -1320,45 +1336,12 @@ img.player-artwork.loaded {
   padding: 0 var(--space-02);
 }
 
-/* Icon-only transport (à la PlaybackControls.vue): drop the docked pill
-   background and set a clear size hierarchy. */
-.expanded-card :deep(.icon-button--on-dark),
-.expanded-card :deep(.icon-button--on-dark.icon-button--loading) {
-  background: transparent;
-  padding: var(--space-02);
-}
-
-/* prev/next (music-library trio) + rewind/forward (podcast): the mid tier. */
-.expanded-card :deep(.icon--size-small .svg-responsive) {
-  width: 34px;
-  height: 34px;
-}
-
-/* play/pause: the largest. */
-.expanded-card :deep(.icon--size-medium .svg-responsive) {
-  width: 44px;
-  height: 44px;
-}
-
-/* Loading spinner replaces the play/pause icon in place — the outer box stays
-   pinned to the same 44px as the enlarged play/pause icon (.icon--size-medium
-   above) so the button doesn't resize and the row doesn't jump. The visible
-   ring is then scaled down slightly within that fixed box, since it's meant to
-   read a touch smaller than the solid play/pause glyph, not the same size. */
-.expanded-card :deep(.loading-spinner--medium) {
-  --spinner-size: 44px;
-}
-
-.expanded-card :deep(.loading-spinner--medium .loading-spinner-content) {
-  transform: scale(0.85);
-}
-
-.expanded-card :deep(.icon-button--on-dark.icon-button--loading) {
-  color: var(--color-text-contrast-50);
-}
-
 /* shuffle + like sit as direct children of the row (the trio is nested in
-   .ml-transport-main), so this reaches only those two — kept smallest. */
+   .ml-transport-main), so this reaches only those two — kept at their native
+   small size instead of the ghost variant's bumped 34px transport-trio size.
+   Scoped to both the docked sidebar and the expanded sheet — both render
+   these controls with variant="ghost" now, so both need the downsize. */
+.audio-player.source-music_library :deep(.ml-controls .playback-controls > .icon-button .svg-responsive),
 .expanded-card.source-music_library :deep(.ml-controls .playback-controls > .icon-button .svg-responsive) {
   width: 24px;
   height: 24px;
