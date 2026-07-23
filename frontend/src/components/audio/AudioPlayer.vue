@@ -1019,19 +1019,20 @@ img.player-artwork.loaded {
     justify-content: center;
   }
 
-  /* Compact mini-bar: the ghost variant's medium-tier bump (44px, sized for the
-     full desktop sidebar / expanded sheet) is too large next to the 48px
-     artwork thumbnail in this tight single row — drop back to SvgIcon's own
-     native mobile-medium size (24px, the pre-ghost default) instead of
-     inventing a new arbitrary value. Scoped to .audio-player so the desktop
-     sidebar and the expanded sheet keep the full 44px size. */
+  /* Compact mini-bar: the medium-tier play/pause/stop toggle is too large next
+     to the 48px artwork thumbnail in this tight single row — drop to
+     SvgIcon's own native mobile-small size (20px) instead of inventing a new
+     arbitrary value. Scoped to .audio-player (the docked bar only) so the
+     desktop sidebar and the expanded sheet — both reached via the same
+     .icon-button--ghost.icon-button--medium selector — keep their own sizing
+     untouched. */
   .audio-player .playback-controls :deep(.icon-button--ghost.icon-button--medium .svg-responsive) {
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
   }
 
   .audio-player .playback-controls :deep(.icon-button--ghost.icon-button--medium.icon-button--loading .loading-spinner--medium) {
-    --spinner-size: 24px;
+    --spinner-size: 20px;
   }
 
   /* Compact mobile player keeps only play/pause; shuffle/prev/next/like are
@@ -1336,14 +1337,58 @@ img.player-artwork.loaded {
   padding: 0 var(--space-02);
 }
 
-/* shuffle + like sit as direct children of the row (the trio is nested in
-   .ml-transport-main), so this reaches only those two — kept at their native
-   small size instead of the ghost variant's bumped 34px transport-trio size.
-   Scoped to both the docked sidebar and the expanded sheet — both render
-   these controls with variant="ghost" now, so both need the downsize. */
+/* Transport hierarchy (IconButton's ghost variant has no size bump of its own
+   — it's sized like every other variant — so the tiers below are local to
+   this player): shuffle + like sit as direct children of the row (the trio
+   is nested in .ml-transport-main) and stay at their native small size,
+   everywhere. */
 .audio-player.source-music_library :deep(.ml-controls .playback-controls > .icon-button .svg-responsive),
 .expanded-card.source-music_library :deep(.ml-controls .playback-controls > .icon-button .svg-responsive) {
   width: 24px;
   height: 24px;
+}
+
+/* prev/next and play/pause read bigger in the expanded sheet (any aspect
+   ratio) AND in the desktop docked sidebar (the full transport row, not the
+   mobile single-row mini-bar — that one is handled by the mobile-scoped
+   .audio-player .playback-controls rule further up, which stays a tight
+   single button). The two states must match exactly, so both selector groups
+   below carry identical pixel values. */
+.expanded-card.source-music_library :deep(.ml-transport-main .icon-button--small .svg-responsive) {
+  width: 34px;
+  height: 34px;
+}
+
+.expanded-card :deep(.ml-transport-main .icon-button--medium .svg-responsive) {
+  width: 44px;
+  height: 44px;
+}
+
+.expanded-card :deep(.ml-transport-main .icon-button--medium.icon-button--loading .loading-spinner--medium) {
+  --spinner-size: 44px;
+}
+
+.expanded-card :deep(.ml-transport-main .icon-button--medium.icon-button--loading .loading-spinner--medium .loading-spinner-content) {
+  transform: scale(0.85);
+}
+
+@media (min-aspect-ratio: 4/3) {
+  .audio-player.source-music_library :deep(.ml-transport-main .icon-button--small .svg-responsive) {
+    width: 34px;
+    height: 34px;
+  }
+
+  .audio-player :deep(.ml-transport-main .icon-button--medium .svg-responsive) {
+    width: 44px;
+    height: 44px;
+  }
+
+  .audio-player :deep(.ml-transport-main .icon-button--medium.icon-button--loading .loading-spinner--medium) {
+    --spinner-size: 44px;
+  }
+
+  .audio-player :deep(.ml-transport-main .icon-button--medium.icon-button--loading .loading-spinner--medium .loading-spinner-content) {
+    transform: scale(0.85);
+  }
 }
 </style>
