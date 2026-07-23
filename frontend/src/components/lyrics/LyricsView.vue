@@ -163,10 +163,17 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
 .lyrics-view-close {
   position: absolute;
-  top: max(var(--space-05), env(safe-area-inset-top, 0px));
-  left: 50%;
-  transform: translateX(-50%);
+  top: var(--space-07);
+  right: var(--space-07);
   z-index: 3;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .lyrics-view-close {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
 }
 
 .lyrics-view-body {
