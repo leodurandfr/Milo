@@ -54,6 +54,13 @@
             <PlayerInfoText class="desktop-only" :title="playerTitle" :secondary="playerArtist" />
             <p class="player-title text-body mobile-only">{{ playerTitle }}</p>
             <p v-if="playerArtist" class="player-subtitle text-body mobile-only">{{ playerArtist }}</p>
+            <!-- Expanded full-screen view: title / artist / album, equal gaps.
+                 AudioPlayer shows .expanded-only only inside the expanded card. -->
+            <div class="ml-expanded-info expanded-only">
+              <p class="ml-expanded-title heading-2">{{ playerTitle }}</p>
+              <p v-if="playerArtist" class="ml-expanded-line player-info-secondary text-body">{{ playerArtist }}</p>
+              <p v-if="playerAlbum" class="ml-expanded-line text-body">{{ playerAlbum }}</p>
+            </div>
           </template>
 
           <template #progress>
@@ -73,7 +80,7 @@
                   :color="store.shuffle ? 'var(--color-brand)' : undefined"
                   @click="store.toggleShuffle()" />
                 <div class="ml-transport-main">
-                  <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="small"
+                  <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="on-dark" size="medium"
                     class="mobile-only" @click="store.toggleCurrentStar()" />
                   <IconButton icon="previous" variant="on-dark" size="small" class="ml-transport-extra"
                     @click="store.previous()" />
@@ -154,6 +161,7 @@ const currentDurationSec = computed(() => Math.floor((durationMs.value || 0) / 1
 // === Player display (sticky through fade-out) ===
 const playerTitle = computed(() => store.displayTrack?.title || '');
 const playerArtist = computed(() => store.displayTrack?.artist || '');
+const playerAlbum = computed(() => store.displayTrack?.album || '');
 const playerArtwork = computed(() => store.displayTrack?.albumArtUrl || null);
 
 // === Header title per view ===
@@ -257,6 +265,31 @@ function handleSeek(positionSec) {
 
 ::-webkit-scrollbar {
   display: none;
+}
+
+/* Expanded full-screen info: title / artist / album stacked with one equal gap.
+   Visibility (.expanded-only) is owned by AudioPlayer; layout is column here. */
+.ml-expanded-info {
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-03);
+  width: 100%;
+}
+
+.ml-expanded-info p {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-expanded-title {
+  color: var(--color-text-contrast);
+}
+
+.ml-expanded-line {
+  color: var(--color-text-contrast-50);
 }
 
 /* Docked-player controls: single transport row (shuffle … prev·play·next … like). */
