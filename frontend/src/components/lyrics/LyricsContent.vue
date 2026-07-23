@@ -2,7 +2,7 @@
      Keyed on the active source by the parent so useSourceProgress re-instantiates
      if the source changes while the view is open. -->
 <template>
-  <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-synced': isSynced }">
+  <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced }">
     <template v-if="isSynced">
       <!-- One uniform size; the three states differ only in opacity: the active
            line is fully lit, lines still to come are bright, past lines fade
@@ -13,7 +13,11 @@
         {{ line.line || '♪' }}
       </p>
     </template>
-    <div v-else class="lyrics-plain display-1">{{ plain }}</div>
+    <template v-else>
+      <p v-for="(line, i) in plainLines" :key="i" class="lyrics-line display-1 is-plain-line">
+        {{ line }}
+      </p>
+    </template>
   </div>
 </template>
 
@@ -50,6 +54,8 @@ const leadMs = computed(() =>
 const isSynced = computed(() =>
   Array.isArray(props.synced) && props.synced.length > 0 && duration.value > 0
 );
+
+const plainLines = computed(() => (isSynced.value || !props.plain ? [] : props.plain.split('\n')));
 
 // Index of the last line whose timestamp has passed the current position.
 const activeIndex = computed(() => {
@@ -107,10 +113,14 @@ watch(activeIndex, (i) => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-06);
+  padding-inline: var(--space-06);
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
+  text-align: center;
+  /* Room above/below so the first and last lines can reach the vertical center
+     (vh, not %, since % padding resolves against width — huge on a wide screen). */
+  padding-block: 42vh;
   /* Hide the scrollbar — auto-scroll drives this, it isn't hand-scrolled. */
   scrollbar-width: none;
   /* Soft fade over the bottom portion so lines dissolve as they scroll off,
@@ -123,11 +133,9 @@ watch(activeIndex, (i) => {
   display: none;
 }
 
-/* Room above/below so the first and last lines can reach the vertical center
-   (vh, not %, since % padding resolves against width — huge on a wide screen). */
-.lyrics-scroll.is-synced {
-  padding-block: 42vh;
-  text-align: center;
+.lyrics-scroll.is-plain {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 45%, black 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 45%, black 55%, transparent 100%);
 }
 
 /* Light-on-dark over the blurred artwork backdrop; state modulates brightness
@@ -150,12 +158,7 @@ watch(activeIndex, (i) => {
   opacity: 0.1;
 }
 
-/* Plain fallback (radio / no position clock): large, centered, airy — not a
-   raw text block. */
-.lyrics-plain {
-  color: var(--color-text-contrast);
-  white-space: pre-wrap;
-  text-align: center;
+.lyrics-line.is-plain-line {
   opacity: 0.9;
 }
 </style>
