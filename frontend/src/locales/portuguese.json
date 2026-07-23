@@ -2,8 +2,10 @@
   "lyrics": {
     "title": "Letra",
     "loading": "Procurando a letra de",
-    "noLyrics": "Nenhuma letra encontrada",
-    "notPlaying": "Nada em reprodução"
+    "noLyrics": "Nenhuma letra encontrada para",
+    "notPlaying": "Nada em reprodução",
+    "notCompatible": "Fonte não compatível com a busca de letras",
+    "noTrackDetected": "Nenhuma música detectada"
   },
   "app": {
     "connectionUnavailable": "Conexão indisponível",

@@ -2,8 +2,10 @@
   "lyrics": {
     "title": "Testo",
     "loading": "Ricerca del testo di",
-    "noLyrics": "Nessun testo trovato",
-    "notPlaying": "Nessuna riproduzione"
+    "noLyrics": "Nessun testo trovato per",
+    "notPlaying": "Nessuna riproduzione",
+    "notCompatible": "Sorgente non compatibile con la ricerca del testo",
+    "noTrackDetected": "Nessun brano rilevato"
   },
   "app": {
     "connectionUnavailable": "Connessione non disponibile",

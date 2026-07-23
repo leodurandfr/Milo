@@ -29,9 +29,9 @@
               <LoadingSpinner :size="56" />
               <div class="lyrics-view-loading">
                 <p class="text-body lyrics-view-loading-label">{{ t('lyrics.loading') }}</p>
-                <p class="text-body lyrics-view-loading-track">
+                <p class="text-body lyrics-view-track-line">
                   <span>{{ lyricsStore.trackTitle }}</span>
-                  <span class="lyrics-view-loading-sep">·</span>
+                  <span class="lyrics-view-track-sep">·</span>
                   <span>{{ lyricsStore.trackArtist }}</span>
                 </p>
               </div>
@@ -39,7 +39,12 @@
 
             <div v-else-if="!lyricsStore.found" key="empty" class="lyrics-view-state">
               <SvgIcon name="lyrics" :size="64" color="var(--color-text-contrast-50)" />
-              <p class="heading-3 lyrics-view-msg">{{ emptyTitle }}</p>
+              <p class="heading-3 lyrics-view-msg">{{ emptyState.message }}</p>
+              <p v-if="emptyState.showTrack" class="text-body lyrics-view-track-line">
+                <span>{{ lyricsStore.trackTitle }}</span>
+                <span class="lyrics-view-track-sep">·</span>
+                <span>{{ lyricsStore.trackArtist }}</span>
+              </p>
             </div>
 
             <LyricsContent v-else :key="`content-${activeSource}`" :source="activeSource"
@@ -55,7 +60,8 @@
 import { computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useLyricsStore } from '@/stores/lyricsStore';
+import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/lyricsStore';
+import { getFaviconUrl } from '@/utils/faviconUrl';
 
 import IconButton from '@/components/ui/IconButton.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
@@ -72,7 +78,18 @@ const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
 
 const activeSource = computed(() => unifiedStore.systemState.active_source);
-const artworkUrl = computed(() => unifiedStore.systemState.metadata?.album_art_url || '');
+
+// Radio has no canonical album_art_url: the recognized track's artwork lives
+// under track_artwork, falling back to the station favicon (same fallback as
+// RadioSource.vue's playerArtwork) so the backdrop isn't blank while no track
+// has been recognized yet.
+const artworkUrl = computed(() => {
+  const m = unifiedStore.systemState.metadata || {};
+  if (activeSource.value === 'radio') {
+    return m.track_artwork || getFaviconUrl(m.favicon) || '';
+  }
+  return m.album_art_url || '';
+});
 
 function close() {
   emit('close');
@@ -83,15 +100,35 @@ function close() {
 // retrigger. Only fetch while open (the view stays mounted; the backdrop/body
 // are gated by isOpen), and do the initial fetch when the view opens.
 const trackKey = computed(() => {
-  const m = unifiedStore.systemState.metadata || {};
-  return `${m.artist || ''}|||${m.title || ''}`;
+  const identity = getTrackIdentity(activeSource.value, unifiedStore.systemState.metadata);
+  return `${identity.artist}|||${identity.title}`;
 });
 watch(() => props.isOpen, (open) => { if (open) lyricsStore.loadLyrics(); });
 watch(trackKey, () => { if (props.isOpen) lyricsStore.loadLyrics(); });
 
-const emptyTitle = computed(() => {
-  const m = unifiedStore.systemState.metadata || {};
-  return m.artist && m.title ? t('lyrics.noLyrics') : t('lyrics.notPlaying');
+// Empty-state message, most specific case first:
+// - no active source at all → "nothing playing"
+// - a source with no plausible track metadata (bluetooth/mac/podcast) → "not compatible"
+// - radio playing but no track recognized yet (neither Shazam nor in-band) → "no song detected"
+// - a compatible source with no track loaded → "nothing playing"
+// - a track identity is known and a lookup completed with found=false → "no lyrics found for",
+//   with the searched title/artist shown below (same track values loadLyrics() searched with).
+const emptyState = computed(() => {
+  const source = activeSource.value;
+  if (!source || source === 'none') {
+    return { message: t('lyrics.notPlaying'), showTrack: false };
+  }
+  if (!isLyricsCompatible(source)) {
+    return { message: t('lyrics.notCompatible'), showTrack: false };
+  }
+  const identity = getTrackIdentity(source, unifiedStore.systemState.metadata);
+  if (!identity.artist || !identity.title) {
+    return {
+      message: source === 'radio' ? t('lyrics.noTrackDetected') : t('lyrics.notPlaying'),
+      showTrack: false
+    };
+  }
+  return { message: t('lyrics.noLyrics'), showTrack: true };
 });
 
 // Escape to close; lock body scroll while open.
@@ -191,7 +228,6 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--space-01);
   text-align: center;
-  padding: 0 var(--space-05);
 }
 
 .lyrics-view-loading-label {
@@ -199,16 +235,18 @@ onUnmounted(() => {
 }
 
 /* Title + artist bright, the connector ("de"/"by"/…) dimmed. Flex gap gives the
-   inter-word spacing so it wraps cleanly on a long title/artist. */
-.lyrics-view-loading-track {
+   inter-word spacing so it wraps cleanly on a long title/artist. Shared by the
+   loading state and the "no lyrics found for" empty state. */
+.lyrics-view-track-line {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 0 var(--space-02);
+  padding-inline: var(--space-05);
   color: var(--color-text-contrast);
 }
 
-.lyrics-view-loading-sep {
+.lyrics-view-track-sep {
   color: var(--color-text-contrast);
 }
 

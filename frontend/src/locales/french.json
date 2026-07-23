@@ -2,8 +2,10 @@
   "lyrics": {
     "title": "Paroles",
     "loading": "Recherche des paroles de",
-    "noLyrics": "Aucune parole trouvée",
-    "notPlaying": "Aucune lecture en cours"
+    "noLyrics": "Aucune paroles trouvées pour",
+    "notPlaying": "Aucune lecture en cours",
+    "notCompatible": "Source audio non compatible avec la recherche de paroles",
+    "noTrackDetected": "Aucune chanson détectée"
   },
   "app": {
     "connectionUnavailable": "Connexion non disponible",

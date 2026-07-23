@@ -2,8 +2,10 @@
   "lyrics": {
     "title": "बोल",
     "loading": "इसके बोल खोजे जा रहे हैं",
-    "noLyrics": "कोई बोल नहीं मिला",
-    "notPlaying": "कुछ नहीं चल रहा"
+    "noLyrics": "इसके बोल नहीं मिले",
+    "notPlaying": "कुछ नहीं चल रहा",
+    "notCompatible": "यह स्रोत बोल खोज के साथ संगत नहीं है",
+    "noTrackDetected": "कोई गाना नहीं मिला"
   },
   "app": {
     "connectionUnavailable": "कनेक्शन उपलब्ध नहीं",

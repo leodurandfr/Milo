@@ -1,11 +1,30 @@
 // frontend/src/stores/lyricsStore.js
 // Lyrics for the now-playing track, fetched on demand when the Lyrics app modal
-// opens (and refetched when the track changes while it's open). Source-agnostic:
-// keys off the unified store's metadata, so it works for any rich-metadata source.
+// opens (and refetched when the track changes while it's open). Keys off the
+// unified store's metadata, so it works for any rich-metadata source — except
+// Radio, which carries its Shazam/in-band recognized track under track_title/
+// track_artist rather than the canonical title/artist (see radioStore.trackInfo;
+// the station itself is a continuous stream, not a track).
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
+
+// Sources that can never carry a song title/artist: mute receivers (no metadata
+// at all) and podcasts (spoken-word episodes, not songs).
+const LYRICS_INCOMPATIBLE_SOURCES = new Set(['bluetooth', 'mac', 'podcast']);
+
+export function isLyricsCompatible(activeSource) {
+  return !!activeSource && activeSource !== 'none' && !LYRICS_INCOMPATIBLE_SOURCES.has(activeSource);
+}
+
+export function getTrackIdentity(activeSource, metadata) {
+  const meta = metadata || {};
+  if (activeSource === 'radio') {
+    return { artist: meta.track_artist || '', title: meta.track_title || '' };
+  }
+  return { artist: meta.artist || '', title: meta.title || '' };
+}
 
 export const useLyricsStore = defineStore('lyrics', () => {
   const loading = ref(false);
@@ -26,9 +45,11 @@ export const useLyricsStore = defineStore('lyrics', () => {
 
   async function loadLyrics() {
     const unifiedStore = useUnifiedAudioStore();
+    const activeSource = unifiedStore.systemState.active_source;
     const meta = unifiedStore.systemState.metadata || {};
-    const artist = (meta.artist || '').trim();
-    const title = (meta.title || '').trim();
+    const identity = getTrackIdentity(activeSource, meta);
+    const artist = identity.artist.trim();
+    const title = identity.title.trim();
 
     if (abortController) {
       abortController.abort();
