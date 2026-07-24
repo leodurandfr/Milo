@@ -62,14 +62,14 @@ class VersionService:
                 },
                 "repo": "mikebrady/shairport-sync",
                 "version_regex": r"(\d+\.\d+(?:\.\d+)?)",
-                # Ceiling pinned 2026-07-24: 5.x delivers no track metadata.
-                # A/B-tested on this unit with the same sender and stream type
-                # ("Realtime"): 4.3.7 emits title/artist/album/PICT on the pipe
-                # and on D-Bus, 5.1 emits only conn/snam/pbeg — the metadata
-                # never reaches shairport-sync itself, so nothing downstream can
-                # recover it. Lift once upstream restores it; a 5.x build also
-                # needs --with-metadata-pipe (see update.py configure_flags).
-                "max_version": "4.3.7"
+                # Floor set 2026-07-25: skip the broken 5.0/5.1 range. Those
+                # releases deliver no AirPlay metadata (A/B-verified on this
+                # unit: 4.3.7 emits title/artist/album/PICT, 5.1 emits nothing).
+                # Upstream fixed it in 5.2-dev (commit 6ba8e310), verified here.
+                # The floor offers nothing below 5.2, then surfaces 5.2 the day
+                # it ships stable — no code change needed. 4.3.7 (the pinned
+                # install baseline) stays "up to date" until then.
+                "min_version": "5.2"
             },
             "multiroom": {
                 "name": "Multiroom",
@@ -373,6 +373,16 @@ class VersionService:
 
                     if installed_version and latest_version:
                         result["update_available"] = compare_versions(installed_version, latest_version)
+
+                        # Version floor (dual of max_version): refuse to offer
+                        # anything below min_version, so a known-bad range
+                        # (shairport-sync 5.0/5.1) is skipped while the next good
+                        # release surfaces automatically once it appears.
+                        # compare_versions(latest, min) is True only when
+                        # latest < min, i.e. still inside the skipped range.
+                        min_version = self.programs[program_key].get("min_version")
+                        if min_version and compare_versions(latest_version, min_version):
+                            result["update_available"] = False
 
             return result
 
