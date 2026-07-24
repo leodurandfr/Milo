@@ -105,6 +105,8 @@ function centerLine(i, behavior) {
   return true;
 }
 
+const scrollKey = computed(() => `${lyricsStore.trackArtist}|||${lyricsStore.trackTitle}`);
+
 // Keep the active line centered: snap instantly to the current line on the
 // first known position (opening mid-song), then follow smoothly as it advances.
 // The very first attempt can land a frame before the just-mounted line refs are
@@ -113,16 +115,24 @@ function centerLine(i, behavior) {
 // stuck behind the loading state indefinitely. Retry across a few frames to
 // catch up almost instantly in that case.
 const hasCenteredOnce = ref(false);
+// Which track the current centering belongs to. A track change does NOT remount
+// this component (the parent keys it on the source), so comparing keys is what
+// makes the next center snap like a fresh open instead of smoothly animating all
+// the way up from the previous track's scroll position. Deliberately separate
+// from hasCenteredOnce, which stays true so the loading overlay doesn't flash
+// back in between tracks.
+const centeredKey = ref(null);
 function attemptCenter(i, behavior, framesLeft = 10) {
   if (centerLine(i, behavior)) {
     hasCenteredOnce.value = true;
+    centeredKey.value = scrollKey.value;
   } else if (framesLeft > 0) {
     requestAnimationFrame(() => attemptCenter(i, behavior, framesLeft - 1));
   }
 }
 watch(activeIndex, (i) => {
   if (i < 0) return;
-  attemptCenter(i, hasCenteredOnce.value ? 'smooth' : 'auto');
+  attemptCenter(i, centeredKey.value === scrollKey.value ? 'smooth' : 'auto');
 }, { immediate: true, flush: 'post' });
 
 // Belt-and-suspenders: never block the view forever on the loading state —
@@ -131,8 +141,6 @@ watch(activeIndex, (i) => {
 timer.setTimeout(() => { hasCenteredOnce.value = true; }, 1500);
 
 const ready = computed(() => !isSynced.value || hasCenteredOnce.value);
-
-const scrollKey = computed(() => `${lyricsStore.trackArtist}|||${lyricsStore.trackTitle}`);
 
 function restoreScroll() {
   if (isSynced.value || !scrollRef.value) return;
