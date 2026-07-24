@@ -20,7 +20,7 @@
        shown or hidden. Resting position tracks the bar's own (measured)
        height: right above it when shown, down near the bottom edge when the
        bar is hidden. Static; it does not animate on its own. -->
-  <SvgIcon name="swipeIndicator" :size="24" class="lyrics-bar-swipe-hint"
+  <SvgIcon name="arrowExtended" :size="24" class="lyrics-bar-swipe-hint"
     :class="{ 'is-bar-visible': isVisible }" :style="{ '--bar-height': `${barHeight}px` }" aria-hidden="true" />
 
   <!-- The bar itself stays mounted (so its height is always measurable for the
@@ -244,8 +244,9 @@ onUnmounted(() => barResizeObserver?.disconnect());
    centered, sitting above the bar (z-index) so it stays visible whether the
    bar is shown or hidden. Static; it does not animate on its own. Resting
    position tracks the bar: hidden → 24/32px off the bottom edge (--space-06,
-   which is already 24px on mobile / 32px on desktop); shown → right at the
-   bar's own (measured) top edge, i.e. above the progress bar / track row. */
+   which is already 24px on mobile / 32px on desktop); shown → just above the
+   bar's own (measured) top edge, nudged down slightly (--space-02) so it
+   sits closer to the progress bar/track row rather than floating above it. */
 .lyrics-bar-swipe-hint {
   position: absolute;
   left: 50%;
@@ -258,7 +259,7 @@ onUnmounted(() => barResizeObserver?.disconnect());
 }
 
 .lyrics-bar-swipe-hint.is-bar-visible {
-  bottom: var(--bar-height, var(--space-06));
+  bottom: calc(var(--bar-height, var(--space-06)) - var(--space-02));
 }
 
 /* PlaybackControls' three buttons (80/90/80px + internal padding) need

@@ -71,7 +71,7 @@ import bluetoothIcon from '@/assets/icons/bluetooth.svg?raw'
 import infraredIcon from '@/assets/icons/infrared.svg?raw'
 import shuffleIcon from '@/assets/icons/shuffle.svg?raw'
 import lyricsIcon from '@/assets/icons/lyrics.svg?raw'
-import swipeIndicatorIcon from '@/assets/icons/swipe-indicator.svg?raw'
+import arrowExtendedIcon from '@/assets/icons/arrow-extended.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -123,7 +123,7 @@ const icons = {
   infrared: infraredIcon,
   shuffle: shuffleIcon,
   lyrics: lyricsIcon,
-  swipeIndicator: swipeIndicatorIcon
+  arrowExtended: arrowExtendedIcon
 }
 
 const props = defineProps({
