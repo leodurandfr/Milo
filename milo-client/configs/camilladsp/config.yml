@@ -8,6 +8,7 @@ devices:
   enable_rate_adjust: true
   target_level: 2048
   adjust_period: 10.0
+  # No silence pause — see the note in the server config; both units must match.
   silence_timeout: 0
   capture:
     type: Alsa
