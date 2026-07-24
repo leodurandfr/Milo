@@ -86,11 +86,11 @@
 <table>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/board.png" width="48"></td>
-    <td><b>Board</b><br>Raspberry Pi 4 or 5 (64-bit)</td>
+    <td><b>Board</b><br><b>Main unit:</b> Raspberry Pi 5 (64-bit)<br><b>Multiroom client:</b> Raspberry Pi 4 (2 GB) or Pi 5</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/audio.png" width="48"></td>
-    <td><b>Audio</b><br>HiFiBerry HAT — Amplifiers (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) or DACs (DAC2 HD, DAC+ Pro)</td>
+    <td><b>Audio</b><br><b>Main unit:</b> HiFiBerry Amp4 Pro (required)<br><b>Multiroom client:</b> any supported HiFiBerry HAT — amplifiers (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) or DACs (DAC2 HD, DAC2 Pro, DAC2 ADC Pro)</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/display.png" width="48"></td>
@@ -130,6 +130,8 @@ After setup:
 ### Multiroom (Additional Speakers)
 
 Flash the same image on additional Raspberry Pis. On first boot, the device detects your existing Milō server on the network and automatically configures itself as a client.
+
+A **Raspberry Pi 4 with 2 GB** is the recommended board for a client: enough CPU headroom to keep the audio thread on schedule, Gigabit Ethernet and dual-band WiFi. Prefer Ethernet — network jitter is what makes rooms drift apart.
 
 ### Manual Installation (Advanced)
 
