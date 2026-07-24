@@ -109,6 +109,28 @@ const timer = useTimer();
 let animationTimeouts = [];
 let inactivityTimer = null;
 
+// A tap inside the modal means the next height change is user-driven, not late-settling
+// content, so it ends the open-height snap window — the hook for controls that only
+// reflow the content (multiroom toggle) instead of pre-announcing a delta.
+let releaseSnapWindow = null;
+
+function armSnapWindowRelease() {
+  disarmSnapWindowRelease();
+  if (!modalOverlay.value) return;
+  releaseSnapWindow = () => {
+    endFirstResize();
+    disarmSnapWindowRelease();
+  };
+  // Capture: fires even if a control stops propagation on its own pointerdown.
+  modalOverlay.value.addEventListener('pointerdown', releaseSnapWindow, { capture: true, passive: true });
+}
+
+function disarmSnapWindowRelease() {
+  if (!releaseSnapWindow) return;
+  modalOverlay.value?.removeEventListener('pointerdown', releaseSnapWindow, { capture: true });
+  releaseSnapWindow = null;
+}
+
 function clearAllTimeouts() {
   animationTimeouts.forEach(timeout => timer.clear(timeout));
   animationTimeouts = [];
@@ -191,6 +213,8 @@ async function openModal() {
   // Force reflow
   modalShell.value.offsetHeight;
 
+  armSnapWindowRelease();
+
   // Overlay enter animation (immediate)
   const overlayTimeout = timer.setTimeout(() => {
     if (!modalOverlay.value) return;
@@ -229,6 +253,7 @@ async function openModal() {
   const finalTimeout = timer.setTimeout(() => {
     isAnimating.value = false;
     endFirstResize();
+    disarmSnapWindowRelease();
     // Add activity listeners and start the inactivity timer
     addActivityListeners();
     resetInactivityTimer();
@@ -240,6 +265,7 @@ async function closeModal() {
   clearAllTimeouts();
   clearInactivityTimer();
   removeActivityListeners();
+  disarmSnapWindowRelease();
 
   isAnimating.value = true;
 
@@ -345,6 +371,7 @@ onUnmounted(() => {
   document.body.style.overflow = '';
   // Pending animation timeouts and the inactivity timer are auto-cleared by useTimer.
   removeActivityListeners();
+  disarmSnapWindowRelease();
 });
 </script>
 
