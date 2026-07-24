@@ -1,6 +1,6 @@
 <!-- AirPlaySource.vue - AirPlay 2 player -->
 <template>
-  <AudioPlayerFull source="airplay" :showControls="false" />
+  <AudioPlayerFull source="airplay" :showControls="false" :showProgress="true" />
 </template>
 
 <script setup>

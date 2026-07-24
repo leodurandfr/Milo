@@ -94,7 +94,9 @@ const props = defineProps({
   },
   // Receiver-controlled sources (showControls=false) that still report
   // position/duration: adds a read-only bar above the source bar. Off by
-  // default — AirPlay/DLNA keep the bare source-bar layout.
+  // default — DLNA keeps the bare source-bar layout. AirPlay opts in even
+  // though it only broadcasts position every 30 s (useSourceProgress
+  // interpolates between corrections).
   showProgress: {
     type: Boolean,
     default: false
