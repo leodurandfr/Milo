@@ -8,11 +8,13 @@ caches results on disk under /var/lib/milo/lyrics/ (negatives included, so a
 track with no lyrics is not re-queried), and returns a normalized shape the
 frontend Lyrics app renders directly.
 
-Fully async (aiohttp, per-lookup session like radio/artwork.py). Best-effort:
-any network/parse failure logs a warning and returns found=False, so the UI
-shows a clean "no lyrics" state rather than an error. The disk cache is a
-disposable derived cache — no schema_version / fail-loud protocol; wipe the
-directory if the shape ever changes.
+Fully async (aiohttp, per-lookup session like radio/artwork.py). A genuine
+no-match returns found=False and is cached as a negative, so it is not
+re-queried. An unreachable LRCLIB is different: it raises LyricsUnavailable and
+caches nothing, so a brief outage isn't frozen into "no lyrics" for the track
+(the route maps it to a 200 + status=error, which the frontend also skips
+caching). The disk cache is a disposable derived cache — no schema_version /
+fail-loud protocol; wipe the directory if the shape ever changes.
 """
 import asyncio
 import hashlib
@@ -44,6 +46,14 @@ _SUFFIX_RE = re.compile(r"\s*-\s.*$")
 # One LRC line = one or more [mm:ss.xx] stamps followed by the lyric text.
 _LRC_LINE_RE = re.compile(r"((?:\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\])+)(.*)")
 _LRC_TS_RE = re.compile(r"\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]")
+
+
+class LyricsUnavailable(Exception):
+    """LRCLIB could not be reached — distinct from a genuine "no lyrics" match.
+
+    Raised so neither the disk cache nor the frontend's per-session cache stores
+    the outage as a real negative; the next lookup retries.
+    """
 
 
 def _empty() -> Dict[str, Any]:
@@ -82,7 +92,7 @@ def _from_record(record: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     synced_raw = record.get("syncedLyrics")
     plain_raw = record.get("plainLyrics")
     synced = _parse_lrc(synced_raw) if synced_raw else None
-    plain = plain_raw or ("\n".join(l["line"] for l in synced) if synced else None)
+    plain = plain_raw or ("\n".join(ln["line"] for ln in synced) if synced else None)
     if not synced and not plain:
         return _empty()
     return {"found": True, "synced": synced, "plain": plain}
@@ -110,7 +120,11 @@ class LyricsService:
         album: Optional[str] = None,
         duration_ms: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Return {found, synced, plain} for a track. Never raises."""
+        """Return {found, synced, plain} for a track.
+
+        Raises LyricsUnavailable if LRCLIB could not be reached; a genuine
+        no-match is a normal found=False result.
+        """
         artist = (artist or "").strip()
         title = (title or "").strip()
         if not artist or not title:
@@ -135,10 +149,10 @@ class LyricsService:
                 return self._mem[key]
             result = await self._lookup(artist, title, album, duration_ms)
             if result is None:
-                # Transient LRCLIB failure — surface an empty result but DON'T
-                # cache it, so reopening the modal can retry. Only a genuine
-                # "no match" (LRCLIB answered) is cached as a negative.
-                return _empty()
+                # Transient LRCLIB failure — cache nothing and let the caller
+                # tell it apart from a genuine "no match" (LRCLIB answered),
+                # which IS cached as a negative.
+                raise LyricsUnavailable(f"{artist} - {title}")
             self._store_mem(key, result)
             await self._write_disk(key, result)
             return result
