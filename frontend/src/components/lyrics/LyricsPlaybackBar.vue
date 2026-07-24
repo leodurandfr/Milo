@@ -16,13 +16,19 @@
 <template>
   <div ref="dragZone" class="lyrics-bar-drag-zone"></div>
 
-  <!-- Persistent swipe affordance — stays mounted (and static, no self-animation)
-       whether the bar itself is shown or hidden, so there's always something at
-       the bottom edge hinting a swipe is possible. -->
-  <SvgIcon name="swipeIndicator" :size="24" class="lyrics-bar-swipe-hint" aria-hidden="true" />
+  <!-- Persistent swipe affordance — stays mounted whether the bar itself is
+       shown or hidden. Resting position tracks the bar's own (measured)
+       height: right above it when shown, down near the bottom edge when the
+       bar is hidden. Static; it does not animate on its own. -->
+  <SvgIcon name="swipeIndicator" :size="24" class="lyrics-bar-swipe-hint"
+    :class="{ 'is-bar-visible': isVisible }" :style="{ '--bar-height': `${barHeight}px` }" aria-hidden="true" />
 
-  <Transition name="lyrics-bar">
-    <div v-if="isVisible" ref="panel" class="lyrics-bar">
+  <!-- The bar itself stays mounted (so its height is always measurable for the
+       swipe hint above) and only slides/fades via a plain class toggle — no
+       spring here. The inner content unmounts on hide so its children replay
+       their spring-in stagger every time the bar is swiped back up. -->
+  <div ref="panel" class="lyrics-bar" :class="{ 'is-hidden': !isVisible }">
+    <div v-if="isVisible" class="lyrics-bar-content">
       <div class="lyrics-bar-track">
         <h2 class="heading-4 lyrics-bar-title">{{ identity.title }}</h2>
         <p class="text-body lyrics-bar-artist">{{ identity.artist }}</p>
@@ -39,11 +45,11 @@
           @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
       </div>
     </div>
-  </Transition>
+  </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useCdStore } from '@/stores/cdStore';
 import { getTrackIdentity } from '@/stores/lyricsStore';
@@ -122,6 +128,21 @@ useSwipeVisibility({
   onShow: () => { isVisible.value = true; },
   onHide: () => { isVisible.value = false; },
 });
+
+// The bar's own height (varies by tier — e.g. "full" is taller than
+// "name-only") so the swipe hint can rest exactly at its top edge when
+// shown. The bar stays mounted (never v-if'd) specifically so this stays
+// measurable even while hidden/translated off-screen.
+const barHeight = ref(0);
+let barResizeObserver = null;
+onMounted(() => {
+  if (!panel.value) return;
+  barResizeObserver = new ResizeObserver(() => {
+    barHeight.value = panel.value?.offsetHeight || 0;
+  });
+  barResizeObserver.observe(panel.value);
+});
+onUnmounted(() => barResizeObserver?.disconnect());
 </script>
 
 <style scoped>
@@ -147,21 +168,21 @@ useSwipeVisibility({
   gap: var(--space-06);
   padding: var(--space-04) var(--space-06);
   padding-bottom: max(var(--space-04), env(safe-area-inset-bottom, 0px));
-}
-
-/* The bar itself just slides/fades — no spring here. Its children (below)
-   spring in individually once mounted, same stagger technique as
-   AudioPlayerFull's track-info/controls-section entrance. */
-.lyrics-bar-enter-active {
+  /* Stays mounted always (see script) — just slides/fades via this class
+     toggle, no spring here. Its children (below) spring in individually
+     once mounted, same stagger technique as AudioPlayerFull's
+     track-info/controls-section entrance. */
   transition: transform var(--transition-normal), opacity var(--transition-normal);
 }
-.lyrics-bar-leave-active {
-  transition: transform var(--transition-fast-leave), opacity var(--transition-fast-leave);
-}
-.lyrics-bar-enter-from,
-.lyrics-bar-leave-to {
+
+.lyrics-bar.is-hidden {
   transform: translateY(100%);
   opacity: 0;
+  pointer-events: none;
+}
+
+.lyrics-bar-content {
+  display: contents;
 }
 
 @keyframes lyrics-bar-child-transform {
@@ -220,17 +241,24 @@ useSwipeVisibility({
 }
 
 /* Persistent swipe affordance, independent of the bar's own mount state —
-   pinned at the very bottom edge, centered, sitting above the bar (z-index)
-   so it stays visible whether the bar is shown or hidden. Static; it does
-   not animate on its own. */
+   centered, sitting above the bar (z-index) so it stays visible whether the
+   bar is shown or hidden. Static; it does not animate on its own. Resting
+   position tracks the bar: hidden → 24/32px off the bottom edge (--space-06,
+   which is already 24px on mobile / 32px on desktop); shown → right at the
+   bar's own (measured) top edge, i.e. above the progress bar / track row. */
 .lyrics-bar-swipe-hint {
   position: absolute;
   left: 50%;
-  bottom: 0;
+  bottom: var(--space-06);
   transform: translateX(-50%);
   z-index: 4;
   color: var(--color-text-contrast);
   pointer-events: none;
+  transition: bottom var(--transition-normal);
+}
+
+.lyrics-bar-swipe-hint.is-bar-visible {
+  bottom: var(--bar-height, var(--space-06));
 }
 
 /* PlaybackControls' three buttons (80/90/80px + internal padding) need
