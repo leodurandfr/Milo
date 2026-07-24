@@ -392,19 +392,39 @@ class TestMaxVersionCeiling:
         assert result["tag_name"] == "v0.7.1"
 
     @pytest.mark.asyncio
-    async def test_no_program_pins_a_ceiling_by_default(self, version_service):
-        """Default config: no program pins max_version, so nothing is clamped.
+    async def test_shairport_sync_is_the_only_pinned_program(self, version_service):
+        """Default config: shairport-sync is pinned, nothing else is.
 
-        go-librespot included (pin lifted 2026-05-25) — an upstream release above
-        any past ceiling is now offered as-is.
+        shairport-sync is capped at 4.3.7 (2026-07-24) because 5.x delivers no
+        track metadata. go-librespot's own pin was lifted 2026-05-25, so an
+        upstream release above any past ceiling is offered as-is.
         """
-        assert all(
-            "max_version" not in cfg for cfg in version_service.programs.values()
-        )
+        pinned = {
+            key: cfg["max_version"]
+            for key, cfg in version_service.programs.items()
+            if "max_version" in cfg
+        }
+        assert pinned == {"shairport-sync": "4.3.7"}
+
         with _patch_github_release("v99.0.0"):
             result = await version_service.get_latest_github_version("go-librespot")
 
         assert result["version"] == "99.0.0"
+
+    @pytest.mark.asyncio
+    async def test_cap_keeps_the_repo_tag_convention(self, version_service):
+        """The clamped tag follows the upstream tag's own prefix convention.
+
+        shairport-sync tags carry no leading "v" ("4.3.7", "5.1"), so hardcoding
+        "v{max_version}" would point the source download at a tag that does not
+        exist.
+        """
+        with _patch_github_release("5.1"):
+            result = await version_service.get_latest_github_version("shairport-sync")
+
+        assert result["version"] == "4.3.7"
+        assert result["tag_name"] == "4.3.7"
+        assert result["html_url"].endswith("/releases/tag/4.3.7")
 
 
 class TestGetProgramFullStatus:

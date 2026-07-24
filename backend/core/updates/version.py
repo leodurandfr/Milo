@@ -61,7 +61,15 @@ class VersionService:
                     "main": ["sh", "-c", "cat /var/lib/milo/shairport-sync-version 2>/dev/null || shairport-sync --version 2>&1"]
                 },
                 "repo": "mikebrady/shairport-sync",
-                "version_regex": r"(\d+\.\d+(?:\.\d+)?)"
+                "version_regex": r"(\d+\.\d+(?:\.\d+)?)",
+                # Ceiling pinned 2026-07-24: 5.x delivers no track metadata.
+                # A/B-tested on this unit with the same sender and stream type
+                # ("Realtime"): 4.3.7 emits title/artist/album/PICT on the pipe
+                # and on D-Bus, 5.1 emits only conn/snam/pbeg — the metadata
+                # never reaches shairport-sync itself, so nothing downstream can
+                # recover it. Lift once upstream restores it; a 5.x build also
+                # needs --with-metadata-pipe (see update.py configure_flags).
+                "max_version": "4.3.7"
             },
             "multiroom": {
                 "name": "Multiroom",
@@ -264,9 +272,16 @@ class VersionService:
                                 f"{program_key}: upstream {result['version']} exceeds pinned "
                                 f"ceiling {max_version}; offering {max_version} instead"
                             )
+                            # Rebuild the tag in the repo's own convention — some tag
+                            # "v1.2.3" (go-librespot, snapcast), others "1.2.3"
+                            # (shairport-sync). Guessing wrong makes the ceiling point
+                            # the source download at a tag that doesn't exist.
+                            prefix = "v" if result["tag_name"].startswith("v") else ""
                             result["version"] = max_version
-                            result["tag_name"] = f"v{max_version}"
-                            result["html_url"] = f"https://github.com/{repo}/releases/tag/v{max_version}"
+                            result["tag_name"] = f"{prefix}{max_version}"
+                            result["html_url"] = (
+                                f"https://github.com/{repo}/releases/tag/{prefix}{max_version}"
+                            )
                             result["published_at"] = None
 
                         self._github_cache[cache_key] = result
