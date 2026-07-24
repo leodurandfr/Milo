@@ -8,10 +8,11 @@ devices:
   enable_rate_adjust: true
   target_level: 2048
   adjust_period: 10.0
-  # Pause the pipeline (and the I2S/DMA stream to the DAC) after 10 s of
-  # silence; resumes on signal. Threshold well below the noise floor.
-  silence_threshold: -90
-  silence_timeout: 10
+  # No silence pause: pausing stops the I2S bit clock, so the PCM512x soft-mutes
+  # and ramps back in on the first note after resume, and the rate-adjust loop
+  # has to re-converge — on the master's own speaker, in multiroom. Not worth
+  # the ~1.3% core it saves at idle. Keep at 0, same as milo-client.
+  silence_timeout: 0
   capture:
     type: Alsa
     channels: 2
