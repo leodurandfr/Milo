@@ -108,6 +108,12 @@ export const useLyricsStore = defineStore('lyrics', () => {
         duration: meta.duration || 0,
       },
       signal,
+      // An unreachable LRCLIB comes back as a 200 with status=error; checkStatus
+      // turns it into ok:false so it's logged and, crucially, not cached below
+      // as a genuine "no lyrics" for this track. A warning, not an error: the
+      // upstream service being briefly down is not an appliance fault.
+      checkStatus: true,
+      logLevel: 'warn',
     });
 
     // A newer loadLyrics() aborted this request → leave its state untouched.
@@ -115,8 +121,9 @@ export const useLyricsStore = defineStore('lyrics', () => {
 
     loading.value = false;
 
-    // On a real failure the backend already fails open (found:false); leaving
-    // found=false here surfaces the same clean "no lyrics" empty state.
+    // On a failure (LRCLIB down, backend unreachable) found stays false, so the
+    // UI shows the same clean "no lyrics" empty state — but nothing is cached,
+    // so reopening the view retries instead of freezing the outage for the session.
     if (result.ok && result.data?.status === 'success') {
       found.value = !!result.data.found;
       synced.value = result.data.synced || null;
