@@ -61,15 +61,7 @@ class VersionService:
                     "main": ["sh", "-c", "cat /var/lib/milo/shairport-sync-version 2>/dev/null || shairport-sync --version 2>&1"]
                 },
                 "repo": "mikebrady/shairport-sync",
-                "version_regex": r"(\d+\.\d+(?:\.\d+)?)",
-                # Floor set 2026-07-25: skip the broken 5.0/5.1 range. Those
-                # releases deliver no AirPlay metadata (A/B-verified on this
-                # unit: 4.3.7 emits title/artist/album/PICT, 5.1 emits nothing).
-                # Upstream fixed it in 5.2-dev (commit 6ba8e310), verified here.
-                # The floor offers nothing below 5.2, then surfaces 5.2 the day
-                # it ships stable — no code change needed. 4.3.7 (the pinned
-                # install baseline) stays "up to date" until then.
-                "min_version": "5.2"
+                "version_regex": r"(\d+\.\d+(?:\.\d+)?)"
             },
             "multiroom": {
                 "name": "Multiroom",
@@ -373,16 +365,6 @@ class VersionService:
 
                     if installed_version and latest_version:
                         result["update_available"] = compare_versions(installed_version, latest_version)
-
-                        # Version floor (dual of max_version): refuse to offer
-                        # anything below min_version, so a known-bad range
-                        # (shairport-sync 5.0/5.1) is skipped while the next good
-                        # release surfaces automatically once it appears.
-                        # compare_versions(latest, min) is True only when
-                        # latest < min, i.e. still inside the skipped range.
-                        min_version = self.programs[program_key].get("min_version")
-                        if min_version and compare_versions(latest_version, min_version):
-                            result["update_available"] = False
 
             return result
 
