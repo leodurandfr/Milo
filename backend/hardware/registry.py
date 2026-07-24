@@ -77,8 +77,19 @@ AUDIO_CARDS = {
         "category": "dac",
     },
     "hifiberry_dacplus_pro": {
-        "label": "HiFiBerry DAC+ Pro",
-        "overlay": "hifiberry-dacplus",
+        "label": "HiFiBerry DAC2 Pro / DAC+ Pro",
+        # Same board across both generations. Kernel >= 6.1.77 split the old
+        # "hifiberry-dacplus" overlay into -std/-pro because clock auto-detection
+        # misfires on the Pi 5; the plain name is a deprecated alias.
+        "overlay": "hifiberry-dacplus-pro",
+        "card_name": "sndrpihifiberry",
+        "alsa_control": "Digital",
+        "brand": "HiFiBerry",
+        "category": "dac",
+    },
+    "hifiberry_dac2adcpro": {
+        "label": "HiFiBerry DAC2 ADC Pro",
+        "overlay": "hifiberry-dacplusadcpro",
         "card_name": "sndrpihifiberry",
         "alsa_control": "Digital",
         "brand": "HiFiBerry",
