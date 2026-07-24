@@ -44,16 +44,20 @@
         <p class="text-body lyrics-bar-artist">{{ identity.artist }}</p>
       </div>
 
-      <div v-if="tier !== 'name-only'" class="lyrics-bar-progress" :class="{ 'is-compact': tier === 'metadata' }">
+      <div v-if="tier !== 'name-only'" class="lyrics-bar-progress">
         <ConnectProgressBar :currentPosition="currentPosition" :duration="duration"
           :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
           :interactive="tier === 'full'" @seek="seekTo" />
       </div>
 
-      <!-- Same transport as AudioPlayer's desktop sidebar (music library's
-           .ml-transport-main): ghost IconButtons, no pill behind them. -->
-      <div v-if="tier === 'full'" class="lyrics-bar-controls">
-        <div class="playback-controls">
+      <!-- Right column: the transport when the source has one — same as
+           AudioPlayer's desktop sidebar (music library's .ml-transport-main):
+           ghost IconButtons, no pill behind them. On the "metadata" tier it
+           stays as an empty column of the same width, so the progress bar
+           keeps the exact same centred 44% share whether the transport is
+           there or not. -->
+      <div v-if="tier !== 'name-only'" class="lyrics-bar-controls" :class="{ 'is-spacer': tier !== 'full' }">
+        <div v-if="tier === 'full'" class="playback-controls">
           <IconButton icon="previous" variant="ghost" size="small" @click="previousTrack" />
           <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
             :loading="isBuffering" @click="togglePlayPause" />
@@ -295,11 +299,6 @@ onUnmounted(() => barResizeObserver?.disconnect());
   min-width: 0;
 }
 
-.lyrics-bar-progress.is-compact {
-  flex: 0 1 360px;
-  margin-left: auto;
-}
-
 /* Persistent swipe affordance, independent of the bar's own mount state —
    centered, stacked over the bar (z-index) so it stays visible whether the
    bar is shown or hidden. Resting position tracks the bar: hidden → 24/32px
@@ -421,16 +420,20 @@ onUnmounted(() => barResizeObserver?.disconnect());
     flex-basis: 100%;
   }
 
-  .lyrics-bar-progress,
-  .lyrics-bar-progress.is-compact {
+  .lyrics-bar-progress {
     flex-basis: 100%;
-    margin-left: 0;
   }
 
   .lyrics-bar-controls {
     flex-basis: 100%;
     display: flex;
     justify-content: center;
+  }
+
+  /* Stacked rows are already full-width and centred, so the spacer column has
+     no work left to do — keeping it would only add an empty row + row gap. */
+  .lyrics-bar-controls.is-spacer {
+    display: none;
   }
 }
 </style>
