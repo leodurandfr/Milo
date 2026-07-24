@@ -44,12 +44,14 @@
 
           <div v-if="progress" class="progress-section stagger-4"
             :class="{ 'progress-leave-converge': progressConverges }">
-            <ConnectProgressBar
+            <ProgressBar
               :current-position="progress.currentPosition"
               :duration="progress.duration"
               :progress-percentage="progress.progressPercentage"
               :is-ready="progress.isReady"
-              :interactive="false" />
+              :interactive="false"
+              variant="dark"
+              animate-in />
           </div>
         </div>
       </div>
@@ -70,7 +72,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
-import ConnectProgressBar from './ConnectProgressBar.vue';
+import ProgressBar from './ProgressBar.vue';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
 
@@ -480,18 +482,6 @@ function handleClose() {
 
 .progress-section {
   padding-bottom: var(--space-06);
-}
-
-.progress-section :deep(.progress) {
-  background-color: var(--color-text-contrast);
-}
-
-.progress-section :deep(.progress-container) {
-  background-color: var(--color-background-neutral-12);
-}
-
-.progress-section :deep(.time) {
-  color: var(--color-text-contrast-50);
 }
 
 /* === SIMPLE MODE (bluetooth, mac) === */

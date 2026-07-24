@@ -72,8 +72,8 @@
         <!-- Progress bar (seekable) -->
         <template #progress>
           <div @click.stop>
-            <ProgressBar :currentPosition="currentPositionSec" :duration="currentDurationSec"
-              :progressPercentage="livePercent" @seek="handleSeek" />
+            <ProgressBar :currentPosition="positionMs" :duration="durationMs"
+              :progressPercentage="livePercent" variant="dark" @seek="seekTo" />
           </div>
         </template>
 
@@ -125,7 +125,7 @@ import QueueView from './QueueView.vue'
 import GenreView from './GenreView.vue'
 import PodcastDetails from './PodcastDetails.vue'
 import EpisodeDetails from './EpisodeDetails.vue'
-import ProgressBar from './ProgressBar.vue'
+import ProgressBar from '@/components/audio/ProgressBar.vue'
 
 const podcastStore = usePodcastStore()
 const unifiedStore = useUnifiedAudioStore()
@@ -162,10 +162,6 @@ const {
   progressPercentage: livePercent,
   seekTo,
 } = useSourceProgress('podcast')
-
-// ProgressBar + seekBackward/seekForward operate in seconds.
-const currentPositionSec = computed(() => Math.floor((positionMs.value || 0) / 1000))
-const currentDurationSec = computed(() => Math.floor((durationMs.value || 0) / 1000))
 
 // Navigation params (stored separately since composable handles view state)
 const selectedPodcastUuid = computed(() => currentParams.value.podcastUuid || '')
@@ -334,11 +330,6 @@ async function seekBackward() {
 
 async function seekForward() {
   await seekTo(Math.min(durationMs.value, positionMs.value + 30000))
-}
-
-// ProgressBar emits the target position in seconds.
-async function handleSeek(positionSec) {
-  await seekTo(positionSec * 1000)
 }
 
 async function handleSpeedChange(speedValue) {

@@ -6,8 +6,8 @@
                      pause/resume/next/prev commands AudioPlayerFull uses.
        - "metadata" (airplay, dlna, qobuz): name/artist + a read-only progress
                      bar (these are receiver-controlled — no transport surface
-                     on the wire; ConnectProgressBar already self-hides when a
-                     source reports no duration, e.g. Qobuz).
+                     on the wire; ProgressBar already self-hides when a source
+                     reports no duration, e.g. Qobuz).
        - "name-only" (radio): name/artist only — no seek, no track transport.
      Always visible by default; swipes down to hide, swipes up from the bottom
      edge to show again (useSwipeVisibility — the same gesture the Dock would
@@ -45,9 +45,9 @@
       </div>
 
       <div v-if="tier !== 'name-only'" class="lyrics-bar-progress">
-        <ConnectProgressBar :currentPosition="currentPosition" :duration="duration"
+        <ProgressBar :currentPosition="currentPosition" :duration="duration"
           :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-          :interactive="tier === 'full'" @seek="seekTo" />
+          :interactive="tier === 'full'" variant="dark" animateIn @seek="seekTo" />
       </div>
 
       <!-- Right column: the transport when the source has one — same as
@@ -77,7 +77,7 @@ import { useI18n } from '@/services/i18n';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useSwipeVisibility } from '@/composables/useSwipeVisibility';
 
-import ConnectProgressBar from '@/components/audio/ConnectProgressBar.vue';
+import ProgressBar from '@/components/audio/ProgressBar.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
@@ -370,19 +370,6 @@ onUnmounted(() => barResizeObserver?.disconnect());
   display: flex;
   align-items: center;
   gap: var(--space-02);
-}
-
-/* Reskin the shared components' light-surface defaults for this always-dark
-   bar — same -contrast token set the rest of LyricsView uses over its
-   blurred artwork backdrop. */
-.lyrics-bar-progress :deep(.time) {
-  color: var(--color-text-contrast-50);
-}
-.lyrics-bar-progress :deep(.progress-container) {
-  background-color: var(--color-background-neutral-12);
-}
-.lyrics-bar-progress :deep(.progress) {
-  background-color: var(--color-text-contrast);
 }
 
 /* Transport sizing copied verbatim from AudioPlayer's desktop sidebar rules
