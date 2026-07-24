@@ -6,7 +6,8 @@
     "noLyrics": "No lyrics found for",
     "notPlaying": "Nothing playing",
     "notCompatible": "Source not compatible with lyrics search",
-    "noTrackDetected": "No song detected"
+    "noTrackDetected": "No song detected",
+    "playbackControls": "Playback controls"
   },
   "app": {
     "connectionUnavailable": "Connection unavailable",

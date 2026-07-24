@@ -6,7 +6,8 @@
     "noLyrics": "Kein Songtext gefunden für",
     "notPlaying": "Nichts wird abgespielt",
     "notCompatible": "Quelle nicht mit der Songtextsuche kompatibel",
-    "noTrackDetected": "Kein Titel erkannt"
+    "noTrackDetected": "Kein Titel erkannt",
+    "playbackControls": "Wiedergabesteuerung"
   },
   "app": {
     "connectionUnavailable": "Verbindung nicht verfügbar",

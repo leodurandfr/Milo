@@ -6,7 +6,8 @@
     "noLyrics": "इसके बोल नहीं मिले",
     "notPlaying": "कुछ नहीं चल रहा",
     "notCompatible": "यह स्रोत बोल खोज के साथ संगत नहीं है",
-    "noTrackDetected": "कोई गाना नहीं मिला"
+    "noTrackDetected": "कोई गाना नहीं मिला",
+    "playbackControls": "प्लेबैक नियंत्रण"
   },
   "app": {
     "connectionUnavailable": "कनेक्शन उपलब्ध नहीं",
