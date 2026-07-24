@@ -201,16 +201,19 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 - Audio output: ALSA (milo_airplay), `output_format = "S32_LE"` — see below
 - Visible name: "Milō"
 
-**Version pinned to 4.3.7 — do not upgrade to 5.x.** Version 5 stops delivering
-track metadata: with the same sender and the same `"Realtime"` stream, 4.3.7
-emits title/artist/album/PICT on the metadata pipe and on D-Bus while 5.1 emits
-only `conn`/`snam`/`pbeg`, so the AirPlay player falls back to the
-`AudioSourceStatus` card. The metadata never reaches shairport-sync itself
-(its own D-Bus `Metadata` property is empty), so no change on Milō's side can
-recover it. The pin lives in **two places that must stay in sync**: the clone
-tag in [install/airplay.sh](../install/airplay.sh) and the `max_version`
-ceiling in [version.py](../backend/core/updates/version.py), which stops the
-update flow ever offering 5.x in the UI.
+**Pinned to 4.3.7, skipping 5.0/5.1.** Those releases stop delivering track
+metadata: with the same sender and the same `"Realtime"` stream, 4.3.7 emits
+title/artist/album/PICT on the metadata pipe and on D-Bus while 5.1 emits only
+`conn`/`snam`/`pbeg` (its own D-Bus `Metadata` property is empty — the data
+never reaches shairport-sync, so nothing on Milō's side can recover it), and the
+AirPlay player falls back to the `AudioSourceStatus` card. Upstream fixed this in
+5.2 (it had experimentally switched to a plist metadata source that wasn't wired
+into the pipe/D-Bus path). So the install baseline is the tag `4.3.7`
+([install/airplay.sh](../install/airplay.sh)) and the update flow carries a
+`min_version` floor of `5.2` in [version.py](../backend/core/updates/version.py):
+it offers nothing in the broken range and surfaces 5.2 automatically once it
+ships stable — no code change needed. Bump the install tag to 5.2 as well when
+fresh installs should start there rather than update up.
 
 **Audio format.** `output_format = "S32_LE"` matches what CamillaDSP captures,
 so the `plug` in front of `milo_airplay` no longer truncates to 16 bits. The
