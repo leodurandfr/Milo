@@ -23,6 +23,19 @@ from backend.shared.decorators import handle_errors
 # Sample rate for RTP frame to millisecond conversion
 AIRPLAY_SAMPLE_RATE = 44100
 
+# How often the aged position is pushed out while a track plays. shairport-sync
+# emits `prgr` about once per track, not continuously, so the frame snapshot has
+# to be aged here: left alone, system_state.metadata["position"] stays frozen at
+# whatever the track started on, and every client that connects mid-track (a page
+# refresh, a second browser) seeds its progress bar from that stale value and
+# restarts from it. Live clients interpolate locally, so this interval only bounds
+# how stale a *new* connection's initial_state can be.
+POSITION_TICK_SECONDS = 10.0
+
+# A snapshot further than this from the interpolated position is a real jump
+# (track change, seek) rather than routine confirmation.
+POSITION_JUMP_TOLERANCE_MS = 2000
+
 
 class AirPlaySource(BaseAudioSource):
     """AirPlay 2 source (Family B — passive player): external control, rich metadata."""
@@ -58,11 +71,13 @@ class AirPlaySource(BaseAudioSource):
         self._artwork_mime: Optional[str] = None
         self._artwork_hash: Optional[str] = None
 
-        # Progress tracking (RTP frames)
-        self._progress_start = 0
-        self._progress_current = 0
-        self._progress_end = 0
-        self._last_progress_broadcast: float = 0.0
+        # Progress tracking: `prgr` gives a position snapshot in RTP frames; the
+        # elapsed time since it arrived is what makes the position current.
+        # _position_at is None while paused/stopped, which freezes the ageing.
+        self._position_ms = 0
+        self._duration_ms = 0
+        self._position_at: Optional[float] = None
+        self._position_task: Optional[asyncio.Task] = None
 
         # Auto-stop (uses BaseAudioSource timer infrastructure)
         self.auto_stop_enabled = True
@@ -72,6 +87,10 @@ class AirPlaySource(BaseAudioSource):
         super()._reset_playback_state()
         self._device_connected = False
         self._client_name = None
+        self._cancel_position_ticker()
+        self._position_ms = 0
+        self._duration_ms = 0
+        self._position_at = None
         self._clear_artwork()
 
     async def _do_start(self) -> bool:
@@ -98,6 +117,7 @@ class AirPlaySource(BaseAudioSource):
                 on_connection=self._on_connection,
             )
             await self._metadata_reader.start()
+            self._start_position_ticker()
 
             self._update_connection_state()
             return True
@@ -133,6 +153,7 @@ class AirPlaySource(BaseAudioSource):
             on_connection=self._on_connection,
         )
         await self._metadata_reader.start()
+        self._start_position_ticker()
 
         self._update_connection_state()
         return True
@@ -169,17 +190,23 @@ class AirPlaySource(BaseAudioSource):
         if state == "play":
             self._is_playing = True
             self._device_connected = True
+            # Resume ageing from wherever the frozen snapshot left off.
+            if self._position_at is None and self._duration_ms > 0:
+                self._position_at = asyncio.get_running_loop().time()
             self._cancel_pause_timer()
         elif state == "pause":
+            self._freeze_position()
             self._is_playing = False
             self._start_pause_timer()
         elif state == "stop":
+            self._freeze_position()
             self._is_playing = False
             # Device may still be connected — don't reset _device_connected.
             # Start auto-stop timer as session idle timeout.
             self._start_pause_timer()
 
         self._metadata["is_playing"] = self._is_playing
+        self._update_progress_metadata()
         self._update_connection_state()
 
     @handle_errors(default=None)
@@ -258,35 +285,67 @@ class AirPlaySource(BaseAudioSource):
     async def _on_progress(self, start: int, current: int, end: int) -> None:
         """Handle progress update from pipe reader (RTP frames at 44100Hz).
 
-        Updates internal metadata every tick but only broadcasts position
-        every 30s. Frontend interpolates locally via useSourceProgress.
+        Takes a fresh snapshot (a new track, a seek) and publishes it at once —
+        it can be an arbitrarily large jump, which local interpolation on the
+        clients cannot guess.
         """
-        self._progress_start = start
-        self._progress_current = current
-        self._progress_end = end
+        if end <= start:
+            return
+
+        predicted = self._current_position_ms()
+        self._duration_ms = int((end - start) / AIRPLAY_SAMPLE_RATE * 1000)
+        self._position_ms = max(0, int((current - start) / AIRPLAY_SAMPLE_RATE * 1000))
+        self._position_at = asyncio.get_running_loop().time() if self._is_playing else None
         self._update_progress_metadata()
 
-        # Rate-limit position broadcasts (frontend interpolates locally)
-        now = asyncio.get_running_loop().time()
-        if now - self._last_progress_broadcast >= 30.0:
-            self._last_progress_broadcast = now
-            self.broadcast_position_update(
-                self._metadata.get("position", 0),
-                self._metadata.get("duration", 0),
-            )
+        # Only a jump (new track, seek) is worth an immediate broadcast — the
+        # clients' local interpolation cannot guess it. A snapshot that merely
+        # confirms the interpolation is left to the ticker, so a sender that
+        # emits `prgr` often can't flood every connected client.
+        if abs(self._position_ms - predicted) > POSITION_JUMP_TOLERANCE_MS:
+            self.broadcast_position_update(self._position_ms, self._duration_ms)
 
     # === Helpers ===
 
-    def _update_progress_metadata(self) -> None:
-        """Convert RTP frame positions to milliseconds and update metadata."""
-        if self._progress_end > self._progress_start:
-            duration_frames = self._progress_end - self._progress_start
-            position_frames = self._progress_current - self._progress_start
+    def _freeze_position(self) -> None:
+        """Stop ageing the position (pause/stop), keeping where it got to."""
+        self._position_ms = self._current_position_ms()
+        self._position_at = None
 
-            self._metadata["duration"] = int(duration_frames / AIRPLAY_SAMPLE_RATE * 1000)
-            self._metadata["position"] = max(
-                0, int(position_frames / AIRPLAY_SAMPLE_RATE * 1000)
-            )
+    def _current_position_ms(self) -> int:
+        """Snapshot position aged by the time elapsed since it was taken."""
+        if self._position_at is None:
+            return self._position_ms
+        elapsed = (asyncio.get_running_loop().time() - self._position_at) * 1000
+        return min(self._position_ms + int(elapsed), self._duration_ms)
+
+    def _update_progress_metadata(self) -> None:
+        """Write the current position/duration into the metadata dict."""
+        if self._duration_ms <= 0:
+            return
+        self._metadata["duration"] = self._duration_ms
+        self._metadata["position"] = self._current_position_ms()
+
+    def _start_position_ticker(self) -> None:
+        """Keep the broadcast position (and thus system_state.metadata) aged."""
+        self._cancel_position_ticker()
+
+        async def tick():
+            while True:
+                await asyncio.sleep(POSITION_TICK_SECONDS)
+                if not self._is_playing or self._duration_ms <= 0:
+                    continue
+                self._update_progress_metadata()
+                self.broadcast_position_update(
+                    self._metadata["position"], self._duration_ms
+                )
+
+        self._position_task = asyncio.create_task(tick())
+
+    def _cancel_position_ticker(self) -> None:
+        if self._position_task:
+            self._position_task.cancel()
+            self._position_task = None
 
     async def _ensure_metadata_pipe(self) -> None:
         """Ensure metadata pipe exists."""
