@@ -60,8 +60,8 @@
 
           <template #progress>
             <div @click.stop>
-              <ProgressBar :current-position="currentPositionSec" :duration="currentDurationSec"
-                :progress-percentage="livePercent" @seek="handleSeek" />
+              <ProgressBar :current-position="positionMs" :duration="durationMs"
+                :progress-percentage="livePercent" variant="dark" @seek="seekTo" />
             </div>
           </template>
 
@@ -113,7 +113,7 @@ import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
-import ProgressBar from './ProgressBar.vue';
+import ProgressBar from '@/components/audio/ProgressBar.vue';
 
 import LibraryHome from './views/LibraryHome.vue';
 import AlbumView from './views/AlbumView.vue';
@@ -145,11 +145,9 @@ const { isPlaying, isBuffering, shouldShowPlayer } =
     },
   });
 
-// Live position with local interpolation (ms), rendered in seconds.
+// Live position with local interpolation (ms).
 const { duration: durationMs, currentPosition: positionMs, progressPercentage: livePercent, seekTo } =
   useSourceProgress('music_library');
-const currentPositionSec = computed(() => Math.floor((positionMs.value || 0) / 1000));
-const currentDurationSec = computed(() => Math.floor((durationMs.value || 0) / 1000));
 
 // === Player display (sticky through fade-out) ===
 const playerTitle = computed(() => store.displayTrack?.title || '');
@@ -245,9 +243,6 @@ function togglePlayPause() {
 }
 // Mirrors backend's 'next' no-op on the queue's last track.
 const hasNext = computed(() => store.queueIndex >= 0 && store.queueIndex < store.queue.length - 1);
-function handleSeek(positionSec) {
-  seekTo(positionSec * 1000);
-}
 </script>
 
 <style scoped>

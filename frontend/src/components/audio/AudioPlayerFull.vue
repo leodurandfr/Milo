@@ -36,9 +36,9 @@
             <div class="controls-section">
               <template v-if="showControls">
                 <div class="progress-wrapper">
-                  <ConnectProgressBar :currentPosition="currentPosition" :duration="duration"
+                  <ProgressBar :currentPosition="currentPosition" :duration="duration"
                     :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-                    :interactive="true" @seek="seekTo" />
+                    :interactive="true" animateIn @seek="seekTo" />
                 </div>
                 <div class="controls-wrapper">
                   <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering" :hasNext="hasNext"
@@ -47,9 +47,9 @@
               </template>
               <template v-else>
                 <div v-if="showProgress" class="progress-wrapper">
-                  <ConnectProgressBar :currentPosition="currentPosition" :duration="duration"
+                  <ProgressBar :currentPosition="currentPosition" :duration="duration"
                     :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-                    :interactive="false" />
+                    :interactive="false" animateIn />
                 </div>
                 <div v-if="clientName" class="source-bar">
                   <AppIcon :name="source" :size="40" />
@@ -79,7 +79,7 @@ import { useScreensaverRevealNonce } from '@/composables/useScreensaverReveal';
 import { useI18n } from '@/services/i18n';
 
 import PlaybackControls from './PlaybackControls.vue';
-import ConnectProgressBar from './ConnectProgressBar.vue';
+import ProgressBar from './ProgressBar.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import cdPlaceholder from '@/assets/cd/cd-placeholder.jpg';
 
