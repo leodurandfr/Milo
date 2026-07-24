@@ -42,7 +42,7 @@ install_qobuz_proxy() {
     sudo "$MILO_DATA_DIR/qobuz/venv/bin/pip" install \
         "qobuz-proxy[local] @ git+https://github.com/leolobato/qobuz-proxy@v${QOBUZ_PROXY_VERSION}"
 
-    wire_qobuz_proxy_volume_policy
+    patch_qobuz_proxy
     configure_qobuz_proxy
 
     # Own the whole tree (venv + config + future credentials.json) as milo:audio
@@ -52,15 +52,15 @@ install_qobuz_proxy() {
     log_success "qobuz-proxy installed"
 }
 
-# Make qobuz-proxy's local (PortAudio) backend default to unity gain, flag-gating
-# the Qobuz app slider on Milō's "allow app volume" setting (CamillaDSP owns
-# volume). The patch itself lives in qobuz_volume_policy.py so the fragile,
-# version-pinned stream.py anchors have a single definition shared with the
-# in-app updater — BASH_SOURCE resolves the script dir even when this file is
-# sourced from install.sh / pi-gen.
-wire_qobuz_proxy_volume_policy() {
+# Apply Milō's edits to the vendored install: unity-gain volume policy (flag-gated
+# on the "allow app volume" setting — CamillaDSP owns volume) and position/duration
+# in /api/status. The patches themselves live in qobuz_proxy_patches.py so the
+# fragile, version-pinned anchors have a single definition shared with the in-app
+# updater — BASH_SOURCE resolves the script dir even when this file is sourced
+# from install.sh / pi-gen.
+patch_qobuz_proxy() {
     sudo "$MILO_DATA_DIR/qobuz/venv/bin/python" \
-        "$(dirname "${BASH_SOURCE[0]}")/qobuz_volume_policy.py"
+        "$(dirname "${BASH_SOURCE[0]}")/qobuz_proxy_patches.py"
 }
 
 # Write /var/lib/milo/qobuz/config.yaml. Speakers-list form → qobuz-proxy builds

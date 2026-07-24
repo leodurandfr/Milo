@@ -45,10 +45,17 @@
                     @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
                 </div>
               </template>
-              <div v-else-if="clientName" class="source-bar">
-                <AppIcon :name="source" :size="40" />
-                <span class="source-bar-name heading-4">{{ clientName }}</span>
-              </div>
+              <template v-else>
+                <div v-if="showProgress" class="progress-wrapper">
+                  <ConnectProgressBar :currentPosition="currentPosition" :duration="duration"
+                    :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
+                    :interactive="false" />
+                </div>
+                <div v-if="clientName" class="source-bar">
+                  <AppIcon :name="source" :size="40" />
+                  <span class="source-bar-name heading-4">{{ clientName }}</span>
+                </div>
+              </template>
             </div>
           </div>
           <div v-else key="content-replace" class="content-replace">
@@ -84,6 +91,13 @@ const props = defineProps({
   showControls: {
     type: Boolean,
     default: true
+  },
+  // Receiver-controlled sources (showControls=false) that still report
+  // position/duration: adds a read-only bar above the source bar. Off by
+  // default — AirPlay/DLNA keep the bare source-bar layout.
+  showProgress: {
+    type: Boolean,
+    default: false
   },
   hideContent: {
     type: Boolean,

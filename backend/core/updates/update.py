@@ -15,10 +15,10 @@ from backend.core.updates.version import VersionService
 from backend.config.constants import DEPLOY_UPDATE_CMD
 
 # qobuz-proxy is a pip package installed from a git tag; the in-app update pins
-# the same URL the installer uses (install/qobuz-proxy.sh) and re-applies the
-# volume patch via the shared script (single source of truth for the anchors).
+# the same URL the installer uses (install/qobuz-proxy.sh) and re-applies our
+# vendored patches via the shared script (single source of truth for the anchors).
 QOBUZ_PROXY_REPO_URL = "https://github.com/leolobato/qobuz-proxy"
-QOBUZ_VOLUME_POLICY_SCRIPT = "/home/milo/milo/install/qobuz_volume_policy.py"
+QOBUZ_PROXY_PATCHES_SCRIPT = "/home/milo/milo/install/qobuz_proxy_patches.py"
 
 
 class UpdateService(VersionService):
@@ -986,11 +986,12 @@ class UpdateService(VersionService):
         """Updates the qobuz-proxy sidecar (a pip package installed from a git tag).
 
         Unlike the binary programs, the "install" is a pip upgrade inside the
-        milo-owned venv plus re-applying the vendored stream.py volume patch —
-        both unprivileged (the backend runs as milo). The whole venv is backed
-        up first so any failure rolls back to the working version; the fragile
-        part is the patch, which fails loud if an upstream release moved its
-        anchors. config.yaml and credentials.json are left untouched.
+        milo-owned venv plus re-applying our vendored source patches (volume
+        policy + status progress) — both unprivileged (the backend runs as
+        milo). The whole venv is backed up first so any failure rolls back to
+        the working version; the fragile part is the patching, which fails loud
+        if an upstream release moved its anchors. config.yaml and
+        credentials.json are left untouched.
         """
         config = self.update_config["qobuz-proxy"]
         latest_version = status["latest"]["version"]
@@ -1037,17 +1038,17 @@ class UpdateService(VersionService):
                 await self._rollback_qobuz_venv(config, service_was_active)
                 return {"success": False, "error": f"pip install failed: {pip_out}"}
 
-            # Phase 4: re-apply the volume patch (85%) — the fragile step
+            # Phase 4: re-apply our vendored patches (85%) — the fragile step
             if progress_callback:
                 await progress_callback("updates.progress.installingVersion", 85)
 
             patch_ok, patch_out = await self._run_local(
-                f"{venv}/bin/python", QOBUZ_VOLUME_POLICY_SCRIPT, timeout=60
+                f"{venv}/bin/python", QOBUZ_PROXY_PATCHES_SCRIPT, timeout=60
             )
             if not patch_ok:
-                self.update_logger.error(f"qobuz-proxy volume patch failed: {patch_out}")
+                self.update_logger.error(f"qobuz-proxy patches failed: {patch_out}")
                 await self._rollback_qobuz_venv(config, service_was_active)
-                return {"success": False, "error": f"Volume-policy patch failed (upstream stream.py may have changed): {patch_out}"}
+                return {"success": False, "error": f"Patching failed (upstream sources may have changed): {patch_out}"}
 
             # Phase 5: verify import + version (95%)
             if progress_callback:
