@@ -28,6 +28,7 @@ else is the static SPA).
 | Audio | `/api/audio` | Current playback state; switch source (`/source/{source}`); generic playback commands (`/control/{source}`) |
 | Volume | `/api/volume` | Get/set volume, mute, limits |
 | Equalizer | `/api/equalizer` | Per-target EQ (`local` · `<mac>` · `zone:<id>`), presets, compressor, loudness |
+| Lyrics | `/api/lyrics` | Synced/plain lyrics for the now-playing track (LRCLIB, disk-cached) |
 | Routing | `/api/routing` | Output device + `direct`/`multiroom` mode; Snapcast control under `/api/routing/snapcast` |
 | Multiroom | `/api/multiroom` | Zones, clients, per-client volume |
 | Programs | `/api/programs` | Installed-source/program state; multiroom satellite (client) OTA updates |

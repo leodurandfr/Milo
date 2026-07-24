@@ -60,8 +60,12 @@ backend/
 │   ├── settings.py           # SettingsService
 │   ├── systemd.py            # SystemdServiceManager
 │   ├── volume/               # Volume service + handlers
-│   ├── dsp/                  # CamillaDSP service + proxy + sync
+│   ├── equalizer/            # CamillaDSP service + proxy + sync
 │   ├── multiroom/            # Snapcast + routing + crossover
+│   ├── lyrics/               # LyricsService (LRCLIB + disk cache)
+│   ├── connectivity/         # Internet-connectivity monitor (NetworkManager D-Bus)
+│   ├── network/              # WiFi scan / connect / saved networks
+│   ├── system/               # mDNS hostname-conflict detection
 │   └── updates/              # Update + version services
 ├── sources/                   # Audio source implementations
 │   ├── spotify/              # SpotifySource + routes
@@ -99,6 +103,7 @@ frontend/src/
 │   ├── cd/                   # CD source UI
 │   ├── dlna/                 # DLNA source UI
 │   ├── equalizer/            # Equalizer / DSP controls
+│   ├── lyrics/               # Lyrics app (full-screen synced view)
 │   ├── multiroom/            # Multiroom (Snapcast) controls
 │   ├── music-library/        # Music Library source UI (browse + tracklist + queue)
 │   ├── navigation/           # Navigation stack
@@ -120,6 +125,7 @@ frontend/src/
 │   ├── radioStore.js         # Radio stations + playback
 │   ├── podcastStore.js       # Podcasts + playback progress
 │   ├── cdStore.js            # CD playback
+│   ├── lyricsStore.js        # Lyrics app state (fetch-on-open, per-track cache)
 │   ├── musicLibraryStore.js  # Music Library catalog + queue + scan state
 │   ├── discoveryStore.js     # mDNS discovery
 │   └── systemStore.js        # System info / updates
@@ -440,16 +446,26 @@ is driven entirely by an external app:
   and a `QobuzMonitor` that polls `GET http://127.0.0.1:8689/api/status` (~1 Hz)
   and maps `playing`/`paused` → ACTIVE via `emit_connection_state(...)`, with a
   short idle-grace window so a track change doesn't flash "ready to stream".
-  Artwork is a Qobuz CDN URL loaded straight by the kiosk. No position/duration
-  over HTTP → progress bar stays inert.
+  Artwork is a Qobuz CDN URL loaded straight by the kiosk. Position/duration ride
+  the same poll (see the patch below), so the player adds
+  `AudioPlayerFull :showProgress="true"` — a **read-only** bar above the source
+  bar (no seek: there is no local control channel). AirPlay/DLNA report position
+  too and can opt in with the same prop; they currently don't.
 - **Install is from git, not PyPI.** qobuz-proxy has no PyPI release, so
   [install/qobuz-proxy.sh](../install/qobuz-proxy.sh) creates a venv under
   `/var/lib/milo/qobuz/` and `pip install`s the **pinned git tag**
   (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
-  backend + `libportaudio2` from apt). The script also pins the local backend to
-  unity gain (CamillaDSP is the sole volume authority) — a fail-loud edit of the
-  vendored `stream.py` that aborts on a version bump if its anchors move. It is
-  called from both `install.sh` and the pi-gen stage-02 (single source of truth).
+  backend + `libportaudio2` from apt). It is called from both `install.sh` and the
+  pi-gen stage-02 (single source of truth).
+- **Two vendored patches**, both in
+  [install/qobuz_proxy_patches.py](../install/qobuz_proxy_patches.py) so the
+  version-pinned anchors have one definition, shared by the installer and the
+  in-app updater (which re-applies them after every pip upgrade): `stream.py`
+  pins the local backend to unity gain (CamillaDSP is the sole volume authority,
+  flag-gated on the "allow app volume" setting), and `speaker.py` adds
+  `position_ms`/`duration_ms` to `now_playing` — the proxy tracks both for its
+  cloud state reports but omits them from `/api/status`. Each edit is idempotent
+  and aborts loudly on a version bump if its anchors moved.
 - **One-time account login.** Unlike Spotify's zeroconf, qobuz-proxy won't
   advertise until a Qobuz account is authenticated. The **Qobuz account** settings
   screen (`components/settings/categories/QobuzSettings.vue`) drives the backend

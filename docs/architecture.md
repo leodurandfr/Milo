@@ -16,14 +16,16 @@ Milō is built around a client-server architecture with real-time synchronizatio
 ┌────────────────────▼────────────────────────────────────────────┐
 │                  Backend (Python FastAPI)                       │
 │                State machine + Audio routing                    │
-└──┬──────┬─────────┬──────────┬────────┬───────┬────────┬───────┘
-   │      │         │          │        │       │        │
- ┌─▼──┐ ┌─▼──────┐ ┌▼─────┐ ┌──▼─┐ ┌────▼──┐ ┌──▼────┐ ┌─▼─┐
- │Spo-│ │AirPlay │ │Blue- │ │Mac │ │Radio  │ │Podcast│ │CD │
- │tify│ │(shair- │ │tooth │ │(roc│ │(mpv)  │ │(mpv)  │ │   │
- │    │ │ port)  │ │(bluez│ │)   │ │       │ │       │ │   │
- └─┬──┘ └────┬───┘ └──┬───┘ └─┬──┘ └───┬───┘ └───┬───┘ └─┬─┘
-   └────────┴────────┴───────┴───────┴───────┴────────┘
+└──┬─────┬────────┬───────┬───────┬───────┬───────┬──────┬──────┬──┘
+   │     │        │       │       │       │       │      │      │
+ ┌─▼──┐ ┌▼─────┐ ┌▼────┐ ┌▼───┐ ┌─▼───┐ ┌─▼────┐ ┌▼──┐ ┌─▼──┐ ┌─▼──────┐
+ │Spo-│ │Qobuz │ │Air- │ │DLNA│ │Blue-│ │Music │ │Ra-│ │Pod-│ │Mac (roc│
+ │tify│ │(qobu-│ │Play │ │(gme│ │tooth│ │Libra-│ │dio│ │cast│ │) + CD  │
+ │(li-│ │z-pro-│ │(sha-│ │dia-│ │(blu-│ │ry    │ │(mp│ │(mpv│ │        │
+ │bre-│ │xy)   │ │irpo-│ │rend│ │ez)  │ │(navi-│ │v) │ │)   │ │        │
+ │spot│ │      │ │rt)  │ │er) │ │     │ │drome)│ │   │ │    │ │        │
+ └─┬──┘ └──┬───┘ └──┬──┘ └─┬──┘ └──┬──┘ └──┬───┘ └─┬─┘ └─┬──┘ └───┬────┘
+   └───────┴────────┴──────┴───────┴───────┴───────┴─────┴────────┘
                               │
                               ▼
                     ┌───────────────────┐
@@ -50,7 +52,7 @@ Milō is built around a client-server architecture with real-time synchronizatio
 **Key components:**
 - `AudioStateMachine`: Single source of truth for system state
 - `AudioRoutingService`: Manages multiroom routing between sources and outputs
-- `SettingsService`: Centralized settings management (with SHA256 checksum)
+- `SettingsService`: Centralized settings management (atomic writes, file locks, corruption backups)
 - `VolumeService`: Unified volume control across all ALSA devices
 
 ### Frontend: Vue 3 + Vite
@@ -264,8 +266,12 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
   AirPlay/DLNA); the UI hides controls and shows only now-playing
 - The proxy's `local` (PortAudio) backend renders to the named ALSA PCM
   `milo_qobuz`; Milō's `QobuzMonitor` **polls `GET http://127.0.0.1:8689/api/status`**
-  (~1 Hz) for `now_playing` (title/artist/album/album-art URL). No position or
-  duration is exposed over HTTP, so the progress bar stays inert
+  (~1 Hz) for `now_playing` (title/artist/album/album-art URL + position/duration).
+  Upstream reports progress only to the Qobuz cloud, so
+  [install/qobuz_proxy_patches.py](../install/qobuz_proxy_patches.py) adds
+  `position_ms`/`duration_ms` to the vendored payload; the poll doubles as the
+  progress feed (the frontend interpolates between ticks) and the bar is
+  read-only — seeking belongs to the Qobuz app
 - Artwork is a plain Qobuz CDN URL loaded directly by the kiosk — no binary
   artwork route
 - A **one-time Qobuz account login** is required (unlike Spotify's zeroconf) or
@@ -324,6 +330,36 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 - Audio output: ALSA (milo_music_library)
 - Data: `/var/lib/milo/navidrome/` (DB + cache + service-account cred), `music_library_data.json`
   (network-share config, non-secret); share passwords live in root-only cred files, never here
+
+## Lyrics (LRCLIB)
+
+**What is it?**
+- Time-synced (or plain) lyrics for the current track, opened from the dock like
+  the Equalizer and Multiroom "apps" — not an audio source
+- [**Go to LRCLIB**](https://lrclib.net/)
+
+**How does it work?**
+- A **transverse** feature: `core/lyrics/LyricsService` is keyed off the
+  now-playing `(artist, title, album, duration)` of whichever source is active,
+  so it works for any rich-metadata source. Mute receivers (Bluetooth, Mac) and
+  Podcasts are excluded client-side; Radio reads its Shazam-recognized
+  `track_artist`/`track_title` instead of the station name
+- One route, `GET /api/lyrics?artist=&title=&album=&duration=`; the frontend
+  fetches on modal open (and on track change while open), never over WebSocket
+- LRCLIB needs no API key and returns both an LRC (synced) and a plain body.
+  Matching drops parenthetical annotations and `- Remastered …` suffixes before
+  falling back to search
+- Results are cached on disk under `/var/lib/milo/lyrics/` **including
+  negatives**, so a track with no lyrics is not re-queried. An unreachable
+  LRCLIB is deliberately *not* cached (`LyricsUnavailable` → HTTP 200 +
+  `status: error`) so a brief outage isn't frozen into "no lyrics"
+- The disk cache is a disposable derived cache — no `schema_version`, no
+  fail-loud protocol; wipe the directory if the shape changes
+
+**Configuration:**
+- No service — in-process, `aiohttp` (8s timeout, 0.3s polite spacing, 256-entry
+  LRU in memory)
+- Data: `/var/lib/milo/lyrics/` (disposable cache)
 
 ## Multiroom (Snapcast)
 
@@ -477,7 +513,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 
 **Runtime:** `IrRemoteController` listens for `EV_KEY` (the wizard listens for `EV_MSC`; the two modes are mutually exclusive via an `asyncio.Lock`). Volume ± share `VolumeAccumulator` with the rotary encoder. Track Next/Prev/Play-Pause go through the public `PlaybackDispatcher.dispatch_*` methods. The Menu button resolves at T+400 ms: hold → `screen.force_sleep()`, 1-click → cycle to the next dock-ordered audio source, 2+ clicks → `transition_to_source(NONE)`. Volume buttons hold-to-repeat at the same cadence as the `Dock.vue` long-press.
 
-### Bluetooth remote — ANTICATER VK1 Mini (optional)
+### Bluetooth remote — ANTICATER VK-01 (optional)
 
 **Discovery:** persistent D-Bus BlueZ listener for instant reconnect, periodic discovery+pair, on-demand battery read.
 
@@ -524,6 +560,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **last_volume.json** - Last saved volume for restoration
 **qobuz/** - qobuz-proxy sidecar home (`QOBUZPROXY_DATA_DIR`): `venv/` (the pinned qobuz-proxy install), `config.yaml`, and the OAuth `credentials.json` written on first login. Owned `milo:audio`. Not baked into the image — the account login is per-user.
 **navidrome/** - Navidrome catalog engine `DataFolder`: the library **DB** (`navidrome.db`), the regenerable art/transcode **cache/**, the baked `navidrome.toml`, and the per-device service-account cred (`milo-service.cred`, 0600) + `navidrome-auth.env` written on first boot. Owned `milo:milo`. Placed under `/var/lib/milo` so any whole-tree backup captures the catalog (see Backups).
+**lyrics/** - LRCLIB lookup cache (one JSON per track key, negatives included). Disposable derived cache: no `schema_version`, safe to wipe.
 **music_library_data.json** - Music Library network-share config (SMB/NFS): non-secret metadata only (id/type/host/path/name/`has_credentials`). Share passwords never land here — they live in root-only cred files written by `milo-mount`. USB keys are not persisted (auto-detected live). Mounts themselves appear under `/media/milo/` (the Navidrome `MusicFolder`), which is a mount root, not persisted data.
 
 **Integrity protection:**
@@ -627,6 +664,7 @@ milo-podcast              # Podcast player (mpv, separate instance from radio)
 milo-cd                   # CD player
 milo-dlna                 # DLNA/UPnP renderer (gmediarender + GStreamer)
 milo-qobuz                # Qobuz Connect (qobuz-proxy sidecar, backend-managed)
+milo-navidrome-config     # Boot oneshot: re-emit the Navidrome TOML from install/navidrome.sh (before milo-navidrome)
 milo-navidrome            # Music Library catalog engine (Navidrome, always-on, BindsTo=milo-backend)
 milo-music-library        # Music Library player (mpv, gapless; streams from Navidrome)
 milo-camilladsp           # CamillaDSP audio processing (always in path for volume)
