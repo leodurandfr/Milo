@@ -10,10 +10,10 @@ Milō is installed on a Raspberry Pi by flashing a pre-configured image onto an 
 
 ### Requirements
 
-* A **Raspberry Pi** (model 4 or 5 recommended)
+* A **Raspberry Pi** (model 5 with 8 GB recommended)
 * A **microSD card** (16 GB minimum)
-* A compatible **sound card** (e.g. HiFiBerry)
-* Optional: a **touchscreen** (e.g. Waveshare 7" or 8")
+* A compatible **HiFiBerry sound card** — amplifier or DAC. The **Amp4 Pro** is required if you connect a screen.
+* Optional: a **touchscreen** — Waveshare 7" USB (1024×600) or Waveshare 8" DSI (1280×800)
 
 ### Step 1: Flash the Milō image
 
@@ -39,9 +39,9 @@ A multiroom client is an additional Raspberry Pi that acts as a remote speaker. 
 
 ### Requirements
 
-* An additional **Raspberry Pi** (model 3, 4 or 5)
+* An additional **Raspberry Pi** (model 4 with 2 GB, or model 5)
 * A **microSD card** (8 GB minimum)
-* A compatible **sound card** (e.g. HiFiBerry)
+* A compatible **HiFiBerry sound card** — amplifier or DAC
 * A **network connection** on the same network as the main Milō (Ethernet recommended)
 
 ### Step 1: Flash the Milō image
@@ -109,7 +109,7 @@ The Dock shows the icons of the enabled items, organized into two groups:
 
 **Audio sources**: Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Qobuz, Music Library, Mac, CD.
 
-**Features** (after the separator): Equalizer, Multiroom, Settings.
+**Features** (after the separator): Equalizer, Multiroom, Lyrics, Settings.
 
 Tap an icon to open the corresponding source or feature. The active icon is highlighted.
 
@@ -391,6 +391,29 @@ The compressor reduces the volume gap between loud and quiet passages. Useful fo
 
 ---
 
+# Lyrics
+
+Lyrics displays the words of the song currently playing. Tap the **Lyrics** icon in the Dock to open it full screen.
+
+## Synced or plain
+
+* **Synced lyrics**: the current line is highlighted and the text scrolls on its own, in time with the music.
+* **Plain lyrics**: when no timed version exists, the full text is shown as a single block you scroll yourself.
+* If nothing is found for the track, Milō says so rather than showing an approximation.
+
+## Playback bar
+
+A playback bar at the bottom of the screen keeps the cover, the title and the transport controls at hand. Tap the arrow, or swipe down, to hide it and give the lyrics the full screen; tap it again to bring it back.
+
+## Availability
+
+Lyrics are looked up from the track's title and artist, so they work with any source that provides them — Spotify, Qobuz, AirPlay, DLNA, CD, Music Library, and Radio when a track has been recognized. Bluetooth and Mac (which send no track information) and Podcasts (spoken word) are not supported.
+
+Milō needs an internet connection for the first lookup of a track; results are then kept on the device, so reopening the same song is instant and works offline.
+
+
+---
+
 # Multiroom
 
 Multiroom lets you play music on several speakers in different rooms, perfectly synchronized.
@@ -475,7 +498,7 @@ Manage your Milō's Wi-Fi connection.
 
 Customize the Dock's contents and order:
 
-* **Enable / Disable** each audio source (Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Qobuz, Music Library, Mac, CD) and each feature (Equalizer, Multiroom).
+* **Enable / Disable** each audio source (Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Qobuz, Music Library, Mac, CD) and each feature (Equalizer, Multiroom, Lyrics).
 * **Reorder** the icons to your preference.
 
 
@@ -487,7 +510,42 @@ Customize the Dock's contents and order:
 * **Touch step**: sensitivity of the on-screen +/- buttons (1 to 6 dB).
 * **Volume limits**: minimum and maximum allowed volume.
 * **Startup volume**: restore the last-used volume or start at a fixed volume.
-* **Bluetooth remote**: pairing, connection status, battery level, dedicated volume step.
+
+> Remotes are configured in [Settings > Remote controls](#remote-controls).
+
+
+---
+
+## Remote controls
+
+Milō can be driven by two remotes, each with its own screen in this section.
+
+### Bluetooth remote
+
+The **ANTICATER VK-01** remote (and similar Bluetooth HID remotes). Milō shows the connection status and the battery level; **Search** pairs it, **Unpair** forgets it. A dedicated **volume step per click** sets how much each press moves the volume.
+
+The Bluetooth receiver must be enabled for pairing to be possible.
+
+### IR remote (Apple Remote)
+
+The **Apple Remote (1st generation, A1156)**, received by an infrared sensor wired to the Raspberry Pi. Milō only supports this model.
+
+**Pairing** — press **Start detection**, then press any button on the remote within the countdown. Milō learns your remote's identity, so another Apple Remote in the same room will not control it. **Unpair** forgets it.
+
+If nothing is detected, check the receiver's wiring; if the sensor is turned off, the screen offers a shortcut to [Settings > Hardware](#hardware) to enable it.
+
+**Buttons**
+
+| Button | Action |
+|---|---|
+| **Volume + / −** | Change the volume. Hold to keep it moving. |
+| **Play / Pause** | Play or pause the current source. |
+| **Next / Previous** | Skip to the next or previous track. |
+| **Menu** (press) | Switch to the next audio source, in Dock order. |
+| **Menu** (press twice) | Stop playback and leave the current source. |
+| **Menu** (hold) | Turn the screen off immediately. |
+
+A dedicated **volume step per click** is available, like the Bluetooth remote.
 
 
 ---
@@ -583,7 +641,16 @@ Tap **Add a station** to create an entry with your own audio stream URL. Only th
 
 ## Hardware
 
-View information about the detected hardware: sound card, screen, rotary encoder.
+Declare the hardware physically connected to your Milō:
+
+* **Audio card**: the HiFiBerry model in use.
+* **Screen**: the connected display model, or none.
+* **Rotary encoder**: enable it and set its three GPIO pins (CLK, DT, SW).
+* **Infrared receiver**: enable it and set the GPIO pin its OUT wire uses (VCC and GND are fixed at 3.3 V and GND). It must be on for an [Apple Remote](#ir-remote-apple-remote) to be paired.
+
+Changing any of these requires a restart — Milō offers **Apply and reboot**.
+
+> Wiring diagrams for each of these are in the project's hardware documentation.
 
 
 ---

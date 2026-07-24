@@ -8,9 +8,6 @@
 
 ### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Qobuz Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, your own Music Library, DLNA, and Mac streaming.
 
-<!-- TODO: Add screenshot or GIF of the interface -->
-<!-- ![Milō Interface](docs/assets/screenshot.png) -->
-
 ## Audio Sources
 
 <table>
@@ -68,6 +65,10 @@
     <td><b>Equalizer</b><br>10-band parametric EQ with presets, compressor, and loudness compensation (CamillaDSP)</td>
   </tr>
   <tr>
+    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/lyrics.png" width="48"></td>
+    <td><b>Lyrics</b><br>Time-synced lyrics that follow the current track, with a plain-text fallback</td>
+  </tr>
+  <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/settings.png" width="48"></td>
     <td><b>Settings</b><br>Control how Milō reacts: now playing, volume management, and more</td>
   </tr>
@@ -86,23 +87,27 @@
 <table>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/board.png" width="48"></td>
-    <td><b>Board</b><br><b>Main unit:</b> Raspberry Pi 5 (64-bit)<br><b>Multiroom client:</b> Raspberry Pi 4 (2 GB) or Pi 5</td>
+    <td><b>Board</b><br><b>Main unit:</b> Raspberry Pi 5 (8 GB) recommended<br><b>Multiroom client:</b> Raspberry Pi 4 (2 GB) or Pi 5</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/audio.png" width="48"></td>
-    <td><b>Audio</b><br><b>Main unit:</b> HiFiBerry Amp4 Pro (required)<br><b>Multiroom client:</b> any supported HiFiBerry HAT — amplifiers (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) or DACs (DAC2 HD, DAC2 Pro, DAC2 ADC Pro)</td>
+    <td><b>Audio</b><br>Any supported HiFiBerry HAT — amplifiers (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate 4CA) or DACs (DAC2 HD, DAC2 Pro, DAC2 ADC Pro).<br><b>Amp4 Pro is required if a screen is connected</b> (power delivery).</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/display.png" width="48"></td>
-    <td><b>Display</b><br>Waveshare 7" USB or 8" DSI <i>(optional)</i></td>
+    <td><b>Display</b><br>Waveshare 7" USB (1024×600) or Waveshare 8" DSI (1280×800) <i>(optional)</i></td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/volume.png" width="48"></td>
-    <td><b>Volume</b><br>Rotary encoder <i>(optional)</i></td>
+    <td><b>Volume</b><br>Rotary encoder with push button (KY-040 / HW-040) <i>(optional)</i></td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle" width="100" height="100"><img src="docs/images/remote.png" width="48"></td>
+    <td><b>Remotes</b><br>Apple Remote (A1156) via a TSOP4838 IR receiver, or an ANTICATER VK-01 Bluetooth remote <i>(optional)</i></td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/cd-hardware.png" width="48"></td>
-    <td><b>CD Player</b><br>USB CD drive <i>(optional)</i></td>
+    <td><b>CD Player</b><br>USB CD drive, e.g. Apple USB SuperDrive <i>(optional)</i></td>
   </tr>
 </table>
 
@@ -131,7 +136,7 @@ After setup:
 
 Flash the same image on additional Raspberry Pis. On first boot, the device detects your existing Milō server on the network and automatically configures itself as a client.
 
-A **Raspberry Pi 4 with 2 GB** is the recommended board for a client: enough CPU headroom to keep the audio thread on schedule, Gigabit Ethernet and dual-band WiFi. Prefer Ethernet — network jitter is what makes rooms drift apart.
+Prefer Ethernet over WiFi — network jitter is what makes rooms drift apart.
 
 ### Manual Installation (Advanced)
 
@@ -198,7 +203,7 @@ Control Milō from your other devices:
   </tr>
   <tr>
     <td><b>Audio</b></td>
-    <td>ALSA, CamillaDSP, Snapcast, mpv, Navidrome, go-librespot, qobuz-proxy, shairport-sync, bluez-alsa, ROC</td>
+    <td>ALSA, CamillaDSP, Snapcast, mpv, Navidrome, go-librespot, qobuz-proxy, shairport-sync, bluez-alsa, gmediarender, ROC</td>
   </tr>
   <tr>
     <td><b>Platform</b></td>

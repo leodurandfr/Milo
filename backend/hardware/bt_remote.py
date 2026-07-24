@@ -2,7 +2,7 @@
 """
 Bluetooth HID remote controller for volume and playback control.
 
-Supports ANTICATER VK1 Mini and similar BT HID devices that send
+Supports ANTICATER VK-01 and similar BT HID devices that send
 standard Consumer Control keycodes (KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_MUTE).
 Completely independent from the Bluetooth A2DP audio source.
 
@@ -44,7 +44,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Default configuration for ANTICATER VK1 Mini
+# Default configuration for ANTICATER VK-01
 DEFAULT_KEY_MAP = {
     "115": "volume_up",     # KEY_VOLUMEUP (rotation CW)
     "114": "volume_down",   # KEY_VOLUMEDOWN (rotation CCW)
@@ -74,7 +74,7 @@ class BtRemoteController:
     """
     Bluetooth HID remote controller.
 
-    Detects BT HID input devices (e.g. ANTICATER VK1 Mini), reads evdev
+    Detects BT HID input devices (e.g. ANTICATER VK-01), reads evdev
     events, and dispatches volume/playback actions. Automatically discovers
     and pairs matching BT devices in the background. Relies on BlueZ
     auto-connect for trusted devices — no aggressive reconnect polling,
