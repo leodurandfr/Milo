@@ -31,12 +31,14 @@
     <SvgIcon name="arrowExtended" :size="24" />
   </button>
 
-  <!-- The bar itself stays mounted (so its height is always measurable for the
-       swipe hint above) and only slides/fades via a plain class toggle — no
-       spring here. The inner content unmounts on hide so its children replay
-       their spring-in stagger every time the bar is swiped back up. -->
-  <div ref="panel" class="lyrics-bar" :class="{ 'is-hidden': !isVisible }">
-    <div v-if="isVisible" class="lyrics-bar-content">
+  <!-- The bar AND its content stay mounted (the height must always be
+       measurable for the swipe hint above, and unmounting the content would
+       pop it out instantly instead of letting it travel with the bar) — show
+       and hide are a plain class toggle, styled below. `inert` has to collapse
+       to undefined rather than false: Vue renders inert="false" verbatim, and
+       any value at all makes the subtree inert. -->
+  <div ref="panel" class="lyrics-bar" :class="{ 'is-hidden': !isVisible }" :inert="isVisible ? undefined : true">
+    <div class="lyrics-bar-content">
       <div class="lyrics-bar-track">
         <h2 class="heading-4 lyrics-bar-title">{{ identity.title }}</h2>
         <p class="text-body lyrics-bar-artist">{{ identity.artist }}</p>
@@ -136,7 +138,15 @@ const hasNext = computed(() => {
 const dragZone = ref(null);
 const panel = ref(null);
 const hint = ref(null);
-const isVisible = ref(true);
+// Starts hidden for exactly one painted frame so opening Lyrics plays the very
+// same slide-in the swipe does — one code path for both, instead of a separate
+// mount-only keyframe. Two rAFs: the first still runs inside the frame that
+// mounted us, so the browser needs the second to have painted the hidden state
+// and have something to transition from.
+const isVisible = ref(false);
+onMounted(() => {
+  requestAnimationFrame(() => requestAnimationFrame(() => { isVisible.value = true; }));
+});
 
 useSwipeVisibility({
   dragZone,
@@ -202,18 +212,22 @@ onUnmounted(() => barResizeObserver?.disconnect());
   display: flex;
   align-items: center;
   gap: var(--space-06);
-  padding: var(--space-04) var(--space-06);
+  padding: var(--space-05) var(--space-07);
   /* Headroom for the swipe hint's 40px tap target, which now rests inside this
      top edge: without it the hint lands on the title row in the short tiers
      ("name-only", "metadata"), which have no vertical slack. --space-05-fixed
      doesn't shrink on mobile, so the reserved band keeps matching the hint
      (24px glyph + 2 × --space-02) at every breakpoint. */
-  padding-top: calc(var(--space-04) + var(--space-05-fixed));
-  padding-bottom: max(var(--space-04), env(safe-area-inset-bottom, 0px));
-  /* Stays mounted always (see script) — just slides/fades via this class
-     toggle, no spring here. Its children (below) spring in individually
-     once mounted, same stagger technique as AudioPlayerFull's
-     track-info/controls-section entrance. */
+  padding-top: calc(var(--space-06) + var(--space-05-fixed));
+  padding-bottom: max(var(--space-06), env(safe-area-inset-bottom, 0px));
+  /* Stays mounted always (see script) — slides/fades via this class toggle. The
+     panel itself is deliberately NOT sprung: an overshoot past translateY(0)
+     lifts its bottom edge off the screen edge and opens a gap under the
+     gradient. The spring lives on the content instead (below), which can
+     overshoot freely inside the bar. The content stays mounted with the bar
+     too: translateY(100%) is measured against the bar's own height, so
+     unmounting the children would collapse that height mid-transition and the
+     bar would barely move. */
   transition: transform var(--transition-normal), opacity var(--transition-normal);
 }
 
@@ -227,25 +241,29 @@ onUnmounted(() => barResizeObserver?.disconnect());
   display: contents;
 }
 
-@keyframes lyrics-bar-child-transform {
-  to { transform: none; }
-}
-@keyframes lyrics-bar-child-opacity {
-  to { opacity: 1; }
-}
-
+/* The three sections rise + fade in behind the bar's own travel (same staggered
+   entrance as AudioPlayerFull's track-info/controls-section), and fade back out
+   with it. Transitions rather than keyframes so both directions replay on every
+   toggle — an `animation ... forwards` only ever runs on mount and would then
+   pin these properties, overriding anything the hide state sets. The stagger
+   lives on the shown selector alone: a transition takes its timing from the
+   state it moves *to*, so the way out has no delay and the bar leaves as one
+   piece. */
 .lyrics-bar-track,
 .lyrics-bar-progress,
 .lyrics-bar-controls {
+  transition: transform var(--transition-spring), opacity var(--transition-normal);
+}
+
+.lyrics-bar.is-hidden .lyrics-bar-track,
+.lyrics-bar.is-hidden .lyrics-bar-progress,
+.lyrics-bar.is-hidden .lyrics-bar-controls {
   opacity: 0;
   transform: translateY(var(--space-04));
-  animation:
-    lyrics-bar-child-transform var(--transition-spring) forwards,
-    lyrics-bar-child-opacity 0.4s ease forwards;
 }
-.lyrics-bar-track { animation-delay: 0ms; }
-.lyrics-bar-progress { animation-delay: 60ms; }
-.lyrics-bar-controls { animation-delay: 120ms; }
+
+.lyrics-bar:not(.is-hidden) .lyrics-bar-progress { transition-delay: 60ms; }
+.lyrics-bar:not(.is-hidden) .lyrics-bar-controls { transition-delay: 120ms; }
 
 /* Basis accounts for the row's two gaps (gap isn't excluded from percentage
    flex-basis automatically) so 28/44/28 sums to the container's true content
