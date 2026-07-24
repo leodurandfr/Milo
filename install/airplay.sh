@@ -56,7 +56,9 @@ install_shairport_sync() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    git clone https://github.com/mikebrady/shairport-sync.git
+    # Pinned, not HEAD: 5.x delivers no track metadata (see the version ceiling
+    # in backend/core/updates/version.py). Keep this tag and that ceiling in sync.
+    git clone --branch 4.3.7 --depth 1 https://github.com/mikebrady/shairport-sync.git
     cd shairport-sync
     autoreconf -fi
     ./configure --sysconfdir=/etc \
@@ -65,8 +67,11 @@ install_shairport_sync() {
         --with-ssl=openssl \
         --with-soxr \
         --with-metadata \
+        --with-metadata-pipe \
         --with-airplay-2 \
         --with-dbus-interface
+    # --with-metadata-pipe is inert on 4.x (configure just warns it is
+    # unrecognized); it is what keeps the pipe when the 5.x pin is lifted.
     make -j$(nproc)
     sudo make install
 
@@ -96,6 +101,13 @@ general = {
 
 alsa = {
     output_device = "milo_airplay";
+    // Match the bit depth CamillaDSP captures (S32_LE) instead of letting
+    // "auto" settle on S16_LE, so the ALSA `plug` no longer truncates to 16 bits
+    // on the way in. The rate stays on "auto": pinning output_rate = 48000 —
+    // which would also remove the 44.1 -> 48 kHz `plug` conversion — needs
+    // shairport-sync >= 5, and we are pinned to 4.3.7 (4.x accepts only 44.1 kHz
+    // multiples). Revisit together with the version ceiling.
+    output_format = "S32_LE";
 };
 
 metadata = {

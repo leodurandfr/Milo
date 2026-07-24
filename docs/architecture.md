@@ -198,8 +198,28 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 **Configuration:**
 - Service: milo-airplay.service (shairport-sync)
 - Metadata pipe: /tmp/shairport-sync-metadata
-- Audio output: ALSA (milo_airplay)
+- Audio output: ALSA (milo_airplay), `output_format = "S32_LE"` — see below
 - Visible name: "Milō"
+
+**Version pinned to 4.3.7 — do not upgrade to 5.x.** Version 5 stops delivering
+track metadata: with the same sender and the same `"Realtime"` stream, 4.3.7
+emits title/artist/album/PICT on the metadata pipe and on D-Bus while 5.1 emits
+only `conn`/`snam`/`pbeg`, so the AirPlay player falls back to the
+`AudioSourceStatus` card. The metadata never reaches shairport-sync itself
+(its own D-Bus `Metadata` property is empty), so no change on Milō's side can
+recover it. The pin lives in **two places that must stay in sync**: the clone
+tag in [install/airplay.sh](../install/airplay.sh) and the `max_version`
+ceiling in [version.py](../backend/core/updates/version.py), which stops the
+update flow ever offering 5.x in the UI.
+
+**Audio format.** `output_format = "S32_LE"` matches what CamillaDSP captures,
+so the `plug` in front of `milo_airplay` no longer truncates to 16 bits. The
+rate stays `"auto"` (44.1 kHz for most senders) and the 44.1 → 48 kHz
+conversion is still done by `plug`/`speexrate_medium`. Pinning `output_rate =
+48000` to skip that conversion — and to carry a 48 kHz sender untouched — needs
+5.x, which only accepts 44.1 kHz multiples in 4.x; it is worth revisiting the
+day the version ceiling is lifted. Rates above 48 kHz are out of reach anyway:
+AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 
 ### 7. CD Player (libdiscid + MusicBrainz)
 
