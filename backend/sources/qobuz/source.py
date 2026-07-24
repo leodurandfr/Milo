@@ -5,10 +5,12 @@ qobuz-proxy is a reverse-engineered virtual Qobuz Connect device: the Qobuz app
 is the controller, qobuz-proxy renders the stream to ALSA (the milo_qobuz PCM).
 Milō only displays + plays (Family B, like AirPlay) — playback is driven from
 the Qobuz app, so there are no on-device controls. Now-playing metadata
-(title/artist/album/artwork) is polled from the proxy's local HTTP API
-(GET /api/status); the proxy exposes no push channel and no local control
-endpoints. Album art is a Qobuz CDN URL loaded directly by the kiosk — there is
-no binary artwork route (unlike AirPlay/DLNA).
+(title/artist/album/artwork + position/duration) is polled from the proxy's local
+HTTP API (GET /api/status); the proxy exposes no push channel and no local
+control endpoints. Progress is there because install/qobuz_proxy_patches.py adds
+position_ms/duration_ms to the vendored now_playing payload — upstream reports
+them only to the Qobuz cloud. Album art is a Qobuz CDN URL loaded directly by the
+kiosk — there is no binary artwork route (unlike AirPlay/DLNA).
 """
 from typing import Any, Dict, Optional
 
@@ -158,9 +160,10 @@ class QobuzSource(BaseAudioSource):
         playing/paused (with now_playing) → ACTIVE with the current track;
         idle/disconnected/absent → WAITING (after a short grace window that
         bridges the idle/empty blip qobuz-proxy emits between tracks, so the UI
-        doesn't flash the "ready to stream" fallback). Position/duration are not
-        exposed over HTTP (they only flow to the Qobuz cloud), so the progress
-        bar stays inert — expected for a Family B source.
+        doesn't flash the "ready to stream" fallback). Position/duration ride the
+        same poll (our patched now_playing carries them, see
+        install/qobuz_proxy_patches.py) and the frontend interpolates between
+        ticks; seeking stays with the Qobuz app — Family B has no local control.
 
         `authenticated` is the proxy's login state (None = unknown, keep last);
         it rides the broadcast metadata so the idle card can offer a "connect
@@ -189,6 +192,11 @@ class QobuzSource(BaseAudioSource):
                 }
             elif self._metadata:
                 self._metadata["is_playing"] = self._is_playing
+            # Progress is absent from the between-tracks blip payload — keep the
+            # last pair rather than snapping the bar back to zero.
+            if self._metadata and "duration_ms" in now:
+                self._metadata["position"] = now["position_ms"]
+                self._metadata["duration"] = now["duration_ms"]
             self._device_connected = True
             self._idle_ticks = 0
         else:
@@ -208,11 +216,14 @@ class QobuzSource(BaseAudioSource):
         """Publish connection/playback state to the shared player.
 
         Broadcast metadata (WS source/state_changed → system_state.metadata):
-        title, artist, album, album_art_url, is_playing, is_buffering (canonical
-        PlaybackMetadata) + client_name="Qobuz" (extra, so the source bar shows a
-        label — the proxy never reports the controlling device) +
-        account_authenticated (login state; drives the idle card's "connect
-        account" CTA when no Qobuz account is logged in).
+        title, artist, album, album_art_url, position, duration, is_playing,
+        is_buffering (canonical PlaybackMetadata) + client_name="Qobuz" (extra,
+        so the source bar shows a label — the proxy never reports the controlling
+        device) + account_authenticated (login state; drives the idle card's
+        "connect account" CTA when no Qobuz account is logged in).
+
+        The ~1 Hz poll doubles as the progress feed: every tick re-emits the full
+        state, so there is no separate broadcast_position_update path here.
         """
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
