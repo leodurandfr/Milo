@@ -56,10 +56,8 @@ install_shairport_sync() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    # Pinned to the known-good baseline, not HEAD: 5.0/5.1 deliver no track
-    # metadata (fixed upstream in 5.2). The update flow offers 5.2+ once it ships
-    # (min_version floor in backend/core/updates/version.py); bump this tag to
-    # 5.2 too when you want fresh installs to start there instead of updating.
+    # Pinned, not HEAD: 5.0/5.1 deliver no AirPlay metadata (fixed in 5.2). Bump
+    # to 5.2 once it ships stable.
     git clone --branch 4.3.7 --depth 1 https://github.com/mikebrady/shairport-sync.git
     cd shairport-sync
     autoreconf -fi

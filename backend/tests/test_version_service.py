@@ -393,9 +393,8 @@ class TestMaxVersionCeiling:
 
     @pytest.mark.asyncio
     async def test_no_program_pins_a_ceiling_by_default(self, version_service):
-        """No program pins max_version. shairport-sync uses a min_version floor
-        instead (see TestMinVersionFloor); go-librespot's ceiling was lifted
-        2026-05-25, so an upstream release is offered as-is."""
+        """No program pins max_version, so an upstream release is offered as-is
+        (go-librespot's own ceiling was lifted 2026-05-25)."""
         assert all(
             "max_version" not in cfg for cfg in version_service.programs.values()
         )
@@ -417,48 +416,6 @@ class TestMaxVersionCeiling:
         assert result["version"] == "4.3.7"
         assert result["tag_name"] == "4.3.7"
         assert result["html_url"].endswith("/releases/tag/4.3.7")
-
-
-class TestMinVersionFloor:
-    """shairport-sync skips the broken 5.0/5.1 range via a min_version floor."""
-
-    @pytest.mark.asyncio
-    async def test_shairport_sync_is_the_only_floored_program(self, version_service):
-        floored = {
-            key: cfg["min_version"]
-            for key, cfg in version_service.programs.items()
-            if "min_version" in cfg
-        }
-        assert floored == {"shairport-sync": "5.2"}
-
-    async def _full_status(self, version_service, installed, latest):
-        with patch.object(version_service, "get_installed_version", return_value={
-            "status": "installed", "versions": {"main": installed}, "errors": [],
-            "name": "AirPlay", "description": "updates.airplay",
-        }):
-            with patch.object(version_service, "get_latest_github_version", return_value={
-                "status": "success", "version": latest, "tag_name": latest,
-                "published_at": None, "html_url": None,
-            }):
-                return await version_service.get_program_full_status("shairport-sync")
-
-    @pytest.mark.asyncio
-    async def test_broken_release_below_floor_is_not_offered(self, version_service):
-        """Installed 4.3.7, upstream latest still 5.1 → no update offered."""
-        result = await self._full_status(version_service, "4.3.7", "5.1")
-        assert result["update_available"] is False
-
-    @pytest.mark.asyncio
-    async def test_release_at_or_above_floor_is_offered(self, version_service):
-        """The day 5.2 ships stable it clears the floor and is offered."""
-        result = await self._full_status(version_service, "4.3.7", "5.2")
-        assert result["update_available"] is True
-
-    @pytest.mark.asyncio
-    async def test_later_release_above_floor_is_offered(self, version_service):
-        """A future 5.3 is above the floor — offered normally, floor is inert."""
-        result = await self._full_status(version_service, "5.2", "5.3")
-        assert result["update_available"] is True
 
 
 class TestGetProgramFullStatus:
