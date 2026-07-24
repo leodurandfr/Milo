@@ -11,17 +11,25 @@
        - "name-only" (radio): name/artist only — no seek, no track transport.
      Always visible by default; swipes down to hide, swipes up from the bottom
      edge to show again (useSwipeVisibility — the same gesture the Dock would
-     normally own, freed up because useDockDrag ignores .lyrics-view). -->
+     normally own, freed up because useDockDrag ignores .lyrics-view). The
+     arrow hint doubles as a tap toggle and as a swipe handle in both
+     directions. -->
 
 <template>
   <div ref="dragZone" class="lyrics-bar-drag-zone"></div>
 
   <!-- Persistent swipe affordance — stays mounted whether the bar itself is
        shown or hidden. Resting position tracks the bar's own (measured)
-       height: right above it when shown, down near the bottom edge when the
-       bar is hidden. Static; it does not animate on its own. -->
-  <SvgIcon name="arrowExtended" :size="24" class="lyrics-bar-swipe-hint"
-    :class="{ 'is-bar-visible': isVisible }" :style="{ '--bar-height': `${barHeight}px` }" aria-hidden="true" />
+       height: just inside its top edge when shown, down near the bottom edge
+       when the bar is hidden. Points down while the bar is shown and flips to
+       point up once it's hidden (see .lyrics-bar-swipe-hint). Also a tap
+       target for the same show/hide the swipe performs, so it's a real button
+       (aria-expanded, not aria-hidden) rather than decoration. -->
+  <button ref="hint" type="button" class="lyrics-bar-swipe-hint" :class="{ 'is-bar-visible': isVisible }"
+    :style="{ '--bar-height': `${barHeight}px` }" :aria-label="t('lyrics.playbackControls')"
+    :aria-expanded="isVisible" @pointerdown="onHintPointerDown" @click="onHintClick">
+    <SvgIcon name="arrowExtended" :size="24" />
+  </button>
 
   <!-- The bar itself stays mounted (so its height is always measurable for the
        swipe hint above) and only slides/fades via a plain class toggle — no
@@ -40,9 +48,15 @@
           :interactive="tier === 'full'" @seek="seekTo" />
       </div>
 
+      <!-- Same transport as AudioPlayer's desktop sidebar (music library's
+           .ml-transport-main): ghost IconButtons, no pill behind them. -->
       <div v-if="tier === 'full'" class="lyrics-bar-controls">
-        <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering" :hasNext="hasNext"
-          @play-pause="togglePlayPause" @previous="previousTrack" @next="nextTrack" />
+        <div class="playback-controls">
+          <IconButton icon="previous" variant="ghost" size="small" @click="previousTrack" />
+          <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
+            :loading="isBuffering" @click="togglePlayPause" />
+          <IconButton icon="next" variant="ghost" size="small" :disabled="!hasNext" @click="nextTrack" />
+        </div>
       </div>
     </div>
   </div>
@@ -53,17 +67,19 @@ import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useCdStore } from '@/stores/cdStore';
 import { getTrackIdentity } from '@/stores/lyricsStore';
+import { useI18n } from '@/services/i18n';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useSwipeVisibility } from '@/composables/useSwipeVisibility';
 
 import ConnectProgressBar from '@/components/audio/ConnectProgressBar.vue';
-import PlaybackControls from '@/components/audio/PlaybackControls.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
   source: { type: String, required: true }
 });
 
+const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const cdStore = useCdStore();
 
@@ -119,20 +135,40 @@ const hasNext = computed(() => {
 // === Swipe show/hide ===
 const dragZone = ref(null);
 const panel = ref(null);
+const hint = ref(null);
 const isVisible = ref(true);
 
 useSwipeVisibility({
   dragZone,
   panel,
+  handle: hint,
   isVisible,
   onShow: () => { isVisible.value = true; },
   onHide: () => { isVisible.value = false; },
 });
 
+// Tapping the hint toggles the bar. Its bar-hidden resting spot sits inside
+// the swipe band, so an upward swipe started on the arrow drives
+// useSwipeVisibility AND ends in a native click — that click has to be
+// dropped or the bar would flip straight back. Same travel budget the v-press
+// directive uses to tell a tap from a drag.
+const TAP_SLOP_PX = 10;
+let pressY = null;
+
+function onHintPointerDown(event) {
+  pressY = event.clientY;
+}
+
+function onHintClick(event) {
+  const swiped = pressY !== null && Math.abs(event.clientY - pressY) > TAP_SLOP_PX;
+  pressY = null;
+  if (!swiped) isVisible.value = !isVisible.value;
+}
+
 // The bar's own height (varies by tier — e.g. "full" is taller than
-// "name-only") so the swipe hint can rest exactly at its top edge when
-// shown. The bar stays mounted (never v-if'd) specifically so this stays
-// measurable even while hidden/translated off-screen.
+// "name-only") so the swipe hint can rest against its top edge when shown.
+// The bar stays mounted (never v-if'd) specifically so this stays measurable
+// even while hidden/translated off-screen.
 const barHeight = ref(0);
 let barResizeObserver = null;
 onMounted(() => {
@@ -167,6 +203,12 @@ onUnmounted(() => barResizeObserver?.disconnect());
   align-items: center;
   gap: var(--space-06);
   padding: var(--space-04) var(--space-06);
+  /* Headroom for the swipe hint's 40px tap target, which now rests inside this
+     top edge: without it the hint lands on the title row in the short tiers
+     ("name-only", "metadata"), which have no vertical slack. --space-05-fixed
+     doesn't shrink on mobile, so the reserved band keeps matching the hint
+     (24px glyph + 2 × --space-02) at every breakpoint. */
+  padding-top: calc(var(--space-04) + var(--space-05-fixed));
   padding-bottom: max(var(--space-04), env(safe-area-inset-bottom, 0px));
   /* Stays mounted always (see script) — just slides/fades via this class
      toggle, no spring here. Its children (below) spring in individually
@@ -229,8 +271,8 @@ onUnmounted(() => barResizeObserver?.disconnect());
 }
 
 .lyrics-bar-progress {
-  /* Fills whatever's left after track (fixed) and controls (natural width) —
-     see the comment on .lyrics-bar-controls for why a flat 44% doesn't work. */
+  /* Fills whatever's left after the two 28% columns — i.e. the 44% middle share,
+     without a third magic number to keep in sync. */
   flex: 1 1 0;
   min-width: 0;
 }
@@ -241,37 +283,76 @@ onUnmounted(() => barResizeObserver?.disconnect());
 }
 
 /* Persistent swipe affordance, independent of the bar's own mount state —
-   centered, sitting above the bar (z-index) so it stays visible whether the
-   bar is shown or hidden. Static; it does not animate on its own. Resting
-   position tracks the bar: hidden → 24/32px off the bottom edge (--space-06,
-   which is already 24px on mobile / 32px on desktop); shown → just above the
-   bar's own (measured) top edge, nudged down slightly (--space-02) so it
-   sits closer to the progress bar/track row rather than floating above it. */
+   centered, stacked over the bar (z-index) so it stays visible whether the
+   bar is shown or hidden. Resting position tracks the bar: hidden → 24/32px
+   off the bottom edge (--space-06, which is already 24px on mobile / 32px on
+   desktop); shown → its bottom edge lands on the bar's own (measured) top
+   edge, then translateY pushes it back down by exactly its own height, so it
+   sits inside the bar's top band instead of floating over the lyrics. That
+   100% is deliberately self-measuring: the tap target's padding can change
+   without a matching magic number here. The wrapper owns position and hit
+   area only; the arrow's direction is flipped on the injected <path> below. */
 .lyrics-bar-swipe-hint {
   position: absolute;
   left: 50%;
-  bottom: var(--space-06);
-  transform: translateX(-50%);
+  /* 24px between the glyph and the bottom edge, at every breakpoint: the tap
+     padding is invisible, so it's subtracted here rather than shifting the
+     arrow up by 8px. --space-05-fixed and --space-02 both hold their value on
+     mobile (--space-06, used before, was 32px desktop / 24px mobile). */
+  bottom: calc(var(--space-05-fixed) - var(--space-02));
+  transform: translate(-50%, 0);
   z-index: 4;
-  color: var(--color-text-contrast);
-  pointer-events: none;
-  transition: bottom var(--transition-normal);
+  display: flex;
+  /* 24px glyph + this padding = a 40px tap target; the bare glyph is too small
+     to hit reliably on the kiosk touchscreen. */
+  padding: var(--space-02);
+  cursor: pointer;
+  color: var(--color-text-contrast-50);
+  transition: bottom var(--transition-spring-light), transform var(--transition-spring-light);
 }
 
 .lyrics-bar-swipe-hint.is-bar-visible {
-  bottom: calc(var(--bar-height, var(--space-06)) - var(--space-02));
+  bottom: var(--bar-height, 0px);
+  transform: translate(-50%, 100%);
 }
 
-/* PlaybackControls' three buttons (80/90/80px + internal padding) need
-   ~324px minimum at their fixed size — wider than a strict 28% share of the
-   row at kiosk width (~251px). flex-shrink can't force content-driven
-   min-width below that, so it would overflow the viewport; give it its
-   natural width instead and let the progress column (which can genuinely
-   shrink) absorb the difference. */
+/* Flip the chevron to face the direction the swipe will take: down while the
+   bar is shown (swipe down to hide), up once it's hidden. Mirroring about
+   y=9.6 — the line through arrow-extended.svg's two endpoints — pins those
+   endpoints and moves only the middle point (14.63 → 4.57), so the arrow
+   inverts in place instead of tumbling; the rounded apex mirrors along with
+   it. non-scaling-stroke is what makes it work: transform scales stroke width
+   too, so without it the trace thins to nothing as it passes through flat.
+   Both states must name scaleY() explicitly — interpolating from `none` goes
+   through a matrix decomposition that can surface a negative scale as a
+   180deg rotation. */
+.lyrics-bar-swipe-hint :deep(path) {
+  vector-effect: non-scaling-stroke;
+  transform-box: view-box;
+  transform-origin: 12px 9.6px;
+  transform: scaleY(-1);
+  transition: transform var(--transition-normal);
+}
+
+.lyrics-bar-swipe-hint.is-bar-visible :deep(path) {
+  transform: scaleY(1);
+}
+
+/* Same basis as .lyrics-bar-track (identical calc, gaps included) so the row
+   reads 28/44/28 and the progress bar sits optically centred. The transport is
+   fixed-size (~176px: 50 + 60 + 50 + two 8px gaps) and can't shrink, but 28%
+   stays well above that down to ~630px of content width — narrower than that is
+   already the stacked mobile layout below. */
 .lyrics-bar-controls {
-  flex: 0 0 auto;
+  flex: 0 0 calc((100% - 2 * var(--space-06)) * 0.28);
   display: flex;
   justify-content: center;
+}
+
+.playback-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
 }
 
 /* Reskin the shared components' light-surface defaults for this always-dark
@@ -281,25 +362,36 @@ onUnmounted(() => barResizeObserver?.disconnect());
   color: var(--color-text-contrast-50);
 }
 .lyrics-bar-progress :deep(.progress-container) {
-  background-color: var(--color-background-contrast-32);
+  background-color: var(--color-background-neutral-12);
 }
 .lyrics-bar-progress :deep(.progress) {
   background-color: var(--color-text-contrast);
 }
 
-.lyrics-bar-controls :deep(.controls) {
-  background: none;
-}
-.lyrics-bar-controls :deep(.icon-primary) {
-  color: var(--color-text-contrast);
-}
-.lyrics-bar-controls :deep(.icon-secondary) {
-  color: var(--color-text-contrast-50);
+/* Transport sizing copied verbatim from AudioPlayer's desktop sidebar rules
+   (.ml-transport-main): 34px prev/next, 44px play/pause + its spinner. Applied
+   at every aspect ratio here — the lyrics bar has one control layout, so the
+   icons keep the desktop scale on the kiosk and on a phone alike. */
+.lyrics-bar-controls :deep(.icon-button--small .svg-responsive) {
+  width: 34px;
+  height: 34px;
 }
 
-/* Portrait/mobile: PlaybackControls' buttons are fixed-size (80-90px) and
-   don't fit alongside track-info + a progress bar in one row at phone
-   widths — stack each section on its own row instead. */
+.lyrics-bar-controls :deep(.icon-button--medium .svg-responsive) {
+  width: 44px;
+  height: 44px;
+}
+
+.lyrics-bar-controls :deep(.icon-button--medium.icon-button--loading .loading-spinner--medium) {
+  --spinner-size: 44px;
+}
+
+.lyrics-bar-controls :deep(.icon-button--medium.icon-button--loading .loading-spinner--medium .loading-spinner-content) {
+  transform: scale(0.85);
+}
+
+/* Portrait/mobile: the transport + track-info + progress bar don't fit in one
+   row at phone widths — stack each section on its own row instead. */
 @media (max-aspect-ratio: 4/3) {
   .lyrics-bar {
     flex-wrap: wrap;

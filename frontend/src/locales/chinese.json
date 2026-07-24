@@ -6,7 +6,8 @@
     "noLyrics": "未找到歌词",
     "notPlaying": "未在播放",
     "notCompatible": "该音源不支持歌词搜索",
-    "noTrackDetected": "未检测到歌曲"
+    "noTrackDetected": "未检测到歌曲",
+    "playbackControls": "播放控制"
   },
   "app": {
     "connectionUnavailable": "连接不可用",

@@ -6,7 +6,8 @@
     "noLyrics": "Aucune paroles trouvées pour",
     "notPlaying": "Aucune lecture en cours",
     "notCompatible": "Source audio non compatible avec la recherche de paroles",
-    "noTrackDetected": "Aucune chanson détectée"
+    "noTrackDetected": "Aucune chanson détectée",
+    "playbackControls": "Commandes de lecture"
   },
   "app": {
     "connectionUnavailable": "Connexion non disponible",

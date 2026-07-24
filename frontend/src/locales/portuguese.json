@@ -6,7 +6,8 @@
     "noLyrics": "Nenhuma letra encontrada para",
     "notPlaying": "Nada em reprodução",
     "notCompatible": "Fonte não compatível com a busca de letras",
-    "noTrackDetected": "Nenhuma música detectada"
+    "noTrackDetected": "Nenhuma música detectada",
+    "playbackControls": "Controles de reprodução"
   },
   "app": {
     "connectionUnavailable": "Conexão indisponível",

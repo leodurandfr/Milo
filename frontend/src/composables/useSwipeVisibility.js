@@ -6,7 +6,11 @@
 // (useDockDrag ignores gestures over .lyrics-view for exactly this reason).
 import { onMounted, onUnmounted } from 'vue';
 
-export function useSwipeVisibility({ dragZone, panel, isVisible, onShow, onHide }) {
+// `handle` is an optional always-visible grip (the Lyrics bar's arrow) that
+// stays outside `panel` so it survives the bar being hidden — it has to be
+// accepted explicitly in both directions, otherwise the element that looks like
+// the bar's drag handle is the one spot the gesture ignores.
+export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow, onHide }) {
   let dragging = false;
   let startedInBand = false;
   let startY = 0;
@@ -30,14 +34,19 @@ export function useSwipeVisibility({ dragZone, panel, isVisible, onShow, onHide 
     return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
   };
 
+  const onHandle = (e) => !!handle?.value?.contains(e.target);
+
   const onDragStart = (e) => {
     if (isVisible.value) {
-      // Bar shown: only a gesture starting on the bar itself can hide it.
-      if (!panel.value || !panel.value.contains(e.target)) return;
+      // Bar shown: only a gesture starting on the bar itself, or on the handle
+      // resting inside it, can hide it.
+      if (!panel.value?.contains(e.target) && !onHandle(e)) return;
       startedInBand = false;
     } else {
-      // Bar hidden: only a gesture starting in the bottom band can reveal it.
-      if (!pointInBand(e)) return;
+      // Bar hidden: only a gesture starting in the bottom band, or on the
+      // handle (which the band may not fully cover on a short screen), can
+      // reveal it.
+      if (!pointInBand(e) && !onHandle(e)) return;
       startedInBand = true;
     }
     dragging = true;
