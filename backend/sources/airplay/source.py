@@ -10,14 +10,12 @@ in memory and served via a dedicated HTTP endpoint.
 import asyncio
 import hashlib
 import os
-from io import BytesIO
 from typing import Dict, Any, Optional, Tuple
-
-from PIL import Image
 
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.airplay.metadata_reader import MetadataReader
+from backend.shared.artwork import decode_artwork_dimensions
 from backend.shared.decorators import handle_errors
 
 # Sample rate for RTP frame to millisecond conversion
@@ -230,7 +228,7 @@ class AirPlaySource(BaseAudioSource):
         else:
             self._artwork_mime = "image/jpeg"
 
-        width, height = self._decode_artwork_dimensions(data)
+        width, height = decode_artwork_dimensions(data, self._logger, "AirPlay")
 
         self._artwork_data = data
         self._artwork_hash = new_hash
@@ -238,22 +236,6 @@ class AirPlaySource(BaseAudioSource):
         self._metadata["album_art_width"] = width
         self._logger.info(f"AirPlay artwork {width}x{height} ({self._artwork_mime})")
         self._update_connection_state()
-
-    def _decode_artwork_dimensions(self, data: bytes) -> Tuple[int, int]:
-        """Return artwork (width, height) in pixels, (0, 0) on failure.
-
-        Reads the image header only (Pillow is lazy — no full decode), so this
-        is a microsecond CPU op on already-in-memory bytes, not blocking I/O.
-        On failure we return (0, 0): the frontend treats sub-threshold artwork
-        as untrustworthy and falls back to the status card, so a decode error
-        safely degrades to "no rich player" rather than showing a bad cover.
-        """
-        try:
-            with Image.open(BytesIO(data)) as img:
-                return img.width, img.height
-        except Exception as e:
-            self._logger.warning(f"Failed to decode AirPlay artwork dimensions: {e}")
-            return 0, 0
 
     async def _on_client_name(self, name: str) -> None:
         """Handle client name from pipe (X-Apple-Client-Name)."""
