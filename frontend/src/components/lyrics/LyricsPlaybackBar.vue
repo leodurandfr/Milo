@@ -81,6 +81,7 @@
 import { computed, ref, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useCdStore } from '@/stores/cdStore';
+import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { getTrackIdentity } from '@/stores/lyricsStore';
 import { useI18n } from '@/services/i18n';
 import { useSourceProgress } from '@/composables/useSourceProgress';
@@ -97,6 +98,7 @@ const props = defineProps({
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const cdStore = useCdStore();
+const musicLibraryStore = useMusicLibraryStore();
 
 const FULL_CONTROL_SOURCES = new Set(['spotify', 'cd', 'music_library']);
 const NAME_ONLY_SOURCES = new Set(['radio']);
@@ -140,11 +142,16 @@ const isBuffering = computed(() => {
   return false;
 });
 
-// Only CD has a "last track" concept; other full-control sources have no
-// bound on next.
+// Only CD and music_library have a "last track" concept; spotify has no
+// bound on next. Mirrors CDSource.vue / MusicLibrarySource.vue.
 const hasNext = computed(() => {
-  if (props.source !== 'cd') return true;
-  return !cdStore.currentTrack || cdStore.currentTrack < cdStore.tracks.length;
+  if (props.source === 'cd') {
+    return !cdStore.currentTrack || cdStore.currentTrack < cdStore.tracks.length;
+  }
+  if (props.source === 'music_library') {
+    return musicLibraryStore.queueIndex >= 0 && musicLibraryStore.queueIndex < musicLibraryStore.queue.length - 1;
+  }
+  return true;
 });
 
 // === Swipe show/hide ===
