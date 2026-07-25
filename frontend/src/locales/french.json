@@ -65,8 +65,7 @@
       "unknownAlbum": "Album inconnu",
       "unknownArtist": "Artiste inconnu",
       "trackN": "Piste {n}",
-      "noDriveConnected": "Non branché",
-      "play": "Lecture"
+      "noDriveConnected": "Non branché"
     },
     "radioSource": {
       "favoritesTitle": "Webradios favorites",
@@ -307,6 +306,16 @@
     "apply": "Appliquer & Redémarrer",
     "restarting": "Redémarrage..."
   },
+  "qobuzSettings": {
+    "accountTitle": "Paramètres du compte",
+    "loading": "Vérification du statut…",
+    "connect": "Se connecter",
+    "disconnect": "Déconnecter",
+    "notConnectedTitle": "Compte Qobuz non connecté",
+    "notConnectedDetails": "Connectez-vous à votre compte Qobuz pour diffuser vers Milō depuis l'application Qobuz. Une fenêtre de navigateur s'ouvre pour vous connecter ; revenez ici une fois terminé.",
+    "appVolumeTitle": "Contrôle du volume depuis l'application Qobuz",
+    "appVolumeDescription": "Laisser l'application Qobuz modifier le volume. Si désactivé, Milō conserve Qobuz au volume maximal et son propre contrôle du volume définit le niveau."
+  },
   "multiroomSettings": {
     "presets": "Pré-réglages",
     "responsive": "Réactivité",
@@ -456,17 +465,10 @@
       "education": "Éducation",
       "business": "Business",
       "arts": "Arts",
-      "fiction": "Fiction",
-      "government": "Gouvernement",
       "health_and_fitness": "Santé & Forme",
-      "history": "Histoire",
-      "kids_and_family": "Enfants & Famille",
-      "leisure": "Loisirs",
       "music": "Musique",
-      "religion_and_spirituality": "Religion & Spiritualité",
       "science": "Science",
       "society_and_culture": "Société & Culture",
-      "technology": "Technologie",
       "true_crime": "True Crime",
       "tv_and_film": "TV & Cinéma"
     },
@@ -479,7 +481,6 @@
     "loadMoreEpisodes": "Charger plus d'épisodes",
     "newEpisodes": "Nouveaux épisodes",
     "noNewEpisodes": "Aucun nouvel épisode",
-    "myPodcasts": "Mes podcasts",
     "noSubscriptions": "Aucun abonnement",
     "noSubscriptionsHint": "Recherchez des podcasts et abonnez-vous pour les retrouver ici",
     "noPodcastsInGenre": "Aucun podcast trouvé dans cette catégorie",
