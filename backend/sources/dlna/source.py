@@ -12,15 +12,14 @@ memory, and serve it via a dedicated HTTP endpoint.
 """
 import asyncio
 import hashlib
-from io import BytesIO
 from typing import Any, Dict, Optional, Tuple
 
 import aiohttp
 from async_upnp_client.utils import get_local_ip
-from PIL import Image
 
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.source_metadata import PlaybackMetadata
+from backend.shared.artwork import decode_artwork_dimensions
 from backend.shared.decorators import handle_errors
 from backend.sources.dlna.metadata_reader import DlnaBridge
 
@@ -178,7 +177,7 @@ class DlnaSource(BaseAudioSource):
         else:
             self._artwork_mime = "image/jpeg"
 
-        width, height = self._decode_artwork_dimensions(data)
+        width, height = decode_artwork_dimensions(data, self._logger, "DLNA")
 
         self._artwork_data = data
         self._artwork_hash = new_hash
@@ -201,19 +200,6 @@ class DlnaSource(BaseAudioSource):
         except Exception as e:
             self._logger.warning(f"Artwork fetch failed ({url}): {e}")
             return None
-
-    def _decode_artwork_dimensions(self, data: bytes) -> Tuple[int, int]:
-        """Return artwork (width, height) in pixels, (0, 0) on failure.
-
-        Reads the image header only (Pillow is lazy), so a decode error safely
-        degrades to "no rich player" rather than showing a bad cover.
-        """
-        try:
-            with Image.open(BytesIO(data)) as img:
-                return img.width, img.height
-        except Exception as e:
-            self._logger.warning(f"Failed to decode DLNA artwork dimensions: {e}")
-            return 0, 0
 
     async def _on_progress(self, position: int, duration: int) -> None:
         """Handle polled position (ms). Broadcasts are rate-limited to 30s;

@@ -9,14 +9,15 @@ Covers the pure, non-trivial logic that has no other guard:
   bridge must emit each field only when it actually changed (title/artist/album,
   transport state, artwork).
 - DlnaSource: passive (rejects every command) + artwork helpers.
+
+Artwork dimension decoding itself lives in backend.shared.artwork and is
+covered by test_artwork.py.
 """
 import datetime
-from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, call
 
 import pytest
-from PIL import Image
 
 from backend.sources.dlna.metadata_reader import DlnaBridge, _to_ms
 from backend.sources.dlna.source import DlnaSource
@@ -162,12 +163,3 @@ def test_get_artwork_returns_data_and_mime():
     assert src.get_artwork() == (b"bytes", "image/png")
 
 
-def test_decode_dimensions_reads_real_image_header():
-    buf = BytesIO()
-    Image.new("RGB", (640, 480)).save(buf, format="PNG")
-    assert DlnaSource()._decode_artwork_dimensions(buf.getvalue()) == (640, 480)
-
-
-def test_decode_dimensions_degrades_to_zero_on_garbage():
-    # (0, 0) < the rich-display threshold → frontend safely drops to the status card.
-    assert DlnaSource()._decode_artwork_dimensions(b"not an image") == (0, 0)
