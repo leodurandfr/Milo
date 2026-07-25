@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository. The full reference liv
 
 ## Project overview
 
-Milō is a multiroom audio system for Raspberry Pi (Spotify Connect, AirPlay 2, Bluetooth, Mac streaming via ROC, Internet Radio, Podcasts, CD). FastAPI (Python) backend + Vue 3 frontend, ALSA for audio — no Pipewire/PulseAudio.
+Milō is a multiroom audio system for Raspberry Pi (Spotify Connect, AirPlay 2, Bluetooth, Mac streaming via ROC, Internet Radio, Podcasts, CD, DLNA/UPnP, Qobuz Connect, a local Music Library). FastAPI (Python) backend + Vue 3 frontend, ALSA for audio — no Pipewire/PulseAudio.
 
 ## External API clients — Milo-Mac (read before deleting any route or WS event)
 
@@ -40,15 +40,15 @@ Full setup (venv, deps): [docs/development.md](docs/development.md).
 State flow: backend change → `state_machine.broadcast(WsEvent)` → WS → Pinia store → reactive UI. Deep dive: [docs/architecture.md](docs/architecture.md).
 
 **Backend** (`backend/`, source-based, async-first):
-- `core/` — infrastructure: `state.py` (`AudioStateMachine`, single source of truth), `audio_source.py` (`BaseAudioSource` ABC), `settings.py`, `systemd.py`; subpackages `models/ volume/ equalizer/ multiroom/ connectivity/ network/ system/ updates/`.
-- `sources/` — one subpackage per source (`spotify/ airplay/ mac/ bluetooth/ radio/ podcast/ cd/`).
+- `core/` — infrastructure: `state.py` (`AudioStateMachine`, single source of truth), `audio_source.py` (`BaseAudioSource` ABC), `settings.py`, `systemd.py`; subpackages `models/ volume/ equalizer/ multiroom/ connectivity/ network/ system/ updates/ lyrics/`.
+- `sources/` — one subpackage per source (`spotify/ airplay/ mac/ bluetooth/ radio/ podcast/ cd/ dlna/ qobuz/ music_library/`).
 - `api/` — REST routes + shared Pydantic `models.py` + `route_helpers.py`.
 - `hardware/` (encoder, IR, BT remote, screen), `ws/` (server + manager), `shared/` (`MpvController`, `BackgroundTaskSet`, decorators, persistence), `config/constants.py`, `dependencies.py` (service registry, lazy singletons).
 
 Principles: single source of truth (`AudioStateMachine`); self-contained source modules; dict-based DI; D-Bus via `dbus-next`, event-driven over polling, **always fail open** when D-Bus is unavailable (so dev runs without the underlying service).
 
 **Frontend** (`frontend/src/`, Vue 3 Composition API + Pinia):
-- `components/` — one dir per feature/source + `ui/`. Shared full-screen player `audio/AudioPlayerFull.vue`, reused by Spotify (`showControls=true`) and AirPlay (`showControls=false`).
+- `components/` — one dir per feature/source + `ui/`. Shared full-screen player `audio/AudioPlayerFull.vue`, reused with controls by Spotify/CD (`showControls=true`, default) and without by AirPlay/DLNA/Qobuz (`showControls=false`) — 5 real consumers; Music Library has its own player UI, not this component.
 - `stores/` — `unifiedAudioStore.js` is the central audio mirror; others are per-feature.
 - `composables/`, `services/` (WS client, `apiCall`, i18n, logger), `locales/` (8 langs, `english.json` canonical/fallback — all keys must exist there first), `views/` (`MainView.vue` SPA).
 
@@ -61,8 +61,8 @@ Pick a source's **family** from two questions: *(1) is playback controlled from 
 | Family | Sources | Backend `sources/{s}/` | Frontend `components/{s}/` |
 |---|---|---|---|
 | **A. Mute receiver** — external control, no rich metadata | Bluetooth, Mac | `source.py` (+ helpers `agent.py`/`monitor.py`). **No `routes.py`** — commands via generic `/api/audio/control/{source}`. `__all__=["{Name}Source"]`. | None — rendered by `AudioSourceStatus` (icon + device name). |
-| **B. Passive player** — external control, rich metadata | AirPlay | `source.py` + minimal `routes.py` (only what the sender can't deliver, e.g. binary artwork) + `metadata_reader.py` if needed. `__all__` adds `router, setup_{s}_routes`. | Vue component wrapping `<AudioPlayerFull :showControls="false" />`. |
-| **C. Active player** — UI control, rich metadata | Spotify, Radio, Podcast, CD | `source.py` + networking as needed: `websocket.py` (Spotify), full `routes.py`+`data.py`+external API (Radio/Podcast/CD), `models.py`. | Vue component wrapping `<AudioPlayerFull>` with controls + custom UI (tracklist/queue/favorites). |
+| **B. Passive player** — external control, rich metadata | AirPlay, DLNA, Qobuz | `source.py` + `routes.py` only for what the sender can't deliver (AirPlay/DLNA: binary artwork; Qobuz: none — CDN artwork URL needs no proxy, so no `routes.py` at all) + `metadata_reader.py`/`monitor.py` as needed for the metadata feed. `__all__` adds `router, setup_{s}_routes` only if a `routes.py` exists. | Vue component wrapping `<AudioPlayerFull :showControls="false" />`. |
+| **C. Active player** — UI control, rich metadata | Spotify, Radio, Podcast, CD, Music Library | `source.py` + networking as needed: `websocket.py` (Spotify), full `routes.py`+`data.py`+external API (Radio/Podcast/CD), `models.py`. Music Library is the richest — a catalog-engine split (`navidrome_client.py`, `discovery.py`, `browse.py`, `disc_merge.py`, `storage.py` for USB/SMB/NFS mounting) on top of the usual `routes.py`+`data.py`+`models.py`. | Vue component wrapping `<AudioPlayerFull>` with controls + custom UI (tracklist/queue/favorites), except Music Library which has its own player UI (not `AudioPlayerFull`). |
 
 All sources extend `BaseAudioSource(ABC)` — public `start/stop/status/command`, override `_do_start/_do_stop/_get_status/_handle_command`; constructor `(config, state_machine, settings_service, systemd_manager)`. Adding one: define the enum in `core/models/audio_state.py::AudioSource`, create the module, register a creator + the source in `dependencies.py`, add 2 ALSA device variants, update stores. Full checklist + reference (`radio/`): [docs/development.md](docs/development.md).
 
@@ -72,7 +72,7 @@ All sources extend `BaseAudioSource(ABC)` — public `start/stop/status/command`
 - **Loggers:** routes use `logging.getLogger(__name__)`; source sub-modules use `logging.getLogger(f"source.{source_id}.<sub>")` to hang under the hierarchy `BaseAudioSource.__init__` creates. The legacy `feature.*` namespace is retired.
 - **Routes (B, C):** use `run_source_command()` for playback and `logger.error(...)` before every `raise HTTPException`.
 
-Read the existing sources as references — they evolve. `radio/`+`podcast/` (richest C), `airplay/` (B: external process + named pipe + binary artwork), `spotify/` (C without `routes.py`), `mac/`+`bluetooth/` (A).
+Read the existing sources as references — they evolve. `music_library/` (richest C: catalog-engine split), `radio/`+`podcast/` (C), `airplay/`+`dlna/` (B: external process + binary artwork), `qobuz/` (B without `routes.py`), `spotify/` (C without `routes.py`), `mac/`+`bluetooth/` (A).
 
 ## Core code rules (backend)
 
@@ -122,7 +122,7 @@ Persistent data lives in `/var/lib/milo/` (settings, hardware, radio/podcast/cd 
 
 ## Constraints (invariants)
 
-1. **Privileged exec is centralized, never ad hoc** — systemd + power actions go through `SystemdServiceManager` (which shells `sudo systemctl …`, incl. `power()` for reboot/poweroff and `restart_self()` for the updater's own-unit restart); privileged file deploys go through the pinned sudoers helpers (`/usr/local/bin/milo-*`: `milo-deploy-update`, `milo-apply-hardware`, `milo-set-wifi-country`). No bare `sudo` anywhere else. Permissions come from a `milo` sudoers policy pinning those commands `NOPASSWD`; PolicyKit covers only NetworkManager.
+1. **Privileged exec is centralized, never ad hoc** — systemd + power actions go through `SystemdServiceManager` (which shells `sudo systemctl …`, incl. `power()` for reboot/poweroff and `restart_self()` for the updater's own-unit restart); privileged file deploys go through the pinned sudoers helpers under `/usr/local/bin/milo-*`: `milo-deploy-update`, `milo-apply-hardware`, `milo-set-wifi-country`, `milo-mount`/`milo-umount` (Music Library USB+SMB/NFS), `milo-apply-ir-keymap` (IR remote pairing). No bare `sudo` anywhere else. Permissions come from two `NOPASSWD` policy files for the `milo` user — `/etc/sudoers.d/milo-backend` (the first five) and `/etc/sudoers.d/milo-ir-remote` — installed by `install/system.sh`+`install/ir-remote.sh` (and mirrored in `pi-gen/`); PolicyKit covers only NetworkManager. Several other `milo-*` scripts under `/usr/local/bin/` (`milo-first-boot`, `milo-wait-ready.sh`, `milo-ir-keytable-setup`, `milo-apply-avahi-iface`, `milo-navidrome-provision`, `milo-mdns-probe`, `milo-brightness-7`) run directly as root via their own systemd unit instead — no sudoers entry needed.
 2. **ALSA only** — no Pipewire/PulseAudio (HiFiBerry compatibility).
 3. **Async everywhere** — all file/network/subprocess I/O is async; shared state under `asyncio.Lock()`.
 4. **Runs as the `milo` user** — no root.
