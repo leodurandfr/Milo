@@ -38,6 +38,26 @@ uninstall_milo() {
     sudo rm -f /etc/systemd/system/milo-*.service
     sudo systemctl daemon-reload
 
+    # Unmount Music Library USB/SMB/NFS shares BEFORE touching $MILO_DATA_DIR.
+    # CIFS credentials (CRED_DIR=$MILO_DATA_DIR/shares, see rootfs/usr/local/bin/
+    # milo-mount) live under /var/lib/milo — deleting that tree first would still
+    # leave the shares mounted (an orphaned mount survives its backing files) but
+    # remove any chance of a clean, credentialed remount/unmount later. Plain
+    # `umount`/`umount -l` needs no credentials, only root, which this script
+    # already has via sudo.
+    if mountpoint -q /media/milo 2>/dev/null || [[ -d /media/milo ]]; then
+        log_info "Unmounting Music Library shares under /media/milo..."
+        for mnt in /media/milo/*/; do
+            [[ -d "$mnt" ]] || continue
+            mnt="${mnt%/}"
+            if mountpoint -q "$mnt"; then
+                sudo umount "$mnt" 2>/dev/null || sudo umount -l "$mnt" || true
+            fi
+            sudo rmdir "$mnt" 2>/dev/null || true
+        done
+        sudo rmdir /media/milo 2>/dev/null || true
+    fi
+
     log_info "Removing configurations..."
     sudo rm -f /etc/nginx/sites-enabled/milo
     sudo rm -f /etc/nginx/sites-available/milo
@@ -48,19 +68,52 @@ uninstall_milo() {
     sudo rm -f /etc/modules-load.d/snd-aloop.conf
     sudo rm -f /etc/modprobe.d/snd-aloop.conf
 
+    log_info "Removing sudoers and PolicyKit rules..."
+    sudo rm -f /etc/sudoers.d/milo-backend
+    sudo rm -f /etc/sudoers.d/milo-ir-remote
+    sudo rm -f /etc/polkit-1/rules.d/50-milo-networkmanager.rules
+
+    log_info "Removing udev rules..."
+    sudo rm -f /etc/udev/rules.d/90-milo-cd.rules
+    sudo rm -f /etc/udev/rules.d/99-milo-fan.rules
+    sudo rm -f /etc/udev/rules.d/99-milo-screen.rules
+    sudo rm -f /etc/udev/rules.d/99-backlight.rules
+    sudo udevadm control --reload-rules 2>/dev/null || true
+    sudo udevadm trigger 2>/dev/null || true
+
     log_info "Removing application..."
     sudo rm -rf "$MILO_APP_DIR"
     sudo rm -rf "$MILO_DATA_DIR"
 
     log_info "Removing Milo themes..."
-    sudo rm -rf /usr/share/icons/Milo
+    # Restore the original Adwaita cursors from the backup install/display.sh
+    # made before overwriting them in place (install_milo_cursor_theme) — there
+    # is no /usr/share/icons/Milo, that path was never installed by any script.
+    if [[ -d /usr/share/icons/Adwaita/cursors.backup ]]; then
+        sudo rm -rf /usr/share/icons/Adwaita/cursors
+        sudo mv /usr/share/icons/Adwaita/cursors.backup /usr/share/icons/Adwaita/cursors
+    fi
     sudo rm -rf /usr/share/plymouth/themes/milo
 
-    log_info "Removing binaries..."
+    log_info "Removing binaries and helper scripts..."
     sudo rm -f /usr/local/bin/go-librespot
     sudo rm -f /usr/local/bin/milo-brightness-7
+    sudo rm -f /usr/local/bin/navidrome
+    sudo rm -f /usr/local/bin/camilladsp
+    sudo rm -f /usr/local/bin/milo-wait-ready.sh
+    sudo rm -f /usr/local/bin/milo-apply-hardware
+    sudo rm -f /usr/local/bin/milo-deploy-update
+    sudo rm -f /usr/local/bin/milo-set-wifi-country
+    sudo rm -f /usr/local/bin/milo-navidrome-provision
+    sudo rm -f /usr/local/bin/milo-mount
+    sudo rm -f /usr/local/bin/milo-umount
+    sudo rm -f /usr/local/bin/milo-apply-avahi-iface
+    sudo rm -f /usr/local/bin/milo-apply-ir-keymap
+    sudo rm -f /usr/local/bin/milo-ir-keytable-setup
+    sudo rm -rf /usr/local/lib/milo
 
     log_info "Cleaning up packages..."
+    sudo apt purge -y snapserver snapclient gmediarender 2>/dev/null || true
     sudo apt autoremove -y
 
     read -p "Restore default hostname 'raspberrypi'? (y/N): " restore_hostname
