@@ -1,10 +1,13 @@
 <!-- LyricsContent.vue — renders synced (highlight + auto-scroll) or plain lyrics.
      Keyed on the active source by the parent so useSourceProgress re-instantiates
-     if the source changes while the view is open. -->
+     if the source changes while the view is open. Owns no loader of its own: it
+     reports readiness upward via update:ready, and LyricsView keeps a single
+     loading screen covering both the LRCLIB lookup and this centring wait — one
+     uninterrupted message instead of two swapping mid-wait. -->
 <template>
   <div class="lyrics-content">
-    <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced }"
-      :style="{ opacity: ready ? 1 : 0 }" @scroll="handleScroll">
+    <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced, 'is-ready': ready }"
+      @scroll="handleScroll">
       <template v-if="isSynced">
         <!-- One uniform size; the three states differ only in opacity: the active
              line is fully lit, lines still to come are bright, past lines fade
@@ -21,10 +24,6 @@
         </p>
       </template>
     </div>
-    <div v-if="!ready" class="lyrics-content-loading">
-      <LyricsLoadingState :track-title="lyricsStore.trackTitle" :track-artist="lyricsStore.trackArtist"
-        label-key="lyrics.preparing" />
-    </div>
   </div>
 </template>
 
@@ -34,7 +33,6 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useTimer } from '@/composables/useTimer';
-import LyricsLoadingState from './LyricsLoadingState.vue';
 
 // Multiroom (Snapcast) inserts a playback buffer between the source position and
 // the audio the listener actually hears, so synced lyrics can feel off. Apply a
@@ -48,6 +46,8 @@ const props = defineProps({
   synced: { type: Array, default: null },
   plain: { type: String, default: null }
 });
+
+const emit = defineEmits(['update:ready']);
 
 const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
@@ -142,6 +142,10 @@ timer.setTimeout(() => { hasCenteredOnce.value = true; }, 1500);
 
 const ready = computed(() => !isSynced.value || hasCenteredOnce.value);
 
+// Drives the parent's single loading screen. Immediate so a remount reports its
+// state right away rather than leaving the loader stuck on a stale `true`.
+watch(ready, (value) => emit('update:ready', value), { immediate: true });
+
 function restoreScroll() {
   if (isSynced.value || !scrollRef.value) return;
   scrollRef.value.scrollTop = lyricsStore.getScrollPosition(scrollKey.value);
@@ -165,15 +169,6 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
   flex-direction: column;
 }
 
-.lyrics-content-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-contrast);
-}
-
 .lyrics-scroll {
   /* position:relative so the lines' offsetTop is measured against this
      container — centerLine()'s scroll math depends on it. Fills the
@@ -182,7 +177,17 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  transition: opacity var(--transition-in-out);
+  /* Hidden and offset down until centering lands, then rises into place. This is
+     what the reader actually sees arrive: the component mounts under LyricsView's
+     loading layer, so without its own rise the lyrics would merely fade in once
+     that layer goes. Same cadence as .lyrics-fade-enter-active there, delay
+     included — 200ms is the loader's leave duration, so the rise starts only once
+     it has fully gone and the two never overlap. Plain lyrics are ready on the
+     first render, so the class is there from the start. */
+  opacity: 0;
+  transform: translateY(var(--space-06));
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
+  transition-delay: 200ms;
   padding-inline: var(--space-06);
   display: flex;
   flex-direction: column;
@@ -197,6 +202,11 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
      rather than hitting a hard edge (keywords, not hex → stylelint-safe). */
   -webkit-mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 100%);
   mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 100%);
+}
+
+.lyrics-scroll.is-ready {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .lyrics-scroll::-webkit-scrollbar {

@@ -1,8 +1,7 @@
 {
   "lyrics": {
     "title": "Testo",
-    "loading": "Ricerca del testo di",
-    "preparing": "Caricamento del testo di",
+    "loading": "Caricamento del testo",
     "noLyrics": "Nessun testo trovato per",
     "notPlaying": "Nessuna riproduzione",
     "notCompatible": "Sorgente non compatibile con la ricerca del testo",
