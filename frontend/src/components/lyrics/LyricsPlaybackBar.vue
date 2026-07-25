@@ -16,52 +16,61 @@
      directions. -->
 
 <template>
-  <div ref="dragZone" class="lyrics-bar-drag-zone"></div>
+  <!-- Same inert reveal band as the Dock's (shared .swipe-reveal-band utility) —
+       Lyrics borrows the Dock's swipe wholesale while it's open, so it borrows
+       its geometry too. -->
+  <div ref="dragZone" class="swipe-reveal-band"></div>
 
-  <!-- Persistent swipe affordance — stays mounted whether the bar itself is
-       shown or hidden. Resting position tracks the bar's own (measured)
-       height: just inside its top edge when shown, down near the bottom edge
-       when the bar is hidden. Points down while the bar is shown and flips to
-       point up once it's hidden (see .lyrics-bar-swipe-hint). Also a tap
-       target for the same show/hide the swipe performs, so it's a real button
-       (aria-expanded, not aria-hidden) rather than decoration. -->
-  <button ref="hint" type="button" class="lyrics-bar-swipe-hint" :class="{ 'is-bar-visible': isVisible }"
-    :style="{ '--bar-height': `${barHeight}px` }" :aria-label="t('lyrics.playbackControls')"
-    :aria-expanded="isVisible" @pointerdown="onHintPointerDown" @click="onHintClick">
-    <SvgIcon name="arrowExtended" :size="24" />
-  </button>
+  <!-- Static layer sized by the bar it wraps: the bar sits in normal flow here,
+       so the layer's height IS the bar's height, and the hide transform doesn't
+       shrink it (transforms don't affect layout). That's what lets the swipe
+       hint below track the bar's top edge in pure CSS, with no measurement. -->
+  <div class="lyrics-bar-layer">
+    <!-- Persistent swipe affordance — stays outside the bar so it survives the
+         bar being hidden. Resting position: just inside the bar's top edge when
+         shown, down near the bottom edge when hidden. Points down while the bar
+         is shown and flips to point up once it's hidden (see
+         .lyrics-bar-swipe-hint). Also a tap target for the same show/hide the
+         swipe performs, so it's a real button (aria-expanded, not aria-hidden)
+         rather than decoration. -->
+    <button ref="hint" type="button" class="lyrics-bar-swipe-hint" :class="{ 'is-bar-visible': isVisible }"
+      :aria-label="t('lyrics.playbackControls')" :aria-expanded="isVisible"
+      @pointerdown="onHintPointerDown" @click="onHintClick">
+      <SvgIcon name="arrowExtended" :size="24" />
+    </button>
 
-  <!-- The bar AND its content stay mounted (the height must always be
-       measurable for the swipe hint above, and unmounting the content would
-       pop it out instantly instead of letting it travel with the bar) — show
-       and hide are a plain class toggle, styled below. `inert` has to collapse
-       to undefined rather than false: Vue renders inert="false" verbatim, and
-       any value at all makes the subtree inert. -->
-  <div ref="panel" class="lyrics-bar" :class="{ 'is-hidden': !isVisible }" :inert="isVisible ? undefined : true">
-    <div class="lyrics-bar-content">
-      <div class="lyrics-bar-track">
-        <h2 class="heading-4 lyrics-bar-title">{{ identity.title }}</h2>
-        <p class="text-body lyrics-bar-artist">{{ identity.artist }}</p>
-      </div>
+    <!-- The bar AND its content stay mounted (the layer takes its height from
+         the bar, and unmounting the content would pop it out instantly instead
+         of letting it travel with the bar) — show and hide are a plain class
+         toggle, styled below. `inert` has to collapse to undefined rather than
+         false: Vue renders inert="false" verbatim, and any value at all makes
+         the subtree inert. -->
+    <div ref="panel" class="lyrics-bar" :class="{ 'is-hidden': !isVisible }" :inert="isVisible ? undefined : true">
+      <div class="lyrics-bar-content">
+        <div class="lyrics-bar-track">
+          <h2 class="heading-4 lyrics-bar-title">{{ identity.title }}</h2>
+          <p class="text-body lyrics-bar-artist">{{ identity.artist }}</p>
+        </div>
 
-      <div v-if="tier !== 'name-only'" class="lyrics-bar-progress">
-        <ProgressBar :currentPosition="currentPosition" :duration="duration"
-          :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-          :interactive="tier === 'full'" variant="dark" animateIn @seek="seekTo" />
-      </div>
+        <div v-if="tier !== 'name-only'" class="lyrics-bar-progress">
+          <ProgressBar :currentPosition="currentPosition" :duration="duration"
+            :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
+            :interactive="tier === 'full'" variant="dark" animateIn @seek="seekTo" />
+        </div>
 
-      <!-- Right column: the transport when the source has one — same as
-           AudioPlayer's desktop sidebar (music library's .ml-transport-main):
-           ghost IconButtons, no pill behind them. On the "metadata" tier it
-           stays as an empty column of the same width, so the progress bar
-           keeps the exact same centred 44% share whether the transport is
-           there or not. -->
-      <div v-if="tier !== 'name-only'" class="lyrics-bar-controls" :class="{ 'is-spacer': tier !== 'full' }">
-        <div v-if="tier === 'full'" class="playback-controls">
-          <IconButton icon="previous" variant="ghost" size="small" @click="previousTrack" />
-          <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
-            :loading="isBuffering" @click="togglePlayPause" />
-          <IconButton icon="next" variant="ghost" size="small" :disabled="!hasNext" @click="nextTrack" />
+        <!-- Right column: the transport when the source has one — same as
+             AudioPlayer's desktop sidebar (music library's .ml-transport-main):
+             ghost IconButtons, no pill behind them. On the "metadata" tier it
+             stays as an empty column of the same width, so the progress bar
+             keeps the exact same centred 44% share whether the transport is
+             there or not. -->
+        <div v-if="tier !== 'name-only'" class="lyrics-bar-controls" :class="{ 'is-spacer': tier !== 'full' }">
+          <div v-if="tier === 'full'" class="playback-controls">
+            <IconButton icon="previous" variant="ghost" size="small" @click="previousTrack" />
+            <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
+              :loading="isBuffering" @click="togglePlayPause" />
+            <IconButton icon="next" variant="ghost" size="small" :disabled="!hasNext" @click="nextTrack" />
+          </div>
         </div>
       </div>
     </div>
@@ -69,7 +78,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useCdStore } from '@/stores/cdStore';
 import { getTrackIdentity } from '@/stores/lyricsStore';
@@ -178,60 +187,23 @@ function onHintClick(event) {
   pressY = null;
   if (!swiped) isVisible.value = !isVisible.value;
 }
-
-// The bar's own height (varies by tier — e.g. "full" is taller than
-// "name-only") so the swipe hint can rest against its top edge when shown.
-// The bar stays mounted (never v-if'd) specifically so this stays measurable
-// even while hidden/translated off-screen.
-const barHeight = ref(0);
-let barResizeObserver = null;
-onMounted(() => {
-  if (!panel.value) return;
-  barResizeObserver = new ResizeObserver(() => {
-    barHeight.value = panel.value?.offsetHeight || 0;
-  });
-  barResizeObserver.observe(panel.value);
-});
-onUnmounted(() => barResizeObserver?.disconnect());
 </script>
 
 <style scoped>
-.lyrics-bar-drag-zone {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 12%;
-  z-index: 2;
-  pointer-events: none;
-}
-
-.lyrics-bar {
-  background: linear-gradient(to bottom, transparent 0%, var(--color-background-scrim) 100%);
+.lyrics-bar-layer {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 3;
+}
+
+.lyrics-bar {
+  background: linear-gradient(to bottom, transparent 0%, var(--color-background-scrim) 100%);
   display: flex;
   align-items: center;
   gap: var(--space-06);
-  padding: var(--space-05) var(--space-07);
-  /* Headroom for the swipe hint's 40px tap target, which now rests inside this
-     top edge: without it the hint lands on the title row in the short tiers
-     ("name-only", "metadata"), which have no vertical slack. --space-05-fixed
-     doesn't shrink on mobile, so the reserved band keeps matching the hint
-     (24px glyph + 2 × --space-02) at every breakpoint. */
-  padding-top: calc(var(--space-06) + var(--space-05-fixed));
-  padding-bottom: max(var(--space-06), env(safe-area-inset-bottom, 0px));
-  /* Stays mounted always (see script) — slides/fades via this class toggle. The
-     panel itself is deliberately NOT sprung: an overshoot past translateY(0)
-     lifts its bottom edge off the screen edge and opens a gap under the
-     gradient. The spring lives on the content instead (below), which can
-     overshoot freely inside the bar. The content stays mounted with the bar
-     too: translateY(100%) is measured against the bar's own height, so
-     unmounting the children would collapse that height mid-transition and the
-     bar would barely move. */
+  padding: var(--space-09) var(--space-07) max(var(--space-06), env(safe-area-inset-bottom, 0px)) var(--space-07);
   transition: transform var(--transition-normal), opacity var(--transition-normal);
 }
 
@@ -299,38 +271,39 @@ onUnmounted(() => barResizeObserver?.disconnect());
   min-width: 0;
 }
 
-/* Persistent swipe affordance, independent of the bar's own mount state —
-   centered, stacked over the bar (z-index) so it stays visible whether the
-   bar is shown or hidden. Resting position tracks the bar: hidden → 24/32px
-   off the bottom edge (--space-06, which is already 24px on mobile / 32px on
-   desktop); shown → its bottom edge lands on the bar's own (measured) top
-   edge, then translateY pushes it back down by exactly its own height, so it
-   sits inside the bar's top band instead of floating over the lyrics. That
-   100% is deliberately self-measuring: the tap target's padding can change
-   without a matching magic number here. The wrapper owns position and hit
-   area only; the arrow's direction is flipped on the injected <path> below. */
+/* Persistent swipe affordance, independent of the bar's own visibility —
+   centered, stacked over it (z-index) so it stays visible whether the bar is
+   shown or hidden. Both resting spots are expressed against the layer, whose
+   height is the bar's and whose bottom edge is the view's: hidden → down at
+   100% (the bottom edge); shown → inside the bar's top band. Anchoring on
+   `top` in both states is what makes them interpolate — the two used to be
+   `bottom` against a JS-measured bar height, which needed a ResizeObserver to
+   stay in sync. The wrapper owns position and hit area only; the arrow's
+   direction is flipped on the injected <path> below. */
 .lyrics-bar-swipe-hint {
   position: absolute;
   left: 50%;
-  /* 24px between the glyph and the bottom edge, at every breakpoint: the tap
-     padding is invisible, so it's subtracted here rather than shifting the
+  top: 100%;
+  /* 24px between the glyph and the view's bottom edge, at every breakpoint: the
+     tap padding is invisible, so it's subtracted here rather than shifting the
      arrow up by 8px. --space-05-fixed and --space-02 both hold their value on
      mobile (--space-06, used before, was 32px desktop / 24px mobile). */
-  bottom: calc(var(--space-05-fixed) - var(--space-02));
-  transform: translate(-50%, 0);
-  z-index: 4;
+  transform: translate(-50%, calc(-100% - var(--space-05-fixed) + var(--space-02)));
+  z-index: 1;
   display: flex;
   /* 24px glyph + this padding = a 40px tap target; the bare glyph is too small
      to hit reliably on the kiosk touchscreen. */
   padding: var(--space-02);
   cursor: pointer;
   color: var(--color-text-contrast-50);
-  transition: bottom var(--transition-spring-light), transform var(--transition-spring-light);
+  transition: top var(--transition-spring-light), transform var(--transition-spring-light);
 }
 
 .lyrics-bar-swipe-hint.is-bar-visible {
-  bottom: var(--bar-height, 0px);
-  transform: translate(-50%, 100%);
+  /* 16px below the bar's top edge, so the arrow sits in its top band rather
+     than floating over the lyrics. */
+  top: var(--space-07);
+  transform: translate(-50%, 0);
 }
 
 /* Flip the chevron to face the direction the swipe will take: down while the

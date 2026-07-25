@@ -1,8 +1,10 @@
 <!-- frontend/src/components/ui/Dock.vue -->
 <template>
-  <!-- Swipe region marker (inert): defines the bottom band geometry; the gesture
-       is detected at the document level so this never intercepts taps -->
-  <div ref="dragZone" class="drag-zone"></div>
+  <!-- Swipe region marker (inert): the reveal band's geometry lives in the
+       shared .swipe-reveal-band utility (design-system.css), so the Dock and the
+       Lyrics playback bar open on the exact same gesture. Detected at the
+       document level, so this never intercepts taps. -->
+  <div ref="dragZone" class="swipe-reveal-band"></div>
 
   <!-- Drag indicator -->
   <div class="dock-indicator" :class="{ hidden: isVisible || lyricsStore.isOpen, visible: showDragIndicator && !lyricsStore.isOpen }"
@@ -502,19 +504,6 @@ onUnmounted(() => window.removeEventListener('resize', updateFitScale));
 </script>
 
 <style scoped>
-.drag-zone {
-  position: fixed;
-  width: 33vw;
-  bottom: calc(0px + env(safe-area-inset-bottom, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  height: 12%;
-  z-index: 3999;
-  /* Inert marker: only defines the swipe region for document-level detection —
-     must never intercept taps meant for the content beneath it. */
-  pointer-events: none;
-}
-
 .additional-apps-container {
   --glass-bg: var(--color-background-medium-16);
   --glass-blur: var(--blur-03);
@@ -756,11 +745,6 @@ onUnmounted(() => window.removeEventListener('resize', updateFitScale));
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .drag-zone {
-    height: 5%;
-    width: 66vw;
-  }
-
   .desktop-only {
     display: none;
   }

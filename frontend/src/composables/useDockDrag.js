@@ -117,9 +117,10 @@ export function useDockDrag({
   };
 
   // Did the gesture start inside the bottom drag band? The band's geometry is
-  // defined in CSS (.drag-zone, responsive) — we read its rect rather than
-  // duplicate the sizing here. The element stays pointer-events:none, used only
-  // as a coordinate marker, so it never intercepts taps.
+  // defined in CSS (.swipe-reveal-band, responsive, shared with the Lyrics bar)
+  // — we read its rect rather than duplicate the sizing here. The element stays
+  // pointer-events:none, used only as a coordinate marker, so it never
+  // intercepts taps.
   const pointInBand = (e) => {
     const zone = dragZone.value;
     if (!zone) return false;
@@ -259,9 +260,9 @@ export function useDockDrag({
   // === Lifecycle ===
   const setupDragEvents = () => {
     // Gesture start is detected at the document level and gated by region
-    // (bottom band when hidden, dock element when visible). The .drag-zone
-    // element is pointer-events:none and captures nothing, so taps fall through
-    // to the content beneath it.
+    // (bottom band when hidden, dock element when visible). The
+    // .swipe-reveal-band element is pointer-events:none and captures nothing,
+    // so taps fall through to the content beneath it.
     document.addEventListener('mousedown', onDocumentDragStart);
     document.addEventListener('touchstart', onDocumentDragStart, { passive: true });
 

@@ -450,6 +450,40 @@
     border-radius: var(--radius-03);
 }
 
+/* === SWIPE REVEAL BAND === */
+/* Bottom-edge band a swipe-up must start in to reveal a hidden bottom panel —
+   shared by the Dock (useDockDrag) and the Lyrics playback bar
+   (useSwipeVisibility), so the gesture feels identical in both. Consulted ONLY
+   while the panel is hidden: once shown, both composables gate the closing
+   swipe on the panel element itself, not on this band.
+
+   Inert marker, never a hit target: the composables read its
+   getBoundingClientRect() and detect the gesture at the document level, so the
+   geometry lives here rather than duplicated in JS. It paints nothing and takes
+   no pointer events, hence no z-index.
+
+   Deliberately narrower than the viewport and short: a gesture starting in the
+   band calls preventDefault() on move, so every pixel of band is a pixel where
+   a list (or the lyrics scroller) can't start scrolling natively. */
+.swipe-reveal-band {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: env(safe-area-inset-bottom, 0px);
+    width: 33vw;
+    height: 12%;
+    pointer-events: none;
+}
+
+/* Portrait: a percentage of a tall viewport is a lot of confiscated scroll, so
+   the band gets shorter — and wider to stay easy to hit with a thumb. */
+@media (max-aspect-ratio: 4/3) {
+    .swipe-reveal-band {
+        width: 66vw;
+        height: 6%;
+    }
+}
+
 /* === VUE TRANSITIONS === */
 
 /* Fade + slide (for MessageContent, grids, etc.) */
