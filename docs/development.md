@@ -106,7 +106,6 @@ frontend/src/
 │   ├── lyrics/               # Lyrics app (full-screen synced view)
 │   ├── multiroom/            # Multiroom (Snapcast) controls
 │   ├── music-library/        # Music Library source UI (browse + tracklist + queue)
-│   ├── navigation/           # Navigation stack
 │   ├── network/              # Network / WiFi settings
 │   ├── podcasts/             # Podcast source UI
 │   ├── qobuz/                # Qobuz source UI
@@ -204,6 +203,9 @@ class AudioSource(Enum):
     AIRPLAY = "airplay"
     MAC = "mac"
     CD = "cd"
+    DLNA = "dlna"
+    QOBUZ = "qobuz"
+    MUSIC_LIBRARY = "music_library"
     MY_SOURCE = "my_source"  # ← Add here
 ```
 
@@ -304,23 +306,28 @@ pcm.milo_mysource_direct {
 }
 
 # Multiroom mode: via Snapcast loopback
-# Card 1 `Loopback` is FULL: slot 0 = DSP input, slots 1..7 = the seven existing
-# sources. snd-aloop caps at 8 substreams/card (kernel limit), so a new source
-# needs a *second* loopback card — as DLNA does (`card LoopbackDLNA`, device 0,
-# subdevice 0). Add the card in the snd-aloop module options at BOTH install
-# paths (`install/alsa.sh` and `pi-gen/stage-milo/02-install-milo/01-run.sh`):
-#   options snd-aloop index=1,2,3 enable=1,1,1 id=Loopback,LoopbackDLNA,LoopbackX pcm_substreams=8,8,8
-# Then add a matching `source = alsa:///?...&device=hw:<card>,1,0` line in
+# Card 1 `Loopback` is FULL: slot 0 = DSP input, slots 1..7 = the seven original
+# sources. snd-aloop caps at 8 substreams/card (kernel limit), so DLNA opened a
+# *second* loopback card, `LoopbackDLNA` — but that card is NOT full: it has 8
+# subdevices (0..7) and only 3 are taken (0=DLNA, 1=Qobuz, 2=Music Library, see
+# install/snapcast.sh). Use the next free subdevice on LoopbackDLNA (3, then 4,
+# 5, 6, 7) — do NOT open a third loopback card until all 8 are used.
+# Then add a matching `source = alsa:///?...&device=hw:2,1,<subdevice>` line in
 # /etc/snapserver.conf and its slug to the `meta:///...` aggregator.
 pcm.milo_mysource_multiroom {
     type plug
     slave.pcm {
         type hw
-        card LoopbackX
+        card LoopbackDLNA
         device 0
-        subdevice 0
+        subdevice 3
     }
 }
+```
+
+Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. Add it in the snd-aloop module options at BOTH install paths (`install/alsa.sh` and `pi-gen/stage-milo/02-install-milo/01-run.sh`):
+```
+options snd-aloop index=1,2,3 enable=1,1,1 id=Loopback,LoopbackDLNA,LoopbackX pcm_substreams=8,8,8
 ```
 
 Note: CamillaDSP is always in the audio path for volume control. DSP effects are toggled within CamillaDSP.
@@ -530,10 +537,15 @@ standing in for Podcast Index and a mount layer underneath.**
 
 ```bash
 cd backend
-python -m pytest                 # All tests
-python -m pytest -v              # Verbose
-python -m pytest -m unit         # Unit tests only
-python -m pytest -k "test_name"  # Specific test
+python -m pytest                                        # All tests
+python -m pytest -v                                      # Verbose
+python -m pytest -m unit                                 # Unit tests only
+python -m pytest -k "test_name"                          # By name (substring, across files)
+python -m pytest tests/test_radio_source.py              # A single file
+python -m pytest tests/test_radio_source.py::TestRadioSourceLifecycle::test_start_success  # A single test
+python -m pytest --cov=backend --cov-report=term-missing  # Coverage summary
+python -m pytest --cov=backend --cov-report=html          # HTML coverage → htmlcov/index.html
+python -m pytest --durations=10                           # 10 slowest tests
 ```
 
 **Writing a test:**
@@ -541,20 +553,31 @@ python -m pytest -k "test_name"  # Specific test
 `backend/tests/test_my_source.py`:
 ```python
 import pytest
+from unittest.mock import AsyncMock
+
 from backend.sources.my_source.source import MySource
+from backend.core.models.audio_state import SourceState
+
+
+@pytest.fixture
+def my_source():
+    return MySource(
+        config={},
+        state_machine=AsyncMock(),
+        settings_service=AsyncMock(),
+        systemd_manager=AsyncMock(),
+    )
+
 
 @pytest.mark.asyncio
-async def test_source_initialization():
-    # Mock state machine
-    class MockStateMachine:
-        async def update_source_state(self, source, state):
-            pass
+async def test_start_success(my_source):
+    result = await my_source.start()
 
-    source = MySource(MockStateMachine())
-    await source.initialize()
-
-    assert source.source == AudioSource.MY_SOURCE
+    assert result is True
+    assert my_source.state == SourceState.WAITING
 ```
+
+See `tests/test_radio_source.py` for a fuller example (mocked service manager, command dispatch, lifecycle transitions).
 
 ### Frontend (Vitest)
 

@@ -14,7 +14,7 @@ import { useI18n } from '@/services/i18n';
 import { isKiosk } from '@/utils/kiosk';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
-import { AIRPLAY_MIN_ARTWORK_PX } from '@/constants/imageQuality';
+import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
 import cdPlaceholder from '@/assets/cd/cd-placeholder.jpg';
 
 /** Minimum ms between activity event processing. */
@@ -272,7 +272,7 @@ export function useScreensaver() {
       // that plays with no usable metadata (e.g. a game or web video) falls back
       // to the simple "Connected to <device>" card instead of an empty cover.
       const showRichMedia = !!metadata.title && !!metadata.artist &&
-        (metadata.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
+        (metadata.album_art_width || 0) > UNTRUSTED_SENDER_MIN_ARTWORK_PX;
 
       if (showRichMedia) {
         return {
