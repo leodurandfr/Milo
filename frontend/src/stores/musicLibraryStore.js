@@ -504,6 +504,19 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return { ok: false };
   }
 
+  // A scan (manual refresh, or triggered by a share add/remove) just finished —
+  // the catalog caches below are stale (new tracks missing, gone ones still
+  // listed) until something reloads them. No WS event marks scan completion, so
+  // this is driven by refreshScanStatus() polling flipping isScanning off; only
+  // refresh whichever lists are already loaded, same set resync() touches.
+  watch(isScanning, (scanning, wasScanning) => {
+    if (scanning || !wasScanning) return;
+    if (albumsLoaded.value) loadAlbums({ reset: true });
+    if (artistsLoaded.value) loadArtists({ force: true });
+    if (genresLoaded.value) loadGenres({ force: true });
+    if (playlistsLoaded.value) loadPlaylists({ force: true });
+  });
+
   // =========================================================================
   // NETWORK SHARES (SMB/NFS) — configured in Settings; the backend persists,
   // (re)mounts read-only under /media/milo, and rescans on every write. Non-
