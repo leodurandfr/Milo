@@ -1334,7 +1334,7 @@ img.player-artwork.loaded {
 
 .expanded-card.source-music_library :deep(.ml-controls .playback-controls) {
   width: 100%;
-  justify-content: space-between;
+  justify-content: space-around;
   padding: 0 var(--space-02);
 }
 
