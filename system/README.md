@@ -70,6 +70,43 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **Managed By**: PodcastPlugin
 - **Notes**: Independent mpv instance for podcast playback with progress tracking
 
+#### milo-airplay.service
+- **Role**: AirPlay 2 receiver via shairport-sync
+- **Dependencies**: milo-backend.service, network-online.target, sound.target, nqptp.service (PTP clock sync, required via `Requires=`), milo-camilladsp.service
+- **ALSA Device**: milo_airplay (dynamic routing via routing.env)
+- **Managed By**: AirplaySource
+- **Notes**: Config baked at install (`install/airplay.sh`), not runtime-managed by the backend
+
+#### milo-cd.service
+- **Role**: CD player via mpv, fed raw PCM over a FIFO from the ioctl disc reader
+- **IPC Socket**: /run/milo/cd-ipc.sock
+- **Dependencies**: sound.target, milo-backend.service, milo-camilladsp.service
+- **ALSA Device**: milo_cd (dynamic routing via routing.env)
+- **Managed By**: CdSource
+- **Notes**: `RuntimeDirectoryPreserve=yes` — shares `/run/milo` with the other mpv-based source units and milo-camilladsp; must not be dropped by a restart
+
+#### milo-dlna.service
+- **Role**: DLNA/UPnP renderer via gmediarender
+- **Port**: 49494
+- **Dependencies**: milo-backend.service, network-online.target, sound.target, milo-camilladsp.service
+- **ALSA Device**: milo_dlna (dynamic routing via routing.env)
+- **Managed By**: DlnaSource
+
+#### milo-music-library.service
+- **Role**: Music Library player via mpv (local USB/SMB/NFS library, served through Navidrome)
+- **IPC Socket**: /run/milo/music_library-ipc.sock
+- **Dependencies**: sound.target, milo-backend.service, milo-camilladsp.service
+- **ALSA Device**: milo_music_library (dynamic routing via routing.env)
+- **Managed By**: MusicLibrarySource
+- **Notes**: `--gapless-audio=yes`, no `loudnorm` (bit-perfect; volume/EQ handled downstream by CamillaDSP). Depends on milo-navidrome.service being up to browse/stream, but has no unit-level dependency on it — the backend only reaches Navidrome lazily when the source activates.
+
+#### milo-qobuz.service
+- **Role**: Qobuz Connect via the qobuz-proxy sidecar
+- **Dependencies**: milo-backend.service, network-online.target, sound.target, milo-camilladsp.service
+- **ALSA Device**: milo_qobuz (dynamic routing via routing.env)
+- **Managed By**: QobuzSource
+- **Notes**: `QOBUZPROXY_DATA_DIR=/var/lib/milo/qobuz` holds the venv, `config.yaml`, and the OAuth `credentials.json` written on first login (per-user, not baked into the image)
+
 ### Multiroom Services (Managed Dynamically)
 
 #### milo-snapserver-multiroom.service
@@ -87,6 +124,52 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **Managed By**: SnapcastService
 - **Notes**: Plays synchronized audio from snapserver
 
+### Infrastructure Services (Always Enabled, backend-linked)
+
+Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopped on demand by the backend's source lifecycle), these are always-on daemons other sources depend on. They use `PartOf=milo-backend.service`, which — unlike `BindsTo=` — propagates both stop **and** restart, so a backend crash/restart doesn't leave them running stale.
+
+#### milo-camilladsp.service
+- **Role**: CamillaDSP audio processor (volume control + EQ/compressor/loudness, always in the audio path)
+- **Port**: 1234 (WebSocket control, localhost only)
+- **Dependencies**: sound.target (`Requires=`)
+- **Startup**: Enabled at boot
+- **Notes**: Starts muted (`-m`) and waits for a valid config (`-w`) at safe startup volume (`--gain=-60.0`); the backend unmutes and restores volume after init. Runs with real-time FIFO scheduling (`CPUSchedulingPolicy=fifo`, priority 15) and locked memory. `RuntimeDirectoryPreserve=yes` on `/run/milo`, shared with the mpv-based source units.
+
+#### milo-navidrome.service
+- **Role**: Navidrome catalog engine for the Music Library source (Subsonic API, localhost-only, indexes `/media/milo`)
+- **Dependencies**: local-fs.target, milo-backend.service; `Wants=milo-navidrome-config.service` (re-applies the baked TOML ahead of every start)
+- **Startup**: Enabled at boot
+- **Notes**: `ExecStartPre` runs `milo-navidrome-provision` to generate the per-device service-account credential on first boot. Reached lazily by the backend only when the music_library source activates, so no strict boot ordering before `milo-backend.service`.
+
+#### milo-navidrome-config.service
+- **Role**: Oneshot that reconciles the Navidrome catalog TOML (album-grouping persistent ID) from the single source of truth (`install/navidrome.sh`) before Navidrome starts
+- **Type**: oneshot (`RemainAfterExit=yes`)
+- **Dependencies**: local-fs.target; `Before=milo-navidrome.service`
+- **Startup**: Not enabled directly — pulled in on every start (boot or on-demand) via `Wants=milo-navidrome-config.service` from milo-navidrome.service
+- **Notes**: Needed because the TOML is written once into `/var/lib/milo` (device data), so a normal app update never refreshes it. Idempotent — an unchanged rewrite is a no-op, and Navidrome only rescans when the PID value actually changes.
+
+### Boot-Time Oneshot Services
+
+#### milo-first-boot.service
+- **Role**: Detects server vs. multiroom-client mode on first boot and applies the corresponding setup
+- **Type**: oneshot
+- **Dependencies**: After NetworkManager.service; Before avahi-daemon.service, milo-backend.service, milo-readiness.service
+- **Startup**: Enabled by the pi-gen image build (`pi-gen/stage-milo/03-configure/01-run.sh`), not by `install.sh`
+- **Notes**: `TimeoutStartSec=180` to allow for network wait + multi-attempt mDNS probe + client setup. Ordered before `avahi-daemon.service` only (never `avahi-daemon.socket` — see the unit file comment on the ordering-cycle risk that can otherwise strand NetworkManager).
+
+#### milo-ir-keytable.service
+- **Role**: Enables NEC IR decoding on the kernel's rc-core, before the backend's IR controller starts
+- **Type**: oneshot (`RemainAfterExit=yes`)
+- **Dependencies**: `ConditionPathExists=/sys/class/rc`; After systemd-modules-load.service; Before milo-backend.service
+- **Startup**: Enabled at boot (`install/ir-remote.sh`)
+
+#### milo-eeprom-setup.service
+- **Role**: Applies power-on behaviour (wait for power button) to the Raspberry Pi bootloader EEPROM
+- **Type**: oneshot (`RemainAfterExit=yes`)
+- **Dependencies**: `ConditionPathExists=/home/milo/milo/install/power-button.sh`; After local-fs.target
+- **Startup**: Enabled by the pi-gen image build (`pi-gen/stage-milo/03-configure/01-run.sh`), not by `install.sh`
+- **Notes**: The EEPROM lives on the board's SPI flash, not the SD card, so it can't be baked into the pi-gen image — this reuses `configure_power_on_behavior()` from `install/power-button.sh` and re-flashes only when needed, so running every boot is harmless.
+
 ### Utility Services (Always Enabled)
 
 #### milo-cpu-governor.service
@@ -99,6 +182,9 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 ## Service Dependencies Graph
 
 ```
+(boot-time oneshots, pi-gen image build or install/*.sh — see Boot-Time Oneshot Services)
+  milo-first-boot.service → milo-eeprom-setup.service → milo-ir-keytable.service
+
 graphical.target
   └─ milo-kiosk.service
        ├─ milo-readiness.service
@@ -108,6 +194,9 @@ graphical.target
 
 multi-user.target
   ├─ milo-backend.service
+  ├─ milo-camilladsp.service
+  ├─ milo-navidrome.service
+  │    └─ milo-navidrome-config.service (Wants=, reconciles TOML before each start)
   ├─ milo-cpu-governor.service
   │
   └─ (dynamically started by backend)
@@ -117,6 +206,11 @@ multi-user.target
        ├─ milo-mac.service
        ├─ milo-radio.service
        ├─ milo-podcast.service
+       ├─ milo-airplay.service
+       ├─ milo-cd.service
+       ├─ milo-dlna.service
+       ├─ milo-music-library.service
+       ├─ milo-qobuz.service
        └─ (multiroom mode only)
             ├─ milo-snapserver-multiroom.service
             └─ milo-snapclient-multiroom.service
