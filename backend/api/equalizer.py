@@ -106,20 +106,6 @@ def create_equalizer_router(
 
     # Note: PUT /client/{client_id}/speaker-type moved to PATCH /api/multiroom/clients/{mac_id}
 
-    @router.put("/client/{client_id}/crossover-frequency")
-    async def set_client_crossover_frequency(client_id: str, payload: dict):
-        """Set custom crossover frequency for a client"""
-        async with api_error_handler("Error setting client crossover frequency", logger):
-            freq = payload.get("frequency")
-            if freq is None:
-                raise HTTPException(status_code=400, detail="frequency is required")
-            cs = crossover_service
-            if not await cs.set_client_crossover_frequency(client_id, float(freq)):
-                raise HTTPException(status_code=500, detail="Failed to update crossover frequency")
-            ct = await cs.get_client_type(client_id)
-            return {"status": "success", "client_id": client_id, "speaker_type": ct.get("speaker_type"),
-                    "crossover_frequency": ct.get("crossover_frequency")}
-
     @router.put("/links/{zone_id}/crossover")
     async def set_zone_crossover(zone_id: str, payload: ZoneCrossoverRequest):
         """Set crossover frequency for a zone"""
