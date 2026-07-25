@@ -561,13 +561,31 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 }
 ```
 
-**radio_data.json** - Radio favorites and custom stations
+**radio_data.json** - Radio favorites and custom stations. Durable (`schema_version: 1`).
+**radio_images/** - Station artwork (WebP, ≤1024×1024): both auto-cached RadioBrowser logos and manually-uploaded custom-station art. Durable — the auto-cached share is regenerable, but user-uploaded art isn't, so the directory as a whole is treated as durable.
+**podcast_data.json** - Subscriptions, favorites, playback progress, playback-speed preference. Durable (`schema_version: 2`).
+**cd_data.json** - MusicBrainz disc-TOC/metadata lookup cache, keyed by disc ID. Disposable — no `schema_version`; re-fetched on next disc read if lost.
+**cd_covers/** - Downloaded CD cover art, keyed by disc ID. Disposable cache (re-downloadable from Cover Art Archive).
+**equalizer.json** - Persisted parametric-EQ/compressor/loudness/mono state (active preset, custom gains, filters). Durable (`schema_version: 2`). Distinct from `camilladsp/config.yml`: CamillaDSP itself resets to its baked static defaults on every restart, and it's this file the backend replays over its WebSocket API to restore the live EQ state afterwards.
+**camilladsp/** - CamillaDSP daemon working directory (`WorkingDirectory=` in `milo-camilladsp.service`): `config.yml` is the static default config baked at install time from the repo (`install/camilladsp.sh`) — no backend code rewrites it at runtime, the backend only talks to the running daemon over its WebSocket API. `configs/` and `coeffs/` are empty subdirectories created for future coefficient-file support; nothing reads or writes into them today.
+**go-librespot/** - `config.yml` is written at install time (`install/go-librespot.sh`) and read-only for the backend (`SpotifySource._load_config`). go-librespot itself runs with `--config_dir` pointed at this directory and may write its own session/zeroconf state here — that part is owned by the external binary, not by Milō code.
 **routing.env** - Derived artifact of `settings.routing.multiroom_enabled`. Holds `MILO_MODE=direct|multiroom`. Read by every source systemd unit via `EnvironmentFile=` and by `/etc/asound.conf` via `@func getenv vars [ MILO_MODE ]` for `milo_*` alias resolution. Regenerated exclusively by `AudioRoutingService` whenever the setting changes.
+**mac.env** - `ROC_TARGET_LATENCY`/`ROC_LATENCY_PROFILE`/`ROC_FRAME_LENGTH`, read only by `milo-mac.service`. Regenerable — derived purely from `settings.json`'s `mac` config by `MacEnv.regenerate()`.
+**snapclient.env** - `MILO_SNAPCLIENT_BUFFER_TIME`/`MILO_SNAPCLIENT_FRAGMENTS`, read only by `milo-snapclient-multiroom.service`. Regenerable, same model as `mac.env`, via `SnapclientEnv.regenerate()`.
+**pending_clients.json** - Staging area for multiroom client devices that registered via the API but haven't yet appeared in Snapcast. Transient by design: entries self-expire after 45s if never claimed. Safe to lose — clients just re-register.
+**pending_client_role.json** - Written by `become_client()` when converting a unit from server to multiroom-client role; consumed and deleted by `milo-first-boot` on the next boot. Normally absent in steady state — only exists mid-conversion.
 **last_volume.json** - Last saved volume for restoration
 **qobuz/** - qobuz-proxy sidecar home (`QOBUZPROXY_DATA_DIR`): `venv/` (the pinned qobuz-proxy install), `config.yaml`, and the OAuth `credentials.json` written on first login. Owned `milo:audio`. Not baked into the image — the account login is per-user.
 **navidrome/** - Navidrome catalog engine `DataFolder`: the library **DB** (`navidrome.db`), the regenerable art/transcode **cache/**, the baked `navidrome.toml`, and the per-device service-account cred (`milo-service.cred`, 0600) + `navidrome-auth.env` written on first boot. Owned `milo:milo`. Placed under `/var/lib/milo` so any whole-tree backup captures the catalog (see Backups).
 **lyrics/** - LRCLIB lookup cache (one JSON per track key, negatives included). Disposable derived cache: no `schema_version`, safe to wipe.
 **music_library_data.json** - Music Library network-share config (SMB/NFS): non-secret metadata only (id/type/host/path/name/`has_credentials`). Share passwords never land here — they live in root-only cred files written by `milo-mount`. USB keys are not persisted (auto-detected live). Mounts themselves appear under `/media/milo/` (the Navidrome `MusicFolder`), which is a mount root, not persisted data.
+**shares/** - Root-only (0700, `root:root`) credential store for network (SMB/NFS) shares, one `<id>.cred` file (0600) per share, written/read/removed exclusively by the privileged `milo-mount`/`milo-umount` helpers — the backend process never reads these directly. Durable for any share that has credentials; losing it just means re-entering them on the next mount attempt.
+**app-version** - Written once at image-build time by pi-gen (`git describe --tags --always` at build) — not consulted by the running backend, which checks its own version live via `git describe` instead. A build-time artifact, not runtime data.
+**avahi-interface** - One-line cache of which physical interface (`eth0`/`wlan0`) Avahi should bind mDNS to, written by the NetworkManager dispatcher on every link up/down and read by `milo-apply-avahi-iface` before avahi-daemon starts. Regenerable — defaults to `eth0` if absent. Exists to avoid the `milo.local` → `milo-2.local` self-loop rename bug.
+**shairport-sync-version** - Last successfully-installed shairport-sync version, written by the updater after a verified update. Best-effort cache: `version.py` falls back to invoking `shairport-sync --version` if the file is missing. Works around 4.3.7's version string not being reliably parseable post-update.
+**errors.log** - Rotating application error log (`RotatingFileHandler`), not user data.
+
+`music_library-test-tone.flac` may be seen alongside these on a live unit but has no corresponding code path anywhere in `backend/`, `install/`, or `rootfs/` — it isn't created by any Milō script and is excluded from this inventory as operator-placed residue, not appliance data.
 
 **Integrity protection:**
 - ✅ Atomic write (`os.replace()`)
