@@ -264,10 +264,16 @@ const contentKey = computed(() => {
 
 .audio-content-enter-active {
   transition: all var(--transition-spring);
+  z-index: 1;
 }
 
+/* No mode="out-in" here (it stranded on rapid switches and mounted nothing —
+   see 8efeb6e7): the two stacked absolute slots cross-fade instead, outgoing
+   rising away while the incoming one comes up from below. z-index keeps the
+   entering view on top for the overlap. */
 .audio-content-leave-active {
   transition: all var(--transition-fast-leave);
+  z-index: 0;
 }
 
 /* Default direction: ALWAYS bottom to top */
