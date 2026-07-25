@@ -3,7 +3,8 @@
   Qobuz account screen (D4). Unlike Spotify Connect (zeroconf, no login),
   qobuz-proxy needs a one-time Qobuz account login before "Milō" advertises in
   the Qobuz app. This screen drives the backend relay (backend/api/qobuz_account.py):
-    - GET  /api/qobuz/account            → login status (fail-open)
+    - GET  /api/qobuz/account            → login status (from the cached token,
+                                           so it holds when the sidecar is down)
     - GET  /api/qobuz/account/login-url  → OAuth URL to open in the browser
     - POST /api/qobuz/account/logout     → clear token + stop the speaker
   The OAuth flow itself runs on qobuz-proxy (:8689); Connect opens it in a new
