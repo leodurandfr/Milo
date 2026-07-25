@@ -6,7 +6,7 @@
 // track_artist rather than the canonical title/artist (see radioStore.trackInfo;
 // the station itself is a continuous stream, not a track).
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
 
@@ -36,6 +36,11 @@ export const useLyricsStore = defineStore('lyrics', () => {
   // The track the current lyrics belong to (for the modal's empty-state copy).
   const trackArtist = ref('');
   const trackTitle = ref('');
+
+  // The "Title · Artist" line the "no lyrics found for" empty state shows below
+  // its message — i.e. the exact track loadLyrics() searched with. The loading
+  // screen deliberately shows no track, just what it's doing.
+  const trackLine = computed(() => `${trackTitle.value} · ${trackArtist.value}`);
 
   let abortController = null;
 
@@ -145,7 +150,7 @@ export const useLyricsStore = defineStore('lyrics', () => {
 
   return {
     isOpen, open, close,
-    loading, found, synced, plain, trackArtist, trackTitle, loadLyrics,
+    loading, found, synced, plain, trackArtist, trackTitle, trackLine, loadLyrics,
     getScrollPosition, saveScrollPosition
   };
 });

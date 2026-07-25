@@ -26,22 +26,29 @@
 
     <div class="lyrics-view-body">
       <Transition name="lyrics-fade" mode="out-in">
-        <div v-if="lyricsStore.loading" key="loading" class="lyrics-view-state">
-          <LyricsLoadingState :track-title="lyricsStore.trackTitle" :track-artist="lyricsStore.trackArtist" />
-        </div>
+        <!-- Deliberately empty while the lookup is in flight: the loader below
+             covers this slot, and keeping the slot blank is what lets the real
+             state animate in afterwards instead of being merely revealed. -->
+        <div v-if="lyricsStore.loading" key="pending" class="lyrics-view-state"></div>
 
         <div v-else-if="!lyricsStore.found" key="empty" class="lyrics-view-state">
-          <SvgIcon name="lyrics" :size="64" color="var(--color-text-contrast-50)" />
-          <p class="heading-3 lyrics-view-msg">{{ emptyState.message }}</p>
-          <p v-if="emptyState.showTrack" class="text-body lyrics-view-track-line">
-            <span>{{ lyricsStore.trackTitle }}</span>
-            <span class="lyrics-view-track-sep">·</span>
-            <span>{{ lyricsStore.trackArtist }}</span>
-          </p>
+          <MessageContent variant="dark" icon="lyrics" :title="emptyState.message"
+            :details="emptyState.showTrack ? lyricsStore.trackLine : null" />
         </div>
 
         <LyricsContent v-else :key="`content-${activeSource}`" :source="activeSource"
-          :synced="lyricsStore.synced" :plain="lyricsStore.plain" />
+          :synced="lyricsStore.synced" :plain="lyricsStore.plain"
+          @update:ready="contentReady = $event" />
+      </Transition>
+
+      <!-- One loader for both waits — the LRCLIB lookup and then LyricsContent's
+           centring. It sits outside the Transition above so it stays put across
+           that swap: the reader sees a single uninterrupted message rather than
+           two loading screens trading places mid-wait. -->
+      <Transition name="lyrics-loader">
+        <div v-if="showLoader" class="lyrics-view-loader">
+          <MessageContent variant="dark" loading :loading-delay="0" :title="t('lyrics.loading')" />
+        </div>
       </Transition>
 
       <LyricsPlaybackBar v-if="showPlaybackBar" :source="activeSource" />
@@ -50,16 +57,15 @@
 </template>
 
 <script setup>
-import { computed, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/lyricsStore';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 
 import IconButton from '@/components/ui/IconButton.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
 import LyricsContent from './LyricsContent.vue';
-import LyricsLoadingState from './LyricsLoadingState.vue';
 import LyricsPlaybackBar from './LyricsPlaybackBar.vue';
 
 const { t } = useI18n();
@@ -67,6 +73,22 @@ const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
 
 const activeSource = computed(() => unifiedStore.systemState.active_source);
+
+// Reported by LyricsContent once it has centred (or immediately, for plain
+// lyrics). The loading screen spans both waits — the LRCLIB lookup and this one —
+// so it is the same message throughout, never two in a row.
+const contentReady = ref(false);
+const showLoader = computed(() =>
+  lyricsStore.loading || (lyricsStore.found && !contentReady.value)
+);
+
+// A new lookup unmounts LyricsContent (the blank slot below wins the v-if), and an
+// unmount emits nothing — so without this reset the previous track's `true` would
+// survive, hiding the loader the moment the fetch resolves and letting it flash
+// back in once the remounted content reports it hasn't centred yet.
+watch(() => lyricsStore.loading, (isLoading) => {
+  if (isLoading) contentReady.value = false;
+});
 
 // Radio has no canonical album_art_url: the recognized track's artwork lives
 // under track_artwork, falling back to the station favicon (same fallback as
@@ -197,45 +219,50 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   flex-direction: column;
 }
 
-/* Loading / empty states, centered over the backdrop with light-on-dark text. */
+/* Empty state: MessageContent owns its layout and light-on-dark copy
+   (variant="dark"), so this only centers it over the backdrop. */
 .lyrics-view-state {
   flex: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-04);
 }
 
-.lyrics-view-msg {
-  color: var(--color-text-contrast-50);
-}
-
-/* Title + artist bright, the connector ("de"/"by"/…) dimmed. Flex gap gives the
-   inter-word spacing so it wraps cleanly on a long title/artist. Used by the
-   "no lyrics found for" empty state (the loading state has its own copy in
-   LyricsLoadingState). */
-.lyrics-view-track-line {
+/* The loading screen is a layer, not one of the states above — that's what lets
+   it survive the state swap underneath it. Later in the DOM than the Transition,
+   so it paints over it without needing a z-index (the playback bar's own layer
+   carries z-index: 3 and still wins). */
+.lyrics-view-loader {
+  position: absolute;
+  inset: 0;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   justify-content: center;
-  gap: 0 var(--space-02);
-  padding-inline: var(--space-05);
-  color: var(--color-text-contrast);
 }
 
-.lyrics-view-track-sep {
-  color: var(--color-text-contrast);
+/* Lifts away upward when both waits are over. No enter counterpart: on opening,
+   the loader is the first thing on screen and has nothing to arrive from. */
+.lyrics-loader-leave-active {
+  transition: opacity var(--transition-fast-leave), transform var(--transition-fast-leave);
+}
+.lyrics-loader-leave-to {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--space-06)));
 }
 
-/* Keyed state cross-fade (loading → empty → content). The content enters with a
-   gentle rise so the lyrics settle in progressively rather than popping. */
+/* Keyed state transition (pending → empty → content): the outgoing state lifts
+   away upward, then the incoming one rises from below. mode="out-in" makes them
+   strictly sequential, never overlapping — no crossfade. Asymmetric on purpose:
+   easeIn accelerates the exit away, easeOut decelerates the arrival into place. */
 .lyrics-fade-leave-active {
-  transition: opacity var(--transition-fast-leave);
+  transition: opacity var(--transition-fast-leave), transform var(--transition-fast-leave);
 }
 .lyrics-fade-enter-active {
-  transition: opacity var(--transition-slow), transform var(--transition-slow);
-  transition-delay: 120ms;
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
+  /* Matches the loader's leave duration (--transition-fast-leave, 200ms). The
+     loader lives in its own Transition, so out-in can't sequence them — without
+     this the two would overlap and read as a crossfade. */
+  transition-delay: 200ms;
 }
 .lyrics-fade-enter-from,
 .lyrics-fade-leave-to {
@@ -243,5 +270,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 .lyrics-fade-enter-from {
   transform: translateY(var(--space-06));
+}
+.lyrics-fade-leave-to {
+  transform: translateY(calc(-1 * var(--space-06)));
 }
 </style>

@@ -1,9 +1,8 @@
 {
   "lyrics": {
     "title": "Paroles",
-    "loading": "Recherche des paroles de",
-    "preparing": "Chargement des paroles de",
-    "noLyrics": "Aucune paroles trouvées pour",
+    "loading": "Chargement des paroles",
+    "noLyrics": "Paroles introuvables pour",
     "notPlaying": "Aucune lecture en cours",
     "notCompatible": "Source audio non compatible avec la recherche de paroles",
     "noTrackDetected": "Aucune chanson détectée",
