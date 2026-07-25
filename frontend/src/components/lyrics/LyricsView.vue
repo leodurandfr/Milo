@@ -19,8 +19,8 @@
       </div>
     </Transition>
 
-    <div class="lyrics-view-close">
-      <IconButton icon="close" variant="rounded" size="large"
+    <div ref="closeButtonWrapper" class="lyrics-view-close">
+      <IconButton ref="closeButtonRef" icon="close" variant="rounded" size="large"
         :aria-label="t('common.close')" @click="lyricsStore.close()" />
     </div>
 
@@ -57,8 +57,9 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
+import { useTimer } from '@/composables/useTimer';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/lyricsStore';
 import { getFaviconUrl } from '@/utils/faviconUrl';
@@ -71,6 +72,10 @@ import LyricsPlaybackBar from './LyricsPlaybackBar.vue';
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
+const timer = useTimer();
+
+const closeButtonWrapper = ref(null);
+const closeButtonRef = ref(null);
 
 const activeSource = computed(() => unifiedStore.systemState.active_source);
 
@@ -151,7 +156,31 @@ const showPlaybackBar = computed(() => {
 function handleKeydown(event) {
   if (event.key === 'Escape') lyricsStore.close();
 }
-onMounted(() => document.addEventListener('keydown', handleKeydown, { passive: true }));
+onMounted(async () => {
+  document.addEventListener('keydown', handleKeydown, { passive: true });
+
+  // Delayed pop-in for the close button — same choreography as Modal.vue's
+  // close button: wrapper slides in on the spring curve, button fades in
+  // separately, both held back until the view has settled.
+  await nextTick();
+  if (!closeButtonWrapper.value || !closeButtonRef.value) return;
+
+  closeButtonWrapper.value.style.transition = 'none';
+  closeButtonWrapper.value.classList.remove('visible');
+  closeButtonRef.value.$el.style.transition = 'none';
+  closeButtonRef.value.$el.style.opacity = '0';
+
+  // Force reflow so the hidden state above is committed before animating in.
+  closeButtonWrapper.value.offsetHeight;
+
+  timer.setTimeout(() => {
+    if (!closeButtonWrapper.value || !closeButtonRef.value) return;
+    closeButtonWrapper.value.style.transition = 'transform var(--transition-spring-snappy)';
+    closeButtonWrapper.value.classList.add('visible');
+    closeButtonRef.value.$el.style.transition = 'opacity 350ms var(--easeOutCubic)';
+    closeButtonRef.value.$el.style.opacity = '1';
+  }, 500);
+});
 onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 </script>
 
@@ -201,13 +230,29 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   top: var(--space-07);
   right: var(--space-07);
   z-index: 3;
+  transform: translateY(-24px);
+  visibility: hidden;
 }
 
+.lyrics-view-close.visible {
+  transform: translateY(0);
+  visibility: visible;
+}
+
+/* Mobile: same spot and slide-in as Modal.vue's mobile close button — its
+   overlay padding-top (76px + safe-area term) plus its own wrapper offset
+   (-space-03 - 52px), collapsed into one top value since this view has no
+   overlay of its own to carry that padding. */
 @media (max-aspect-ratio: 4/3) {
   .lyrics-view-close {
+    top: calc(76px + env(safe-area-inset-top, 0px) - min(env(safe-area-inset-top, 0px), var(--space-03)) - var(--space-03) - 52px);
     left: 50%;
     right: auto;
-    transform: translateX(-50%);
+    transform: translateX(-50%) translateY(-24px);
+  }
+
+  .lyrics-view-close.visible {
+    transform: translateX(-50%) translateY(0);
   }
 }
 
@@ -226,6 +271,21 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Desktop only: a third of the view rather than shrink-to-fit, so the card
+   reads as a deliberate column over the backdrop instead of an arbitrary
+   width driven by its longest line. Reset back to auto on mobile below. */
+.lyrics-view-state :deep(.message-content),
+.lyrics-view-loader :deep(.message-content) {
+  width: 33.333%;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .lyrics-view-state :deep(.message-content),
+  .lyrics-view-loader :deep(.message-content) {
+    width: auto;
+  }
 }
 
 /* The loading screen is a layer, not one of the states above — that's what lets
