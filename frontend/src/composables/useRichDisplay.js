@@ -10,11 +10,11 @@
 // showing while the logo was wrongly hidden during disc loading/ejecting).
 import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { AIRPLAY_MIN_ARTWORK_PX } from '@/constants/imageQuality';
+import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
 
 // Pure rule: given a source + its state + metadata, does it earn a rich view?
-// AirPlay's artwork-quality gate (AIRPLAY_MIN_ARTWORK_PX) is shared with the
-// screensaver — see @/constants/imageQuality.
+// The untrusted-sender artwork-quality gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX)
+// is shared with the screensaver — see @/constants/imageQuality.
 function hasRichDisplay(source, state, meta) {
   const m = meta || {};
   switch (source) {
@@ -29,7 +29,7 @@ function hasRichDisplay(source, state, meta) {
       // keeps the stale cover but flips is_playing=false → drop to the status
       // card rather than freeze on a cover for audio that no longer plays.
       return state === 'active' && !!m.is_playing && !!m.title && !!m.artist &&
-        (m.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
+        (m.album_art_width || 0) > UNTRUSTED_SENDER_MIN_ARTWORK_PX;
     case 'radio':
     case 'podcast':
       // Own component (AudioSourceLayout) handles internal empty/loading states.
@@ -45,7 +45,7 @@ function hasRichDisplay(source, state, meta) {
       // a real cover (>300px) AND audio flowing (drop the stale cover when the
       // controller stops).
       return state === 'active' && !!m.is_playing && !!m.title && !!m.artist &&
-        (m.album_art_width || 0) > AIRPLAY_MIN_ARTWORK_PX;
+        (m.album_art_width || 0) > UNTRUSTED_SENDER_MIN_ARTWORK_PX;
     case 'qobuz':
       // Trusted metadata provider (Qobuz CDN cover, always full-size — no
       // album_art_width is emitted). Unlike AirPlay/DLNA the proxy reports idle

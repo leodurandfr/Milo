@@ -353,6 +353,29 @@ During playback Milō shows the album artwork, track title, artist, album, and a
 
 ---
 
+## CD
+
+Milō plays audio CDs through a USB CD/DVD drive.
+
+### Connecting the drive
+
+Plug a USB CD/DVD drive into Milō. It is detected automatically — no setup needed.
+
+### Inserting a disc
+
+Insert an audio CD into the drive. Milō recognizes it within a couple of seconds and starts building the tracklist.
+
+### Display
+
+Once the disc is read, Milō looks up the album title, artist, cover art, and track names online and shows them along with full transport controls (play/pause, next/previous, seek) and a progress bar. If the disc isn't found online, Milō falls back to generic track names so you can still play it.
+
+### Ejecting
+
+Tap the **eject** icon to release the disc. You can also just eject it directly from the drive.
+
+
+---
+
 # Equalizer (DSP)
 
 Milō includes an audio processor that lets you adjust the sound to your taste. The equalizer is reachable from the Dock.
