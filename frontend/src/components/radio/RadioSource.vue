@@ -135,13 +135,15 @@ const displayStation = ref(null)
 const displayTrackInfo = ref(null)
 watch(
   () => radioStore.currentStation,
-  (station, prev) => {
+  (station) => {
     if (!station) return
-    displayStation.value = station
     // A different station's metadata invalidates the previous track overlay —
     // drop it so a stale cover/title can't linger over the new station while it
-    // buffers (before its own track is recognized).
-    if (prev && station.id !== prev.id) displayTrackInfo.value = null
+    // buffers (before its own track is recognized). Compared against the
+    // snapshot, not the watcher's previous value: currentStation goes null on
+    // stop, so `prev` would be null when the next station arrives.
+    if (station.id !== displayStation.value?.id) displayTrackInfo.value = null
+    displayStation.value = station
   },
   { immediate: true }
 )
@@ -168,19 +170,17 @@ const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShow
     }
   })
 
-// Mirror displayStation for the recognized track. trackInfo is derived from
-// metadata and drops to null the instant the source stops, which would collapse
-// the two-thumbnail layout to station-only before the player runs its exit
-// transition. Snapshotting keeps the last track (image + text) shown so it fades
-// out with the player, and lingers alongside the station. Cleared immediately
-// when the song is merely no longer recognized while the station keeps playing
-// (revert to station-only), on a station change (above), and on fade-out
-// completion above. (ref declared with displayStation so that watch can reset it.)
+// Mirror displayStation for the recognized track — but only while a track is
+// actually recognized. Unlike the station (which must survive the stop →
+// fade-out window so the player has something to show), a track that is gone
+// must disappear at once: on stop, or when the song is simply no longer
+// recognized while the station keeps playing. Both revert the player to the
+// station's own image/name instead of pinning the last detected song.
+// (ref declared with displayStation so its watch can reset it.)
 watch(
   () => radioStore.trackInfo,
   (info) => {
-    if (info) displayTrackInfo.value = info
-    else if (isCurrentlyPlaying.value) displayTrackInfo.value = null
+    displayTrackInfo.value = info
   },
   { immediate: true }
 )
