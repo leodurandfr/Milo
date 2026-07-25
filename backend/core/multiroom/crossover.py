@@ -195,26 +195,6 @@ class CrossoverService:
             "crossover_frequency": DEFAULT_CROSSOVER_FREQUENCIES.get(DEFAULT_SPEAKER_TYPE)
         }
 
-    @handle_errors(default=False)
-    async def set_client_crossover_frequency(self, client_id: str, frequency: float) -> bool:
-        """Set a custom crossover frequency for a client."""
-        frequency = max(20, min(200, frequency))
-        speaker_type = self.get_client_speaker_type(client_id)
-
-        if self._registry:
-            await self._registry.update_speaker_type(
-                client_id,
-                speaker_type,
-                int(frequency)
-            )
-
-        self.logger.info(f"Client {client_id} crossover frequency set to {frequency}Hz")
-
-        if speaker_type != 'subwoofer':
-            await self._set_client_filter(client_id, "crossover", True, frequency)
-
-        return True
-
     def get_client_speaker_type(self, client_id: str) -> str:
         """Get the speaker type for a client."""
         if self._registry:

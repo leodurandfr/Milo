@@ -3,7 +3,6 @@
 FastAPI routes for CD audio source.
 
 Provides REST API endpoints for:
-- Drive status: Check drive connection and disc presence
 - Playback: Play a specific track by number (typed)
 - Cover art: Serve disc cover images
 - Eject: Eject the disc
@@ -39,24 +38,6 @@ def setup_cd_routes(source_provider) -> APIRouter:
     """Configure routes with source provider."""
     set_source_provider(source_provider)
     return router
-
-
-# === Drive Status Route ===
-
-
-@router.get("/drive-status")
-async def get_drive_status(source: CdSource = Depends(get_source)) -> Dict[str, Any]:
-    """
-    Get CD drive connection and disc presence status.
-
-    Works even when the CD source is not active — used by DockSettings
-    to detect whether a drive is plugged in.
-    """
-    async with api_error_handler("Drive status", logger):
-        return {
-            "connected": source.drive_connected,
-            "disc_present": source.disc_present,
-        }
 
 
 # === Playback Routes ===
