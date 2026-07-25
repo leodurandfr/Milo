@@ -19,10 +19,16 @@ from backend.sources.mac.source import MacSource
 from backend.sources.bluetooth.source import BluetoothSource
 from backend.sources.airplay.source import AirPlaySource
 from backend.sources.dlna.source import DlnaSource
+from backend.sources.music_library.source import MusicLibrarySource
+from backend.sources.qobuz.source import QobuzSource
 
+# QobuzSource is listed with an empty COMMANDS registry (Family B: playback is
+# driven by the Qobuz sender, not by us) — the per-command loops below are then
+# no-ops, which is the correct outcome, not a gap.
 ALL_SOURCES = [
     SpotifySource, RadioSource, PodcastSource, CdSource,
     MacSource, BluetoothSource, AirPlaySource, DlnaSource,
+    MusicLibrarySource, QobuzSource,
 ]
 
 # Commands the hardware encoder/IR/BT-remote dispatcher sends per active source
@@ -33,6 +39,7 @@ HARDWARE_COMMANDS = {
     RadioSource: ["stop_playback", "resume_playback"],
     PodcastSource: ["pause", "resume"],
     CdSource: ["pause", "resume", "next", "prev"],
+    MusicLibrarySource: ["pause", "resume", "next", "prev"],
 }
 
 
