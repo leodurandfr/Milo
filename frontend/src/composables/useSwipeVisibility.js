@@ -22,9 +22,10 @@ export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow,
   const getEventX = (e) => e.type.includes('touch')
     ? (e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX) : e.clientX;
 
-  // Did the gesture start inside the bottom reveal band? Mirrors
-  // useDockDrag's pointInBand — the zone stays pointer-events:none, used only
-  // as a coordinate marker so it never intercepts taps/scrolls.
+  // Did the gesture start inside the bottom reveal band? Mirrors useDockDrag's
+  // pointInBand, over the same shared .swipe-reveal-band geometry — the zone
+  // stays pointer-events:none, used only as a coordinate marker so it never
+  // intercepts taps/scrolls.
   const pointInBand = (e) => {
     const zone = dragZone.value;
     if (!zone) return false;
