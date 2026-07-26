@@ -6,11 +6,6 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
-class PlayTrackRequest(BaseModel):
-    """Request to play a specific track on the CD."""
-    track_number: int  # 1-based
-
-
 # === Command-parameter models (validated at the command() boundary) ===
 
 class PlayTrackParams(BaseModel):

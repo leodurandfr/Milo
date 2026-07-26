@@ -2,11 +2,14 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 // Maximum progress entries to cache (prevents unbounded memory growth)
 const MAX_PROGRESS_ENTRIES = 200;
 
 export const usePodcastStore = defineStore('podcast', () => {
+  const unifiedStore = useUnifiedAudioStore();
+
   // === PLAYBACK STATE ===
   const currentEpisode = ref(null);
   const displayEpisode = ref(null); // Preserved during fade-out animation
@@ -87,27 +90,17 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   async function pause() {
-    await apiCall.post('/api/podcast/pause', null, {
-      category: 'store',
-      message: 'Error pausing',
-    });
+    await unifiedStore.sendCommand('podcast', 'pause');
   }
 
   async function resume() {
-    await apiCall.post('/api/podcast/resume', null, {
-      category: 'store',
-      message: 'Error resuming',
-    });
+    await unifiedStore.sendCommand('podcast', 'resume');
   }
 
   async function setSpeed(speed) {
-    const result = await apiCall.post('/api/podcast/speed', { speed }, {
-      category: 'store',
-      message: 'Error setting speed',
-    });
-    if (result.ok && result.data.success) {
-      playbackSpeed.value = result.data.speed;
-    }
+    // The applied speed comes back on the metadata broadcast (_applyMetadata),
+    // which also snaps an off-grid request to the nearest valid value.
+    await unifiedStore.sendCommand('podcast', 'set_speed', { speed });
   }
 
   async function loadPlaybackSpeeds() {

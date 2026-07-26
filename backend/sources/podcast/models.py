@@ -12,11 +12,6 @@ class PlayEpisodeRequest(BaseModel):
     position: Optional[int] = None  # Resume position
 
 
-class SpeedRequest(BaseModel):
-    """Request to set playback speed."""
-    speed: float
-
-
 class SubscribeRequest(BaseModel):
     """Request to subscribe to a podcast."""
     uuid: str

@@ -42,14 +42,19 @@ else is the static SPA).
 | Hardware | `/api/bt-remote`, `/api/ir-remote`, `/api/fan` | Bluetooth/IR remote + fan control |
 | Sources | `/api/radio`, `/api/podcast`, `/api/cd`, `/api/airplay`, `/api/dlna`, `/api/qobuz`, `/api/music-library` | Source-specific endpoints (browsing, favorites, binary/proxied artwork, scan status…) |
 
-Mute-receiver sources (Bluetooth, Mac) have **no** dedicated routes — they are driven entirely
-through `/api/audio/control/{source}`. Passive receivers expose only what the sender can't
-deliver: DLNA and Qobuz have **no playback-control routes** (the external app drives them) —
-`/api/dlna` serves proxied artwork, and Qobuz's only surface is the `/api/qobuz/account/*`
-one-time-login relay. Music Library (Family C) is UI-controlled, so `/api/music-library` is the
-richest of the three (Subsonic-backed browsing, cover-art proxy, `scan-status`). API conventions
-(verbs, the `status` envelope, the per-layer error policy) are spelled out in
-[CLAUDE.md](../CLAUDE.md) and the [Developer Guide](development.md).
+**Every source command travels on `/api/audio/control/{source}`**, whatever its family — a
+per-source command route would only add a second failure contract to keep in sync. A source
+router therefore holds what is *not* a command: catalog browsing, favorites, binary/proxied
+artwork. The two exceptions are documented in [CLAUDE.md](../CLAUDE.md) § *Audio sources*:
+a route that composes several commands in one request (`/api/radio/play`, `/api/podcast/play`)
+and a route Milo-Mac pins.
+
+So Bluetooth, Mac and Spotify have no router at all; Qobuz's only surface is the
+`/api/qobuz/account/*` one-time-login relay; `/api/airplay` and `/api/dlna` serve proxied
+artwork; `/api/cd` serves disc covers. Music Library is the richest (Subsonic-backed browsing,
+cover-art proxy, `scan-status`, share wizard). API conventions (verbs, the `status` envelope, the
+per-layer error policy) are spelled out in [CLAUDE.md](../CLAUDE.md) and the
+[Developer Guide](development.md).
 
 ## WebSocket
 

@@ -1,10 +1,14 @@
 """
 Main API routes for audio management
 """
+import logging
+
 from fastapi import APIRouter, HTTPException
 from backend.api.models import AudioControlRequest
 from backend.api.responses import AudioStateResponse, StatusResponse
-from backend.api.route_helpers import parse_audio_source
+from backend.api.route_helpers import parse_audio_source, run_source_command
+
+logger = logging.getLogger(__name__)
 
 def create_router(state_machine):
     """Creates router with injected dependencies"""
@@ -25,14 +29,23 @@ def create_router(state_machine):
 
     @router.post("/control/{source_name}")
     async def control_source(source_name: str, control_request: AudioControlRequest):
-        """Sends command to specific source with validation"""
+        """The single transport for every source command.
+
+        Validation happens in `source.command()` against the source's own
+        `COMMANDS` map, so an unknown command or bad params is a 400 here, not a
+        200 carrying a failure flag — same contract as every other mutation.
+        """
         source = parse_audio_source(source_name)
         source_instance = state_machine.sources.get(source)
 
         if not source_instance:
+            logger.error("Command for an unregistered source: %s", source_name)
             raise HTTPException(status_code=404, detail=f"Source not found: {source_name}")
 
-        result = await source_instance.command(control_request.command, control_request.data)
-        return {"status": "success" if result.get("success") else "error", "result": result}
+        result = await run_source_command(
+            source_instance, control_request.command, control_request.data,
+            f"{source_name}/{control_request.command}"
+        )
+        return {"status": "success", "result": result}
 
     return router

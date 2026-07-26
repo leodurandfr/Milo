@@ -312,23 +312,9 @@ describe('podcastStore', () => {
     });
   });
 
-  describe('setSpeed', () => {
-    it('adopts the speed echoed by the backend', async () => {
-      apiCall.post.mockResolvedValueOnce(ok({ success: true, speed: 1.5 }));
-
-      await store.setSpeed(1.5);
-
-      expect(store.playbackSpeed).toBe(1.5);
-    });
-
-    it('keeps the current speed when the request fails', async () => {
-      apiCall.post.mockResolvedValueOnce(fail());
-
-      await store.setSpeed(2.0);
-
-      expect(store.playbackSpeed).toBe(1.0);
-    });
-  });
+  // setSpeed has no test: it delegates to sendCommand and the applied value
+  // arrives on the metadata broadcast, already covered by 'applies a playback
+  // speed change pushed by the backend' above.
 
   describe('search state', () => {
     it('records results, pagination and the term that produced them', () => {

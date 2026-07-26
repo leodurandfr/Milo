@@ -1,7 +1,6 @@
 // frontend/src/stores/cdStore.js
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 export const useCdStore = defineStore('cd', () => {
@@ -50,17 +49,11 @@ export const useCdStore = defineStore('cd', () => {
 
   // === PLAYBACK ACTIONS ===
   async function playTrack(trackNumber) {
-    await apiCall.post('/api/cd/play', { track_number: trackNumber }, {
-      category: 'cd',
-      message: 'Error playing track',
-    });
+    await unifiedStore.sendCommand('cd', 'play_track', { track_number: trackNumber });
   }
 
   async function eject() {
-    await apiCall.post('/api/cd/eject', null, {
-      category: 'cd',
-      message: 'Error ejecting',
-    });
+    await unifiedStore.sendCommand('cd', 'eject');
   }
 
   // === UI ACTIONS ===
