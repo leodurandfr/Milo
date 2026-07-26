@@ -8,7 +8,7 @@ Tests cover:
 - BaseAudioSource lifecycle
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 from pydantic import BaseModel, Field
 
 from backend.core.audio_source import BaseAudioSource

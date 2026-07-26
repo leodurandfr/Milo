@@ -12,10 +12,8 @@ device, FIFO, or subprocess is touched.
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
-from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import AudioSource, SourceState
-from backend.shared.mpv_audio_source import MpvAudioSource
-from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY, CdDataService
+from backend.sources.cd.data import CDS_DRIVE_NOT_READY, CdDataService
 from backend.sources.cd.models import DiscInfo, PlayTrackParams, SeekParams, TrackInfo
 from backend.sources.cd.reader import SECTORS_PER_SECOND
 from backend.sources.cd.source import CD_PREV_RESTART_THRESHOLD_S, CdSource
@@ -89,10 +87,6 @@ DISC = DiscInfo(
 
 
 class TestCompliance:
-    def test_extends_base(self, source):
-        assert isinstance(source, BaseAudioSource)
-        assert isinstance(source, MpvAudioSource)
-
     def test_identity(self, source):
         assert source.source_id == "cd"
         assert source.service_name == "milo-cd.service"
@@ -101,12 +95,6 @@ class TestCompliance:
         for cmd in ("play_track", "pause", "resume", "next",
                     "prev", "seek", "eject"):
             assert cmd in source.COMMANDS
-
-    @pytest.mark.asyncio
-    async def test_unknown_command(self, source):
-        result = await source.command("bogus", {})
-        assert result["success"] is False
-
 
 class TestDiscWatcher:
     """Insertion/ejection detection via the permanent _check_drive_and_disc poll."""

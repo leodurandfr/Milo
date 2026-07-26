@@ -8,7 +8,7 @@ Tests cover:
 - Presets
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, MagicMock
 
 from backend.core.equalizer import (
     CamillaDSPService,

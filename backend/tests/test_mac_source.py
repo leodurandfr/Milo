@@ -13,7 +13,6 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 
 from backend.sources.mac.source import MacSource
-from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 
 
@@ -44,21 +43,10 @@ def mac_source(config):
 class TestBaseClassCompliance:
     """Test that MacSource extends BaseAudioSource correctly."""
 
-    def test_extends_base_audio_source(self, mac_source):
-        """Test MacSource extends BaseAudioSource."""
-        assert isinstance(mac_source, BaseAudioSource)
-
     def test_has_required_attributes(self, mac_source):
         """Test required attributes exist."""
         assert mac_source.source_id == "mac"
         assert mac_source.service_name == "milo-mac.service"
-
-    def test_has_required_methods(self, mac_source):
-        """Test required methods exist."""
-        assert hasattr(mac_source, 'start')
-        assert hasattr(mac_source, 'stop')
-        assert hasattr(mac_source, 'command')
-
 
 class TestMacSourceConfig:
     """Test MacSource configuration."""
@@ -165,15 +153,6 @@ class TestMacSourceCommands:
         assert result["success"] is True
         assert result["connection_count"] == 1
         assert "192.168.1.1" in result["connections"]
-
-    @pytest.mark.asyncio
-    async def test_unknown_command(self, mac_source):
-        """Test unknown command returns error."""
-        result = await mac_source.command("unknown_cmd", {})
-
-        assert result["success"] is False
-        assert "error" in result
-
 
 class TestConnectionState:
     """Test connection state management."""

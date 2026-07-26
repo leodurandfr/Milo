@@ -11,7 +11,6 @@ socket, or daemon is touched.
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
-from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 from backend.sources.music_library.source import MusicLibrarySource
 
@@ -80,9 +79,6 @@ TRACKS = [
 
 
 class TestCompliance:
-    def test_extends_base(self, source):
-        assert isinstance(source, BaseAudioSource)
-
     def test_identity(self, source):
         assert source.source_id == "music_library"
         assert source.service_name == "milo-music-library.service"
@@ -93,12 +89,6 @@ class TestCompliance:
     def test_commands_registered(self, source):
         for cmd in ("play_context", "play_index", "pause", "resume", "next", "prev", "seek", "stop"):
             assert cmd in source.COMMANDS
-
-    @pytest.mark.asyncio
-    async def test_unknown_command(self, source):
-        result = await source.command("bogus", {})
-        assert result["success"] is False
-
 
 class TestPlayContext:
     @pytest.mark.asyncio

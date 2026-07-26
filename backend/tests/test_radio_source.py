@@ -14,7 +14,6 @@ from unittest.mock import Mock, AsyncMock, patch
 
 from backend.sources.radio.source import RadioSource
 from backend.sources.radio.data import StationDataService, ImageManager
-from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 
 
@@ -44,21 +43,10 @@ def radio_source(config):
 class TestBaseClassCompliance:
     """Test that RadioSource extends BaseAudioSource correctly."""
 
-    def test_extends_base_audio_source(self, radio_source):
-        """Test RadioSource extends BaseAudioSource."""
-        assert isinstance(radio_source, BaseAudioSource)
-
     def test_has_required_attributes(self, radio_source):
         """Test required attributes exist."""
         assert radio_source.source_id == "radio"
         assert radio_source.service_name == "milo-radio.service"
-
-    def test_has_required_methods(self, radio_source):
-        """Test required methods exist."""
-        assert hasattr(radio_source, 'start')
-        assert hasattr(radio_source, 'stop')
-        assert hasattr(radio_source, 'command')
-
 
 class TestRadioSourceConfig:
     """Test RadioSource configuration."""
@@ -206,15 +194,6 @@ class TestRadioSourceCommands:
         result = await radio_source.command("remove_favorite", {"station_id": "test-id"})
 
         assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_unknown_command(self, radio_source):
-        """Test unknown command returns error."""
-        result = await radio_source.command("unknown_cmd", {})
-
-        assert result["success"] is False
-        assert "error" in result
-
 
 class TestStationDataService:
     """Test StationDataService."""

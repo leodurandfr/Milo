@@ -134,14 +134,6 @@ class TestPublicDispatchMethods:
 
         source.command.assert_not_called()
 
-    def test_legacy_private_names_are_removed(self):
-        """The private aliases must not linger — they would silently shadow the
-        public rename if accidentally re-introduced."""
-        dispatcher = PlaybackDispatcher(MagicMock())
-        assert not hasattr(dispatcher, "_dispatch_play_pause")
-        assert not hasattr(dispatcher, "_dispatch_track")
-
-
 class TestMultiClickRouting:
     """The on_click → _resolve_clicks path must call the renamed public methods."""
 

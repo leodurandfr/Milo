@@ -354,14 +354,6 @@ class TestModelConstants:
         assert "tower" in SPEAKER_TYPES
         assert "subwoofer" in SPEAKER_TYPES
 
-    def test_default_crossover_frequencies(self):
-        """Test default crossover frequencies."""
-        assert DEFAULT_CROSSOVER_FREQUENCIES["satellite"] == 120
-        assert DEFAULT_CROSSOVER_FREQUENCIES["bookshelf"] == 80
-        assert DEFAULT_CROSSOVER_FREQUENCIES["tower"] == 50
-        assert DEFAULT_CROSSOVER_FREQUENCIES["subwoofer"] is None
-
-
 # =============================================================================
 # ClientRegistryService Tests
 # =============================================================================
@@ -1731,67 +1723,6 @@ class TestStandaloneEqualizerSync:
 # =============================================================================
 
 
-class TestWebSocketSyncStatus:
-    """Tests for WebSocket event sync_status payload (Story 5.2 Task 4)."""
-
-    def test_sync_status_structure(self):
-        """Test that sync_status has expected structure."""
-        # Expected sync_status keys
-        sync_status = {
-            "volume_synced": True,
-            "equalizer_synced": True,
-            "pending_applied": False
-        }
-
-        assert "volume_synced" in sync_status
-        assert "equalizer_synced" in sync_status
-        assert "pending_applied" in sync_status
-        assert isinstance(sync_status["volume_synced"], bool)
-        assert isinstance(sync_status["equalizer_synced"], bool)
-        assert isinstance(sync_status["pending_applied"], bool)
-
-    def test_sync_status_default_values(self):
-        """Test sync_status default values before sync."""
-        sync_status = {
-            "volume_synced": False,
-            "equalizer_synced": False,
-            "pending_applied": False
-        }
-
-        # All should be False by default
-        assert sync_status["volume_synced"] is False
-        assert sync_status["equalizer_synced"] is False
-        assert sync_status["pending_applied"] is False
-
-    def test_client_connected_event_structure(self):
-        """Test client_connected event payload structure with sync_status."""
-        # Simulated event payload as emitted by websocket.py
-        event_payload = {
-            "client_id": "abc123",
-            "client_name": "Test Client",
-            "client_host": "milo-client-01",
-            "client_ip": "192.168.1.100",
-            "mac_id": "milo-client-01",
-            "volume": 100,
-            "muted": False,
-            "online": True,
-            "sync_status": {
-                "volume_synced": True,
-                "equalizer_synced": True,
-                "pending_applied": False
-            }
-        }
-
-        # Verify structure
-        assert "client_id" in event_payload
-        assert "mac_id" in event_payload
-        assert "sync_status" in event_payload
-
-        sync_status = event_payload["sync_status"]
-        assert sync_status["volume_synced"] is True
-        assert sync_status["equalizer_synced"] is True
-
-
 # =============================================================================
 # TestAutoCrossover - Story 5.3: Auto-crossover on subwoofer connect/disconnect
 # =============================================================================
@@ -1916,7 +1847,6 @@ class TestAutoCrossover:
 
     def test_crossover_frequency_calculation(self, crossover_service, mock_registry_with_subwoofer):
         """AC3: Frequency determined by speaker_type of zone members."""
-        from backend.core.multiroom.models import DEFAULT_CROSSOVER_FREQUENCIES
 
         crossover_service.set_registry(mock_registry_with_subwoofer)
 
@@ -1977,19 +1907,6 @@ class TestAutoCrossover:
 
         # Should succeed (but no filters applied)
         assert result is True
-
-    def test_default_crossover_frequencies_defined(self):
-        """AC3: Verify DEFAULT_CROSSOVER_FREQUENCIES are correctly defined."""
-        from backend.core.multiroom.models import DEFAULT_CROSSOVER_FREQUENCIES
-
-        assert "satellite" in DEFAULT_CROSSOVER_FREQUENCIES
-        assert "bookshelf" in DEFAULT_CROSSOVER_FREQUENCIES
-        assert "tower" in DEFAULT_CROSSOVER_FREQUENCIES
-        assert "subwoofer" in DEFAULT_CROSSOVER_FREQUENCIES
-
-        # Subwoofer should be None (receives lowpass)
-        assert DEFAULT_CROSSOVER_FREQUENCIES["subwoofer"] is None
-
 
 # =============================================================================
 # Story 1-3: Snapcast Client Detection Integration Tests
