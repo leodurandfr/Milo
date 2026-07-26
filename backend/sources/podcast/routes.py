@@ -6,7 +6,7 @@ Provides REST API for:
 - Discovery (top charts, by genre — iTunes RSS, exact Apple Podcasts order)
 - Search (podcasts only — Podcast Index has no cross-podcast episode search)
 - Content (series details, episode details)
-- Playback (play, pause, resume, seek, stop, speed)
+- Playback (play, pause, resume, speed)
 - Subscriptions (add, remove, list)
 - Queue (in-progress episodes)
 - Settings (podcast-specific settings)
@@ -266,14 +266,6 @@ async def resume_playback(
 ) -> Dict[str, Any]:
     """Resume playback."""
     return await run_source_command(source, "resume", {}, "Resume")
-
-
-@router.post("/stop")
-async def stop_playback(
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Stop playback."""
-    return await run_source_command(source, "stop", {}, "Stop")
 
 
 @router.get("/playback-speeds")
