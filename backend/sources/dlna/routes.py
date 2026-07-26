@@ -36,6 +36,10 @@ async def get_artwork(source: DlnaSource = Depends(get_source)) -> Response:
     """Serve current DLNA artwork as binary image."""
     result = source.get_artwork()
     if not result:
+        # Expected, not an error: the DMS may expose no cover for the track,
+        # and the frontend falls back to its own placeholder. Kept below ERROR
+        # so it never reaches the WebSocketLogHandler banner.
+        logger.debug("No DLNA artwork available")
         raise HTTPException(status_code=404, detail="No artwork available")
 
     data, mime_type = result

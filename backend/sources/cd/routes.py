@@ -73,6 +73,10 @@ async def get_cover(disc_id: str, source: CdSource = Depends(get_source)):
 
     cover_path = source.data_service.get_cover_path(disc_id)
     if not cover_path:
+        # Expected, not an error: the Cover Art Archive has no image for plenty
+        # of discs, and the frontend falls back to its own placeholder. Kept
+        # below ERROR so it never reaches the WebSocketLogHandler banner.
+        logger.debug("Cover not available for disc: %s", disc_id)
         raise HTTPException(status_code=404, detail="Cover not found")
 
     # Verify the resolved path is inside the covers directory

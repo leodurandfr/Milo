@@ -35,6 +35,10 @@ async def get_artwork(source: AirPlaySource = Depends(get_source)) -> Response:
     """Serve current AirPlay artwork as binary image."""
     result = source.get_artwork()
     if not result:
+        # Expected, not an error: plenty of senders push no cover at all, and
+        # the frontend falls back to its own placeholder. Kept below ERROR so
+        # it never reaches the WebSocketLogHandler banner.
+        logger.debug("No AirPlay artwork available")
         raise HTTPException(status_code=404, detail="No artwork available")
 
     data, mime_type = result
