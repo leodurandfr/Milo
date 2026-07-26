@@ -16,7 +16,7 @@ import time
 import aiohttp
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from backend.tests.conftest import attach_registry_broadcaster
+from backend.tests.conftest import attach_registry_broadcaster, drain_background_tasks
 from backend.core.multiroom.models import (
     Client,
     Zone,
@@ -1974,6 +1974,7 @@ class TestAutoCrossover:
 # =============================================================================
 
 
+@pytest.mark.usefixtures("no_satellite_network")
 class TestSnapcastClientDetection:
     """
     Tests for Integrate Snapcast Client Detection.
@@ -2060,6 +2061,7 @@ class TestSnapcastClientDetection:
         }
 
         await ws_service._handle_client_connect(params)
+        await drain_background_tasks()
 
         # Verify client was registered with MAC as identifier
         client = registry.get_client("aa:bb:cc:dd:ee:ff")
@@ -2138,6 +2140,7 @@ class TestSnapcastClientDetection:
         }
 
         await ws_service._handle_client_connect(params)
+        await drain_background_tasks()
 
         # Verify broadcast was called with multiroom registry event
         mock_state_machine.broadcast.assert_called()
@@ -2261,6 +2264,7 @@ class TestSnapcastClientDetection:
         }
 
         await ws_service._handle_client_connect(params)
+        await drain_background_tasks()
 
         client = registry.get_client("aa:bb:cc:dd:ee:ff")
         assert client is not None
@@ -2294,6 +2298,7 @@ class TestSnapcastClientDetection:
         }
 
         await ws_service._handle_client_connect(params)
+        await drain_background_tasks()
 
         client = registry.get_client("11:22:33:44:55:66")
         assert client.name == "Living Room Speakers"
@@ -3685,3 +3690,86 @@ class TestAdmissionPathConvergence:
 
         assert registry.get_client(self.MAC).online is False
         assert service._sync_reconnecting_client_volume.await_count == 1
+
+    def _volume_service(self, hardware_results):
+        volume_service = MagicMock()
+        volume_service.volume_config = VolumeConfig()
+        volume_service.state_store.set_client_volume = AsyncMock()
+        volume_service.state_store.get_client_mute = MagicMock(return_value=False)
+        volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(
+            side_effect=list(hardware_results)
+        )
+        volume_service.equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
+        volume_service.broadcast_volume_state = AsyncMock()
+        return volume_service
+
+    @pytest.mark.asyncio
+    async def test_client_onconnect_retries_until_the_hardware_takes_the_volume(self):
+        """Client.OnConnect is the path a rebooting satellite arrives on, and it had no retry.
+
+        Its snapclient reaches snapserver seconds before its API answers on 8001,
+        so the first apply fails; the handler used to give up, leaving the client
+        offline and muted until an unrelated event happened to retry it.
+        """
+        service, registry, _, _ = await self._service()
+        service.set_volume_service(self._volume_service([False, True]))
+
+        with patch("backend.core.multiroom.websocket.asyncio.sleep", AsyncMock()):
+            await service._handle_client_connect({"client": {
+                "id": self.MAC,
+                "config": {"name": "Bureau", "volume": {"percent": 100}},
+                "host": {"name": "milo-client", "ip": f"::ffff:{self.IP}", "mac": self.MAC},
+            }})
+            await drain_background_tasks()
+
+        assert registry.get_client(self.MAC).online is True
+
+    @pytest.mark.asyncio
+    async def test_a_reconnecting_client_gets_the_current_snapclient_buffer_config(self):
+        """Buffer settings changed while a satellite was away never reached it.
+
+        Only Client.OnConnect pushed them, so a client that came back through
+        Server.OnUpdate or the reconcile sweep kept the buffer it booted with —
+        which is what the setting exists to correct.
+        """
+        service, registry, _, _ = await self._service()
+        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+        service.set_volume_service(self._volume_service([True]))
+
+        pushed = []
+
+        class _Response:
+            status = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def text(self):
+                return ""
+
+        class _Session:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def put(self, url, **kwargs):
+                pushed.append((url, kwargs.get("json")))
+                return _Response()
+
+        with patch("aiohttp.ClientSession", _Session):
+            await service._sync_reconnecting_client_volume(self.MAC, max_retries=0, retry_delay=0)
+            await drain_background_tasks()
+
+        assert len(pushed) == 1
+        url, body = pushed[0]
+        assert url.startswith(f"http://{self.IP}:")
+        assert url.endswith("/snapclient/config")
+        assert set(body) == {"buffer_time", "fragments"}

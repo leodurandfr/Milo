@@ -2,9 +2,25 @@
 """
 Pytest configuration - Shared fixtures for all tests
 """
+import asyncio
+
 import pytest
 from unittest.mock import Mock, AsyncMock
 from backend.core.models.audio_state import SourceState
+
+
+async def drain_background_tasks() -> None:
+    """Run to completion every task the unit under test spawned.
+
+    Notification handlers hand their slow work to BackgroundTaskSet rather than
+    blocking the snapserver message loop, so the effect a test asserts often
+    lands one task later. Draining is deterministic where a sleep is not.
+    """
+    for _ in range(10):
+        pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        if not pending:
+            return
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 def attach_registry_broadcaster(registry, state_machine) -> None:
@@ -30,6 +46,51 @@ def events_of(broadcast_mock, category: str, type_: str) -> list:
         if c.args[0].CATEGORY == category and c.args[0].TYPE == type_
     ]
 
+
+
+@pytest.fixture
+def no_satellite_network(monkeypatch):
+    """Keep fire-and-forget pushes to a satellite's API off the real network.
+
+    SnapcastWebSocketService opens its own aiohttp session to reach a client on
+    CLIENT_API_PORT. In a test that IP is unroutable, so the push sits on a TCP
+    connect until it times out — invisible while nothing awaited the task, and
+    seconds of wall clock once ``drain_background_tasks`` does.
+    """
+    import aiohttp
+
+    class _Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def text(self):
+            return ""
+
+        async def json(self):
+            return {}
+
+    class _Session:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def put(self, *args, **kwargs):
+            return _Response()
+
+        def get(self, *args, **kwargs):
+            return _Response()
+
+    monkeypatch.setattr(aiohttp, "ClientSession", _Session)
 
 
 @pytest.fixture
