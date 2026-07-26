@@ -22,6 +22,23 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
+from backend.core.models.settings_config import (
+    AudioStopConfig,
+    BtRemoteStepsConfig,
+    DockAppsConfig,
+    IrRemoteStepsConfig,
+    MacRocConfig,
+    QobuzSettingsConfig,
+    RadioSettingsConfig,
+    RotaryStepsConfig,
+    ScreenBrightnessConfig,
+    ScreenColorFilterConfig,
+    ScreenScreensaverConfig,
+    ScreenTimeoutConfig,
+    ScreenUiScaleConfig,
+    VolumeLimitsConfig,
+    VolumeStartupConfig,
+)
 from backend.core.network.models import NetworkStatus, SavedNetwork, WifiNetwork
 
 
@@ -115,92 +132,32 @@ class RadioStationsResponse(BaseModel):
 
 
 # --- settings/bulk (GET /api/settings/bulk) --------------------------------
-class VolumeLimitsModel(BaseModel):
-    min_db: float
-    max_db: float
-
-
-class VolumeStartupModel(BaseModel):
-    startup_volume_db: float
-    restore_last_volume: bool
-
-
-class RotaryStepsModel(BaseModel):
-    step_rotary_db: float
-
-
-class BtRemoteStepsModel(BaseModel):
-    step_bt_remote_db: float
-
-
-class IrRemoteStepsModel(BaseModel):
-    step_ir_remote_db: float
-
-
-class DockAppsModel(BaseModel):
-    enabled_apps: List[str]
-
-
-class AudioStopModel(BaseModel):
-    auto_stop_delay: float
-
-
-class ScreenTimeoutModel(BaseModel):
-    screen_timeout_enabled: bool
-    screen_timeout_seconds: int
-
-
-class ScreenBrightnessModel(BaseModel):
-    brightness_on: int
-
-
-class ScreenUiScaleModel(BaseModel):
-    ui_scale: float
-
-
-class ScreenScreensaverModel(BaseModel):
-    screensaver_enabled: bool
-    screensaver_delay_seconds: int
-
-
-class ScreenColorFilterModel(BaseModel):
-    enabled: bool
-    warmth: int
-
-
-class RadioSettingsModel(BaseModel):
-    shazam_enabled: bool
-
-
-class QobuzSettingsModel(BaseModel):
-    allow_app_volume: bool
-
-
-class MacRocModel(BaseModel):
-    target_latency_ms: int
-    latency_profile: str
-    frame_length_ms: int
-
-
+# Each category's shape comes from core/models/settings_config.py, the same
+# model its settings/<name>_changed WS event carries: /bulk is the snapshot,
+# the event is the delta, and they cannot describe different shapes.
 class BulkSettingsResponse(BaseModel):
-    """GET /api/settings/bulk — every settings category in one payload."""
+    """GET /api/settings/bulk — every settings category in one payload.
+
+    `volume_steps` is deliberately absent: `step_mobile_db` reaches clients on
+    the `volume_changed` event instead (Milo-Mac reads it there).
+    """
     status: str
     language: str
-    volume_limits: VolumeLimitsModel
-    volume_startup: VolumeStartupModel
-    rotary_steps: RotaryStepsModel
-    bt_remote_steps: BtRemoteStepsModel
-    ir_remote_steps: IrRemoteStepsModel
-    dock_apps: DockAppsModel
-    audio_stop: AudioStopModel
-    screen_timeout: ScreenTimeoutModel
-    screen_brightness: ScreenBrightnessModel
-    screen_ui_scale: ScreenUiScaleModel
-    screen_screensaver: ScreenScreensaverModel
-    screen_color_filter: ScreenColorFilterModel
-    radio_settings: RadioSettingsModel
-    qobuz_settings: QobuzSettingsModel
-    mac_roc: MacRocModel
+    volume_limits: VolumeLimitsConfig
+    volume_startup: VolumeStartupConfig
+    rotary_steps: RotaryStepsConfig
+    bt_remote_steps: BtRemoteStepsConfig
+    ir_remote_steps: IrRemoteStepsConfig
+    dock_apps: DockAppsConfig
+    audio_stop: AudioStopConfig
+    screen_timeout: ScreenTimeoutConfig
+    screen_brightness: ScreenBrightnessConfig
+    screen_ui_scale: ScreenUiScaleConfig
+    screen_screensaver: ScreenScreensaverConfig
+    screen_color_filter: ScreenColorFilterConfig
+    radio_settings: RadioSettingsConfig
+    qobuz_settings: QobuzSettingsConfig
+    mac_roc: MacRocConfig
 
 
 # --- Phase 2: network + remaining volume routes ----------------------------
