@@ -443,7 +443,8 @@ export const useRadioStore = defineStore('radio', () => {
       category: 'radio',
       message: 'Error removing custom station',
     });
-    if (result.ok && result.data.success) {
+    // The route raises on failure, so result.ok is the whole verdict.
+    if (result.ok) {
       logger.info('radio', `Custom station removed: ${stationId}`);
       searchResults.value = searchResults.value.filter(s => s.id !== stationId);
       totalResults.value = Math.max(0, totalResults.value - 1);

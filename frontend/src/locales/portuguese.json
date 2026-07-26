@@ -425,7 +425,6 @@
       "loading": "A carregar...",
       "invalidImageFormat": "Formato de imagem não suportado. Use JPG, PNG, WEBP ou GIF.",
       "imageTooLarge": "Imagem demasiado grande. Máximo 5MB.",
-      "editFailed": "Falha ao editar a estação",
       "addFailed": "Falha ao adicionar a estação",
       "errorOccurred": "Ocorreu um erro",
       "addStationTitle": "Adicionar uma estação",

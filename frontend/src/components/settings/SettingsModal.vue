@@ -500,14 +500,13 @@ async function handleRestoreStation() {
     message: 'Error restoring station'
   });
 
-  if (result.ok && result.data.success) {
+  // The route raises on failure, so result.ok is the whole verdict.
+  if (result.ok) {
     // Wait a bit for backend to save
     await new Promise(resolve => timer.setTimeout(resolve, 200));
     await radioStore.loadRadioSettingsData();
     back();
     stationToEdit.value = null;
-  } else if (result.ok) {
-    logger.error('settings', 'Failed to restore station');
   }
 }
 

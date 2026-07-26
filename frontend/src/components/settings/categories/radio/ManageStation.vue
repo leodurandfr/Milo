@@ -320,19 +320,16 @@ async function saveEdit() {
       errorRef: errorMessage,
     });
 
+    // The route raises on failure, so result.ok is the whole verdict.
     if (!result.ok) {
       // errorRef already set by apiCall; fall back to a localized default
       if (!errorMessage.value) errorMessage.value = t('radio.manageStation.errorOccurred');
-    } else if (result.data.success) {
+    } else if (selectedFile.value && result.data.station?.favicon) {
       // After an image upload, swap the local preview for the server-side URL
       // so subsequent saves don't re-upload the same file.
-      if (selectedFile.value && result.data.station?.favicon) {
-        currentImageUrl.value = result.data.station.favicon;
-        selectedFile.value = null;
-        imagePreview.value = null;
-      }
-    } else {
-      errorMessage.value = result.data.error || t('radio.manageStation.editFailed');
+      currentImageUrl.value = result.data.station.favicon;
+      selectedFile.value = null;
+      imagePreview.value = null;
     }
   } finally {
     isSaving.value = false;

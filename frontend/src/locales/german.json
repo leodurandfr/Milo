@@ -425,7 +425,6 @@
       "loading": "Wird geladen...",
       "invalidImageFormat": "Nicht unterstütztes Bildformat. Verwende JPG, PNG, WEBP oder GIF.",
       "imageTooLarge": "Bild zu groß. Maximum 5MB.",
-      "editFailed": "Sender konnte nicht bearbeitet werden",
       "addFailed": "Sender konnte nicht hinzugefügt werden",
       "errorOccurred": "Ein Fehler ist aufgetreten",
       "addStationTitle": "Sender hinzufügen",
