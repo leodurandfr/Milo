@@ -1,14 +1,9 @@
 # backend/sources/spotify/__init__.py
-"""
-Spotify audio source feature using go-librespot.
+"""Spotify Connect audio source via go-librespot (Family C — active player).
 
-This module provides Spotify Connect streaming via go-librespot
-with real-time WebSocket events and playback control.
+Playback is driven from Milō's UI through go-librespot's local HTTP API, and
+its WebSocket feed (websocket.py) pushes track/state changes in real time.
 """
 from backend.sources.spotify.source import SpotifySource
-from backend.sources.spotify.websocket import LibrespotWebSocket
 
-__all__ = [
-    "SpotifySource",
-    "LibrespotWebSocket"
-]
+__all__ = ["SpotifySource"]

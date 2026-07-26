@@ -1,13 +1,9 @@
 # backend/sources/mac/__init__.py
-"""
-Mac audio source feature using ROC toolkit.
+"""Mac audio source via the ROC toolkit (Family A — mute receiver).
 
-This module provides streaming audio from Mac computers via ROC
-(Roc Opus Codec) with support for multiple simultaneous connections.
-
-Family A (mute receiver): control flows from the Mac sender, no rich
-metadata exposed. No routes.py — commands are dispatched through the
-generic `/api/audio/control/mac` endpoint.
+Streams audio from Mac computers over ROC, several senders at once. No rich
+metadata is exposed; control flows through the generic
+`/api/audio/control/mac` endpoint — no dedicated routes.py.
 """
 from backend.sources.mac.source import MacSource
 
