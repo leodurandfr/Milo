@@ -67,14 +67,6 @@ class CrossoverService:
         self._retry_tasks: Dict[str, asyncio.Task] = {}
         self._bg = BackgroundTaskSet(self.logger, "crossover")
 
-    def set_state_machine(self, state_machine) -> None:
-        """Set reference to UnifiedAudioStateMachine for event broadcasting."""
-        self.state_machine = state_machine
-
-    def set_volume_service(self, service) -> None:
-        """Set VolumeService dependency."""
-        self.volume_service = service
-
     def set_registry(self, registry: "ClientRegistryService") -> None:
         """
         Set the client registry and subscribe to availability events.

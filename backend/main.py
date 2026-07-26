@@ -194,7 +194,7 @@ equalizer_router = create_equalizer_router(
     camilladsp_service, routing_service,
     crossover_service,
     client_registry_service, equalizer_router_service, multiroom_equalizer_service,
-    volume_service, levels_monitor
+    levels_monitor
 )
 app.include_router(equalizer_router)
 

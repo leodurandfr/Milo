@@ -191,9 +191,9 @@ class RadioSource(MpvAudioSource):
             if not await self._start_service_and_wait():
                 return False
 
-            # 2. Ensure station data is initialized
-            if not self._station_data._loaded:
-                await self._station_data.initialize()
+            # 2. Ensure station data is initialized (initialize() self-guards
+            #    on its own loaded flag, so calling it twice is a no-op)
+            await self._station_data.initialize()
 
             # 3. Create Shazam recognition service
             self._shazam = ShazamRecognitionService(

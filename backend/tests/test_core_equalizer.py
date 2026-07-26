@@ -109,12 +109,6 @@ class TestEqualizerClientProxyService:
         """Should add .local suffix to hostname"""
         assert proxy_service._get_host("milo-client-1") == "milo-client-1.local"
 
-    def test_set_routing_service(self, proxy_service):
-        """Should set routing service"""
-        mock_routing = Mock()
-        proxy_service.set_routing_service(mock_routing)
-        assert proxy_service.routing_service == mock_routing
-
 
 # =============================================================================
 # CamillaDSPService Tests

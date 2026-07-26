@@ -68,8 +68,9 @@ class MultiroomEqualizerService:
         """
         Initialize MultiroomEqualizerService.
 
-        Dependencies are injected lazily via setters during service initialization
-        in dependencies.py to handle circular dependencies.
+        Every dependency is acyclic and constructor-injected from
+        dependencies.py — none of them holds a back-reference to this service,
+        so there is no setter and no post-construction wiring step.
 
         Args:
             client_registry_service: ClientRegistryService for state management
@@ -77,47 +78,21 @@ class MultiroomEqualizerService:
             proxy_service: EqualizerClientProxyService for remote client communication
             routing_service: AudioRoutingService for equalizer effects toggle
             equalizer_router: EqualizerRouter for routing filter updates to local/remote clients
+            state_machine: AudioStateMachine for event broadcasting
         """
         self.logger = logging.getLogger(__name__)
 
-        # Dependencies (can be set lazily via setters)
         self._registry = client_registry_service
         self._camilladsp_service = camilladsp_service
         self._proxy_service = proxy_service
         self._routing_service = routing_service
         self._equalizer_router = equalizer_router
-
-        # State machine for event broadcasting (constructor-injected; acyclic)
         self._state_machine = state_machine
 
         # Async lock for thread safety
         self._lock = asyncio.Lock()
 
         self.logger.info("MultiroomEqualizerService created")
-
-    # =========================================================================
-    # Dependency Setters (for circular dependency resolution)
-    # =========================================================================
-
-    def set_registry(self, registry) -> None:
-        """Set ClientRegistryService dependency."""
-        self._registry = registry
-
-    def set_camilladsp_service(self, camilladsp_service) -> None:
-        """Set CamillaDSPService dependency."""
-        self._camilladsp_service = camilladsp_service
-
-    def set_state_machine(self, state_machine) -> None:
-        """Set state machine for event broadcasting."""
-        self._state_machine = state_machine
-
-    def set_proxy_service(self, proxy_service) -> None:
-        """Set EqualizerClientProxyService dependency."""
-        self._proxy_service = proxy_service
-
-    def set_routing_service(self, routing_service) -> None:
-        """Set AudioRoutingService dependency."""
-        self._routing_service = routing_service
 
     # =========================================================================
     # Per-Client Access Layer — the unified EQ source of truth

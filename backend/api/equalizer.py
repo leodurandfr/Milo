@@ -53,22 +53,10 @@ def create_equalizer_router(
     client_registry_service=None,
     equalizer_router_service=None,
     multiroom_equalizer_service=None,
-    volume_service=None,
     levels_monitor=None
 ):
     """Creates equalizer router with injected dependencies"""
     router = APIRouter(prefix="/api/equalizer", tags=["equalizer"])
-
-    # === Internal Helpers ===
-
-    def _get_local_client_mac():
-        """Get the MAC address of the local client from registry."""
-        if not client_registry_service:
-            return None
-        for client in client_registry_service.get_all_clients().values():
-            if client.is_local:
-                return client.mac_id
-        return None
 
     # === Audio Levels ===
 
