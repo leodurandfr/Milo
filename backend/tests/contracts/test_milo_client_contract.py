@@ -267,3 +267,223 @@ def test_every_satellite_call_is_served_by_milo_client(method, path):
         f"backend calls {method} {path} on a satellite, but milo-client/app/routes/ "
         f"does not serve it. Served: {sorted(p for m, p in _ROUTES if m == method)}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Payload keys: serving the route is not the same as reading the body.
+#
+# The route check above passes even when the satellite ignores half of what the
+# backend sends — Pydantic drops unknown keys silently, and a handler that reads
+# a `List[dict]` reads whichever keys it happens to name. That is how the server
+# came to push `filter_type` at a batch endpoint that only ever applied
+# id/gain/freq/q: no error, no log, just a band whose type never changed on the
+# satellite while the server's record said it had.
+# --------------------------------------------------------------------------- #
+
+CLIENT_APP_DIR = REPO_ROOT / "milo-client" / "app"
+
+
+def _client_model_fields() -> dict[str, set[str]]:
+    """Field names of every Pydantic model milo-client declares."""
+    tree = ast.parse((CLIENT_APP_DIR / "models.py").read_text())
+    return {
+        node.name: {
+            stmt.target.id
+            for stmt in node.body
+            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
+        }
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+    }
+
+
+def _dict_keys_read_in(node) -> set[str]:
+    """Strings this subtree uses as a dict key: `f["g"]`, `f.get("g")`, `"g" in f`."""
+    keys = set()
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Subscript) and isinstance(sub.slice, ast.Constant):
+            if isinstance(sub.slice.value, str):
+                keys.add(sub.slice.value)
+        elif (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+              and sub.func.attr == "get" and sub.args
+              and isinstance(sub.args[0], ast.Constant)
+              and isinstance(sub.args[0].value, str)):
+            keys.add(sub.args[0].value)
+        elif isinstance(sub, ast.Compare) and isinstance(sub.left, ast.Constant):
+            if isinstance(sub.left.value, str) and any(isinstance(op, ast.In) for op in sub.ops):
+                keys.add(sub.left.value)
+    return keys
+
+
+def _client_service_functions() -> dict[str, ast.AST]:
+    """Every function milo-client's services define, by name."""
+    functions = {}
+    for path in sorted((CLIENT_APP_DIR / "services").glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                functions[node.name] = node
+    return functions
+
+
+def _client_body_fields_by_route() -> dict[tuple[str, str], tuple[set[str], set[str]]]:
+    """(method, path) → (top-level body keys, keys read inside a `List[dict]`).
+
+    The first set comes from the handler's Pydantic model. The second is for
+    fields Pydantic cannot describe: it follows the handler into the service
+    functions it calls and collects the keys those read by name — per handler,
+    not service-wide, so a key some *other* endpoint happens to read does not
+    count as accepted here.
+    """
+    models = _client_model_fields()
+    services = _client_service_functions()
+    by_route = {}
+    for path in sorted(CLIENT_ROUTES_DIR.glob("*.py")):
+        source = path.read_text()
+        prefix_match = re.search(r'APIRouter\((?:[^)]*?)prefix\s*=\s*"([^"]*)"', source, re.S)
+        prefix = prefix_match.group(1) if prefix_match else ""
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            fields = set()
+            for arg in node.args.args:
+                name = getattr(arg.annotation, "id", None)
+                if name in models:
+                    fields |= models[name]
+
+            inner = set()
+            for call in ast.walk(node):
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute):
+                    target = services.get(call.func.attr)
+                    if target is not None:
+                        inner |= _dict_keys_read_in(target)
+
+            for dec in node.decorator_list:
+                if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)):
+                    continue
+                if dec.func.attr.upper() not in _HTTP_METHODS or not dec.args:
+                    continue
+                route = dec.args[0]
+                if isinstance(route, ast.Constant) and isinstance(route.value, str):
+                    key = (dec.func.attr.upper(), _normalise(prefix + route.value))
+                    by_route[key] = (fields, inner)
+    return by_route
+
+
+def _bodies_the_backend_sends() -> dict[tuple[str, str], list[dict]]:
+    """(method, path) → every real body sent there, by driving the producers.
+
+    Driven rather than parsed: the payloads are assembled from dataclass
+    `to_dict()`s and comprehensions that no AST walk resolves faithfully, and
+    both producers are single functions, so running them is both simpler and
+    truer than re-deriving what they would send.
+
+    A list, not one body: two producers write to /equalizer/mono (the record
+    push and the targeted setter) and keeping only the last would leave the
+    other unchecked.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, Mock
+
+    from backend.core.equalizer.client_proxy import EqualizerClientProxyService
+    from backend.core.multiroom.equalizer_router import EqualizerRouter
+    from backend.core.multiroom.models import (
+        EqFilter, EqualizerSettings, FilterType,
+    )
+
+    sent = {}
+
+    async def capture(hostname, method, path, body=None, **_):
+        if body is not None:
+            sent.setdefault((method, _normalise(path)), []).append(body)
+        return {"status": "success"}
+
+    record = EqualizerSettings(
+        filters=[EqFilter(id="eq_band_00", frequency=100, gain=1.0, q=1.41,
+                          filter_type=FilterType.PEAKING, enabled=True)],
+    )
+
+    proxy = EqualizerClientProxyService()
+    proxy.request = AsyncMock(side_effect=capture)
+
+    client = Mock(is_local=False, online=True, ip="192.168.1.100", volume_control=True)
+    registry = Mock(get_client=Mock(return_value=client))
+    router = EqualizerRouter(registry, Mock(), proxy)
+
+    async def drive():
+        await proxy.apply_record("192.168.1.100", record)
+        await router.set_volume("mac", -20.0)
+        await router.set_mute("mac", True)
+        await router.update_filter("mac", "eq_band_00", {
+            "freq": 100, "gain": 1.0, "q": 1.41, "filter_type": "Peaking",
+        })
+        await router.set_compressor("mac", record.compressor.to_dict())
+        await router.set_loudness("mac", record.loudness.to_dict())
+        await router.set_mono("mac", {"enabled": True})
+
+    asyncio.run(drive())
+    return sent
+
+
+_SENT = _bodies_the_backend_sends()
+_ACCEPTED = _client_body_fields_by_route()
+
+
+def _match_route(method: str, path: str) -> tuple[set[str], set[str]] | None:
+    """Accepted body keys for a path whose parameters are concrete at runtime.
+
+    The captured path carries a real filter id (`/equalizer/filter/eq_band_00`)
+    where milo-client declares a template (`/equalizer/filter/{}`), so match
+    segment by segment with `{}` standing for any one segment.
+    """
+    if (method, path) in _ACCEPTED:
+        return _ACCEPTED[(method, path)]
+    segments = path.strip("/").split("/")
+    for (route_method, template), fields in _ACCEPTED.items():
+        if route_method != method:
+            continue
+        expected = template.strip("/").split("/")
+        if len(expected) == len(segments) and all(
+            e == "{}" or e == s for e, s in zip(expected, segments)
+        ):
+            return fields
+    return None
+
+
+def test_payload_extractors_are_not_vacuous():
+    """A broken parse or a producer that sent nothing must fail here."""
+    assert len(_SENT) >= 7, f"captured too few satellite bodies: {sorted(_SENT)}"
+    assert sum(len(v) for v in _SENT.values()) >= 8, "a producer sent nothing"
+    assert len(_ACCEPTED) >= 10, f"milo-client body-field extraction looks broken: {_ACCEPTED}"
+    assert any(fields for fields, _ in _ACCEPTED.values()), "no model fields resolved"
+    # The nested case is the one the route check cannot see — if it stops being
+    # captured, or its handler stops resolving, the check below covers nothing.
+    assert ("PUT", "/equalizer/filters") in _SENT
+    assert _ACCEPTED[("PUT", "/equalizer/filters")][1], "batch handler's key reads not resolved"
+
+
+@pytest.mark.parametrize("method,path", sorted(_SENT))
+def test_every_key_the_backend_sends_is_read_by_milo_client(method, path):
+    """A key the satellite drops is a command that silently did nothing."""
+    matched = _match_route(method, path)
+    assert matched is not None, f"no milo-client handler found for {method} {path}"
+    accepted, inner_keys = matched
+
+    for body in _SENT[(method, path)]:
+        unread = set(body) - accepted
+        assert not unread, (
+            f"backend sends {sorted(unread)} to {method} {path}, but milo-client's "
+            f"handler only accepts {sorted(accepted)} — Pydantic drops the rest silently"
+        )
+
+        for key, value in body.items():
+            if not (isinstance(value, list) and value and isinstance(value[0], dict)):
+                continue
+            # A `List[dict]` field: Pydantic validates nothing inside, so the
+            # contract for the inner keys is what this handler reads by name.
+            for item in value:
+                unread_inner = set(item) - inner_keys
+                assert not unread_inner, (
+                    f"backend sends {sorted(unread_inner)} inside `{key}` of {method} "
+                    f"{path}, but milo-client's handler never reads those keys — they "
+                    f"are dropped silently. It reads {sorted(inner_keys)}"
+                )
