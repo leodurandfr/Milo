@@ -161,10 +161,10 @@ class SpotifySource(BaseAudioSource):
             self._logger.warning(f"Auto-stop /player/stop failed: {result.get('error')}")
 
     COMMANDS = {
-        "refresh_metadata": None,
-        "play": None,
         "pause": None,
         "resume": None,
+        # Toggle: the hardware click dispatcher has no reliable is_playing
+        # snapshot at press time, so go-librespot resolves the edge.
         "playpause": None,
         "seek": SeekParams,
         "next": NextPrevParams,
@@ -173,13 +173,6 @@ class SpotifySource(BaseAudioSource):
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Spotify-specific commands."""
-        if cmd == "refresh_metadata":
-            success = await self.refresh_metadata()
-            return self.success_response(
-                "Metadata refreshed" if success else "Refresh failed",
-                metadata=self._metadata
-            )
-
         if cmd == "seek":
             duration = self._metadata.get("duration", 0)
             if duration > 0 and params.position_ms > duration:
@@ -188,7 +181,7 @@ class SpotifySource(BaseAudioSource):
                 )
             return await self._send_api_command("seek", {"position": int(params.position_ms)})
 
-        if cmd in ["play", "pause", "resume", "playpause"]:
+        if cmd in ["pause", "resume", "playpause"]:
             return await self._send_api_command(cmd)
 
         if cmd in ["next", "prev"]:

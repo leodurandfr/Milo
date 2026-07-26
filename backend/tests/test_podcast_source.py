@@ -226,20 +226,25 @@ class TestPodcastSourceCommands:
         assert podcast_source._position == 300
 
     @pytest.mark.asyncio
-    async def test_stop_playback_command(self, podcast_source):
-        """Test stop command."""
+    async def test_auto_stop_clears_playback(self, podcast_source):
+        """The pause-timeout stop saves progress and drops the episode.
+
+        Driven through _auto_stop_action(), the only remaining entry point:
+        there is no user-facing stop command (the UI has no stop button).
+        """
         podcast_source._mpv = Mock()
         podcast_source._mpv.stop = AsyncMock()
         podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._position = 300
         podcast_source._podcast_data = Mock()
         podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
         podcast_source._progress_save_task = None
 
-        result = await podcast_source.command("stop", {})
+        await podcast_source._auto_stop_action()
 
-        assert result["success"] is True
         assert podcast_source._current_episode is None
         assert podcast_source._is_playing is False
+        podcast_source._podcast_data.update_playback_progress.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_set_speed_command(self, podcast_source):

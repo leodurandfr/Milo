@@ -177,16 +177,8 @@ class TestSpotifySourceCommands:
     """Test SpotifySource command handling."""
 
     @pytest.mark.asyncio
-    async def test_refresh_metadata_command(self, spotify_source):
-        """Test refresh_metadata command."""
-        with patch.object(spotify_source, 'refresh_metadata', return_value=True):
-            result = await spotify_source.command("refresh_metadata", {})
-
-        assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_play_command(self, spotify_source):
-        """Test play command."""
+    async def test_playpause_command(self, spotify_source):
+        """The hardware toggle passes straight through to go-librespot."""
         spotify_source._session = MagicMock()
         spotify_source._api_url = "http://localhost:3678"
 
@@ -198,7 +190,7 @@ class TestSpotifySourceCommands:
         mock_cm.__aenter__.return_value = mock_response
         spotify_source._session.post.return_value = mock_cm
 
-        result = await spotify_source.command("play", {})
+        result = await spotify_source.command("playpause", {})
 
         assert result["success"] is True
 

@@ -165,7 +165,6 @@ class PodcastSource(MpvAudioSource):
         "pause": None,
         "resume": None,
         "seek": SeekParams,
-        "stop": None,
         "set_speed": SetSpeedParams,
     }
 
@@ -182,9 +181,6 @@ class PodcastSource(MpvAudioSource):
 
         if cmd == "seek":
             return await self._handle_seek(params)
-
-        if cmd == "stop":
-            return await self._handle_stop_playback()
 
         if cmd == "set_speed":
             return await self._handle_set_speed(params)
@@ -365,8 +361,8 @@ class PodcastSource(MpvAudioSource):
         """Stop playback."""
         try:
             self._loading = False
-            # Stop is an explicit user action — drop any pending pause timer
-            # (mpv's pause property can stay True after `stop`).
+            # Drop the pause timer that got us here — mpv's pause property can
+            # stay True after `stop`, which would re-arm it immediately.
             self._handle_pause_change(False)
             if self._current_episode:
                 await self._save_progress()
