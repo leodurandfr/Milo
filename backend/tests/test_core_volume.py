@@ -578,7 +578,7 @@ class TestVolumeService:
         so set_local_volume() works (and direct-mode tracking isn't pinned at DEFAULT)."""
         assert service._state_store.local_mac_id is None
         with patch(
-            "backend.core.multiroom.client_registry.ClientRegistryService.get_local_mac",
+            "backend.core.volume.service.get_local_mac",
             return_value="2c:cf:67:8a:87:53",
         ):
             service._seed_local_client_if_needed()
@@ -592,7 +592,7 @@ class TestVolumeService:
         """Seeding never overrides an already-resolved local mac (Snapcast/persistence)."""
         service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"
         with patch(
-            "backend.core.multiroom.client_registry.ClientRegistryService.get_local_mac",
+            "backend.core.volume.service.get_local_mac",
             return_value="11:22:33:44:55:66",
         ) as mock_get:
             service._seed_local_client_if_needed()

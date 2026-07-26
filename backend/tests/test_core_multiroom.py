@@ -33,6 +33,7 @@ from backend.core.multiroom.models import (
 from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.models.volume import VolumeConfig
 from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.core.multiroom.identity import compute_mac_id
 from backend.core.multiroom.snapcast import (
     SnapcastService,
     SnapcastRequestError,
@@ -633,7 +634,7 @@ class TestClientRegistryService:
     def test_compute_mac_id_local(self):
         """Test computing mac_id for local client reads from system interface."""
         # Local client (127.0.0.1) reads MAC from eth0 or wlan0
-        mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
+        mac_id = compute_mac_id("milo", "127.0.0.1")
         # Should be a valid MAC address format
         assert ":" in mac_id
         assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
@@ -645,7 +646,7 @@ class TestClientRegistryService:
         which on a wifi-only client is wlan0 while it registers under eth0 —
         two identities for one device.
         """
-        mac_id = ClientRegistryService.compute_mac_id(
+        mac_id = compute_mac_id(
             "milo-client-kitchen", "192.168.1.100", host_id="aa:bb:cc:dd:ee:ff"
         )
         assert mac_id == "aa:bb:cc:dd:ee:ff"
@@ -653,12 +654,12 @@ class TestClientRegistryService:
     def test_compute_mac_id_remote_no_id_raises(self):
         """Test that a remote client announcing no id raises ValueError."""
         with pytest.raises(ValueError, match="No client id"):
-            ClientRegistryService.compute_mac_id("unknown-host", "192.168.1.200")
+            compute_mac_id("unknown-host", "192.168.1.200")
 
     def test_compute_mac_id_ignores_null_id(self):
         """Test that a null MAC (00:00:00:00:00:00) as id is rejected."""
         with pytest.raises(ValueError, match="No client id"):
-            ClientRegistryService.compute_mac_id("client", "192.168.1.200", host_id="00:00:00:00:00:00")
+            compute_mac_id("client", "192.168.1.200", host_id="00:00:00:00:00:00")
 
     @pytest.mark.asyncio
     async def test_client_equalizer_storage(self, registry):
@@ -1326,9 +1327,9 @@ class TestSnapcastService:
 
     def test_compute_mac_id_local_via_service(self, snapcast_service):
         """Test computing mac_id for local client via ClientRegistryService."""
-        # mac_id derivation moved to ClientRegistryService.compute_mac_id()
+        # mac_id derivation moved to compute_mac_id()
         # Local client reads MAC from system interface
-        mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
+        mac_id = compute_mac_id("milo", "127.0.0.1")
         assert ":" in mac_id  # Returns a MAC address format
         assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
 
@@ -1779,7 +1780,7 @@ class TestStandaloneEqualizerSync:
         from backend.core.multiroom.client_registry import ClientRegistryService
 
         # localhost IP reads MAC from system interface (eth0 or wlan0)
-        mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
+        mac_id = compute_mac_id("milo", "127.0.0.1")
         assert ":" in mac_id  # Returns MAC address format
         assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
 
@@ -2367,12 +2368,12 @@ class TestSnapcastClientDetection:
         from unittest.mock import mock_open, patch
         mock_file = mock_open(read_data="aa:bb:cc:dd:ee:ff\n")
         with patch("builtins.open", mock_file):
-            mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
+            mac_id = compute_mac_id("milo", "127.0.0.1")
         assert mac_id == "aa:bb:cc:dd:ee:ff"
 
     def test_compute_mac_id_for_milo_client(self):
         """Test compute_mac_id returns MAC address for remote clients."""
-        mac_id = ClientRegistryService.compute_mac_id("milo-client-kitchen", "192.168.1.100", "aa:bb:cc:dd:ee:ff")
+        mac_id = compute_mac_id("milo-client-kitchen", "192.168.1.100", "aa:bb:cc:dd:ee:ff")
         assert mac_id == "aa:bb:cc:dd:ee:ff"
 
     def test_compute_mac_id_strips_ipv6_prefix(self):
@@ -2383,7 +2384,7 @@ class TestSnapcastClientDetection:
         ip = "::ffff:127.0.0.1".replace("::ffff:", "")
         mock_file = mock_open(read_data="aa:bb:cc:dd:ee:ff\n")
         with patch("builtins.open", mock_file):
-            mac_id = ClientRegistryService.compute_mac_id("milo", ip)
+            mac_id = compute_mac_id("milo", ip)
         assert mac_id == "aa:bb:cc:dd:ee:ff"
 
     # === Event Timing is tested via integration tests ===
@@ -2672,7 +2673,7 @@ class TestReconnectionHelperMethods:
 
     @pytest.mark.asyncio
     async def test_get_other_online_zone_clients_excludes_self(self, registry):
-        """Test get_other_online_zone_clients excludes the queried client."""
+        """Test _other_online_zone_clients excludes the queried client."""
         await registry.initialize()
 
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -2683,7 +2684,7 @@ class TestReconnectionHelperMethods:
         await registry.set_client_online("client-1", True)
 
         # Get other online zone clients for local
-        others = registry.get_other_online_zone_clients("local")
+        others = registry._other_online_zone_clients("local")
 
         # Should only contain client-1, not local
         assert len(others) == 1
@@ -2691,19 +2692,19 @@ class TestReconnectionHelperMethods:
 
     @pytest.mark.asyncio
     async def test_get_other_online_zone_clients_empty_when_not_in_zone(self, registry):
-        """Test get_other_online_zone_clients returns empty for standalone client."""
+        """Test _other_online_zone_clients returns empty for standalone client."""
         await registry.initialize()
 
         await registry.register_client("local", "Main", "127.0.0.1")
         await registry.set_client_online("local", True)
 
         # local is standalone
-        others = registry.get_other_online_zone_clients("local")
+        others = registry._other_online_zone_clients("local")
         assert others == []
 
     @pytest.mark.asyncio
     async def test_get_other_online_zone_clients_only_online(self, registry):
-        """Test get_other_online_zone_clients only returns online members."""
+        """Test _other_online_zone_clients only returns online members."""
         await registry.initialize()
 
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -2715,7 +2716,7 @@ class TestReconnectionHelperMethods:
         await registry.set_client_online("client-1", True)  # Online
         await registry.set_client_online("client-2", False)  # Offline
 
-        others = registry.get_other_online_zone_clients("local")
+        others = registry._other_online_zone_clients("local")
 
         # Should only contain client-1 (online), not client-2 (offline)
         assert len(others) == 1
@@ -2723,7 +2724,7 @@ class TestReconnectionHelperMethods:
 
     @pytest.mark.asyncio
     async def test_get_other_online_clients_excludes_self(self, registry):
-        """Test get_other_online_clients excludes the queried client."""
+        """Test _other_online_clients excludes the queried client."""
         await registry.initialize()
 
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -2732,7 +2733,7 @@ class TestReconnectionHelperMethods:
         await registry.set_client_online("local", True)
         await registry.set_client_online("client-1", True)
 
-        others = registry.get_other_online_clients("local")
+        others = registry._other_online_clients("local")
 
         # Should only contain client-1
         assert len(others) == 1
@@ -2740,7 +2741,7 @@ class TestReconnectionHelperMethods:
 
     @pytest.mark.asyncio
     async def test_get_other_online_clients_only_online(self, registry):
-        """Test get_other_online_clients only returns online clients."""
+        """Test _other_online_clients only returns online clients."""
         await registry.initialize()
 
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -2751,7 +2752,7 @@ class TestReconnectionHelperMethods:
         await registry.set_client_online("client-1", True)  # Online
         await registry.set_client_online("client-2", False)  # Offline
 
-        others = registry.get_other_online_clients("local")
+        others = registry._other_online_clients("local")
 
         # Should only contain client-1 (online)
         assert len(others) == 1
@@ -2759,7 +2760,7 @@ class TestReconnectionHelperMethods:
 
     @pytest.mark.asyncio
     async def test_get_other_online_clients_empty_when_alone(self, registry):
-        """Test get_other_online_clients returns empty when no other clients online."""
+        """Test _other_online_clients returns empty when no other clients online."""
         await registry.initialize()
 
         await registry.register_client("local", "Main", "127.0.0.1")
@@ -2768,7 +2769,7 @@ class TestReconnectionHelperMethods:
         await registry.set_client_online("local", True)
         await registry.set_client_online("client-1", False)
 
-        others = registry.get_other_online_clients("local")
+        others = registry._other_online_clients("local")
         assert others == []
 
 

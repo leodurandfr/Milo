@@ -15,10 +15,7 @@ from typing import Optional, Dict, Any
 
 import aiohttp
 
-from backend.config.constants import (
-    CLIENT_API_PORT,
-    HEALTH_CHECK_TIMEOUT,
-)
+from backend.config.constants import CLIENT_API_PORT
 
 
 class SatelliteUnreachable(Exception):

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from backend.tests.conftest import attach_registry_broadcaster
 from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.core.multiroom.identity import compute_mac_id
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
@@ -341,7 +342,7 @@ class TestSnapcastDetectionIntegration:
         attach_registry_broadcaster(registry, mock_state_machine)
 
         # Read the actual local MAC that compute_mac_id will return
-        local_mac = ClientRegistryService.compute_mac_id("milo", "127.0.0.1", "")
+        local_mac = compute_mac_id("milo", "127.0.0.1", "")
 
         notification = {
             "client": {

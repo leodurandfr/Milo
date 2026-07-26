@@ -19,6 +19,7 @@ from backend.shared.decorators import handle_errors
 from backend.core.volume.state import VolumeStateStore
 from backend.core.volume.equalizer_controller import EqualizerController
 from backend.core.multiroom.snapcast import get_online_client_ids
+from backend.core.multiroom.identity import get_local_mac
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState
 from backend.core.models.ws_events import (
@@ -704,9 +705,7 @@ class VolumeService:
         """
         if self._state_store.local_mac_id is not None:
             return
-        # Lazy import to avoid a circular dependency at module load.
-        from backend.core.multiroom.client_registry import ClientRegistryService
-        local_mac = ClientRegistryService.get_local_mac()
+        local_mac = get_local_mac()
         if not local_mac:
             self.logger.warning("Could not resolve local MAC — direct-mode volume tracking degraded until Snapcast registers it")
             return
