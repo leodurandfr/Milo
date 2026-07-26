@@ -683,21 +683,29 @@ class CamillaDSPService:
         if makeup_gain is not None:
             self._compressor["makeup_gain"] = makeup_gain
 
-        return await self._apply_compressor_config(persist=persist, broadcast=broadcast)
+        return await self._apply_effect(
+            self._config_apply_compressor,
+            lambda: EqualizerCompressorChanged(**self._compressor),
+            persist=persist, broadcast=broadcast,
+        )
 
     @handle_errors(default=False)
-    async def _apply_compressor_config(self, persist: bool, broadcast: bool) -> bool:
-        """Apply compressor configuration to CamillaDSP daemon"""
+    async def _apply_effect(self, mutate, build_event, *, persist: bool, broadcast: bool) -> bool:
+        """Push one effect's cache state to the daemon, then announce and persist it.
+
+        The three effect setters (compressor / loudness / mono) differ only in
+        which pure mutator writes the graph and which event announces it, so they
+        share this: the lock scope, the broadcast suppression used by batch zone
+        updates and the persist suppression used by bypass are decided once.
+        """
         async with self._config_lock:
             config = await self._get_config()
-            self._config_apply_compressor(config)
+            mutate(config)
             await self._set_config(config)
 
-        # Broadcast change event (can be suppressed for batch zone updates)
         if broadcast:
-            await self._broadcast(EqualizerCompressorChanged(**self._compressor))
+            await self._broadcast(build_event())
 
-        # Persist compressor settings (skip during bypass operations)
         if persist:
             self._schedule_persist()
 
@@ -732,25 +740,11 @@ class CamillaDSPService:
         if low_boost is not None:
             self._loudness["low_boost"] = low_boost
 
-        return await self._apply_loudness_config(persist=persist, broadcast=broadcast)
-
-    @handle_errors(default=False)
-    async def _apply_loudness_config(self, persist: bool, broadcast: bool) -> bool:
-        """Apply loudness configuration to CamillaDSP daemon"""
-        async with self._config_lock:
-            config = await self._get_config()
-            self._config_apply_loudness(config)
-            await self._set_config(config)
-
-        # Broadcast change event (can be suppressed for batch zone updates)
-        if broadcast:
-            await self._broadcast(EqualizerLoudnessChanged(**self._loudness))
-
-        # Persist loudness settings (skip during bypass operations)
-        if persist:
-            self._schedule_persist()
-
-        return True
+        return await self._apply_effect(
+            self._config_apply_loudness,
+            lambda: EqualizerLoudnessChanged(**self._loudness),
+            persist=persist, broadcast=broadcast,
+        )
 
     # === Mono Mixing ===
 
@@ -775,23 +769,11 @@ class CamillaDSPService:
             return False
 
         self._mono = enabled
-        return await self._apply_mono_config(persist=persist, broadcast=broadcast)
-
-    @handle_errors(default=False)
-    async def _apply_mono_config(self, persist: bool, broadcast: bool) -> bool:
-        """Apply mono/stereo mixer configuration to CamillaDSP daemon."""
-        async with self._config_lock:
-            config = await self._get_config()
-            self._config_apply_mono(config)
-            await self._set_config(config)
-
-        if broadcast:
-            await self._broadcast(EqualizerMonoChanged(enabled=self._mono))
-
-        if persist:
-            self._schedule_persist()
-
-        return True
+        return await self._apply_effect(
+            self._config_apply_mono,
+            lambda: EqualizerMonoChanged(enabled=self._mono),
+            persist=persist, broadcast=broadcast,
+        )
 
     # === Crossover Filters ===
 
@@ -999,21 +981,7 @@ class CamillaDSPService:
             self._active_preset,
         )
 
-        if settings.filters:
-            self._filters = [
-                {
-                    "id": f.id,
-                    "type": f.filter_type.value if hasattr(f.filter_type, "value") else f.filter_type,
-                    "freq": float(f.frequency),
-                    "gain": float(f.gain),
-                    "q": float(f.q),
-                    "enabled": bool(f.enabled),
-                }
-                for f in settings.filters
-            ]
-        self._compressor = settings.compressor.to_dict()
-        self._loudness = settings.loudness.to_dict()
-        self._mono = bool(settings.mono)
+        self._stage_record(settings)
         if settings.active_preset:
             self._active_preset = settings.active_preset
 
@@ -1159,6 +1127,21 @@ class CamillaDSPService:
         ``_effects_enabled`` (the master toggle, owned by AudioRoutingService /
         settings.json and restored independently on reconnect).
         """
+        self._stage_record(settings)
+        self._active_preset = settings.active_preset
+        if settings.custom_gains and len(settings.custom_gains) >= 10:
+            self._custom_gains = [float(g) for g in settings.custom_gains[:10]]
+        await self._persist_state_async()
+
+    def _stage_record(self, settings: EqualizerSettings) -> None:
+        """Overwrite the effect caches from a full record.
+
+        The pure config mutators read `_filters`/`_compressor`/`_loudness`/`_mono`,
+        so both paths that take a whole record — the batched apply and the
+        disconnected-path snapshot — stage the intent here first. The preset name
+        and custom gains stay with the callers: the two paths treat them
+        differently on purpose.
+        """
         if settings.filters:
             self._filters = [
                 {
@@ -1174,10 +1157,6 @@ class CamillaDSPService:
         self._compressor = settings.compressor.to_dict()
         self._loudness = settings.loudness.to_dict()
         self._mono = bool(settings.mono)
-        self._active_preset = settings.active_preset
-        if settings.custom_gains and len(settings.custom_gains) >= 10:
-            self._custom_gains = [float(g) for g in settings.custom_gains[:10]]
-        await self._persist_state_async()
 
     def get_equalizer_settings(self) -> EqualizerSettings:
         """Snapshot the local client's full EQ as a unified EqualizerSettings record.
