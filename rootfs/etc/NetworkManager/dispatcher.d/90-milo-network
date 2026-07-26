@@ -17,9 +17,13 @@
 # avahi-daemon systemd ExecStartPre override on every Avahi start.
 #
 # Selection rules (in priority order):
-# - WiFi running the captive hotspot SSID: Avahi on wlan0 (setup mode)
 # - eth0 has an IPv4 address:               Avahi on eth0  (ethernet preferred)
+# - WiFi running the captive hotspot SSID: Avahi on wlan0 (setup mode)
 # - else:                                   Avahi on wlan0 (WiFi fallback)
+#
+# Ethernet outranks the hotspot rule: a device that has both is reachable on the
+# LAN, and advertising milo.local on the AP subnet instead would hide it from
+# every other device on the network.
 
 INTERFACE=$1
 ACTION=$2
@@ -86,10 +90,10 @@ apply_avahi_target() {
     local wlan_conn
     wlan_conn=$(get_wlan0_connection)
 
-    if is_hotspot_connection "$wlan_conn"; then
-        set_avahi_interface "wlan0"
-    elif has_ip eth0; then
+    if has_ip eth0; then
         set_avahi_interface "eth0"
+    elif is_hotspot_connection "$wlan_conn"; then
+        set_avahi_interface "wlan0"
     elif has_ip wlan0; then
         set_avahi_interface "wlan0"
     fi
@@ -104,7 +108,10 @@ case "$INTERFACE" in
                 disable_eee eth0
                 apply_avahi_target
                 ;;
-            down)
+            # dhcp4-change matters on its own: NM activates eth0 as soon as IPv6
+            # is up and fires `up` then, so the IPv4 lease — the thing has_ip
+            # tests — often lands after the only event we would otherwise see.
+            dhcp4-change|down)
                 apply_avahi_target
                 ;;
         esac

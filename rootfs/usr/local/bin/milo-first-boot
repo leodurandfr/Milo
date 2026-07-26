@@ -27,6 +27,11 @@ MILO_CLIENT_USER="milo-client"
 MILO_CLIENT_HOME="/home/$MILO_CLIENT_USER"
 MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
 
+# Setup hotspot SSID — must match HOTSPOT_NAME in backend/core/network/service.py
+# and is_hotspot_connection() in the 90-milo-network dispatcher.
+HOTSPOT_SSID="Milō"
+AVAHI_STATE_FILE="$MILO_DATA_DIR/avahi-interface"
+
 # Active ethernet IPv4 address, populated by wait_for_ethernet_ip
 ETH_IP=""
 
@@ -46,6 +51,42 @@ prune_avahi_override() {
         rm -f "$dir/milo-client-override.conf"
     fi
     systemctl daemon-reload 2>/dev/null || true
+}
+
+# =============================================================================
+# Setup-phase network reset
+# =============================================================================
+
+# Drop the setup hotspot's NetworkManager profile, if any. The backend
+# re-creates it seconds later (maybe_start_hotspot) iff the device really has
+# no network, so the AP is always a decision of the current boot and never an
+# inheritance from the previous one.
+delete_hotspot_profile() {
+    nmcli -t -f NAME connection show 2>/dev/null | grep -qxF "$HOTSPOT_SSID" || return 0
+    if nmcli connection delete "$HOTSPOT_SSID" >/dev/null 2>&1; then
+        log "Setup hotspot profile removed"
+    else
+        log "Warning: could not remove the setup hotspot profile"
+    fi
+}
+
+# While setup is incomplete, every boot starts from a clean network slate.
+# Saved WiFi *client* profiles are deliberately left alone: the wizard writes
+# one before setup_completed flips, and a power cut mid-wizard must not lose
+# the credentials the user just typed.
+reset_setup_network_state() {
+    delete_hotspot_profile
+
+    # An AP inherited from a previous boot pins Avahi to wlan0 (the hotspot rule
+    # in 90-milo-network), which hides the device from the LAN entirely. Avahi
+    # has not started yet here — milo-apply-avahi-iface reads this file in its
+    # ExecStartPre — so writing the file is enough. The dispatcher flips it back
+    # to wlan0 on its own if the backend does bring the hotspot up.
+    if [[ "$(cat "$AVAHI_STATE_FILE" 2>/dev/null)" != "eth0" ]]; then
+        mkdir -p "$MILO_DATA_DIR"
+        echo "eth0" > "$AVAHI_STATE_FILE"
+        log "Avahi interface state reset to eth0"
+    fi
 }
 
 # =============================================================================
@@ -76,16 +117,30 @@ has_ethernet_carrier() {
 }
 
 wait_for_ethernet_ip() {
-    # Ethernet carrier is present — wait for DHCP to assign an IP (max 15s).
+    # Ethernet carrier is present — wait for DHCP to assign an IP.
     # On success, populates ETH_IP with the assigned IPv4 address so the
     # mDNS probe can bind multicast send/receive to that interface.
-    local max_wait=15
-    local waited=0
+    #
+    # The budget matches NetworkManager's own dhcp4 transaction timeout: a link
+    # renegotiation mid-transaction makes NM cancel and restart the lease
+    # request from zero ("ip:dhcp4: restarting"), so a lease can legitimately
+    # arrive ~20 s after the carrier came up. Losing that race is silent and
+    # expensive — the device skips role detection and stays a server forever.
+    # A carrier bounce re-arms the budget, bounded by hard_cap so the whole
+    # unit stays well inside its TimeoutStartSec.
+    local max_wait=45
+    local hard_cap=75
+    local elapsed=0
+    local since_carrier=0
+    local had_carrier=true
 
-    while (( waited < max_wait )); do
+    while (( since_carrier < max_wait && elapsed < hard_cap )); do
+        local carrier_up=false
+
         for iface in /sys/class/net/eth* /sys/class/net/end*; do
             [[ -f "$iface/carrier" ]] || continue
             [[ "$(cat "$iface/carrier" 2>/dev/null)" == "1" ]] || continue
+            carrier_up=true
             local name
             name=$(basename "$iface")
             local ip
@@ -97,11 +152,20 @@ wait_for_ethernet_ip() {
             fi
         done
 
+        if ! $carrier_up; then
+            had_carrier=false
+        elif ! $had_carrier; then
+            had_carrier=true
+            since_carrier=0
+            log "Ethernet carrier bounced — restarting the DHCP wait"
+        fi
+
         sleep 1
-        waited=$((waited + 1))
+        elapsed=$((elapsed + 1))
+        since_carrier=$((since_carrier + 1))
     done
 
-    log "Ethernet carrier present but no IP after ${max_wait}s"
+    log "Ethernet carrier present but no IP after ${elapsed}s"
     return 1
 }
 
@@ -190,6 +254,11 @@ EOF
 
     # 8b. Keep only the client avahi override (drop the server one)
     prune_avahi_override client
+
+    # 8c. A client has no backend left to clean up after the setup hotspot. The
+    # wifi-adoption path reaches here with setup_completed already true, so
+    # reset_setup_network_state never ran for it.
+    delete_hotspot_profile
 
     # 9. Enable client services
     local client_services=(
@@ -425,6 +494,11 @@ if [[ "$current_hostname" == "milo-client" ]]; then
 else
     prune_avahi_override server
 fi
+
+# Nothing the setup phase puts on the network may outlive the boot that created
+# it — otherwise a hotspot raised on a network-less boot keeps broadcasting (and
+# keeps mDNS pinned to it) once the device has a real link.
+reset_setup_network_state
 
 if has_ethernet_carrier 15 && wait_for_ethernet_ip; then
     # Let multicast/IGMP fully settle on the freshly-up interface before probing
