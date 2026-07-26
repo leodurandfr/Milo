@@ -416,9 +416,6 @@ onMounted(async () => {
     await snapcastStore.loadClients();
   }
 
-  // Load equalizer enabled state (for volume mode detection)
-  await equalizerStore.loadEnabledState();
-
   // Load linked groups (zones are a multiroom feature, independent of equalizer effects)
   await equalizerStore.loadTargets();
 

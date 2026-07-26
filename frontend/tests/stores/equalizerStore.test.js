@@ -327,6 +327,36 @@ describe('equalizerStore', () => {
     });
   });
 
+  describe('one loader per target', () => {
+    /**
+     * The record carries the master toggle, so loadStatus() is the only thing
+     * that needs to read it. selectTarget used to call loadEnabledState() right
+     * after, re-fetching the whole record to set a field loadStatus had just set
+     * from the same response — and EqualizerModal read it a third time on open.
+     */
+    it('selectTarget reads the target record exactly once', async () => {
+      apiCall.get.mockImplementation(async (url) => (
+        url.endsWith('/presets') ? ok({ presets: [] }) : ok({ state: 'running', enabled: false, filters: [] })
+      ));
+
+      await equalizerStore.selectTarget(REMOTE_MAC);
+
+      const recordReads = apiCall.get.mock.calls
+        .filter(([url]) => url === `/api/equalizer/target/${REMOTE_MAC}`);
+      expect(recordReads).toHaveLength(1);
+      // ...and that single read is what set the master toggle.
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(false);
+    });
+
+    it('restores the whole effect object when the target refuses the write', async () => {
+      const before = { ...equalizerStore.compressor };
+      apiCall.put.mockResolvedValueOnce(fail());
+
+      expect(await equalizerStore.updateCompressor({ enabled: true, threshold: -99 })).toBe(false);
+      expect(equalizerStore.compressor).toEqual(before);
+    });
+  });
+
   describe('resync gate', () => {
     /**
      * App.vue resyncs every delta store on reconnect and on every tab return.
@@ -533,10 +563,10 @@ describe('equalizerStore', () => {
     /**
      * The selected target outlives the modal, so it can name a client that was
      * forgotten from Réglages meanwhile. Nothing in the store used to check
-     * that: targetRef() kept addressing the dead MAC, so the record GET 404'd,
-     * fetchEnabledState() fell back to `true` and loadStatus() returned in
-     * silence — leaving the previous target's EQ on screen and every write
-     * failing, until the user happened to pick another target by hand.
+     * that: targetRef() kept addressing the dead MAC, so the record GET 404'd
+     * and loadStatus() returned in silence — leaving the previous target's EQ on
+     * screen and every write failing, until the user happened to pick another
+     * target by hand.
      */
     it('drops a selected target that no longer exists and re-adopts the local client', async () => {
       registryTargets();
