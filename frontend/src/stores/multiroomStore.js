@@ -229,7 +229,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Handle multiroom category events from WebSocket.
-   * This is the new standardized event format (Story 6.1/6.2).
    * @param {Object} event - WebSocket event with { type, data }
    *   - client_state_changed:
    *       Update/offline: { mac_id, client: { complete client object } }
@@ -411,7 +410,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Add a client to a zone.
-   * Client's equalizer is replaced by zone's shared equalizer (FR15).
+   * Client's equalizer is replaced by the zone's shared equalizer.
    * @param {string} zoneId - Zone ID
    * @param {string} macId - Client mac_id to add
    * @returns {Promise<Object>} Response with updated zone data
@@ -431,7 +430,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Remove a client from a zone.
-   * Client keeps zone equalizer as standalone equalizer (FR14).
+   * Client keeps the zone equalizer as its standalone equalizer.
    * If zone has < 2 clients after removal, zone is deleted.
    * @param {string} zoneId - Zone ID
    * @param {string} macId - Client mac_id to remove

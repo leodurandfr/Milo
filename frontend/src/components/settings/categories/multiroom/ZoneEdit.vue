@@ -170,7 +170,7 @@ onMounted(async () => {
   }
 });
 
-// Sync selectedClients when zone membership changes via WebSocket (AC4: real-time updates)
+// Sync selectedClients when zone membership changes via WebSocket
 watch(
   () => currentGroup.value?.client_ids,
   (newClientIds) => {
