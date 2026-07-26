@@ -29,80 +29,9 @@ class UpdateService(VersionService):
         self._systemd = systemd_manager
         self.update_logger = logging.getLogger(f"{__name__}.update")
 
-        # Update-specific configuration
-        self.update_config = {
-            "milo": {
-                "git_path": "/home/milo/milo",
-                "git_branch": "main",
-                "service_name": "milo-backend.service",
-                "backup_path": "/var/lib/milo/backups/milo-app"
-            },
-            # The three "binary in a release tarball" programs below share one
-            # update flow (_update_binary_program); everything that differs
-            # between them is a key here. "always_on" means the service is
-            # stopped and restarted unconditionally instead of having its
-            # previous state preserved.
-            "go-librespot": {
-                "display_name": "go-librespot",
-                "binary_path": "/usr/local/bin/go-librespot",
-                "config_path": "/var/lib/milo/go-librespot/config.yml",
-                "service_name": "milo-spotify.service",
-                "backup_path": "/var/lib/milo/backups/go-librespot",
-                "asset_url": "https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz",
-                "download_progress_key": "updates.progress.downloadingGoLibrespot"
-            },
-            "shairport-sync": {
-                "binary_path": "/usr/local/bin/shairport-sync",
-                "service_name": "milo-airplay.service",
-                "backup_path": "/var/lib/milo/backups/shairport-sync",
-                "configure_flags": [
-                    "--sysconfdir=/etc", "--with-alsa", "--with-avahi",
-                    "--with-ssl=openssl", "--with-soxr", "--with-metadata",
-                    # Inert on the pinned 4.3.7 (configure warns it is unrecognized),
-                    # but 5.x stopped bundling the pipe interface into --with-metadata —
-                    # this is what keeps the pipe the day the ceiling is lifted.
-                    "--with-metadata-pipe",
-                    "--with-airplay-2", "--with-dbus-interface"
-                ]
-            },
-            "multiroom": {
-                "services": [
-                    "milo-snapserver-multiroom.service",
-                    "milo-snapclient-multiroom.service"
-                ],
-                "components": ["snapserver", "snapclient"],
-                "backup_path": "/var/lib/milo/backups/multiroom"
-            },
-            "camilladsp": {
-                "display_name": "CamillaDSP",
-                "binary_path": "/usr/local/bin/camilladsp",
-                "service_name": "milo-camilladsp.service",
-                "backup_path": "/var/lib/milo/backups/camilladsp",
-                "asset_url": "https://github.com/HEnquist/camilladsp/releases/download/v{version}/camilladsp-linux-aarch64.tar.gz",
-                "download_progress_key": "updates.progress.downloadingCamillaDSP",
-                "always_on": True
-            },
-            "qobuz-proxy": {
-                "service_name": "milo-qobuz.service",
-                "venv_path": "/var/lib/milo/qobuz/venv",
-                "backup_path": "/var/lib/milo/backups/qobuz"
-            },
-            "navidrome": {
-                "display_name": "Navidrome",
-                "binary_path": "/usr/local/bin/navidrome",
-                "service_name": "milo-navidrome.service",
-                "backup_path": "/var/lib/milo/backups/navidrome",
-                "asset_url": "https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_arm64.tar.gz",
-                "download_progress_key": "updates.progress.downloadingNavidrome",
-                # The tarball ships README/LICENSE next to the binary.
-                "tar_member": "navidrome",
-                "always_on": True
-            }
-        }
-
     async def update_program(self, program_key: str, progress_callback: Optional[Callable[[str, int], Awaitable[None]]] = None) -> Dict[str, Any]:
         """Updates a specific program with progress callback"""
-        if program_key not in self.update_config:
+        if program_key not in self.programs:
             return {"success": False, "error": f"Update not supported for {program_key}"}
 
         try:
@@ -122,7 +51,7 @@ class UpdateService(VersionService):
                 return await self._update_shairport_sync(status, progress_callback)
             elif program_key == "qobuz-proxy":
                 return await self._update_qobuz_proxy(status, progress_callback)
-            elif "asset_url" in self.update_config[program_key]:
+            elif "asset_url" in self.programs[program_key]:
                 return await self._update_binary_program(program_key, status, progress_callback)
             else:
                 return {"success": False, "error": f"Update handler not implemented for {program_key}"}
@@ -143,7 +72,7 @@ class UpdateService(VersionService):
 
     async def _rollback_milo_to_commit(self, commit_hash: str, progress_callback: Optional[Callable] = None) -> bool:
         """Rollback Milo to a specific commit and rebuild"""
-        config = self.update_config["milo"]
+        config = self.programs["milo"]
         try:
             self.update_logger.info(f"Rolling back Milo to commit {commit_hash[:8]}...")
 
@@ -213,7 +142,7 @@ class UpdateService(VersionService):
 
     async def _update_milo_app(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates Milo application via git pull with automatic rollback on failure"""
-        config = self.update_config["milo"]
+        config = self.programs["milo"]
         latest_version = status["latest"]["version"]
         original_commit = None
 
@@ -437,8 +366,8 @@ class UpdateService(VersionService):
         unconditionally; go-librespot's Spotify service is on-demand, so its
         previous state is preserved and an inactive service is left inactive.
         """
-        config = self.update_config[program_key]
-        display_name = config["display_name"]
+        config = self.programs[program_key]
+        display_name = config["log_name"]
         latest_version = status["latest"]["version"]
 
         service_was_active = await self._is_service_active(config["service_name"])
@@ -605,10 +534,10 @@ class UpdateService(VersionService):
         """Verifies the new binary is in place and the service came back up."""
         try:
             if not Path(config["binary_path"]).exists():
-                return {"success": False, "error": f"{config['display_name']} binary not found after update"}
+                return {"success": False, "error": f"{config['log_name']} binary not found after update"}
 
             if expect_service_active and not await self._is_service_active(config["service_name"]):
-                return {"success": False, "error": f"{config['display_name']} service not running after update"}
+                return {"success": False, "error": f"{config['log_name']} service not running after update"}
 
             return {"success": True}
 
@@ -617,7 +546,7 @@ class UpdateService(VersionService):
 
     async def _rollback_binary_program(self, config: Dict[str, Any], restart_service: bool = True) -> bool:
         """Restores the backed-up binary, respecting the service's previous state."""
-        display_name = config["display_name"]
+        display_name = config["log_name"]
         try:
             binary_path = Path(config["binary_path"])
             binary_backup = Path(config["backup_path"]) / f"{binary_path.name}.backup"
@@ -653,7 +582,7 @@ class UpdateService(VersionService):
 
     async def _update_multiroom(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates both snapserver and snapclient atomically"""
-        config = self.update_config["multiroom"]
+        config = self.programs["multiroom"]
         latest_version = status["latest"]["version"]
         old_version = status["installed"]["versions"].get("main", "unknown")
 
@@ -760,7 +689,7 @@ class UpdateService(VersionService):
 
     async def _update_shairport_sync(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates shairport-sync by compiling from source"""
-        config = self.update_config["shairport-sync"]
+        config = self.programs["shairport-sync"]
         latest_version = status["latest"]["version"]
         tag_name = status["latest"]["tag_name"]
 
@@ -1158,7 +1087,7 @@ class UpdateService(VersionService):
         if an upstream release moved its anchors. config.yaml and
         credentials.json are left untouched.
         """
-        config = self.update_config["qobuz-proxy"]
+        config = self.programs["qobuz-proxy"]
         latest_version = status["latest"]["version"]
         # Use the exact upstream tag for the pip ref (not a reconstructed
         # "v{version}") so a tag that isn't simply "v" + semver still resolves.
@@ -1429,7 +1358,7 @@ class UpdateService(VersionService):
 
     async def can_update_program(self, program_key: str) -> Dict[str, Any]:
         """Checks if a program can be updated"""
-        if program_key not in self.update_config:
+        if program_key not in self.programs:
             return {"can_update": False, "reason": "Update not supported"}
 
         # Verify the deploy wrapper is reachable via sudo NOPASSWD

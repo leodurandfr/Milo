@@ -8,6 +8,7 @@ from contextlib import ExitStack, contextmanager
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.update import UpdateService
 from backend.core.systemd import SystemdServiceManager
 
@@ -24,8 +25,8 @@ def update_service():
 
 
 # The programs served by the one shared _update_binary_program flow. Kept as a
-# literal rather than derived from update_config so a program dropping out of
-# the flow is a visible test edit, not a silently shrinking parametrization.
+# literal rather than derived from the catalog so a program dropping out of the
+# flow is a visible test edit, not a silently shrinking parametrization.
 BINARY_PROGRAMS = ["go-librespot", "camilladsp", "navidrome"]
 
 
@@ -46,9 +47,40 @@ class TestUpdateServiceInit:
         assert hasattr(update_service, "programs")
         assert hasattr(update_service, "_github_cache")
 
-    def test_update_config_present(self, update_service):
-        expected_keys = {"milo", "go-librespot", "shairport-sync", "multiroom", "camilladsp", "qobuz-proxy", "navidrome"}
-        assert set(update_service.update_config.keys()) == expected_keys
+
+class TestUpdateHandlerCoverage:
+    """Every catalog entry must reach an update handler.
+
+    The catalog is one dict shared with VersionService, so a program can be
+    fully declared -- and offered in the UI as updatable -- while update_program
+    has no branch for it. That falls through to "Update handler not
+    implemented", which no caller can tell apart from a real failure.
+    """
+
+    HANDLERS = [
+        "_update_milo_app",
+        "_update_multiroom",
+        "_update_shairport_sync",
+        "_update_qobuz_proxy",
+        "_update_binary_program",
+    ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("program_key", list(PROGRAMS))
+    async def test_every_program_reaches_a_handler(self, update_service, program_key):
+        status = {"update_available": True, "latest": {"version": "9.9.9"}}
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(update_service, "get_program_full_status", return_value=status))
+            handlers = {
+                name: stack.enter_context(patch.object(update_service, name, return_value={"success": True}))
+                for name in self.HANDLERS
+            }
+            result = await update_service.update_program(program_key)
+
+        called = [name for name, mock in handlers.items() if mock.await_count]
+        assert len(called) == 1, f"{program_key} reached {called or 'no handler'}"
+        assert result["success"] is True
 
 
 class TestUpdateProgram:
@@ -74,7 +106,7 @@ class TestUpdateProgram:
     async def test_dispatches_to_binary_program(self, update_service, program_key):
         """The three tarball-binary programs must all reach the shared flow.
 
-        A missing "asset_url" in update_config would silently fall through to
+        A missing "asset_url" in the catalog would silently fall through to
         "Update handler not implemented" instead.
         """
         status = {"update_available": True, "latest": {"version": "0.7.0"}}
@@ -334,7 +366,7 @@ class TestBackupShairportSync:
 
 def _rollback_config(tmp_path):
     return {
-        "display_name": "go-librespot",
+        "log_name": "go-librespot",
         "backup_path": str(tmp_path / "backups"),
         "binary_path": "/usr/local/bin/go-librespot",
         "service_name": "milo-spotify.service"
@@ -853,7 +885,7 @@ class TestVerifyBinaryProgram:
 
     @pytest.mark.asyncio
     async def test_binary_missing(self, update_service):
-        config = update_service.update_config["go-librespot"]
+        config = update_service.programs["go-librespot"]
         with patch("pathlib.Path.exists", return_value=False):
             result = await update_service._verify_binary_program(config, True)
         assert result["success"] is False
@@ -861,7 +893,7 @@ class TestVerifyBinaryProgram:
 
     @pytest.mark.asyncio
     async def test_service_not_running(self, update_service):
-        config = update_service.update_config["camilladsp"]
+        config = update_service.programs["camilladsp"]
         proc = _make_mock_proc(stdout=b"inactive\n")
         with patch("pathlib.Path.exists", return_value=True):
             with patch("asyncio.create_subprocess_exec", return_value=proc):
@@ -874,7 +906,7 @@ class TestVerifyBinaryProgram:
         """A go-librespot update that deliberately left the service stopped must
         still verify as successful — only the binary is checked.
         """
-        config = update_service.update_config["go-librespot"]
+        config = update_service.programs["go-librespot"]
         with patch("pathlib.Path.exists", return_value=True):
             with patch.object(update_service, "_is_service_active") as mock_active:
                 result = await update_service._verify_binary_program(config, False)
@@ -883,7 +915,7 @@ class TestVerifyBinaryProgram:
 
     @pytest.mark.asyncio
     async def test_verification_success(self, update_service):
-        config = update_service.update_config["navidrome"]
+        config = update_service.programs["navidrome"]
         proc = _make_mock_proc(stdout=b"active\n")
         with patch("pathlib.Path.exists", return_value=True):
             with patch("asyncio.create_subprocess_exec", return_value=proc):
