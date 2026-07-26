@@ -28,6 +28,16 @@ if TYPE_CHECKING:
     from backend.core.multiroom.client_registry import ClientRegistryService
 
 
+# Every DSP setting the pending queue can hold. Producers (this service's own
+# crossover/lowpass proxying, and SnapcastWebSocketService's reconnection sync)
+# and apply_pending_settings' dispatch must agree on this set: a type queued but
+# not dispatched is silently discarded, since apply_pending_settings pops the
+# whole per-client dict. Pinned by tests/architecture/test_service_wiring.py.
+PENDING_SETTING_TYPES = frozenset({
+    "crossover", "lowpass", "filters", "compressor", "loudness", "mono", "enabled",
+})
+
+
 class CrossoverService:
     """
     Manages speaker types and crossover logic across multiroom zones.
@@ -451,7 +461,18 @@ class CrossoverService:
     # === Pending Settings Queue for Offline Clients ===
 
     async def queue_pending_settings(self, client_id: str, setting_type: str, settings: Dict[str, Any]) -> None:
-        """Queue equalizer settings for an offline client."""
+        """Queue a DSP setting whose push to a client failed, for replay on reconnect.
+
+        ``setting_type`` must be one of PENDING_SETTING_TYPES — an unlisted type
+        would be stored and then dropped unreplayed by apply_pending_settings, so
+        it fails loud instead. tests/architecture/test_service_wiring.py pins the
+        producers and this dispatch to the same set.
+        """
+        if setting_type not in PENDING_SETTING_TYPES:
+            raise ValueError(
+                f"Unknown pending setting type {setting_type!r} "
+                f"(known: {sorted(PENDING_SETTING_TYPES)})"
+            )
         if client_id not in self._pending_settings:
             self._pending_settings[client_id] = {}
 
@@ -459,7 +480,12 @@ class CrossoverService:
         self.logger.info(f"Queued {setting_type} settings for offline client {client_id}")
 
     async def apply_pending_settings(self, client_id: str) -> bool:
-        """Apply all pending settings to a reconnected client."""
+        """Replay every queued setting to a reconnected client.
+
+        Order matters for the last one: ``enabled`` is the master bypass gate,
+        so it is applied after the effects it gates (same order as the
+        reconnection sync in SnapcastWebSocketService).
+        """
         if client_id not in self._pending_settings:
             return False
 
@@ -471,44 +497,18 @@ class CrossoverService:
 
         success = True
 
-        if "crossover" in pending:
-            crossover = pending["crossover"]
+        for filter_name in ("crossover", "lowpass"):
+            if filter_name not in pending:
+                continue
+            queued = pending[filter_name]
             result = await self._set_client_filter(
-                client_id, "crossover",
-                crossover.get("enabled", False),
-                crossover.get("frequency", self.DEFAULT_CROSSOVER_FREQUENCY)
+                client_id, filter_name,
+                queued.get("enabled", False),
+                queued.get("frequency", self.DEFAULT_CROSSOVER_FREQUENCY)
             )
             if not result:
                 success = False
-                self.logger.debug(f"Failed to apply pending crossover to {client_id} (zone recalculation will re-apply)")
-
-        if "lowpass" in pending:
-            lowpass = pending["lowpass"]
-            result = await self._set_client_filter(
-                client_id, "lowpass",
-                lowpass.get("enabled", False),
-                lowpass.get("frequency", self.DEFAULT_CROSSOVER_FREQUENCY)
-            )
-            if not result:
-                success = False
-                self.logger.debug(f"Failed to apply pending lowpass to {client_id} (zone recalculation will re-apply)")
-
-        if "volume" in pending:
-            volume_db = pending["volume"].get("volume_db")
-            if volume_db is not None and self.volume_service:
-                try:
-                    await self.volume_service.update_client_volume_db(client_id, volume_db)
-                    self.logger.info(f"Applied pending volume {volume_db} dB to {client_id}")
-                except Exception as e:
-                    self.logger.warning(f"Failed to apply pending volume to {client_id}: {e}")
-                    success = False
-
-        if "mute" in pending:
-            muted = pending["mute"].get("muted", False)
-            await self._dispatch_to_client(
-                client_id, "/equalizer/mute", {"muted": muted},
-                lambda: self.camilladsp_service.set_mute(muted), "mute"
-            )
+                self.logger.debug(f"Failed to apply pending {filter_name} to {client_id} (zone recalculation will re-apply)")
 
         if "filters" in pending:
             for flt in pending["filters"]:
@@ -551,6 +551,34 @@ class CrossoverService:
             if not result:
                 success = False
                 self.logger.warning(f"Failed to apply pending loudness to {client_id}")
+
+        if "mono" in pending:
+            mono_data = pending["mono"]
+            mono_on = bool(mono_data.get("enabled", False))
+            result = await self._dispatch_to_client(
+                client_id, "/equalizer/mono", mono_data,
+                lambda: self.camilladsp_service.set_mono(enabled=mono_on),
+                "mono"
+            )
+            if not result:
+                success = False
+                self.logger.warning(f"Failed to apply pending mono to {client_id}")
+
+        # Master bypass gate — last, after the effects it gates.
+        if "enabled" in pending:
+            enabled_data = pending["enabled"]
+            effects_on = bool(enabled_data.get("enabled", True))
+            result = await self._dispatch_to_client(
+                client_id, "/equalizer/enabled", enabled_data,
+                lambda: (
+                    self.camilladsp_service.restore_effects() if effects_on
+                    else self.camilladsp_service.bypass_effects()
+                ),
+                "enabled"
+            )
+            if not result:
+                success = False
+                self.logger.warning(f"Failed to apply pending enabled to {client_id}")
 
         return success
 

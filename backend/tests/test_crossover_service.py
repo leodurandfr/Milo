@@ -457,34 +457,49 @@ class TestPendingSettingsQueue:
         mock_camilladsp_service.set_crossover_filter.assert_called_once()
         mock_camilladsp_service.set_lowpass_filter.assert_called_once()
 
+
     @pytest.mark.asyncio
-    async def test_apply_pending_volume_on_reconnect(self, crossover_service_with_registry):
-        """Pending per-client volume is restored via VolumeService on reconnect.
+    async def test_replays_every_type_a_producer_can_queue(
+        self, crossover_service_with_registry, mock_proxy_service
+    ):
+        """Every PENDING_SETTING_TYPES entry reaches the satellite on replay.
 
-        Regression: apply_pending_settings() previously called the non-existent
-        VolumeService.set_client_volume_db(), whose AttributeError was swallowed
-        by the surrounding try/except -- so a reconnecting client silently lost
-        its queued volume. The call must target the real update_client_volume_db().
-        Spec'ing the mock to VolumeService reproduces that AttributeError so this
-        test fails against the buggy call site.
+        apply_pending_settings() pops the whole per-client dict, so a queued type
+        it does not dispatch is discarded without a trace. "mono" and "enabled"
+        were queued by SnapcastWebSocketService's reconnection sync and dropped
+        here, which meant a failed mono/bypass push was never retried.
         """
-        from backend.core.volume.service import VolumeService
-
         service, registry = crossover_service_with_registry
-        local_client = Client(mac_id="local", name="Local", ip="127.0.0.1", online=True)
-        registry._clients["local"] = local_client
+        registry._clients["sat-1"] = Client(
+            mac_id="sat-1", name="Bedroom", ip="192.168.1.20", online=True
+        )
 
-        volume_service = AsyncMock(spec=VolumeService)
-        service.volume_service = volume_service
+        await service.queue_pending_settings("sat-1", "crossover", {"enabled": True, "frequency": 80})
+        await service.queue_pending_settings("sat-1", "lowpass", {"enabled": False, "frequency": 80})
+        await service.queue_pending_settings("sat-1", "filters", [{"id": "eq_band_00", "freq": 31, "gain": 3.0, "q": 1.41, "type": "Peaking"}])
+        await service.queue_pending_settings("sat-1", "compressor", {"enabled": True})
+        await service.queue_pending_settings("sat-1", "loudness", {"enabled": True})
+        await service.queue_pending_settings("sat-1", "mono", {"enabled": True})
+        await service.queue_pending_settings("sat-1", "enabled", {"enabled": False})
 
-        service._pending_settings["local"] = {
-            "volume": {"volume_db": -25.0}
-        }
+        assert await service.apply_pending_settings("sat-1") is True
 
-        result = await service.apply_pending_settings("local")
+        pushed = [c.args[2] for c in mock_proxy_service.try_request.await_args_list]
+        assert pushed == [
+            "/equalizer/crossover",
+            "/equalizer/lowpass",
+            "/equalizer/filter/eq_band_00",
+            "/equalizer/compressor",
+            "/equalizer/loudness",
+            "/equalizer/mono",
+            "/equalizer/enabled",  # master gate last, after the effects it gates
+        ]
 
-        assert result is True
-        volume_service.update_client_volume_db.assert_awaited_once_with("local", -25.0)
+    @pytest.mark.asyncio
+    async def test_unknown_setting_type_fails_loud(self, crossover_service):
+        """A type apply_pending_settings cannot dispatch must not be queueable."""
+        with pytest.raises(ValueError, match="Unknown pending setting type"):
+            await crossover_service.queue_pending_settings("sat-1", "delay", {"ms": 10})
 
     def test_has_pending_settings_returns_false_for_unknown_client(self, crossover_service):
         """Test has_pending_settings returns False for unknown client."""
