@@ -104,6 +104,62 @@ describe('WS event handlers live in App.vue, not in components', () => {
   });
 });
 
+/** `const radioStore = useRadioStore()` → radioStore: 'radioStore.js' */
+function storeBindings() {
+  const bindings = new Map();
+  for (const [, local, name] of appSource.matchAll(/const\s+(\w+)\s*=\s*use(\w+Store)\(\)/g)) {
+    bindings.set(local, `${name[0].toLowerCase()}${name.slice(1)}.js`);
+  }
+  return bindings;
+}
+
+/** The names a store module returns from its setup function. */
+function storeExports(file) {
+  const source = readFileSync(join(SRC_DIR, 'stores', file), 'utf8');
+  const returnBlock = /\n  return\s*\{([\s\S]*?)\n  \};/.exec(source);
+  if (!returnBlock) throw new Error(`no return block in ${file} — the extractor is broken`);
+  return returnBlock[1]
+    .split(',')
+    .map(entry => entry.replace(/\/\/.*$/gm, '').split(':')[0].trim())
+    .filter(Boolean);
+}
+
+/** `['category', 'type', storeLocal.method]` rows across all three tables. */
+function tableHandlers() {
+  const rows = [];
+  for (const name of ['RAW_EVENTS', 'PARSED_EVENTS', 'SETTINGS_CONFIG_EVENTS']) {
+    const block = new RegExp(`const ${name} = \\[([\\s\\S]*?)\\n\\];`).exec(appSource);
+    if (!block) throw new Error(`${name} not found in App.vue — the extractor is broken`);
+    for (const [, handler] of block[1].matchAll(/,\s*(\w+\.\w+)\]/g)) rows.push([name, handler]);
+  }
+  return rows;
+}
+
+describe('App.vue dispatch tables ↔ store surfaces', () => {
+  const bindings = storeBindings();
+  const handlers = tableHandlers();
+
+  it('extracts a plausible surface from both sides', () => {
+    expect(bindings.size).toBeGreaterThan(5);
+    expect(handlers.length).toBeGreaterThan(30);
+  });
+
+  it('every table row names a method its store actually exports', () => {
+    const dangling = handlers
+      .filter(([, handler]) => bindings.has(handler.split('.')[0]))
+      .filter(([, handler]) => {
+        const [local, method] = handler.split('.');
+        return !storeExports(bindings.get(local)).includes(method);
+      })
+      .map(([table, handler]) => `${table}: ${handler}`);
+
+    // A row naming a method the store does not expose subscribes `undefined`
+    // as the handler: no error at boot, and a TypeError on the first event of
+    // that type — which for a rarely-fired event can be months later.
+    expect(dangling).toEqual([]);
+  });
+});
+
 describe('wsEventRegistry ↔ App.vue parsedOn() subscriptions', () => {
   const declared = registryKeys();
   const parsed = parsedSubscriptions();
