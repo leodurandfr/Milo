@@ -34,7 +34,7 @@
       </div>
 
       <div v-else-if="shouldShowQobuz" :key="contentKey" class="audio-source-slot">
-        <QobuzPlayer />
+        <QobuzSource />
       </div>
 
       <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="audio-source-slot source-status-container">
@@ -78,8 +78,8 @@ const MusicLibrarySource = defineAsyncComponent(() =>
 const DLNASource = defineAsyncComponent(() =>
   import('../dlna/DLNASource.vue')
 );
-const QobuzPlayer = defineAsyncComponent(() =>
-  import('../qobuz/QobuzPlayer.vue')
+const QobuzSource = defineAsyncComponent(() =>
+  import('../qobuz/QobuzSource.vue')
 );
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
