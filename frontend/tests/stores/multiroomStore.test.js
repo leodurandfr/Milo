@@ -271,15 +271,17 @@ describe('multiroomStore', () => {
     });
   });
 
-  describe('initialize', () => {
+  describe('boot recipe', () => {
     /**
-     * App.vue decides a `pending_client_changed` announces a *new* speaker with
-     * `!pendingClients.has(mac)`, and acts on it by waking the screen and opening
-     * Settings. A satellite re-registers every 15s and the backend rebroadcasts
-     * action="registered" each time, so leaving the map empty at boot makes the
-     * next heartbeat of a long-known satellite look brand new — once per page load.
+     * App.vue boots with primeFromCache() then resyncStores() — the same fetch a
+     * reconnect and a tab return run. Pending clients are part of this store's
+     * server state: App.vue decides a `pending_client_changed` announces a *new*
+     * speaker with `!pendingClients.has(mac)` and reacts by waking the screen and
+     * opening Settings. A satellite re-registers every 15s and the backend
+     * rebroadcasts action="registered" each time, so a boot path that skipped
+     * this fetch made a long-known satellite look brand new, once per page load.
      */
-    it('populates pending clients, not just the registry', async () => {
+    it('resync fetches the registry and the pending clients', async () => {
       apiCall.get.mockImplementation(async (url) => {
         if (url === '/api/multiroom/state') {
           return ok({ clients: { 'mac-a': CLIENT('mac-a') }, zones: {} });
@@ -290,11 +292,26 @@ describe('multiroomStore', () => {
         return ok({});
       });
 
-      await store.initialize();
+      await store.resync();
 
       expect(store.clientList.map(c => c.mac_id)).toEqual(['mac-a']);
       expect(store.pendingClients.has('mac-p')).toBe(true);
       expect(store.isInitialized).toBe(true);
+    });
+
+    it('primeFromCache shows the last registry without any request', () => {
+      localStorage.getItem.mockReturnValue(JSON.stringify({
+        clients: { 'mac-a': CLIENT('mac-a', { name: 'Kitchen' }) },
+        zones: { z1: { id: 'z1', name: 'Living', client_ids: ['mac-a'] } },
+      }));
+
+      store.primeFromCache();
+
+      expect(store.clientList[0]).toMatchObject({ mac_id: 'mac-a', name: 'Kitchen' });
+      expect(store.zoneList).toHaveLength(1);
+      expect(apiCall.get).not.toHaveBeenCalled();
+      // Still "not fetched yet" — the lazy callers must trigger resync().
+      expect(store.isInitialized).toBe(false);
     });
   });
 });

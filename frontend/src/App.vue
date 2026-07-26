@@ -722,26 +722,16 @@ onMounted(async () => {
 
   // Now perform async initialization
   await loadHardwareInfo();
-  await settingsStore.loadAllSettings();
 
-  // Fetch hostname conflict status (re-checked every 5 min by backend)
-  systemStore.fetchStatus();
+  // Show the last known client registry before any request lands
+  multiroomStore.primeFromCache();
 
-  // Load BT remote status in background (separate endpoint, may not be available)
-  settingsStore.loadBtRemoteStatus();
-
-  // Load fan config + telemetry in background (sets `available` to gate the UI)
-  fanStore.loadStatus();
-
-  // Initialize client registry (loads from cache + fetches fresh state)
-  multiroomStore.initialize();
-
-  // Preload podcast subscriptions list in background (for instant hasSubscriptions check)
-  // Only fetches local data, no discovery API call - episodes loaded when HomeView opens
-  podcastStore.preloadSubscriptionsList()
-
-  // Preload radio favorites in background (for instant display when user opens Radio)
-  radioStore.preloadFavorites()
+  // Boot goes through the same recipe as a reconnect and a tab return: one
+  // description of what the stores hold, in resyncStores(). A second,
+  // hand-written boot list is how `pendingClients` ended up loaded on every
+  // path except the first one — a store added here and forgotten there (or
+  // the reverse) fails silently, since both look like they populate the app.
+  await resyncStores();
 
   // Preload modals in background for instant display when user opens them
   Promise.all([

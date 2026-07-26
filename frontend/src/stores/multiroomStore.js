@@ -125,26 +125,21 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   // === INITIALIZATION ===
 
   /**
-   * Initialize store from cache, then fetch fresh state from backend.
+   * Show the last known registry instantly, before any request lands.
    *
-   * Fetches through resync() rather than fetchState() alone: pending clients
-   * are part of this store's server state, and App.vue classifies an incoming
-   * `pending_client_changed` as new by testing `pendingClients`. A satellite
+   * Boot-only: the fetch that follows is resync(), the same one a reconnect or
+   * a tab return runs, so there is a single description of this store's server
+   * state. Pending clients belong to it — App.vue classifies an incoming
+   * `pending_client_changed` as new by testing `pendingClients`, a satellite
    * re-registers every 15s and each heartbeat rebroadcasts action="registered",
-   * so an empty map at boot makes the first heartbeat of a known-pending
-   * satellite look like a brand-new speaker — waking the screen and opening
-   * Settings unprompted, once per page load.
+   * so an empty map made a long-known satellite look brand new.
    */
-  async function initialize() {
-    // Load from cache first for instant UI
+  function primeFromCache() {
     const cached = loadCache();
     if (cached && cached.clients) {
       clients.value = new Map(Object.entries(cached.clients));
       zones.value = new Map(Object.entries(cached.zones || {}));
     }
-
-    await resync();
-    isInitialized.value = true;
   }
 
   /**
@@ -180,6 +175,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       saveCache();
     }
     isLoading.value = false;
+    // Set even on failure: consumers read it as "the first fetch has been
+    // attempted", to decide whether they must trigger one themselves.
+    isInitialized.value = true;
   }
 
   // === CLIENT QUERIES ===
@@ -619,7 +617,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     isTransitioning,
 
     // Initialization
-    initialize,
+    primeFromCache,
     fetchState,
 
     // Client queries

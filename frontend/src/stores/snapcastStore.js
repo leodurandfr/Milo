@@ -147,7 +147,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
    */
   async function loadClients() {
     if (!registryStore.isInitialized) {
-      await registryStore.initialize();
+      await registryStore.resync();
     }
   }
 
