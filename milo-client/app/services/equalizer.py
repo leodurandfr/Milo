@@ -451,12 +451,12 @@ class EqualizerService:
 
     async def set_filter(self, filter_id: str, gain: float,
                          freq: float = None, q: float = None,
-                         filter_type: str = None, enabled: bool = None) -> bool:
-        """Update a filter band.
+                         filter_type: str = None) -> bool:
+        """Update a filter band's tuning.
 
-        gain/freq/q/filter_type mutate the Biquad parameters. ``enabled`` toggles
-        the band's presence in the pipeline (its definition is always kept, so the
-        band can be re-enabled without losing its tuning) — mirroring the local EQ.
+        Mutates the Biquad parameters only — the band's presence in the pipeline
+        is owned by set_equalizer_enabled(), so editing a band never un-bypasses
+        a bypassed client. Mirrors the server's CamillaDSPService.set_filter().
         """
         try:
             config = await self._get_config()
@@ -474,11 +474,6 @@ class EqualizerService:
                 params["q"] = q
             if filter_type is not None:
                 params["type"] = filter_type
-            if enabled is not None:
-                if enabled:
-                    self._add_filter_to_pipeline(config, filter_id)
-                else:
-                    self._remove_filter_from_pipeline(config, filter_id)
 
             await self._apply_config(config)
             return True
@@ -490,8 +485,12 @@ class EqualizerService:
         """
         Update multiple filters in one operation with a single disk save.
 
+        Applies the same tuning keys as set_filter(), so a whole-record push and
+        a single-band push cannot leave the client in different states.
+
         Args:
-            filters: List of filter dicts with keys: id, gain, freq (optional), q (optional)
+            filters: List of filter dicts with keys: id, gain, freq (optional),
+                q (optional), filter_type (optional)
 
         Returns:
             dict with success status and number of filters applied
@@ -512,6 +511,8 @@ class EqualizerService:
                         params["freq"] = f["freq"]
                     if "q" in f:
                         params["q"] = f["q"]
+                    if f.get("filter_type") is not None:
+                        params["type"] = f["filter_type"]
                     applied += 1
 
             await self._apply_config(config)

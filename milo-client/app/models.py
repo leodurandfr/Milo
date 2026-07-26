@@ -6,12 +6,15 @@ from typing import Optional, List
 
 
 class FilterUpdate(BaseModel):
-    """Model for filter update request."""
+    """Model for filter update request (tuning only).
+
+    Carries no `enabled`: pipeline membership is owned by the master toggle
+    (PUT /equalizer/enabled), so editing a band never un-bypasses the client.
+    """
     gain: float
     freq: Optional[float] = None
     q: Optional[float] = None
     filter_type: Optional[str] = None
-    enabled: Optional[bool] = None
 
 
 class CompressorUpdate(BaseModel):

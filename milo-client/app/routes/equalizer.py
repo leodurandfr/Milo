@@ -77,7 +77,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
                 freq=update.freq,
                 q=update.q,
                 filter_type=update.filter_type,
-                enabled=update.enabled
             )
             if success:
                 return {"status": "success", "filter_id": filter_id}

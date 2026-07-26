@@ -142,7 +142,9 @@ class EqualizerRouter:
         Args:
             mac_id: Client MAC address
             filter_id: Filter ID to update
-            filter_data: Dict with freq, gain, q, filter_type, enabled
+            filter_data: Dict with freq, gain, q, filter_type. Carries no
+                `enabled`: pipeline membership is the master toggle's, so a
+                targeted band edit must not re-pipe a band on a bypassed client.
             persist: Save to settings (False for zone updates using registry)
             broadcast: Emit WebSocket event (False for batch updates)
         """
@@ -154,7 +156,6 @@ class EqualizerRouter:
                     gain=filter_data.get("gain"),
                     q=filter_data.get("q"),
                     filter_type=filter_data.get("filter_type"),
-                    enabled=filter_data.get("enabled", True),
                     persist=persist,
                     broadcast=broadcast
                 )
