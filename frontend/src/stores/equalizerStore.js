@@ -32,6 +32,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const activePreset = ref('flat'); // Preset ID ('flat' default, 'custom' or builtin ID)
   const state = ref('disconnected'); // disconnected, inactive, running, paused
   const filtersLoaded = ref(false);
+  // True from the first loadStatus() onwards — `filtersLoaded` flips back to
+  // false during a reload, so it cannot answer "has this store ever loaded?"
+  const hasEverLoaded = ref(false);
 
   // Equalizer effects enabled state (persisted in settings)
   // Note: Volume always works via CamillaDSP, this controls EQ/compressor/loudness
@@ -381,6 +384,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     loadAbortController = new AbortController();
     const signal = loadAbortController.signal;
 
+    hasEverLoaded.value = true;
     filtersLoaded.value = false;
 
     await apiCall('store', 'Error loading equalizer data', async () => {
@@ -948,6 +952,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   async function resync() {
+    // Lazily loaded: EqualizerModal calls loadStatus() when it opens. Refetching
+    // a store the user never opened costs two requests on every reconnect and
+    // tab return, and heals nothing — same gate as radioStore/musicLibraryStore.
+    if (!hasEverLoaded.value) return;
     return loadStatus();
   }
 

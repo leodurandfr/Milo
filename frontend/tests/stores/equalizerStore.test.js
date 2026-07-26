@@ -316,6 +316,30 @@ describe('equalizerStore', () => {
     });
   });
 
+  describe('resync gate', () => {
+    /**
+     * App.vue resyncs every delta store on reconnect and on every tab return.
+     * This one is loaded lazily by EqualizerModal, so before it has ever opened
+     * there is nothing to heal — refetching would spend two requests per tab
+     * focus on state no view is showing.
+     */
+    it('does nothing before the store has ever loaded', async () => {
+      await equalizerStore.resync();
+
+      expect(apiCall.get).not.toHaveBeenCalled();
+    });
+
+    it('refetches once the store has been loaded', async () => {
+      apiCall.get.mockResolvedValue(ok({ state: 'running', filters: [], presets: [] }));
+      await equalizerStore.loadStatus();
+      apiCall.get.mockClear();
+
+      await equalizerStore.resync();
+
+      expect(apiCall.get).toHaveBeenCalled();
+    });
+  });
+
   describe('equalizer_changed ingestion', () => {
     beforeEach(() => {
       equalizerStore.selectedTarget = REMOTE_MAC;
