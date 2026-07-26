@@ -168,13 +168,13 @@ class SnapcastService:
 
                 host = client_data["host"]["name"]
                 ip = client_data["host"]["ip"].replace("::ffff:", "")
-                mac = client_data["host"].get("mac", "")
+                client_id = client_data.get("id", "")
 
-                if ClientRegistryService.is_stale_local_client(client_data.get("id", ""), ip):
-                    self.logger.warning(f"Skipping stale local client id={client_data.get('id')}")
+                if ClientRegistryService.is_stale_local_client(client_id, ip):
+                    self.logger.warning(f"Skipping stale local client id={client_id}")
                     continue
 
-                mac_id = ClientRegistryService.compute_mac_id(host, ip, mac)
+                mac_id = ClientRegistryService.compute_mac_id(host, ip, client_id)
 
                 # Calculate online status based on lastSeen timestamp
                 last_seen_data = client_data.get("lastSeen", {})
@@ -199,7 +199,6 @@ class SnapcastService:
                     "muted": client_data["config"]["volume"]["muted"],
                     "host": host,
                     "ip": ip,
-                    "mac": mac,
                     "mac_id": mac_id,
                     "online": is_online,
                 }

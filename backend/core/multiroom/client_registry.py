@@ -1158,38 +1158,43 @@ class ClientRegistryService:
         return bool(local_mac) and client_id != local_mac
 
     @staticmethod
-    def compute_mac_id(hostname: str, ip: str, mac: str = "") -> str:
+    def compute_mac_id(hostname: str, ip: str, host_id: str = "") -> str:
         """
-        Return the MAC address as mac_id.
+        Return the identity Milō keys a client by: the MAC of its primary
+        interface, eth0 first and wlan0 as fallback.
 
-        For local client (127.0.0.1), read MAC from system interface.
-        For remote clients, MAC is provided by Snapcast.
+        That identity has exactly one producer — the `--hostID` every snapclient
+        launcher passes — and every other component derives it the same way:
+        `milo-client`'s registration POST reads eth0-then-wlan0 from /sys, and so
+        does this method for the local client. Snapcast's `host.mac` is NOT that
+        identity: it reports the interface the client actually connected through,
+        so a wifi-only client (eth0 present but unused) announces its wlan0 MAC
+        while registering under its eth0 one. Keying on `host.mac` therefore split
+        one device into two identities — the pending entry never matched, its
+        name was lost, and it was never cleared. Read the id Milō assigned.
 
         Args:
             hostname: Hostname from Snapcast (for logging only)
             ip: IP address from Snapcast
-            mac: MAC address from Snapcast (for remote clients)
+            host_id: Snapcast client id, i.e. the `--hostID` we passed (remote clients)
 
         Returns:
             MAC address in format xx:xx:xx:xx:xx:xx
 
         Raises:
             RuntimeError: If local MAC cannot be determined
-            ValueError: If remote client has no MAC address
+            ValueError: If a remote client announces no usable id
         """
-        # Local client: always read MAC from system interface
-        # Snapcast's host.mac for loopback may differ from the actual primary interface
-        # (e.g. wlan0 instead of eth0), so we ignore it and read directly from /sys
-        # to stay consistent with the --hostID flag in the snapclient service.
+        # Local client: read from /sys rather than trusting the loopback entry,
+        # whose host.mac is not the primary interface either.
         if ip == "127.0.0.1":
             local_mac = ClientRegistryService.get_local_mac()
             if not local_mac:
                 raise RuntimeError("Cannot determine local MAC address")
             return local_mac
 
-        # Remote clients: use MAC provided by Snapcast
-        if mac and mac != "00:00:00:00:00:00":
-            return mac
+        if host_id and host_id != "00:00:00:00:00:00":
+            return host_id
 
-        raise ValueError(f"No MAC address for client {hostname} at {ip}")
+        raise ValueError(f"No client id for {hostname} at {ip}")
 
