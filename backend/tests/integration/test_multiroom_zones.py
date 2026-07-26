@@ -129,12 +129,12 @@ async def volume_state_store_with_registry(mock_settings_service, registry_with_
 
 
 # ==============================================================================
-# AC1: Test Zone Creation
+# Test Zone Creation
 # ==============================================================================
 
 
 class TestZoneCreation:
-    """Tests for AC1: Zone creation with multiple clients."""
+    """Tests for Zone creation with multiple clients."""
 
     @pytest.mark.asyncio
     async def test_create_zone_success(
@@ -272,12 +272,12 @@ class TestZoneCreation:
 
 
 # ==============================================================================
-# AC2: Test Zone Volume Synchronization
+# Test Zone Volume Synchronization
 # ==============================================================================
 
 
 class TestZoneVolumeSynchronization:
-    """Tests for AC2: Zone volume synchronization."""
+    """Tests for Zone volume synchronization."""
 
     @pytest.mark.asyncio
     async def test_zone_average_volume_calculated_correctly(
@@ -399,12 +399,12 @@ class TestZoneVolumeSynchronization:
 
 
 # ==============================================================================
-# AC3: Test Volume Offsets
+# Test Volume Offsets
 # ==============================================================================
 
 
 class TestVolumeOffsets:
-    """Tests for AC3: Per-client volume offsets."""
+    """Tests for Per-client volume offsets."""
 
     @pytest.mark.asyncio
     async def test_client_offset_relative_to_zone_average(
@@ -496,12 +496,12 @@ class TestVolumeOffsets:
 
 
 # ==============================================================================
-# AC4: Test Client Add/Remove from Zones
+# Test Client Add/Remove from Zones
 # ==============================================================================
 
 
 class TestZoneClientManagement:
-    """Tests for AC4: Adding and removing clients from zones."""
+    """Tests for Adding and removing clients from zones."""
 
     @pytest.mark.asyncio
     async def test_add_client_to_zone_success(

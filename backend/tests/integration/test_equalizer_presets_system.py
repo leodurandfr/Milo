@@ -1,14 +1,14 @@
 # backend/tests/integration/test_equalizer_presets_system.py
 """
-Integration tests for Story 4-6: Equalizer Presets System
+Integration Tests for Equalizer Presets System
 
 Tests cover:
-- AC1: Apply preset to zone/client with gains and WebSocket event
-- AC2: No auto-switch when modifying filter parameter (edited state is frontend-only)
-- AC3: Zone propagation to all ONLINE zone members
-- AC4: Available presets list (21 builtin + Custom)
-- AC5: Custom preset persistence and restoration
-- AC6: Startup restoration of saved preset
+- Apply preset to zone/client with gains and WebSocket event
+- No auto-switch when modifying filter parameter (edited state is frontend-only)
+- Zone propagation to all ONLINE zone members
+- Available presets list (21 builtin + Custom)
+- Custom preset persistence and restoration
+- Startup restoration of saved preset
 
 These tests verify the complete preset flow:
 API → CamillaDSPService → WebSocket → Frontend state update
@@ -105,11 +105,11 @@ def camilladsp_service_with_jazz_preset(connected_camilladsp_service):
 
 
 # =============================================================================
-# AC2: No auto-switch when modifying filter (edited state is frontend-only)
+# No auto-switch when modifying filter (edited state is frontend-only)
 # =============================================================================
 
-class TestAC2NoAutoSwitch:
-    """AC2: Modifying filter while on preset does NOT auto-switch to custom"""
+class TestNoAutoSwitchOnPresetEdit:
+    """Modifying filter while on preset does NOT auto-switch to custom"""
 
     @pytest.mark.asyncio
     async def test_manual_modification_does_not_switch_preset(self, camilladsp_service_with_jazz_preset, mock_settings_service):
@@ -163,11 +163,11 @@ class TestAC2NoAutoSwitch:
 
 
 # =============================================================================
-# AC4: Available presets list
+# Available presets list
 # =============================================================================
 
-class TestAC4PresetsList:
-    """AC4: GET /api/equalizer/presets returns 21 builtin + Custom"""
+class TestPresetsList:
+    """GET /api/equalizer/presets returns 21 builtin + Custom"""
 
     def test_builtin_presets_count(self):
         """Should have exactly 22 builtin presets"""

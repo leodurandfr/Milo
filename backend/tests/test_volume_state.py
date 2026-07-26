@@ -27,12 +27,12 @@ class TestVolumeStateStore:
 
 
 # ==============================================================================
-# Task 3: Unit tests for zone volume delta (Story 3.2 AC#1, #2, #3)
+# Unit tests for zone volume delta
 # ==============================================================================
 
 
 class TestZoneVolumeDelta:
-    """Tests for zone volume delta functionality (Story 3.2)."""
+    """Tests for zone volume delta functionality."""
 
     @pytest.fixture
     def mock_settings_service(self):
@@ -52,7 +52,7 @@ class TestZoneVolumeDelta:
     @pytest.mark.asyncio
     async def test_zone_delta_preserves_relative_offsets(self, store):
         """
-        AC1: Zone delta preserves relative offsets between clients.
+        Zone delta preserves relative offsets between clients.
 
         Given clients at different volumes, when zone delta applied,
         the difference between client volumes should be preserved.
@@ -82,7 +82,7 @@ class TestZoneVolumeDelta:
     @pytest.mark.asyncio
     async def test_zone_delta_only_affects_online_clients(self, store):
         """
-        AC2: Only ONLINE clients receive immediate volume change.
+        Only ONLINE clients receive immediate volume change.
 
         OFFLINE clients should not be included in the updates dict.
         """
@@ -110,7 +110,7 @@ class TestZoneVolumeDelta:
     @pytest.mark.asyncio
     async def test_zone_delta_returns_empty_when_all_offline(self, store):
         """
-        AC2: Zone with all clients OFFLINE returns no updates.
+        Zone with all clients OFFLINE returns no updates.
         """
         # Setup: zone with all OFFLINE clients
         store._zones = {
@@ -134,7 +134,7 @@ class TestZoneVolumeDelta:
     @pytest.mark.asyncio
     async def test_zone_delta_clamps_at_min_limit(self, store):
         """
-        AC3: Volume clamped at minimum limit during delta application.
+        Volume clamped at minimum limit during delta application.
         """
         store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=-21.0))
 
@@ -159,7 +159,7 @@ class TestZoneVolumeDelta:
     @pytest.mark.asyncio
     async def test_zone_delta_clamps_at_max_limit(self, store):
         """
-        AC3: Volume clamped at maximum limit during delta application.
+        Volume clamped at maximum limit during delta application.
         """
         store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=-21.0))
 
@@ -184,7 +184,7 @@ class TestZoneVolumeDelta:
     @pytest.mark.asyncio
     async def test_zone_delta_raises_for_unknown_zone(self, store):
         """
-        AC3: apply_zone_delta raises ValueError for unknown zone.
+        apply_zone_delta raises ValueError for unknown zone.
         """
         store._zones = {}
 
@@ -195,7 +195,7 @@ class TestZoneVolumeDelta:
     @pytest.mark.asyncio
     async def test_apply_zone_updates_persists_volumes(self, store):
         """
-        AC3: apply_zone_updates updates client volumes in state.
+        apply_zone_updates updates client volumes in state.
         """
         # Setup: existing clients
         store._clients = {
@@ -217,12 +217,12 @@ class TestZoneVolumeDelta:
 
 
 # ==============================================================================
-# Task 4: Unit tests for zone average calculation (Story 3.2 AC#4)
+# Unit tests for zone average calculation
 # ==============================================================================
 
 
 class TestZoneAverageCalculation:
-    """Tests for zone average volume calculation (Story 3.2 AC#4)."""
+    """Tests for zone average volume calculation."""
 
     @pytest.fixture
     def mock_settings_service(self):
@@ -238,7 +238,7 @@ class TestZoneAverageCalculation:
 
     def test_zone_average_computed_from_online_clients_only(self, store):
         """
-        AC4: Zone average computed from ONLINE clients only.
+        Zone average computed from ONLINE clients only.
         """
         # Setup: zone with mixed ONLINE/OFFLINE clients
         store._zones = {
@@ -262,7 +262,7 @@ class TestZoneAverageCalculation:
 
     def test_zone_average_returns_default_when_no_online_clients(self, store):
         """
-        AC4: Zone average returns DEFAULT_VOLUME_DB when no clients ONLINE.
+        Zone average returns DEFAULT_VOLUME_DB when no clients ONLINE.
         """
         # Setup: zone with all OFFLINE clients
         store._zones = {
@@ -285,7 +285,7 @@ class TestZoneAverageCalculation:
 
     def test_zone_average_returns_default_for_unknown_zone(self, store):
         """
-        AC4: Zone average returns DEFAULT_VOLUME_DB for unknown zone.
+        Zone average returns DEFAULT_VOLUME_DB for unknown zone.
         """
         store._zones = {}
 
@@ -297,7 +297,7 @@ class TestZoneAverageCalculation:
 
     def test_zone_average_single_online_client(self, store):
         """
-        AC4: Zone average equals client volume when only one client online.
+        Zone average equals client volume when only one client online.
         """
         # Setup: single online client
         store._zones = {
@@ -320,7 +320,7 @@ class TestZoneAverageCalculation:
     @pytest.mark.asyncio
     async def test_zone_average_updates_after_client_volume_change(self, store):
         """
-        AC4: Zone average updates after client volume change.
+        Zone average updates after client volume change.
         """
         # Setup: set limits to allow full range for testing
         store.set_volume_config(VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0))
@@ -353,7 +353,7 @@ class TestZoneAverageCalculation:
 
     def test_zone_average_includes_muted_clients(self, store):
         """
-        AC4: Zone average includes muted clients (volume still counts).
+        Zone average includes muted clients (volume still counts).
         """
         # Setup: zone with muted client
         store._zones = {

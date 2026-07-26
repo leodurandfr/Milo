@@ -3,9 +3,9 @@
 Unit tests for /api/multiroom/ API endpoints.
 
 Tests cover:
-- GET /api/multiroom/clients/{mac_id} (AC4: 404 for non-existent)
-- PATCH /api/multiroom/clients/{mac_id} (AC2: update name, AC3: update speaker_type)
-- Validation (AC4: 400 for invalid speaker_type)
+- GET /api/multiroom/clients/{mac_id} — 404 for a non-existent client
+- PATCH /api/multiroom/clients/{mac_id} — update name, update speaker_type
+- Validation — 400 for an invalid speaker_type
 """
 import pytest
 from unittest.mock import Mock, AsyncMock
@@ -88,10 +88,10 @@ def client(mock_registry_service):
 
 
 class TestPatchClient:
-    """Tests for PATCH /api/multiroom/clients/{mac_id} endpoint (AC2, AC3)."""
+    """Tests for PATCH /api/multiroom/clients/{mac_id} endpoint."""
 
     def test_patch_client_name_success(self, client, mock_registry_service):
-        """AC2: PATCH /clients/{mac_id} updates client name."""
+        """PATCH /clients/{mac_id} updates client name."""
         response = client.patch(
             "/api/multiroom/clients/dc:a6:32:7e:d3:43",
             json={"name": "Kitchen Speaker"}
@@ -112,7 +112,7 @@ class TestPatchClient:
         )
 
     def test_patch_client_speaker_type_success(self, client, mock_registry_service):
-        """AC3: PATCH /clients/{mac_id} updates speaker_type."""
+        """PATCH /clients/{mac_id} updates speaker_type."""
         response = client.patch(
             "/api/multiroom/clients/dc:a6:32:7e:d3:43",
             json={"speaker_type": "subwoofer"}
@@ -146,7 +146,7 @@ class TestPatchClient:
         )
 
     def test_patch_client_not_found(self, client, mock_registry_service):
-        """AC4: PATCH /clients/{mac_id} returns 404 for unknown client."""
+        """PATCH /clients/{mac_id} returns 404 for unknown client."""
         response = client.patch(
             "/api/multiroom/clients/unknown-client",
             json={"name": "Test"}
@@ -156,7 +156,7 @@ class TestPatchClient:
         assert "not found" in response.json()["detail"].lower()
 
     def test_patch_client_invalid_speaker_type(self, client, mock_registry_service):
-        """AC3/AC4: PATCH with invalid speaker_type returns 400 with allowed values."""
+        """PATCH with invalid speaker_type returns 400 with allowed values."""
         response = client.patch(
             "/api/multiroom/clients/dc:a6:32:7e:d3:43",
             json={"speaker_type": "invalid_type"}
@@ -168,7 +168,7 @@ class TestPatchClient:
         assert len(detail) > 0
 
     def test_patch_client_returns_online_status(self, client, mock_registry_service):
-        """AC1: Updated client response includes runtime 'online' status."""
+        """Updated client response includes runtime 'online' status."""
         response = client.patch(
             "/api/multiroom/clients/dc:a6:32:7e:d3:43",
             json={"name": "Updated"}
@@ -179,7 +179,7 @@ class TestPatchClient:
 
 
 class TestSpeakerTypeValidation:
-    """Tests for speaker_type validation (AC3)."""
+    """Tests for speaker_type validation."""
 
     @pytest.mark.parametrize("speaker_type", [
         "satellite",
@@ -188,7 +188,7 @@ class TestSpeakerTypeValidation:
         "subwoofer"
     ])
     def test_valid_speaker_types(self, client, mock_registry_service, speaker_type):
-        """AC3: Valid speaker_types are accepted."""
+        """Valid speaker_types are accepted."""
         response = client.patch(
             "/api/multiroom/clients/dc:a6:32:7e:d3:43",
             json={"speaker_type": speaker_type}
@@ -199,7 +199,7 @@ class TestSpeakerTypeValidation:
 
 
 # =============================================================================
-# Zone Pydantic Model Tests (Story 2-1)
+# Zone Pydantic Model Tests
 # =============================================================================
 
 
@@ -361,7 +361,7 @@ class TestMaxZoneNameLengthConstant:
 
 
 # =============================================================================
-# Zone API Endpoint Tests (Story 2-2)
+# Zone API Endpoint Tests
 # =============================================================================
 
 
@@ -506,10 +506,10 @@ def zone_client(mock_zone_registry_service):
 
 
 class TestCreateZone:
-    """Tests for POST /api/multiroom/zones endpoint (AC2, AC3, AC5)."""
+    """Tests for POST /api/multiroom/zones endpoint."""
 
     def test_create_zone_success(self, zone_client, mock_zone_registry_service):
-        """AC2/AC5: POST /zones creates zone with valid 2+ clients."""
+        """POST /zones creates zone with valid 2+ clients."""
         response = zone_client.post(
             "/api/multiroom/zones",
             json={
@@ -526,7 +526,7 @@ class TestCreateZone:
         assert len(data["zone"]["client_ids"]) == 2
 
     def test_create_zone_includes_enriched_fields(self, zone_client, mock_zone_registry_service):
-        """AC2: Created zone response includes computed fields."""
+        """Created zone response includes computed fields."""
         response = zone_client.post(
             "/api/multiroom/zones",
             json={
@@ -542,7 +542,7 @@ class TestCreateZone:
         assert "crossover_enabled" in zone
 
     def test_create_zone_generates_uuid(self, zone_client, mock_zone_registry_service):
-        """AC5: Zone creation generates UUID for zone_id."""
+        """Zone creation generates UUID for zone_id."""
         response = zone_client.post(
             "/api/multiroom/zones",
             json={
@@ -558,7 +558,7 @@ class TestCreateZone:
         assert zone_id.count("-") == 4
 
     def test_create_zone_less_than_2_clients_fails(self, zone_client, mock_zone_registry_service):
-        """AC3: POST /zones with < 2 clients returns 400."""
+        """POST /zones with < 2 clients returns 400."""
         response = zone_client.post(
             "/api/multiroom/zones",
             json={
@@ -571,7 +571,7 @@ class TestCreateZone:
         # The validation happens at Pydantic level
 
     def test_create_zone_client_not_found_fails(self, zone_client, mock_zone_registry_service):
-        """AC3: POST /zones with unknown client returns 400."""
+        """POST /zones with unknown client returns 400."""
         response = zone_client.post(
             "/api/multiroom/zones",
             json={
@@ -584,7 +584,7 @@ class TestCreateZone:
         assert "not found" in response.json()["detail"].lower()
 
     def test_create_zone_name_max_length_enforced(self, zone_client, mock_zone_registry_service):
-        """AC3: Zone name max length (15) is enforced."""
+        """Zone name max length (15) is enforced."""
         response = zone_client.post(
             "/api/multiroom/zones",
             json={
@@ -597,10 +597,10 @@ class TestCreateZone:
 
 
 class TestUpdateZone:
-    """Tests for PATCH /api/multiroom/zones/{zone_id} endpoint (AC5)."""
+    """Tests for PATCH /api/multiroom/zones/{zone_id} endpoint."""
 
     def test_update_zone_name_success(self, zone_client, mock_zone_registry_service):
-        """AC5: PATCH /zones/{zone_id} updates zone name."""
+        """PATCH /zones/{zone_id} updates zone name."""
         response = zone_client.patch(
             "/api/multiroom/zones/zone-test-123",
             json={"name": "New Name"}
@@ -612,7 +612,7 @@ class TestUpdateZone:
         assert data["zone"]["name"] == "New Name"
 
     def test_update_zone_includes_enriched_fields(self, zone_client, mock_zone_registry_service):
-        """AC5: Updated zone response includes computed fields."""
+        """Updated zone response includes computed fields."""
         response = zone_client.patch(
             "/api/multiroom/zones/zone-test-123",
             json={"name": "Updated"}
@@ -625,7 +625,7 @@ class TestUpdateZone:
         assert "crossover_enabled" in zone
 
     def test_update_zone_not_found(self, zone_client, mock_zone_registry_service):
-        """AC5: PATCH /zones/{zone_id} returns 404 for unknown zone."""
+        """PATCH /zones/{zone_id} returns 404 for unknown zone."""
         response = zone_client.patch(
             "/api/multiroom/zones/nonexistent-zone",
             json={"name": "Test"}
@@ -647,10 +647,10 @@ class TestUpdateZone:
 
 
 class TestDeleteZone:
-    """Tests for DELETE /api/multiroom/zones/{zone_id} endpoint (AC4, AC5)."""
+    """Tests for DELETE /api/multiroom/zones/{zone_id} endpoint."""
 
     def test_delete_zone_success(self, zone_client, mock_zone_registry_service):
-        """AC4/AC5: DELETE /zones/{zone_id} deletes zone and returns success."""
+        """DELETE /zones/{zone_id} deletes zone and returns success."""
         response = zone_client.delete("/api/multiroom/zones/zone-test-123")
 
         assert response.status_code == 200
@@ -660,14 +660,14 @@ class TestDeleteZone:
         assert "zone-test-123" in data["message"]
 
     def test_delete_zone_not_found(self, zone_client, mock_zone_registry_service):
-        """AC5: DELETE /zones/{zone_id} returns 404 for unknown zone."""
+        """DELETE /zones/{zone_id} returns 404 for unknown zone."""
         response = zone_client.delete("/api/multiroom/zones/nonexistent-zone")
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
     def test_delete_zone_removes_from_registry(self, zone_client, mock_zone_registry_service):
-        """AC4: Zone is actually removed from registry after DELETE."""
+        """Zone is actually removed from registry after DELETE."""
         # First delete
         response = zone_client.delete("/api/multiroom/zones/zone-test-123")
         assert response.status_code == 200
@@ -677,7 +677,7 @@ class TestDeleteZone:
 
 
 # =============================================================================
-# Zone Client Membership Tests (Story 2-3)
+# Zone Client Membership Tests
 # =============================================================================
 
 
@@ -820,10 +820,10 @@ def membership_client(mock_membership_registry_service):
 
 
 class TestAddClientToZone:
-    """Tests for POST /api/multiroom/zones/{zone_id}/clients endpoint (AC1, AC4)."""
+    """Tests for POST /api/multiroom/zones/{zone_id}/clients endpoint."""
 
     def test_add_client_to_zone_success(self, membership_client, mock_membership_registry_service):
-        """AC1/AC4: POST /zones/{zone_id}/clients adds client to zone."""
+        """POST /zones/{zone_id}/clients adds client to zone."""
         response = membership_client.post(
             "/api/multiroom/zones/zone-test-123/clients",
             json={"mac_id": "aa:bb:cc:dd:ee:ff"}
@@ -836,7 +836,7 @@ class TestAddClientToZone:
         assert "aa:bb:cc:dd:ee:ff" in data["zone"]["client_ids"]
 
     def test_add_client_to_zone_returns_enriched_zone(self, membership_client, mock_membership_registry_service):
-        """AC4: Response includes enriched zone data with computed fields."""
+        """Response includes enriched zone data with computed fields."""
         response = membership_client.post(
             "/api/multiroom/zones/zone-test-123/clients",
             json={"mac_id": "aa:bb:cc:dd:ee:ff"}
@@ -849,7 +849,7 @@ class TestAddClientToZone:
         assert "crossover_enabled" in zone
 
     def test_add_client_zone_not_found(self, membership_client, mock_membership_registry_service):
-        """AC4: POST /zones/{zone_id}/clients returns 404 for unknown zone."""
+        """POST /zones/{zone_id}/clients returns 404 for unknown zone."""
         response = membership_client.post(
             "/api/multiroom/zones/nonexistent-zone/clients",
             json={"mac_id": "aa:bb:cc:dd:ee:ff"}
@@ -859,7 +859,7 @@ class TestAddClientToZone:
         assert "not found" in response.json()["detail"].lower()
 
     def test_add_client_not_found(self, membership_client, mock_membership_registry_service):
-        """AC4: POST returns 400 when client mac_id doesn't exist."""
+        """POST returns 400 when client mac_id doesn't exist."""
         response = membership_client.post(
             "/api/multiroom/zones/zone-test-123/clients",
             json={"mac_id": "nonexistent-client"}
@@ -869,7 +869,7 @@ class TestAddClientToZone:
         assert "not found" in response.json()["detail"].lower()
 
     def test_add_client_already_in_zone(self, membership_client, mock_membership_registry_service):
-        """AC4: POST returns 400 when client is already in the zone."""
+        """POST returns 400 when client is already in the zone."""
         response = membership_client.post(
             "/api/multiroom/zones/zone-test-123/clients",
             json={"mac_id": "local"}  # Already in zone
@@ -879,7 +879,7 @@ class TestAddClientToZone:
         assert "already" in response.json()["detail"].lower()
 
     def test_add_client_service_called_correctly(self, membership_client, mock_membership_registry_service):
-        """AC3: Service method add_client_to_zone is called with correct args."""
+        """Service method add_client_to_zone is called with correct args."""
         response = membership_client.post(
             "/api/multiroom/zones/zone-test-123/clients",
             json={"mac_id": "aa:bb:cc:dd:ee:ff"}
@@ -892,10 +892,10 @@ class TestAddClientToZone:
 
 
 class TestRemoveClientFromZone:
-    """Tests for DELETE /api/multiroom/zones/{zone_id}/clients/{mac_id} endpoint (AC2, AC4)."""
+    """Tests for DELETE /api/multiroom/zones/{zone_id}/clients/{mac_id} endpoint."""
 
     def test_remove_client_from_zone_success(self, membership_client, mock_membership_registry_service):
-        """AC2/AC4: DELETE /zones/{zone_id}/clients/{mac_id} removes client from zone."""
+        """DELETE /zones/{zone_id}/clients/{mac_id} removes client from zone."""
         # Remove one client, zone still has >= 2 clients after adding one first
         # First add the third client
         membership_client.post(
@@ -913,7 +913,7 @@ class TestRemoveClientFromZone:
         assert data["status"] == "success"
 
     def test_remove_client_zone_still_exists(self, membership_client, mock_membership_registry_service):
-        """AC2: Zone persists if >= 2 clients remain after removal."""
+        """Zone persists if >= 2 clients remain after removal."""
         # Add third client first
         membership_client.post(
             "/api/multiroom/zones/zone-test-123/clients",
@@ -931,7 +931,7 @@ class TestRemoveClientFromZone:
         assert data["zone"]["id"] == "zone-test-123"
 
     def test_remove_client_zone_deleted_when_less_than_2(self, membership_client, mock_membership_registry_service):
-        """AC2: Zone is deleted when < 2 clients remain."""
+        """Zone is deleted when < 2 clients remain."""
         # Remove one client from 2-client zone
         response = membership_client.delete(
             "/api/multiroom/zones/zone-test-123/clients/local"
@@ -943,7 +943,7 @@ class TestRemoveClientFromZone:
         assert "deleted" in data["message"].lower()
 
     def test_remove_client_zone_not_found(self, membership_client, mock_membership_registry_service):
-        """AC4: DELETE returns 404 for unknown zone."""
+        """DELETE returns 404 for unknown zone."""
         response = membership_client.delete(
             "/api/multiroom/zones/nonexistent-zone/clients/local"
         )
@@ -952,7 +952,7 @@ class TestRemoveClientFromZone:
         assert "not found" in response.json()["detail"].lower()
 
     def test_remove_client_not_in_zone(self, membership_client, mock_membership_registry_service):
-        """AC4: DELETE returns 400 when client is not in the zone."""
+        """DELETE returns 400 when client is not in the zone."""
         response = membership_client.delete(
             "/api/multiroom/zones/zone-test-123/clients/aa:bb:cc:dd:ee:ff"  # Not in zone
         )
@@ -961,7 +961,7 @@ class TestRemoveClientFromZone:
         assert "not in zone" in response.json()["detail"].lower()
 
     def test_remove_client_service_called_correctly(self, membership_client, mock_membership_registry_service):
-        """AC3: Service method remove_client_from_zone is called with correct args."""
+        """Service method remove_client_from_zone is called with correct args."""
         response = membership_client.delete(
             "/api/multiroom/zones/zone-test-123/clients/local"
         )
@@ -972,7 +972,7 @@ class TestRemoveClientFromZone:
         )
 
     def test_remove_client_returns_enriched_zone(self, membership_client, mock_membership_registry_service):
-        """AC4: Response includes enriched zone data when zone still exists."""
+        """Response includes enriched zone data when zone still exists."""
         # Add third client first
         membership_client.post(
             "/api/multiroom/zones/zone-test-123/clients",
@@ -992,15 +992,15 @@ class TestRemoveClientFromZone:
 
 
 # =============================================================================
-# State Endpoint Tests (Story 1-6)
+# State Endpoint Tests
 # =============================================================================
 
 
 class TestGetState:
-    """Tests for GET /api/multiroom/state endpoint (AC1: Story 1-6)."""
+    """Tests for GET /api/multiroom/state endpoint (:)."""
 
     def test_get_state_returns_clients_and_zones(self, zone_client, mock_zone_registry_service):
-        """AC1: GET /state returns {clients: {...}, zones: {...}}."""
+        """GET /state returns {clients: {...}, zones: {...}}."""
         response = zone_client.get("/api/multiroom/state")
 
         assert response.status_code == 200
@@ -1011,7 +1011,7 @@ class TestGetState:
         assert isinstance(data["zones"], dict)
 
     def test_get_state_clients_indexed_by_mac_id(self, zone_client, mock_zone_registry_service):
-        """AC1: Clients are indexed by mac_id."""
+        """Clients are indexed by mac_id."""
         response = zone_client.get("/api/multiroom/state")
 
         assert response.status_code == 200
@@ -1022,7 +1022,7 @@ class TestGetState:
         assert clients["dc:a6:32:7e:d3:43"]["mac_id"] == "dc:a6:32:7e:d3:43"
 
     def test_get_state_clients_include_online_status(self, zone_client, mock_zone_registry_service):
-        """AC1: Each client includes runtime 'online' status."""
+        """Each client includes runtime 'online' status."""
         response = zone_client.get("/api/multiroom/state")
 
         assert response.status_code == 200
@@ -1031,7 +1031,7 @@ class TestGetState:
             assert "online" in client_data
 
     def test_get_state_zones_indexed_by_zone_id(self, zone_client, mock_zone_registry_service):
-        """AC1: Zones are indexed by zone_id."""
+        """Zones are indexed by zone_id."""
         response = zone_client.get("/api/multiroom/state")
 
         assert response.status_code == 200
@@ -1040,7 +1040,7 @@ class TestGetState:
         assert zones["zone-test-123"]["id"] == "zone-test-123"
 
     def test_get_state_zones_include_enriched_fields(self, zone_client, mock_zone_registry_service):
-        """AC1: Zones include enriched computed fields."""
+        """Zones include enriched computed fields."""
         response = zone_client.get("/api/multiroom/state")
 
         assert response.status_code == 200
@@ -1063,7 +1063,7 @@ class TestGetState:
         assert data["zones"] == {}
 
     def test_get_state_format_matches_registry_state(self, zone_client, mock_zone_registry_service):
-        """AC1: Response format matches /api/registry/state for compatibility."""
+        """Response format matches /api/registry/state for compatibility."""
         response = zone_client.get("/api/multiroom/state")
 
         assert response.status_code == 200

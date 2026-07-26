@@ -63,7 +63,7 @@ class TestClient:
         assert client.mute is False
 
     def test_client_to_dict(self):
-        """Test converting client to dictionary - AC1 completeness validation."""
+        """Test converting client to dictionary - completeness validation."""
         # Create client with ALL fields set to verify complete serialization
         client = Client(
             mac_id="aa:bb:cc:dd:ee:ff",
@@ -77,10 +77,10 @@ class TestClient:
             crossover_frequency=120
         )
 
-        # Default: include runtime fields (for WebSocket events - Story 6.1 AC1)
+        # Default: include runtime fields (for WebSocket events - )
         data = client.to_dict()
 
-        # AC1: Verify ALL required fields are present for complete client object
+        # Verify ALL required fields are present for complete client object
         assert data["mac_id"] == "aa:bb:cc:dd:ee:ff"
         assert data["name"] == "Kitchen"
         assert data["ip"] == "192.168.1.100"
@@ -750,7 +750,7 @@ class TestClientRegistryService:
 
     @pytest.mark.asyncio
     async def test_thread_safety_concurrent_operations(self, registry):
-        """Test thread safety with concurrent client operations (AC6)."""
+        """Test thread safety with concurrent client operations."""
         await registry.initialize()
 
         # Register initial client
@@ -783,7 +783,7 @@ class TestClientRegistryService:
 
     @pytest.mark.asyncio
     async def test_persistence_called_on_register(self, registry, mock_settings_service):
-        """Test that persistence is called when registering a client (AC4)."""
+        """Test that persistence is called when registering a client."""
         await registry.initialize()
 
         await registry.register_client(
@@ -803,7 +803,7 @@ class TestClientRegistryService:
 
     @pytest.mark.asyncio
     async def test_initialization_loads_clients_offline(self, mock_settings_service):
-        """Test that initialization loads clients with online=False (AC7)."""
+        """Test that initialization loads clients with online=False."""
         # Setup mock to return persisted client data
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key, default=None: {
             "multiroom.clients": {
@@ -830,7 +830,7 @@ class TestClientRegistryService:
 
 
 class TestZoneAverageVolume:
-    """Tests for get_zone_average_volume() method (Story 5.2)."""
+    """Tests for get_zone_average_volume() method."""
 
     @pytest.fixture
     def mock_settings_service(self):
@@ -849,7 +849,7 @@ class TestZoneAverageVolume:
 
     @pytest.mark.asyncio
     async def test_get_zone_average_volume_multiple_online_clients(self, registry):
-        """Test zone average with multiple ONLINE clients returns correct average (AC1)."""
+        """Test zone average with multiple ONLINE clients returns correct average."""
         await registry.initialize()
 
         # Register 3 clients with different volumes
@@ -882,7 +882,7 @@ class TestZoneAverageVolume:
 
     @pytest.mark.asyncio
     async def test_get_zone_average_volume_excludes_reconnecting_client(self, registry):
-        """Test zone average excludes the reconnecting client (AC1)."""
+        """Test zone average excludes the reconnecting client."""
         await registry.initialize()
 
         # Register 3 clients
@@ -935,7 +935,7 @@ class TestZoneAverageVolume:
 
     @pytest.mark.asyncio
     async def test_get_zone_average_volume_no_online_clients(self, registry):
-        """Test zone average with NO online clients returns None (FR8 trigger)."""
+        """Test zone average with NO online clients returns None (trigger)."""
         await registry.initialize()
 
         # Register 2 clients
@@ -1020,7 +1020,7 @@ class TestZoneAverageVolume:
 
 
 class TestGlobalAverageVolume:
-    """Tests for get_global_average_volume() method (Story 5.3)."""
+    """Tests for get_global_average_volume() method."""
 
     @pytest.fixture
     def mock_settings_service(self):
@@ -1039,7 +1039,7 @@ class TestGlobalAverageVolume:
 
     @pytest.mark.asyncio
     async def test_global_average_multiple_online_clients(self, registry):
-        """Test global average with multiple ONLINE clients returns correct average (AC1)."""
+        """Test global average with multiple ONLINE clients returns correct average."""
         await registry.initialize()
 
         # Register 3 clients with different volumes - mix of standalone and zoned
@@ -1063,7 +1063,7 @@ class TestGlobalAverageVolume:
 
     @pytest.mark.asyncio
     async def test_global_average_excludes_reconnecting_client(self, registry):
-        """Test global average excludes the reconnecting client (AC1)."""
+        """Test global average excludes the reconnecting client."""
         await registry.initialize()
 
         # Register 3 clients
@@ -1105,7 +1105,7 @@ class TestGlobalAverageVolume:
 
     @pytest.mark.asyncio
     async def test_global_average_no_online_clients(self, registry):
-        """Test global average with NO online clients returns None (FR10 trigger)."""
+        """Test global average with NO online clients returns None (trigger)."""
         await registry.initialize()
 
         # Register 2 clients
@@ -1519,7 +1519,7 @@ class TestMultiroomIntegration:
 
 
 # =============================================================================
-# Zone Equalizer Sync Tests (FR7, FR8 - Story 5.1)
+# Zone Equalizer Sync Tests (-)
 # =============================================================================
 
 class TestZoneDspSync:
@@ -1561,7 +1561,7 @@ class TestZoneDspSync:
 
 
 # =============================================================================
-# Pending Equalizer Settings Queue Tests (Task 3 - Story 5.1)
+# Pending Equalizer Settings Queue Tests (-)
 # =============================================================================
 
 class TestPendingEqualizerSettings:
@@ -1682,7 +1682,7 @@ class TestPendingEqualizerSettings:
 
 
 # =============================================================================
-# TestStandaloneEqualizerSync - Story 5.2: Standalone client Equalizer settings sync
+# TestStandaloneEqualizerSync -: Standalone client Equalizer settings sync
 # =============================================================================
 
 
@@ -1697,7 +1697,7 @@ class TestStandaloneEqualizerSync:
     """
 
     def test_compute_mac_id_localhost_returns_mac(self):
-        """AC4: Local client (127.0.0.1) reads MAC from system interface."""
+        """Local client (127.0.0.1) reads MAC from system interface."""
         from backend.core.multiroom.client_registry import ClientRegistryService
 
         # localhost IP reads MAC from system interface (eth0 or wlan0)
@@ -1719,17 +1719,17 @@ class TestStandaloneEqualizerSync:
 
 
 # =============================================================================
-# TestWebSocketSyncStatus - Story 5.2: WebSocket events with sync status
+# TestWebSocketSyncStatus -: WebSocket events with sync status
 # =============================================================================
 
 
 # =============================================================================
-# TestAutoCrossover - Story 5.3: Auto-crossover on subwoofer connect/disconnect
+# TestAutoCrossover -: Auto-crossover on subwoofer connect/disconnect
 # =============================================================================
 
 
 class TestAutoCrossover:
-    """Tests for automatic crossover enable/disable based on subwoofer presence (Story 5.3)."""
+    """Tests for automatic crossover enable/disable based on subwoofer presence."""
 
     @pytest.fixture
     def mock_camilladsp(self):
@@ -1838,7 +1838,7 @@ class TestAutoCrossover:
         return registry
 
     def test_crossover_should_apply_with_online_subwoofer(self, crossover_service, mock_registry_with_subwoofer):
-        """AC1: Crossover enabled when subwoofer is online."""
+        """Crossover enabled when subwoofer is online."""
         crossover_service.set_registry(mock_registry_with_subwoofer)
 
         # Verify subwoofer detection
@@ -1846,7 +1846,7 @@ class TestAutoCrossover:
         assert crossover_service.is_client_subwoofer("speaker-1") is False
 
     def test_crossover_frequency_calculation(self, crossover_service, mock_registry_with_subwoofer):
-        """AC3: Frequency determined by speaker_type of zone members."""
+        """Frequency determined by speaker_type of zone members."""
 
         crossover_service.set_registry(mock_registry_with_subwoofer)
 
@@ -1856,7 +1856,7 @@ class TestAutoCrossover:
         assert DEFAULT_CROSSOVER_FREQUENCIES["tower"] == 50
 
     def test_no_crossover_without_subwoofer(self, crossover_service, mock_registry_no_subwoofer):
-        """AC4: No crossover when zone has no subwoofer."""
+        """No crossover when zone has no subwoofer."""
         crossover_service.set_registry(mock_registry_no_subwoofer)
 
         # Verify no subwoofer detected
@@ -1867,7 +1867,7 @@ class TestAutoCrossover:
         assert has_sub is False
 
     def test_multiple_subwoofers_detection(self, crossover_service):
-        """AC5: Multiple subwoofers can be detected."""
+        """Multiple subwoofers can be detected."""
         from unittest.mock import MagicMock
 
         registry = MagicMock()
@@ -1888,7 +1888,7 @@ class TestAutoCrossover:
 
     @pytest.mark.asyncio
     async def test_apply_zone_crossover_with_subwoofer(self, crossover_service, mock_registry_with_subwoofer):
-        """AC1: Zone crossover applies highpass to speakers, lowpass to subwoofer."""
+        """Zone crossover applies highpass to speakers, lowpass to subwoofer."""
         crossover_service.set_registry(mock_registry_with_subwoofer)
 
         # Apply crossover
@@ -1899,7 +1899,7 @@ class TestAutoCrossover:
 
     @pytest.mark.asyncio
     async def test_apply_zone_crossover_without_subwoofer(self, crossover_service, mock_registry_no_subwoofer):
-        """AC4: Zone crossover disabled when no subwoofer present."""
+        """Zone crossover disabled when no subwoofer present."""
         crossover_service.set_registry(mock_registry_no_subwoofer)
 
         # Apply crossover
@@ -1909,19 +1909,19 @@ class TestAutoCrossover:
         assert result is True
 
 # =============================================================================
-# Story 1-3: Snapcast Client Detection Integration Tests
+# Snapcast Client Detection Integration Tests
 # =============================================================================
 
 
 class TestSnapcastClientDetection:
     """
-    Tests for Story 1-3: Integrate Snapcast Client Detection.
+    Tests for Integrate Snapcast Client Detection.
 
     Tests cover:
-    - AC1: Client connection detection triggers registry update and WebSocket event
-    - AC2: Client disconnection detection triggers registry update and WebSocket event
-    - AC3: Auto-registration of new clients with default values
-    - AC4: WebSocket event format compliance
+    - Client connection detection triggers registry update and WebSocket event
+    - Client disconnection detection triggers registry update and WebSocket event
+    - Auto-registration of new clients with default values
+    - WebSocket event format compliance
     """
 
     @pytest.fixture
@@ -1955,11 +1955,11 @@ class TestSnapcastClientDetection:
         service.get_snapcast_status = AsyncMock(return_value={'multiroom_available': False})
         return service
 
-    # === AC1: Client Connection Detection ===
+    # === Client Connection Detection ===
 
     @pytest.mark.asyncio
     async def test_client_connect_registers_client(self, registry, mock_state_machine):
-        """AC1: When Snapcast client connects, registry receives event and marks client online."""
+        """When Snapcast client connects, registry receives event and marks client online."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
@@ -2008,7 +2008,7 @@ class TestSnapcastClientDetection:
 
     @pytest.mark.asyncio
     async def test_client_connect_broadcasts_event(self, registry, mock_state_machine):
-        """AC1: WebSocket event 'client_connected' is broadcast to frontend."""
+        """WebSocket event 'client_connected' is broadcast to frontend."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
@@ -2036,11 +2036,11 @@ class TestSnapcastClientDetection:
         multiroom_calls = [c for c in call_args if c.args[0].CATEGORY == "multiroom"]
         assert len(multiroom_calls) >= 1
 
-    # === AC2: Client Disconnection Detection ===
+    # === Client Disconnection Detection ===
 
     @pytest.mark.asyncio
     async def test_client_disconnect_marks_offline(self, registry, mock_state_machine):
-        """AC2: When Snapcast client disconnects, registry marks client offline."""
+        """When Snapcast client disconnects, registry marks client offline."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
@@ -2074,7 +2074,7 @@ class TestSnapcastClientDetection:
 
     @pytest.mark.asyncio
     async def test_client_disconnect_broadcasts_event(self, registry, mock_state_machine):
-        """AC2: WebSocket event 'client_disconnected' is broadcast on disconnect."""
+        """WebSocket event 'client_disconnected' is broadcast on disconnect."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
@@ -2108,11 +2108,11 @@ class TestSnapcastClientDetection:
         multiroom_calls = [c for c in call_args if c.args[0].CATEGORY == "multiroom"]
         assert len(multiroom_calls) >= 1
 
-    # === AC3: Auto-Registration with Default Values ===
+    # === Auto-Registration with Default Values ===
 
     @pytest.mark.asyncio
     async def test_new_client_auto_registered_with_defaults(self, registry, mock_state_machine):
-        """AC3: New unknown client is auto-registered with correct default values."""
+        """New unknown client is auto-registered with correct default values."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
@@ -2156,7 +2156,7 @@ class TestSnapcastClientDetection:
         client = registry.get_client("aa:bb:cc:dd:ee:ff")
         assert client is not None
 
-        # Verify AC3 default values
+        # Verify default values
         assert client.speaker_type == DEFAULT_SPEAKER_TYPE  # 'bookshelf'
         assert client.volume_db == DEFAULT_VOLUME_DB  # -45.0
         assert client.online is True
@@ -2164,7 +2164,7 @@ class TestSnapcastClientDetection:
 
     @pytest.mark.asyncio
     async def test_new_client_uses_snapcast_name(self, registry, mock_state_machine):
-        """AC3: New client uses name from Snapcast (hostname or config name)."""
+        """New client uses name from Snapcast (hostname or config name)."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         await registry.initialize()
@@ -2189,11 +2189,11 @@ class TestSnapcastClientDetection:
         client = registry.get_client("11:22:33:44:55:66")
         assert client.name == "Living Room Speakers"
 
-    # === AC4: WebSocket Event Format ===
+    # === WebSocket Event Format ===
 
     @pytest.mark.asyncio
     async def test_registry_event_format(self, registry, mock_state_machine):
-        """AC4: Registry events follow specified format with category, type, and data."""
+        """Registry events follow specified format with category, type, and data."""
         await registry.initialize()
         attach_registry_broadcaster(registry, mock_state_machine)
 
@@ -2212,7 +2212,7 @@ class TestSnapcastClientDetection:
 
     @pytest.mark.asyncio
     async def test_set_client_online_event_format(self, registry, mock_state_machine):
-        """AC4: set_client_online emits event with correct format."""
+        """set_client_online emits event with correct format."""
         await registry.initialize()
         attach_registry_broadcaster(registry, mock_state_machine)
 
@@ -2233,7 +2233,7 @@ class TestSnapcastClientDetection:
 
     @pytest.mark.asyncio
     async def test_set_client_offline_event_format(self, registry, mock_state_machine):
-        """AC4: set_client_online(False) emits client_disconnected event."""
+        """set_client_online(False) emits client_disconnected event."""
         await registry.initialize()
         attach_registry_broadcaster(registry, mock_state_machine)
 
@@ -2278,7 +2278,7 @@ class TestSnapcastClientDetection:
             mac_id = ClientRegistryService.compute_mac_id("milo", ip)
         assert mac_id == "aa:bb:cc:dd:ee:ff"
 
-    # === Event Timing (NFR2) is tested via integration tests ===
+    # === Event Timing is tested via integration tests ===
 
     @pytest.mark.asyncio
     async def test_event_emission_is_async(self, registry, mock_state_machine):
@@ -2338,12 +2338,12 @@ class TestSnapcastClientDetection:
 
 
 # =============================================================================
-# Story 5.1: Reconnection Context Detection Tests
+# Reconnection Context Detection Tests
 # =============================================================================
 
 
 class TestReconnectionContextEnum:
-    """Tests for ReconnectionContext enum (AC4)."""
+    """Tests for ReconnectionContext enum."""
 
     def test_enum_values_defined(self):
         """Test that all 4 context values are defined."""
@@ -2366,14 +2366,13 @@ class TestReconnectionContextEnum:
 
 class TestReconnectionContextDetection:
     """
-    Tests for reconnection context detection (Story 5.1).
+    Tests for reconnection context detection.
 
-    Tests cover AC1-AC5:
-    - AC1: Zone membership detection
-    - AC2: IN_ZONE context detection (others online/offline)
-    - AC3: STANDALONE context detection (others online/alone)
-    - AC4: Context enum implementation
-    - AC5: Context used for sync dispatch
+    Tests cover: - Zone membership detection
+    - IN_ZONE context detection (others online/offline)
+    - STANDALONE context detection (others online/alone)
+    - Context enum implementation
+    - Context used for sync dispatch
     """
 
     @pytest.fixture
@@ -2391,11 +2390,11 @@ class TestReconnectionContextDetection:
             settings_service=mock_settings_service
         )
 
-    # === AC1: Zone Membership Detection ===
+    # === Zone Membership Detection ===
 
     @pytest.mark.asyncio
     async def test_zone_membership_detected_correctly(self, registry):
-        """AC1: System correctly determines if client is IN_ZONE or STANDALONE."""
+        """System correctly determines if client is IN_ZONE or STANDALONE."""
         await registry.initialize()
 
         # Register clients
@@ -2414,11 +2413,11 @@ class TestReconnectionContextDetection:
         client2 = registry.get_client("client-2")
         assert client2.zone_id is None
 
-    # === AC2: IN_ZONE Context Detection ===
+    # === IN_ZONE Context Detection ===
 
     @pytest.mark.asyncio
     async def test_in_zone_others_online_context(self, registry):
-        """AC2/AC4: IN_ZONE client with others ONLINE returns IN_ZONE_OTHERS_ONLINE (FR7)."""
+        """IN_ZONE client with others ONLINE returns IN_ZONE_OTHERS_ONLINE."""
         await registry.initialize()
 
         # Setup: Zone with 3 clients, 2 online
@@ -2438,7 +2437,7 @@ class TestReconnectionContextDetection:
 
     @pytest.mark.asyncio
     async def test_in_zone_all_offline_context(self, registry):
-        """AC2/AC4: IN_ZONE client with all others OFFLINE returns IN_ZONE_ALL_OFFLINE (FR8)."""
+        """IN_ZONE client with all others OFFLINE returns IN_ZONE_ALL_OFFLINE."""
         await registry.initialize()
 
         # Setup: Zone with 3 clients, all offline except reconnecting
@@ -2456,11 +2455,11 @@ class TestReconnectionContextDetection:
         context = registry.get_reconnection_context("local")
         assert context == ReconnectionContext.IN_ZONE_ALL_OFFLINE
 
-    # === AC3: STANDALONE Context Detection ===
+    # === STANDALONE Context Detection ===
 
     @pytest.mark.asyncio
     async def test_standalone_others_online_context(self, registry):
-        """AC3/AC4: STANDALONE client with others ONLINE returns STANDALONE_OTHERS_ONLINE (FR9)."""
+        """STANDALONE client with others ONLINE returns STANDALONE_OTHERS_ONLINE."""
         await registry.initialize()
 
         # Setup: 3 standalone clients
@@ -2479,7 +2478,7 @@ class TestReconnectionContextDetection:
 
     @pytest.mark.asyncio
     async def test_standalone_alone_context(self, registry):
-        """AC3/AC4: STANDALONE client with no others ONLINE returns STANDALONE_ALONE (FR10)."""
+        """STANDALONE client with no others ONLINE returns STANDALONE_ALONE."""
         await registry.initialize()
 
         # Setup: 3 standalone clients, all offline
@@ -2838,11 +2837,11 @@ class TestReconnectRepushesEqualizer:
 
 
 # =============================================================================
-# IN_ZONE Volume Sync Strategy Tests (Story 5.2)
+# IN_ZONE Volume Sync Strategy Tests
 # =============================================================================
 
 class TestInZoneTargetVolume:
-    """Tests for _resolve_target_volume() with IN_ZONE contexts (Story 5.2, AC1-AC2)."""
+    """Tests for _resolve_target_volume with IN_ZONE contexts."""
 
     @pytest.fixture
     def mock_state_machine(self):
@@ -2863,7 +2862,7 @@ class TestInZoneTargetVolume:
         return registry
 
     def test_inzone_others_online_uses_zone_average(self, mock_state_machine, mock_registry):
-        """AC1: IN_ZONE_OTHERS_ONLINE context uses zone average volume (FR7)."""
+        """IN_ZONE_OTHERS_ONLINE context uses zone average volume."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import ReconnectionContext
 
@@ -2888,7 +2887,7 @@ class TestInZoneTargetVolume:
         mock_registry.get_zone_average_volume.assert_called_once_with("zone-1", exclude_mac_id="client-1")
 
     def test_inzone_all_offline_uses_startup_volume(self, mock_state_machine, mock_registry):
-        """AC2: IN_ZONE_ALL_OFFLINE context uses startup_volume_db (FR8)."""
+        """IN_ZONE_ALL_OFFLINE context uses startup_volume_db."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import ReconnectionContext
 
@@ -2911,7 +2910,7 @@ class TestInZoneTargetVolume:
         assert target == -40.0
 
     def test_inzone_others_online_fallback_to_startup_when_no_average(self, mock_state_machine, mock_registry):
-        """AC1 fallback: If zone average unavailable, use startup_volume_db."""
+        """ fallback: If zone average unavailable, use startup_volume_db."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import ReconnectionContext
 
@@ -2985,7 +2984,7 @@ class TestInZoneTargetVolume:
 
 
 class TestStandaloneTargetVolume:
-    """Tests for _resolve_target_volume() with STANDALONE contexts (Story 5.3, AC1-AC2)."""
+    """Tests for _resolve_target_volume with STANDALONE contexts."""
 
     @pytest.fixture
     def mock_state_machine(self):
@@ -3006,7 +3005,7 @@ class TestStandaloneTargetVolume:
         return registry
 
     def test_standalone_others_online_uses_global_average(self, mock_state_machine, mock_registry):
-        """AC1: STANDALONE_OTHERS_ONLINE context uses global average volume (FR9)."""
+        """STANDALONE_OTHERS_ONLINE context uses global average volume."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import ReconnectionContext
 
@@ -3028,7 +3027,7 @@ class TestStandaloneTargetVolume:
         mock_registry.get_global_average_volume.assert_called_once_with(exclude_mac_id="client-1")
 
     def test_standalone_alone_uses_startup_volume(self, mock_state_machine, mock_registry):
-        """AC2: STANDALONE_ALONE context uses startup_volume_db (FR10)."""
+        """STANDALONE_ALONE context uses startup_volume_db."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import ReconnectionContext
 
@@ -3046,7 +3045,7 @@ class TestStandaloneTargetVolume:
         assert target == -40.0
 
     def test_standalone_others_online_fallback_to_startup_when_no_average(self, mock_state_machine, mock_registry):
-        """AC1 fallback: If global average unavailable, use startup_volume_db."""
+        """ fallback: If global average unavailable, use startup_volume_db."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
         from backend.core.multiroom.models import ReconnectionContext
 
@@ -3108,7 +3107,7 @@ class TestStandaloneTargetVolume:
 
 
 class TestApplyTargetVolumeToClient:
-    """Tests for _apply_target_volume_to_client() method (Story 5.2)."""
+    """Tests for _apply_target_volume_to_client() method."""
 
     @pytest.fixture
     def mock_state_machine(self):

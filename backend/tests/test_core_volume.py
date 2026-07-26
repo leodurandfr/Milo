@@ -542,7 +542,7 @@ class TestVolumeService:
         """First volume change on cold boot succeeds optimistically: intent is
         recorded in the state store and broadcast, hardware reconciles on reconnect."""
         mock_camilladsp_service.is_volume_control_available.return_value = False
-        service._volume_config.restore_last_volume = False  # don't trigger FR11 write
+        service._volume_config.restore_last_volume = False  # don't trigger write
         # Local client must be known for the state store to record local volume
         service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"
         service._state_store.set_local_volume(-30.0)
@@ -773,11 +773,11 @@ class TestVolumeIntegration:
 
 
 # ============================================================================
-# Zone Reconnection Tests (Story 5.1 - FR7, FR8)
+# Zone Reconnection Tests (-)
 # ============================================================================
 
 class TestZoneReconnectionVolume:
-    """Tests for zone client reconnection volume sync (FR7, FR8)."""
+    """Tests for zone client reconnection volume sync."""
 
     @pytest.fixture
     def mock_state_store(self):
@@ -800,7 +800,7 @@ class TestZoneReconnectionVolume:
     @pytest.mark.asyncio
     async def test_zone_reconnect_uses_zone_average_when_others_online(self, mock_state_store, mock_equalizer_controller):
         """
-        FR7: IN_ZONE client reconnects with others ONLINE.
+        IN_ZONE client reconnects with others ONLINE.
         Expected: volume = zone_volume_avg
         """
         # Setup: Zone with average -25dB from online clients
@@ -837,7 +837,7 @@ class TestZoneReconnectionVolume:
     @pytest.mark.asyncio
     async def test_zone_reconnect_uses_default_when_all_offline(self, mock_state_store, mock_equalizer_controller):
         """
-        FR8: IN_ZONE client reconnects with ALL others OFFLINE.
+        IN_ZONE client reconnects with ALL others OFFLINE.
         Expected: volume = startup_volume_db (DEFAULT_VOLUME_DB)
         """
         # Setup: Zone with no available clients (all offline)
@@ -913,11 +913,11 @@ class TestZoneReconnectionVolume:
 
 
 # ============================================================================
-# Standalone Reconnection Volume Tests (FR9, FR10 - Story 5.2)
+# Standalone Reconnection Volume Tests (-)
 # ============================================================================
 
 class TestStandaloneReconnectionVolume:
-    """Tests for standalone client reconnection volume sync (FR9, FR10)."""
+    """Tests for standalone client reconnection volume sync."""
 
     @pytest.fixture
     def mock_state_store(self):
@@ -940,7 +940,7 @@ class TestStandaloneReconnectionVolume:
     @pytest.mark.asyncio
     async def test_standalone_reconnect_uses_global_volume_when_others_online(self, mock_state_store, mock_equalizer_controller):
         """
-        FR9: STANDALONE client reconnects with others ONLINE.
+        STANDALONE client reconnects with others ONLINE.
         Expected: volume = volume_global (average of all ONLINE)
         """
         # Setup: Other clients online with average -30dB
@@ -979,7 +979,7 @@ class TestStandaloneReconnectionVolume:
     @pytest.mark.asyncio
     async def test_standalone_reconnect_uses_default_when_first_client(self, mock_state_store, mock_equalizer_controller):
         """
-        FR10: STANDALONE client reconnects as FIRST client (no others ONLINE).
+        STANDALONE client reconnects as FIRST client (no others ONLINE).
         Expected: volume = startup_volume_db (DEFAULT_VOLUME_DB = -45.0)
         """
         # Setup: No other clients online - global_volume_db falls back to DEFAULT
@@ -1047,7 +1047,7 @@ class TestStandaloneReconnectionVolume:
     @pytest.mark.asyncio
     async def test_local_client_follows_standalone_rules(self, mock_state_store, mock_equalizer_controller):
         """
-        AC4: "local" client follows same STANDALONE rules as remote clients.
+        "local" client follows same STANDALONE rules as remote clients.
         """
         # Setup: Local client reconnecting with no saved volume
         mock_state_store.get_client_volume.return_value = None
@@ -1079,11 +1079,11 @@ class TestStandaloneReconnectionVolume:
 
 
 # ============================================================================
-# Startup Volume Tests (FR11, FR12 - Story 3.3)
+# Startup Volume Tests (-)
 # ============================================================================
 
 class TestStartupVolumeAutoUpdate:
-    """Tests for FR11 - Auto-update startup_volume_db when restore_last_volume is enabled."""
+    """Tests for Auto-update startup_volume_db when restore_last_volume is enabled."""
 
     @pytest.fixture
     def mock_state_machine(self):
@@ -1139,7 +1139,7 @@ class TestStartupVolumeAutoUpdate:
             camilladsp_service=mock_camilladsp_service,
             equalizer_client_proxy_service=mock_proxy_service
         )
-        # Set initial config with restore_last_volume=True (FR11 active)
+        # Set initial config with restore_last_volume=True (active)
         svc._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
@@ -1155,7 +1155,7 @@ class TestStartupVolumeAutoUpdate:
         self, service, mock_settings, mock_state_machine
     ):
         """
-        FR11 AC1: set_volume_db() updates startup_volume_db when restore_last_volume=true.
+        set_volume_db() updates startup_volume_db when restore_last_volume=true.
         """
         # Arrange: restore_last_volume=True (already set in fixture)
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
@@ -1171,14 +1171,14 @@ class TestStartupVolumeAutoUpdate:
         self, service, mock_settings, mock_state_machine
     ):
         """
-        FR11 AC2: set_volume_db() does NOT update startup_volume_db when restore_last_volume=false.
+        set_volume_db() does NOT update startup_volume_db when restore_last_volume=false.
         """
         # Arrange: Set restore_last_volume=False
         service._volume_config = VolumeConfig(
             limit_min_db=-80.0,
             limit_max_db=-21.0,
             startup_volume_db=-60.0,
-            restore_last_volume=False  # FR11 should NOT trigger
+            restore_last_volume=False  # should NOT trigger
         )
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
 
@@ -1193,7 +1193,7 @@ class TestStartupVolumeAutoUpdate:
         self, service, mock_settings, mock_state_machine
     ):
         """
-        FR11 AC1: adjust_volume_db() updates startup_volume_db when restore_last_volume=true.
+        adjust_volume_db() updates startup_volume_db when restore_last_volume=true.
         """
         # Arrange: restore_last_volume=True (already set in fixture)
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
@@ -1215,7 +1215,7 @@ class TestStartupVolumeAutoUpdate:
         self, service, mock_settings, mock_state_machine
     ):
         """
-        FR11: startup_volume_db is NOT updated if value is unchanged (within 0.1dB tolerance).
+        startup_volume_db is NOT updated if value is unchanged (within 0.1dB tolerance).
         """
         # Arrange: Set startup_volume_db to same value we'll set
         service._volume_config = VolumeConfig(
@@ -1237,7 +1237,7 @@ class TestStartupVolumeAutoUpdate:
         self, service, mock_settings, mock_state_machine
     ):
         """
-        FR11 AC1: WebSocket event 'settings_changed' is broadcast when startup_volume_db updates.
+        WebSocket event 'settings_changed' is broadcast when startup_volume_db updates.
         """
         # Arrange
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
@@ -1257,7 +1257,7 @@ class TestStartupVolumeAutoUpdate:
         self, service, mock_settings, mock_state_machine, mock_camilladsp_service, mock_snapcast_service
     ):
         """
-        FR11 AC5: apply_zone_volume_delta() updates startup_volume_db using local client volume.
+        apply_zone_volume_delta() updates startup_volume_db using local client volume.
         """
         # Arrange: Multiroom mode with a zone
         service._routing_service = Mock()
@@ -1297,7 +1297,7 @@ class TestStartupVolumeAutoUpdate:
 
 
 class TestStartupVolumeOnRestart:
-    """Tests for FR12 - Backend restart applies startup volume."""
+    """Tests for Backend restart applies startup volume."""
 
     @pytest.fixture
     def mock_state_machine(self):
@@ -1370,7 +1370,7 @@ class TestStartupVolumeOnRestart:
         self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
-        FR12 AC3/AC4: initialize() applies startup_volume_db when restore_last_volume=false.
+        initialize() applies startup_volume_db when restore_last_volume=false.
         """
         # Arrange: Set config with restore=false and specific startup volume
         startup_vol = -35.0
@@ -1392,7 +1392,7 @@ class TestStartupVolumeOnRestart:
         self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
-        FR12: in restore mode, the local client's OWN persisted per-client volume is
+        in restore mode, the local client's OWN persisted per-client volume is
         applied — NOT startup_volume_db (which tracks the global average in multiroom).
         """
         # Arrange: local persisted at -42, startup_volume_db deliberately different
@@ -1420,7 +1420,7 @@ class TestStartupVolumeOnRestart:
         self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
-        FR12: in restore mode, when the local client is not yet resolved (fresh boot
+        in restore mode, when the local client is not yet resolved (fresh boot
         before seeding), fall back to the configured startup_volume_db rather than the
         -45 dB hard default.
         """
@@ -1446,7 +1446,7 @@ class TestStartupVolumeOnRestart:
         self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
-        FR12: Startup also applies persisted mute state.
+        Startup also applies persisted mute state.
         The mute state is read from the local client's ClientVolume.
         """
         # Arrange
@@ -1474,7 +1474,7 @@ class TestStartupVolumeOnRestart:
         self, service, mock_camilladsp_service, mock_equalizer_controller
     ):
         """
-        FR12: Gracefully handle Equalizer connection timeout on startup.
+        Gracefully handle Equalizer connection timeout on startup.
         """
         # Arrange: Equalizer connection times out
         mock_camilladsp_service.wait_for_connection = AsyncMock(return_value=False)

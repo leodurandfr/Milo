@@ -1,14 +1,14 @@
 # backend/tests/integration/test_compressor_loudness_control.py
 """
-Integration tests for Story 4.4: Compressor & Loudness Control
+Integration Tests for Compressor & Loudness Control
 
 Tests cover:
-- AC1: Compressor enable/disable with WebSocket broadcast
-- AC2: Compressor parameter validation and application
-- AC3: Loudness enable/disable with shelf filters
-- AC4: Loudness boost adjustment with WebSocket broadcast
-- AC5: Zone propagation for compressor/loudness (tested at API level)
-- AC6: Preset auto-switch on manual modification (investigation)
+- Compressor enable/disable with WebSocket broadcast
+- Compressor parameter validation and application
+- Loudness enable/disable with shelf filters
+- Loudness boost adjustment with WebSocket broadcast
+- Zone propagation for compressor/loudness (tested at API level)
+- Preset auto-switch on manual modification (investigation)
 
 These tests verify the complete flow:
 API → CamillaDSP → WebSocket → Frontend state update
@@ -67,11 +67,11 @@ def disconnected_camilladsp_service(mock_settings_service):
 
 
 # =============================================================================
-# AC1: Compressor enable/disable
+# Compressor enable/disable
 # =============================================================================
 
-class TestAC1CompressorEnableDisable:
-    """AC1: Compressor enable/disable with WebSocket broadcast"""
+class TestCompressorEnableDisable:
+    """Compressor enable/disable with WebSocket broadcast"""
 
     @pytest.mark.asyncio
     async def test_enable_compressor_adds_processor_to_camilladsp(self, connected_camilladsp_service):
@@ -154,11 +154,11 @@ class TestAC1CompressorEnableDisable:
 
 
 # =============================================================================
-# AC2: Compressor parameter validation and application
+# Compressor parameter validation and application
 # =============================================================================
 
-class TestAC2CompressorParameterValidation:
-    """AC2: Compressor parameter validation and application within 200ms"""
+class TestCompressorParameterValidation:
+    """Compressor parameter validation and application within 200ms"""
 
     @pytest.mark.asyncio
     async def test_compressor_threshold_range(self, connected_camilladsp_service):
@@ -259,11 +259,11 @@ class TestAC2CompressorParameterValidation:
 
 
 # =============================================================================
-# AC3: Loudness enable/disable
+# Loudness enable/disable
 # =============================================================================
 
-class TestAC3LoudnessEnableDisable:
-    """AC3: Loudness enable/disable with shelf filters"""
+class TestLoudnessEnableDisable:
+    """Loudness enable/disable with shelf filters"""
 
     @pytest.mark.asyncio
     async def test_enable_loudness_creates_shelf_filters(self, connected_camilladsp_service):
@@ -338,11 +338,11 @@ class TestAC3LoudnessEnableDisable:
 
 
 # =============================================================================
-# AC4: Loudness parameter adjustment
+# Loudness parameter adjustment
 # =============================================================================
 
-class TestAC4LoudnessParameterAdjustment:
-    """AC4: Loudness boost adjustment with WebSocket broadcast"""
+class TestLoudnessParameterAdjustment:
+    """Loudness boost adjustment with WebSocket broadcast"""
 
     @pytest.mark.asyncio
     async def test_loudness_boost_range(self, connected_camilladsp_service):
@@ -402,11 +402,11 @@ class TestAC4LoudnessParameterAdjustment:
 
 
 # =============================================================================
-# AC5: Zone propagation (API-level validation)
+# Zone propagation (API-level validation)
 # =============================================================================
 
-class TestAC5ZonePropagation:
-    """AC5: Zone propagation for compressor/loudness changes
+class TestZonePropagationCompressorLoudness:
+    """Zone propagation for compressor/loudness changes
 
     Tests verify:
     1. Proxy routes exist for compressor and loudness
@@ -478,11 +478,11 @@ class TestAC5ZonePropagation:
 
 
 # =============================================================================
-# AC6: Preset auto-switch behavior
+# Preset auto-switch behavior
 # =============================================================================
 
-class TestAC6PresetAutoSwitch:
-    """AC6: Verify compressor/loudness changes do NOT affect EQ presets
+class TestPresetAutoSwitchOnManualEdit:
+    """Verify compressor/loudness changes do NOT affect EQ presets
 
     Design Decision: Compressor and loudness are INDEPENDENT of EQ presets.
 

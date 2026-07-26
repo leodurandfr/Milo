@@ -1,14 +1,10 @@
 # backend/tests/integration/test_snapcast_detection.py
 """
-Integration tests for Story 1-3: Integrate Snapcast Client Detection.
+Integration tests for Snapcast client detection.
 
-Tests the end-to-end flow:
-- Simulated Snapcast event -> ClientRegistryService update -> WebSocket broadcast
-
-AC Coverage:
-- AC1: Client connection detection
-- AC2: Client disconnection detection
-- AC5: Event timing (NFR2 < 100ms)
+Tests the end-to-end flow — simulated Snapcast event -> ClientRegistryService
+update -> WebSocket broadcast — for client connection, client disconnection and
+auto-registration of an unknown client.
 """
 import pytest
 import time
@@ -111,7 +107,7 @@ class TestSnapcastDetectionIntegration:
         """
         Test full flow: Snapcast Client.OnConnect -> registry -> WebSocket broadcast.
 
-        AC1: Client connection detection triggers registry update and event broadcast.
+        Client connection detection triggers registry update and event broadcast.
         """
         attach_registry_broadcaster(registry, mock_state_machine)
 
@@ -162,7 +158,7 @@ class TestSnapcastDetectionIntegration:
         """
         Test full flow: Snapcast Client.OnDisconnect -> registry -> WebSocket broadcast.
 
-        AC2: Client disconnection detection triggers offline status and event broadcast.
+        Client disconnection detection triggers offline status and event broadcast.
         """
         attach_registry_broadcaster(registry, mock_state_machine)
 
@@ -217,7 +213,7 @@ class TestSnapcastDetectionIntegration:
         """
         Test auto-registration of completely new client with default values.
 
-        AC3: New unknown client is auto-registered with specified defaults.
+        New unknown client is auto-registered with specified defaults.
         """
         attach_registry_broadcaster(registry, mock_state_machine)
 
@@ -248,14 +244,14 @@ class TestSnapcastDetectionIntegration:
         client = registry.get_client(mac_addr)
         assert client is not None
 
-        # AC3 specified defaults
+        # specified defaults
         assert client.name == "Brand New Speaker"
         assert client.speaker_type == DEFAULT_SPEAKER_TYPE  # 'bookshelf'
         assert client.volume_db == DEFAULT_VOLUME_DB  # -45.0
         assert client.online is True
         assert client.zone_id is None  # standalone
 
-    # === Event Timing Tests (AC5 / NFR2) ===
+    # === Event Timing Tests ===
 
     # === Multiple Client Scenarios ===
 
@@ -370,7 +366,7 @@ class TestSnapcastDetectionIntegration:
         self, registry, mock_state_machine, ws_service
     ):
         """
-        Verify broadcast events match AC4 format specification.
+        Verify broadcast events match format specification.
 
         The registry broadcasts with category="multiroom" and maps
         CLIENT_CONNECTED/CLIENT_UPDATED to type="client_state_changed".

@@ -23,7 +23,7 @@ from .conftest import WebSocketEventCollector, create_mock_source
 
 
 class TestTransitionSequence:
-    """Tests for AC1 and AC3: Transition sequence and state consistency."""
+    """Tests for and: Transition sequence and state consistency."""
 
     @pytest.mark.asyncio
     async def test_transition_sequence_none_radio_spotify_none(
@@ -76,8 +76,7 @@ class TestTransitionSequence:
         """
         Test state machine state is consistent after each transition.
 
-        Validates AC3:
-        - active_source corresponds to requested source
+        Validates: - active_source corresponds to requested source
         - transitioning is False after completion
         - source_state reflects active source state
         """
@@ -117,7 +116,7 @@ class TestTransitionSequence:
 
 
 class TestWebSocketEvents:
-    """Tests for AC2: WebSocket events during transitions."""
+    """Tests for WebSocket events during transitions."""
 
     @pytest.mark.asyncio
     async def test_websocket_events_during_transition(
@@ -128,8 +127,7 @@ class TestWebSocketEvents:
         """
         Test WebSocket events are emitted during transitions.
 
-        Validates AC2:
-        - transition_start event at beginning
+        Validates: - transition_start event at beginning
         - transition_complete event at end
         - Events have correct format: {category, type, origin, data}
         """
@@ -216,7 +214,7 @@ class TestWebSocketEvents:
 
 
 class TestDirectTransition:
-    """Tests for AC4: Direct transitions between active sources."""
+    """Tests for Direct transitions between active sources."""
 
     @pytest.mark.asyncio
     async def test_direct_transition_between_sources(
@@ -227,8 +225,7 @@ class TestDirectTransition:
         """
         Test direct transition from RADIO to SPOTIFY.
 
-        Validates AC4:
-        - Previous source (RADIO) is correctly stopped
+        Validates: - Previous source (RADIO) is correctly stopped
         - New source (SPOTIFY) is correctly started
         - No state leak between sources
         """
@@ -319,7 +316,7 @@ class TestDirectTransition:
 
 
 class TestErrorHandling:
-    """Tests for AC5: Error cases and recovery."""
+    """Tests for Error cases and recovery."""
 
     @pytest.mark.asyncio
     async def test_transition_to_unregistered_source(
@@ -344,10 +341,9 @@ class TestErrorHandling:
         websocket_collector: WebSocketEventCollector
     ):
         """
-        When source.start() fails, should rollback to NONE and broadcast error.
+        When source.start fails, should rollback to NONE and broadcast error.
 
-        Validates AC5:
-        - source.start() fails -> rollback to NONE
+        Validates: - source.start fails -> rollback to NONE
         - Error event broadcast
         """
         sm = integration_state_machine
@@ -379,11 +375,10 @@ class TestErrorHandling:
         """
         Transition timeout should trigger emergency_stop and broadcast timeout error.
 
-        Validates AC5:
-        - Timeout triggers emergency_stop()
+        Validates: - Timeout triggers emergency_stop
         - Error event with timeout message
 
-        Note: After emergency_stop(), the error field is cleared to None,
+        Note: After emergency_stop, the error field is cleared to None,
         but the error event should have been broadcast before that.
         """
         sm = integration_state_machine

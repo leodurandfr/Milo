@@ -63,11 +63,11 @@ class TestClientMuteRequest:
 
 
 # =============================================================================
-# MAC Address Endpoint Tests (Story 3.4)
+# MAC Address Endpoint Tests
 # =============================================================================
 
 class TestMacAddressClientVolume:
-    """Tests for MAC address based client volume endpoints (AC1, AC3)."""
+    """Tests for MAC address based client volume endpoints."""
 
     @pytest.fixture
     def mock_volume_service(self):
@@ -108,7 +108,7 @@ class TestMacAddressClientVolume:
         return TestClient(app)
 
     def test_set_volume_with_mac_address(self, test_client, mock_volume_service, mock_client_registry):
-        """AC1: Test setting volume using MAC address in URL (no colons)."""
+        """Test setting volume using MAC address in URL (no colons)."""
         response = test_client.patch(
             "/api/volume/client/mac/dca6327ed343",
             json={"volume_db": -25.0}
@@ -171,7 +171,7 @@ class TestMacAddressClientVolume:
         assert "out of configured range" in response.json()["detail"]
 
     def test_mute_with_mac_address(self, test_client, mock_volume_service, mock_client_registry):
-        """AC3: Test muting client using MAC address."""
+        """Test muting client using MAC address."""
         response = test_client.patch(
             "/api/volume/client/mac/dca6327ed343/mute",
             json={"mute": True}
@@ -198,7 +198,7 @@ class TestMacAddressClientVolume:
 
 
 class TestZoneVolumeDelta:
-    """Tests for zone volume delta endpoint (AC2)."""
+    """Tests for zone volume delta endpoint."""
 
     @pytest.fixture
     def mock_volume_service(self):
@@ -237,7 +237,7 @@ class TestZoneVolumeDelta:
         return TestClient(app)
 
     def test_apply_zone_delta(self, test_client, mock_volume_service, mock_client_registry):
-        """AC2: Test applying delta to zone returns affected and offline clients."""
+        """Test applying delta to zone returns affected and offline clients."""
         response = test_client.patch(
             "/api/volume/zone/zone-uuid-123",
             json={"delta_db": 5.0}

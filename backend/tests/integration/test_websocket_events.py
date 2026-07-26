@@ -6,11 +6,11 @@ These tests validate the contracts for WebSocket communication that must
 remain stable during the feature-based architecture refactoring.
 
 Contracts being tested:
-- Connection handshake and initial state (AC1)
-- Event format: {category, type, origin, data, timestamp} (AC2)
-- Event categories: system, source, volume, registry, etc. (AC3)
-- Broadcast triggers on state changes (AC4)
-- Reconnection behavior (AC5)
+- Connection handshake and initial state
+- Event format: {category, type, origin, data, timestamp}
+- Event categories: system, source, volume, registry, etc.
+- Broadcast triggers on state changes
+- Reconnection behavior
 """
 import pytest
 import asyncio
@@ -155,12 +155,12 @@ def websocket_server(websocket_manager, mock_state_machine_for_ws, mock_volume_s
 
 
 # ==============================================================================
-# AC1: Test Connection and Initial State
+# Test Connection and Initial State
 # ==============================================================================
 
 
 class TestWebSocketConnection:
-    """Tests for AC1: Connection and initial state handshake."""
+    """Tests for Connection and initial state handshake."""
 
     @pytest.mark.asyncio
     async def test_websocket_connection_success(
@@ -317,12 +317,12 @@ class TestWebSocketConnection:
 
 
 # ==============================================================================
-# AC2: Test Event Format
+# Test Event Format
 # ==============================================================================
 
 
 class TestEventFormat:
-    """Tests for AC2: Event format validation."""
+    """Tests for Event format validation."""
 
     @pytest.mark.asyncio
     async def test_broadcast_to_multiple_clients(
@@ -361,17 +361,17 @@ class TestEventFormat:
 
 
 # ==============================================================================
-# AC3: Test Event Categories
+# Test Event Categories
 # ==============================================================================
 
 
 # ==============================================================================
-# AC4: Test Broadcast Triggers
+# Test Broadcast Triggers
 # ==============================================================================
 
 
 class TestBroadcastTriggers:
-    """Tests for AC4: State changes trigger broadcasts."""
+    """Tests for State changes trigger broadcasts."""
 
     @pytest.mark.asyncio
     async def test_multiple_events_in_sequence(
@@ -402,12 +402,12 @@ class TestBroadcastTriggers:
 
 
 # ==============================================================================
-# AC5: Test Reconnection
+# Test Reconnection
 # ==============================================================================
 
 
 class TestReconnection:
-    """Tests for AC5: Reconnection behavior."""
+    """Tests for Reconnection behavior."""
 
     @pytest.mark.asyncio
     async def test_reconnection_after_disconnect(
@@ -613,7 +613,7 @@ class TestWebSocketManager:
 
 
 # ==============================================================================
-# Story 6.1: Multiroom Event Broadcasting Tests
+# Multiroom Event Broadcasting Tests
 # ==============================================================================
 
 

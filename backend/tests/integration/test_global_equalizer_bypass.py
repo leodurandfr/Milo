@@ -1,6 +1,6 @@
 # backend/tests/integration/test_global_equalizer_bypass.py
 """
-Integration tests for Story 4-5: Global Equalizer Bypass
+Integration Tests for Global Equalizer Bypass
 
 Bypass is pipeline-only: `bypass_effects()` removes EQ / compressor /
 loudness references from CamillaDSP's pipeline without mutating the
@@ -10,12 +10,12 @@ cache is the source of truth for user intent and survives any number of
 bypass/restore cycles.
 
 Tests cover:
-- AC1: bypass_effects() removes EQ / compressor / loudness from pipeline
-- AC2: restore_effects() pushes cached values and rebuilds pipeline
-- AC3: Zone propagation for Equalizer bypass (API-level validation)
-- AC4: Crossover filters NOT affected by bypass
-- AC5: Bypass preserves cached user intent (no cache mutation)
-- AC6: State syncs on reconnection and mode switch
+- bypass_effects() removes EQ / compressor / loudness from pipeline
+- restore_effects() pushes cached values and rebuilds pipeline
+- Zone propagation for Equalizer bypass (API-level validation)
+- Crossover filters NOT affected by bypass
+- Bypass preserves cached user intent (no cache mutation)
+- State syncs on reconnection and mode switch
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -93,7 +93,7 @@ def disconnected_camilladsp_service(mock_settings_service):
 
 
 # =============================================================================
-# AC1: bypass_effects() removes EQ / compressor / loudness from pipeline
+# bypass_effects removes EQ / compressor / loudness from pipeline
 # =============================================================================
 
 def _pipeline_filter_names(config):
@@ -110,8 +110,8 @@ def _pipeline_processor_names(config):
     return [s.get("name") for s in config.get("pipeline", []) if s.get("type") == "Processor"]
 
 
-class TestAC1BypassEffects:
-    """AC1: Toggle disables → bypass_effects() removes EQ / compressor / loudness from pipeline.
+class TestBypassEffects:
+    """Toggle disables → bypass_effects removes EQ / compressor / loudness from pipeline.
 
     Filter definitions and cache stay intact; only pipeline references go.
     """
@@ -214,11 +214,11 @@ class TestAC1BypassEffects:
 
 
 # =============================================================================
-# AC2: restore_effects() pushes cached values and rebuilds pipeline
+# restore_effects pushes cached values and rebuilds pipeline
 # =============================================================================
 
-class TestAC2RestoreEffects:
-    """AC2: Toggle enables → restore_effects() pushes filter defs and pipeline refs from cache."""
+class TestRestoreEffects:
+    """Toggle enables → restore_effects pushes filter defs and pipeline refs from cache."""
 
     @pytest.mark.asyncio
     async def test_restore_writes_eq_definitions_and_pipeline(self, connected_camilladsp_with_effects):
@@ -395,11 +395,11 @@ class TestAC2RestoreEffects:
 
 
 # =============================================================================
-# AC3: Zone propagation for Equalizer bypass (API-level validation)
+# Zone propagation for Equalizer bypass (API-level validation)
 # =============================================================================
 
-class TestAC3ZonePropagation:
-    """AC3: Equalizer bypass/restore propagates to all zone members within 200ms"""
+class TestZonePropagationBypass:
+    """Equalizer bypass/restore propagates to all zone members within 200ms"""
 
     @pytest.mark.asyncio
     async def test_local_client_enabled_uses_routing_service(self, connected_camilladsp_with_effects):
@@ -459,11 +459,11 @@ class TestAC3ZonePropagation:
 
 
 # =============================================================================
-# AC4: Crossover filters NOT affected by bypass
+# Crossover filters NOT affected by bypass
 # =============================================================================
 
-class TestAC4CrossoverIndependence:
-    """AC4: Crossover filters remain unchanged during bypass/restore"""
+class TestCrossoverIndependence:
+    """Crossover filters remain unchanged during bypass/restore"""
 
     @pytest.mark.asyncio
     async def test_bypass_preserves_crossover_highpass(self, connected_camilladsp_with_effects):
@@ -521,11 +521,11 @@ class TestAC4CrossoverIndependence:
 
 
 # =============================================================================
-# AC5: Bypass preserves persisted settings (persist=False pattern)
+# Bypass preserves persisted settings (persist=False pattern)
 # =============================================================================
 
-class TestAC5SettingsPersistence:
-    """AC5: Bypass uses persist=False to preserve saved settings for restore"""
+class TestCachePreservedAcrossBypass:
+    """Bypass uses persist=False to preserve saved settings for restore"""
 
     @pytest.mark.asyncio
     async def test_bypass_does_not_overwrite_saved_eq_settings(self, connected_camilladsp_with_effects, mock_settings_service):
@@ -592,11 +592,11 @@ class TestAC5SettingsPersistence:
 
 
 # =============================================================================
-# AC6: State syncs on reconnection and mode switch
+# State syncs on reconnection and mode switch
 # =============================================================================
 
-class TestAC6StateSync:
-    """AC6: Equalizer enabled state syncs on reconnection and multiroom mode switch"""
+class TestStateSyncOnReconnect:
+    """Equalizer enabled state syncs on reconnection and multiroom mode switch"""
 
     @pytest.mark.asyncio
     async def test_bypass_fails_when_disconnected(self, disconnected_camilladsp_service):

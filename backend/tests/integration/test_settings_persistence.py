@@ -6,11 +6,11 @@ These tests validate the contracts for settings management that must
 remain stable during the feature-based architecture refactoring.
 
 Contracts being tested:
-- Settings save/load via SettingsService (AC1)
-- Atomic writing with temp file + os.replace (AC2)
-- Nested settings with dot notation (AC3)
-- Value validation and clamping (AC4)
-- Backup/restore on corruption (AC5)
+- Settings save/load via SettingsService
+- Atomic writing with temp file + os.replace
+- Nested settings with dot notation
+- Value validation and clamping
+- Backup/restore on corruption
 """
 import pytest
 import asyncio
@@ -74,12 +74,12 @@ def mock_ws_manager():
 
 
 # ==============================================================================
-# AC1: SETTINGS SAVE/LOAD VIA API
+# SETTINGS SAVE/LOAD VIA API
 # ==============================================================================
 
 
 class TestSettingsSaveLoad:
-    """Test save/load functionality (AC1)."""
+    """Test save/load functionality."""
 
     @pytest.mark.asyncio
     async def test_get_setting_returns_current_value(self, settings_service):
@@ -154,12 +154,12 @@ class TestSettingsSaveLoad:
 
 
 # ==============================================================================
-# AC2: ATOMIC WRITING
+# ATOMIC WRITING
 # ==============================================================================
 
 
 class TestAtomicWriting:
-    """Test atomic writing functionality (AC2)."""
+    """Test atomic writing functionality."""
 
     @pytest.mark.asyncio
     async def test_no_residual_tmp_file_after_save(self, settings_service, temp_settings_file):
@@ -235,12 +235,12 @@ class TestAtomicWriting:
 
 
 # ==============================================================================
-# AC3: NESTED SETTINGS WITH DOT NOTATION
+# NESTED SETTINGS WITH DOT NOTATION
 # ==============================================================================
 
 
 class TestNestedSettings:
-    """Test nested settings with dot notation (AC3)."""
+    """Test nested settings with dot notation."""
 
     @pytest.mark.asyncio
     async def test_get_nested_setting_with_dot_notation(self, settings_service):
@@ -300,12 +300,12 @@ class TestNestedSettings:
 
 
 # ==============================================================================
-# AC4: VALUE VALIDATION
+# VALUE VALIDATION
 # ==============================================================================
 
 
 class TestValueValidation:
-    """Test value validation (AC4)."""
+    """Test value validation."""
 
     @pytest.mark.asyncio
     async def test_volume_min_clamped_to_range(self, settings_service):
@@ -424,12 +424,12 @@ class TestValueValidation:
 
 
 # ==============================================================================
-# AC5: BACKUP/RESTORE ON CORRUPTION
+# BACKUP/RESTORE ON CORRUPTION
 # ==============================================================================
 
 
 class TestBackupRestore:
-    """Test backup/restore on corruption (AC5)."""
+    """Test backup/restore on corruption."""
 
     @pytest.mark.asyncio
     async def test_corrupted_json_creates_backup(self, temp_settings_file):
