@@ -59,6 +59,14 @@ async def api_error_handler(context: str, log=None):
       (the one place the core's satellite domain error becomes a web error)
     - Exception: optionally logged, then raised as HTTP 500
 
+    A 503 SatelliteUnreachable is logged at warning, not error: an absent
+    satellite is an expected state of a multiroom install, and the frontend
+    already renders it as "offline" from the registry. Logging it at error
+    would push it through WebSocketLogHandler (level=ERROR) and raise a
+    backend-error banner for a speaker that is merely unplugged. Every other
+    status code means the satellite answered and refused, or the proxy hit
+    something unexpected — a real failure, kept at error.
+
     Args:
         context: Human-readable context for the error message/log
         log: Optional logger instance. If provided, logs error before raising.
@@ -74,7 +82,8 @@ async def api_error_handler(context: str, log=None):
         raise
     except SatelliteUnreachable as e:
         if log:
-            log.error(f"{context}: {e.detail}")
+            log_at = log.warning if e.status_code == 503 else log.error
+            log_at(f"{context}: {e.detail}")
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         if log:

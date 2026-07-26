@@ -33,6 +33,11 @@ class SnapcastWebSocketService:
     - Server updates (availability changes)
     """
 
+    # Reconcile sweep cadence. Combined with the 60s lastSeen freshness rule in
+    # SnapcastService._parse_clients, a silently vanished client is detected in
+    # at most 90s. See _reconcile_loop for why a timer is required at all.
+    RECONCILE_INTERVAL_S = 30
+
     def __init__(
         self,
         state_machine,
@@ -62,6 +67,7 @@ class SnapcastWebSocketService:
         self.running = False
         self.should_connect = False
         self.reconnect_task = None
+        self.reconcile_task = None
 
         # Deduplication: track mac_ids with an in-flight sync task
         self._syncing_mac_ids: set = set()
@@ -113,7 +119,7 @@ class SnapcastWebSocketService:
 
             if self.should_connect:
                 self.logger.info("Multiroom already enabled, starting WebSocket connection")
-                self.reconnect_task = self._bg.spawn(self._connection_loop(), label="connection_loop")
+                self._spawn_loops()
             else:
                 self.logger.info("Multiroom disabled, WebSocket will connect when multiroom is enabled")
 
@@ -131,7 +137,7 @@ class SnapcastWebSocketService:
         self.should_connect = True
 
         if not self.reconnect_task and self.running:
-            self.reconnect_task = self._bg.spawn(self._connection_loop(), label="connection_loop")
+            self._spawn_loops()
 
     async def stop_connection(self) -> None:
         """Stop WebSocket connection when multiroom is disabled."""
@@ -145,6 +151,7 @@ class SnapcastWebSocketService:
         # config push, etc.)
         await self._bg.cancel_all()
         self.reconnect_task = None
+        self.reconcile_task = None
         self._syncing_mac_ids.clear()
 
         if self.websocket:
@@ -198,6 +205,11 @@ class SnapcastWebSocketService:
     def set_volume_service(self, service) -> None:
         """Set VolumeService dependency (closes the volume ↔ snapcast_ws cycle)."""
         self._volume_service = service
+
+    def _spawn_loops(self) -> None:
+        """Start the two long-lived loops that only run while multiroom is on."""
+        self.reconnect_task = self._bg.spawn(self._connection_loop(), label="connection_loop")
+        self.reconcile_task = self._bg.spawn(self._reconcile_loop(), label="reconcile_loop")
 
     async def _connection_loop(self) -> None:
         """Connection loop with intelligent reconnection."""
@@ -287,6 +299,13 @@ class SnapcastWebSocketService:
 
             groups = status.get('server', {}).get('groups', [])
 
+            # One definition of "alive" for the whole file: snapserver's own
+            # `connected` flag outlives a client that vanished without a TCP FIN,
+            # so trusting it alone here re-marked a long-gone satellite online on
+            # every reconnection (a multiroom toggle was enough). Gate on the same
+            # parse the reconcile sweep uses rather than restating its rule.
+            live_mac_ids = {c["mac_id"] for c in self._snapcast_service.extract_clients(status)}
+
             for group in groups:
                 for client in group.get('clients', []):
                     if not client.get('connected'):
@@ -304,6 +323,11 @@ class SnapcastWebSocketService:
                         continue
 
                     mac_id = ClientRegistryService.compute_mac_id(hostname, ip, client_id or "")
+
+                    if mac_id not in live_mac_ids:
+                        self.logger.info(f"INIT_CLIENTS: Skipping {mac_id} — connected but not seen recently")
+                        continue
+
                     client_name = client.get("config", {}).get("name") or get_client_display_name(hostname) or mac_id
 
                     # Check if client is already in registry
@@ -403,15 +427,51 @@ class SnapcastWebSocketService:
             self.logger.debug("SERVER_UPDATE: Fetching client list from Snapcast...")
             all_clients = await self._snapcast_service.get_clients()
             self.logger.debug(f"SERVER_UPDATE: Got {len(all_clients)} clients from Snapcast")
-            current_mac_ids = {c["mac_id"] for c in all_clients}
-            known_mac_ids = set(self.registry.get_client_ids()) if self.registry else set()
-
-            await self._process_new_clients(all_clients, known_mac_ids)
-            await self._process_disconnected_clients(current_mac_ids, known_mac_ids)
-            await self._process_online_status_changes(all_clients)
+            await self._reconcile_clients(all_clients)
 
         except Exception as e:
             self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True)
+
+    async def _reconcile_clients(self, all_clients: list) -> None:
+        """Align the registry with a Snapcast client list (the authority on liveness)."""
+        current_mac_ids = {c["mac_id"] for c in all_clients}
+        known_mac_ids = set(self.registry.get_client_ids()) if self.registry else set()
+
+        await self._process_new_clients(all_clients, known_mac_ids)
+        await self._process_disconnected_clients(current_mac_ids, known_mac_ids)
+        await self._process_online_status_changes(all_clients)
+
+    async def _reconcile_loop(self) -> None:
+        """Re-derive every client's online state on a timer.
+
+        Snapserver only declares a client disconnected when its socket errors,
+        and it writes nothing to an idle client's socket — so a satellite that
+        vanishes without a TCP FIN (power cut, Wi-Fi drop) stays `connected:
+        true` there indefinitely and no Client.OnDisconnect / Server.OnUpdate
+        notification is ever emitted. Without this sweep the freshness rule in
+        SnapcastService._parse_clients (lastSeen < 60s) is never evaluated, the
+        registry keeps the client online forever, and the frontend offers
+        controls for a speaker that is gone.
+        """
+        while self.running and self.should_connect:
+            await asyncio.sleep(self.RECONCILE_INTERVAL_S)
+            try:
+                if not self.connected or not self._snapcast_service or not self.registry:
+                    continue
+
+                # Fetch the status here rather than via get_clients(): that call
+                # flattens an RPC failure to [], which this loop would read as
+                # "every client disconnected" and act on.
+                status = await self._snapcast_service.get_server_status()
+                if not status:
+                    self.logger.debug("RECONCILE: no server status — skipping this pass")
+                    continue
+
+                await self._reconcile_clients(self._snapcast_service.extract_clients(status))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.logger.error(f"Error in client reconcile sweep: {e}", exc_info=True)
 
     async def _register_snapclient(
         self, mac_id: str, fallback_name: str, ip: str, host: str, is_local: bool = False

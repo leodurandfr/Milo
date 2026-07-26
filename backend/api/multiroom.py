@@ -41,8 +41,37 @@ from backend.core.multiroom.models import EqualizerSettings
 logger = logging.getLogger(__name__)
 
 
-async def _send_audio_config_and_reboot(mac_id: str, client_ip: str, audio_id: str, overlay: str, volume_control: bool = True):
-    """Send audio config to a milo-client and reboot it. Raises HTTPException on failure."""
+async def _mark_unreachable(registry_service, mac_id: str, client_ip: str, exc: Exception) -> None:
+    """Record a satellite that just failed to answer on CLIENT_API_PORT as offline.
+
+    Snapserver is the normal authority on liveness, but it only notices a client
+    once its socket errors — a satellite that dropped off without a TCP FIN stays
+    `connected` there for as long as nothing is written to it, so the registry can
+    still claim online at the moment a route tries to reach it. A refused HTTP
+    request is direct proof to the contrary: flipping the flag here makes the
+    frontend render the client as offline immediately instead of waiting for the
+    reconcile sweep (SnapcastWebSocketService._reconcile_loop, up to 90s).
+
+    Logged at warning, not error: an unplugged speaker is an expected state, and
+    WebSocketLogHandler (level=ERROR) would turn it into a backend-error banner.
+    A false negative costs nothing — the same sweep puts the client back online
+    once its volume applies again.
+    """
+    logger.warning(f"Client {mac_id} unreachable at {client_ip}, marking offline: {exc}")
+    if registry_service:
+        await registry_service.set_client_online(mac_id, False)
+
+
+async def _send_audio_config_and_reboot(
+    mac_id: str, client_ip: str, audio_id: str, overlay: str,
+    volume_control: bool = True, registry_service=None,
+):
+    """Send audio config to a milo-client and reboot it. Raises HTTPException on failure.
+
+    ``registry_service`` is passed only for an already-registered client, so an
+    unreachable satellite can be marked offline instead of surfacing as an error
+    (see _mark_unreachable). A pending client has no registry entry yet.
+    """
     timeout = aiohttp.ClientTimeout(total=10)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -67,7 +96,7 @@ async def _send_audio_config_and_reboot(mac_id: str, client_ip: str, audio_id: s
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"Reboot request to {mac_id} failed (may already be rebooting): {e}")
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        logger.error(f"Cannot reach client {mac_id} at {client_ip}: {e}")
+        await _mark_unreachable(registry_service, mac_id, client_ip, e)
         raise HTTPException(status_code=502, detail=f"Cannot reach client at {client_ip}")
 
 
@@ -201,7 +230,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                             raise HTTPException(status_code=502, detail="Client returned an error")
                         return await resp.json()
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logger.error(f"Cannot reach client {mac_id} at {client.ip}: {e}")
+                await _mark_unreachable(registry_service, mac_id, client.ip, e)
                 raise HTTPException(status_code=502, detail=f"Cannot reach client at {client.ip}")
 
     @router.put("/clients/{mac_id}/audio", response_model=MultiroomMessageResponse)
@@ -218,7 +247,10 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
             # Use explicit value from request, or auto-detect from card category
             volume_control = request.volume_control if request.volume_control is not None else not is_dac_card(request.audio_id)
 
-            await _send_audio_config_and_reboot(mac_id, client.ip, request.audio_id, overlay, volume_control)
+            await _send_audio_config_and_reboot(
+                mac_id, client.ip, request.audio_id, overlay, volume_control,
+                registry_service=registry_service,
+            )
 
             # Clear stale pending crossover/EQ settings after hardware confirmed —
             # the new audio card means a fresh CamillaDSP config, so old
