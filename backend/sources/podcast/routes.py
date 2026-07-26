@@ -21,7 +21,6 @@ from backend.sources.podcast.models import (
     PlayEpisodeRequest,
     SpeedRequest,
     SubscribeRequest,
-    SettingsRequest
 )
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.podcastindex_api import map_milo_language_to_itunes_country
@@ -303,14 +302,14 @@ async def add_subscription(
 ) -> Dict[str, Any]:
     """Subscribe to a podcast with metadata."""
     async with api_error_handler("Error subscribing", logger):
-        success = await source.podcast_data.add_subscription(
+        await source.podcast_data.add_subscription(
             podcast_uuid=request.uuid,
             name=request.name,
             image_url=request.image_url,
             children_hash=request.children_hash,
             itunes_id=request.itunes_id
         )
-        return {"success": success}
+        return {"status": "success"}
 
 
 @router.delete("/subscriptions/{uuid}")
@@ -320,8 +319,8 @@ async def remove_subscription(
 ) -> Dict[str, Any]:
     """Unsubscribe from a podcast."""
     async with api_error_handler("Error unsubscribing", logger):
-        success = await source.podcast_data.remove_subscription(uuid)
-        return {"success": success}
+        await source.podcast_data.remove_subscription(uuid)
+        return {"status": "success"}
 
 
 @router.get("/subscriptions/latest-episodes")
@@ -379,8 +378,8 @@ async def mark_episode_complete(
 ) -> Dict[str, Any]:
     """Mark episode as completed."""
     async with api_error_handler("Error marking complete", logger):
-        success = await source.podcast_data.mark_episode_completed(episode_uuid)
-        return {"success": success}
+        await source.podcast_data.mark_episode_completed(episode_uuid)
+        return {"status": "success"}
 
 
 # === Settings Routes ===
@@ -395,16 +394,3 @@ async def get_settings(
         return {"settings": settings}
 
 
-@router.post("/settings")
-async def update_settings(
-    request: SettingsRequest,
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Update podcast settings."""
-    async with api_error_handler("Error updating settings", logger):
-        updates = {}
-        if request.playback_speed is not None:
-            updates['playback_speed'] = request.playback_speed
-
-        success = await source.podcast_data.update_podcast_settings(updates)
-        return {"success": success}

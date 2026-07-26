@@ -28,11 +28,6 @@ class SubscribeRequest(BaseModel):
     itunes_id: Optional[int] = None
 
 
-class SettingsRequest(BaseModel):
-    """Request to update podcast settings."""
-    playback_speed: Optional[float] = None
-
-
 # === Command-parameter models (validated at the command() boundary) ===
 
 class PlayEpisodeParams(BaseModel):
