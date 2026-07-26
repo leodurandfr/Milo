@@ -681,10 +681,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // === TARGET MANAGEMENT ===
 
   async function loadTargets() {
-    // Ensure multiroomStore is initialized
-    // availableTargets is now a computed property that delegates to multiroomStore
+    // availableTargets is a computed delegating to multiroomStore: make sure it
+    // has fetched at least once before deriving targets from an empty registry.
     if (!registryStore.isInitialized) {
-      await registryStore.initialize();
+      await registryStore.resync();
     }
 
     // Auto-select local client if no target selected
