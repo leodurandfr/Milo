@@ -226,7 +226,7 @@ class RadioSource(MpvAudioSource):
 
     COMMANDS = {
         "play_station": PlayStationParams,
-        "stop_playback": None,
+        "stop": None,
         "resume_playback": None,
         "add_favorite": PlayStationParams,
         "remove_favorite": RemoveFavoriteParams,
@@ -237,7 +237,7 @@ class RadioSource(MpvAudioSource):
         if cmd == "play_station":
             return await self._handle_play_station(params)
 
-        if cmd == "stop_playback":
+        if cmd == "stop":
             return await self._handle_stop_playback()
 
         if cmd == "resume_playback":

@@ -73,7 +73,7 @@ async def stop_playback(source: RadioSource = Depends(get_source)) -> Dict[str, 
     Returns:
         Command result
     """
-    return await run_source_command(source, "stop_playback", {}, "Stop")
+    return await run_source_command(source, "stop", {}, "Stop")
 
 
 # === Search Routes ===

@@ -100,8 +100,10 @@ class PlaybackDispatcher:
             if active_source == AudioSource.SPOTIFY:
                 await source_instance.command("playpause", {})
             elif active_source == AudioSource.RADIO:
+                # A live stream has no pause: stop tears it down, and coming
+                # back re-tunes the last station from scratch.
                 if source_instance.is_playing:
-                    await source_instance.command("stop_playback", {})
+                    await source_instance.command("stop", {})
                 else:
                     await source_instance.command("resume_playback", {})
             elif active_source in (AudioSource.PODCAST, AudioSource.CD, AudioSource.MUSIC_LIBRARY):

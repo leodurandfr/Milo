@@ -170,13 +170,13 @@ class TestRadioSourceCommands:
         assert result["success"] is True
 
     @pytest.mark.asyncio
-    async def test_stop_playback_command(self, radio_source):
-        """Test stop_playback command."""
+    async def test_stop_command(self, radio_source):
+        """Test stop command."""
         radio_source._mpv = Mock()
         radio_source._mpv.stop = AsyncMock(return_value=True)
         radio_source._current_station = {"name": "Test"}
 
-        result = await radio_source.command("stop_playback", {})
+        result = await radio_source.command("stop", {})
 
         assert result["success"] is True
         assert radio_source._current_station is None
