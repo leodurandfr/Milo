@@ -50,7 +50,7 @@ class TestPublicDispatchMethods:
         dispatcher = PlaybackDispatcher(sm)
         await dispatcher.dispatch_play_pause()
 
-        source.command.assert_awaited_once_with("stop_playback", {})
+        source.command.assert_awaited_once_with("stop", {})
 
     @pytest.mark.asyncio
     async def test_dispatch_play_pause_radio_when_paused(self):
