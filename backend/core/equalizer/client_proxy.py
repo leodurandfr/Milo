@@ -85,10 +85,6 @@ class EqualizerClientProxyService:
         self.logger = logging.getLogger(__name__)
         self._session: Optional[aiohttp.ClientSession] = None
 
-    def set_routing_service(self, routing_service) -> None:
-        """Set the routing service (for dependency injection after init)."""
-        self.routing_service = routing_service
-
     def _get_session(self) -> aiohttp.ClientSession:
         """Return the shared HTTP session, lazily creating it on first use.
 

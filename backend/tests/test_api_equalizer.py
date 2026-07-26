@@ -104,7 +104,6 @@ def client(mock_camilladsp, mock_mre, mock_equalizer_router, mock_registry):
         client_registry_service=mock_registry,
         equalizer_router_service=mock_equalizer_router,
         multiroom_equalizer_service=mock_mre,
-        volume_service=None,
     )
     app.include_router(router)
     return TestClient(app)

@@ -75,12 +75,11 @@ def mock_state_machine():
 
 @pytest.fixture
 def multiroom_equalizer_service(mock_registry, mock_camilladsp_service, mock_state_machine):
-    service = MultiroomEqualizerService(
+    return MultiroomEqualizerService(
         client_registry_service=mock_registry,
         camilladsp_service=mock_camilladsp_service,
+        state_machine=mock_state_machine,
     )
-    service.set_state_machine(mock_state_machine)
-    return service
 
 
 @pytest.fixture
@@ -136,12 +135,11 @@ def offline_registry():
 
 @pytest.fixture
 def offline_service(offline_registry, mock_camilladsp_service, mock_state_machine):
-    service = MultiroomEqualizerService(
+    return MultiroomEqualizerService(
         client_registry_service=offline_registry,
         camilladsp_service=mock_camilladsp_service,
+        state_machine=mock_state_machine,
     )
-    service.set_state_machine(mock_state_machine)
-    return service
 
 
 # =============================================================================
@@ -161,21 +159,6 @@ class TestMultiroomEqualizerServiceInit:
         service = MultiroomEqualizerService()
         assert service._registry is None
         assert service._camilladsp_service is None
-
-    def test_set_registry(self, multiroom_equalizer_service):
-        new_registry = Mock()
-        multiroom_equalizer_service.set_registry(new_registry)
-        assert multiroom_equalizer_service._registry == new_registry
-
-    def test_set_camilladsp_service(self, multiroom_equalizer_service):
-        new_cam = Mock()
-        multiroom_equalizer_service.set_camilladsp_service(new_cam)
-        assert multiroom_equalizer_service._camilladsp_service == new_cam
-
-    def test_set_state_machine(self, multiroom_equalizer_service):
-        new_sm = Mock()
-        multiroom_equalizer_service.set_state_machine(new_sm)
-        assert multiroom_equalizer_service._state_machine == new_sm
 
 
 # =============================================================================
@@ -772,24 +755,40 @@ class TestClientEffectsEnabled:
         proxy.request = AsyncMock(return_value={"status": "success"})
         return proxy
 
+    @pytest.fixture
+    def multiroom_equalizer_service(
+        self, mock_registry, mock_camilladsp_service, mock_state_machine,
+        routing_service, proxy_service,
+    ):
+        """Fully-wired service — every dep is constructor-injected in production."""
+        return MultiroomEqualizerService(
+            client_registry_service=mock_registry,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=proxy_service,
+            routing_service=routing_service,
+            state_machine=mock_state_machine,
+        )
+
     @pytest.mark.asyncio
     async def test_local_uses_routing_service(self, multiroom_equalizer_service, mock_registry, routing_service):
         """Local client → routing bypass/restore; never persisted to the registry
         (its EQ lives in equalizer.json)."""
-        multiroom_equalizer_service.set_routing_service(routing_service)
         result = await multiroom_equalizer_service.set_client_equalizer_effects_enabled("local", False)
         assert result is True
         routing_service.set_equalizer_effects_enabled.assert_awaited_once_with(False)
         mock_registry.set_client_equalizer.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_local_no_routing_returns_false(self, multiroom_equalizer_service):
-        result = await multiroom_equalizer_service.set_client_equalizer_effects_enabled("local", False)
+    async def test_local_no_routing_returns_false(self, mock_registry, mock_camilladsp_service):
+        service = MultiroomEqualizerService(
+            client_registry_service=mock_registry,
+            camilladsp_service=mock_camilladsp_service,
+        )
+        result = await service.set_client_equalizer_effects_enabled("local", False)
         assert result is False
 
     @pytest.mark.asyncio
     async def test_remote_online_pushes_and_persists(self, multiroom_equalizer_service, mock_registry, proxy_service, remote_client):
-        multiroom_equalizer_service.set_proxy_service(proxy_service)
         mock_registry.get_client.return_value = remote_client  # online, 192.168.1.100
         mock_registry.get_client_equalizer.return_value = None  # fresh → default fallback
         result = await multiroom_equalizer_service.set_client_equalizer_effects_enabled("milo-client-1", False)
@@ -803,7 +802,6 @@ class TestClientEffectsEnabled:
     @pytest.mark.asyncio
     async def test_remote_offline_persists_only(self, multiroom_equalizer_service, mock_registry, proxy_service):
         """Offline remote → no push, but the flag is persisted so it syncs on reconnect."""
-        multiroom_equalizer_service.set_proxy_service(proxy_service)
         offline = Client(mac_id="milo-client-1", name="Bedroom", ip="192.168.1.100", online=False, zone_id=None)
         mock_registry.get_client.return_value = offline
         mock_registry.get_client_equalizer.return_value = None
@@ -816,7 +814,6 @@ class TestClientEffectsEnabled:
     @pytest.mark.asyncio
     async def test_remote_preserves_existing_record(self, multiroom_equalizer_service, mock_registry, proxy_service, remote_client, sample_equalizer_settings):
         """Flipping enabled keeps the rest of the record intact (and writes a copy)."""
-        multiroom_equalizer_service.set_proxy_service(proxy_service)
         mock_registry.get_client.return_value = remote_client
         mock_registry.get_client_equalizer.return_value = sample_equalizer_settings
         await multiroom_equalizer_service.set_client_equalizer_effects_enabled("milo-client-1", False)
@@ -828,7 +825,6 @@ class TestClientEffectsEnabled:
     @pytest.mark.asyncio
     async def test_remote_unknown_client_raises(self, multiroom_equalizer_service, mock_registry, proxy_service):
         """An enabled toggle for a MAC the registry has never seen fails loud (→ 404)."""
-        multiroom_equalizer_service.set_proxy_service(proxy_service)
         mock_registry.get_client.return_value = None
         with pytest.raises(ValueError, match="Client not found"):
             await multiroom_equalizer_service.set_client_equalizer_effects_enabled("unknown-mac", False)
@@ -848,10 +844,22 @@ class TestZoneEffectsEnabled:
         proxy.request = AsyncMock(return_value={"status": "success"})
         return proxy
 
+    @pytest.fixture
+    def multiroom_equalizer_service(
+        self, mock_registry, mock_camilladsp_service, mock_state_machine,
+        routing_service, proxy_service,
+    ):
+        """Fully-wired service — every dep is constructor-injected in production."""
+        return MultiroomEqualizerService(
+            client_registry_service=mock_registry,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=proxy_service,
+            routing_service=routing_service,
+            state_machine=mock_state_machine,
+        )
+
     @pytest.mark.asyncio
     async def test_zone_fans_out_local_and_remote_then_broadcasts(self, multiroom_equalizer_service, mock_registry, mock_state_machine, routing_service, proxy_service, sample_zone, remote_client):
-        multiroom_equalizer_service.set_routing_service(routing_service)
-        multiroom_equalizer_service.set_proxy_service(proxy_service)
         mock_registry.get_zone.return_value = sample_zone  # ["local", "milo-client-1"]
         mock_registry.get_client.side_effect = lambda mac: remote_client if mac == "milo-client-1" else None
         mock_registry.get_client_equalizer.return_value = None

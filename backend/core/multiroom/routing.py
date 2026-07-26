@@ -245,17 +245,9 @@ class AudioRoutingService:
         """Set SnapcastWebSocketService dependency."""
         self.snapcast_websocket_service = service
 
-    def set_snapcast_service(self, service) -> None:
-        """Set SnapcastService dependency."""
-        self.snapcast_service = service
-
     def set_state_machine(self, state_machine) -> None:
         """Set state machine for event broadcasting."""
         self.state_machine = state_machine
-
-    def set_camilladsp_service(self, service) -> None:
-        """Set CamillaDSPService dependency."""
-        self.camilladsp_service = service
 
     def set_volume_service(self, service) -> None:
         """Set VolumeService dependency."""

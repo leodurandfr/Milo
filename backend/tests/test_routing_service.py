@@ -138,13 +138,6 @@ class TestAudioRoutingService:
 
         assert routing_service.snapcast_websocket_service == mock_service
 
-    def test_set_snapcast_service(self, routing_service):
-        """Snapcast service definition test"""
-        mock_service = Mock()
-        routing_service.set_snapcast_service(mock_service)
-
-        assert routing_service.snapcast_service == mock_service
-
     def test_set_state_machine(self, routing_service):
         """State machine definition test"""
         mock_sm = Mock()

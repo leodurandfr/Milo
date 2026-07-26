@@ -475,7 +475,7 @@ class TestPendingSettingsQueue:
         registry._clients["local"] = local_client
 
         volume_service = AsyncMock(spec=VolumeService)
-        service.set_volume_service(volume_service)
+        service.volume_service = volume_service
 
         service._pending_settings["local"] = {
             "volume": {"volume_db": -25.0}
@@ -992,7 +992,7 @@ class TestCrossoverEventBroadcasting:
         # Setup mock state machine for broadcast
         mock_state_machine = MagicMock()
         mock_state_machine.broadcast = AsyncMock()
-        service.set_state_machine(mock_state_machine)
+        service.state_machine = mock_state_machine
 
         # Setup: Zone with satellite + subwoofer
         satellite = Client(mac_id="local", name="Satellite", ip="127.0.0.1",
@@ -1029,7 +1029,7 @@ class TestCrossoverEventBroadcasting:
         # Setup mock state machine for broadcast
         mock_state_machine = MagicMock()
         mock_state_machine.broadcast = AsyncMock()
-        service.set_state_machine(mock_state_machine)
+        service.state_machine = mock_state_machine
 
         # Setup: Zone with satellite + online subwoofer
         satellite = Client(mac_id="local", name="Satellite", ip="127.0.0.1",

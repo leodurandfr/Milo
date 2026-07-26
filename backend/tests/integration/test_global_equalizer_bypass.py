@@ -429,7 +429,7 @@ class TestZonePropagationBypass:
         mock_camilladsp.set_effects_enabled = lambda v: setattr(mock_camilladsp, '_effects_enabled', bool(v))
         mock_camilladsp.bypass_effects = AsyncMock(return_value=True)
         mock_camilladsp.restore_effects = AsyncMock(return_value=True)
-        routing.set_camilladsp_service(mock_camilladsp)
+        routing.camilladsp_service = mock_camilladsp
 
         # Test enabling Equalizer effects
         result = await routing.set_equalizer_effects_enabled(True)
@@ -640,7 +640,7 @@ class TestStateSyncOnReconnect:
         mock_camilladsp.set_effects_enabled = Mock()
         mock_camilladsp.bypass_effects = AsyncMock(return_value=True)
         mock_camilladsp.restore_effects = AsyncMock(return_value=True)
-        routing.set_camilladsp_service(mock_camilladsp)
+        routing.camilladsp_service = mock_camilladsp
 
         # Mock systemd service manager
         routing.service_manager = Mock()
@@ -687,7 +687,7 @@ class TestDspEnabledAPI:
         mock_camilladsp.set_effects_enabled = lambda v: setattr(mock_camilladsp, '_effects_enabled', bool(v))
         mock_camilladsp.bypass_effects = AsyncMock(return_value=True)
         mock_camilladsp.restore_effects = AsyncMock(return_value=True)
-        routing.set_camilladsp_service(mock_camilladsp)
+        routing.camilladsp_service = mock_camilladsp
 
         # Test disabling Equalizer effects (enabled -> disabled)
         result = await routing.set_equalizer_effects_enabled(False)

@@ -30,13 +30,11 @@ class EqualizerRouter:
         self,
         client_registry,
         camilladsp_service,
-        proxy_service,
-        volume_service=None
+        proxy_service
     ):
         self._registry = client_registry
         self._camilladsp_service = camilladsp_service
         self._proxy_service = proxy_service
-        self._volume_service = volume_service
 
     def _get_client(self, mac_id: str):
         return self._registry.get_client(mac_id) if self._registry else None
