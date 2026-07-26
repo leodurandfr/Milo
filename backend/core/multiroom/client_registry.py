@@ -153,7 +153,7 @@ class ClientRegistryService:
             self.logger.info(f"Client {event_type}: {mac_id} ({name})")
 
         # Persist and emit event outside lock
-        await self._persist_clients()
+        await self._persist_state()
         await self._emit_event(event_type, {
             "mac_id": mac_id,
             "client": client.to_dict()
@@ -298,7 +298,7 @@ class ClientRegistryService:
                 if zone:
                     zone_to_update = (client.zone_id, self.zone_to_enriched_dict(zone))
 
-        await self._persist_clients()
+        await self._persist_state()
         await self._emit_event(RegistryEventType.CLIENT_UPDATED, {
             "mac_id": mac_id,
             "client": client_dict
@@ -510,7 +510,7 @@ class ClientRegistryService:
 
             zone_dict = self.zone_to_enriched_dict(zone)
 
-        await self._persist_zones()
+        await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
             "zone_id": zone_id,
             "zone": zone_dict
@@ -945,7 +945,7 @@ class ClientRegistryService:
             # mutate the stored object through a reference they still hold.
             self._client_equalizer[mac_id] = EqualizerSettings.from_dict(settings.to_dict())
 
-        await self._persist_client_equalizer()
+        await self._persist_state()
         if broadcast:
             await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
                 "target_type": "client",
@@ -1021,17 +1021,9 @@ class ClientRegistryService:
             self.logger.error(f"Failed to load persisted state: {e}")
 
     def _clients_data(self) -> dict:
-        """Build the persistable client map (excludes runtime-only fields)."""
+        """Build the persistable client map (Client.PERSISTED_FIELDS owns the shape)."""
         return {
-            mac_id: {
-                "mac_id": client.mac_id,
-                "name": client.name,
-                "ip": client.ip,
-                "zone_id": client.zone_id,
-                "speaker_type": client.speaker_type,
-                "volume_control": client.volume_control
-                # Note: online, volume_db, mute are runtime state, not persisted
-            }
+            mac_id: client.to_dict(include_runtime=False)
             for mac_id, client in self._clients.items()
         }
 
@@ -1049,10 +1041,14 @@ class ClientRegistryService:
     async def _persist_state(self) -> None:
         """Persist all multiroom state to settings in one atomic write.
 
-        Clients, zones and equalizer are logically coupled (a zone references
-        client macs, an EQ record references a client); a torn write that
-        persisted clients without their zones would desync the registry. The
-        single ``set_settings`` lands all three together or none.
+        The only persist path, deliberately: clients, zones and equalizer are
+        logically coupled (a zone references client macs, an EQ record
+        references a client), so a torn write that persisted clients without
+        their zones would desync the registry, and every mutation here can
+        touch more than the section it names — unregistering a client deletes
+        a zone and an EQ record with it. ``set_setting`` is itself
+        ``set_settings({k: v})``, one read-modify-write of the whole file, so
+        writing three keys instead of one costs nothing.
         """
         if not self._settings_service:
             return
@@ -1065,36 +1061,6 @@ class ClientRegistryService:
             })
         except Exception as e:
             self.logger.error(f"Failed to persist multiroom state: {e}")
-
-    async def _persist_clients(self) -> None:
-        """Save client configuration to settings."""
-        if not self._settings_service:
-            return
-
-        try:
-            await self._settings_service.set_setting("multiroom.clients", self._clients_data())
-        except Exception as e:
-            self.logger.error(f"Failed to persist clients: {e}")
-
-    async def _persist_zones(self) -> None:
-        """Save zone configuration to settings."""
-        if not self._settings_service:
-            return
-
-        try:
-            await self._settings_service.set_setting("multiroom.zones", self._zones_data())
-        except Exception as e:
-            self.logger.error(f"Failed to persist zones: {e}")
-
-    async def _persist_client_equalizer(self) -> None:
-        """Save client equalizer settings to settings."""
-        if not self._settings_service:
-            return
-
-        try:
-            await self._settings_service.set_setting("multiroom.client_equalizer", self._client_equalizer_data())
-        except Exception as e:
-            self.logger.error(f"Failed to persist client equalizer: {e}")
 
     # === UTILITY ===
 
