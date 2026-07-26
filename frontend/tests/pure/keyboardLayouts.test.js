@@ -22,8 +22,9 @@ import { loadLocales } from '../helpers/i18nScan';
 const LANGUAGES = Object.keys(loadLocales());
 const MODES = ['abc', 'numbers', 'symbols'];
 
-// Languages with their own layout; the rest resolve to english on purpose.
-const LAID_OUT = ['english', 'french', 'german', 'spanish'];
+// Languages with their own layout. chinese and hindi resolve to english on
+// purpose — a latin QWERTY cannot type either, they need an IME.
+const LAID_OUT = ['english', 'french', 'german', 'italian', 'portuguese', 'spanish'];
 
 const allKeys = (lang) => MODES.flatMap((mode) => {
   const rows = keyLayout(lang)[mode];
