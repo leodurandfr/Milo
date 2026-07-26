@@ -525,15 +525,6 @@ class MultiroomEqualizerChanged(WsEvent):
     equalizer_settings: Dict[str, Any]
 
 
-class MultiroomCrossoverChanged(WsEvent):
-    """equalizerStore.handleZoneCrossoverChanged — single canonical zone shape."""
-    CATEGORY = "multiroom"
-    TYPE = "crossover_changed"
-    zone_id: str
-    crossover_enabled: bool
-    crossover_frequency: int
-
-
 class MultiroomPendingClientChanged(WsEvent):
     """multiroomStore pending-client list — union discriminated by `action`:
     {action: registered|updated, client} | {action: removed, mac_id}."""

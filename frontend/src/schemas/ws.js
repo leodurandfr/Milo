@@ -129,12 +129,6 @@ export const wsEventRegistry = {
       custom_gains: z.array(z.number()).optional(),
     }),
   }),
-  // Backend: MultiroomCrossoverChanged — single canonical zone shape.
-  'multiroom.crossover_changed': z.object({
-    zone_id: z.string(),
-    crossover_enabled: z.boolean(),
-    crossover_frequency: z.number(),
-  }),
   // Backend: FanConfigChanged/FanStatusChanged (payload = FanController.
   // get_status(), config edit vs telemetry tick). Same shape; the store routes
   // config vs telemetry to separate slices.

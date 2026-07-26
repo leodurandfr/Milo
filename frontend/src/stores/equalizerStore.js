@@ -96,9 +96,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return types;
   });
 
-  // Zone crossover settings - { zoneId: { frequency: 80, enabled: true, has_subwoofer: false } }
-  const zoneCrossover = ref({});
-
   // AbortController for cancelling ongoing requests
   let loadAbortController = null;
 
@@ -723,7 +720,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   /**
-   * Update crossover frequency for a zone
+   * Update crossover frequency for a zone. The new value comes back to the UI
+   * on the zone itself: the backend writes it through the registry, which
+   * broadcasts `multiroom.zone_changed` with the enriched zone.
    * @param {string} zoneId - Zone ID
    * @param {number} frequency - Crossover frequency in Hz (40-200)
    * @returns {Promise<boolean>} Success status
@@ -736,30 +735,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       category: 'store',
       message: 'Error setting zone crossover',
     });
-    if (result.ok) {
-      zoneCrossover.value[zoneId] = {
-        ...zoneCrossover.value[zoneId],
-        frequency: result.data.frequency,
-        enabled: result.data.enabled,
-        has_subwoofer: result.data.has_subwoofer,
-      };
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Handle zone crossover changed events.
-   * Schema in @/schemas/ws.js → 'multiroom.crossover_changed'.
-   * @param {{zone_id: string, crossover_enabled: boolean, crossover_frequency: number}} payload
-   */
-  function handleZoneCrossoverChanged(payload) {
-    if (!payload.zone_id) return;
-    zoneCrossover.value[payload.zone_id] = {
-      frequency: payload.crossover_frequency,
-      enabled: payload.crossover_enabled,
-      has_subwoofer: false,
-    };
+    return result.ok;
   }
 
   // === WEBSOCKET HANDLERS ===
@@ -1023,7 +999,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // Speaker Type / Crossover Management
     getClientSpeakerType,
     setZoneCrossoverFrequency,
-    handleZoneCrossoverChanged,
 
     // Preset Management
     builtinPresets,
