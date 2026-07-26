@@ -660,9 +660,7 @@ class CdSource(MpvAudioSource):
         "play_track": PlayTrackParams,
         "pause": None,
         "resume": None,
-        "next_track": None,
         "next": None,
-        "prev_track": None,
         "prev": None,
         "seek": SeekParams,
         "eject": None,
@@ -675,9 +673,9 @@ class CdSource(MpvAudioSource):
             return await self._handle_pause()
         if cmd == "resume":
             return await self._handle_resume()
-        if cmd in ("next_track", "next"):
+        if cmd == "next":
             return await self._handle_next_track()
-        if cmd in ("prev_track", "prev"):
+        if cmd == "prev":
             return await self._handle_prev_track()
         if cmd == "seek":
             return await self._handle_seek(params)

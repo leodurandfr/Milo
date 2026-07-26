@@ -57,7 +57,7 @@ const albumTitle = computed(() =>
 // Release year (MusicBrainz "YYYY" or empty) — shown next to the album when known
 const releaseYear = computed(() => cdStore.discInfo?.year || '');
 
-// Mirrors backend's next_track no-op on the last track.
+// Mirrors the backend's "next" no-op on the last track.
 const hasNext = computed(() =>
   !cdStore.currentTrack || cdStore.currentTrack < cdStore.tracks.length
 );

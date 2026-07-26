@@ -98,8 +98,8 @@ class TestCompliance:
         assert source.service_name == "milo-cd.service"
 
     def test_commands_registered(self, source):
-        for cmd in ("play_track", "pause", "resume", "next_track", "next",
-                    "prev_track", "prev", "seek", "eject"):
+        for cmd in ("play_track", "pause", "resume", "next",
+                    "prev", "seek", "eject"):
             assert cmd in source.COMMANDS
 
     @pytest.mark.asyncio
