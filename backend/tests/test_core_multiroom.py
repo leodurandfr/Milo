@@ -76,8 +76,7 @@ class TestClient:
             online=True,
             zone_id="zone-123",
             volume_db=-25.0,
-            mute=True,
-            crossover_frequency=120
+            mute=True
         )
 
         # Default: include runtime fields (for WebSocket events - )
@@ -91,21 +90,19 @@ class TestClient:
         assert data["zone_id"] == "zone-123"
         assert data["volume_db"] == -25.0
         assert data["mute"] is True
-        assert data["crossover_frequency"] == 120
         # Runtime fields are now included by default for complete WebSocket events
         assert data["online"] is True
 
         # Verify all expected fields are present (including is_local, host, volume_control)
         expected_fields = {"mac_id", "name", "ip", "host", "speaker_type", "zone_id",
-                          "volume_db", "mute", "crossover_frequency", "online", "is_local",
-                          "volume_control"}
+                          "volume_db", "mute", "online", "is_local", "volume_control"}
         assert set(data.keys()) == expected_fields
 
         # Explicit: exclude runtime fields (for persistence)
         data_persist = client.to_dict(include_runtime=False)
         assert "online" not in data_persist
         assert "is_local" not in data_persist
-        assert len(data_persist) == 10  # All fields except 'online' and 'is_local'
+        assert len(data_persist) == 9  # All fields except 'online' and 'is_local'
 
     def test_client_from_dict(self):
         """Test creating client from dictionary."""
@@ -1826,15 +1823,12 @@ class TestAutoCrossover:
         # Create mock clients with speaker types
         speaker1 = MagicMock()
         speaker1.speaker_type = "bookshelf"
-        speaker1.crossover_frequency = 80
 
         speaker2 = MagicMock()
         speaker2.speaker_type = "satellite"
-        speaker2.crossover_frequency = 120
 
         subwoofer = MagicMock()
         subwoofer.speaker_type = "subwoofer"
-        subwoofer.crossover_frequency = None
 
         clients = {
             "speaker-1": speaker1,
@@ -1871,15 +1865,12 @@ class TestAutoCrossover:
         # Create mock clients - all speakers, no subwoofer
         speaker1 = MagicMock()
         speaker1.speaker_type = "bookshelf"
-        speaker1.crossover_frequency = 80
 
         speaker2 = MagicMock()
         speaker2.speaker_type = "satellite"
-        speaker2.crossover_frequency = 120
 
         tower = MagicMock()
         tower.speaker_type = "tower"
-        tower.crossover_frequency = 50
 
         clients = {
             "speaker-1": speaker1,
@@ -2437,7 +2428,7 @@ class TestSnapcastClientDetection:
         await registry.register_client("aa:bb:cc:dd:ee:03", "C", "192.168.1.12")
         await registry.set_client_online("aa:bb:cc:dd:ee:01", True)
         await registry.update_client("aa:bb:cc:dd:ee:01", name="A2")
-        await registry.update_speaker_type("aa:bb:cc:dd:ee:01", "subwoofer")
+        await registry.update_client("aa:bb:cc:dd:ee:01", speaker_type="subwoofer")
         await registry.update_volume("aa:bb:cc:dd:ee:01", volume_db=-30.0, mute=True)
         await registry.set_client_equalizer(
             "aa:bb:cc:dd:ee:03", EqualizerSettings.default_for_zone()
