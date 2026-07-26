@@ -16,6 +16,25 @@ from typing import Any, ClassVar, Dict, List, Literal, Optional
 from pydantic import BaseModel
 
 from backend.core.network.models import NetworkStatus
+from backend.core.models.settings_config import (
+    AudioStopConfig,
+    BtRemoteConfig,
+    BtRemoteStepsConfig,
+    DockAppsConfig,
+    IrRemoteStepsConfig,
+    MacRocConfig,
+    QobuzSettingsConfig,
+    RadioSettingsConfig,
+    RotaryStepsConfig,
+    ScreenBrightnessConfig,
+    ScreenColorFilterConfig,
+    ScreenScreensaverConfig,
+    ScreenTimeoutConfig,
+    ScreenUiScaleConfig,
+    VolumeLimitsConfig,
+    VolumeStartupConfig,
+    VolumeStepsConfig,
+)
 
 
 class WsEvent(BaseModel):
@@ -239,20 +258,10 @@ class LanguageChanged(SettingsEvent):
     language: str
 
 
-class VolumeLimitsConfig(BaseModel):
-    min_db: float
-    max_db: float
-
-
 class VolumeLimitsChanged(SettingsEvent):
     """App.vue settings listener; Milo-Mac reads limits.min_db/max_db."""
     TYPE = "volume_limits_changed"
     limits: VolumeLimitsConfig
-
-
-class VolumeStartupConfig(BaseModel):
-    startup_volume_db: float
-    restore_last_volume: bool
 
 
 class VolumeStartupChanged(SettingsEvent):
@@ -261,18 +270,10 @@ class VolumeStartupChanged(SettingsEvent):
     config: VolumeStartupConfig
 
 
-class VolumeStepsConfig(BaseModel):
-    step_mobile_db: float
-
-
 class VolumeStepsChanged(SettingsEvent):
     """App.vue settings listener."""
     TYPE = "volume_steps_changed"
     config: VolumeStepsConfig
-
-
-class RotaryStepsConfig(BaseModel):
-    step_rotary_db: float
 
 
 class RotaryStepsChanged(SettingsEvent):
@@ -281,18 +282,10 @@ class RotaryStepsChanged(SettingsEvent):
     config: RotaryStepsConfig
 
 
-class BtRemoteStepsConfig(BaseModel):
-    step_bt_remote_db: float
-
-
 class BtRemoteStepsChanged(SettingsEvent):
     """App.vue settings listener."""
     TYPE = "bt_remote_steps_changed"
     config: BtRemoteStepsConfig
-
-
-class IrRemoteStepsConfig(BaseModel):
-    step_ir_remote_db: float
 
 
 class IrRemoteStepsChanged(SettingsEvent):
@@ -301,18 +294,10 @@ class IrRemoteStepsChanged(SettingsEvent):
     config: IrRemoteStepsConfig
 
 
-class DockAppsConfig(BaseModel):
-    enabled_apps: List[str]
-
-
 class DockAppsChanged(SettingsEvent):
     """App.vue dock refresh; Milo-Mac reads config.enabled_apps."""
     TYPE = "dock_apps_changed"
     config: DockAppsConfig
-
-
-class AudioStopConfig(BaseModel):
-    auto_stop_delay: float
 
 
 class AudioStopChanged(SettingsEvent):
@@ -321,19 +306,10 @@ class AudioStopChanged(SettingsEvent):
     config: AudioStopConfig
 
 
-class ScreenTimeoutConfig(BaseModel):
-    screen_timeout_enabled: bool
-    screen_timeout_seconds: int
-
-
 class ScreenTimeoutChanged(SettingsEvent):
     """App.vue settings listener."""
     TYPE = "screen_timeout_changed"
     config: ScreenTimeoutConfig
-
-
-class ScreenBrightnessConfig(BaseModel):
-    brightness_on: int
 
 
 class ScreenBrightnessChanged(SettingsEvent):
@@ -342,19 +318,10 @@ class ScreenBrightnessChanged(SettingsEvent):
     config: ScreenBrightnessConfig
 
 
-class ScreenScreensaverConfig(BaseModel):
-    screensaver_enabled: bool
-    screensaver_delay_seconds: int
-
-
 class ScreenScreensaverChanged(SettingsEvent):
     """App.vue settings listener."""
     TYPE = "screen_screensaver_changed"
     config: ScreenScreensaverConfig
-
-
-class ScreenUiScaleConfig(BaseModel):
-    ui_scale: float
 
 
 class ScreenUiScaleChanged(SettingsEvent):
@@ -363,21 +330,10 @@ class ScreenUiScaleChanged(SettingsEvent):
     config: ScreenUiScaleConfig
 
 
-class ScreenColorFilterConfig(BaseModel):
-    enabled: bool
-    warmth: int
-
-
 class ScreenColorFilterChanged(SettingsEvent):
     """App.vue settings listener."""
     TYPE = "screen_color_filter_changed"
     config: ScreenColorFilterConfig
-
-
-class MacRocConfig(BaseModel):
-    target_latency_ms: int
-    latency_profile: str
-    frame_length_ms: int
 
 
 class MacRocChanged(SettingsEvent):
@@ -386,30 +342,16 @@ class MacRocChanged(SettingsEvent):
     config: MacRocConfig
 
 
-class RadioSettingsConfig(BaseModel):
-    shazam_enabled: bool
-
-
 class RadioSettingsChanged(SettingsEvent):
     """App.vue settings listener."""
     TYPE = "radio_settings_changed"
     config: RadioSettingsConfig
 
 
-class QobuzSettingsConfig(BaseModel):
-    allow_app_volume: bool
-
-
 class QobuzSettingsChanged(SettingsEvent):
     """App.vue settings listener (Qobuz 'allow app volume' toggle sync)."""
     TYPE = "qobuz_settings_changed"
     config: QobuzSettingsConfig
-
-
-class BtRemoteConfig(BaseModel):
-    enabled: bool
-    device_name_filter: str
-    key_map: Dict[str, str]
 
 
 class BtRemoteConfigChanged(SettingsEvent):
