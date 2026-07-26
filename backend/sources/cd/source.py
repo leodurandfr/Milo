@@ -137,6 +137,19 @@ class CdSource(MpvAudioSource):
         self._ejecting = False
         self._play_start_lba = 0
 
+    @property
+    def _is_active_source(self) -> bool:
+        """True when CD is the source the user is on.
+
+        The watcher runs permanently, so this gates everything it does that is
+        only correct for a visible source: broadcasting state, reaching the
+        network for metadata, auto-playing an inserted disc.
+        """
+        return bool(
+            self.state_machine
+            and self.state_machine.system_state.active_source == AudioSource.CD
+        )
+
     # =========================================================================
     # LIFECYCLE
     # =========================================================================
@@ -230,10 +243,7 @@ class CdSource(MpvAudioSource):
             if not self._current_disc and self._last_disc_id:
                 await self._load_disc_metadata()
 
-            still_active = (
-                self.state_machine
-                and self.state_machine.system_state.active_source == AudioSource.CD
-            )
+            still_active = self._is_active_source
             if (still_active and self._sector_offsets and self._tracks
                     and not self._is_playing and not self._is_paused):
                 await self._preload_track_1()
@@ -428,8 +438,7 @@ class CdSource(MpvAudioSource):
         """
         if not self._metadata_retry_pending or not self._last_disc_id:
             return
-        if not (self.state_machine
-                and self.state_machine.system_state.active_source == AudioSource.CD):
+        if not self._is_active_source:
             return
 
         now = monotonic()
@@ -485,7 +494,7 @@ class CdSource(MpvAudioSource):
                 return
             # Drive newly connected — refresh source metadata so the frontend
             # transitions out of "no_drive" (mirrors the _clear_disc_state path).
-            if self.state_machine.system_state.active_source == AudioSource.CD:
+            if self._is_active_source:
                 self._update_connection_state()
 
         if not self._drive_connected:
@@ -526,20 +535,13 @@ class CdSource(MpvAudioSource):
         """
         self._logger.info("Disc detected (spinning up)")
 
-        is_active = (
-            self.state_machine
-            and self.state_machine.system_state.active_source == AudioSource.CD
-        )
+        is_active = self._is_active_source
 
         await self.state_machine.broadcast(SystemCdDriveStatus())
 
         # Show the loading-album indicator immediately
         if is_active:
-            self.set_state(SourceState.WAITING, {
-                "disc_present": True, "cache_ready": False,
-                "drive_connected": self._drive_connected,
-                "is_playing": False, "is_buffering": False,
-            })
+            self.set_state(SourceState.WAITING, self._build_metadata())
 
     async def _handle_disc_ready(self) -> bool:
         """Phase 2: disc ready (CDS_DISC_OK).
@@ -563,10 +565,7 @@ class CdSource(MpvAudioSource):
         self._sector_offsets = [t["offset"] for t in toc_tracks]
         self._disc_end_lba = disc_end_lba
 
-        is_active = (
-            self.state_machine
-            and self.state_machine.system_state.active_source == AudioSource.CD
-        )
+        is_active = self._is_active_source
 
         # Same disc re-inserted: reuse cached metadata.
         if disc_id == self._last_disc_id and self._current_disc:
@@ -599,10 +598,7 @@ class CdSource(MpvAudioSource):
         self._metadata_retry_pending = disc_info.album is None
 
         # Re-check active state after awaits (user could have switched source)
-        still_active = (
-            self.state_machine
-            and self.state_machine.system_state.active_source == AudioSource.CD
-        )
+        still_active = self._is_active_source
         if still_active and self._mpv and self._mpv.is_connected:
             await self._auto_play_track_1()
         elif still_active:
@@ -644,10 +640,7 @@ class CdSource(MpvAudioSource):
         """
         self._logger.info("Clearing disc state")
 
-        is_active = (
-            self.state_machine
-            and self.state_machine.system_state.active_source == AudioSource.CD
-        )
+        is_active = self._is_active_source
 
         if is_active and (self._is_playing or self._is_paused):
             await self._stop_reader_and_mpv()
