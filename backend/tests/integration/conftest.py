@@ -58,7 +58,7 @@ def create_mock_source(source: AudioSource, start_success: bool = True) -> Mock:
     """
     mock = Mock()
     mock.source = source
-    mock._initialized = True
+    mock.is_initialized = True
 
     # Core interface methods
     mock.initialize = AsyncMock(return_value=True)

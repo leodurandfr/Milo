@@ -74,7 +74,7 @@ class TestAudioStateMachine:
     @pytest.mark.asyncio
     async def test_transition_to_new_source_success(self, state_machine, mock_source):
         """Successful transition to new source test"""
-        mock_source._initialized = True
+        mock_source.is_initialized = True
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
 
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
@@ -97,7 +97,7 @@ class TestAudioStateMachine:
     async def test_transition_start_fail(self, state_machine, mock_source):
         """Transition test with start failure"""
         mock_source.start = AsyncMock(return_value=False)
-        mock_source._initialized = True
+        mock_source.is_initialized = True
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
 
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
@@ -115,7 +115,7 @@ class TestAudioStateMachine:
             return True
 
         mock_source.start = slow_start
-        mock_source._initialized = True
+        mock_source.is_initialized = True
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
 
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
@@ -241,7 +241,7 @@ class TestAudioStateMachine:
     @pytest.mark.asyncio
     async def test_concurrent_transitions_prevented(self, state_machine, mock_source):
         """Test concurrent transitions are prevented by the lock"""
-        mock_source._initialized = True
+        mock_source.is_initialized = True
 
         # Simulate a source that takes time to start
         async def slow_start():
@@ -263,7 +263,7 @@ class TestAudioStateMachine:
     @pytest.mark.asyncio
     async def test_updates_ignored_during_transition(self, state_machine, mock_source):
         """Test that updates during transition are ignored (new architecture behavior)"""
-        mock_source._initialized = True
+        mock_source.is_initialized = True
 
         # Simulate a source that takes time
         async def slow_start():

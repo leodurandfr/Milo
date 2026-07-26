@@ -100,7 +100,7 @@ def create_health_router(state_machine, routing_service,
                 try:
                     source_status[source.value] = {
                         "registered": True,
-                        "initialized": getattr(instance, '_initialized', False)
+                        "initialized": instance.is_initialized
                     }
                 except Exception as e:
                     source_status[source.value] = {

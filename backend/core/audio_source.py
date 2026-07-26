@@ -143,6 +143,11 @@ class BaseAudioSource(ABC):
         """AudioSource enum for this source."""
         return AudioSource(self.source_id)
 
+    @property
+    def is_initialized(self) -> bool:
+        """Whether initialize() has already run (set by initialize() itself)."""
+        return self._initialized
+
     async def start(self) -> bool:
         """
         Start the audio source.
@@ -351,6 +356,18 @@ class BaseAudioSource(ABC):
             Response dict
         """
         return self.error_response(f"Unhandled command: {cmd}")
+
+    async def refresh_metadata(self) -> bool:
+        """Re-read metadata from the underlying player into self._metadata.
+
+        Called by AudioStateMachine.refresh_active_metadata() on the active
+        source (GET /api/audio/state, WS reconnect). Default: no-op for sources
+        whose metadata is pushed by an event feed rather than polled.
+
+        Returns:
+            True if self._metadata was refreshed.
+        """
+        return False
 
     # === Auto-Stop Timer ===
 
@@ -589,18 +606,21 @@ class BaseAudioSource(ABC):
         if not self.state_machine:
             return
 
-        # Keep system_state.metadata in sync for initial_state on reconnect
-        # (the state machine owns the write; only the active source is applied).
-        self.state_machine.update_position_metadata(self.source, position, duration)
-
         self._bg.spawn(
-            self.state_machine.broadcast(SourcePositionUpdate(
-                source=self.source.value,
-                position=position,
-                duration=duration,
-            )),
+            self._push_position(position, duration),
             label="broadcast_position_update",
         )
+
+    async def _push_position(self, position: int, duration: int) -> None:
+        """Sync then broadcast the position. Both steps are awaited here so the
+        system_state write goes through the state machine's lock like every
+        other state mutation (it cannot be taken from the sync caller above)."""
+        await self.state_machine.update_position_metadata(self.source, position, duration)
+        await self.state_machine.broadcast(SourcePositionUpdate(
+            source=self.source.value,
+            position=position,
+            duration=duration,
+        ))
 
     def broadcast_error(self, error_message: str) -> None:
         """

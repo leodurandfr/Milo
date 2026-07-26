@@ -811,7 +811,7 @@ class MusicLibrarySource(MpvAudioSource):
         core, extras = PlaybackMetadata.split(self._build_playback_metadata())
         self.emit_connection_state(bool(self._queue), core, extras)
 
-    async def _refresh_metadata(self) -> bool:
+    async def refresh_metadata(self) -> bool:
         """Pull the live playhead from mpv so a (re)connecting client's
         initial_state reflects the current position, not the last periodic sync.
         Called by state.refresh_active_metadata() on the WS handshake.

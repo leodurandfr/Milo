@@ -81,8 +81,7 @@ class PodcastSource(MpvAudioSource):
     async def initialize(self) -> bool:
         """Pre-load podcast_data.json so a schema mismatch surfaces at boot."""
         await self._podcast_data.initialize()
-        self._initialized = True
-        return True
+        return await super().initialize()
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
@@ -134,7 +133,7 @@ class PodcastSource(MpvAudioSource):
         await self._cleanup()
         return await self._stop_service()
 
-    async def _refresh_metadata(self) -> bool:
+    async def refresh_metadata(self) -> bool:
         """Pull live position/duration from mpv so the WebSocket initial_state
         sent to a (re)connecting client reflects the current playhead — not
         the last value broadcast via the 30s periodic sync.
