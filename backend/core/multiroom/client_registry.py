@@ -41,12 +41,10 @@ REGISTRY_EVENT_CLASSES: Dict[str, Type[WsEvent]] = {
     RegistryEventType.CLIENT_CONNECTED: MultiroomClientStateChanged,
     RegistryEventType.CLIENT_DISCONNECTED: MultiroomClientStateChanged,
     RegistryEventType.CLIENT_UPDATED: MultiroomClientStateChanged,
-    RegistryEventType.SPEAKER_TYPE_CHANGED: MultiroomClientStateChanged,
     RegistryEventType.VOLUME_CHANGED: MultiroomClientStateChanged,
     RegistryEventType.ZONE_CREATED: MultiroomZoneChanged,
     RegistryEventType.ZONE_UPDATED: MultiroomZoneChanged,
     RegistryEventType.ZONE_DELETED: MultiroomZoneChanged,
-    RegistryEventType.ZONE_CLIENT_ADDED: MultiroomZoneChanged,
     RegistryEventType.ZONE_CLIENT_REMOVED: MultiroomZoneChanged,
     RegistryEventType.EQUALIZER_SETTINGS_CHANGED: MultiroomEqualizerChanged,
 }
@@ -312,44 +310,6 @@ class ClientRegistryService:
                 "zone_id": zone_to_update[0],
                 "zone": zone_to_update[1]
             })
-
-        return client
-
-    async def update_speaker_type(
-        self,
-        mac_id: str,
-        speaker_type: SpeakerType,
-        crossover_frequency: Optional[int] = None
-    ) -> Optional[Client]:
-        """
-        Update client speaker type.
-
-        Used by CrossoverService. Emits
-        SPEAKER_TYPE_CHANGED event for other services to react.
-
-        Args:
-            mac_id: The client's mac_id
-            speaker_type: New speaker type (satellite, bookshelf, tower, subwoofer)
-            crossover_frequency: Optional crossover frequency in Hz
-
-        Returns:
-            Updated client or None if not found
-        """
-        async with self._lock:
-            client = self._clients.get(mac_id)
-            if not client:
-                self.logger.warning(f"Cannot update speaker type: client {mac_id} not found")
-                return None
-
-            client.speaker_type = speaker_type
-            if crossover_frequency is not None:
-                client.crossover_frequency = crossover_frequency
-
-        await self._persist_clients()
-        await self._emit_event(RegistryEventType.SPEAKER_TYPE_CHANGED, {
-            "mac_id": mac_id,
-            "client": client.to_dict()
-        })
 
         return client
 
@@ -1069,7 +1029,6 @@ class ClientRegistryService:
                 "ip": client.ip,
                 "zone_id": client.zone_id,
                 "speaker_type": client.speaker_type,
-                "crossover_frequency": client.crossover_frequency,
                 "volume_control": client.volume_control
                 # Note: online, volume_db, mute are runtime state, not persisted
             }

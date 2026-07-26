@@ -364,7 +364,6 @@ class Client:
         volume_db: Current volume in dB
         mute: Mute status
         speaker_type: Type of speaker for crossover configuration
-        crossover_frequency: Custom crossover frequency in Hz (overrides speaker_type default)
 
     Properties:
         is_local: True if this is the local client (ip == "127.0.0.1")
@@ -378,7 +377,6 @@ class Client:
     volume_db: float = DEFAULT_VOLUME_DB
     mute: bool = False
     speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE
-    crossover_frequency: Optional[int] = None  # None = use speaker_type default
     volume_control: bool = True  # False = DAC card, external amp manages volume
 
     def to_dict(self, include_runtime: bool = True) -> Dict[str, Any]:
@@ -402,7 +400,6 @@ class Client:
             "volume_db": self.volume_db,
             "mute": self.mute,
             "speaker_type": self.speaker_type,
-            "crossover_frequency": self.crossover_frequency,
             "volume_control": self.volume_control
         }
         if include_runtime:
@@ -423,7 +420,6 @@ class Client:
             volume_db=data.get("volume_db", DEFAULT_VOLUME_DB),
             mute=data.get("mute", False),
             speaker_type=data.get("speaker_type", DEFAULT_SPEAKER_TYPE),
-            crossover_frequency=data.get("crossover_frequency"),
             volume_control=data.get("volume_control", True)
         )
 
@@ -564,14 +560,10 @@ class RegistryEventType:
     ZONE_CREATED = "zone_created"
     ZONE_DELETED = "zone_deleted"
     ZONE_UPDATED = "zone_updated"
-    ZONE_CLIENT_ADDED = "zone_client_added"
     ZONE_CLIENT_REMOVED = "zone_client_removed"
 
     # Volume events (emitted for frontend updates)
     VOLUME_CHANGED = "volume_changed"
-
-    # Speaker type event
-    SPEAKER_TYPE_CHANGED = "speaker_type_changed"
 
     # Equalizer events
     EQUALIZER_SETTINGS_CHANGED = "equalizer_settings_changed"

@@ -211,15 +211,6 @@ class VolumeStateStore:
                     self._zones.pop(zone_id, None)
                 self.logger.info(f"Zone {zone_id} removed from volume state")
 
-        elif event_type == RegistryEventType.ZONE_CLIENT_ADDED:
-            zone_id = data.get("zone_id")
-            camilladsp_id = data.get("camilladsp_id")
-            if zone_id and camilladsp_id and zone_id in self._zones:
-                async with self._lock:
-                    if camilladsp_id not in self._zones[zone_id].client_ids:
-                        self._zones[zone_id].client_ids.append(camilladsp_id)
-                self.logger.debug(f"Client {camilladsp_id} added to zone {zone_id} in volume state")
-
         elif event_type == RegistryEventType.ZONE_CLIENT_REMOVED:
             zone_id = data.get("zone_id")
             camilladsp_id = data.get("camilladsp_id")

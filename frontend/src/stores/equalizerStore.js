@@ -81,14 +81,13 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   });
 
   // Client types - builds from multiroomStore.clients
-  // Structure: { clientId: { speaker_type: 'satellite'|'bookshelf'|'tower'|'subwoofer', crossover_frequency: number|null } }
+  // Structure: { clientId: { speaker_type: 'satellite'|'bookshelf'|'tower'|'subwoofer' } }
   const clientTypes = computed(() => {
     const types = {};
     for (const client of registryStore.clientList) {
       if (client.mac_id) {
         types[client.mac_id] = {
-          speaker_type: client.speaker_type || 'bookshelf',
-          crossover_frequency: client.crossover_frequency ?? null
+          speaker_type: client.speaker_type || 'bookshelf'
         };
       }
     }

@@ -104,7 +104,7 @@ class TestCrossoverActivation:
             name="Bookshelf",
             ip="192.168.1.50"
         )
-        await registry.update_speaker_type("bookshelf-1", "bookshelf")
+        await registry.update_client("bookshelf-1", speaker_type="bookshelf")
         await registry.set_client_online("bookshelf-1", True)
 
         # Create zone with 2 clients (minimum required)
@@ -122,7 +122,7 @@ class TestCrossoverActivation:
             name="Subwoofer",
             ip="192.168.1.100"
         )
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         # Add subwoofer to zone - this should activate crossover
@@ -145,7 +145,7 @@ class TestCrossoverActivation:
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         # Create zone
@@ -181,7 +181,7 @@ class TestCrossoverDeactivation:
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
@@ -217,7 +217,7 @@ class TestCrossoverDeactivation:
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
@@ -252,11 +252,11 @@ class TestCrossoverRecalculation:
 
         # Setup: zone with local (bookshelf) + subwoofer
         await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.update_speaker_type("local", "bookshelf")  # 80Hz default
+        await registry.update_client("local", speaker_type="bookshelf")  # 80Hz default
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
@@ -268,7 +268,7 @@ class TestCrossoverRecalculation:
         mock_camilladsp_service.reset_mock()
 
         # Change local speaker type to satellite (120Hz)
-        await registry.update_speaker_type("local", "satellite")
+        await registry.update_client("local", speaker_type="satellite")
 
         # Recalculate crossover
         await crossover.apply_zone_crossover(zone.id)
@@ -286,7 +286,7 @@ class TestCrossoverRecalculation:
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
@@ -299,7 +299,7 @@ class TestCrossoverRecalculation:
 
         # Register new client with tower speaker type (50Hz)
         await registry.register_client("tower-1", "Tower", "192.168.1.101")
-        await registry.update_speaker_type("tower-1", "tower")
+        await registry.update_client("tower-1", speaker_type="tower")
         await registry.set_client_online("tower-1", True)
 
         # Add to zone
@@ -319,15 +319,15 @@ class TestCrossoverRecalculation:
 
         # Setup: zone with local (bookshelf), tower, subwoofer
         await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.update_speaker_type("local", "bookshelf")
+        await registry.update_client("local", speaker_type="bookshelf")
         await registry.set_client_online("local", True)
 
         await registry.register_client("tower-1", "Tower", "192.168.1.101")
-        await registry.update_speaker_type("tower-1", "tower")
+        await registry.update_client("tower-1", speaker_type="tower")
         await registry.set_client_online("tower-1", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "tower-1", "sub-1"])
@@ -396,7 +396,7 @@ class TestPendingSettingsOnReconnect:
 
         # Register as subwoofer
         await registry.register_client("local", "Subwoofer", "127.0.0.1")
-        await registry.update_speaker_type("local", "subwoofer")
+        await registry.update_client("local", speaker_type="subwoofer")
 
         # Bring online - triggers automatic pending settings application
         await registry.set_client_online("local", True)
@@ -451,7 +451,7 @@ class TestRegistryEventIntegration:
         await registry.register_client("local", "Main", "127.0.0.1")
         await registry.set_client_online("local", True)
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         # Manually trigger the event handler
@@ -481,11 +481,11 @@ class TestAutomaticCrossoverE2E:
 
         # 1. Register clients (simulating initial discovery)
         await registry.register_client("local", "Main Speaker", "127.0.0.1")
-        await registry.update_speaker_type("local", "bookshelf")
+        await registry.update_client("local", speaker_type="bookshelf")
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         # Subwoofer starts OFFLINE
 
         # 2. Create zone (minimum 2 clients)
@@ -513,11 +513,11 @@ class TestAutomaticCrossoverE2E:
 
         # 1. Setup: Zone with active crossover (subwoofer online)
         await registry.register_client("local", "Main Speaker", "127.0.0.1")
-        await registry.update_speaker_type("local", "bookshelf")
+        await registry.update_client("local", speaker_type="bookshelf")
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
@@ -545,11 +545,11 @@ class TestAutomaticCrossoverE2E:
 
         # 1. Setup: Zone with two bookshelf speakers (no subwoofer, no crossover)
         await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.update_speaker_type("local", "bookshelf")
+        await registry.update_client("local", speaker_type="bookshelf")
         await registry.set_client_online("local", True)
 
         await registry.register_client("book-2", "Bookshelf 2", "192.168.1.50")
-        await registry.update_speaker_type("book-2", "bookshelf")
+        await registry.update_client("book-2", speaker_type="bookshelf")
         await registry.set_client_online("book-2", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Study", ["local", "book-2"])
@@ -560,7 +560,7 @@ class TestAutomaticCrossoverE2E:
 
         # 2. Change book-2 to subwoofer (simulating API call: PATCH /api/multiroom/clients/{mac_id})
         #    This triggers SPEAKER_TYPE_CHANGED event which leads to crossover recalculation
-        await registry.update_speaker_type("book-2", "subwoofer")
+        await registry.update_client("book-2", speaker_type="subwoofer")
 
         # 3. Manually trigger recalculation (in real system, this is triggered by event)
         await crossover._handle_registry_event(
@@ -583,7 +583,7 @@ class TestAutomaticCrossoverE2E:
         await registry.register_client("local", "Main", "127.0.0.1")
         await registry.set_client_online("local", True)
         await registry.register_client("sub-1", "Sub", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         # Subwoofer starts offline
 
         zone = await registry.create_zone(generate_zone_id(), "Auto Test", ["local", "sub-1"])
@@ -623,7 +623,7 @@ class TestAutomaticCrossoverE2E:
         await registry.register_client("local", "Main", "127.0.0.1")
         await registry.set_client_online("local", True)
         await registry.register_client("sub-1", "Sub", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Explicit Test", ["local", "sub-1"])
@@ -659,15 +659,15 @@ class TestCrossoverEdgeCases:
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         await registry.register_client("sat-1", "Satellite", "192.168.1.101")
-        await registry.update_speaker_type("sat-1", "satellite")
+        await registry.update_client("sat-1", speaker_type="satellite")
         await registry.set_client_online("sat-1", True)
 
         await registry.register_client("sat-2", "Satellite 2", "192.168.1.102")
-        await registry.update_speaker_type("sat-2", "satellite")
+        await registry.update_client("sat-2", speaker_type="satellite")
         await registry.set_client_online("sat-2", True)
 
         # Zone 1: local + subwoofer + satellite (crossover active, local uses mock_camilladsp_service)
@@ -700,7 +700,7 @@ class TestCrossoverEdgeCases:
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Test Zone", ["local", "sub-1"])
@@ -737,11 +737,11 @@ class TestFilterApplicationE2E:
 
         # Setup: Zone with satellite (120Hz) + subwoofer
         await registry.register_client("local", "Satellite", "127.0.0.1")
-        await registry.update_speaker_type("local", "satellite")  # 120Hz
+        await registry.update_client("local", speaker_type="satellite")  # 120Hz
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
@@ -768,11 +768,11 @@ class TestFilterApplicationE2E:
 
         # Setup: Local is the subwoofer, remote is satellite
         await registry.register_client("sat-1", "Satellite", "192.168.1.10")
-        await registry.update_speaker_type("sat-1", "satellite")
+        await registry.update_client("sat-1", speaker_type="satellite")
         await registry.set_client_online("sat-1", True)
 
         await registry.register_client("local", "Subwoofer", "127.0.0.1")
-        await registry.update_speaker_type("local", "subwoofer")
+        await registry.update_client("local", speaker_type="subwoofer")
         await registry.set_client_online("local", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Bass Zone", ["sat-1", "local"])
@@ -800,11 +800,11 @@ class TestFilterApplicationE2E:
 
         # Setup: Zone with crossover active
         await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.update_speaker_type("local", "bookshelf")
+        await registry.update_client("local", speaker_type="bookshelf")
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Test Zone", ["local", "sub-1"])
@@ -834,11 +834,11 @@ class TestFilterApplicationE2E:
 
         # Setup: Zone with satellite + subwoofer (satellite was offline)
         await registry.register_client("local", "Satellite", "127.0.0.1")
-        await registry.update_speaker_type("local", "satellite")
+        await registry.update_client("local", speaker_type="satellite")
         # Local starts offline
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         await registry.create_zone(generate_zone_id(), "Reconnect Test", ["local", "sub-1"])
@@ -867,7 +867,7 @@ class TestFilterApplicationE2E:
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Bypass Test", ["local", "sub-1"])
@@ -904,15 +904,15 @@ class TestMixedSpeakerTypeZones:
 
         # Setup: satellite (120Hz) + tower (50Hz) + subwoofer
         await registry.register_client("sat-1", "Satellite", "192.168.1.10")
-        await registry.update_speaker_type("sat-1", "satellite")
+        await registry.update_client("sat-1", speaker_type="satellite")
         await registry.set_client_online("sat-1", True)
 
         await registry.register_client("local", "Tower", "127.0.0.1")
-        await registry.update_speaker_type("local", "tower")  # 50Hz
+        await registry.update_client("local", speaker_type="tower")  # 50Hz
         await registry.set_client_online("local", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Mixed Zone", ["sat-1", "local", "sub-1"])
@@ -940,15 +940,15 @@ class TestMixedSpeakerTypeZones:
 
         # Setup: Two bookshelves + subwoofer
         await registry.register_client("local", "Bookshelf 1", "127.0.0.1")
-        await registry.update_speaker_type("local", "bookshelf")
+        await registry.update_client("local", speaker_type="bookshelf")
         await registry.set_client_online("local", True)
 
         await registry.register_client("book-2", "Bookshelf 2", "192.168.1.11")
-        await registry.update_speaker_type("book-2", "bookshelf")
+        await registry.update_client("book-2", speaker_type="bookshelf")
         await registry.set_client_online("book-2", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
-        await registry.update_speaker_type("sub-1", "subwoofer")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Bookshelf Zone", ["local", "book-2", "sub-1"])

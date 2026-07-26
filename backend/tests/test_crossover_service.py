@@ -95,7 +95,6 @@ def mock_registry():
     registry.is_client_online = MagicMock(side_effect=is_client_online)
     registry.zone_to_enriched_dict = MagicMock(side_effect=zone_to_enriched_dict)
     registry.subscribe = MagicMock()
-    registry.update_speaker_type = AsyncMock()
     registry.update_zone = AsyncMock()
     registry._emit_event = AsyncMock()
 
@@ -634,55 +633,6 @@ class TestZoneCrossoverFields:
 
         assert zone.crossover_frequency == 120
         assert zone.crossover_enabled is False
-
-
-# =============================================================================
-# Client Model Crossover Fields Tests
-# =============================================================================
-
-class TestClientCrossoverFields:
-    """Tests for Client model crossover fields."""
-
-    def test_client_crossover_frequency_defaults_to_none(self):
-        """Test client crossover_frequency defaults to None."""
-        client = Client(mac_id="test", name="Test", ip="127.0.0.1")
-        assert client.crossover_frequency is None
-
-    def test_client_to_dict_includes_crossover_frequency(self):
-        """Test client.to_dict() includes crossover_frequency."""
-        client = Client(
-            mac_id="test",
-            name="Test",
-            ip="127.0.0.1",
-            crossover_frequency=100
-        )
-        data = client.to_dict()
-
-        assert "crossover_frequency" in data
-        assert data["crossover_frequency"] == 100
-
-    def test_client_from_dict_parses_crossover_frequency(self):
-        """Test Client.from_dict() parses crossover_frequency."""
-        data = {
-            "mac_id": "test",
-            "name": "Test",
-            "ip": "127.0.0.1",
-            "crossover_frequency": 150
-        }
-        client = Client.from_dict(data)
-
-        assert client.crossover_frequency == 150
-
-    def test_client_from_dict_missing_crossover_frequency(self):
-        """Test Client.from_dict() handles missing crossover_frequency."""
-        data = {
-            "mac_id": "test",
-            "name": "Test",
-            "ip": "127.0.0.1"
-        }
-        client = Client.from_dict(data)
-
-        assert client.crossover_frequency is None
 
 
 # =============================================================================

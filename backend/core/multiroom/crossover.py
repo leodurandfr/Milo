@@ -150,16 +150,6 @@ class CrossoverService:
                 except Exception as e:
                     self.logger.error(f"Error disabling filters after zone {zone_id} deletion: {e}")
 
-        elif event_type == "zone_client_added":
-            zone_id = data.get("zone_id")
-            mac_id = data.get("mac_id")
-            if zone_id and isinstance(zone_id, str):
-                try:
-                    self.logger.info(f"Client {mac_id} added to zone {zone_id}, recalculating crossover")
-                    await self.apply_zone_crossover(zone_id)
-                except Exception as e:
-                    self.logger.error(f"Error recalculating crossover after adding client to zone {zone_id}: {e}")
-
         elif event_type == "zone_client_removed":
             # Client removed from zone - disable filters and recalculate
             zone_id = data.get("zone_id")
@@ -180,23 +170,6 @@ class CrossoverService:
         self.logger.info("Initializing CrossoverService...")
         self.logger.info("CrossoverService initialized (using ClientRegistryService for speaker types)")
         return True
-
-    # === Client Type Management ===
-
-    async def get_client_type(self, client_id: str) -> Dict[str, Any]:
-        """Get the type configuration for a client."""
-        if self._registry:
-            client = self._registry.get_client(client_id)
-            if client:
-                return {
-                    "speaker_type": client.speaker_type,
-                    "crossover_frequency": client.crossover_frequency
-                }
-
-        return {
-            "speaker_type": DEFAULT_SPEAKER_TYPE,
-            "crossover_frequency": DEFAULT_CROSSOVER_FREQUENCIES.get(DEFAULT_SPEAKER_TYPE)
-        }
 
     def get_client_speaker_type(self, client_id: str) -> str:
         """Get the speaker type for a client."""
