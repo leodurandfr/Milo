@@ -3,6 +3,7 @@
 Version management service - Version with GitHub token support
 """
 import asyncio
+import copy
 import time
 import aiohttp
 import logging
@@ -10,6 +11,7 @@ import os
 import re
 from typing import Dict, Any, List
 
+from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.helpers import compare_versions
 
 class VersionService:
@@ -24,90 +26,9 @@ class VersionService:
         else:
             self.logger.debug("No GitHub token - using anonymous API (60 req/hour)")
 
-        # Program configuration (snapserver and snapclient separated)
-        self.programs = {
-            "milo": {
-                "name": "Milō",
-                "description": "updates.miloApp",
-                "commands": {
-                    "main": ["git", "-C", "/home/milo/milo", "describe", "--tags", "--always"]
-                },
-                "repo": "leodurandfr/Milo",
-                "version_regex": r"v?(\d+\.\d+\.\d+)",
-                "git_path": "/home/milo/milo"
-            },
-            "go-librespot": {
-                "name": "go-librespot",
-                "description": "updates.spotifyConnect",
-                "commands": {
-                    # Version is embedded in binary as "B0.6.1" pattern (since v0.6.1+)
-                    "main": ["sh", "-c", "strings /usr/local/bin/go-librespot 2>/dev/null | grep -oE '^B[0-9]+\\.[0-9]+\\.[0-9]+$' | sed 's/^B//'"]
-                },
-                "repo": "devgianlu/go-librespot",
-                "version_regex": r"(\d+\.\d+\.\d+)",
-                # Update-flow version ceiling (generic, optional): add
-                #   "max_version": "X.Y.Z"
-                # here to stop the update flow ever offering an upstream release
-                # above X.Y.Z (clamp logic lives in get_latest_github_version).
-                # Intentionally NOT set since 2026-05-25 so the UI surfaces
-                # go-librespot 0.7.3 (which carries the upstream SIGTERM-hang
-                # fix). Re-arm by re-adding the key with the last validated
-                # version.
-            },
-            "shairport-sync": {
-                "name": "AirPlay",
-                "description": "updates.airplay",
-                "commands": {
-                    "main": ["sh", "-c", "cat /var/lib/milo/shairport-sync-version 2>/dev/null || shairport-sync --version 2>&1"]
-                },
-                "repo": "mikebrady/shairport-sync",
-                "version_regex": r"(\d+\.\d+(?:\.\d+)?)"
-            },
-            "multiroom": {
-                "name": "Multiroom",
-                "description": "updates.multiroom",
-                "commands": {
-                    "snapserver": ["snapserver", "--version"],
-                    "snapclient": ["snapclient", "--version"]
-                },
-                "repo": "badaix/snapcast",
-                "version_regex": r"v(\d+\.\d+\.\d+)"
-            },
-            "camilladsp": {
-                "name": "CamillaDSP",
-                "description": "updates.audioProcessor",
-                "commands": {
-                    "main": ["/usr/local/bin/camilladsp", "--version"]
-                },
-                "repo": "HEnquist/camilladsp",
-                "version_regex": r"(\d+\.\d+\.\d+)"
-            },
-            "qobuz-proxy": {
-                "name": "Qobuz",
-                "description": "updates.qobuz",
-                "commands": {
-                    # Installed as a git-tag pip package in a venv (no --version CLI);
-                    # read the distribution metadata via the venv's own Python. Missing
-                    # venv → FileNotFoundError → status "not_installed" (no update offered).
-                    "main": ["/var/lib/milo/qobuz/venv/bin/python", "-c",
-                             "import importlib.metadata as m; print(m.version('qobuz-proxy'))"]
-                },
-                "repo": "leolobato/qobuz-proxy",
-                "version_regex": r"v?(\d+\.\d+\.\d+)"
-            },
-            "navidrome": {
-                # Catalog engine behind the Music Library source. `navidrome
-                # --version` prints "0.63.2 (hash)"; missing binary →
-                # FileNotFoundError → status "not_installed" (no update offered).
-                "name": "Music Library",
-                "description": "updates.musicLibrary",
-                "commands": {
-                    "main": ["/usr/local/bin/navidrome", "--version"]
-                },
-                "repo": "navidrome/navidrome",
-                "version_regex": r"(\d+\.\d+\.\d+)"
-            }
-        }
+        # One entry per program, shared with UpdateService. Copied per instance so
+        # arming a "max_version" ceiling at runtime cannot mutate the module constant.
+        self.programs = copy.deepcopy(PROGRAMS)
 
         # Cache to avoid repeated GitHub calls
         self._github_cache = {}
