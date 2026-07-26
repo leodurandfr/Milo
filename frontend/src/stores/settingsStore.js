@@ -524,7 +524,6 @@ export const useSettingsStore = defineStore('settings', () => {
     setupCompleted,
     hotspotActive,
     isLoading,
-    hasLoaded,
     language,
     volumeLimits,
     volumeStartup,

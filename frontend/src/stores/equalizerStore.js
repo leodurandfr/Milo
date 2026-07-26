@@ -31,7 +31,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const customGains = ref([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   const activePreset = ref('flat'); // Preset ID ('flat' default, 'custom' or builtin ID)
   const state = ref('disconnected'); // disconnected, inactive, running, paused
-  const isUpdating = ref(false);
   const filtersLoaded = ref(false);
 
   // Equalizer effects enabled state (persisted in settings)
@@ -961,7 +960,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // State
     filters,
     activePreset,
-    isUpdating,
     filtersLoaded,
     outputPeak,
 

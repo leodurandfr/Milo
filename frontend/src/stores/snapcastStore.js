@@ -48,9 +48,10 @@ export const useSnapcastStore = defineStore('snapcast', () => {
 
   // Placeholder shape only — template v-models need an object before the
   // first fetch; real values come from GET /server-config (backend is the
-  // single source for config, codec list, and presets).
+  // single source for config, codec list, and presets). Keys must match what
+  // fetchServerConfig() returns, or a slider binds undefined until it lands.
   const PLACEHOLDER_SERVER_CONFIG = {
-    buffer: 1000,
+    buffer_ms: 1000,
     codec: 'flac',
     chunk_ms: 20,
     sampleformat: '48000:32:2',
@@ -63,9 +64,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   // Backend-declared capabilities (codec whitelist + quality presets),
   // populated alongside the server config fetch.
   const capabilities = ref({ codecs: [], presets: [] });
-
-  // Memorization of the last known number of clients (for skeletons)
-  const lastKnownClientCount = ref(3);
 
   // Memorization of display items structure (for zone-aware skeletons)
   // Each item: { type: 'zone' | 'client' }
@@ -160,15 +158,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     if (!registryStore.isInitialized) {
       await registryStore.initialize();
     }
-    // Update lastKnownClientCount for skeleton rendering
-    lastKnownClientCount.value = clients.value.length || 3;
-  }
-
-  /**
-   * Returns the number of clients (last known count for skeleton rendering).
-   */
-  function preloadCache() {
-    return clients.value.length || lastKnownClientCount.value;
   }
 
   // === ACTIONS - SERVER CONFIG ===
@@ -238,7 +227,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     hasServerConfigChanges,
 
     // Actions - Clients
-    preloadCache,
     loadClients,
 
     // Actions - Display Cache

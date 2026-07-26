@@ -20,8 +20,6 @@ export const useCdStore = defineStore('cd', () => {
   );
 
   // === DRIVE / DISC STATE ===
-  const discPresent = computed(() => !!cdMeta.value.disc_present);
-
   const discInfo = computed(() => {
     const m = cdMeta.value;
     if (!m.disc_id) return null;
@@ -40,9 +38,6 @@ export const useCdStore = defineStore('cd', () => {
 
   // === PLAYBACK STATE ===
   const isPlaying = computed(() => !!cdMeta.value.is_playing);
-  // Drive spinning up before audio flows — distinct from idle, so the UI shows a
-  // spinner instead of the idle play affordance.
-  const isBuffering = computed(() => !!cdMeta.value.is_buffering);
 
   // === UI STATE ===
   const showTracklist = ref(false);
@@ -64,11 +59,9 @@ export const useCdStore = defineStore('cd', () => {
   return {
     // State (all derived from the central mirror)
     discInfo,
-    discPresent,
     tracks,
     currentTrack,
     isPlaying,
-    isBuffering,
     showTracklist,
 
     // Actions
