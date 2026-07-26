@@ -149,6 +149,8 @@ End users run the **pre-built** frontend served by nginx from `dist/` — no Vit
 
 When unsure, ask: *"reproducible from a clean prod boot, or only from dev-session state?"* Full telltale lists: [docs/development.md](docs/development.md).
 
+**CI cannot see the appliance.** Any change touching the audio path, a source, or hardware is not done until the ~10-minute smoke subset of [docs/manual/verification-checklist.md](docs/manual/verification-checklist.md) has been run on a unit against the prod build. State in the commit which set was run, and say so explicitly if it was cut short.
+
 ## Do not write in french except for i18n
 
 
