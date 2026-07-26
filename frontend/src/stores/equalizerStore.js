@@ -756,10 +756,12 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {Promise<boolean>} Success status
    */
   async function setZoneCrossoverFrequency(zoneId, frequency) {
-    const result = await apiCall.put(`/api/equalizer/links/${zoneId}/crossover`, { frequency }, {
+    // Explicit zone token rather than targetBase(): the caller names the zone,
+    // which is not necessarily the currently selected target.
+    const url = `/api/equalizer/target/${ZONE_PREFIX}${zoneId}/crossover`;
+    const result = await apiCall.put(url, { frequency }, {
       category: 'store',
       message: 'Error setting zone crossover',
-      checkStatus: true,
     });
     if (result.ok) {
       zoneCrossover.value[zoneId] = {

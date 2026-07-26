@@ -101,21 +101,9 @@ def create_equalizer_router(
         except Exception as e:
             return {"presets": [], "custom_gains": [0]*10, "active_preset": None, "error": str(e)}
 
-    # === Speaker Type / Crossover Management ===
-    # Note: Zone CRUD moved to /api/multiroom/zones, speaker-type to /api/multiroom/clients
-
-    # Note: PUT /client/{client_id}/speaker-type moved to PATCH /api/multiroom/clients/{mac_id}
-
-    @router.put("/links/{zone_id}/crossover")
-    async def set_zone_crossover(zone_id: str, payload: ZoneCrossoverRequest):
-        """Set crossover frequency for a zone"""
-        async with api_error_handler("Error setting zone crossover", logger):
-            cs = crossover_service
-            if not await cs.set_zone_crossover_frequency(zone_id, payload.frequency):
-                raise HTTPException(status_code=500, detail="Failed to update zone crossover")
-            return {"status": "success", "zone_id": zone_id, **await cs.get_zone_crossover(zone_id)}
-
     # === Unified Per-Target Routes (one grammar for local / remote / zone) ===
+    # Zone CRUD lives at /api/multiroom/zones, speaker-type at
+    # PATCH /api/multiroom/clients/{mac_id}.
 
     @router.get("/target/{target}", response_model=EqualizerRecordResponse)
     async def get_target_equalizer(target: str):
@@ -258,6 +246,32 @@ def create_equalizer_router(
                 logger.error(f"Mono update failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success", "target": target, "mono": enabled}
+
+    @router.put("/target/{target}/crossover")
+    async def set_target_crossover(target: str, payload: ZoneCrossoverRequest):
+        """Set the crossover frequency. Zone targets only.
+
+        A crossover is a property of how a zone splits its members' bands, so
+        `local` and a bare `<mac>` have nothing to set — they get a 400 rather
+        than silently doing nothing. Deliberately untyped: the frequency mixes
+        int/float/None and a response_model would coerce 80 to 80.0.
+        """
+        async with api_error_handler(f"Error setting crossover for target {target}", logger):
+            target_type, zone_id = _resolve_target(target)
+            if target_type != "zone":
+                logger.error("Crossover requested for a non-zone target: %s", target)
+                raise HTTPException(
+                    status_code=400,
+                    detail="Crossover applies to zone targets only (zone:<id>)",
+                )
+            if not await crossover_service.set_zone_crossover_frequency(zone_id, payload.frequency):
+                logger.error("Crossover update rejected for zone %s", zone_id)
+                raise HTTPException(status_code=500, detail="Failed to update zone crossover")
+            return {
+                "status": "success",
+                "zone_id": zone_id,
+                **await crossover_service.get_zone_crossover(zone_id),
+            }
 
     @router.put("/target/{target}/enabled", response_model=EqualizerEnabledResponse)
     async def set_target_enabled(target: str, request: Request):
