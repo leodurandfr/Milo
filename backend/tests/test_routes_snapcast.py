@@ -89,10 +89,23 @@ class TestSnapcastRoutes:
         assert response.json()["capabilities"]["codecs"]
 
     def test_update_server_config(self, client):
-        """Test POST /api/routing/snapcast/server/config"""
-        response = client.post(
-            "/api/routing/snapcast/server/config",
+        """Test PUT /api/routing/snapcast/server-config"""
+        response = client.put(
+            "/api/routing/snapcast/server-config",
             json={"config": {"buffer": 1000}}
         )
         assert response.status_code == 200
         assert response.json()["status"] == "success"
+
+    def test_update_server_config_failure_is_not_a_200(self, client):
+        """A rejected config must surface as an HTTP error, not a 200 body flag.
+
+        The route is not /status-style: hiding a failed snapserver write behind
+        200 would leave the UI showing the new config as applied.
+        """
+        client._mock_snapcast.update_server_config = AsyncMock(return_value=False)
+        response = client.put(
+            "/api/routing/snapcast/server-config",
+            json={"config": {"buffer": 1000}}
+        )
+        assert response.status_code == 502

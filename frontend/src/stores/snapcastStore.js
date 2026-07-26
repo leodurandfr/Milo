@@ -193,12 +193,11 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     if (!hasServerConfigChanges.value || isApplyingServerConfig.value) return false;
 
     isApplyingServerConfig.value = true;
-    const result = await apiCall.post('/api/routing/snapcast/server/config', {
+    const result = await apiCall.put('/api/routing/snapcast/server-config', {
       config: serverConfig.value,
     }, {
       category: 'store',
       message: 'Error applying multiroom server config',
-      checkStatus: true,
     });
     isApplyingServerConfig.value = false;
 
