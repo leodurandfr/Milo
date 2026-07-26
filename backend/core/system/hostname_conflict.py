@@ -9,6 +9,7 @@ that situation so the UI can warn the user.
 Detection runs once at backend startup and on demand from the API.
 """
 import asyncio
+import contextlib
 import logging
 import re
 import socket
@@ -58,6 +59,15 @@ class HostnameConflictService:
         if self._periodic_task is not None and not self._periodic_task.done():
             return
         self._periodic_task = asyncio.create_task(self._periodic_loop())
+
+    async def cleanup(self) -> None:
+        """Stop the periodic loop and drain the avahi-reclaim tasks."""
+        if self._periodic_task is not None:
+            self._periodic_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._periodic_task
+            self._periodic_task = None
+        await self._bg.cancel_all()
 
     async def _periodic_loop(self) -> None:
         while True:

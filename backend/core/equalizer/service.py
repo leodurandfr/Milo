@@ -1215,10 +1215,12 @@ class CamillaDSPService:
         """Clean up resources"""
         self.logger.info("Cleaning up CamillaDSP service...")
 
-        # Flush any pending debounced persist before shutdown
+        # Flush any pending debounced persist before shutdown, then drain the
+        # task set that owns it (and anything else spawned through _bg).
         if self._persist_debounce_task and not self._persist_debounce_task.done():
             self._persist_debounce_task.cancel()
             await self._persist_state_async()
+        await self._bg.cancel_all()
 
         # Stop the connection loop
         self._running = False
