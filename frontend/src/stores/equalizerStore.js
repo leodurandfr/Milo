@@ -209,12 +209,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return result.ok;
   }
 
-  async function fetchEnabledState() {
-    // The enabled flag travels in the one per-target record.
-    const record = await fetchTargetRecord();
-    return record ? (record.enabled ?? true) : true;
-  }
-
   async function setEnabledState(enabled) {
     const result = await apiCall.put(`${targetBase()}/enabled`, { enabled }, {
       category: 'store',
@@ -634,35 +628,27 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === ADVANCED FEATURES ===
 
-  async function updateCompressor(settings) {
-    // Optimistic update: apply immediately for responsive UI
-    const previous = { ...compressor.value };
-    Object.assign(compressor.value, settings);
+  /**
+   * Write one effect's settings object to the current target, optimistically:
+   * apply locally so the sliders answer the finger, restore the whole object if
+   * the target refuses. `name` is both the path segment and the log noun.
+   */
+  async function _updateEffect(settingsRef, name, settings) {
+    const previous = { ...settingsRef.value };
+    Object.assign(settingsRef.value, settings);
 
-    const result = await apiCall.put(`${targetBase()}/compressor`, settings, {
+    const result = await apiCall.put(`${targetBase()}/${name}`, settings, {
       category: 'store',
-      message: 'Error updating compressor',
+      message: `Error updating ${name}`,
       checkStatus: true,
     });
 
-    if (!result.ok) Object.assign(compressor.value, previous);
+    if (!result.ok) Object.assign(settingsRef.value, previous);
     return result.ok;
   }
 
-  async function updateLoudness(settings) {
-    // Optimistic update: apply immediately for responsive UI
-    const previous = { ...loudness.value };
-    Object.assign(loudness.value, settings);
-
-    const result = await apiCall.put(`${targetBase()}/loudness`, settings, {
-      category: 'store',
-      message: 'Error updating loudness',
-      checkStatus: true,
-    });
-
-    if (!result.ok) Object.assign(loudness.value, previous);
-    return result.ok;
-  }
+  const updateCompressor = (settings) => _updateEffect(compressor, 'compressor', settings);
+  const updateLoudness = (settings) => _updateEffect(loudness, 'loudness', settings);
 
   async function updateMono(enabled) {
     const previous = mono.value;
@@ -713,10 +699,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     cleanup();
     selectedTarget.value = targetId;
 
-    // The record is the source of truth: one GET reflects the selected target.
-    // (Satellites are kept in sync by writes + reconnect re-push, not a restore-on-select.)
+    // The record is the source of truth: one GET reflects the selected target,
+    // the master toggle included. (Satellites are kept in sync by writes +
+    // reconnect re-push, not a restore-on-select.)
     await loadStatus();
-    await loadEnabledState();
   }
 
   // === SPEAKER TYPE / CROSSOVER MANAGEMENT ===
@@ -882,11 +868,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   // === EQUALIZER EFFECTS ENABLE/DISABLE ===
-  async function loadEnabledState() {
-    isEqualizerEffectsEnabled.value = await fetchEnabledState();
-    return isEqualizerEffectsEnabled.value;
-  }
-
   async function toggleEqualizerEffectsEnabled(enabled) {
     if (isTogglingEnabled.value) return false;
 
@@ -978,7 +959,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     cleanup,
 
     // Equalizer Effects Enable/Disable
-    loadEnabledState,
     toggleEqualizerEffectsEnabled,
 
     // Target Management

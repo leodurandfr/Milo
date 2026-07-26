@@ -388,7 +388,7 @@ onMounted(async () => {
   if (client.value) {
     clientName.value = client.value.name || client.value.host;
     originalClientName.value = clientName.value;
-    selectedSpeakerType.value = client.value.speaker_type || equalizerStore.getClientSpeakerType(props.macId);
+    selectedSpeakerType.value = equalizerStore.getClientSpeakerType(props.macId);
     volumeControl.value = client.value.volume_control !== false;
 
     // Load audio card options and current card for remote clients

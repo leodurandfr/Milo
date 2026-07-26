@@ -286,11 +286,10 @@ onMounted(async () => {
   // outlives the modal and may name a client that no longer exists.
   await equalizerStore.loadTargets();
 
-  await equalizerStore.loadEnabledState();
-
-  if (equalizerStore.isEqualizerEffectsEnabled) {
-    await equalizerStore.loadStatus();
-  }
+  // One loader for the whole record, master toggle included. Loading it even
+  // when bypassed costs one request on a panel this template replaces with the
+  // "disabled" message anyway, and it is what keeps the toggle honest.
+  await equalizerStore.loadStatus();
 });
 
 onUnmounted(() => {
