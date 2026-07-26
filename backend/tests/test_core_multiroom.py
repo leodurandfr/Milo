@@ -11,6 +11,7 @@ Tests:
 """
 import pytest
 import asyncio
+import logging
 import time
 import aiohttp
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -3290,7 +3291,9 @@ class TestClientReconcileSweep:
         """
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
-        registry = ClientRegistryService(settings_service=AsyncMock())
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        registry = ClientRegistryService(settings_service=settings)
         await registry.initialize()
         for mac, ip in ((self.FRESH, "192.168.1.153"), (self.VANISHED, "192.168.1.60")):
             await registry.register_client(mac, f"Speaker {mac[-2:]}", ip, host="milo-client")
@@ -3391,3 +3394,25 @@ class TestClientReconcileSweep:
 
         assert registry.get_client(self.VANISHED).online is False
         assert registry.get_client(self.FRESH).online is True
+
+    @pytest.mark.asyncio
+    async def test_sweep_is_quiet_once_a_client_is_already_offline(self, caplog):
+        """A repeating sweep must not re-announce a state it already recorded.
+
+        Observed on a unit: the pass ran every 30s and wrote the same
+        "CLIENT DISCONNECTED" line each time for as long as the satellite stayed
+        unplugged. Only a transition is an event.
+        """
+        service, registry = await self._service([
+            self._status(vanished_last_seen_age=500),
+            self._status(vanished_last_seen_age=530),
+            asyncio.CancelledError(),
+        ])
+
+        with caplog.at_level(logging.INFO, logger="backend.core.multiroom.websocket"):
+            with pytest.raises(asyncio.CancelledError):
+                await service._reconcile_loop()
+
+        assert registry.get_client(self.VANISHED).online is False
+        announced = [r for r in caplog.records if "CLIENT DISCONNECTED" in r.getMessage()]
+        assert len(announced) == 1, [r.getMessage() for r in announced]
