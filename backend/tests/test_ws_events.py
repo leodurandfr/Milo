@@ -1,12 +1,14 @@
 # backend/tests/test_ws_events.py
 """
-Envelope-equivalence tests for the typed WS event layer.
+Envelope tests for the typed WS event layer.
 
-Each snapshot is the exact envelope the dict-based broadcast_event() call
-sites produced before the migration — broadcast(event) must keep the wire
-byte-identical (timestamp excluded). One representative event per family
-(state machine, audio source, volume, settings, programs, equalizer,
-multiroom, routing, network, hardware).
+Every WsEvent subclass must serialize to {category, type, origin, data,
+timestamp}, and the frontend and Milo-Mac both key on the exact contents.
+Each case below pins one representative event per family (state machine,
+audio source, volume, settings, programs, equalizer, multiroom, routing,
+network, hardware) against its full expected envelope, timestamp excluded —
+including which categories carry full_state and which fields are dropped
+rather than sent as null.
 """
 import pytest
 
@@ -72,7 +74,8 @@ CASES = [
         True,
     ),
     (
-        # metadata=None stays on the wire as null (legacy emitters always set the key)
+        # metadata=None stays on the wire as null — the frontend distinguishes
+        # "no metadata this time" from "key absent"
         SourceStateChanged(source="radio", new_state="ready", metadata=None),
         {"category": "source", "type": "state_changed", "origin": "radio",
          "data": {"source": "radio", "new_state": "ready", "metadata": None}},
@@ -217,7 +220,7 @@ CASES = [
     "event,expected,has_full_state", CASES,
     ids=[f"{c[0].CATEGORY}.{c[0].TYPE}" for c in CASES],
 )
-async def test_broadcast_envelope_matches_legacy_wire(
+async def test_broadcast_envelope(
     state_machine, event, expected, has_full_state
 ):
     await state_machine.broadcast(event)
