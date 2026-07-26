@@ -22,7 +22,6 @@ export function useKeyboardAvailability() {
 // Global state (shared across all components)
 const isVisible = ref(false);
 const currentValue = ref('');
-const initialValue = ref('');
 const placeholder = ref('');
 const onSubmitCallback = ref(null);
 const onCloseCallback = ref(null);
@@ -46,7 +45,6 @@ export function useVirtualKeyboard() {
     }
 
     currentValue.value = options.value || '';
-    initialValue.value = options.value || '';
     placeholder.value = options.placeholder || '';
     onSubmitCallback.value = options.onSubmit || null;
     onCloseCallback.value = options.onClose || null;
@@ -95,21 +93,10 @@ export function useVirtualKeyboard() {
     }
   }
 
-  /**
-   * Cancel changes and restore initial value
-   */
-  function cancel() {
-    currentValue.value = initialValue.value;
-    if (onChangeCallback.value) {
-      onChangeCallback.value(initialValue.value);
-    }
-  }
-
   return {
     // State
     isVisible,
     currentValue,
-    initialValue,
     placeholder,
     originElement,
 
@@ -117,7 +104,6 @@ export function useVirtualKeyboard() {
     open,
     close,
     submit,
-    updateValue,
-    cancel
+    updateValue
   };
 }
