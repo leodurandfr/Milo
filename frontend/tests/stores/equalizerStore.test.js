@@ -1,8 +1,7 @@
 // frontend/tests/stores/equalizerStore.test.js
 /**
  * equalizerStore drives the unified per-target EQ surface
- * (GET/PUT/POST /api/equalizer/target/{target}, target ∈ local · <mac> · zone:<id>)
- * plus the per-client volume/mute endpoints.
+ * (GET/PUT/POST /api/equalizer/target/{target}, target ∈ local · <mac> · zone:<id>).
  *
  * The two things worth pinning are the *target token derivation* — the one place
  * that decides whether a write lands on the local DAC, a satellite or a whole
@@ -160,126 +159,6 @@ describe('equalizerStore', () => {
       expect(apiCall.post).toHaveBeenCalledWith(`${base}/save-custom`, null, expect.anything());
       expect(apiCall.put).toHaveBeenCalledWith(`${base}/enabled`, { enabled: false }, expect.anything());
       expect(apiCall.put).toHaveBeenCalledWith(`${base}/compressor`, { enabled: true }, expect.anything());
-    });
-  });
-
-  describe('client volume', () => {
-    it('addresses the client by colon-free MAC', async () => {
-      setMultiroom(true);
-
-      await equalizerStore.updateClientEqualizerVolume(REMOTE_MAC, -25);
-
-      expect(apiCall.patch).toHaveBeenCalledWith(
-        '/api/volume/client/mac/dca6327ed343',
-        { volume_db: -25 },
-        expect.anything(),
-      );
-    });
-
-    it('refuses to touch a remote client while multiroom is off', async () => {
-      setMultiroom(false);
-
-      const result = await equalizerStore.updateClientEqualizerVolume(REMOTE_MAC, -25);
-
-      expect(result).toBe(false);
-      expect(apiCall.patch).not.toHaveBeenCalled();
-    });
-
-    it('still allows the local client while multiroom is off', async () => {
-      setMultiroom(false);
-
-      const result = await equalizerStore.updateClientEqualizerVolume(LOCAL_MAC, -25);
-
-      expect(result).toBe(true);
-      expect(apiCall.patch).toHaveBeenCalled();
-    });
-
-    it('reports failure when the request fails', async () => {
-      setMultiroom(true);
-      apiCall.patch.mockResolvedValueOnce(fail());
-
-      expect(await equalizerStore.updateClientEqualizerVolume(REMOTE_MAC, -25)).toBe(false);
-    });
-
-    it('reads volume and mute from the unified volume state, with defaults', () => {
-      setMultiroom(true, { [REMOTE_MAC]: { volume_db: -30, mute: true } });
-
-      expect(equalizerStore.getClientEqualizerVolume(REMOTE_MAC)).toBe(-30);
-      expect(equalizerStore.getClientEqualizerMute(REMOTE_MAC)).toBe(true);
-      expect(equalizerStore.getClientEqualizerVolume('unknown')).toBe(-30);
-      expect(equalizerStore.getClientEqualizerMute('unknown')).toBe(false);
-    });
-  });
-
-  describe('client mute', () => {
-    beforeEach(() => {
-      registerClient(OTHER_MAC, { name: 'Bedroom' });
-      registerZone('z1', [REMOTE_MAC, OTHER_MAC]);
-      setMultiroom(true);
-    });
-
-    it('mutes only the addressed client by default', async () => {
-      await equalizerStore.updateClientEqualizerMute(REMOTE_MAC, true);
-
-      expect(apiCall.patch).toHaveBeenCalledTimes(1);
-      expect(apiCall.patch).toHaveBeenCalledWith(
-        '/api/volume/client/mac/dca6327ed343/mute',
-        { mute: true },
-        expect.anything(),
-      );
-    });
-
-    it('propagates to the other zone members when asked', async () => {
-      await equalizerStore.updateClientEqualizerMute(REMOTE_MAC, true, { propagate: true });
-
-      expect(apiCall.patch).toHaveBeenCalledTimes(2);
-      expect(apiCall.patch).toHaveBeenCalledWith(
-        '/api/volume/client/mac/dca6327ed344/mute',
-        { mute: true },
-        expect.anything(),
-      );
-    });
-
-    it('skips offline members while propagating', async () => {
-      registerClient(OTHER_MAC, { name: 'Bedroom', online: false });
-
-      await equalizerStore.updateClientEqualizerMute(REMOTE_MAC, true, { propagate: true });
-
-      expect(apiCall.patch).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not propagate when the primary request fails', async () => {
-      apiCall.patch.mockResolvedValueOnce(fail());
-
-      const result = await equalizerStore.updateClientEqualizerMute(REMOTE_MAC, true, { propagate: true });
-
-      expect(result).toBe(false);
-      expect(apiCall.patch).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('applyZoneDelta', () => {
-    it('sends one atomic delta for the whole zone', async () => {
-      setMultiroom(true);
-      apiCall.patch.mockResolvedValueOnce(ok({ status: 'success', new_average_db: -25 }));
-
-      const result = await equalizerStore.applyZoneDelta('z1', 5);
-
-      expect(apiCall.patch).toHaveBeenCalledWith(
-        '/api/volume/zone/z1',
-        { delta_db: 5 },
-        expect.objectContaining({ rethrow: true }),
-      );
-      expect(result.new_average_db).toBe(-25);
-    });
-
-    it('refuses while multiroom is off', async () => {
-      setMultiroom(false);
-
-      const result = await equalizerStore.applyZoneDelta('z1', 5);
-
-      expect(result.status).toBe('error');
-      expect(apiCall.patch).not.toHaveBeenCalled();
     });
   });
 

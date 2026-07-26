@@ -4,9 +4,16 @@
  * the UI through it. These tests cover the logic it owns — schema-guarded
  * ingestion of WS payloads, the stale-position guard, and the volume-bar
  * lifecycle — not the URLs of its pass-through actions.
+ *
+ * The per-client volume/mute surface is the exception: it *chooses* its endpoint
+ * (colon-free MAC) and refuses a remote client while multiroom is off, so those
+ * are behaviours, not pass-throughs. multiroomStore is the real store here — it
+ * answers "is this client local / online / zoned?" and mocking it would assert a
+ * fixture of its API.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 
@@ -24,11 +31,53 @@ const VALID_FULL_STATE = {
   equalizer_effects_enabled: true,
 };
 
+
+const LOCAL_MAC = 'dc:a6:32:00:00:01';
+const REMOTE_MAC = 'dc:a6:32:7e:d3:43';
+const OTHER_MAC = 'dc:a6:32:7e:d3:44';
+
+function registerClient(multiroomStore, macId, extra = {}) {
+  multiroomStore.handleMultiroomEvent({
+    type: 'client_state_changed',
+    data: { mac_id: macId, client: { mac_id: macId, name: `Client ${macId}`, online: true, ...extra } },
+  });
+}
+
+function registerZone(multiroomStore, zoneId, clientIds) {
+  multiroomStore.handleMultiroomEvent({
+    type: 'zone_changed',
+    data: { zone_id: zoneId, zone: { id: zoneId, name: `Zone ${zoneId}`, client_ids: clientIds } },
+  });
+}
+
 describe('unifiedAudioStore', () => {
   let store;
+  let multiroomStore;
+
+  /** Put the two clients in the registry and set the multiroom mode + volumes. */
+  function setMultiroom(enabled, volumeClients = {}) {
+    registerClient(multiroomStore, LOCAL_MAC, { is_local: true, name: 'Milo' });
+    registerClient(multiroomStore, REMOTE_MAC, { name: 'Kitchen' });
+    store.updateState(fullStateEvent({ ...VALID_FULL_STATE, multiroom_enabled: enabled }));
+    store.handleVolumeEvent({
+      data: {
+        show_bar: false,
+        state: {
+          mode: enabled ? 'multiroom' : 'direct',
+          global_volume_db: -30,
+          global_mute: false,
+          volume_control: true,
+          any_volume_control: true,
+          clients: volumeClients,
+          zones: {},
+        },
+      },
+    });
+  }
 
   beforeEach(() => {
     resetApiCallMock();
+    multiroomStore = useMultiroomStore();
     store = useUnifiedAudioStore();
   });
 
@@ -277,6 +326,126 @@ describe('unifiedAudioStore', () => {
 
       expect(result).toBe(false);
       expect(apiCall.post).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('client volume', () => {
+    it('addresses the client by colon-free MAC', async () => {
+      setMultiroom(true);
+
+      await store.setClientVolume(REMOTE_MAC, -25);
+
+      expect(apiCall.patch).toHaveBeenCalledWith(
+        '/api/volume/client/mac/dca6327ed343',
+        { volume_db: -25 },
+        expect.anything(),
+      );
+    });
+
+    it('refuses to touch a remote client while multiroom is off', async () => {
+      setMultiroom(false);
+
+      const result = await store.setClientVolume(REMOTE_MAC, -25);
+
+      expect(result).toBe(false);
+      expect(apiCall.patch).not.toHaveBeenCalled();
+    });
+
+    it('still allows the local client while multiroom is off', async () => {
+      setMultiroom(false);
+
+      const result = await store.setClientVolume(LOCAL_MAC, -25);
+
+      expect(result).toBe(true);
+      expect(apiCall.patch).toHaveBeenCalled();
+    });
+
+    it('reports failure when the request fails', async () => {
+      setMultiroom(true);
+      apiCall.patch.mockResolvedValueOnce(fail());
+
+      expect(await store.setClientVolume(REMOTE_MAC, -25)).toBe(false);
+    });
+
+    it('reads volume and mute from the unified volume state, with defaults', () => {
+      setMultiroom(true, { [REMOTE_MAC]: { volume_db: -30, mute: true } });
+
+      expect(store.getClientVolume(REMOTE_MAC)).toBe(-30);
+      expect(store.getClientMute(REMOTE_MAC)).toBe(true);
+      expect(store.getClientVolume('unknown')).toBe(-30);
+      expect(store.getClientMute('unknown')).toBe(false);
+    });
+  });
+
+  describe('client mute', () => {
+    beforeEach(() => {
+      registerClient(multiroomStore, OTHER_MAC, { name: 'Bedroom' });
+      registerZone(multiroomStore, 'z1', [REMOTE_MAC, OTHER_MAC]);
+      setMultiroom(true);
+    });
+
+    it('mutes only the addressed client by default', async () => {
+      await store.setClientMute(REMOTE_MAC, true);
+
+      expect(apiCall.patch).toHaveBeenCalledTimes(1);
+      expect(apiCall.patch).toHaveBeenCalledWith(
+        '/api/volume/client/mac/dca6327ed343/mute',
+        { mute: true },
+        expect.anything(),
+      );
+    });
+
+    it('propagates to the other zone members when asked', async () => {
+      await store.setClientMute(REMOTE_MAC, true, { propagate: true });
+
+      expect(apiCall.patch).toHaveBeenCalledTimes(2);
+      expect(apiCall.patch).toHaveBeenCalledWith(
+        '/api/volume/client/mac/dca6327ed344/mute',
+        { mute: true },
+        expect.anything(),
+      );
+    });
+
+    it('skips offline members while propagating', async () => {
+      registerClient(multiroomStore, OTHER_MAC, { name: 'Bedroom', online: false });
+
+      await store.setClientMute(REMOTE_MAC, true, { propagate: true });
+
+      expect(apiCall.patch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not propagate when the primary request fails', async () => {
+      apiCall.patch.mockResolvedValueOnce(fail());
+
+      const result = await store.setClientMute(REMOTE_MAC, true, { propagate: true });
+
+      expect(result).toBe(false);
+      expect(apiCall.patch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('applyZoneVolumeDelta', () => {
+    it('sends one atomic delta for the whole zone', async () => {
+      setMultiroom(true);
+      apiCall.patch.mockResolvedValueOnce(ok({ status: 'success', new_average_db: -25 }));
+
+      const result = await store.applyZoneVolumeDelta('z1', 5);
+
+      expect(apiCall.patch).toHaveBeenCalledWith(
+        '/api/volume/zone/z1',
+        { delta_db: 5 },
+        expect.objectContaining({ rethrow: true }),
+      );
+      expect(result.new_average_db).toBe(-25);
+    });
+
+    it('refuses while multiroom is off', async () => {
+      setMultiroom(false);
+
+      const result = await store.applyZoneVolumeDelta('z1', 5);
+
+      expect(result.status).toBe('error');
+      expect(apiCall.patch).not.toHaveBeenCalled();
     });
   });
 });

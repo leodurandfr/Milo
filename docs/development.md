@@ -618,7 +618,7 @@ beforeEach(() => resetApiCallMock());
 
 it('refuses to touch a remote client while multiroom is off', async () => {
   apiCall.patch.mockResolvedValueOnce(ok({ status: 'success' }));
-  expect(await store.updateClientEqualizerVolume(REMOTE_MAC, -25)).toBe(false);
+  expect(await store.setClientVolume(REMOTE_MAC, -25)).toBe(false);
   expect(apiCall.patch).not.toHaveBeenCalled();
 });
 ```

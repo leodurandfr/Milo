@@ -80,7 +80,7 @@ function getZoneAverageVolume(zone) {
   );
   if (controllableClientIds.length === 0) return -60;
 
-  const volumes = controllableClientIds.map(macId => equalizerStore.getClientEqualizerVolume(macId));
+  const volumes = controllableClientIds.map(macId => unifiedStore.getClientVolume(macId));
   return volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
 }
 
@@ -94,7 +94,7 @@ function getZoneMuted(zone) {
   }
   // Fallback: check individual clients
   if (!zone?.client_ids?.length) return false;
-  return zone.client_ids.every(macId => equalizerStore.getClientEqualizerMute(macId));
+  return zone.client_ids.every(macId => unifiedStore.getClientMute(macId));
 }
 
 // Track starting state when zone slider drag begins
@@ -119,7 +119,7 @@ function getZoneSliderState(zone) {
     // Capture starting volumes for online clients only
     const clientStarts = {};
     onlineClientIds.forEach(macId => {
-      clientStarts[macId] = equalizerStore.getClientEqualizerVolume(macId);
+      clientStarts[macId] = unifiedStore.getClientVolume(macId);
     });
     const startAvg = Object.values(clientStarts).reduce((s, v) => s + v, 0) / onlineClientIds.length;
     zoneSliderState.value[zoneId] = { startAvg, clientStarts };
@@ -209,8 +209,8 @@ const displayClients = computed(() => {
     return snapcastStore.clients
       .filter(client => isZonePrimary(client))
       .map(client => {
-        const eqVol = equalizerStore.getClientEqualizerVolume(client.mac_id);
-        const eqMut = equalizerStore.getClientEqualizerMute(client.mac_id);
+        const eqVol = unifiedStore.getClientVolume(client.mac_id);
+        const eqMut = unifiedStore.getClientMute(client.mac_id);
         const zone = getZoneForClient(client);
 
         if (zone) {
@@ -226,8 +226,8 @@ const displayClients = computed(() => {
             id: c.mac_id,
             mac_id: c.mac_id,
             name: c.name,
-            equalizerVolume: equalizerStore.getClientEqualizerVolume(c.mac_id),
-            equalizerMuted: equalizerStore.getClientEqualizerMute(c.mac_id),
+            equalizerVolume: unifiedStore.getClientVolume(c.mac_id),
+            equalizerMuted: unifiedStore.getClientMute(c.mac_id),
             speakerType: equalizerStore.getClientSpeakerType(c.mac_id),
             online: c.online,
             is_local: c.is_local,
@@ -281,8 +281,8 @@ const displayClients = computed(() => {
   // No linked groups - just add equalizerVolume and equalizerMuted to each client
   // Sorting handled by multiroomStore (local first, online first, alphabetical)
   return snapcastStore.clients.map(client => {
-    const eqVol = equalizerStore.getClientEqualizerVolume(client.mac_id);
-    const eqMut = equalizerStore.getClientEqualizerMute(client.mac_id);
+    const eqVol = unifiedStore.getClientVolume(client.mac_id);
+    const eqMut = unifiedStore.getClientMute(client.mac_id);
     return {
       ...client,
       equalizerVolume: eqVol,
@@ -349,7 +349,7 @@ async function handleVolumeChange(clientMacId, volumeDb, options = {}) {
       // Single atomic API call for entire zone
       // This eliminates race condition - updates all clients in parallel, broadcasts once
       try {
-        await equalizerStore.applyZoneDelta(zone.id, delta);
+        await unifiedStore.applyZoneVolumeDelta(zone.id, delta);
         // Volume state updated via single WebSocket broadcast from backend
       } catch (error) {
         logger.error('multiroom', 'Failed to apply zone volume delta', error);
@@ -360,7 +360,7 @@ async function handleVolumeChange(clientMacId, volumeDb, options = {}) {
     }
   } else {
     // Standalone client - always use direct update
-    await equalizerStore.updateClientEqualizerVolume(client.mac_id, volumeDb);
+    await unifiedStore.setClientVolume(client.mac_id, volumeDb);
     // Volume state will be updated via WebSocket broadcast
   }
 }
@@ -382,24 +382,24 @@ async function handleMuteToggle(clientMacId, muted, options = {}) {
       );
 
       const updatePromises = onlineClientIds.map(async (macId) => {
-        await equalizerStore.updateClientEqualizerMute(macId, muted);
+        await unifiedStore.setClientMute(macId, muted);
       });
       await Promise.all(updatePromises);
     }
   } else {
     // Standalone client - always use direct update
-    await equalizerStore.updateClientEqualizerMute(client.mac_id, muted);
+    await unifiedStore.setClientMute(client.mac_id, muted);
   }
 }
 
 // Handle individual client volume change (within expanded zone)
 async function handleClientVolumeChange(clientEqId, volumeDb) {
-  await equalizerStore.updateClientEqualizerVolume(clientEqId, volumeDb);
+  await unifiedStore.setClientVolume(clientEqId, volumeDb);
 }
 
 // Handle individual client mute toggle (within expanded zone)
 async function handleClientMuteToggle(clientEqId, muted) {
-  await equalizerStore.updateClientEqualizerMute(clientEqId, muted);
+  await unifiedStore.setClientMute(clientEqId, muted);
 }
 
 // === LIFECYCLE ===

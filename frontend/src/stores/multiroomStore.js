@@ -190,6 +190,15 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     return client ? client.online : false;
   }
 
+  /**
+   * Check if a client is the machine running this UI (the local DAC).
+   * The registry is the only place that knows; an unknown MAC is not local.
+   */
+  function isClientLocal(macId) {
+    const client = clients.value.get(macId);
+    return client?.is_local ?? false;
+  }
+
   // === ZONE QUERIES ===
 
   /**
@@ -622,6 +631,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
     // Client queries
     isClientOnline,
+    isClientLocal,
 
     // Zone queries
     getZoneForClient,

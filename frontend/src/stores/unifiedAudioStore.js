@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import { SystemStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
@@ -238,6 +239,119 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     showVolumeBar.value = false;
   }
 
+  // === PER-CLIENT VOLUME / MUTE ===
+  // The per-client slice of volumeState above, plus its writes. It lived in
+  // equalizerStore because CamillaDSP is what applies the attenuation, but the
+  // state is owned here and the endpoints are /api/volume/*: nothing about it is
+  // an equalizer. The registry answers "is this client local / online / zoned?".
+
+  /** "dc:a6:32:7e:d3:43" -> "dca6327ed343" — the API's colon-free path segment. */
+  function macToUrlFormat(macId) {
+    return macId.replace(/:/g, '');
+  }
+
+  /** Remote clients only exist as an audio destination while multiroom is on. */
+  function _reachable(clientId, what) {
+    const registry = useMultiroomStore();
+    if (!registry.isClientLocal(clientId) && !systemState.value.multiroom_enabled) {
+      logger.warn('store', `Skipping ${what} update for ${clientId} - multiroom disabled`);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Set one client's volume. Each client's volume is independent — changing one
+   * does not affect the others.
+   * @param {string} clientId MAC address
+   * @param {number} volumeDb -80..0
+   */
+  async function setClientVolume(clientId, volumeDb) {
+    if (!_reachable(clientId, 'volume')) return false;
+
+    const result = await apiCall.patch(
+      `/api/volume/client/mac/${macToUrlFormat(clientId)}`,
+      { volume_db: volumeDb },
+      {
+        category: 'store',
+        message: `Error updating volume for ${clientId}`,
+      },
+    );
+    return result.ok;
+  }
+
+  /**
+   * Apply a volume delta to a whole zone in one request.
+   *
+   * Eliminates a race: N parallel per-client requests produce N stale broadcasts
+   * and a flickering slider; one request produces one correct broadcast.
+   * @returns {Promise<object>} {status, zone_id, new_average_db, delta_db, applied_to, offline_clients}
+   */
+  async function applyZoneVolumeDelta(zoneId, deltaDb) {
+    if (!systemState.value.multiroom_enabled) {
+      logger.warn('store', 'Skipping zone delta - multiroom disabled');
+      return { status: 'error', message: 'Multiroom disabled' };
+    }
+
+    const result = await apiCall.patch(`/api/volume/zone/${zoneId}`, { delta_db: deltaDb }, {
+      category: 'store',
+      message: `Error applying zone delta for ${zoneId}`,
+      rethrow: true,
+    });
+    return result.data;
+  }
+
+  /** One client's volume in dB, from the WS-maintained state. */
+  function getClientVolume(clientId) {
+    return volumeState.value.clients[clientId]?.volume_db ?? -30;
+  }
+
+  /** One client's mute flag, from the WS-maintained state. */
+  function getClientMute(clientId) {
+    return volumeState.value.clients[clientId]?.mute ?? false;
+  }
+
+  /**
+   * Mute or unmute one client. With `{ propagate: true }` the whole zone follows
+   * (online members only — an offline one picks it up on reconnect).
+   */
+  async function setClientMute(clientId, muted, options = {}) {
+    const { propagate = false } = options;
+    if (!_reachable(clientId, 'mute')) return false;
+
+    const primary = await apiCall.patch(
+      `/api/volume/client/mac/${macToUrlFormat(clientId)}/mute`,
+      { mute: muted },
+      {
+        category: 'store',
+        message: `Error updating mute for ${clientId}`,
+      },
+    );
+    if (!primary.ok) return false;
+
+    if (propagate) {
+      const registry = useMultiroomStore();
+      const linkedIds = registry.getLinkedClientIds(clientId);
+      if (linkedIds.length > 1) {
+        const otherClients = linkedIds.filter(id =>
+          id !== clientId && registry.isClientOnline(id)
+        );
+        await Promise.all(otherClients.map(targetId =>
+          apiCall.patch(
+            `/api/volume/client/mac/${macToUrlFormat(targetId)}/mute`,
+            { mute: muted },
+            {
+              category: 'store',
+              message: `Error propagating mute to ${targetId}`,
+            },
+          ),
+        ));
+      }
+    }
+
+    return true;
+  }
+
   return {
     // State
     systemState,
@@ -261,5 +375,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     handleVolumeEvent,
     updateMobileStep,
     hideVolumeBar,
+
+    // Per-client volume / mute
+    getClientVolume,
+    getClientMute,
+    setClientVolume,
+    setClientMute,
+    applyZoneVolumeDelta,
   };
 });

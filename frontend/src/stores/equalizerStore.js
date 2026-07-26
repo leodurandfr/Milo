@@ -151,7 +151,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     if (zoneId) return `${ZONE_PREFIX}${zoneId}`;
     // The local client has no MAC to address when multiroom is off → the sentinel.
     const target = selectedTarget.value;
-    if (!target || isLocalClient(target)) return LOCAL_TARGET;
+    if (!target || registryStore.isClientLocal(target)) return LOCAL_TARGET;
     // A standalone remote client.
     return target;
   }
@@ -216,158 +216,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       checkStatus: true,
     });
     return result.ok;
-  }
-
-  /**
-   * Check if a client is the local client using the registry's is_local property.
-   * @param {string} clientId - Client identifier (MAC address)
-   * @returns {boolean} True if this is the local client
-   */
-  function isLocalClient(clientId) {
-    const client = registryStore.clientList.find(c => c.mac_id === clientId);
-    return client?.is_local ?? false;
-  }
-
-  // === CLIENT EQUALIZER VOLUMES ===
-
-  /**
-   * Convert MAC address to URL format (remove colons).
-   * Example: "dc:a6:32:7e:d3:43" -> "dca6327ed343"
-   * @param {string} macId - MAC address with colons
-   * @returns {string} MAC address without colons for URL path
-   */
-  function macToUrlFormat(macId) {
-    return macId.replace(/:/g, '');
-  }
-
-  /**
-   * Update equalizer volume for a client via API.
-   * Uses MAC-based endpoint (all clients are identified by mac_id).
-   * Each client's volume is independent - changing one doesn't affect others.
-   * @param {string} clientId - Client identifier (MAC address)
-   * @param {number} volumeDb - Volume in dB (-80 to 0)
-   * @returns {Promise<boolean>} Success status
-   */
-  async function updateClientEqualizerVolume(clientId, volumeDb) {
-    // Skip remote clients when multiroom is disabled
-    if (!isLocalClient(clientId) && !audioStore.systemState.multiroom_enabled) {
-      logger.warn('store', `Skipping volume update for ${clientId} - multiroom disabled`);
-      return false;
-    }
-
-    // All clients use MAC-based endpoint: PATCH /api/volume/client/mac/{mac_url}
-    const result = await apiCall.patch(
-      `/api/volume/client/mac/${macToUrlFormat(clientId)}`,
-      { volume_db: volumeDb },
-      {
-        category: 'store',
-        message: `Error updating equalizer volume for ${clientId}`,
-      },
-    );
-    return result.ok;
-  }
-
-  /**
-   * Apply volume delta to entire zone atomically.
-   *
-   * Eliminates race condition:
-   * - Old: 3 parallel requests → 3 stale broadcasts → slider flicker
-   * - New: 1 request → parallel backend updates → 1 correct broadcast → smooth slider
-   *
-   * @param {string} zoneId - Zone identifier (UUID)
-   * @param {number} deltaDb - Volume change in dB
-   * @returns {Promise<object>} Response with new zone average
-   */
-  async function applyZoneDelta(zoneId, deltaDb) {
-    if (!audioStore.systemState.multiroom_enabled) {
-      logger.warn('store', 'Skipping zone delta - multiroom disabled');
-      return { status: 'error', message: 'Multiroom disabled' };
-    }
-
-    // Call atomic zone delta endpoint: PATCH /api/volume/zone/{zone_id}
-    const result = await apiCall.patch(`/api/volume/zone/${zoneId}`, { delta_db: deltaDb }, {
-      category: 'store',
-      message: `Error applying zone delta for ${zoneId}`,
-      rethrow: true,
-    });
-    // Response includes: { status, zone_id, new_average_db, delta_db, applied_to, offline_clients }
-    return result.data;
-  }
-
-  /**
-   * Get equalizer volume for a client from unified volume state
-   * @param {string} clientId - Client identifier (MAC address)
-   * @returns {number} Volume in dB, defaults to -30 if not found
-   */
-  function getClientEqualizerVolume(clientId) {
-
-    return audioStore.volumeState.clients[clientId]?.volume_db ?? -30;
-  }
-
-  /**
-   * Get equalizer mute for a client from unified volume state
-   * @param {string} clientId - Client identifier (MAC address)
-   * @returns {boolean} Mute state, defaults to false if not found
-   */
-  function getClientEqualizerMute(clientId) {
-
-    return audioStore.volumeState.clients[clientId]?.mute ?? false;
-  }
-
-  /**
-   * Update mute for a specific client.
-   * By default, mutes only the specified client. Use { propagate: true } to
-   * also mute/unmute all zone members if the client is part of a zone.
-   *
-   * @param {string} clientId - Client identifier (MAC address)
-   * @param {boolean} muted - Mute state
-   * @param {Object} options - Optional settings
-   * @param {boolean} options.propagate - If true, propagate to all zone members (default: false)
-   * @returns {Promise<boolean>} Success status
-   */
-  async function updateClientEqualizerMute(clientId, muted, options = {}) {
-    const { propagate = false } = options;
-
-    // Skip remote clients when multiroom is disabled
-    if (!isLocalClient(clientId) && !audioStore.systemState.multiroom_enabled) {
-      logger.warn('store', `Skipping mute update for ${clientId} - multiroom disabled`);
-      return false;
-    }
-
-    // All clients use MAC-based endpoint: PATCH /api/volume/client/mac/{mac_url}/mute
-    const primary = await apiCall.patch(
-      `/api/volume/client/mac/${macToUrlFormat(clientId)}/mute`,
-      { mute: muted },
-      {
-        category: 'store',
-        message: `Error updating mute for ${clientId}`,
-      },
-    );
-    if (!primary.ok) return false;
-
-    // If propagate requested and client is part of a zone, update all online zone members
-    if (propagate) {
-      const linkedIds = registryStore.getLinkedClientIds(clientId);
-      if (linkedIds.length > 1) {
-        // Only propagate to online clients
-        const otherClients = linkedIds.filter(id =>
-          id !== clientId && registryStore.isClientOnline(id)
-        );
-        const promises = otherClients.map(targetId =>
-          apiCall.patch(
-            `/api/volume/client/mac/${macToUrlFormat(targetId)}/mute`,
-            { mute: muted },
-            {
-              category: 'store',
-              message: `Error propagating mute to ${targetId}`,
-            },
-          ),
-        );
-        await Promise.all(promises);
-      }
-    }
-
-    return true;
   }
 
   // === ACTIONS ===
@@ -980,13 +828,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     updateCompressor,
     updateLoudness,
     updateMono,
-
-    // Client equalizer volume/mute (reads from unified store)
-    updateClientEqualizerVolume,
-    applyZoneDelta,  // Atomic zone volume update
-    getClientEqualizerVolume,
-    getClientEqualizerMute,
-    updateClientEqualizerMute,  // Use { propagate: true } for zone propagation
 
     // Levels monitor
     keepLevelsMonitorAlive,
