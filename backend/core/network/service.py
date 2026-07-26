@@ -485,7 +485,11 @@ class NetworkService:
         # Clean up any stale profile from a previous crashed run
         await self._delete_hotspot_profile()
 
-        # Create an open AP profile (nmcli device wifi hotspot always adds WPA)
+        # Create an open AP profile (nmcli device wifi hotspot always adds WPA).
+        # autoconnect=no is load-bearing: nmcli defaults it to yes, and a profile
+        # that survives a reboot then raises the AP on its own — behind the
+        # backend's back, so `_hotspot_active` stays False and nothing ever tears
+        # it down. The AP must only ever exist because this method ran.
         rc, _, stderr = await self._run_nmcli(
             "connection", "add",
             "type", "wifi",
@@ -496,6 +500,7 @@ class NetworkService:
             "wifi.band", "bg",
             "wifi.channel", "6",
             "ipv4.method", "shared",
+            "connection.autoconnect", "no",
             timeout=20.0,
         )
         if rc != 0:
