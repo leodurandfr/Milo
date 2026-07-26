@@ -243,6 +243,7 @@ class VolumeStateStore:
             self._persist_debounce_task.cancel()
             await self._persist_state_async()
             self.logger.info("Flushed pending volume state on shutdown")
+        await self._bg.cancel_all()
 
     async def initialize(self) -> None:
         """

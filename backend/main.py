@@ -156,6 +156,9 @@ async def lifespan(app: FastAPI):
         await fan_controller.cleanup()
         await get_service("connectivity_service").cleanup()
         await network_service.cleanup()
+        await routing_service.cleanup()
+        await crossover_service.cleanup()
+        await get_service("hostname_conflict_service").cleanup()
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")

@@ -825,6 +825,10 @@ class AudioRoutingService:
             )
         return client_ok and server_ok
 
+    async def cleanup(self) -> None:
+        """Drain the delayed-multiroom-sync task (it waits up to 15s on snapserver)."""
+        await self._bg.cancel_all()
+
     def get_state(self) -> Dict[str, bool]:
         """
         Gets current routing state from single source of truth
