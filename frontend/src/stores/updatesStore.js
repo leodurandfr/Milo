@@ -18,6 +18,8 @@ export const useUpdatesStore = defineStore('updates', () => {
   const localPrograms = ref({});
   const localProgramsLoading = ref(true);
   const localProgramsError = ref(false);
+  // True from the first loadLocalPrograms() onwards (gates resync, see below)
+  const hasEverLoaded = ref(false);
 
   const satellites = ref(null); // null = not loaded, [] = loaded empty
   const satellitesError = ref(false);
@@ -64,6 +66,7 @@ export const useUpdatesStore = defineStore('updates', () => {
   }
 
   async function loadLocalPrograms() {
+    hasEverLoaded.value = true;
     localProgramsLoading.value = true;
     localProgramsError.value = false;
     const result = await apiCall.get('/api/programs', {
@@ -208,8 +211,11 @@ export const useUpdatesStore = defineStore('updates', () => {
   const handleSatelliteCamillaUpdateProgress = makeProgressHandler(satelliteCamillaUpdateStates, 'mac_id');
   const handleSatelliteCamillaUpdateComplete = makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', loadSatellites);
 
-  // Reconciles in-flight update flags so "updating" survives a reconnect/foreground
+  // Reconciles in-flight update flags so "updating" survives a reconnect/foreground.
+  // Lazily loaded: UpdateManager calls loadLocalPrograms() when it opens, and the
+  // call costs an installed-version probe per program — same gate as radioStore.
   async function resync() {
+    if (!hasEverLoaded.value) return;
     return loadLocalPrograms();
   }
 

@@ -270,4 +270,31 @@ describe('multiroomStore', () => {
       expect(store.isLoading).toBe(false);
     });
   });
+
+  describe('initialize', () => {
+    /**
+     * App.vue decides a `pending_client_changed` announces a *new* speaker with
+     * `!pendingClients.has(mac)`, and acts on it by waking the screen and opening
+     * Settings. A satellite re-registers every 15s and the backend rebroadcasts
+     * action="registered" each time, so leaving the map empty at boot makes the
+     * next heartbeat of a long-known satellite look brand new — once per page load.
+     */
+    it('populates pending clients, not just the registry', async () => {
+      apiCall.get.mockImplementation(async (url) => {
+        if (url === '/api/multiroom/state') {
+          return ok({ clients: { 'mac-a': CLIENT('mac-a') }, zones: {} });
+        }
+        if (url === '/api/multiroom/pending-clients') {
+          return ok({ clients: { 'mac-p': { mac_id: 'mac-p', ip: '192.168.1.9' } } });
+        }
+        return ok({});
+      });
+
+      await store.initialize();
+
+      expect(store.clientList.map(c => c.mac_id)).toEqual(['mac-a']);
+      expect(store.pendingClients.has('mac-p')).toBe(true);
+      expect(store.isInitialized).toBe(true);
+    });
+  });
 });

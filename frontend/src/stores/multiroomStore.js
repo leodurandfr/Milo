@@ -126,6 +126,14 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Initialize store from cache, then fetch fresh state from backend.
+   *
+   * Fetches through resync() rather than fetchState() alone: pending clients
+   * are part of this store's server state, and App.vue classifies an incoming
+   * `pending_client_changed` as new by testing `pendingClients`. A satellite
+   * re-registers every 15s and each heartbeat rebroadcasts action="registered",
+   * so an empty map at boot makes the first heartbeat of a known-pending
+   * satellite look like a brand-new speaker — waking the screen and opening
+   * Settings unprompted, once per page load.
    */
   async function initialize() {
     // Load from cache first for instant UI
@@ -135,8 +143,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       zones.value = new Map(Object.entries(cached.zones || {}));
     }
 
-    // Fetch fresh state from backend
-    await fetchState();
+    await resync();
     isInitialized.value = true;
   }
 
