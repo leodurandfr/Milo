@@ -298,13 +298,12 @@ class SnapcastWebSocketService:
                     host = client.get("host", {})
                     hostname = host.get("name", "")
                     ip = host.get("ip", "").replace("::ffff:", "")
-                    mac = host.get("mac", "")
 
                     if ClientRegistryService.is_stale_local_client(client_id or "", ip):
                         self.logger.warning(f"INIT_CLIENTS: Skipping stale local client id={client_id}")
                         continue
 
-                    mac_id = ClientRegistryService.compute_mac_id(hostname, ip, mac)
+                    mac_id = ClientRegistryService.compute_mac_id(hostname, ip, client_id or "")
                     client_name = client.get("config", {}).get("name") or get_client_display_name(hostname) or mac_id
 
                     # Check if client is already in registry
@@ -414,6 +413,52 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True)
 
+    async def _register_snapclient(
+        self, mac_id: str, fallback_name: str, ip: str, host: str, is_local: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """Register a snapclient in the registry, honouring its pending configuration.
+
+        Two notifications can be the first to see a new client — `Client.OnConnect`
+        and `Server.OnUpdate` — and whichever wins must produce the same registry
+        entry. That is why the pending lookup lives here and not in one caller:
+        registering with the Snapcast host name instead loses the name, speaker
+        type and volume_control the user just picked in the wizard, and
+        `register_client` preserves an existing non-empty name, so a later
+        notification cannot repair it.
+
+        Returns the pending entry that was transferred, or None.
+        """
+        pending = (
+            self._pending_clients_service.get_client(mac_id)
+            if self._pending_clients_service else None
+        )
+        if pending and pending.get("name"):
+            self.logger.info(
+                f"  - Pending client matched: name='{pending['name']}', "
+                f"speaker_type='{pending.get('speaker_type')}'"
+            )
+
+        name = (pending.get("name") if pending else None) or fallback_name
+
+        if self.registry:
+            kwargs = {"host": host}
+            if pending:
+                if pending.get("speaker_type"):
+                    kwargs["speaker_type"] = pending["speaker_type"]
+                kwargs["volume_control"] = pending.get("volume_control", True)
+            elif is_local and self._volume_service:
+                # Sync hardware volume_control to registry (e.g. DAC mode read at boot)
+                kwargs["volume_control"] = self._volume_service.volume_control
+            # When no pending entry and not local, volume_control is not passed —
+            # register_client preserves existing value for known clients
+            await self.registry.register_client(mac_id, name, ip, **kwargs)
+
+            # Transfer complete — the registry now owns this client's identity.
+            if pending and self._pending_clients_service:
+                await self._pending_clients_service.remove_client(mac_id)
+
+        return pending
+
     async def _process_new_clients(self, all_clients: list, known_mac_ids: set) -> None:
         """Register clients present in Snapcast but not yet in the registry."""
         for client in all_clients:
@@ -426,10 +471,12 @@ class SnapcastWebSocketService:
                     self.logger.debug(f"Skipping Server.OnUpdate init for {mac_id} - sync already in flight")
                     continue
 
-                if self.registry:
-                    # Register but keep OFFLINE — client stays invisible in
-                    # frontend until volume is synced and confirmed on hardware.
-                    await self.registry.register_client(mac_id, client["name"], client["ip"], host=client["host"])
+                # Register but keep OFFLINE — client stays invisible in
+                # frontend until volume is synced and confirmed on hardware.
+                await self._register_snapclient(
+                    mac_id, client["name"], client["ip"], client["host"],
+                    is_local=(client["ip"] == "127.0.0.1"),
+                )
 
                 # Sync volume then set online. The sync task owns the
                 # _syncing_mac_ids guard and clears it when done.
@@ -489,10 +536,9 @@ class SnapcastWebSocketService:
 
         client_host = client.get("host", {}).get("name") or "Unknown"
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
-        client_mac = client.get("host", {}).get("mac", "")
 
         # Compute mac_id early so we can dedup by stable identifier
-        mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_mac)
+        mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_id or "")
 
         if mac_id in self._syncing_mac_ids:
             self.logger.debug(f"Skipping Client.OnConnect for {mac_id} - sync already in flight")
@@ -510,30 +556,10 @@ class SnapcastWebSocketService:
             self.logger.debug(f"  - Name: {client_name}, Host: {client_host}, IP: {client_ip}")
             self.logger.debug(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
 
-            # Check if this client has pending configuration (registered via API before Snapcast)
-            pending = None
-            if self._pending_clients_service:
-                pending = self._pending_clients_service.get_client(mac_id)
-                if pending and pending.get("name"):
-                    self.logger.info(f"  - Pending client matched: name='{pending['name']}', speaker_type='{pending.get('speaker_type')}'")
-
-            # Register client using new API (but don't set online yet - wait for volume sync)
-            # Use pending name/speaker_type if available (set during configuration flow)
-            reg_name = (pending.get("name") if pending else None) or client_name
-            reg_speaker_type = pending.get("speaker_type") if pending else None
-
-            if self.registry:
-                kwargs = {"host": client_host}
-                if reg_speaker_type:
-                    kwargs["speaker_type"] = reg_speaker_type
-                if pending:
-                    kwargs["volume_control"] = pending.get("volume_control", True)
-                elif is_local and self._volume_service:
-                    # Sync hardware volume_control to registry (e.g. DAC mode read at boot)
-                    kwargs["volume_control"] = self._volume_service.volume_control
-                # When no pending entry and not local, volume_control is not passed —
-                # register_client preserves existing value for known clients
-                await self.registry.register_client(mac_id, reg_name, client_ip, **kwargs)
+            # Register client (but don't set online yet - wait for volume sync)
+            await self._register_snapclient(
+                mac_id, client_name, client_ip, client_host, is_local=is_local
+            )
 
             self.logger.debug(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
             sync_status = await self._notify_volume_service_client_connected(client_id, client, mac_id)
@@ -552,10 +578,6 @@ class SnapcastWebSocketService:
             # Crossover recalculation is handled by CrossoverService._handle_registry_event
             # via CLIENT_CONNECTED event emitted by set_client_online()
 
-            # Transfer complete — remove from pending storage
-            if pending and self._pending_clients_service:
-                await self._pending_clients_service.remove_client(mac_id)
-
             # Push snapclient buffer config to remote clients (fire-and-forget)
             if not is_local:
                 self._bg.spawn(
@@ -571,10 +593,11 @@ class SnapcastWebSocketService:
 
         client_host = client.get("host", {}).get("name", "Unknown")
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
-        client_mac = client.get("host", {}).get("mac", "")
 
         # Compute mac_id using canonical method
-        mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_mac)
+        mac_id = ClientRegistryService.compute_mac_id(
+            client_host, client_ip, client.get("id", "")
+        )
 
         self.logger.info(f"CLIENT DISCONNECTED: {client_host} (mac_id: {mac_id})")
 
@@ -600,7 +623,7 @@ class SnapcastWebSocketService:
                             mac_id = ClientRegistryService.compute_mac_id(
                                 host_info.get("name", ""),
                                 host_info.get("ip", "").replace("::ffff:", ""),
-                                host_info.get("mac", "")
+                                client_id
                             )
                             break
             except Exception as e:
@@ -670,8 +693,7 @@ class SnapcastWebSocketService:
             host = client.get("host", {})
             hostname = host.get("name", "")
             ip = host.get("ip", "").replace("::ffff:", "")
-            mac = host.get("mac", "")
-            mac_id = ClientRegistryService.compute_mac_id(hostname, ip, mac)
+            mac_id = ClientRegistryService.compute_mac_id(hostname, ip, client_id)
 
             # 1. Detect reconnection context
             context = ReconnectionContext.STANDALONE_ALONE  # Default

@@ -634,23 +634,27 @@ class TestClientRegistryService:
         assert ":" in mac_id
         assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
 
-    def test_compute_mac_id_with_mac(self):
-        """Test computing mac_id when MAC address is provided."""
-        # When MAC is provided, return it directly
-        mac_id = ClientRegistryService.compute_mac_id("milo-client-kitchen", "192.168.1.100", mac="aa:bb:cc:dd:ee:ff")
+    def test_compute_mac_id_uses_snapcast_client_id(self):
+        """Remote clients are keyed by the id Milō assigned via --hostID.
+
+        Snapcast's host.mac reports the interface the client connected through,
+        which on a wifi-only client is wlan0 while it registers under eth0 —
+        two identities for one device.
+        """
+        mac_id = ClientRegistryService.compute_mac_id(
+            "milo-client-kitchen", "192.168.1.100", host_id="aa:bb:cc:dd:ee:ff"
+        )
         assert mac_id == "aa:bb:cc:dd:ee:ff"
 
-    def test_compute_mac_id_remote_no_mac_raises(self):
-        """Test that remote client without MAC raises ValueError."""
-        # Remote clients must have a MAC address
-        with pytest.raises(ValueError, match="No MAC address"):
+    def test_compute_mac_id_remote_no_id_raises(self):
+        """Test that a remote client announcing no id raises ValueError."""
+        with pytest.raises(ValueError, match="No client id"):
             ClientRegistryService.compute_mac_id("unknown-host", "192.168.1.200")
 
-    def test_compute_mac_id_ignores_null_mac(self):
-        """Test that null MAC (00:00:00:00:00:00) is ignored."""
-        # When MAC is all zeros, it's treated as not provided
-        with pytest.raises(ValueError, match="No MAC address"):
-            ClientRegistryService.compute_mac_id("client", "192.168.1.200", mac="00:00:00:00:00:00")
+    def test_compute_mac_id_ignores_null_id(self):
+        """Test that a null MAC (00:00:00:00:00:00) as id is rejected."""
+        with pytest.raises(ValueError, match="No client id"):
+            ClientRegistryService.compute_mac_id("client", "192.168.1.200", host_id="00:00:00:00:00:00")
 
     @pytest.mark.asyncio
     async def test_client_equalizer_storage(self, registry):
@@ -1212,16 +1216,6 @@ class TestSnapcastService:
         assert ":" in mac_id  # Returns a MAC address format
         assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
 
-    def test_compute_mac_id_with_mac_via_service(self, snapcast_service):
-        """Test computing mac_id when MAC is provided."""
-        mac_id = ClientRegistryService.compute_mac_id("milo-client-kitchen", "192.168.1.100", mac="aa:bb:cc:dd:ee:ff")
-        assert mac_id == "aa:bb:cc:dd:ee:ff"
-
-    def test_compute_mac_id_remote_requires_mac(self, snapcast_service):
-        """Test that remote clients without MAC raise ValueError."""
-        with pytest.raises(ValueError, match="No MAC address"):
-            ClientRegistryService.compute_mac_id("unknown", "192.168.1.200")
-
     def test_deduplicate_by_mac_empty(self, snapcast_service):
         """Test deduplication with empty list."""
         result = snapcast_service._deduplicate_by_mac([])
@@ -1705,18 +1699,6 @@ class TestStandaloneEqualizerSync:
         assert ":" in mac_id  # Returns MAC address format
         assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
 
-    def test_compute_mac_id_remote_client(self):
-        """Test remote client mac_id computation requires MAC from Snapcast."""
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
-        # Remote client with MAC provided returns that MAC
-        mac_id = ClientRegistryService.compute_mac_id("milo-client-01", "192.168.1.100", mac="aa:bb:cc:dd:ee:ff")
-        assert mac_id == "aa:bb:cc:dd:ee:ff"
-
-        # Remote client without MAC raises error
-        with pytest.raises(ValueError, match="No MAC address"):
-            ClientRegistryService.compute_mac_id("other-host", "192.168.1.100")
-
 
 # =============================================================================
 # TestWebSocketSyncStatus -: WebSocket events with sync status
@@ -1992,7 +1974,7 @@ class TestSnapcastClientDetection:
         # Simulate Client.OnConnect params (with MAC address as required)
         params = {
             "client": {
-                "id": "abc123",
+                "id": "aa:bb:cc:dd:ee:ff",
                 "config": {"name": "Kitchen Speaker", "volume": {"percent": 100, "muted": False}},
                 "host": {"name": "milo-client-kitchen", "ip": "192.168.1.100", "mac": "aa:bb:cc:dd:ee:ff"}
             }
@@ -2005,6 +1987,54 @@ class TestSnapcastClientDetection:
         assert client is not None
         assert client.name == "Kitchen Speaker"
         assert client.online is True
+
+    @pytest.mark.asyncio
+    async def test_server_update_path_honours_pending_config(self, registry, mock_state_machine):
+        """Server.OnUpdate must apply the pending config, like Client.OnConnect does.
+
+        Both notifications can be the first to see a new snapclient. When
+        Server.OnUpdate won the race it used to register the Snapcast host name,
+        so the name, speaker type and volume_control chosen in the setup wizard
+        were silently dropped — and unrecoverably, since register_client
+        preserves an existing non-empty name.
+        """
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        await registry.initialize()
+        attach_registry_broadcaster(registry, mock_state_machine)
+
+        pending_service = MagicMock()
+        pending_service.get_client = MagicMock(return_value={
+            "mac_id": "aa:bb:cc:dd:ee:ff",
+            "name": "Bureau",
+            "speaker_type": "tower",
+            "volume_control": False,
+        })
+        pending_service.remove_client = AsyncMock(return_value=True)
+
+        ws_service = SnapcastWebSocketService(
+            state_machine=mock_state_machine,
+            routing_service=MagicMock(),
+            pending_clients_service=pending_service,
+        )
+        ws_service.set_registry(registry)
+
+        snapcast_client = {
+            "mac_id": "aa:bb:cc:dd:ee:ff",
+            "id": "aa:bb:cc:dd:ee:ff",
+            "name": "Milō Client",  # Snapcast host name — must lose to the pending name
+            "ip": "192.168.1.100",
+            "host": "milo-client",
+            "online": False,
+        }
+
+        await ws_service._process_new_clients([snapcast_client], known_mac_ids=set())
+
+        client = registry.get_client("aa:bb:cc:dd:ee:ff")
+        assert client.name == "Bureau"
+        assert client.speaker_type == "tower"
+        assert client.volume_control is False
+        pending_service.remove_client.assert_awaited_once_with("aa:bb:cc:dd:ee:ff")
 
     @pytest.mark.asyncio
     async def test_client_connect_broadcasts_event(self, registry, mock_state_machine):
@@ -2022,7 +2052,7 @@ class TestSnapcastClientDetection:
 
         params = {
             "client": {
-                "id": "abc123",
+                "id": "aa:bb:cc:dd:ee:ff",
                 "config": {"name": "Test Speaker", "volume": {"percent": 100, "muted": False}},
                 "host": {"name": "milo-client-test", "ip": "192.168.1.101", "mac": "11:22:33:44:55:66"}
             }
@@ -2059,7 +2089,7 @@ class TestSnapcastClientDetection:
         # Simulate Client.OnDisconnect params (with MAC address as required)
         params = {
             "client": {
-                "id": "abc123",
+                "id": "aa:bb:cc:dd:ee:ff",
                 "config": {"name": "Test Speaker"},
                 "host": {"name": "milo-client-test", "ip": "192.168.1.100", "mac": "aa:bb:cc:dd:ee:ff"}
             }
@@ -2091,7 +2121,7 @@ class TestSnapcastClientDetection:
 
         params = {
             "client": {
-                "id": "abc123",
+                "id": "aa:bb:cc:dd:ee:ff",
                 "config": {"name": "Test Speaker"},
                 "host": {"name": "milo-client-test", "ip": "192.168.1.100", "mac": "aa:bb:cc:dd:ee:ff"}
             }
@@ -2145,7 +2175,7 @@ class TestSnapcastClientDetection:
         # New client never seen before (with MAC address as required by compute_mac_id)
         params = {
             "client": {
-                "id": "new-client-123",
+                "id": "aa:bb:cc:dd:ee:ff",
                 "config": {"name": "New Client", "volume": {"percent": 100, "muted": False}},
                 "host": {"name": "milo-client-new", "ip": "192.168.1.200", "mac": "aa:bb:cc:dd:ee:ff"}
             }
@@ -2178,7 +2208,7 @@ class TestSnapcastClientDetection:
 
         params = {
             "client": {
-                "id": "client-456",
+                "id": "11:22:33:44:55:66",
                 "config": {"name": "Living Room Speakers", "volume": {"percent": 100}},
                 "host": {"name": "milo-client-living", "ip": "192.168.1.201", "mac": "11:22:33:44:55:66"}
             }

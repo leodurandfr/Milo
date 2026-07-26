@@ -116,7 +116,7 @@ class TestSnapcastDetectionIntegration:
         # Simulate Snapcast Client.OnConnect notification
         snapcast_notification = {
             "client": {
-                "id": "snapcast-client-abc",
+                "id": mac_addr,
                 "config": {
                     "name": "Kitchen Speakers",
                     "volume": {"percent": 100, "muted": False}
@@ -178,7 +178,7 @@ class TestSnapcastDetectionIntegration:
         # Simulate Snapcast Client.OnDisconnect notification
         snapcast_notification = {
             "client": {
-                "id": "snapcast-client-xyz",
+                "id": mac_addr,
                 "config": {"name": "Living Room"},
                 "host": {
                     "name": "milo-client-living",
@@ -225,7 +225,7 @@ class TestSnapcastDetectionIntegration:
         # Simulate new client connecting
         snapcast_notification = {
             "client": {
-                "id": "brand-new-client",
+                "id": mac_addr,
                 "config": {
                     "name": "Brand New Speaker",
                     "volume": {"percent": 100, "muted": False}
@@ -271,7 +271,7 @@ class TestSnapcastDetectionIntegration:
         for hostname, name, ip, mac in clients_data:
             notification = {
                 "client": {
-                    "id": f"id-{hostname}",
+                    "id": mac,
                     "config": {"name": name, "volume": {"percent": 100}},
                     "host": {"name": hostname, "ip": ip, "mac": mac}
                 }
@@ -302,7 +302,7 @@ class TestSnapcastDetectionIntegration:
 
         connect_notification = {
             "client": {
-                "id": "rapid-id",
+                "id": mac_addr,
                 "config": {"name": "Rapid Test", "volume": {"percent": 100}},
                 "host": {"name": hostname, "ip": ip, "mac": mac_addr}
             }
@@ -310,7 +310,7 @@ class TestSnapcastDetectionIntegration:
 
         disconnect_notification = {
             "client": {
-                "id": "rapid-id",
+                "id": mac_addr,
                 "config": {"name": "Rapid Test"},
                 "host": {"name": hostname, "ip": ip, "mac": mac_addr}
             }
@@ -387,7 +387,7 @@ class TestSnapcastDetectionIntegration:
 
         notification = {
             "client": {
-                "id": "format-test",
+                "id": mac_addr,
                 "config": {"name": "Format Test", "volume": {"percent": 100}},
                 "host": {"name": "milo-client-format", "ip": "192.168.1.180", "mac": mac_addr}
             }

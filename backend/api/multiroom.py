@@ -579,7 +579,12 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 volume_control=volume_control,
             )
 
-            # 3. Send config + reboot to client
+            # 3. Shield the entry from heartbeat expiry — it holds the only copy
+            # of the name/speaker_type until the snapclient reconnects, and the
+            # reboot it is about to take is longer than STALE_TIMEOUT.
+            await pending_clients_service.mark_configuring(mac_id)
+
+            # 4. Send config + reboot to client
             await _send_audio_config_and_reboot(mac_id, client_ip, request.audio_id, overlay, volume_control)
             logger.info(f"Pending client {mac_id} configured with audio={request.audio_id}, rebooting")
             return {"status": "success", "message": f"Client {mac_id} configured and rebooting"}

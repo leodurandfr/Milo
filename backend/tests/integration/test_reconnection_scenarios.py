@@ -1195,14 +1195,14 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
-        # Simulate reconnection (use mac matching registered mac_id)
+        # Simulate reconnection (the snapclient id IS the registered mac_id)
         client_data = {
-            "id": "snapcast-client-123",
+            "id": "local-main",
             "config": {"name": "Main", "volume": {"percent": 100}},
             "host": {"name": "milo", "ip": "192.168.1.10", "mac": "local-main"}
         }
 
-        sync_status = await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
+        sync_status = await ws_service._sync_existing_client_volume("local-main", client_data)
 
         # Verify sync_context is in sync_status
         assert "context" in sync_status

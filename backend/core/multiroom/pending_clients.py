@@ -35,6 +35,14 @@ PENDING_CLIENTS_FILE = MILO_DATA_DIR / "pending_clients.json"
 STALE_TIMEOUT = 45  # seconds
 CLEANUP_INTERVAL = 15  # seconds
 
+# A configure+reboot cycle (hardware apply, config.txt rewrite, full boot) routinely
+# outlasts STALE_TIMEOUT, and this entry holds the only copy of the name and speaker
+# type the user just chose — purging it mid-reboot silently discards them, and the
+# client comes back registered under its Snapcast host name instead. Protect the
+# entry for one reboot's worth of time; it is removed for real when the snapclient
+# connects and the registry takes over.
+CONFIGURING_GRACE = 300  # seconds
+
 
 class PendingClientsService:
     """
@@ -100,6 +108,10 @@ class PendingClientsService:
 
             if existing:
                 # Update connection info, preserve user-set fields
+                # The configure grace ends the moment the client reports the card
+                # it was rebooted for: the cycle is over, normal staleness resumes.
+                if hardware_configured and not existing.get("hardware_configured"):
+                    existing.pop("configuring_since", None)
                 existing["ip"] = ip
                 existing["hardware_configured"] = hardware_configured
                 existing["audio_id"] = audio_id
@@ -160,6 +172,20 @@ class PendingClientsService:
         ))
         return client_snapshot
 
+    async def mark_configuring(self, mac_id: str) -> bool:
+        """Shield a client from heartbeat expiry while it applies config + reboots.
+
+        Server-side bookkeeping only — no broadcast: the UI tracks its own
+        'rebooting' state, and nothing in the payload changes for consumers.
+        """
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if not client:
+                return False
+            client["configuring_since"] = time.time()
+            await self._persist()
+        return True
+
     def get_client(self, mac_id: str) -> Optional[Dict[str, Any]]:
         """Get a single pending client by MAC. Returns None if not found."""
         client = self._clients.get(mac_id)
@@ -214,6 +240,9 @@ class PendingClientsService:
 
         async with self._lock:
             for mac_id, client in self._clients.items():
+                configuring_since = client.get("configuring_since")
+                if configuring_since and now - configuring_since < CONFIGURING_GRACE:
+                    continue
                 if now - client.get("registered_at", 0) > STALE_TIMEOUT:
                     stale_ids.append(mac_id)
 
