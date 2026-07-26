@@ -1,209 +1,437 @@
 // frontend/tests/stores/radioStore.test.js
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+/**
+ * radioStore owns the derived view of the radio source: what "the current
+ * station" is (WS metadata enriched by locally-edited favorites), what the
+ * recognised track is, progressive rendering of results, the top-stations
+ * cache and the network-error retry policy.
+ *
+ * The pass-through actions (play/stop/favorite) are covered only where the
+ * store decides something — the payload enrichment and the local list pruning.
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useRadioStore } from '@/stores/radioStore';
-import axios from 'axios';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { apiCall } from '@/services/apiCall';
+import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 
-// Mock axios
-vi.mock('axios');
+vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
+
+const STATION = (id, extra = {}) => ({
+  id,
+  name: `Station ${id}`,
+  url: `https://stream.example/${id}`,
+  country: 'France',
+  genre: 'jazz',
+  bitrate: 128,
+  codec: 'MP3',
+  ...extra,
+});
+
+/**
+ * The store keeps `searchResults` and the raw `favoriteStations` private —
+ * publicly they surface as `displayedStations` and the sorted `favoriteStations`
+ * computed. Seed them the way the app does: through loadStations().
+ */
+async function seedSearchResults(store, stations) {
+  apiCall.get.mockResolvedValueOnce(ok({ stations, total: stations.length }));
+  await store.loadStations();
+}
+
+async function seedFavorites(store, stations) {
+  apiCall.get.mockResolvedValueOnce(ok({ stations }));
+  await store.loadStations(true);
+}
+
+/** Put the unified store into "radio is playing X" without touching the network. */
+function playingRadio(metadata) {
+  useUnifiedAudioStore().updateState({
+    data: {
+      full_state: {
+        active_source: 'radio',
+        source_state: 'active',
+        transitioning: false,
+        multiroom_enabled: false,
+        equalizer_effects_enabled: false,
+        metadata,
+      },
+    },
+  });
+}
 
 describe('radioStore', () => {
   let store;
 
   beforeEach(() => {
+    resetApiCallMock();
     store = useRadioStore();
-    vi.clearAllMocks();
-    localStorage.getItem.mockReturnValue(null);
   });
 
-  describe('initial state', () => {
-    it('should have null current station', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe('currentStation', () => {
+    it('is null when radio is not the active source', () => {
+      useUnifiedAudioStore().updateState({
+        data: {
+          full_state: {
+            active_source: 'spotify',
+            source_state: 'active',
+            transitioning: false,
+            multiroom_enabled: false,
+            equalizer_effects_enabled: false,
+            metadata: { station_id: 's1', station_name: 'Leftover' },
+          },
+        },
+      });
+
       expect(store.currentStation).toBeNull();
     });
 
-    it('should not be loading initially', () => {
-      expect(store.loading).toBe(false);
+    it('is null while radio plays but no station is identified yet', () => {
+      playingRadio({ title: 'buffering' });
+
+      expect(store.currentStation).toBeNull();
     });
 
-    it('should not have error initially', () => {
-      expect(store.hasError).toBe(false);
+    it('builds the station from WS metadata', () => {
+      playingRadio({ station_id: 's1', station_name: 'FIP', country: 'France' });
+
+      expect(store.currentStation).toMatchObject({
+        id: 's1',
+        name: 'FIP',
+        country: 'France',
+        is_favorite: false,
+      });
     });
 
-    it('should have empty search query', () => {
-      expect(store.searchQuery).toBe('');
-    });
+    it('prefers the local favorite record over WS metadata', async () => {
+      // A rename done in the UI updates favoriteStations immediately; the
+      // backend metadata still carries the old name until the next broadcast.
+      await seedFavorites(store, [STATION('s1', { name: 'My renamed station' })]);
+      playingRadio({ station_id: 's1', station_name: 'Stale name' });
 
-    it('should have empty filters', () => {
-      expect(store.countryFilter).toBe('');
-      expect(store.genreFilter).toBe('');
-    });
-
-    it('should have empty displayed stations', () => {
-      expect(store.displayedStations).toEqual([]);
+      expect(store.currentStation.name).toBe('My renamed station');
+      expect(store.currentStation.is_favorite).toBe(true);
     });
   });
 
-  describe('favorites', () => {
-    describe('addFavorite', () => {
-      it('should call API to add favorite', async () => {
-        axios.post.mockResolvedValueOnce({ data: { success: true } });
+  describe('trackInfo', () => {
+    it('exposes the Shazam-recognised track while radio is active', () => {
+      playingRadio({
+        station_id: 's1',
+        track_title: 'So What',
+        track_artist: 'Miles Davis',
+        track_artwork: 'https://art/1.jpg',
+      });
 
-        await store.addFavorite('station1');
-
-        expect(axios.post).toHaveBeenCalledWith('/api/radio/favorites/add', expect.objectContaining({
-          station_id: 'station1'
-        }));
+      expect(store.trackInfo).toEqual({
+        title: 'So What',
+        artist: 'Miles Davis',
+        artwork: 'https://art/1.jpg',
       });
     });
 
-    describe('removeFavorite', () => {
-      it('should call API to remove favorite', async () => {
-        axios.delete.mockResolvedValueOnce({ data: { success: true } });
+    it('is null when no track has been recognised', () => {
+      playingRadio({ station_id: 's1' });
 
-        await store.removeFavorite('station1');
-
-        expect(axios.delete).toHaveBeenCalledWith('/api/radio/favorites/station1');
-      });
+      expect(store.trackInfo).toBeNull();
     });
 
-    describe('toggleFavorite', () => {
-      it('should add favorite for unknown station', async () => {
-        axios.post.mockResolvedValueOnce({ data: { success: true } });
+    it('drops the recognised track as soon as radio stops being active', () => {
+      playingRadio({ station_id: 's1', track_title: 'So What' });
+      expect(store.trackInfo).not.toBeNull();
 
-        const result = await store.toggleFavorite('unknown-station');
-
-        expect(axios.post).toHaveBeenCalledWith('/api/radio/favorites/add', expect.objectContaining({
-          station_id: 'unknown-station'
-        }));
-        expect(result).toBe(true);
+      useUnifiedAudioStore().updateState({
+        data: {
+          full_state: {
+            active_source: 'none',
+            source_state: 'waiting',
+            transitioning: false,
+            multiroom_enabled: false,
+            equalizer_effects_enabled: false,
+            metadata: { station_id: 's1', track_title: 'So What' },
+          },
+        },
       });
+
+      expect(store.trackInfo).toBeNull();
     });
   });
 
-  describe('playback', () => {
-    describe('playStation', () => {
-      it('should call play API with station ID', async () => {
-        axios.post.mockResolvedValueOnce({ data: { success: true } });
-
-        await store.playStation('station1');
-
-        expect(axios.post).toHaveBeenCalledWith('/api/radio/play', { station_id: 'station1' });
-      });
-
-      it('should return true on success', async () => {
-        axios.post.mockResolvedValueOnce({ data: { success: true } });
-
-        const result = await store.playStation('station1');
-
-        expect(result).toBe(true);
-      });
-
-      it('should return false on error', async () => {
-        axios.post.mockRejectedValueOnce(new Error('Network error'));
-
-        const result = await store.playStation('station1');
-
-        expect(result).toBe(false);
-      });
+  describe('progressive rendering', () => {
+    beforeEach(async () => {
+      await seedSearchResults(store, Array.from({ length: 100 }, (_, i) => STATION(`s${i}`)));
     });
 
-    describe('stopPlayback', () => {
-      it('should call stop API', async () => {
-        axios.post.mockResolvedValueOnce({ data: { success: true } });
+    it('displays the first page and flags favorites', async () => {
+      await seedFavorites(store, [STATION('s3')]);
 
-        await store.stopPlayback();
-
-        expect(axios.post).toHaveBeenCalledWith('/api/radio/stop');
-      });
+      expect(store.displayedStations).toHaveLength(40);
+      expect(store.hasMoreStations).toBe(true);
+      expect(store.displayedStations.find(s => s.id === 's3').is_favorite).toBe(true);
+      expect(store.displayedStations.find(s => s.id === 's4').is_favorite).toBe(false);
     });
+
+    it('loadMore extends the page and stops at the result count', () => {
+      store.loadMore();
+      expect(store.displayedStations).toHaveLength(80);
+
+      store.loadMore();
+      expect(store.displayedStations).toHaveLength(100);
+      expect(store.hasMoreStations).toBe(false);
+
+      store.loadMore();
+      expect(store.displayedStations).toHaveLength(100);
+    });
+  });
+
+  it('exposes favorites sorted by name, each marked favorite', async () => {
+    await seedFavorites(store, [
+      STATION('b', { name: 'Zeta' }),
+      STATION('a', { name: 'Alpha' }),
+    ]);
+
+    expect(store.favoriteStations.map(s => s.name)).toEqual(['Alpha', 'Zeta']);
+    expect(store.favoriteStations.every(s => s.is_favorite)).toBe(true);
   });
 
   describe('loadStations', () => {
-    it('should load stations from API', async () => {
-      const mockStations = [
-        { id: 's1', name: 'Station 1' },
-        { id: 's2', name: 'Station 2' }
-      ];
-      axios.get.mockResolvedValueOnce({
-        data: { stations: mockStations, total: 2 }
-      });
+    it('stores results and clears the loading flag', async () => {
+      apiCall.get.mockResolvedValueOnce(ok({ stations: [STATION('s1')], total: 1 }));
 
-      await store.loadStations();
+      const promise = store.loadStations();
+      expect(store.loading).toBe(true);
 
-      expect(axios.get).toHaveBeenCalled();
-    });
-
-    it('should set loading state during fetch', async () => {
-      let capturedLoading;
-      axios.get.mockImplementationOnce(() => {
-        capturedLoading = store.loading;
-        return Promise.resolve({ data: { stations: [], total: 0 } });
-      });
-
-      await store.loadStations();
-
-      expect(capturedLoading).toBe(true);
+      await promise;
       expect(store.loading).toBe(false);
+      expect(store.hasError).toBe(false);
+      expect(store.displayedStations).toHaveLength(1);
     });
 
-    it('should handle API errors gracefully', async () => {
-      axios.get.mockRejectedValueOnce(new Error('Network error'));
+    it('serves the unfiltered top-stations list from cache on the second call', async () => {
+      apiCall.get.mockResolvedValueOnce(ok({ stations: [STATION('s1')], total: 1 }));
+      await store.loadStations();
+
+      await store.loadStations();
+
+      expect(apiCall.get).toHaveBeenCalledTimes(1);
+      expect(store.displayedStations).toHaveLength(1);
+    });
+
+    it('refetches once the top-stations cache has expired', async () => {
+      vi.useFakeTimers();
+      apiCall.get.mockResolvedValue(ok({ stations: [STATION('s1')], total: 1 }));
+
+      await store.loadStations();
+      vi.advanceTimersByTime(3 * 60 * 1000 + 1);
+      await store.loadStations();
+
+      expect(apiCall.get).toHaveBeenCalledTimes(2);
+    });
+
+    it('bypasses the cache as soon as a filter is active', async () => {
+      apiCall.get.mockResolvedValue(ok({ stations: [STATION('s1')], total: 1 }));
+      await store.loadStations();
+
+      store.searchQuery = 'jazz';
+      await store.loadStations();
+
+      expect(apiCall.get).toHaveBeenCalledTimes(2);
+      expect(apiCall.get).toHaveBeenLastCalledWith(
+        '/api/radio/stations',
+        expect.objectContaining({ params: expect.objectContaining({ query: 'jazz' }) }),
+      );
+    });
+
+    it('flags a network error when the backend reports one in the payload', async () => {
+      apiCall.get.mockResolvedValueOnce(ok({ network_error: true, stations: [], total: 0 }));
+
+      const result = await store.loadStations();
+
+      expect(result).toBe(false);
+      expect(store.networkError).toBe(true);
+      expect(store.hasError).toBe(true);
+    });
+
+    it('flags a network error when the request fails at TCP level (status null)', async () => {
+      apiCall.get.mockResolvedValueOnce(fail('Network Error', null));
+
+      await store.loadStations();
+
+      expect(store.networkError).toBe(true);
+      expect(store.hasError).toBe(true);
+    });
+
+    it('does not flag a network error on an HTTP error status', async () => {
+      apiCall.get.mockResolvedValueOnce(fail('Bad request', 400));
 
       await store.loadStations();
 
       expect(store.hasError).toBe(true);
+      expect(store.networkError).toBe(false);
+    });
+
+    it('stays silent when the request was cancelled by a newer search', async () => {
+      // apiCall reports cancellation as { ok: false, error: null }.
+      apiCall.get.mockResolvedValueOnce({ ok: false, data: null, error: null });
+
+      const result = await store.loadStations();
+
+      expect(result).toBe(false);
+      expect(store.hasError).toBe(false);
+      expect(store.networkError).toBe(false);
+    });
+
+    it('loads favorites into their own list when favoritesOnly is set', async () => {
+      apiCall.get.mockResolvedValueOnce(ok({ stations: [STATION('s1')], total: 1 }));
+
+      await store.loadStations(true);
+
+      expect(apiCall.get).toHaveBeenCalledWith(
+        '/api/radio/stations',
+        expect.objectContaining({ params: { favorites_only: true } }),
+      );
+      expect(store.favoriteStations).toHaveLength(1);
+      expect(store.displayedStations).toHaveLength(0);
+    });
+  });
+
+  describe('preloadFavorites', () => {
+    it('fetches once and marks favorites initialised', async () => {
+      apiCall.get.mockResolvedValue(ok({ stations: [STATION('s1')] }));
+
+      await store.preloadFavorites();
+      await store.preloadFavorites();
+
+      expect(apiCall.get).toHaveBeenCalledTimes(1);
+      expect(store.favoritesInitialized).toBe(true);
+    });
+
+    it('refetches when forced, as the resync path does', async () => {
+      apiCall.get.mockResolvedValue(ok({ stations: [STATION('s1')] }));
+      await store.preloadFavorites();
+
+      await store.preloadFavorites({ force: true });
+
+      expect(apiCall.get).toHaveBeenCalledTimes(2);
+      // Favorites stay initialised during the refetch so the view keeps its data.
+      expect(store.favoritesInitialized).toBe(true);
+    });
+  });
+
+  describe('play / favorite payloads', () => {
+    it('sends the full station object when the store already knows it', async () => {
+      // Lets the backend play a station that is not in its own catalog
+      // (custom or search-only result) without a second lookup.
+      const station = STATION('s1');
+      await seedSearchResults(store, [station]);
+      apiCall.post.mockResolvedValueOnce(ok({ success: true }));
+
+      await store.playStation('s1');
+
+      expect(apiCall.post).toHaveBeenCalledWith(
+        '/api/radio/play',
+        { station_id: 's1', station },
+        expect.anything(),
+      );
+    });
+
+    it('falls back to the bare id for an unknown station', async () => {
+      apiCall.post.mockResolvedValueOnce(ok({ success: true }));
+
+      await store.playStation('unknown');
+
+      expect(apiCall.post).toHaveBeenCalledWith(
+        '/api/radio/play',
+        { station_id: 'unknown' },
+        expect.anything(),
+      );
+    });
+
+    it('reports failure when the backend answers success: false', async () => {
+      apiCall.post.mockResolvedValueOnce(ok({ success: false }));
+
+      expect(await store.playStation('s1')).toBe(false);
+    });
+
+    it('toggleFavorite removes a station that is already a favorite', async () => {
+      await seedFavorites(store, [STATION('s1')]);
+      apiCall.delete.mockResolvedValueOnce(ok({ success: true }));
+
+      await store.toggleFavorite('s1');
+
+      expect(apiCall.delete).toHaveBeenCalledWith('/api/radio/favorites/s1', expect.anything());
+      expect(apiCall.post).not.toHaveBeenCalled();
+    });
+
+    it('toggleFavorite adds a station that is not yet a favorite', async () => {
+      apiCall.post.mockResolvedValueOnce(ok({ success: true }));
+
+      await store.toggleFavorite('s1');
+
+      expect(apiCall.post).toHaveBeenCalledWith(
+        '/api/radio/favorites/add',
+        { station_id: 's1' },
+        expect.anything(),
+      );
+      expect(apiCall.delete).not.toHaveBeenCalled();
     });
   });
 
   describe('custom stations', () => {
-    describe('addCustomStation', () => {
-      it('should call API to add custom station', async () => {
-        axios.post.mockResolvedValueOnce({
-          data: {
-            success: true,
-            station: { id: 'custom1', name: 'My Station', url: 'https://stream.example.com' }
-          }
-        });
+    it('prunes a removed custom station from the local results', async () => {
+      await seedSearchResults(store, [STATION('custom1'), STATION('s2')]);
+      apiCall.delete.mockResolvedValueOnce(ok({ success: true }));
 
-        const result = await store.addCustomStation({
-          name: 'My Station',
-          url: 'https://stream.example.com'
-        });
+      const removed = await store.removeCustomStation('custom1');
 
-        expect(axios.post).toHaveBeenCalledWith(
-          '/api/radio/custom/add',
-          expect.any(FormData),
-          expect.objectContaining({
-            headers: { 'Content-Type': 'multipart/form-data' }
-          })
-        );
-        expect(result.success).toBe(true);
-      });
-
-      it('should return error on failure', async () => {
-        axios.post.mockResolvedValueOnce({
-          data: { success: false, error: 'Invalid URL' }
-        });
-
-        const result = await store.addCustomStation({
-          name: 'Bad',
-          url: 'invalid'
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toBe('Invalid URL');
-      });
+      expect(removed).toBe(true);
+      expect(store.displayedStations.map(s => s.id)).toEqual(['s2']);
     });
 
-    describe('removeCustomStation', () => {
-      it('should call API to remove custom station', async () => {
-        axios.delete.mockResolvedValueOnce({ data: { success: true } });
+    it('keeps the local results intact when the removal fails', async () => {
+      await seedSearchResults(store, [STATION('custom1')]);
+      apiCall.delete.mockResolvedValueOnce(fail('Not found', 404));
 
-        const result = await store.removeCustomStation('custom1');
+      expect(await store.removeCustomStation('custom1')).toBe(false);
+      expect(store.displayedStations).toHaveLength(1);
+    });
 
-        expect(axios.delete).toHaveBeenCalledWith('/api/radio/custom/custom1');
-        expect(result).toBe(true);
-      });
+    it('surfaces the backend error detail when adding fails', async () => {
+      apiCall.post.mockResolvedValueOnce(ok({ success: false, error: 'Invalid URL' }));
+
+      const result = await store.addCustomStation({ name: 'Bad', url: 'invalid' });
+
+      expect(result).toEqual({ success: false, error: 'Invalid URL' });
+    });
+
+    it('sends the creation as multipart form data', async () => {
+      apiCall.post.mockResolvedValueOnce(ok({ success: true, station: STATION('custom1') }));
+
+      await store.addCustomStation({ name: 'My Station', url: 'https://stream.example' });
+
+      const [url, body, options] = apiCall.post.mock.calls[0];
+      expect(url).toBe('/api/radio/custom/add');
+      expect(body).toBeInstanceOf(FormData);
+      expect(body.get('name')).toBe('My Station');
+      // Defaults to enabled — the backend expects the field on every creation.
+      expect(body.get('shazam_enabled')).toBe('true');
+      expect(options.headers).toEqual({ 'Content-Type': 'multipart/form-data' });
     });
   });
 
+  describe('handleMetadataModified', () => {
+    it('updates the station in both the favorites and the search list', async () => {
+      await seedFavorites(store, [STATION('s1')]);
+      await seedSearchResults(store, [STATION('s1'), STATION('s2')]);
+
+      store.handleMetadataModified({ ...STATION('s1'), name: 'Renamed' });
+
+      expect(store.favoriteStations[0].name).toBe('Renamed');
+      expect(store.favoriteStations[0].is_favorite).toBe(true);
+      expect(store.displayedStations[0].name).toBe('Renamed');
+      expect(store.displayedStations[1].name).toBe('Station s2');
+    });
+  });
 });
