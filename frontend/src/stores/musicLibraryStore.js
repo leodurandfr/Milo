@@ -62,7 +62,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const shuffle = computed(() => !!meta.value.shuffle);
   const currentTrackId = computed(() => meta.value.track_id || null);
   const isPlaying = computed(() => !!meta.value.is_playing);
-  const isBuffering = computed(() => !!meta.value.is_buffering);
 
   // Live now-playing, or null when the queue is cleared (WAITING).
   const nowPlaying = computed(() => {
@@ -92,12 +91,10 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // =========================================================================
   const likedSongs = ref([]);
   const likedSongIds = ref(new Set());
-  const likedSongsLoading = ref(false);
   const likedSongsLoaded = ref(false);
 
   async function loadLikedSongs({ force = false } = {}) {
     if (likedSongsLoaded.value && !force) return;
-    likedSongsLoading.value = true;
     const result = await apiCall.get(`${BASE}/starred`, {
       category: 'musicLibrary',
       message: 'Error loading liked songs',
@@ -108,7 +105,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       likedSongIds.value = new Set(result.data.songs.map((s) => s.id));
       likedSongsLoaded.value = true;
     }
-    likedSongsLoading.value = false;
   }
 
   const isSongLiked = (id) => likedSongIds.value.has(id);
@@ -524,12 +520,10 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // password is write-only (handed to the mount helper, never read back).
   // =========================================================================
   const shares = ref([]);
-  const sharesLoading = ref(false);
   const sharesLoaded = ref(false);
 
   async function loadShares({ force = false } = {}) {
     if (sharesLoaded.value && !force) return;
-    sharesLoading.value = true;
     const result = await apiCall.get(`${BASE}/shares`, {
       category: 'musicLibrary',
       message: 'Error loading network shares',
@@ -538,7 +532,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       shares.value = result.data.shares;
       sharesLoaded.value = true;
     }
-    sharesLoading.value = false;
   }
 
   // Adding/updating a share (re)mounts it and kicks a rescan; refresh the scan
@@ -682,16 +675,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     shuffle,
     currentTrackId,
     isPlaying,
-    isBuffering,
 
     // Favorites (liked songs)
     likedSongs,
     likedSongIds,
-    likedSongsLoading,
-    likedSongsLoaded,
     likedSongsCount,
     loadLikedSongs,
-    isSongLiked,
     setSongFavorite,
     currentStarred,
     toggleCurrentStar,
@@ -705,7 +694,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     previous,
     swipePrevious,
     stop,
-    setShuffle,
     toggleShuffle,
 
     // Albums
@@ -768,8 +756,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
     // Network shares
     shares,
-    sharesLoading,
-    sharesLoaded,
     loadShares,
     addShare,
     updateShare,
@@ -779,7 +765,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
     // USB devices (read-only)
     usbDevices,
-    usbLoaded,
     loadUsbDevices,
 
     // UI

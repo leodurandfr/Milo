@@ -21,7 +21,7 @@
         <!-- State 3: Equalizer connected - controls -->
         <div v-else key="controls" class="controls-content">
           <!-- Section 1: Zones (tabs) -->
-          <ItemSelector ref="zoneTabsRef" :disabled="equalizerStore.isUpdating" />
+          <ItemSelector ref="zoneTabsRef" />
 
           <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
           <SettingsSection>
@@ -32,17 +32,17 @@
                   <span v-if="selectedZoneName" class="eq-header__subtitle text-mono">{{ selectedZoneName }}</span>
                 </div>
                 <Button v-if="equalizerStore.isPresetEdited" variant="brand" size="small"
-                  :disabled="equalizerStore.isUpdating" @click="handleSaveCustomPreset">
+                  @click="handleSaveCustomPreset">
                   {{ t('equalizer.presets.save') }}
                 </Button>
                 <Dropdown :model-value="currentPresetValue" :options="presetOptions"
                   :display-override="presetDisplayOverride" :placeholder="t('equalizer.selectPreset')"
-                  :disabled="equalizerStore.isUpdating" size="small" class="eq-header__dropdown"
+                  size="small" class="eq-header__dropdown"
                   @update:model-value="handlePresetChange" />
               </div>
             </template>
             <ParametricEQ :filters="equalizerStore.filters" :filters-loaded="equalizerStore.filtersLoaded"
-              :disabled="equalizerStore.isUpdating" :is-mobile="isMobile" @update:filter="handleFilterUpdate"
+              :is-mobile="isMobile" @update:filter="handleFilterUpdate"
               @change="handleFilterChange" />
           </SettingsSection>
 

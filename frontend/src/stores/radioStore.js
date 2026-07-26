@@ -551,8 +551,6 @@ export const useRadioStore = defineStore('radio', () => {
     loadMore,
     playStation,
     stopPlayback,
-    addFavorite,
-    removeFavorite,
     toggleFavorite,
     addCustomStation,
     removeCustomStation,

@@ -413,9 +413,6 @@ onMounted(async () => {
   snapcastStore.preloadDisplayCache();
 
   if (isMultiroomActive.value) {
-    // Preload cache synchronously to get the correct number of clients
-    snapcastStore.preloadCache();
-    // Load fresh clients in the background
     await snapcastStore.loadClients();
   }
 
@@ -432,7 +429,7 @@ onMounted(async () => {
 // Reload clients when multiroom becomes ready after a transition
 watch(() => multiroomStore.transitionState, (newState, oldState) => {
   if (newState === 'idle' && (oldState === 'enabling' || oldState === 'disabling')) {
-    snapcastStore.loadClients(true);
+    snapcastStore.loadClients();
   }
 });
 
