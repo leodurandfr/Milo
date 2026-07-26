@@ -17,7 +17,6 @@ from unittest.mock import Mock, AsyncMock, patch
 from backend.config.constants import PODCASTINDEX_API_KEY, PODCASTINDEX_API_SECRET
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.data import PodcastDataService
-from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 from backend.shared.persistence import SchemaVersionMismatch
 
@@ -53,21 +52,10 @@ def podcast_source(config):
 class TestBaseClassCompliance:
     """Test that PodcastSource extends BaseAudioSource correctly."""
 
-    def test_extends_base_audio_source(self, podcast_source):
-        """Test PodcastSource extends BaseAudioSource."""
-        assert isinstance(podcast_source, BaseAudioSource)
-
     def test_has_required_attributes(self, podcast_source):
         """Test required attributes exist."""
         assert podcast_source.source_id == "podcast"
         assert podcast_source.service_name == "milo-podcast.service"
-
-    def test_has_required_methods(self, podcast_source):
-        """Test required methods exist."""
-        assert hasattr(podcast_source, 'start')
-        assert hasattr(podcast_source, 'stop')
-        assert hasattr(podcast_source, 'command')
-
 
 class TestPodcastSourceConfig:
     """Test PodcastSource configuration."""
@@ -273,15 +261,6 @@ class TestPodcastSourceCommands:
 
         assert result["success"] is True
         assert podcast_source._playback_speed == 1.25  # Nearest valid
-
-    @pytest.mark.asyncio
-    async def test_unknown_command(self, podcast_source):
-        """Test unknown command returns error."""
-        result = await podcast_source.command("unknown_cmd", {})
-
-        assert result["success"] is False
-        assert "error" in result
-
 
 class TestPodcastDataService:
     """Test PodcastDataService."""

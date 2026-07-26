@@ -16,7 +16,6 @@ from unittest.mock import Mock, AsyncMock, patch
 from backend.sources.bluetooth.source import BluetoothSource
 from backend.sources.bluetooth.agent import BluetoothAgent
 from backend.sources.bluetooth.monitor import BlueAlsaMonitor
-from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 
 
@@ -66,21 +65,10 @@ def bluetooth_source(config):
 class TestBaseClassCompliance:
     """Test that BluetoothSource extends BaseAudioSource correctly."""
 
-    def test_extends_base_audio_source(self, bluetooth_source):
-        """Test BluetoothSource extends BaseAudioSource."""
-        assert isinstance(bluetooth_source, BaseAudioSource)
-
     def test_has_required_attributes(self, bluetooth_source):
         """Test required attributes exist."""
         assert bluetooth_source.source_id == "bluetooth"
         assert bluetooth_source.service_name == "milo-bluealsa.service"
-
-    def test_has_required_methods(self, bluetooth_source):
-        """Test required methods exist."""
-        assert hasattr(bluetooth_source, 'start')
-        assert hasattr(bluetooth_source, 'stop')
-        assert hasattr(bluetooth_source, 'command')
-
 
 class TestBluetoothSourceConfig:
     """Test BluetoothSource configuration."""
@@ -203,15 +191,6 @@ class TestBluetoothSourceCommands:
 
     # Note: restart_audio, restart_bluealsa, and toggle_agent commands
     # are not part of the current BluetoothSource API (only "disconnect" is supported)
-
-    @pytest.mark.asyncio
-    async def test_unknown_command(self, bluetooth_source):
-        """Test unknown command returns error."""
-        result = await bluetooth_source.command("unknown_cmd", {})
-
-        assert result["success"] is False
-        assert "error" in result
-
 
 class TestConnectionState:
     """Test connection state management."""

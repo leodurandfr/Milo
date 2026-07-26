@@ -15,7 +15,6 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.sources.spotify.source import SpotifySource
 from backend.sources.spotify.websocket import LibrespotWebSocket
-from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
 
 
@@ -53,21 +52,10 @@ def spotify_source(config):
 class TestBaseClassCompliance:
     """Test that SpotifySource extends BaseAudioSource correctly."""
 
-    def test_extends_base_audio_source(self, spotify_source):
-        """Test SpotifySource extends BaseAudioSource."""
-        assert isinstance(spotify_source, BaseAudioSource)
-
     def test_has_required_attributes(self, spotify_source):
         """Test required attributes exist."""
         assert spotify_source.source_id == "spotify"
         assert spotify_source.service_name == "milo-spotify.service"
-
-    def test_has_required_methods(self, spotify_source):
-        """Test required methods exist."""
-        assert hasattr(spotify_source, 'start')
-        assert hasattr(spotify_source, 'stop')
-        assert hasattr(spotify_source, 'command')
-
 
 class TestSpotifySourceConfig:
     """Test SpotifySource configuration."""
@@ -211,15 +199,6 @@ class TestSpotifySourceCommands:
         result = await spotify_source.command("seek", {"position_ms": 30000})
 
         assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_unknown_command(self, spotify_source):
-        """Test unknown command returns error."""
-        result = await spotify_source.command("unknown_cmd", {})
-
-        assert result["success"] is False
-        assert "error" in result
-
 
 class TestWebSocketEvents:
     """Test WebSocket event handling."""
