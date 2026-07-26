@@ -547,9 +547,18 @@ class SnapcastWebSocketService:
                     )
 
     async def _process_disconnected_clients(self, current_mac_ids: set, known_mac_ids: set) -> None:
-        """Mark registry clients as offline when they no longer appear in Snapcast."""
+        """Mark registry clients as offline when they no longer appear in Snapcast.
+
+        Only a real transition is worth a line: this runs on every reconcile pass,
+        so logging unconditionally wrote the same "disconnected" line every 30s for
+        as long as a satellite stayed unplugged.
+        """
         for mac_id in known_mac_ids:
             if mac_id not in current_mac_ids:
+                client = self.registry.get_client(mac_id) if self.registry else None
+                if client is None or not client.online:
+                    continue
+
                 self.logger.info(f"CLIENT DISCONNECTED: {mac_id}")
                 if self.registry:
                     await self.registry.set_client_online(mac_id, False)
