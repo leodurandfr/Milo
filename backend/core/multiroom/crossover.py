@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
-from backend.core.models.ws_events import MultiroomCrossoverChanged, MultiroomZoneChanged
+from backend.core.models.ws_events import MultiroomZoneChanged
 from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCIES,
@@ -268,19 +268,12 @@ class CrossoverService:
             self.logger.warning(f"Zone {zone_id} not found")
             return False
 
+        # update_zone emits ZONE_UPDATED, so the enriched zone (carrying the new
+        # crossover_frequency) reaches the UI on multiroom/zone_changed — no
+        # second event for the same change.
         await self._registry.update_zone(zone_id, crossover_frequency=int(frequency))
 
         self.logger.info(f"Zone {zone_id} crossover frequency set to {frequency} Hz")
-
-        # Get updated crossover state for complete event data
-        crossover_state = await self.get_zone_crossover(zone_id)
-
-        if self.state_machine:
-            await self.state_machine.broadcast(MultiroomCrossoverChanged(
-                zone_id=zone_id,
-                crossover_enabled=crossover_state["enabled"],
-                crossover_frequency=int(frequency),
-            ))
 
         # Apply the updated crossover filters to all zone clients
         await self.apply_zone_crossover(zone_id)

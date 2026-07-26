@@ -22,7 +22,7 @@ import { logger } from '@/services/logger';
  *   volume    → unifiedAudioStore (volume_changed)
  *   routing   → multiroomStore (multiroom_* transition events)
  *   multiroom → multiroomStore / equalizerStore (client_state_changed,
- *               zone_changed, equalizer_changed, crossover_changed)
+ *               zone_changed, pending_client_changed, equalizer_changed)
  *   equalizer → equalizerStore (state_changed, filter_changed,
  *               compressor_changed, loudness_changed, mono_changed,
  *               enabled_changed, zone_enabled_changed)

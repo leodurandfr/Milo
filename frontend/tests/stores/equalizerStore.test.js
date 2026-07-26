@@ -468,9 +468,6 @@ describe('equalizerStore', () => {
       expect(equalizerStore.outputPeak).toEqual([-80, -80]);
     });
 
-    it('crossover_changed ignores a payload with no zone', () => {
-      expect(() => equalizerStore.handleZoneCrossoverChanged({})).not.toThrow();
-    });
   });
 
   describe('targets derived from the registry', () => {

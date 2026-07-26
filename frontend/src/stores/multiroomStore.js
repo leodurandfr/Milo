@@ -286,7 +286,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
       default:
         // Ignore unknown event types silently
-        // Note: equalizer_changed and crossover_changed are handled by equalizerStore
+        // Note: equalizer_changed is handled by equalizerStore
         break;
     }
   }
