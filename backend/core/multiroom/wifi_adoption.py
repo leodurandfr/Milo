@@ -43,8 +43,11 @@ HOTSPOT_CONNECT_TIMEOUT = 30.0
 # Allow NM up to this long to bring the original wifi back.
 RESTORE_CONNECT_TIMEOUT = 30.0
 
-# After hotspot association, wait for DHCP to issue the gateway lease.
-DHCP_GRACE_PERIOD = 2.0
+# After hotspot association, wait for the speaker's DHCP lease to install a
+# default route. NM returns from `connection up` before the lease is necessarily
+# applied, so this is polled rather than slept through once.
+GATEWAY_WAIT_TIMEOUT = 15.0
+GATEWAY_POLL_INTERVAL = 1.0
 
 # Total HTTP timeout for the become-client request (includes server-side
 # atomic write + nmcli profile save before it returns).
@@ -122,12 +125,12 @@ class WifiAdoptionService:
             raise
 
         try:
-            await asyncio.sleep(DHCP_GRACE_PERIOD)
-            gateway = await self._get_default_gateway()
+            gateway = await self._wait_for_default_gateway()
             if not gateway:
                 raise AdoptionError(
                     "no_gateway",
-                    "Could not discover speaker gateway IP after hotspot association",
+                    f"No default route on {WLAN_INTERFACE} {GATEWAY_WAIT_TIMEOUT:.0f}s "
+                    f"after associating with the speaker hotspot",
                 )
 
             await self._push_become_client(
@@ -146,13 +149,21 @@ class WifiAdoptionService:
     async def _connect_to_hotspot(self, ssid: str) -> None:
         await self._run_nmcli("connection", "delete", ssid)
 
+        # No wifi-sec setting at all: the setup hotspot is open, and NM reads
+        # `key-mgmt=none` as *WEP with static keys*, then refuses to activate
+        # without a wep-key0 it can never be given ("Secrets were required, but
+        # not provided"). Omitting the security block is how NetworkService
+        # joins open networks too.
+        # autoconnect=no: this profile is torn down in a `finally`, but a crash
+        # or power cut before that would otherwise leave the server permanently
+        # re-joining the speaker's hotspot instead of the home network.
         rc, _, stderr = await self._run_nmcli(
             "connection", "add",
             "type", "wifi",
             "ifname", WLAN_INTERFACE,
             "con-name", ssid,
             "ssid", ssid,
-            "wifi-sec.key-mgmt", "none",
+            "connection.autoconnect", "no",
         )
         if rc != 0:
             raise AdoptionError(
@@ -253,6 +264,18 @@ class WifiAdoptionService:
                 continue
             return name
         return None
+
+    async def _wait_for_default_gateway(self) -> Optional[str]:
+        """Poll until the speaker's DHCP lease installs a default route, or give up."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + GATEWAY_WAIT_TIMEOUT
+        while True:
+            gateway = await self._get_default_gateway()
+            if gateway:
+                return gateway
+            if loop.time() >= deadline:
+                return None
+            await asyncio.sleep(GATEWAY_POLL_INTERVAL)
 
     async def _get_default_gateway(self) -> Optional[str]:
         proc = None
