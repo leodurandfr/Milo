@@ -425,48 +425,6 @@ class EqualizerStateChanged(WsEvent):
     state: str
 
 
-class EqualizerFilterChanged(WsEvent):
-    """equalizerStore/ParametricEQ — canonical EQ-filter wire shape
-    (EqFilter.to_wire_dict: freq/type, not the frequency/filter_type
-    persistence shape)."""
-    CATEGORY = "equalizer"
-    TYPE = "filter_changed"
-    id: str
-    freq: float
-    gain: float
-    q: float
-    type: str
-    enabled: bool
-
-
-class EqualizerCompressorChanged(WsEvent):
-    """equalizerStore compressor panel sync."""
-    CATEGORY = "equalizer"
-    TYPE = "compressor_changed"
-    enabled: bool
-    threshold: float
-    ratio: float
-    attack: float
-    release: float
-    makeup_gain: float
-
-
-class EqualizerLoudnessChanged(WsEvent):
-    """equalizerStore loudness panel sync."""
-    CATEGORY = "equalizer"
-    TYPE = "loudness_changed"
-    enabled: bool
-    high_boost: float
-    low_boost: float
-
-
-class EqualizerMonoChanged(WsEvent):
-    """equalizerStore mono toggle sync."""
-    CATEGORY = "equalizer"
-    TYPE = "mono_changed"
-    enabled: bool
-
-
 class EqualizerLevels(WsEvent):
     """Zod equalizer.levels → VU meter; output_peak = [left_db, right_db]."""
     CATEGORY = "equalizer"

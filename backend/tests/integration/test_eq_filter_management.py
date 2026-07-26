@@ -68,44 +68,6 @@ class TestFilterParameterUpdate:
         return service
 
     @pytest.mark.asyncio
-    async def test_set_filter_broadcasts_filter_changed_event(self, connected_camilladsp_service, mock_state_machine):
-        """Should broadcast filter_changed event when filter is updated"""
-        # Mock CamillaClient methods
-        mock_config = {
-            "filters": {
-                "eq_band_00": {
-                    "type": "Biquad",
-                    "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41}
-                }
-            }
-        }
-
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock) as mock_get:
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                mock_get.return_value = mock_config
-
-                # Update filter
-                result = await connected_camilladsp_service.set_filter(
-                    filter_id="eq_band_00",
-                    freq=100,
-                    gain=3.0,
-                    q=1.41
-                )
-
-                assert result is True
-
-                # Verify broadcast was called with correct event type and data
-                mock_state_machine.broadcast.assert_called()
-                event = mock_state_machine.broadcast.call_args.args[0]
-                assert event.CATEGORY == "equalizer"
-                assert event.TYPE == "filter_changed"
-                assert event.id == "eq_band_00"
-                assert event.freq == 100
-                assert event.gain == 3.0
-                assert event.q == 1.41
-                assert event.enabled is True
-
-    @pytest.mark.asyncio
     async def test_set_filter_updates_local_cache(self, connected_camilladsp_service):
         """Should update local filter cache when filter is set"""
         mock_config = {"filters": {"eq_band_00": {"type": "Biquad", "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41}}}}

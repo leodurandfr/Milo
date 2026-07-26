@@ -29,7 +29,6 @@ from backend.core.state import AudioStateMachine
 from backend.core.models.ws_events import (
     DockAppsChanged,
     DockAppsConfig,
-    EqualizerFilterChanged,
     EqualizerLevels,
     MultiroomPendingClientChanged,
     MultiroomZoneChanged,
@@ -151,14 +150,6 @@ CASES = [
          "origin": "program_update",
          "data": {"source": "program_update", "program": "go-librespot",
                   "success": True}},
-        False,
-    ),
-    (
-        EqualizerFilterChanged(id="eq_band_00", freq=31.0, gain=3.0, q=1.41,
-                               type="Peaking", enabled=True),
-        {"category": "equalizer", "type": "filter_changed", "origin": "equalizer",
-         "data": {"id": "eq_band_00", "freq": 31.0, "gain": 3.0, "q": 1.41,
-                  "type": "Peaking", "enabled": True}},
         False,
     ),
     (

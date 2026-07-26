@@ -134,7 +134,6 @@ class EqualizerRouter:
         filter_id: str,
         filter_data: Dict[str, Any],
         persist: bool = True,
-        broadcast: bool = True
     ) -> Dict[str, Any]:
         """
         Update a filter for a client.
@@ -146,7 +145,6 @@ class EqualizerRouter:
                 `enabled`: pipeline membership is the master toggle's, so a
                 targeted band edit must not re-pipe a band on a bypassed client.
             persist: Save to settings (False for zone updates using registry)
-            broadcast: Emit WebSocket event (False for batch updates)
         """
         async def local():
             if self._camilladsp_service:
@@ -157,7 +155,6 @@ class EqualizerRouter:
                     q=filter_data.get("q"),
                     filter_type=filter_data.get("filter_type"),
                     persist=persist,
-                    broadcast=broadcast
                 )
                 return {"status": "success" if success else "error", "filter_id": filter_id}
             return {"status": "error", "message": "Equalizer service not available"}
@@ -177,13 +174,12 @@ class EqualizerRouter:
         mac_id: str,
         settings: Dict[str, Any],
         persist: bool = True,
-        broadcast: bool = True
     ) -> Dict[str, Any]:
         """Set compressor settings for a client."""
         async def local():
             if self._camilladsp_service:
                 success = await self._camilladsp_service.set_compressor(
-                    **settings, persist=persist, broadcast=broadcast
+                    **settings, persist=persist
                 )
                 return {"status": "success" if success else "error"}
             return {"status": "error", "message": "Equalizer service not available"}
@@ -201,13 +197,12 @@ class EqualizerRouter:
         mac_id: str,
         settings: Dict[str, Any],
         persist: bool = True,
-        broadcast: bool = True
     ) -> Dict[str, Any]:
         """Set loudness settings for a client."""
         async def local():
             if self._camilladsp_service:
                 success = await self._camilladsp_service.set_loudness(
-                    **settings, persist=persist, broadcast=broadcast
+                    **settings, persist=persist
                 )
                 return {"status": "success" if success else "error"}
             return {"status": "error", "message": "Equalizer service not available"}
@@ -225,13 +220,12 @@ class EqualizerRouter:
         mac_id: str,
         settings: Dict[str, Any],
         persist: bool = True,
-        broadcast: bool = True
     ) -> Dict[str, Any]:
         """Set mono/stereo mixing for a client."""
         async def local():
             if self._camilladsp_service:
                 success = await self._camilladsp_service.set_mono(
-                    **settings, persist=persist, broadcast=broadcast
+                    **settings, persist=persist
                 )
                 return {"status": "success" if success else "error"}
             return {"status": "error", "message": "Equalizer service not available"}

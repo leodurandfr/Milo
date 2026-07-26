@@ -19,10 +19,6 @@ from backend.core.equalizer.config_builder import (
 )
 from backend.core.equalizer.presets import get_builtin_presets, DEFAULT_CUSTOM_GAINS, DEFAULT_EQ_FREQS
 from backend.core.models.ws_events import (
-    EqualizerCompressorChanged,
-    EqualizerFilterChanged,
-    EqualizerLoudnessChanged,
-    EqualizerMonoChanged,
     EqualizerStateChanged,
     WsEvent,
 )
@@ -350,7 +346,7 @@ class CamillaDSPService:
 
             # Mono is a spatial setting, not an effect — restore independently of bypass
             if self._mono:
-                await self.set_mono(enabled=True, persist=False, broadcast=False)
+                await self.set_mono(enabled=True, persist=False)
 
         except Exception as e:
             self.logger.error(f"Error restoring state after reconnect: {e}")
@@ -537,8 +533,7 @@ class CamillaDSPService:
     @handle_errors(default=False)
     async def set_filter(self, filter_id: str, freq: float, gain: float,
                          q: float, filter_type: str = "Peaking",
-                         persist: bool = True,
-                         broadcast: bool = True) -> bool:
+                         persist: bool = True) -> bool:
         """
         Update a single filter band's tuning.
 
@@ -546,15 +541,17 @@ class CamillaDSPService:
         master toggle (bypass_effects/restore_effects), so the band's cached
         flag is carried through unchanged here.
 
+        Announces nothing: the caller (MultiroomEqualizerService) broadcasts the
+        change against its target, which is the only granularity a consumer can
+        act on.
+
         Args:
             persist: Set to False during bypass operations
-            broadcast: Set to False to suppress WebSocket broadcast (useful for batch updates)
         """
         if not self._connected:
             self.logger.warning("Cannot set filter: not connected")
             return False
 
-        enabled = True
         async with self._config_lock:
             config = await self._get_config()
             self._config_set_eq_filter(config, filter_id, freq, gain, q, filter_type)
@@ -568,15 +565,7 @@ class CamillaDSPService:
                         "gain": gain,
                         "q": q,
                     })
-                    enabled = bool(f.get("enabled", True))
                     break
-
-        # Broadcast update (can be suppressed for batch updates)
-        if broadcast:
-            await self._broadcast(EqualizerFilterChanged(
-                id=filter_id, freq=freq, gain=gain, q=q,
-                type=filter_type, enabled=enabled,
-            ))
 
         # Persist filters to settings (skip during bypass operations)
         if persist:
@@ -656,14 +645,12 @@ class CamillaDSPService:
         release: float = None,
         makeup_gain: float = None,
         persist: bool = True,
-        broadcast: bool = True
     ) -> bool:
         """
         Update compressor settings.
 
         Args:
             persist: Set to False during bypass operations
-            broadcast: Set to False to suppress WebSocket event (for batch zone updates)
         """
         if not self._connected:
             self.logger.warning("Cannot set compressor: not connected")
@@ -683,28 +670,22 @@ class CamillaDSPService:
         if makeup_gain is not None:
             self._compressor["makeup_gain"] = makeup_gain
 
-        return await self._apply_effect(
-            self._config_apply_compressor,
-            lambda: EqualizerCompressorChanged(**self._compressor),
-            persist=persist, broadcast=broadcast,
-        )
+        return await self._apply_effect(self._config_apply_compressor, persist=persist)
 
     @handle_errors(default=False)
-    async def _apply_effect(self, mutate, build_event, *, persist: bool, broadcast: bool) -> bool:
-        """Push one effect's cache state to the daemon, then announce and persist it.
+    async def _apply_effect(self, mutate, *, persist: bool) -> bool:
+        """Push one effect's cache state to the daemon, then persist it.
 
         The three effect setters (compressor / loudness / mono) differ only in
-        which pure mutator writes the graph and which event announces it, so they
-        share this: the lock scope, the broadcast suppression used by batch zone
-        updates and the persist suppression used by bypass are decided once.
+        which pure mutator writes the graph, so they share this: the lock scope
+        and the persist suppression used by bypass are decided once. None of them
+        announces anything — MultiroomEqualizerService broadcasts the change
+        against its target, which is the only granularity a consumer can act on.
         """
         async with self._config_lock:
             config = await self._get_config()
             mutate(config)
             await self._set_config(config)
-
-        if broadcast:
-            await self._broadcast(build_event())
 
         if persist:
             self._schedule_persist()
@@ -719,14 +700,12 @@ class CamillaDSPService:
         high_boost: float = None,
         low_boost: float = None,
         persist: bool = True,
-        broadcast: bool = True
     ) -> bool:
         """
         Update loudness compensation settings.
 
         Args:
             persist: Set to False during bypass operations
-            broadcast: Set to False to suppress WebSocket event (for batch zone updates)
         """
         if not self._connected:
             self.logger.warning("Cannot set loudness: not connected")
@@ -740,11 +719,7 @@ class CamillaDSPService:
         if low_boost is not None:
             self._loudness["low_boost"] = low_boost
 
-        return await self._apply_effect(
-            self._config_apply_loudness,
-            lambda: EqualizerLoudnessChanged(**self._loudness),
-            persist=persist, broadcast=broadcast,
-        )
+        return await self._apply_effect(self._config_apply_loudness, persist=persist)
 
     # === Mono Mixing ===
 
@@ -752,7 +727,6 @@ class CamillaDSPService:
         self,
         enabled: bool,
         persist: bool = True,
-        broadcast: bool = True
     ) -> bool:
         """
         Switch between stereo passthrough and mono summing in CamillaDSP.
@@ -762,18 +736,13 @@ class CamillaDSPService:
 
         Args:
             persist: Set to False during batch zone updates
-            broadcast: Set to False to suppress WebSocket event
         """
         if not self._connected:
             self.logger.warning("Cannot set mono: not connected")
             return False
 
         self._mono = enabled
-        return await self._apply_effect(
-            self._config_apply_mono,
-            lambda: EqualizerMonoChanged(enabled=self._mono),
-            persist=persist, broadcast=broadcast,
-        )
+        return await self._apply_effect(self._config_apply_mono, persist=persist)
 
     # === Crossover Filters ===
 

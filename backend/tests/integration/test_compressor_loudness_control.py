@@ -464,18 +464,6 @@ class TestZonePropagationCompressorLoudness:
                 assert camilladsp_service_with_preset._loudness["enabled"] is True
                 assert camilladsp_service_with_preset._loudness["low_boost"] == 10
 
-    @pytest.mark.asyncio
-    async def test_compressor_change_broadcasts_for_zone_sync(self, camilladsp_service_with_preset, mock_state_machine):
-        """Compressor changes should broadcast for zone synchronization"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
-
-        with patch.object(camilladsp_service_with_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(camilladsp_service_with_preset, '_set_config', new_callable=AsyncMock):
-                await camilladsp_service_with_preset.set_compressor(enabled=True)
-
-                # Verify broadcast was called (zone members listen to this)
-                mock_state_machine.broadcast.assert_called()
-
 
 # =============================================================================
 # Preset auto-switch behavior

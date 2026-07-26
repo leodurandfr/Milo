@@ -32,7 +32,7 @@ const CamillaDspStateSchema = z.enum([
   'disconnected', 'inactive', 'running', 'paused',
 ]);
 
-// Backend: backend/core/equalizer/service.py self._compressor dict.
+// Backend: backend/core/multiroom/models.py CompressorSettings.to_dict().
 const CompressorPayloadSchema = z.object({
   enabled: z.boolean(),
   threshold: z.number(),
@@ -42,7 +42,7 @@ const CompressorPayloadSchema = z.object({
   makeup_gain: z.number(),
 });
 
-// Backend: backend/core/equalizer/service.py self._loudness dict.
+// Backend: backend/core/multiroom/models.py LoudnessSettings.to_dict().
 const LoudnessPayloadSchema = z.object({
   enabled: z.boolean(),
   low_boost: z.number(),
@@ -103,10 +103,6 @@ export const wsEventRegistry = {
     available: z.boolean(),
     output_peak: z.array(z.number()),
   }),
-  // Backend: EqualizerCompressorChanged (equalizer/service.py self._compressor).
-  'equalizer.compressor_changed': CompressorPayloadSchema,
-  // Backend: EqualizerLoudnessChanged (equalizer/service.py self._loudness).
-  'equalizer.loudness_changed': LoudnessPayloadSchema,
   // Backend: MultiroomEqualizerChanged — equalizer_settings is a PARTIAL wire
   // dict by design, two producers:
   //  - multiroom/client_registry.py registry forward → full record
