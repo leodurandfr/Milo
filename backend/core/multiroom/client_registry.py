@@ -193,6 +193,7 @@ class ClientRegistryService:
                     # Delete zone if less than 2 clients remain
                     if not zone.is_valid():
                         zones_deleted.append((zone.id, self.zone_to_enriched_dict(zone)))
+                        self._make_clients_standalone(zone.client_ids)
                         del self._zones[zone.id]
                         self.logger.info(f"Zone {zone.id} deleted (less than 2 clients)")
                     else:

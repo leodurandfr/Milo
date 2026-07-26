@@ -836,6 +836,122 @@ class TestClientRegistryService:
         assert client.online is False  # Runtime state always starts offline
 
 
+class TestNoDanglingZoneReference:
+    """A client must never keep a zone_id for a zone that no longer exists.
+
+    A dangling reference is not cosmetic: MultiroomEqualizerService raises
+    ValueError("client is in zone X") for a client that is actually standalone,
+    so PUT /api/equalizer/target/<mac> fails for that speaker permanently — the
+    reference is persisted — and get_reconnection_context reads it as
+    IN_ZONE_ALL_OFFLINE, reconnecting at startup volume instead of the peer
+    average.
+
+    Every mutation that can drop a zone below its 2-member minimum is driven
+    here; unregister_client was the one that did not detach the survivors.
+    """
+
+    @pytest.fixture
+    def mock_settings_service(self):
+        service = AsyncMock()
+        service.get_setting = AsyncMock(return_value=None)
+        service.set_setting = AsyncMock()
+        return service
+
+    @pytest.fixture
+    def registry(self, mock_settings_service):
+        return ClientRegistryService(settings_service=mock_settings_service)
+
+    def _assert_no_dangling(self, registry):
+        zones = registry.get_all_zones()
+        for mac_id, client in registry.get_all_clients().items():
+            assert client.zone_id is None or client.zone_id in zones, (
+                f"client {mac_id} references zone {client.zone_id}, "
+                f"which does not exist (zones: {sorted(zones)})"
+            )
+
+    async def _pair(self, registry, prefix, ip_offset):
+        """Register two clients in a zone, return (zone_id, macs)."""
+        macs = [f"{prefix}-1", f"{prefix}-2"]
+        for i, mac in enumerate(macs):
+            await registry.register_client(
+                mac_id=mac, name=mac, ip=f"192.168.1.{ip_offset + i}"
+            )
+        zone = await registry.create_zone(f"zone-{prefix}", prefix, macs)
+        return zone.id, macs
+
+    @pytest.mark.asyncio
+    async def test_unregister_last_but_one_member(self, registry, mock_settings_service):
+        """Forgetting a client that leaves its zone with a single member."""
+        await registry.initialize()
+        zone_id, macs = await self._pair(registry, "a", 10)
+
+        await registry.unregister_client(macs[0])
+
+        assert registry.get_zone(zone_id) is None
+        self._assert_no_dangling(registry)
+        # The reference must not survive a reboot either: assert what the
+        # service actually wrote, not what this test built.
+        persisted = mock_settings_service.set_settings.call_args[0][0]
+        for mac, data in persisted["multiroom.clients"].items():
+            assert data["zone_id"] is None or data["zone_id"] in persisted["multiroom.zones"], (
+                f"persisted client {mac} references missing zone {data['zone_id']}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_remove_last_but_one_member_from_zone(self, registry):
+        """Explicitly removing a member down to one."""
+        await registry.initialize()
+        zone_id, macs = await self._pair(registry, "b", 20)
+
+        await registry.remove_client_from_zone(zone_id, macs[0])
+
+        assert registry.get_zone(zone_id) is None
+        self._assert_no_dangling(registry)
+
+    @pytest.mark.asyncio
+    async def test_moving_a_member_to_another_zone(self, registry):
+        """Moving a client out empties its old zone below the minimum."""
+        await registry.initialize()
+        old_zone_id, old_macs = await self._pair(registry, "c", 30)
+        new_zone_id, _ = await self._pair(registry, "d", 40)
+
+        await registry.add_client_to_zone(new_zone_id, old_macs[0])
+
+        assert registry.get_zone(old_zone_id) is None
+        self._assert_no_dangling(registry)
+
+    @pytest.mark.asyncio
+    async def test_delete_zone(self, registry):
+        """Deleting a zone outright."""
+        await registry.initialize()
+        zone_id, _ = await self._pair(registry, "e", 50)
+
+        await registry.delete_zone(zone_id)
+
+        assert registry.get_zone(zone_id) is None
+        self._assert_no_dangling(registry)
+
+    @pytest.mark.asyncio
+    async def test_standalone_client_can_still_take_an_eq_write(self, registry):
+        """The consequence, end to end: the survivor is addressable as a client.
+
+        Mirrors MultiroomEqualizerService's guard rather than importing it, so
+        this stays a registry test: zone_id is what that guard reads.
+        """
+        await registry.initialize()
+        _, macs = await self._pair(registry, "f", 60)
+
+        await registry.unregister_client(macs[0])
+        survivor = registry.get_client(macs[1])
+
+        assert survivor.zone_id is None
+        assert registry.get_zone_for_client(macs[1]) is None
+        assert registry.get_reconnection_context(macs[1]) in (
+            ReconnectionContext.STANDALONE_ALONE,
+            ReconnectionContext.STANDALONE_OTHERS_ONLINE,
+        )
+
+
 class TestZoneAverageVolume:
     """Tests for get_zone_average_volume() method."""
 
