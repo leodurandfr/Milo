@@ -108,7 +108,7 @@ class MacEnv:
         Pure function: validates and clamps values to allowed ranges, falls
         back to DEFAULT_ROC_CONFIG when fields are missing. The caller owns
         the settings read (consolidated in
-        AudioRoutingService.regenerate_env_files since Phase 4).
+        AudioRoutingService.regenerate_env_files).
         """
         logger = logging.getLogger(__name__)
 
@@ -287,9 +287,9 @@ class AudioRoutingService:
     def multiroom_enabled(self) -> bool:
         """Read multiroom enabled state from settings.json (sync, cache-backed).
 
-        SettingsService.get_setting_sync returns a validated cached dict (Phase 1
-        ensures the cache is populated through _validate_and_merge), so this is
-        a hot-path dict lookup, not a disk read.
+        SettingsService.get_setting_sync returns a validated cached dict (the
+        cache is populated through _validate_and_merge), so this is a hot-path
+        dict lookup, not a disk read.
         """
         if not self.settings_service:
             return False
@@ -751,12 +751,11 @@ class AudioRoutingService:
 
         Sole entry point for the boot-time env-file write and for the
         `_detect_initial_state` reconcile pass. Reads `settings_service`
-        synchronously (via `get_setting_sync`, which Phase 1 made
-        validation-strict) and passes the extracted values to each pure
-        env writer.
+        synchronously (via the validation-strict `get_setting_sync`) and passes
+        the extracted values to each pure env writer.
 
-        This is the consolidation point S2/S5 from the desync plan:
-        - Only `regenerate_env_files` (and the podcast constructor) call
+        This is the sole consolidation point for the sync settings read:
+        - Only this method and the `multiroom_enabled` property call
           `get_setting_sync`. Every other reader goes async.
         - Multiroom-only transitions still call `RoutingEnv.regenerate(enabled)`
           directly from `_apply_transition` (targeted single-file write —

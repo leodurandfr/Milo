@@ -11,7 +11,7 @@ REST surface for the indexed catalog served by the Navidrome sidecar:
              frontend never talks to Navidrome (or sees its credentials) directly.
 - Favorites — star/unstar a song/album/artist.
 - Scan     — the current scan status (polled while a fresh library indexes).
-- Shares   — CRUD for SMB/NFS network shares (Phase 2): add/edit/remove a share,
+- Shares   — CRUD for SMB/NFS network shares: add/edit/remove a share,
              which persists its non-secret config, (re)mounts it read-only under
              /media/milo through milo-mount, and rescans. Credentials are write-
              only — the password is handed to milo-mount and never read back.

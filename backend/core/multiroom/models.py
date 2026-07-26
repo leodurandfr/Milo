@@ -533,24 +533,24 @@ class ReconnectionContext(str, Enum):
 
     Determines the VOLUME sync strategy to apply when a client reconnects.
     Equalizer no longer branches on context: every client recovers its own one
-    EQ record (zone members hold identical records). Based on FR7-FR10 from PRD.
+    EQ record (zone members hold identical records).
 
     Attributes:
-        IN_ZONE_OTHERS_ONLINE: Client in zone with other zone members ONLINE (FR7)
+        IN_ZONE_OTHERS_ONLINE: Client in zone with other zone members ONLINE
             - Volume: zone average from online members
-        IN_ZONE_ALL_OFFLINE: Client in zone but all other zone members OFFLINE (FR8)
+        IN_ZONE_ALL_OFFLINE: Client in zone but all other zone members OFFLINE
             - Volume: startup_volume_db (DEFAULT_VOLUME_DB)
-        STANDALONE_OTHERS_ONLINE: Standalone client with other clients ONLINE globally (FR9)
+        STANDALONE_OTHERS_ONLINE: Standalone client with other clients ONLINE globally
             - Volume: global average from all online clients
-        STANDALONE_ALONE: Standalone client with no other clients ONLINE (FR10)
+        STANDALONE_ALONE: Standalone client with no other clients ONLINE
             - Volume: startup_volume_db (DEFAULT_VOLUME_DB)
 
     Equalizer (all contexts): client_equalizer[mac_id] (remote) / equalizer.json (local).
     """
-    IN_ZONE_OTHERS_ONLINE = "in_zone_others_online"      # FR7
-    IN_ZONE_ALL_OFFLINE = "in_zone_all_offline"          # FR8
-    STANDALONE_OTHERS_ONLINE = "standalone_others_online"  # FR9
-    STANDALONE_ALONE = "standalone_alone"                # FR10
+    IN_ZONE_OTHERS_ONLINE = "in_zone_others_online"
+    IN_ZONE_ALL_OFFLINE = "in_zone_all_offline"
+    STANDALONE_OTHERS_ONLINE = "standalone_others_online"
+    STANDALONE_ALONE = "standalone_alone"
 
 
 class RegistryEventType:

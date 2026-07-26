@@ -1,5 +1,5 @@
 # backend/sources/music_library/storage.py
-"""USB storage layer for the Music Library source (Phase 1).
+"""USB storage layer for the Music Library source.
 
 Navidrome indexes whatever is mounted under /media/milo but never mounts anything
 itself — that is this module's job. ``StorageManager`` watches the ``block``
@@ -13,7 +13,7 @@ Runs for the whole backend lifetime, independent of playback: a plugged-in key
 gets indexed even when music_library is not the active source (Navidrome is
 always-on).
 
-Phase 2 adds SMB/NFS network shares. Unlike USB there is no hotplug event to
+SMB/NFS network shares are handled alongside. Unlike USB there is no hotplug event to
 rediscover them, so their config is persisted (MusicLibraryDataService) and the
 source replays it at boot via :meth:`mount_share`. The same milo-mount helper
 mounts them read-only under the mount root; CIFS credentials are handed to it on

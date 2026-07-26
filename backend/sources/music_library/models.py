@@ -26,7 +26,7 @@ class StarRequest(BaseModel):
     kind: Literal["song", "album", "artist"] = "song"
 
 
-# === Playlist create/edit requests (Phase 3) ===
+# === Playlist create/edit requests ===
 
 class CreatePlaylistRequest(BaseModel):
     """Body for ``POST /music-library/playlists`` (Subsonic ``createPlaylist``).
@@ -66,7 +66,7 @@ class UpdatePlaylistRequest(BaseModel):
         return self
 
 
-# === Network-share requests (Phase 2) ===
+# === Network-share requests ===
 
 class ShareRequest(BaseModel):
     """Body for ``POST /music-library/shares`` and ``PUT .../shares/{id}``.

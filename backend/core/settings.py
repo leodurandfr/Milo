@@ -322,8 +322,8 @@ class SettingsService:
     def get_setting_sync(self, key_path: str) -> Any:
         """Get a setting by path (SYNCHRONOUS — bootstrap and sync property reads only).
 
-        Prefer the async ``get_setting`` from runtime code. After Phase 4 of
-        the multiroom-desync plan, the legitimate callers are:
+        Prefer the async ``get_setting`` from runtime code. The legitimate
+        callers are:
 
         * ``AudioRoutingService.regenerate_env_files`` — derives the three
           env-file artifacts from settings during boot (event loop not yet

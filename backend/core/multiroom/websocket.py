@@ -105,7 +105,7 @@ class SnapcastWebSocketService:
             self.running = True
 
             # Single source of truth: AudioRoutingService.multiroom_enabled
-            # (settings-backed since Phase 3). No fallback chain needed — the
+            # (settings-backed). No fallback chain needed — the
             # routing service IS the authority on whether multiroom is on.
             multiroom_state = bool(self.routing_service.multiroom_enabled) if self.routing_service else False
 
@@ -645,7 +645,7 @@ class SnapcastWebSocketService:
         Ensure existing client is in Multiroom group with correct volume.
 
         Sequence:
-        1. Detect reconnection context (FR7-FR10)
+        1. Detect reconnection context
         2. Join client to multiroom group
         3. Set Snapcast volume to 100% passthrough
         4. Apply correct equalizer volume based on context
@@ -673,7 +673,7 @@ class SnapcastWebSocketService:
             mac = host.get("mac", "")
             mac_id = ClientRegistryService.compute_mac_id(hostname, ip, mac)
 
-            # 1. Detect reconnection context (FR7-FR10)
+            # 1. Detect reconnection context
             context = ReconnectionContext.STANDALONE_ALONE  # Default
             if self.registry:
                 context = self.registry.get_reconnection_context(mac_id)
@@ -686,7 +686,7 @@ class SnapcastWebSocketService:
             await self._snapcast_service.set_volume(client_id, 100)
             self.logger.debug(f"[{time.time():.3f}] SYNC_VOLUME: Snapcast volume set to 100% for {client_id}")
 
-            # 4. Apply correct equalizer volume based on context (FR7-FR10)
+            # 4. Apply correct equalizer volume based on context
             target_volume = self._resolve_target_volume(mac_id, context)
             self.logger.debug(
                 f"[{time.time():.3f}] SYNC_VOLUME: Applying target volume "
@@ -735,7 +735,7 @@ class SnapcastWebSocketService:
 
     def _resolve_target_volume(self, mac_id: str, context: ReconnectionContext) -> float:
         """
-        Resolve target reconnection volume for any context (FR7-FR10).
+        Resolve target reconnection volume for any context.
 
         Resolution order:
         1. If others are online: zone average (IN_ZONE) or global average (STANDALONE)
@@ -748,7 +748,7 @@ class SnapcastWebSocketService:
             if client and client.zone_id:
                 avg = self.registry.get_zone_average_volume(client.zone_id, exclude_mac_id=mac_id)
                 if avg is not None:
-                    self.logger.info(f"FR7 - Using zone average {avg:.1f} dB for {mac_id}")
+                    self.logger.info(f"Using zone average {avg:.1f} dB for {mac_id}")
                     return avg
             self.logger.warning(f"Zone average unavailable for {mac_id}, falling back to startup volume")
 
@@ -756,14 +756,14 @@ class SnapcastWebSocketService:
             if self.registry:
                 avg = self.registry.get_global_average_volume(exclude_mac_id=mac_id)
                 if avg is not None:
-                    self.logger.info(f"FR9 - Using global average {avg:.1f} dB for {mac_id}")
+                    self.logger.info(f"Using global average {avg:.1f} dB for {mac_id}")
                     return avg
             self.logger.warning(f"Global average unavailable for {mac_id}, falling back to startup volume")
 
         # Level 2: startup_volume_db from VolumeService configuration
         if self._volume_service:
             startup_volume = self._volume_service.volume_config.startup_volume_db
-            self.logger.info(f"FR8/FR10 - Using startup volume {startup_volume:.1f} dB for {mac_id}")
+            self.logger.info(f"Using startup volume {startup_volume:.1f} dB for {mac_id}")
             return startup_volume
 
         # Level 3: constant fallback
