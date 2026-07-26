@@ -454,31 +454,6 @@ describe('equalizerStore', () => {
       equalizerStore.filters = [FILTER('eq_band_00', 31)];
     });
 
-    it('filter_changed arrives as a raw event (wired with on(), not parsedOn)', () => {
-      equalizerStore.handleFilterChanged({ data: { id: 'eq_band_00', freq: 1000, gain: 5.5 } });
-
-      expect(equalizerStore.filters[0].gain).toBe(5.5);
-      expect(equalizerStore.filters[0].displayName).toBe('1k');
-    });
-
-    it('filter_changed tolerates an event with no data', () => {
-      expect(() => equalizerStore.handleFilterChanged({})).not.toThrow();
-    });
-
-    it('compressor_changed merges the validated payload, keeping untouched fields', () => {
-      equalizerStore.handleCompressorChanged({ enabled: true, threshold: -15 });
-
-      expect(equalizerStore.compressor).toMatchObject({
-        enabled: true, threshold: -15, ratio: 4, attack: 10,
-      });
-    });
-
-    it('loudness_changed merges the validated payload', () => {
-      equalizerStore.handleLoudnessChanged({ enabled: true, low_boost: 8 });
-
-      expect(equalizerStore.loudness).toMatchObject({ enabled: true, low_boost: 8, high_boost: 5 });
-    });
-
     it('enabled_changed flips the effects flag, and ignores an event without one', () => {
       equalizerStore.handleEnabledChanged({ data: { enabled: false } });
       expect(equalizerStore.isEqualizerEffectsEnabled).toBe(false);

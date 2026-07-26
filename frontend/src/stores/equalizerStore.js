@@ -831,25 +831,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
   }
 
-  function handleFilterChanged(event) {
-    if (!event.data) return;
-    const { id, freq, gain, q, type } = event.data;
-    const filter = filters.value.find(f => f.id === id);
-
-    // Skip if this specific filter is being actively edited (avoids echo conflicts)
-    // This is more precise than checking filterThrottleMap.size === 0
-    if (filter && !filterThrottleMap.has(id)) {
-      // Only update if values actually changed (avoids unnecessary reactivity triggers)
-      if (freq !== undefined && filter.freq !== freq) {
-        filter.freq = freq;
-        filter.displayName = formatFrequency(freq);
-      }
-      if (gain !== undefined && filter.gain !== gain) filter.gain = gain;
-      if (q !== undefined && filter.q !== q) filter.q = q;
-      if (type !== undefined && filter.type !== type) filter.type = type;
-    }
-  }
-
   function handleStateChanged(payload) {
     state.value = payload.state;
   }
@@ -875,20 +856,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       message: 'Error arming levels monitor',
       logLevel: 'debug',
     });
-  }
-
-  function handleCompressorChanged(payload) {
-    Object.assign(compressor.value, payload);
-  }
-
-  function handleLoudnessChanged(payload) {
-    Object.assign(loudness.value, payload);
-  }
-
-  function handleMonoChanged(event) {
-    if (event.data?.enabled !== undefined) {
-      mono.value = event.data.enabled;
-    }
   }
 
   // === CLEANUP ===
@@ -1046,12 +1013,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
     // WebSocket Handlers
     handleEqualizerChanged,
-    handleFilterChanged,
     handleStateChanged,
     handleLevelsChanged,
-    handleCompressorChanged,
-    handleLoudnessChanged,
-    handleMonoChanged,
     handleEnabledChanged,
     handleZoneEnabledChanged
   };

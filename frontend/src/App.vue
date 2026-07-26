@@ -492,8 +492,6 @@ const RAW_EVENTS = [
   ['routing', 'multiroom_error', multiroomStore.handleRoutingEvent],
   ['multiroom', 'client_state_changed', multiroomStore.handleMultiroomEvent],
   ['multiroom', 'zone_changed', multiroomStore.handleMultiroomEvent],
-  ['equalizer', 'filter_changed', equalizerStore.handleFilterChanged],
-  ['equalizer', 'mono_changed', equalizerStore.handleMonoChanged],
   ['equalizer', 'enabled_changed', equalizerStore.handleEnabledChanged],
   ['equalizer', 'zone_enabled_changed', equalizerStore.handleZoneEnabledChanged],
 ];
@@ -510,8 +508,6 @@ const PARSED_EVENTS = [
   ['settings', 'fan_status_changed', fanStore.applyTelemetry],
   ['equalizer', 'state_changed', equalizerStore.handleStateChanged],
   ['equalizer', 'levels', equalizerStore.handleLevelsChanged],
-  ['equalizer', 'compressor_changed', equalizerStore.handleCompressorChanged],
-  ['equalizer', 'loudness_changed', equalizerStore.handleLoudnessChanged],
   ['programs', 'program_update_progress', updatesStore.handleProgramUpdateProgress],
   ['programs', 'program_update_complete', updatesStore.handleProgramUpdateComplete],
   ['programs', 'satellite_update_progress', updatesStore.handleSatelliteUpdateProgress],

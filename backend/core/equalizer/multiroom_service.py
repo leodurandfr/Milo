@@ -492,12 +492,12 @@ class MultiroomEqualizerService:
                 online_clients = self._registry.get_online_zone_clients(target_id)
                 if online_clients:
                     await asyncio.gather(
-                        *[method(mac_id=c.mac_id, persist=False, broadcast=False, **router_kwargs)
+                        *[method(mac_id=c.mac_id, persist=False, **router_kwargs)
                           for c in online_clients],
                         return_exceptions=True,
                     )
             else:
-                await method(mac_id=target_id, persist=False, broadcast=False, **router_kwargs)
+                await method(mac_id=target_id, persist=False, **router_kwargs)
         else:
             self.logger.warning(f"EqualizerRouter not available, {router_method} not applied to clients")
 
