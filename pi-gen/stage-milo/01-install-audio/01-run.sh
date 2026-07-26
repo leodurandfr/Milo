@@ -83,9 +83,11 @@ apt-get remove -y pulseaudio pipewire 2>/dev/null || true
 apt-get autoremove -y
 CHROOT
 
-# Clean up build caches to reduce image size
+# Clean up build caches to reduce image size. The apt *lists* deliberately stay:
+# later stages still install packages (02-install-milo pulls libportaudio2 for
+# qobuz-proxy), and without an index apt has no candidate version. 03-configure's
+# final cleanup wipes them once nothing else needs apt.
 on_chroot << 'CHROOT'
 apt-get clean
-rm -rf /var/lib/apt/lists/*
 rm -rf /tmp/*
 CHROOT
