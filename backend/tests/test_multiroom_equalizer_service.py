@@ -290,18 +290,18 @@ class TestZoneClientWrappers:
         assert await service.apply_zone_equalizer("zone-123", sample_equalizer_settings) is False
 
     @pytest.mark.asyncio
-    async def test_get_zone_equalizer_found(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone):
+    async def test_get_zone_eq_found(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone):
         snap = EqualizerSettings.default()
         snap.active_preset = "jazz"
         mock_camilladsp_service.get_equalizer_settings = Mock(return_value=snap)
         mock_registry.get_zone.return_value = sample_zone
-        result = await multiroom_equalizer_service.get_zone_equalizer("zone-123")
+        result = await multiroom_equalizer_service.get_zone_eq("zone-123")
         assert result.active_preset == "jazz"
 
     @pytest.mark.asyncio
-    async def test_get_zone_equalizer_not_found(self, multiroom_equalizer_service, mock_registry):
+    async def test_get_zone_eq_not_found(self, multiroom_equalizer_service, mock_registry):
         mock_registry.get_zone.return_value = None
-        assert await multiroom_equalizer_service.get_zone_equalizer("nonexistent") is None
+        assert await multiroom_equalizer_service.get_zone_eq("nonexistent") is None
 
     @pytest.mark.asyncio
     async def test_apply_client_equalizer_local(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, local_client, sample_equalizer_settings):
@@ -331,15 +331,15 @@ class TestZoneClientWrappers:
             await multiroom_equalizer_service.apply_client_equalizer("milo-client-1", sample_equalizer_settings)
 
     @pytest.mark.asyncio
-    async def test_get_client_equalizer_remote(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
+    async def test_get_client_eq_remote(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
         mock_registry.get_client_equalizer.return_value = sample_equalizer_settings
-        result = await multiroom_equalizer_service.get_client_equalizer("milo-client-1")
+        result = await multiroom_equalizer_service.get_client_eq("milo-client-1")
         assert result == sample_equalizer_settings
 
     @pytest.mark.asyncio
-    async def test_get_client_equalizer_unsaved_returns_default(self, multiroom_equalizer_service, mock_registry):
+    async def test_get_client_eq_unsaved_returns_default(self, multiroom_equalizer_service, mock_registry):
         mock_registry.get_client_equalizer.return_value = None
-        result = await multiroom_equalizer_service.get_client_equalizer("milo-client-1")
+        result = await multiroom_equalizer_service.get_client_eq("milo-client-1")
         assert isinstance(result, EqualizerSettings)
         assert result.active_preset == "flat"
 
@@ -400,12 +400,12 @@ class TestPresetLoading:
         return Client(mac_id="dc:a6:32:aa:bb:cc", name="Bedroom", ip="192.168.1.100", online=True, zone_id=None)
 
     @pytest.mark.asyncio
-    async def test_load_client_preset_persists_name_and_gains(self, multiroom_equalizer_service, mock_registry, fresh_remote):
+    async def test_load_preset_client_persists_name_and_gains(self, multiroom_equalizer_service, mock_registry, fresh_remote):
         """Picking a preset on a fresh remote client persists the preset NAME and gains."""
         mock_registry.get_client_equalizer.return_value = None
         mock_registry.get_client.return_value = fresh_remote
 
-        result = await multiroom_equalizer_service.load_client_preset("dc:a6:32:aa:bb:cc", "bass_boost")
+        result, gains = await multiroom_equalizer_service.load_preset("client", "dc:a6:32:aa:bb:cc", "bass_boost")
 
         assert result is True
         mock_registry.set_client_equalizer.assert_called_once()
@@ -414,31 +414,31 @@ class TestPresetLoading:
         assert [round(f.gain) for f in persisted.filters] == [6, 5, 4, 2, 0, 0, 0, 0, 0, 0]
 
     @pytest.mark.asyncio
-    async def test_load_client_preset_unknown_raises(self, multiroom_equalizer_service, mock_registry):
+    async def test_load_preset_client_unknown_raises(self, multiroom_equalizer_service, mock_registry):
         mock_registry.get_client_equalizer.return_value = None
         mock_registry.get_client.return_value = None
         with pytest.raises(ValueError, match="Client not found"):
-            await multiroom_equalizer_service.load_client_preset("nope", "bass_boost")
+            await multiroom_equalizer_service.load_preset("client", "nope", "bass_boost")
 
     @pytest.mark.asyncio
-    async def test_load_client_preset_zoned_raises(self, multiroom_equalizer_service, mock_registry, zoned_remote_client):
+    async def test_load_preset_client_zoned_raises(self, multiroom_equalizer_service, mock_registry, zoned_remote_client):
         mock_registry.get_client.return_value = zoned_remote_client
         with pytest.raises(ValueError, match="is in zone"):
-            await multiroom_equalizer_service.load_client_preset("milo-client-1", "bass_boost")
+            await multiroom_equalizer_service.load_preset("client", "milo-client-1", "bass_boost")
 
     @pytest.mark.asyncio
-    async def test_load_zone_preset(self, multiroom_equalizer_service, mock_registry, sample_zone):
+    async def test_load_preset_zone(self, multiroom_equalizer_service, mock_registry, sample_zone):
         mock_registry.get_zone.return_value = sample_zone
-        result = await multiroom_equalizer_service.load_zone_preset("zone-123", "rock")
+        result, gains = await multiroom_equalizer_service.load_preset("zone", "zone-123", "rock")
         assert result is True
         persisted = mock_registry.set_client_equalizer.call_args.args[1]
         assert persisted.active_preset == "rock"
 
     @pytest.mark.asyncio
-    async def test_load_zone_preset_zone_not_found(self, multiroom_equalizer_service, mock_registry):
+    async def test_load_preset_zone_zone_not_found(self, multiroom_equalizer_service, mock_registry):
         mock_registry.get_zone.return_value = None
         with pytest.raises(ValueError, match="Zone not found"):
-            await multiroom_equalizer_service.load_zone_preset("nope", "rock")
+            await multiroom_equalizer_service.load_preset("zone", "nope", "rock")
 
     @pytest.mark.asyncio
     async def test_save_custom_preset_client(self, multiroom_equalizer_service, mock_registry, fresh_remote):

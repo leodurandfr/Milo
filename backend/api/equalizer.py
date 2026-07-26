@@ -290,14 +290,9 @@ def create_equalizer_router(
         async with api_error_handler(f"Error loading preset for target {target}", logger):
             target_type, target_id = _resolve_target(target)
             try:
-                if target_type == "zone":
-                    current = await multiroom_equalizer_service.get_zone_equalizer(target_id)
-                    gains = await multiroom_equalizer_service.resolve_preset_gains(payload.preset_id, current)
-                    success = await multiroom_equalizer_service.load_zone_preset(target_id, payload.preset_id)
-                else:
-                    current = await multiroom_equalizer_service.get_client_equalizer(target_id)
-                    gains = await multiroom_equalizer_service.resolve_preset_gains(payload.preset_id, current)
-                    success = await multiroom_equalizer_service.load_client_preset(target_id, payload.preset_id)
+                success, gains = await multiroom_equalizer_service.load_preset(
+                    target_type, target_id, payload.preset_id
+                )
             except ValueError as e:
                 logger.error(f"Preset load failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))

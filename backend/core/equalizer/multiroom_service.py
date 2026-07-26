@@ -200,14 +200,6 @@ class MultiroomEqualizerService:
             self.logger.info(f"Zone {zone_id} equalizer applied to all members")
             return result
 
-    async def get_zone_equalizer(self, zone_id: str) -> Optional[EqualizerSettings]:
-        """Get a zone's equalizer settings (derived from its members).
-
-        Returns:
-            EqualizerSettings or None if the zone is unknown / has no members
-        """
-        return await self.get_zone_eq(zone_id)
-
     async def resolve_preset_gains(self, preset_id: str, settings: EqualizerSettings = None) -> list:
         """
         Resolve gain values for a preset ID (builtin or custom).
@@ -263,40 +255,29 @@ class MultiroomEqualizerService:
             for i in range(10)
         ]
 
-    async def load_zone_preset(self, zone_id: str, preset_id: str) -> bool:
-        """
-        Load an EQ preset for a zone.
+    async def load_preset(
+        self, target_type: str, target_id: str, preset_id: str
+    ) -> tuple[bool, list]:
+        """Load an EQ preset for a zone or client, returning (success, gains).
 
-        Preserves existing compressor/loudness settings and applies to all zone clients.
+        Preserves the target's compressor/loudness/mono; only the ten bands and
+        the preset name change. The resolved gains come back so the caller does
+        not have to read the record and re-resolve them to report what was
+        applied.
 
         Raises:
-            ValueError: If zone or preset not found
+            ValueError: unknown zone, unknown client, a client that is in a zone
+                (drive those through the zone), or an unknown preset.
         """
-        current = await self.get_zone_equalizer(zone_id)
+        current = await self.get_equalizer(target_type, target_id)
         if not current:
-            raise ValueError(f"Zone not found: {zone_id}")
+            # Only a zone can be missing — a client always yields a record.
+            raise ValueError(f"Zone not found: {target_id}")
 
         gains = await self.resolve_preset_gains(preset_id, current)
         current.filters = self._build_preset_filters(gains)
         current.active_preset = preset_id
-        return await self.apply_zone_equalizer(zone_id, current)
-
-    async def load_client_preset(self, mac_id: str, preset_id: str) -> bool:
-        """
-        Load an EQ preset for a single (non-zone) client.
-
-        Preserves existing compressor/loudness settings and applies to the client.
-        get_client_eq always returns a record (neutral default when none saved),
-        and apply_client_equalizer validates the client (unknown / in-a-zone).
-
-        Raises:
-            ValueError: If client not found, client is in a zone, or preset not found
-        """
-        current = await self.get_client_eq(mac_id)
-        gains = await self.resolve_preset_gains(preset_id, current)
-        current.filters = self._build_preset_filters(gains)
-        current.active_preset = preset_id
-        return await self.apply_client_equalizer(mac_id, current)
+        return await self.apply_equalizer(target_type, target_id, current), gains
 
     # =========================================================================
     # Single-Client Equalizer Methods (route-facing wrappers over the access layer)
@@ -337,14 +318,6 @@ class MultiroomEqualizerService:
         result = await self.set_client_eq(mac_id, settings)
         self.logger.info(f"Client {mac_id} equalizer settings updated")
         return result
-
-    async def get_client_equalizer(self, mac_id: str) -> Optional[EqualizerSettings]:
-        """
-        Get a single client's equalizer settings (its one EQ record).
-
-        Returns a neutral default for a known client that has no saved EQ yet.
-        """
-        return await self.get_client_eq(mac_id)
 
     # =========================================================================
     # Target-Agnostic Equalizer Methods
@@ -393,9 +366,9 @@ class MultiroomEqualizerService:
             ValueError: If invalid target_type
         """
         if target_type == "zone":
-            return await self.get_zone_equalizer(target_id)
+            return await self.get_zone_eq(target_id)
         elif target_type == "client":
-            return await self.get_client_equalizer(target_id)
+            return await self.get_client_eq(target_id)
         else:
             raise ValueError(f"Invalid target_type: {target_type}. Must be 'zone' or 'client'")
 
