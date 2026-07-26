@@ -4,13 +4,14 @@ API routes for Snapcast and multiroom functionality.
 """
 import asyncio
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 import aiohttp
 
 from backend.api.models import (
     SnapcastServerConfigRequest
 )
+from backend.api.route_helpers import api_error_handler
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.models.ws_events import SystemStateChanged
 from backend.core.multiroom.routing import SnapclientEnv, DEFAULT_SNAPCLIENT_CONFIG
@@ -107,12 +108,10 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, set
             logger.error(f"Error getting server config: {e}")
             return {"config": None, "capabilities": capabilities, "error": str(e)}
 
-    # === Server configuration routes ===
-
-    @router.post("/server/config")
+    @router.put("/server-config")
     async def update_server_config(payload: SnapcastServerConfigRequest):
-        """Update server configuration."""
-        try:
+        """Replace the server configuration (idempotent full write)."""
+        async with api_error_handler("Error updating server config", logger):
             config = payload.config.copy()
 
             # Extract snapclient config (not part of snapserver.conf)
@@ -149,29 +148,24 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, set
                 await _push_snapclient_config_to_remotes(snapclient_buffer_time, effective_fragments)
 
             # 4. Update snapserver.conf and restart snapserver
-            success = await snapcast_service.update_server_config(config)
+            if not await snapcast_service.update_server_config(config):
+                logger.error("snapserver rejected the config update")
+                raise HTTPException(status_code=502, detail="Snapserver config update failed")
 
-            if success:
-                # 5. Restart local snapclient to pick up the new env (after
-                # snapserver restart so it reconnects cleanly to the new server)
-                if snapclient_buffer_time is not None:
-                    if routing_service and routing_service.service_manager:
-                        try:
-                            await routing_service.service_manager.restart("milo-snapclient-multiroom.service")
-                            logger.info(f"Local snapclient restarted with buffer_time={snapclient_buffer_time}ms")
-                        except Exception as e:
-                            logger.error(f"Failed to restart local snapclient: {e}")
+            # 5. Restart local snapclient to pick up the new env (after
+            # snapserver restart so it reconnects cleanly to the new server)
+            if snapclient_buffer_time is not None:
+                if routing_service and routing_service.service_manager:
+                    try:
+                        await routing_service.service_manager.restart("milo-snapclient-multiroom.service")
+                        logger.info(f"Local snapclient restarted with buffer_time={snapclient_buffer_time}ms")
+                    except Exception as e:
+                        logger.error(f"Failed to restart local snapclient: {e}")
 
-                await _publish_snapcast_update()
-                return {
-                    "status": "success",
-                    "message": "Configuration updated and services restarted"
-                }
-            else:
-                return {"status": "error", "message": "Update failed"}
-
-        except Exception as e:
-            logger.error(f"Error updating server config: {e}")
-            return {"status": "error", "message": str(e)}
+            await _publish_snapcast_update()
+            return {
+                "status": "success",
+                "message": "Configuration updated and services restarted"
+            }
 
     return router

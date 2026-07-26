@@ -48,8 +48,8 @@ import urllib.error
 import urllib.request
 
 # --- Wire contract (see backend/core/multiroom/routes.py + snapcast.py) ---
-API_GET_CONFIG = "/api/routing/snapcast/server-config"   # GET  -> {config, capabilities}
-API_SET_CONFIG = "/api/routing/snapcast/server/config"   # POST {config: {...}}
+API_GET_CONFIG = "/api/routing/snapcast/server-config"   # GET -> {config, capabilities}
+API_SET_CONFIG = "/api/routing/snapcast/server-config"   # PUT {config: {...}}
 API_RADIO_PLAY = "/api/radio/play"
 API_RADIO_STOP = "/api/radio/stop"
 RPC_PATH = "/jsonrpc"                                     # Server.GetStatus
@@ -110,7 +110,7 @@ class Api:
         return _http_json(self.base + API_GET_CONFIG)
 
     def set_config(self, config):
-        return _http_json(self.base + API_SET_CONFIG, method="POST", body={"config": config}, timeout=60)
+        return _http_json(self.base + API_SET_CONFIG, method="PUT", body={"config": config}, timeout=60)
 
     def radio_play(self, station_id, station=None):
         body = {"station_id": station_id}
