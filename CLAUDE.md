@@ -16,6 +16,12 @@ The REST + WebSocket API has a **second consumer beyond `frontend/`: Milo-Mac**,
 
 Milo-Mac couples to the **whole wire contract**: REST paths/methods + request/response keys, and the WS events in the manifest (`full_state` envelope, the `multiroom_changed` discriminator, `volume_changed`, `settings/{volume_limits,dock_apps}_changed`). **Exception:** it reads WS `metadata` as an opaque dict — no metadata *sub-field* (`uri`, `client_count`, `album_art_height`, `track_position/duration`) is coupled, so an over-emitted metadata sub-field with no `frontend/src/` consumer is safe to drop. **Safe without touching the manifest:** purely frontend code (Vue components, Pinia stores, frontend Zod schemas).
 
+## The satellite agent — milo-client (a second app in this repo)
+
+[milo-client/app/](milo-client/app/) is a **separate FastAPI application**, installed on every multiroom *satellite* (never on the server). It is the only thing listening on `CLIENT_API_PORT` (8001), and the server backend drives each satellite's DSP entirely over that HTTP surface — volume, mute, EQ bands, compressor, loudness, mono, the master bypass gate, crossover/lowpass, snapclient buffer config, hardware/audio + reboot, and the satellite self-update endpoints. `EqualizerClientProxyService` is the transport (`request`, non-raising `try_request`); `SatelliteUpdateService` and a few `api/multiroom.py` routes call it directly with `aiohttp`.
+
+Unlike Milo-Mac it needs **no manifest and no vendored snapshot** — both sides are in this checkout and ship in the same commit, so [backend/tests/contracts/test_milo_client_contract.py](backend/tests/contracts/test_milo_client_contract.py) extracts each side by AST and asserts every server→satellite call is served by `milo-client/app/routes/`. That matters because a mismatch is otherwise **invisible in CI and in dev**: no import error, no failing route — just a satellite that silently ignores a command, reproducible only on a second physical unit (the checklist's first blind spot). If the test fails, fix the side that moved; don't add a shim.
+
 ## Commands
 
 ```bash
