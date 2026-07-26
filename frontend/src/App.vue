@@ -465,6 +465,84 @@ provide('closeModals', () => {
 provide('registerDockControl', registerDockControl);
 provide('dismissScreensaver', dismissScreensaverSignal);
 
+// === WebSocket dispatch tables ===
+// 46 of the 64 subscriptions do one thing: hand a payload to a store. Written
+// out, they were 160 lines in which the only varying parts were the event name
+// and the mutator — so they live here as data, and a new event is one row.
+// The arms registered further down are the ones that genuinely do more: read a
+// discriminator, drive the notification banner, or touch app-level UI state.
+
+/** Store handlers taking the whole event: [category, type, handler]. */
+const RAW_EVENTS = [
+  ['volume', 'volume_changed', unifiedStore.handleVolumeEvent],
+  ['system', 'state_changed', unifiedStore.updateState],
+  ['system', 'transition_start', unifiedStore.updateState],
+  ['system', 'transition_complete', unifiedStore.updateState],
+  // Drive-status changes carry full_state; apply it so the central mirror
+  // (and thus the derived cdStore) reflects drive_connected/disc presence.
+  ['system', 'cd_drive_status', unifiedStore.updateState],
+  ['system', 'hostname_conflict_changed', systemStore.handleConflictEvent],
+  ['system', 'connectivity_changed', systemStore.handleConnectivityEvent],
+  // Live network status (cable plug/unplug, wifi associate/dissociate), pushed
+  // whenever the NM dispatcher signals a physical link change.
+  ['network', 'status_changed', handleNetworkStatusChanged],
+  ['routing', 'multiroom_enabling', multiroomStore.handleRoutingEvent],
+  ['routing', 'multiroom_disabling', multiroomStore.handleRoutingEvent],
+  ['routing', 'multiroom_ready', multiroomStore.handleRoutingEvent],
+  ['routing', 'multiroom_error', multiroomStore.handleRoutingEvent],
+  ['multiroom', 'client_state_changed', multiroomStore.handleMultiroomEvent],
+  ['multiroom', 'zone_changed', multiroomStore.handleMultiroomEvent],
+  ['equalizer', 'filter_changed', equalizerStore.handleFilterChanged],
+  ['equalizer', 'mono_changed', equalizerStore.handleMonoChanged],
+  ['equalizer', 'enabled_changed', equalizerStore.handleEnabledChanged],
+  ['equalizer', 'zone_enabled_changed', equalizerStore.handleZoneEnabledChanged],
+];
+
+/**
+ * Zod-validated handlers taking the parsed payload: [category, type, handler].
+ * The schema is derived from the pair, so a subscription can no longer be
+ * validated against another event's schema.
+ */
+const PARSED_EVENTS = [
+  ['source', 'position_update', unifiedStore.updatePosition],
+  ['multiroom', 'equalizer_changed', equalizerStore.handleEqualizerChanged],
+  ['settings', 'fan_config_changed', fanStore.applyConfig],
+  ['settings', 'fan_status_changed', fanStore.applyTelemetry],
+  ['equalizer', 'state_changed', equalizerStore.handleStateChanged],
+  ['equalizer', 'levels', equalizerStore.handleLevelsChanged],
+  ['equalizer', 'compressor_changed', equalizerStore.handleCompressorChanged],
+  ['equalizer', 'loudness_changed', equalizerStore.handleLoudnessChanged],
+  ['programs', 'program_update_progress', updatesStore.handleProgramUpdateProgress],
+  ['programs', 'program_update_complete', updatesStore.handleProgramUpdateComplete],
+  ['programs', 'satellite_update_progress', updatesStore.handleSatelliteUpdateProgress],
+  ['programs', 'satellite_update_complete', updatesStore.handleSatelliteUpdateComplete],
+  ['programs', 'satellite_app_update_progress', updatesStore.handleSatelliteAppUpdateProgress],
+  ['programs', 'satellite_app_update_complete', updatesStore.handleSatelliteAppUpdateComplete],
+  ['programs', 'satellite_camilladsp_update_progress', updatesStore.handleSatelliteCamillaUpdateProgress],
+  ['programs', 'satellite_camilladsp_update_complete', updatesStore.handleSatelliteCamillaUpdateComplete],
+];
+
+/**
+ * `settings` events whose payload is a plain config blob: [type, mutator].
+ * The category's shape is declared once on the backend
+ * (core/models/settings_config.py) and shared by GET /api/settings/bulk.
+ */
+const SETTINGS_CONFIG_EVENTS = [
+  ['volume_startup_changed', settingsStore.updateVolumeStartup],
+  ['rotary_steps_changed', settingsStore.updateVolumeSteps],
+  ['bt_remote_steps_changed', settingsStore.updateVolumeSteps],
+  ['ir_remote_steps_changed', settingsStore.updateVolumeSteps],
+  ['audio_stop_changed', settingsStore.updateAudioPlayback],
+  ['screen_timeout_changed', settingsStore.updateScreenTimeout],
+  ['screen_brightness_changed', settingsStore.updateScreenBrightness],
+  ['screen_screensaver_changed', settingsStore.updateScreenScreensaver],
+  ['screen_color_filter_changed', settingsStore.updateScreenColorFilter],
+  ['radio_settings_changed', settingsStore.updateRadioSettings],
+  ['qobuz_settings_changed', settingsStore.updateQobuzSettings],
+  ['mac_roc_changed', settingsStore.updateMacRocSettings],
+  ['bt_remote_config_changed', settingsStore.updateBtRemoteConfig],
+];
+
 const cleanupFunctions = [];
 
 onMounted(async () => {
@@ -475,13 +553,16 @@ onMounted(async () => {
   // Register WebSocket event listeners FIRST (before any async operations)
   // This prevents race condition where initial_state arrives before listeners are ready
   cleanupFunctions.push(
+    ...RAW_EVENTS.map(([category, type, handler]) => on(category, type, handler)),
+    ...PARSED_EVENTS.map(([category, type, handler]) =>
+      parsedOn(category, type, wsEventRegistry[`${category}.${type}`], handler)),
+    ...SETTINGS_CONFIG_EVENTS.map(([type, apply]) => on('settings', type, (event) => {
+      if (event.data?.config) apply(event.data.config);
+    })),
+
     // No isReady guard: the backend re-sends initial_state on every reconnect
     // (ready handshake) and that snapshot heals state missed while offline
     on('system', 'initial_state', (event) => processInitialState(event)),
-    on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
-    on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
-    on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
-    on('system', 'transition_complete', (event) => unifiedStore.updateState(event)),
     on('source', 'state_changed', (event) => {
       unifiedStore.updateState(event);
       podcastStore.handleSourceEvent(event);
@@ -492,10 +573,6 @@ onMounted(async () => {
         currentError.value = { title: `${capitalize(source)} Error`, detail: error, source };
       }
     }),
-    parsedOn('source', 'position_update', wsEventRegistry['source.position_update'],
-             (payload) => {
-               unifiedStore.updatePosition(payload);
-             }),
     on('source', 'error_cleared', (event) => {
       // Auto-dismiss the error notification, but only if the displayed error
       // came from the source that cleared (don't eat unrelated banners)
@@ -512,9 +589,6 @@ onMounted(async () => {
       const message = event.data?.message || 'Backend error';
       currentError.value = { title: t('notification.backendErrorTitle'), detail: message, source: 'backend' };
     }),
-    // Drive-status changes carry full_state; apply it so the central mirror
-    // (and thus the derived cdStore) reflects drive_connected/disc presence.
-    on('system', 'cd_drive_status', (event) => unifiedStore.updateState(event)),
     on('settings', 'language_changed', (event) => {
       if (event.data?.language) {
         settingsStore.updateLanguage(event.data.language);
@@ -531,17 +605,33 @@ onMounted(async () => {
         if (!event.data.sleeping) wakeInProgress = false;
       }
     }),
-    // Live network status updates (cable plug/unplug, wifi associate/dissociate).
-    // Backend's NetworkService broadcasts this whenever the NM dispatcher signals
-    // a physical link change, so NetworkSettings shows the new state instantly.
-    on('network', 'status_changed', handleNetworkStatusChanged),
-    // Routing transition events - centralized in multiroomStore
-    on('routing', 'multiroom_enabling', (event) => multiroomStore.handleRoutingEvent(event)),
-    on('routing', 'multiroom_disabling', (event) => multiroomStore.handleRoutingEvent(event)),
-    on('routing', 'multiroom_ready', (event) => multiroomStore.handleRoutingEvent(event)),
-    on('routing', 'multiroom_error', (event) => multiroomStore.handleRoutingEvent(event)),
-    on('multiroom', 'client_state_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
-    on('multiroom', 'zone_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
+    on('settings', 'volume_limits_changed', (event) => {
+      if (event.data?.limits) {
+        settingsStore.updateVolumeLimits(event.data.limits);
+      }
+    }),
+    // The mobile step is the one volume setting the audio store owns, not settings.
+    on('settings', 'volume_steps_changed', (event) => {
+      if (event.data?.config?.step_mobile_db !== undefined) {
+        unifiedStore.updateMobileStep(event.data.config.step_mobile_db);
+      }
+    }),
+    on('settings', 'screen_ui_scale_changed', (event) => {
+      if (event.data?.config?.ui_scale !== undefined) {
+        settingsStore.updateScreenUiScale(event.data.config);
+      }
+    }),
+    // Both remote-status payloads are the event data itself, not a config blob.
+    on('settings', 'bt_remote_status_changed', (event) => {
+      if (event.data) {
+        settingsStore.updateBtRemoteStatus(event.data);
+      }
+    }),
+    on('settings', 'ir_remote_status_changed', (event) => {
+      if (event.data) {
+        settingsStore.applyIrRemoteStatus(event.data);
+      }
+    }),
     on('multiroom', 'pending_client_changed', (event) => {
       const isNew = event.data?.action === 'registered' &&
         !multiroomStore.pendingClients.has(event.data?.client?.mac_id);
@@ -561,8 +651,6 @@ onMounted(async () => {
         openSettings('multiroom');
       }
     }),
-    parsedOn('multiroom', 'equalizer_changed', wsEventRegistry['multiroom.equalizer_changed'],
-             (payload) => equalizerStore.handleEqualizerChanged(payload)),
     // Favorite events (data.source discriminator: radio stations, podcast subscriptions)
     on('source', 'favorite_added', (event) => {
       if (event.data?.source === 'radio' && event.data?.station_id) {
@@ -583,133 +671,7 @@ onMounted(async () => {
         radioStore.handleMetadataModified(event.data.station);
       }
     }),
-    // Settings events — centralized handlers for all settings changes
-    on('settings', 'volume_limits_changed', (event) => {
-      if (event.data?.limits) {
-        settingsStore.updateVolumeLimits(event.data.limits);
-      }
-    }),
-    on('settings', 'volume_startup_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateVolumeStartup(event.data.config);
-      }
-    }),
-    on('settings', 'volume_steps_changed', (event) => {
-      if (event.data?.config?.step_mobile_db !== undefined) {
-        unifiedStore.updateMobileStep(event.data.config.step_mobile_db);
-      }
-    }),
-    on('settings', 'rotary_steps_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateVolumeSteps(event.data.config);
-      }
-    }),
-    on('settings', 'bt_remote_steps_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateVolumeSteps(event.data.config);
-      }
-    }),
-    on('settings', 'ir_remote_steps_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateVolumeSteps(event.data.config);
-      }
-    }),
-    on('settings', 'audio_stop_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateAudioPlayback(event.data.config);
-      }
-    }),
-    on('settings', 'screen_timeout_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateScreenTimeout(event.data.config);
-      }
-    }),
-    on('settings', 'screen_brightness_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateScreenBrightness(event.data.config);
-      }
-    }),
-    on('settings', 'screen_screensaver_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateScreenScreensaver(event.data.config);
-      }
-    }),
-    on('settings', 'screen_ui_scale_changed', (event) => {
-      if (event.data?.config?.ui_scale !== undefined) {
-        settingsStore.updateScreenUiScale(event.data.config);
-      }
-    }),
-    on('settings', 'screen_color_filter_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateScreenColorFilter(event.data.config);
-      }
-    }),
-    on('settings', 'radio_settings_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateRadioSettings(event.data.config);
-      }
-    }),
-    on('settings', 'qobuz_settings_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateQobuzSettings(event.data.config);
-      }
-    }),
-    on('settings', 'mac_roc_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateMacRocSettings(event.data.config);
-      }
-    }),
-    on('settings', 'bt_remote_config_changed', (event) => {
-      if (event.data?.config) {
-        settingsStore.updateBtRemoteConfig(event.data.config);
-      }
-    }),
-    on('settings', 'bt_remote_status_changed', (event) => {
-      if (event.data) {
-        settingsStore.updateBtRemoteStatus(event.data);
-      }
-    }),
-    on('settings', 'ir_remote_status_changed', (event) => {
-      if (event.data) {
-        settingsStore.applyIrRemoteStatus(event.data);
-      }
-    }),
-    parsedOn('settings', 'fan_config_changed', wsEventRegistry['settings.fan_config_changed'],
-             (payload) => fanStore.applyConfig(payload)),
-    parsedOn('settings', 'fan_status_changed', wsEventRegistry['settings.fan_status_changed'],
-             (payload) => fanStore.applyTelemetry(payload)),
-    on('system', 'hostname_conflict_changed', (event) => systemStore.handleConflictEvent(event)),
-    on('system', 'connectivity_changed', (event) => systemStore.handleConnectivityEvent(event)),
-    // Equalizer events
-    on('equalizer', 'filter_changed', (event) => equalizerStore.handleFilterChanged(event)),
-    parsedOn('equalizer', 'state_changed', wsEventRegistry['equalizer.state_changed'],
-             (payload) => equalizerStore.handleStateChanged(payload)),
-    parsedOn('equalizer', 'levels', wsEventRegistry['equalizer.levels'],
-             (payload) => equalizerStore.handleLevelsChanged(payload)),
-    parsedOn('equalizer', 'compressor_changed', wsEventRegistry['equalizer.compressor_changed'],
-             (payload) => equalizerStore.handleCompressorChanged(payload)),
-    parsedOn('equalizer', 'loudness_changed', wsEventRegistry['equalizer.loudness_changed'],
-             (payload) => equalizerStore.handleLoudnessChanged(payload)),
-    on('equalizer', 'mono_changed', (event) => equalizerStore.handleMonoChanged(event)),
-    on('equalizer', 'enabled_changed', (event) => equalizerStore.handleEnabledChanged(event)),
-    on('equalizer', 'zone_enabled_changed', (event) => equalizerStore.handleZoneEnabledChanged(event)),
-    // Program/satellite update events
-    parsedOn('programs', 'program_update_progress', wsEventRegistry['programs.program_update_progress'],
-             (payload) => updatesStore.handleProgramUpdateProgress(payload)),
-    parsedOn('programs', 'program_update_complete', wsEventRegistry['programs.program_update_complete'],
-             (payload) => updatesStore.handleProgramUpdateComplete(payload)),
-    parsedOn('programs', 'satellite_update_progress', wsEventRegistry['programs.satellite_update_progress'],
-             (payload) => updatesStore.handleSatelliteUpdateProgress(payload)),
-    parsedOn('programs', 'satellite_update_complete', wsEventRegistry['programs.satellite_update_complete'],
-             (payload) => updatesStore.handleSatelliteUpdateComplete(payload)),
-    parsedOn('programs', 'satellite_app_update_progress', wsEventRegistry['programs.satellite_app_update_progress'],
-             (payload) => updatesStore.handleSatelliteAppUpdateProgress(payload)),
-    parsedOn('programs', 'satellite_app_update_complete', wsEventRegistry['programs.satellite_app_update_complete'],
-             (payload) => updatesStore.handleSatelliteAppUpdateComplete(payload)),
-    parsedOn('programs', 'satellite_camilladsp_update_progress', wsEventRegistry['programs.satellite_camilladsp_update_progress'],
-             (payload) => updatesStore.handleSatelliteCamillaUpdateProgress(payload)),
-    parsedOn('programs', 'satellite_camilladsp_update_complete', wsEventRegistry['programs.satellite_camilladsp_update_complete'],
-             (payload) => updatesStore.handleSatelliteCamillaUpdateComplete(payload)),
+
     onReconnect(() => {
       logger.info('websocket', 'WebSocket reconnected');
       resyncStores();

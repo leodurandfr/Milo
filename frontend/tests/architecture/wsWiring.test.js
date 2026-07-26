@@ -53,15 +53,26 @@ function registryKeys() {
   return [...block[1].matchAll(/^\s{2}'([\w]+\.[\w]+)':/gm)].map(m => m[1]);
 }
 
-/** The registry keys App.vue actually passes to parsedOn(). */
-function subscribedRegistryKeys() {
-  return [...appSource.matchAll(/wsEventRegistry\['([^']+)'\]/g)].map(m => m[1]);
+/** The `['category', 'type', handler]` rows of one of App.vue's dispatch tables. */
+function tableRows(name) {
+  const block = new RegExp(`const ${name} = \\[([\\s\\S]*?)\\n\\];`).exec(appSource);
+  if (!block) throw new Error(`${name} not found in App.vue — the extractor is broken`);
+  return [...block[1].matchAll(/\['(\w+)',\s*'(\w+)'/g)].map(m => [m[1], m[2]]);
 }
 
-/** The (category, type) pairs App.vue passes to parsedOn(), as 'category.type'. */
-function parsedOnPairs() {
-  return [...appSource.matchAll(/parsedOn\(\s*'([^']+)'\s*,\s*'([^']+)'/g)]
-    .map(m => `${m[1]}.${m[2]}`);
+/**
+ * Every Zod-validated subscription, as `[pair, schemaKey]`.
+ *
+ * Two sources, because both shapes are legal: PARSED_EVENTS rows, which derive
+ * the schema from their own pair, and any inline parsedOn() left in the file
+ * with a literal registry key.
+ */
+function parsedSubscriptions() {
+  const fromTable = tableRows('PARSED_EVENTS').map(([c, t]) => [`${c}.${t}`, `${c}.${t}`]);
+  const fromInline = [...appSource.matchAll(
+    /parsedOn\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*wsEventRegistry\['([^']+)'\]/g,
+  )].map(m => [`${m[1]}.${m[2]}`, m[3]]);
+  return [...fromTable, ...fromInline];
 }
 
 describe('WS event handlers live in App.vue, not in components', () => {
@@ -95,13 +106,12 @@ describe('WS event handlers live in App.vue, not in components', () => {
 
 describe('wsEventRegistry ↔ App.vue parsedOn() subscriptions', () => {
   const declared = registryKeys();
-  const subscribed = subscribedRegistryKeys();
-  const pairs = parsedOnPairs();
+  const parsed = parsedSubscriptions();
+  const subscribed = parsed.map(([, key]) => key);
 
   it('extracts a plausible surface from both sides', () => {
     expect(declared.length).toBeGreaterThan(5);
     expect(subscribed.length).toBeGreaterThan(5);
-    expect(pairs.length).toBe(subscribed.length);
   });
 
   it('every declared schema has a consumer', () => {
@@ -121,12 +131,12 @@ describe('wsEventRegistry ↔ App.vue parsedOn() subscriptions', () => {
   });
 
   it('each parsedOn() passes the schema for the pair it subscribes to', () => {
-    const mismatched = pairs
-      .map((pair, i) => ({ pair, key: subscribed[i] }))
-      .filter(({ pair, key }) => pair !== key);
+    const mismatched = parsed.filter(([pair, key]) => pair !== key);
 
     // Subscribing to (a, b) while validating against the schema for (c, d)
     // logs a bogus validation warning and falls back to the raw payload.
+    // PARSED_EVENTS makes that unrepresentable — it derives the key from the
+    // row — so this now guards the inline parsedOn() shape, still legal.
     expect(mismatched).toEqual([]);
   });
 });
