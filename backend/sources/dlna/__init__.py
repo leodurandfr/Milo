@@ -1,22 +1,10 @@
 # backend/sources/dlna/__init__.py
-"""
-DLNA / UPnP Media Renderer (DMR) audio source using gmediarender.
+"""DLNA / UPnP Media Renderer (DMR) via gmediarender (Family B — passive player).
 
-Milō appears as a DLNA renderer; a local UPnP control-point bridge feeds
-metadata (title/artist/album/artwork/state/position) from the renderer. Passive
-player (Family B) — playback is controlled by the external sender.
-
-Usage:
-    from backend.sources.dlna import DlnaSource, router
-
-    source = DlnaSource(config=config, state_machine=state_machine)
-    app.include_router(router, prefix="/api")
+Milō appears as a DLNA renderer; a local UPnP control-point bridge
+(metadata_reader.py) feeds title/artist/album/artwork/state/position back from
+the renderer. Playback is controlled by the external sender.
 """
 from backend.sources.dlna.source import DlnaSource
-from backend.sources.dlna.routes import router, setup_dlna_routes
 
-__all__ = [
-    "DlnaSource",
-    "router",
-    "setup_dlna_routes",
-]
+__all__ = ["DlnaSource"]

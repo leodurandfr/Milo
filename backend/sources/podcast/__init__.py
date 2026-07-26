@@ -1,36 +1,9 @@
 # backend/sources/podcast/__init__.py
-"""
-Podcast audio source feature using MPV and the Podcast Index API.
+"""Podcast audio source via mpv and the Podcast Index API (Family C).
 
-This module provides podcast streaming with discovery, search,
-subscription management, and playback control.
-
-Usage:
-    from backend.sources.podcast import PodcastSource, router
-
-    # Create source
-    source = PodcastSource(config=config, state_machine=state_machine)
-
-    # Include router in FastAPI app
-    app.include_router(router, prefix="/api")
+Discovery, search, subscription management and playback, with per-episode
+progress persisted so a partially-heard episode resumes where it stopped.
 """
 from backend.sources.podcast.source import PodcastSource
-from backend.sources.podcast.routes import router, setup_podcast_routes
-from backend.sources.podcast.data import PodcastDataService
-from backend.sources.podcast.models import (
-    PlayEpisodeRequest,
-    SpeedRequest,
-    SubscribeRequest,
-    SettingsRequest,
-)
 
-__all__ = [
-    "PodcastSource",
-    "router",
-    "setup_podcast_routes",
-    "PodcastDataService",
-    "PlayEpisodeRequest",
-    "SpeedRequest",
-    "SubscribeRequest",
-    "SettingsRequest",
-]
+__all__ = ["PodcastSource"]
