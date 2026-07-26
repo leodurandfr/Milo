@@ -7,8 +7,10 @@ Tests cover:
 - PATCH /api/multiroom/clients/{mac_id} — update name, update speaker_type
 - Validation — 400 for an invalid speaker_type
 """
+import logging
 import pytest
-from unittest.mock import Mock, AsyncMock
+import aiohttp
+from unittest.mock import Mock, AsyncMock, patch
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from pydantic import ValidationError
@@ -1098,3 +1100,53 @@ class TestZoneAddClientModel:
         from backend.api.models import ZoneAddClient
         with pytest.raises(ValidationError):
             ZoneAddClient()
+
+
+class TestUnreachableSatellite:
+    """
+    Tests for what a route does when a registered satellite does not answer on
+    CLIENT_API_PORT.
+
+    Snapserver only notices a client once its socket errors, so the registry can
+    still claim `online` at the moment a route tries to reach one that is gone.
+    If these fail, either the client keeps being shown as online and controllable,
+    or the failure is logged at ERROR — which WebSocketLogHandler turns into a
+    backend-error banner in the UI for a speaker that is merely unplugged.
+    """
+
+    class _RefusingSession:
+        """An aiohttp session whose every request is refused, like a dead host."""
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def get(self, *args, **kwargs):
+            raise aiohttp.ClientConnectorError(Mock(), OSError("connection refused"))
+
+        def put(self, *args, **kwargs):
+            raise aiohttp.ClientConnectorError(Mock(), OSError("connection refused"))
+
+    def test_hardware_read_marks_the_client_offline(self, client, mock_registry_service, caplog):
+        """An unreachable satellite is recorded offline, so the UI stops offering controls."""
+        mock_registry_service.set_client_online = AsyncMock()
+
+        with patch("backend.api.multiroom.aiohttp.ClientSession", return_value=self._RefusingSession()):
+            with caplog.at_level(logging.DEBUG, logger="backend.api.multiroom"):
+                response = client.get("/api/multiroom/clients/dc:a6:32:7e:d3:43/hardware")
+
+        assert response.status_code == 502
+        mock_registry_service.set_client_online.assert_awaited_once_with("dc:a6:32:7e:d3:43", False)
+
+    def test_hardware_read_does_not_log_an_error(self, client, mock_registry_service, caplog):
+        """An absent satellite is an expected state — logging it at ERROR raises a UI banner."""
+        mock_registry_service.set_client_online = AsyncMock()
+
+        with patch("backend.api.multiroom.aiohttp.ClientSession", return_value=self._RefusingSession()):
+            with caplog.at_level(logging.DEBUG, logger="backend.api.multiroom"):
+                client.get("/api/multiroom/clients/dc:a6:32:7e:d3:43/hardware")
+
+        assert [r.message for r in caplog.records if r.levelno >= logging.ERROR] == []
+        assert any(r.levelno == logging.WARNING for r in caplog.records)

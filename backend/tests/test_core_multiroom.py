@@ -11,6 +11,8 @@ Tests:
 """
 import pytest
 import asyncio
+import time
+import aiohttp
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.tests.conftest import attach_registry_broadcaster
@@ -3244,3 +3246,148 @@ class TestApplyTargetVolumeToClient:
         mock_registry.update_volume.assert_called_once()
         # Result is False due to exception handling
         assert result is False
+
+
+class TestClientReconcileSweep:
+    """
+    Tests for SnapcastWebSocketService's periodic liveness sweep.
+
+    Snapserver declares a client disconnected only when its socket errors, and
+    it writes nothing to an idle client's socket — so a satellite that vanishes
+    without a TCP FIN (power cut, Wi-Fi drop) stays `connected: true` there and
+    emits no notification at all. If these fail, the registry keeps such a
+    client `online` forever and the frontend offers volume, EQ and hardware
+    controls for a speaker that is gone.
+    """
+
+    FRESH = "dc:a6:32:7e:d3:43"
+    VANISHED = "d8:3a:dd:68:e7:e4"
+
+    @staticmethod
+    def _snap_client(mac: str, ip: str, last_seen_age: float) -> dict:
+        """A snapserver client entry that still claims `connected`."""
+        return {
+            "id": mac,
+            "connected": True,
+            "config": {"name": "", "volume": {"percent": 100, "muted": False}},
+            "host": {"name": "milo-client", "ip": f"::ffff:{ip}", "mac": mac},
+            "lastSeen": {"sec": int(time.time() - last_seen_age), "usec": 0},
+        }
+
+    def _status(self, vanished_last_seen_age: float) -> dict:
+        return {"server": {"groups": [{"id": "g1", "clients": [
+            self._snap_client(self.FRESH, "192.168.1.153", 1),
+            self._snap_client(self.VANISHED, "192.168.1.60", vanished_last_seen_age),
+        ]}]}}
+
+    async def _service(self, status_sequence: list):
+        """A wired service whose only mock is the snapserver RPC.
+
+        `extract_clients` is the real implementation, so the lastSeen freshness
+        rule under test is production code. The sequence's last entry raises
+        CancelledError, which ends the loop after a deterministic number of
+        passes instead of on a wall clock.
+        """
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        registry = ClientRegistryService(settings_service=AsyncMock())
+        await registry.initialize()
+        for mac, ip in ((self.FRESH, "192.168.1.153"), (self.VANISHED, "192.168.1.60")):
+            await registry.register_client(mac, f"Speaker {mac[-2:]}", ip, host="milo-client")
+            await registry.set_client_online(mac, True)
+
+        snapcast = SnapcastService(systemd_manager=MagicMock())
+        snapcast.get_server_status = AsyncMock(side_effect=status_sequence)
+
+        sm = MagicMock()
+        sm.broadcast = AsyncMock()
+        service = SnapcastWebSocketService(state_machine=sm, routing_service=MagicMock())
+        service.set_registry(registry)
+        service._snapcast_service = snapcast
+        service.websocket = MagicMock(closed=False)
+        service.running = True
+        service.should_connect = True
+        service.RECONCILE_INTERVAL_S = 0
+        return service, registry
+
+    @pytest.mark.asyncio
+    async def test_sweep_marks_a_silently_vanished_client_offline(self):
+        """A client snapserver still calls connected goes offline once it stops being seen."""
+        service, registry = await self._service(
+            [self._status(vanished_last_seen_age=500), asyncio.CancelledError()]
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await service._reconcile_loop()
+
+        assert registry.get_client(self.VANISHED).online is False
+        assert registry.get_client(self.FRESH).online is True
+
+    @pytest.mark.asyncio
+    async def test_sweep_keeps_a_still_seen_client_online(self):
+        """The sweep is not a timeout on its own: a client seen 1s ago stays online."""
+        service, registry = await self._service(
+            [self._status(vanished_last_seen_age=1), asyncio.CancelledError()]
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await service._reconcile_loop()
+
+        assert registry.get_client(self.VANISHED).online is True
+        assert registry.get_client(self.FRESH).online is True
+
+    @pytest.mark.asyncio
+    async def test_sweep_ignores_an_unreadable_server_status(self):
+        """An RPC failure must not read as "every client vanished" and offline the fleet.
+
+        get_server_status is fail-open ({} on failure), so without the guard one
+        snapserver hiccup would take every client out of the UI at once.
+        """
+        service, registry = await self._service([{}, asyncio.CancelledError()])
+
+        with pytest.raises(asyncio.CancelledError):
+            await service._reconcile_loop()
+
+        assert registry.get_client(self.VANISHED).online is True
+        assert registry.get_client(self.FRESH).online is True
+
+    @pytest.mark.asyncio
+    async def test_enabling_multiroom_starts_the_sweep(self):
+        """The sweep is actually wired: without this the loop above is dead code.
+
+        Nothing else in the suite notices a reconcile loop that is never spawned,
+        and its absence is invisible in dev too — it only shows up as a satellite
+        that stays online for hours after being unplugged.
+        """
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        service = SnapcastWebSocketService(state_machine=MagicMock(), routing_service=MagicMock())
+        service.running = True
+        service.session = MagicMock()
+        service.session.ws_connect = AsyncMock(
+            side_effect=aiohttp.ClientConnectorError(MagicMock(), OSError("no snapserver"))
+        )
+
+        await service.start_connection()
+        try:
+            assert service.reconcile_task is not None
+        finally:
+            await service.stop_connection()
+
+        assert service.reconcile_task is None
+
+    @pytest.mark.asyncio
+    async def test_reconnect_does_not_readmit_a_client_that_is_no_longer_seen(self):
+        """Re-marking a stale client online on reconnect is how the ghost survived.
+
+        Snapserver keeps `connected: true` for a satellite that vanished without a
+        TCP FIN, so the reconnection path must apply the same freshness rule as the
+        sweep — otherwise a multiroom toggle puts a long-gone speaker back in the UI.
+        """
+        service, registry = await self._service([self._status(vanished_last_seen_age=500)])
+        await registry.set_client_online(self.VANISHED, False)
+
+        await service._initialize_existing_clients()
+
+        assert registry.get_client(self.VANISHED).online is False
+        assert registry.get_client(self.FRESH).online is True

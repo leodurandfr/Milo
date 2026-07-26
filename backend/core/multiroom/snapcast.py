@@ -131,9 +131,15 @@ class SnapcastService:
 
     @handle_errors(default=[])
     async def get_clients(self) -> List[Dict[str, Any]]:
-        """Get clients with MAC-based deduplication and availability detection."""
+        """Get clients with MAC-based deduplication and availability detection.
+
+        Fail-open: flattens a request failure to []. Callers that would read an
+        empty list as "every client vanished" must fetch the status themselves
+        and use ``extract_clients`` instead — see the reconcile sweep in
+        SnapcastWebSocketService.
+        """
         status = await self._request("Server.GetStatus")
-        return self._extract_clients(status)
+        return self.extract_clients(status)
 
     def _parse_clients(
         self,
@@ -222,8 +228,13 @@ class SnapcastService:
 
         return self._deduplicate_by_mac(raw_clients)
 
-    def _extract_clients(self, status: dict) -> List[Dict[str, Any]]:
-        """Extract online clients from server status (basic info)."""
+    def extract_clients(self, status: dict) -> List[Dict[str, Any]]:
+        """Extract online clients from a server status already fetched by the caller.
+
+        Public because the reconcile sweep must be able to tell "the RPC failed"
+        from "no client is connected": it guards on an empty status of its own
+        and only then parses, which ``get_clients``' fail-open [] cannot express.
+        """
         return self._parse_clients(status, include_offline=False, detailed=False)
 
     def _deduplicate_by_mac(self, clients: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
