@@ -129,6 +129,64 @@ describe('App.vue deltaStores ↔ stores exposing resync()', () => {
   });
 });
 
+/**
+ * The async half of App.vue's onMounted — everything after the WS subscriptions
+ * are registered. That block is the boot path; the subscriptions above it are
+ * not, and they mention every store.
+ */
+function bootBlock(source) {
+  const push = source.indexOf('cleanupFunctions.push(');
+  if (push === -1) throw new Error('cleanupFunctions.push( not found in App.vue — the extractor is broken');
+  let depth = 0;
+  let index = source.indexOf('(', push);
+  for (; index < source.length; index += 1) {
+    if (source[index] === '(') depth += 1;
+    else if (source[index] === ')') {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  const end = source.indexOf('onUnmounted(', index);
+  if (end === -1) throw new Error('onUnmounted( not found in App.vue — the extractor is broken');
+  // Comments out: the block explains itself by naming the very calls the rules
+  // below look for, and a prose mention must not read as a call site.
+  return source.slice(index, end).replace(/\/\/.*$/gm, '');
+}
+
+/**
+ * Store calls the boot path may make outside resyncStores(). Only one qualifies:
+ * it reads localStorage to show the last known registry before any request, so
+ * it describes no server state and cannot fall out of step with resync().
+ */
+const BOOT_ONLY_STORE_CALLS = new Set(['multiroomStore.primeFromCache']);
+
+describe('App.vue has one recipe for populating the stores', () => {
+  const boot = bootBlock(appSource);
+
+  it('extracts a plausible boot block', () => {
+    // A mis-sliced block would make the rules below pass on an empty string.
+    expect(boot.length).toBeGreaterThan(200);
+    expect(boot).toContain('loadHardwareInfo');
+  });
+
+  it('boot loads the stores by calling resyncStores()', () => {
+    expect(boot).toMatch(/await resyncStores\(\)/);
+  });
+
+  it('populates the stores through resyncStores() and nothing else', () => {
+    const direct = [...boot.matchAll(/(\w+Store)\.(\w+)\(/g)]
+      .map(([, store, method]) => `${store}.${method}`)
+      .filter(call => !BOOT_ONLY_STORE_CALLS.has(call));
+
+    // A second, hand-written boot list is the failure this pass fixed: for
+    // months it fetched the registry but not the pending clients, so the first
+    // heartbeat of a long-known satellite read as a brand-new speaker and the
+    // kiosk woke itself and opened Settings, once per page load. Both lists
+    // look like they populate the app, so nothing surfaces the divergence.
+    expect(direct).toEqual([]);
+  });
+});
+
 describe('WS subscriptions ↔ deltaStores', () => {
   it('every store mutated by a WS handler is delta-listed or snapshot-fed', () => {
     const mutated = storesMutatedByWsHandlers(appSource);
