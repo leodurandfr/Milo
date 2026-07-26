@@ -25,8 +25,7 @@
               class="keyboard-key text-body"
               @pointerdown.prevent="onKeyPointerDown($event, key)"
               @pointerup.prevent="onKeyPointerUp($event, key)"
-              @pointerleave="onKeyPointerLeave"
-              @pointermove="onKeyPointerMove">
+              @pointerleave="onKeyPointerLeave">
               {{ key }}
             </button>
           </div>
@@ -37,8 +36,7 @@
               class="keyboard-key text-body"
               @pointerdown.prevent="onKeyPointerDown($event, key)"
               @pointerup.prevent="onKeyPointerUp($event, key)"
-              @pointerleave="onKeyPointerLeave"
-              @pointermove="onKeyPointerMove">
+              @pointerleave="onKeyPointerLeave">
               {{ key }}
             </button>
           </div>
@@ -60,8 +58,7 @@
               class="keyboard-key text-body"
               @pointerdown.prevent="onKeyPointerDown($event, key)"
               @pointerup.prevent="onKeyPointerUp($event, key)"
-              @pointerleave="onKeyPointerLeave"
-              @pointermove="onKeyPointerMove">
+              @pointerleave="onKeyPointerLeave">
               {{ key }}
             </button>
 
@@ -93,8 +90,7 @@
             <button class="keyboard-key key-dot text-body"
               @pointerdown.prevent="onKeyPointerDown($event, '.')"
               @pointerup.prevent="onKeyPointerUp($event, '.')"
-              @pointerleave="onKeyPointerLeave"
-              @pointermove="onKeyPointerMove">
+              @pointerleave="onKeyPointerLeave">
               .
             </button>
             <button class="keyboard-key key-dismiss"
@@ -132,6 +128,8 @@ import { useI18n } from '@/services/i18n';
 import { useVirtualKeyboard, useKeyboardAvailability } from '@/composables/useVirtualKeyboard';
 import { useTimer } from '@/composables/useTimer';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import { keyLayout, accentVariants } from './keyboard/layouts';
+import { pressPopupPlacement, accentPopupPlacement, accentIndexAt } from './keyboard/geometry';
 
 const { getCurrentLanguage } = useI18n();
 const timer = useTimer();
@@ -154,125 +152,9 @@ const isCapsLock = ref(false);
 const isShiftHeld = ref(false);
 const isUppercase = computed(() => isCapsLock.value || isShiftHeld.value);
 
-// ===== KEYBOARD LAYOUTS =====
-const keyboardLayouts = {
-  french: {
-    abc: {
-      row1: ['a', 'z', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-      row2: ['q', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm'],
-      row3: ['w', 'x', 'c', 'v', 'b', 'n', '?', ','],
-    },
-    numbers: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['-', '/', ':', ';', '(', ')', '€', '&', '@', '"'],
-      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
-    },
-    symbols: {
-      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
-      row2: ['_', '\\', '|', '~', '<', '>', '$', '£', '¥', '\u2E31'],
-      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
-    }
-  },
-  english: {
-    abc: {
-      row1: ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-      row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', "'"],
-      row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ','],
-    },
-    numbers: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['-', '/', ':', ';', '(', ')', '$', '&', '@', '"'],
-      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
-    },
-    symbols: {
-      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
-      row2: ['_', '\\', '|', '~', '<', '>', '€', '£', '¥', '\u2E31'],
-      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
-    }
-  },
-  spanish: {
-    abc: {
-      row1: ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-      row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ñ'],
-      row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ','],
-    },
-    numbers: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['-', '/', ':', ';', '(', ')', '€', '&', '@', '"'],
-      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
-    },
-    symbols: {
-      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
-      row2: ['_', '\\', '|', '~', '<', '>', '$', '£', '¥', '\u2E31'],
-      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
-    }
-  },
-  german: {
-    abc: {
-      row1: ['q', 'w', 'e', 'r', 't', 'z', 'u', 'i', 'o', 'p'],
-      row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ü'],
-      row3: ['y', 'x', 'c', 'v', 'b', 'n', 'm', ','],
-    },
-    numbers: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['-', '/', ':', ';', '(', ')', '€', '&', '@', '"'],
-      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
-    },
-    symbols: {
-      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
-      row2: ['_', '\\', '|', '~', '<', '>', '$', '£', '¥', '\u2E31'],
-      row3: [',', '?', '!', "'", '\u2026', '\u014D', '\u30FB', '\u2014'],
-    }
-  }
-};
-
-// ===== ACCENT MAPS (per-language, native accents only) =====
-const accentMaps = {
-  french: {
-    'a': ['à', 'â', 'æ'],
-    'e': ['è', 'é', 'ê', 'ë'],
-    'i': ['î', 'ï'],
-    'o': ['ô', 'œ'],
-    'u': ['ù', 'û', 'ü'],
-    'y': ['ÿ'],
-    'c': ['ç'],
-  },
-  english: {
-    // English has no native accents
-  },
-  spanish: {
-    'a': ['á'],
-    'e': ['é'],
-    'i': ['í'],
-    'o': ['ó'],
-    'u': ['ú', 'ü'],
-    'n': ['ñ'],
-    '?': ['¿'],
-    '!': ['¡'],
-  },
-  german: {
-    'a': ['ä'],
-    'o': ['ö'],
-    'u': ['ü'],
-    's': ['ß'],
-  },
-};
-
-const accentMap = computed(() => {
-  const lang = getCurrentLanguage();
-  return accentMaps[lang] || accentMaps.english;
-});
-
 // ===== COMPUTED: layout selection =====
-const currentLayoutData = computed(() => {
-  const lang = getCurrentLanguage();
-  if (lang === 'french') return keyboardLayouts.french;
-  if (lang === 'spanish') return keyboardLayouts.spanish;
-  if (lang === 'german') return keyboardLayouts.german;
-  return keyboardLayouts.english;
-});
-
-const currentModeLayout = computed(() => currentLayoutData.value[keyboardMode.value]);
+const accentMap = computed(() => accentVariants(getCurrentLanguage()));
+const currentModeLayout = computed(() => keyLayout(getCurrentLanguage())[keyboardMode.value]);
 
 const transformKey = (key) => {
   if (keyboardMode.value === 'abc' && isUppercase.value) return key.toUpperCase();
@@ -358,9 +240,7 @@ function handleClose() {
 }
 
 // ===== KEY PRESS POPUP =====
-// BCR returns visual (post-transform) px, but `left/bottom: Xpx` on the popup
-// is interpreted in layout px. When #app has transform: scale (ui_scale), we
-// must convert BCR diffs to layout via `BCR / offsetWidth` to keep popups aligned.
+// The layout-vs-visual px conversion the placement helpers need — see keyboard/geometry.js.
 function getKeyboardScale() {
   if (!keyboardRef.value) return 1;
   const w = keyboardRef.value.offsetWidth;
@@ -370,49 +250,36 @@ function getKeyboardScale() {
 function showPressPopup(event, key) {
   if (!keyboardRef.value) return;
 
-  const keyRect = event.target.getBoundingClientRect();
-  const kbRect = keyboardRef.value.getBoundingClientRect();
-  const scale = getKeyboardScale();
-
-  const keyLayoutWidth = keyRect.width / scale;
-  const popupWidth = Math.max(keyLayoutWidth + 12, 48);
-  const left = (keyRect.left - kbRect.left) / scale + (keyLayoutWidth / 2) - (popupWidth / 2);
-  const bottom = (kbRect.bottom - keyRect.top) / scale + 6;
+  const { left, bottom, width } = pressPopupPlacement(
+    event.target.getBoundingClientRect(),
+    keyboardRef.value.getBoundingClientRect(),
+    getKeyboardScale()
+  );
 
   pressPopup.char = key;
   pressPopup.style = {
     left: `${left}px`,
     bottom: `${bottom}px`,
-    width: `${popupWidth}px`
+    width: `${width}px`
   };
   pressPopup.visible = true;
 }
 
 // ===== ACCENT POPUP =====
 function showAccentPopup(event, key) {
-  const lowerKey = key.toLowerCase();
-  const variants = accentMap.value[lowerKey];
+  const variants = accentMap.value[key.toLowerCase()];
   if (!variants || variants.length === 0 || !keyboardRef.value) return;
 
   const mappedVariants = isUppercase.value
     ? variants.map(v => v.toUpperCase())
     : [...variants];
 
-  const keyRect = event.target.getBoundingClientRect();
-  const kbRect = keyboardRef.value.getBoundingClientRect();
-  const scale = getKeyboardScale();
-
-  const optionWidth = 44;
-  const gap = 2;
-  const padding = 8;
-  const totalWidth = (mappedVariants.length * (optionWidth + gap)) - gap + padding;
-  const kbLayoutWidth = kbRect.width / scale;
-  const keyLayoutWidth = keyRect.width / scale;
-
-  let left = (keyRect.left - kbRect.left) / scale + (keyLayoutWidth / 2) - (totalWidth / 2);
-  left = Math.max(4, Math.min(left, kbLayoutWidth - totalWidth - 4));
-
-  const bottom = (kbRect.bottom - keyRect.top) / scale + 6;
+  const { left, bottom } = accentPopupPlacement(
+    event.target.getBoundingClientRect(),
+    keyboardRef.value.getBoundingClientRect(),
+    getKeyboardScale(),
+    mappedVariants.length
+  );
 
   accentPopup.variants = mappedVariants;
   accentPopup.selectedIndex = -1;
@@ -464,24 +331,16 @@ function onKeyPointerLeave() {
   pressPopup.visible = false;
 }
 
-function onKeyPointerMove() {
-  // Individual key move — not used for accent selection (document handles that)
-}
-
 function onDocumentPointerMove(event) {
   if (!accentPopup.visible || !keyboardRef.value) return;
 
-  const kbRect = keyboardRef.value.getBoundingClientRect();
-  const scale = getKeyboardScale();
-  const popupLeft = parseFloat(accentPopup.style.left); // layout px
-  const padding = 4;
-  const optionWidth = 44;
-  const gap = 2;
-
-  // event.clientX is viewport (post-scale); convert the offset to layout px to match popupLeft/optionWidth.
-  const x = (event.clientX - kbRect.left) / scale - popupLeft - padding;
-  const index = Math.floor(x / (optionWidth + gap));
-  accentPopup.selectedIndex = Math.max(0, Math.min(index, accentPopup.variants.length - 1));
+  accentPopup.selectedIndex = accentIndexAt(
+    event.clientX,
+    keyboardRef.value.getBoundingClientRect().left,
+    getKeyboardScale(),
+    parseFloat(accentPopup.style.left),
+    accentPopup.variants.length
+  );
 }
 
 function onDocumentPointerUp() {
