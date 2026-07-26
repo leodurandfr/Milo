@@ -433,5 +433,27 @@ describe('radioStore', () => {
       expect(store.displayedStations[0].name).toBe('Renamed');
       expect(store.displayedStations[1].name).toBe('Station s2');
     });
+
+    it('leaves the custom dict alone until the settings view has asked for it', () => {
+      // Editing a station is what creates a custom entry, so the dict must
+      // refresh — but only once something is displaying it. Refetching for a
+      // view that was never opened is a request nobody reads.
+      store.handleMetadataModified(STATION('s1'));
+
+      expect(apiCall.get).not.toHaveBeenCalled();
+    });
+
+    it('refreshes the custom dict once it has been loaded', async () => {
+      apiCall.get.mockResolvedValueOnce(ok({ custom1: STATION('custom1') }));
+      await store.loadRadioSettingsData();
+      apiCall.get.mockResolvedValueOnce(ok({ custom1: { ...STATION('custom1'), name: 'Renamed' } }));
+
+      store.handleMetadataModified({ ...STATION('custom1'), name: 'Renamed' });
+      await vi.waitFor(() => expect(store.customStations.custom1.name).toBe('Renamed'));
+
+      // The dict is refetched, not patched: the event carries the station, not
+      // whether it has just become a custom entry.
+      expect(apiCall.get).toHaveBeenLastCalledWith('/api/radio/custom', expect.anything());
+    });
   });
 });

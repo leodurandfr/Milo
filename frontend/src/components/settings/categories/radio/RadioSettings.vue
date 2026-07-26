@@ -51,8 +51,6 @@ import { useI18n } from '@/services/i18n';
 import { useRadioStore } from '@/stores/radioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
-import useWebSocket from '@/services/websocket';
-import { logger } from '@/services/logger';
 import Button from '@/components/ui/Button.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import StationCard from '@/components/radio/StationCard.vue';
@@ -65,7 +63,6 @@ const { t } = useI18n();
 const radioStore = useRadioStore();
 const settingsStore = useSettingsStore();
 const { updateSetting } = useSettingsAPI();
-const { on } = useWebSocket();
 
 // Shazam toggle state (synced from settings store)
 const shazamEnabled = computed(() => settingsStore.radioSettings.shazam_enabled);
@@ -100,15 +97,6 @@ const addedStations = computed(() => {
 onMounted(() => {
   // Refresh data on mount (preloaded data prevents layout shift, this ensures freshness)
   radioStore.loadRadioSettingsData();
-});
-
-// Listen for metadata modifications to refresh custom stations
-// (favorites are already updated in real-time by the favorite_modified WS handler in App.vue)
-on('source', 'favorite_modified', (event) => {
-  if (event.data?.source === 'radio') {
-    logger.debug('radio', 'Station modified, reloading custom stations for settings');
-    radioStore.loadRadioSettingsData();
-  }
 });
 </script>
 

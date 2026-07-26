@@ -39,8 +39,11 @@ export const useRadioStore = defineStore('radio', () => {
   const countryFilter = ref('');
   const genreFilter = ref('');
 
-  // Custom stations dict for settings view (modified + manually added)
+  // Custom stations dict for settings view (modified + manually added).
+  // Only fetched once the settings view has asked for it; the loaded flag gates
+  // the WS refresh and the resync so an unopened view costs nothing.
   const customStations = ref({});
+  const customStationsLoaded = ref(false);
 
   // Top stations cache (3 minutes, memory only)
   const topStationsCache = ref(null);
@@ -462,6 +465,7 @@ export const useRadioStore = defineStore('radio', () => {
       message: 'Error loading custom stations',
     });
     customStations.value = result.ok ? (result.data || {}) : {};
+    customStationsLoaded.value = true;
   }
 
   /**
@@ -519,10 +523,18 @@ export const useRadioStore = defineStore('radio', () => {
         ...searchResults.value.slice(searchIndex + 1)
       ];
     }
+
+    // Editing a station is what promotes it to (or updates it in) the custom
+    // dict, so the whole dict is refetched rather than patched in place: the
+    // event carries the station, not whether it is now a custom entry.
+    if (customStationsLoaded.value) fetchCustomStations();
   }
 
   async function resync() {
-    return preloadFavorites({ force: true });
+    await Promise.all([
+      preloadFavorites({ force: true }),
+      customStationsLoaded.value ? fetchCustomStations() : Promise.resolve(),
+    ]);
   }
 
   return {
