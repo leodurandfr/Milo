@@ -1,12 +1,12 @@
 """
-Integration tests for reconnection scenarios (FR7-FR10, FR13).
+Integration tests for reconnection scenarios.
 
-These tests validate the reconnection sync logic for volume and Equalizer settings
-across all defined scenarios in the architecture document.
-
-Story 5.5: Tests E2E - Scénarios de Reconnexion
-Story 5.1: Reconnection Context Detection
-Story 5.2: IN_ZONE Reconnection Sync
+When a snapclient reconnects, the backend must decide which volume and which EQ
+to push to it, and the answer depends on the client's context: in a zone or
+standalone, with other members online or alone. These tests drive
+SnapcastWebSocketService end to end for each of the four contexts — detection,
+the volume it resolves, the EQ it re-pushes, and the pending-settings queue for
+a client that was offline when a change was made.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -18,7 +18,7 @@ from backend.core.multiroom.models import ReconnectionContext
 
 class TestReconnectionContextDetectionIntegration:
     """
-    Integration tests for reconnection context detection (Story 5.1).
+    Integration tests for reconnection context detection.
 
     These tests validate the end-to-end flow of context detection when
     a client reconnects via Snapcast WebSocket events.
@@ -55,7 +55,7 @@ class TestReconnectionContextDetectionIntegration:
         Scenario:
         1. Zone with 3 clients: local, client-1 (online), client-2 (offline)
         2. local reconnects
-        3. Context should be IN_ZONE_OTHERS_ONLINE (FR7)
+        3. Context should be IN_ZONE_OTHERS_ONLINE
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
 
@@ -80,7 +80,7 @@ class TestReconnectionContextDetectionIntegration:
         # Detect context
         context = registry.get_reconnection_context("local")
 
-        # Should be IN_ZONE_OTHERS_ONLINE (FR7)
+        # Should be IN_ZONE_OTHERS_ONLINE
         assert context == ReconnectionContext.IN_ZONE_OTHERS_ONLINE
 
     @pytest.mark.asyncio
@@ -93,7 +93,7 @@ class TestReconnectionContextDetectionIntegration:
         Scenario:
         1. Zone with 3 clients, all offline (e.g., after backend restart)
         2. local reconnects first
-        3. Context should be IN_ZONE_ALL_OFFLINE (FR8)
+        3. Context should be IN_ZONE_ALL_OFFLINE
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
 
@@ -117,7 +117,7 @@ class TestReconnectionContextDetectionIntegration:
         # Detect context - local reconnects first
         context = registry.get_reconnection_context("local")
 
-        # Should be IN_ZONE_ALL_OFFLINE (FR8)
+        # Should be IN_ZONE_ALL_OFFLINE
         assert context == ReconnectionContext.IN_ZONE_ALL_OFFLINE
 
     @pytest.mark.asyncio
@@ -131,7 +131,7 @@ class TestReconnectionContextDetectionIntegration:
         1. 3 standalone clients (no zones)
         2. client-1, client-2 online
         3. local reconnects
-        4. Context should be STANDALONE_OTHERS_ONLINE (FR9)
+        4. Context should be STANDALONE_OTHERS_ONLINE
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
 
@@ -154,7 +154,7 @@ class TestReconnectionContextDetectionIntegration:
         # Detect context
         context = registry.get_reconnection_context("local")
 
-        # Should be STANDALONE_OTHERS_ONLINE (FR9)
+        # Should be STANDALONE_OTHERS_ONLINE
         assert context == ReconnectionContext.STANDALONE_OTHERS_ONLINE
 
     @pytest.mark.asyncio
@@ -167,7 +167,7 @@ class TestReconnectionContextDetectionIntegration:
         Scenario:
         1. 3 standalone clients, all offline (e.g., after backend restart)
         2. local reconnects first
-        3. Context should be STANDALONE_ALONE (FR10)
+        3. Context should be STANDALONE_ALONE
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
 
@@ -190,7 +190,7 @@ class TestReconnectionContextDetectionIntegration:
         # Detect context - local reconnects first
         context = registry.get_reconnection_context("local")
 
-        # Should be STANDALONE_ALONE (FR10)
+        # Should be STANDALONE_ALONE
         assert context == ReconnectionContext.STANDALONE_ALONE
 
     @pytest.mark.asyncio
@@ -200,7 +200,7 @@ class TestReconnectionContextDetectionIntegration:
         """
         E2E: Context is included in sync_status response after reconnection.
 
-        Validates AC5: Context dispatches to correct sync strategy.
+        Validates: Context dispatches to correct sync strategy.
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -305,13 +305,13 @@ class TestReconnectionContextDetectionIntegration:
 
 
 # =============================================================================
-# Story 5.2: IN_ZONE Reconnection Sync Integration Tests
+# IN_ZONE Reconnection Sync Integration Tests
 # =============================================================================
 
 
 class TestInZoneReconnectionSyncIntegration:
     """
-    Integration tests for IN_ZONE reconnection volume sync (Story 5.2).
+    Integration tests for IN_ZONE reconnection volume sync.
 
     These tests validate the end-to-end flow of volume sync when
     a client in a zone reconnects via Snapcast WebSocket events.
@@ -359,7 +359,7 @@ class TestInZoneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: IN_ZONE_OTHERS_ONLINE sync uses zone average volume (FR7, AC1).
+        E2E: IN_ZONE_OTHERS_ONLINE sync uses zone average volume.
 
         Scenario:
         1. Zone with 3 clients at volumes: -20, -30, -40
@@ -423,7 +423,7 @@ class TestInZoneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: IN_ZONE_ALL_OFFLINE sync uses startup_volume_db (FR8, AC2).
+        E2E: IN_ZONE_ALL_OFFLINE sync uses startup_volume_db.
 
         Scenario:
         1. Zone with 3 clients, all offline (backend restart)
@@ -475,7 +475,7 @@ class TestInZoneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: Zone average calculation excludes the reconnecting client (AC1).
+        E2E: Zone average calculation excludes the reconnecting client.
 
         Validates that the reconnecting client's old volume doesn't influence
         the average they receive on reconnection.
@@ -520,7 +520,7 @@ class TestInZoneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: WebSocket broadcast is sent after volume sync completes (AC4).
+        E2E: WebSocket broadcast is sent after volume sync completes.
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -612,18 +612,18 @@ class TestInZoneReconnectionSyncIntegration:
 
 
 # =============================================================================
-# Story 5.2: AC4 - Sync Time Compliance Tests (NFR4)
+# - Sync Time Compliance Tests
 # =============================================================================
 
 
 # =============================================================================
-# Story 5.2: AC6 - Pending Settings Queue Tests
+# - Pending Settings Queue Tests
 # =============================================================================
 
 
-class TestAC6PendingSettingsQueue:
+class TestPendingSettingsQueue:
     """
-    Tests for AC6: Pending Settings Handling.
+    Tests for Pending Settings Handling.
 
     Validates that failed Equalizer settings are queued via queue_pending_settings()
     for later retry when sync fails.
@@ -661,7 +661,7 @@ class TestAC6PendingSettingsQueue:
         self, mock_settings_service, mock_state_machine_with_crossover
     ):
         """
-        AC6: Failed compressor settings are queued via queue_pending_settings().
+        Failed compressor settings are queued via queue_pending_settings().
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -715,7 +715,7 @@ class TestAC6PendingSettingsQueue:
         self, mock_settings_service, mock_state_machine_with_crossover
     ):
         """
-        AC6: Failed loudness settings are queued via queue_pending_settings().
+        Failed loudness settings are queued via queue_pending_settings().
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -766,7 +766,7 @@ class TestAC6PendingSettingsQueue:
         self, mock_settings_service, mock_state_machine_with_crossover
     ):
         """
-        AC6: Failed filter settings are queued via queue_pending_settings().
+        Failed filter settings are queued via queue_pending_settings().
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -820,7 +820,7 @@ class TestAC6PendingSettingsQueue:
         self, mock_settings_service
     ):
         """
-        AC6: Successful Equalizer sync does NOT queue any pending settings.
+        Successful Equalizer sync does NOT queue any pending settings.
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -878,13 +878,13 @@ class TestAC6PendingSettingsQueue:
 
 
 # =============================================================================
-# Story 5.3: STANDALONE Reconnection Sync Integration Tests
+# STANDALONE Reconnection Sync Integration Tests
 # =============================================================================
 
 
 class TestStandaloneReconnectionSyncIntegration:
     """
-    Integration tests for STANDALONE reconnection volume sync (Story 5.3).
+    Integration tests for STANDALONE reconnection volume sync.
 
     These tests validate the end-to-end flow of volume sync when
     a standalone client reconnects via Snapcast WebSocket events.
@@ -933,7 +933,7 @@ class TestStandaloneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: STANDALONE_OTHERS_ONLINE sync uses global average volume (FR9, AC1).
+        E2E: STANDALONE_OTHERS_ONLINE sync uses global average volume.
 
         Scenario:
         1. 3 standalone clients at volumes: -20, -30, -40
@@ -996,7 +996,7 @@ class TestStandaloneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: STANDALONE_ALONE sync uses startup_volume_db (FR10, AC2).
+        E2E: STANDALONE_ALONE sync uses startup_volume_db.
 
         Scenario:
         1. 3 standalone clients, all offline (backend restart)
@@ -1045,7 +1045,7 @@ class TestStandaloneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: Global average calculation excludes the reconnecting client (AC1).
+        E2E: Global average calculation excludes the reconnecting client.
 
         Validates that the reconnecting client's old volume doesn't influence
         the average they receive on reconnection.
@@ -1087,9 +1087,9 @@ class TestStandaloneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: Global average includes BOTH zoned and standalone clients (AC1).
+        E2E: Global average includes BOTH zoned and standalone clients.
 
-        Validates FR9 requirement that global average considers all online
+        Validates requirement that global average considers all online
         clients regardless of zone membership.
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
@@ -1162,7 +1162,7 @@ class TestStandaloneReconnectionSyncIntegration:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: WebSocket broadcast includes sync_context after sync (AC5).
+        E2E: WebSocket broadcast includes sync_context after sync.
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -1204,7 +1204,7 @@ class TestStandaloneReconnectionSyncIntegration:
 
         sync_status = await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
 
-        # Verify sync_context is in sync_status (AC5)
+        # Verify sync_context is in sync_status
         assert "context" in sync_status
         assert sync_status["context"] == ReconnectionContext.STANDALONE_OTHERS_ONLINE.value
 

@@ -1,15 +1,15 @@
 # backend/tests/test_crossover_service.py
 """
-Unit tests for CrossoverService - Stories 5.4 and 5.5.
+Unit tests for CrossoverService.
 
 Tests:
-- Crossover filter calculation by speaker type (AC#2)
-- Zone crossover application (AC#1, AC#4)
-- Subwoofer ONLINE/OFFLINE toggle (AC#4)
-- Pending settings queue and apply on reconnect (AC#6)
-- Remote client proxy with success and failure scenarios (AC#5)
-- Automatic crossover activation/deactivation (Story 5.5)
-- WebSocket event broadcasting for crossover changes (Story 5.5 AC#4)
+- Crossover filter calculation by speaker type
+- Zone crossover application
+- Subwoofer ONLINE/OFFLINE toggle
+- Pending settings queue and apply on reconnect
+- Remote client proxy with success and failure scenarios
+- Automatic crossover activation/deactivation
+- WebSocket event broadcasting for crossover changes
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -128,11 +128,11 @@ def crossover_service_with_registry(crossover_service, mock_registry):
 
 
 # =============================================================================
-# Task 8.1: Test calculate_crossover_filters returns correct filter types
+# Test calculate_crossover_filters returns correct filter types
 # =============================================================================
 
 class TestCrossoverFilterCalculation:
-    """Tests for crossover filter calculation by speaker type (AC#2)."""
+    """Tests for crossover filter calculation by speaker type."""
 
     def test_satellite_speaker_returns_highpass_120hz(self, crossover_service_with_registry):
         """Test satellite speaker gets highpass at 120Hz (default)."""
@@ -210,11 +210,11 @@ class TestCrossoverFilterCalculation:
         assert service.is_client_subwoofer("subwoofer-1") is True
 
 # =============================================================================
-# Task 8.2: Test apply_zone_crossover applies filters to online clients
+# Test apply_zone_crossover applies filters to online clients
 # =============================================================================
 
 class TestZoneCrossoverApplication:
-    """Tests for zone crossover application (AC#1, AC#4)."""
+    """Tests for zone crossover application."""
 
     @pytest.mark.asyncio
     async def test_apply_zone_crossover_with_subwoofer_online(self, crossover_service_with_registry, mock_camilladsp_service):
@@ -307,11 +307,11 @@ class TestZoneCrossoverApplication:
 
 
 # =============================================================================
-# Task 8.3: Test subwoofer ONLINE/OFFLINE toggle
+# Test subwoofer ONLINE/OFFLINE toggle
 # =============================================================================
 
 class TestSubwooferOnlineOfflineToggle:
-    """Tests for subwoofer ONLINE/OFFLINE state changes (AC#4)."""
+    """Tests for subwoofer ONLINE/OFFLINE state changes."""
 
     @pytest.mark.asyncio
     async def test_subwoofer_goes_offline_disables_crossover(self, crossover_service_with_registry, mock_camilladsp_service):
@@ -374,11 +374,11 @@ class TestSubwooferOnlineOfflineToggle:
 
 
 # =============================================================================
-# Task 8.4: Test pending settings queue and apply on reconnect
+# Test pending settings queue and apply on reconnect
 # =============================================================================
 
 class TestPendingSettingsQueue:
-    """Tests for pending settings queue (AC#6)."""
+    """Tests for pending settings queue."""
 
     @pytest.mark.asyncio
     async def test_queue_pending_crossover_settings(self, crossover_service):
@@ -500,11 +500,11 @@ class TestPendingSettingsQueue:
 
 
 # =============================================================================
-# Task 8.5: Test remote client proxy with success and failure scenarios
+# Test remote client proxy with success and failure scenarios
 # =============================================================================
 
 class TestRemoteClientProxy:
-    """Tests for remote client proxy (AC#5)."""
+    """Tests for remote client proxy."""
 
     @pytest.mark.asyncio
     async def test_proxy_crossover_to_remote_client_success(self, crossover_service):
@@ -746,15 +746,15 @@ class TestAutoCrossoverCalculation:
 
 
 # =============================================================================
-# Story 5.5: Test Automatic Crossover Activation on ONLINE/OFFLINE Events
+# Test Automatic Crossover Activation on ONLINE/OFFLINE Events
 # =============================================================================
 
 class TestAutomaticCrossoverActivation:
-    """Tests for automatic crossover activation/deactivation (Story 5.5 AC#1, AC#5, AC#6)."""
+    """Tests for automatic crossover activation/deactivation."""
 
     @pytest.mark.asyncio
     async def test_client_connected_subwoofer_activates_crossover(self, crossover_service_with_registry, mock_camilladsp_service):
-        """Test: When subwoofer comes ONLINE, crossover is automatically activated (AC#1)."""
+        """Test: When subwoofer comes ONLINE, crossover is automatically activated."""
         service, registry = crossover_service_with_registry
 
         # Setup: Zone with satellite + subwoofer (subwoofer initially offline)
@@ -791,7 +791,7 @@ class TestAutomaticCrossoverActivation:
 
     @pytest.mark.asyncio
     async def test_client_disconnected_subwoofer_deactivates_crossover(self, crossover_service_with_registry, mock_camilladsp_service):
-        """Test: When subwoofer goes OFFLINE, crossover is automatically deactivated (AC#5)."""
+        """Test: When subwoofer goes OFFLINE, crossover is automatically deactivated."""
         service, registry = crossover_service_with_registry
 
         # Setup: Zone with satellite + subwoofer (both online)
@@ -828,7 +828,7 @@ class TestAutomaticCrossoverActivation:
 
     @pytest.mark.asyncio
     async def test_speaker_type_change_to_subwoofer_activates_crossover(self, crossover_service_with_registry, mock_camilladsp_service):
-        """Test: Changing speaker_type to subwoofer activates crossover (AC#7)."""
+        """Test: Changing speaker_type to subwoofer activates crossover."""
         service, registry = crossover_service_with_registry
 
         # Setup: Zone with satellite + bookshelf (no subwoofer)
@@ -865,7 +865,7 @@ class TestAutomaticCrossoverActivation:
 
     @pytest.mark.asyncio
     async def test_speaker_type_change_from_subwoofer_deactivates_crossover(self, crossover_service_with_registry, mock_camilladsp_service):
-        """Test: Changing speaker_type from subwoofer deactivates crossover (AC#7)."""
+        """Test: Changing speaker_type from subwoofer deactivates crossover."""
         service, registry = crossover_service_with_registry
 
         # Setup: Zone with satellite + subwoofer (crossover active)
@@ -902,7 +902,7 @@ class TestAutomaticCrossoverActivation:
 
     @pytest.mark.asyncio
     async def test_non_subwoofer_connect_no_crossover_change(self, crossover_service_with_registry, mock_camilladsp_service):
-        """Test: Non-subwoofer connecting does not change crossover state (AC#6)."""
+        """Test: Non-subwoofer connecting does not change crossover state."""
         service, registry = crossover_service_with_registry
 
         # Setup: Zone with satellite only (no subwoofer)
@@ -978,15 +978,15 @@ class TestAutomaticCrossoverActivation:
 
 
 # =============================================================================
-# Story 5.5: Test WebSocket Event Broadcasting for Crossover Changes
+# Test WebSocket Event Broadcasting for Crossover Changes
 # =============================================================================
 
 class TestCrossoverEventBroadcasting:
-    """Tests for WebSocket event broadcasting on crossover state changes (Story 5.5 AC#4)."""
+    """Tests for WebSocket event broadcasting on crossover state changes."""
 
     @pytest.mark.asyncio
     async def test_crossover_change_broadcasts_zone_updated_event(self, crossover_service_with_registry):
-        """Test: Crossover state change broadcasts zone_changed event (AC#4)."""
+        """Test: Crossover state change broadcasts zone_changed event."""
         service, registry = crossover_service_with_registry
 
         # Setup mock state machine for broadcast
@@ -1023,7 +1023,7 @@ class TestCrossoverEventBroadcasting:
 
     @pytest.mark.asyncio
     async def test_zone_updated_event_includes_crossover_enabled(self, crossover_service_with_registry):
-        """Test: zone_changed event includes computed crossover_enabled field (AC#4)."""
+        """Test: zone_changed event includes computed crossover_enabled field."""
         service, registry = crossover_service_with_registry
 
         # Setup mock state machine for broadcast
@@ -1063,15 +1063,15 @@ class TestCrossoverEventBroadcasting:
 
 
 # =============================================================================
-# Story 5.5: Performance Tests (NFR5 - < 500ms)
+# Performance Tests (- < 500ms)
 # =============================================================================
 
 # =============================================================================
-# Story 5.6: Test Filter Application Methods (AC#1, AC#2, AC#5)
+# Test Filter Application Methods
 # =============================================================================
 
 class TestFilterApplicationMethods:
-    """Tests for filter application methods (Story 5.6 AC#1, AC#2, AC#5)."""
+    """Tests for filter application methods."""
 
     @pytest.fixture
     def service_with_local_client(self, crossover_service_with_registry):
@@ -1083,7 +1083,7 @@ class TestFilterApplicationMethods:
 
     @pytest.mark.asyncio
     async def test_set_client_crossover_local_calls_camilladsp_service(self, service_with_local_client, mock_camilladsp_service):
-        """Test _set_client_filter("crossover") for local client calls CamillaDSPService (AC#5, 1.1)."""
+        """Test _set_client_filter("crossover") for local client calls CamillaDSPService."""
         service, registry = service_with_local_client
         result = await service._set_client_filter("local", "crossover", True, 80)
 
@@ -1196,11 +1196,11 @@ class TestFilterApplicationMethods:
 
 
 # =============================================================================
-# Story 5.6: Test Speaker Type Crossover Frequencies (AC#1)
+# Test Speaker Type Crossover Frequencies
 # =============================================================================
 
 class TestSpeakerTypeCrossoverFrequencies:
-    """Tests for speaker type specific crossover frequencies (Story 5.6 AC#1, 1.3)."""
+    """Tests for speaker type specific crossover frequencies."""
 
     @pytest.mark.asyncio
     async def test_apply_zone_crossover_uses_speaker_type_frequency(self, crossover_service_with_registry, mock_camilladsp_service):
@@ -1233,11 +1233,11 @@ class TestSpeakerTypeCrossoverFrequencies:
 
 
 # =============================================================================
-# Story 5.6: Test Subwoofer Gets Lowpass (AC#2)
+# Test Subwoofer Gets Lowpass
 # =============================================================================
 
 class TestSubwooferLowpassApplication:
-    """Tests for subwoofer lowpass filter application (Story 5.6 AC#2)."""
+    """Tests for subwoofer lowpass filter application."""
 
     @pytest.mark.asyncio
     async def test_subwoofer_receives_lowpass_at_zone_frequency(self, crossover_service_with_registry, mock_camilladsp_service):
@@ -1305,11 +1305,11 @@ class TestSubwooferLowpassApplication:
 
 
 # =============================================================================
-# Story 5.6: Test Filter Bypass on Deactivation (AC#3)
+# Test Filter Bypass on Deactivation
 # =============================================================================
 
 class TestFilterBypassOnDeactivation:
-    """Tests for filter bypass when crossover is deactivated (Story 5.6 AC#3)."""
+    """Tests for filter bypass when crossover is deactivated."""
 
     @pytest.mark.asyncio
     async def test_crossover_disabled_removes_highpass(self, crossover_service_with_registry, mock_camilladsp_service):
@@ -1394,11 +1394,11 @@ class TestFilterBypassOnDeactivation:
 
 
 # =============================================================================
-# Story 5.6: Test Crossover on Client Reconnection (AC#4)
+# Test Crossover on Client Reconnection
 # =============================================================================
 
 class TestCrossoverOnReconnection:
-    """Tests for crossover application on client reconnection (Story 5.6 AC#4)."""
+    """Tests for crossover application on client reconnection."""
 
     @pytest.mark.asyncio
     async def test_client_connected_triggers_zone_recalculation(self, crossover_service_with_registry, mock_camilladsp_service):
@@ -1512,11 +1512,11 @@ class TestCrossoverOnReconnection:
 
 
 # =============================================================================
-# Story 5.6: Test Crossover Independence from Equalizer Bypass (AC#6)
+# Test Crossover Independence from Equalizer Bypass
 # =============================================================================
 
 class TestCrossoverIndependenceFromDspBypass:
-    """Tests for crossover independence from global Equalizer bypass (Story 5.6 AC#6)."""
+    """Tests for crossover independence from global Equalizer bypass."""
 
     def test_equalizer_service_crossover_filter_uses_separate_pipeline(self):
         """Test crossover filter uses 'crossover_highpass' separate from EQ bands (5.1).

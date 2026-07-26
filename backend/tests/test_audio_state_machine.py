@@ -3,8 +3,8 @@
 Unit tests for AudioStateMachine.
 
 Tests cover:
-- Source activation/deactivation (AC1, AC3)
-- State transitions (AC5)
+- Source activation/deactivation
+- State transitions
 - WebSocket broadcasting
 """
 import pytest

@@ -6,11 +6,11 @@ These tests validate the contracts for volume management that must
 remain stable during the feature-based architecture refactoring.
 
 Contracts being tested:
-- Volume set/get via VolumeService (AC1)
-- WebSocket volume_changed events (AC2)
-- Volume limits and clamping (AC3)
-- Mute/unmute functionality (AC4)
-- Volume persistence to disk (AC5)
+- Volume set/get via VolumeService
+- WebSocket volume_changed events
+- Volume limits and clamping
+- Mute/unmute functionality
+- Volume persistence to disk
 """
 import pytest
 import asyncio
@@ -162,12 +162,12 @@ async def volume_service(
 
 
 # ==============================================================================
-# AC1: Test Volume API Operations
+# Test Volume API Operations
 # ==============================================================================
 
 
 class TestVolumeAPI:
-    """Tests for AC1: Volume set/get via API."""
+    """Tests for Volume set/get via API."""
 
     @pytest.mark.asyncio
     async def test_set_volume_db_success(
@@ -287,12 +287,12 @@ class TestVolumeAPI:
 
 
 # ==============================================================================
-# AC2: Test WebSocket Events
+# Test WebSocket Events
 # ==============================================================================
 
 
 class TestVolumeWebSocketEvents:
-    """Tests for AC2: WebSocket volume_changed events."""
+    """Tests for WebSocket volume_changed events."""
 
     @pytest.mark.asyncio
     async def test_volume_changed_event_format(
@@ -400,12 +400,12 @@ class TestVolumeWebSocketEvents:
 
 
 # ==============================================================================
-# AC3: Test Volume Limits
+# Test Volume Limits
 # ==============================================================================
 
 
 class TestVolumeLimits:
-    """Tests for AC3: Volume limits and clamping."""
+    """Tests for Volume limits and clamping."""
 
     @pytest.mark.asyncio
     async def test_volume_clamped_to_min(
@@ -516,12 +516,12 @@ class TestVolumeLimits:
 
 
 # ==============================================================================
-# AC4: Test Mute/Unmute
+# Test Mute/Unmute
 # ==============================================================================
 
 
 class TestMuteUnmute:
-    """Tests for AC4: Mute/unmute functionality."""
+    """Tests for Mute/unmute functionality."""
 
     @pytest.mark.asyncio
     async def test_mute_sets_global_mute_true(
@@ -621,12 +621,12 @@ class TestMuteUnmute:
 
 
 # ==============================================================================
-# AC5: Test Persistence
+# Test Persistence
 # ==============================================================================
 
 
 class TestVolumePersistence:
-    """Tests for AC5: Volume persistence."""
+    """Tests for Volume persistence."""
 
     @pytest.mark.asyncio
     async def test_volume_persisted_to_file(
@@ -945,12 +945,12 @@ class TestVolumeStateStore:
 
 
 # ==============================================================================
-# Story 3.1: Client Volume Control API Integration Tests
+# Client Volume Control API Integration Tests
 # ==============================================================================
 
 
 class TestClientVolumeAPI:
-    """Integration tests for Story 3.1: Client Volume Control API endpoints."""
+    """Integration Tests for Client Volume Control API endpoints."""
 
     @pytest.mark.asyncio
     async def test_update_client_volume_db_broadcasts_event(
@@ -959,10 +959,10 @@ class TestClientVolumeAPI:
         websocket_collector: WebSocketEventCollector
     ):
         """
-        Test AC1: Client volume change broadcasts WebSocket event.
+        Test: Client volume change broadcasts WebSocket event.
 
         Validates:
-        - update_client_volume_db() broadcasts volume_changed event
+        - update_client_volume_db broadcasts volume_changed event
         - Event contains updated client state
         """
         # Ensure local client exists with initial volume
@@ -984,10 +984,10 @@ class TestClientVolumeAPI:
         websocket_collector: WebSocketEventCollector
     ):
         """
-        Test AC4: Client mute toggle broadcasts WebSocket event.
+        Test: Client mute toggle broadcasts WebSocket event.
 
         Validates:
-        - set_client_mute() broadcasts volume_changed event
+        - set_client_mute broadcasts volume_changed event
         - Event contains updated mute state
         """
         # Ensure local client exists
@@ -1011,7 +1011,7 @@ class TestClientVolumeAPI:
         volume_service: VolumeService
     ):
         """
-        Test AC3: get_client_volume returns correct volume and mute state.
+        Test: get_client_volume returns correct volume and mute state.
 
         Validates:
         - Returns dict with "main" (volume_db) and "mute" keys
@@ -1036,7 +1036,7 @@ class TestClientVolumeAPI:
         temp_storage_path
     ):
         """
-        Test AC2: Offline client volume persistence.
+        Test: Offline client volume persistence.
 
         Validates:
         - Client volume is persisted to VolumeStateStore
@@ -1060,7 +1060,7 @@ class TestClientVolumeAPI:
         temp_storage_path
     ):
         """
-        Test AC4: Mute state persistence.
+        Test: Mute state persistence.
 
         Validates:
         - Mute state is persisted to VolumeStateStore
@@ -1081,12 +1081,12 @@ class TestClientVolumeAPI:
 
 
 # ==============================================================================
-# Story 3.2: Zone Volume Delta Integration Tests
+# Zone Volume Delta Integration Tests
 # ==============================================================================
 
 
 class TestZoneVolumeDeltaIntegration:
-    """Integration tests for Story 3.2: Zone Volume Delta.
+    """Integration Tests for Zone Volume Delta.
 
     Note: These tests use the VolumeStateStore directly to avoid issues with
     the registry reloading zones on get_complete_state(). The unit tests in
@@ -1109,7 +1109,7 @@ class TestZoneVolumeDeltaIntegration:
         zone_state_store: VolumeStateStore
     ):
         """
-        AC1: Zone delta preserves relative offsets end-to-end.
+        Zone delta preserves relative offsets end-to-end.
 
         Validates:
         - Before: clients at different volumes (5dB difference)
@@ -1148,7 +1148,7 @@ class TestZoneVolumeDeltaIntegration:
         zone_state_store: VolumeStateStore
     ):
         """
-        AC2: Only ONLINE clients updated in zone delta.
+        Only ONLINE clients updated in zone delta.
 
         Validates:
         - ONLINE clients receive delta
@@ -1185,7 +1185,7 @@ class TestZoneVolumeDeltaIntegration:
         zone_state_store: VolumeStateStore
     ):
         """
-        AC4: Zone average is readonly/computed from ONLINE clients.
+        Zone average is readonly/computed from ONLINE clients.
 
         Validates:
         - Zone average computed from available clients only
@@ -1220,7 +1220,7 @@ class TestZoneVolumeDeltaIntegration:
         zone_state_store: VolumeStateStore
     ):
         """
-        AC1: Zone delta respects volume limits.
+        Zone delta respects volume limits.
 
         Validates:
         - Delta that would exceed limits is clamped
@@ -1254,7 +1254,7 @@ class TestZoneVolumeDeltaIntegration:
         zone_state_store: VolumeStateStore
     ):
         """
-        AC4: Zone average updates after delta applied.
+        Zone average updates after delta applied.
 
         Validates:
         - Zone average reflects new client volumes after delta
@@ -1291,7 +1291,7 @@ class TestZoneVolumeDeltaIntegration:
         zone_state_store: VolumeStateStore
     ):
         """
-        AC3: apply_zone_delta returns dict of client updates.
+        apply_zone_delta returns dict of client updates.
 
         Validates:
         - Method returns dict mapping client_id -> new_volume_db
@@ -1326,7 +1326,7 @@ class TestZoneVolumeDeltaIntegration:
         zone_state_store: VolumeStateStore
     ):
         """
-        AC2: Zone with all offline clients returns empty updates.
+        Zone with all offline clients returns empty updates.
 
         Validates:
         - No updates returned when all clients are OFFLINE
@@ -1358,7 +1358,7 @@ class TestZoneVolumeDeltaIntegration:
         zone_state_store: VolumeStateStore
     ):
         """
-        AC4: Zone average returns DEFAULT_VOLUME_DB when all clients offline.
+        Zone average returns DEFAULT_VOLUME_DB when all clients offline.
         """
         store = zone_state_store
 
@@ -1383,19 +1383,19 @@ class TestZoneVolumeDeltaIntegration:
 
 
 # ==============================================================================
-# Story 3.3: Startup Volume Management Integration Tests (FR11, FR12)
+# Startup Volume Management Integration Tests
 # ==============================================================================
 
 
 class TestStartupVolumeIntegration:
-    """Integration tests for Story 3.3: Startup Volume Management (FR11, FR12).
+    """Integration Tests for Startup Volume Management.
 
-    FR11: Auto-update startup_volume_db when restore_last_volume is disabled
-    FR12: Backend restart applies startup volume
+    Auto-update startup_volume_db when restore_last_volume is disabled
+    Backend restart applies startup volume
     """
 
     @pytest.mark.asyncio
-    async def test_fr11_volume_change_updates_startup_volume_and_broadcasts(
+    async def test_volume_change_updates_startup_volume_and_broadcasts(
         self,
         mock_state_machine,
         mock_snapcast_service,
@@ -1403,22 +1403,21 @@ class TestStartupVolumeIntegration:
         websocket_collector: WebSocketEventCollector,
         temp_storage_path
     ):
-        """
-        FR11 End-to-End: Volume change → settings update → WebSocket broadcast.
+        """ End-to-End: Volume change → settings update → WebSocket broadcast.
 
         Validates complete flow:
-        1. Set volume when restore_last_volume=true (FR11 tracks current volume)
+        1. Set volume when restore_last_volume=true (tracks current volume)
         2. startup_volume_db auto-updated in settings
         3. WebSocket event broadcast with new value
         """
-        # Create settings with restore_last_volume=True (FR11 active: auto-track volume)
+        # Create settings with restore_last_volume=True (active: auto-track volume)
         settings = Mock()
         settings.invalidate_cache = Mock()
         settings_data = {
             "limit_min_db": -80.0,
             "limit_max_db": -21.0,
             "startup_volume_db": -60.0,  # Initial value
-            "restore_last_volume": True,  # FR11 active: auto-track current volume
+            "restore_last_volume": True,  # active: auto-track current volume
             "step_mobile_db": 3.0,
             "step_rotary_db": 2.0
         }
@@ -1472,7 +1471,7 @@ class TestStartupVolumeIntegration:
             await service.cleanup()
 
     @pytest.mark.asyncio
-    async def test_fr11_restore_disabled_does_not_update_startup_volume(
+    async def test_restore_disabled_does_not_update_startup_volume(
         self,
         mock_state_machine,
         mock_snapcast_service,
@@ -1481,20 +1480,20 @@ class TestStartupVolumeIntegration:
         temp_storage_path
     ):
         """
-        FR11 AC2: When restore_last_volume=false, startup_volume_db remains unchanged.
+        When restore_last_volume=false, startup_volume_db remains unchanged.
 
         Validates:
         - Volume changes do NOT update startup_volume_db
         - No settings WebSocket event is broadcast
         """
-        # Create settings with restore_last_volume=False (FR11 NOT active: fixed startup volume)
+        # Create settings with restore_last_volume=False (NOT active: fixed startup volume)
         settings = Mock()
         settings.invalidate_cache = Mock()
         settings_data = {
             "limit_min_db": -80.0,
             "limit_max_db": -21.0,
             "startup_volume_db": -60.0,
-            "restore_last_volume": False,  # FR11 NOT active
+            "restore_last_volume": False,  # NOT active
             "step_mobile_db": 3.0,
             "step_rotary_db": 2.0
         }
@@ -1528,7 +1527,7 @@ class TestStartupVolumeIntegration:
             # Action: Set volume
             await service.set_volume_db(-45.0)
 
-            # Assert: set_setting was NOT called (FR11 not active)
+            # Assert: set_setting was NOT called (not active)
             settings.set_setting.assert_not_called()
 
             # Assert: startup_volume_db unchanged
@@ -1541,7 +1540,7 @@ class TestStartupVolumeIntegration:
             await service.cleanup()
 
     @pytest.mark.asyncio
-    async def test_fr12_startup_uses_startup_volume_when_restore_disabled(
+    async def test_startup_uses_startup_volume_when_restore_disabled(
         self,
         mock_state_machine,
         mock_snapcast_service,
@@ -1549,7 +1548,7 @@ class TestStartupVolumeIntegration:
         temp_storage_path
     ):
         """
-        FR12 AC3: Backend startup applies startup_volume_db when restore=false.
+        Backend startup applies startup_volume_db when restore=false.
 
         Validates:
         - On initialize(), Equalizer receives startup_volume_db from settings
@@ -1612,7 +1611,7 @@ class TestStartupVolumeIntegration:
             await service.cleanup()
 
     @pytest.mark.asyncio
-    async def test_fr12_startup_restores_persisted_volume_when_restore_enabled(
+    async def test_startup_restores_persisted_volume_when_restore_enabled(
         self,
         mock_state_machine,
         mock_snapcast_service,
@@ -1620,17 +1619,17 @@ class TestStartupVolumeIntegration:
         temp_storage_path
     ):
         """
-        FR12 AC3: Backend startup applies startup_volume_db when restore=true.
+        Backend startup applies startup_volume_db when restore=true.
 
-        When restore_last_volume=true, FR11 keeps startup_volume_db in sync with
+        When restore_last_volume=true, keeps startup_volume_db in sync with
         current volume during runtime. At restart, startup_volume_db already contains
         the correct last volume, so it's the single source of truth.
 
         Validates:
-        - On initialize(), Equalizer receives startup_volume_db from settings
-        - startup_volume_db was pre-synced by FR11 before shutdown
+        - On initialize, Equalizer receives startup_volume_db from settings
+        - startup_volume_db was pre-synced by before shutdown
         """
-        # Create settings: startup_volume_db already synced by FR11 to -42.0
+        # Create settings: startup_volume_db already synced by to -42.0
         settings = Mock()
         settings.invalidate_cache = Mock()
         persisted_volume = -42.0
@@ -1640,7 +1639,7 @@ class TestStartupVolumeIntegration:
                 return {
                     "limit_min_db": -80.0,
                     "limit_max_db": -21.0,
-                    "startup_volume_db": persisted_volume,  # FR11 synced this before shutdown
+                    "startup_volume_db": persisted_volume,  # synced this before shutdown
                     "restore_last_volume": True,
                     "step_mobile_db": 3.0,
                     "step_rotary_db": 2.0
@@ -1677,7 +1676,7 @@ class TestStartupVolumeIntegration:
             # Action: Initialize service
             await service.initialize()
 
-            # Assert: Equalizer was set to startup_volume_db (which FR11 synced to persisted_volume)
+            # Assert: Equalizer was set to startup_volume_db (which synced to persisted_volume)
             mock_camilladsp_service.set_volume.assert_called()
             calls = mock_camilladsp_service.set_volume.call_args_list
             volume_calls = [c for c in calls if c[0][0] == persisted_volume]
@@ -1687,25 +1686,25 @@ class TestStartupVolumeIntegration:
 
 
 # ==============================================================================
-# Story 3.4: Volume API Endpoints Integration Tests
+# Volume API Endpoints Integration Tests
 # ==============================================================================
 
 
 class TestVolumeApiEndpointsIntegration:
-    """Integration tests for Story 3.4: Volume API Endpoints.
+    """Integration Tests for Volume API Endpoints.
 
     Tests the complete flow from API endpoint through VolumeService
     for MAC address-based operations, zone delta, and settings.
     """
 
     @pytest.mark.asyncio
-    async def test_ac1_mac_volume_flow_end_to_end(
+    async def test_mac_volume_flow_end_to_end(
         self,
         volume_service: VolumeService,
         websocket_collector: WebSocketEventCollector
     ):
         """
-        AC1: MAC address volume update flows through service correctly.
+        MAC address volume update flows through service correctly.
 
         Validates:
         - Volume update with MAC address reaches VolumeService
@@ -1726,12 +1725,12 @@ class TestVolumeApiEndpointsIntegration:
         assert local_client is not None
 
     @pytest.mark.asyncio
-    async def test_ac2_zone_delta_applies_to_all_online_clients(
+    async def test_zone_delta_applies_to_all_online_clients(
         self,
         volume_state_store: VolumeStateStore
     ):
         """
-        AC2: Zone delta applies to all ONLINE clients and returns correct data.
+        Zone delta applies to all ONLINE clients and returns correct data.
 
         Validates:
         - apply_zone_delta updates all available clients
@@ -1778,13 +1777,13 @@ class TestVolumeApiEndpointsIntegration:
         assert store._clients['client-c'].volume_db == -40.0  # Unchanged (offline)
 
     @pytest.mark.asyncio
-    async def test_ac3_mute_endpoint_updates_client_state(
+    async def test_mute_endpoint_updates_client_state(
         self,
         volume_service: VolumeService,
         websocket_collector: WebSocketEventCollector
     ):
         """
-        AC3: Mute endpoint updates client state correctly.
+        Mute endpoint updates client state correctly.
 
         Validates:
         - Mute state change is persisted
@@ -1808,12 +1807,12 @@ class TestVolumeApiEndpointsIntegration:
         assert len(events) >= 1
 
     @pytest.mark.asyncio
-    async def test_ac4_get_settings_returns_config_values(
+    async def test_get_settings_returns_config_values(
         self,
         volume_service: VolumeService
     ):
         """
-        AC4: GET /api/volume/settings returns current config.
+        GET /api/volume/settings returns current config.
 
         Validates:
         - Returns startup_volume_db from VolumeService config
@@ -1829,7 +1828,7 @@ class TestVolumeApiEndpointsIntegration:
         assert isinstance(config.restore_last_volume, bool)
 
     @pytest.mark.asyncio
-    async def test_ac5_patch_settings_updates_config(
+    async def test_patch_settings_updates_config(
         self,
         mock_state_machine,
         mock_snapcast_service,
@@ -1838,7 +1837,7 @@ class TestVolumeApiEndpointsIntegration:
         temp_storage_path
     ):
         """
-        AC5: PATCH /api/volume/settings updates config and broadcasts.
+        PATCH /api/volume/settings updates config and broadcasts.
 
         Validates:
         - Settings service is called to persist changes

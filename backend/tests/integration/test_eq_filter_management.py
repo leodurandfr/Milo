@@ -1,12 +1,12 @@
 # backend/tests/integration/test_eq_filter_management.py
 """
-Integration tests for Story 4.3: EQ Filter Management
+Integration Tests for EQ Filter Management
 
 Tests cover:
-- AC1: Filter parameter update with WebSocket broadcast
-- AC2: DspService.set_filter method validation and propagation
-- AC3: 10-band parametric EQ configuration
-- AC4: Preset auto-switch on manual modification
+- Filter parameter update with WebSocket broadcast
+- DspService.set_filter method validation and propagation
+- 10-band parametric EQ configuration
+- Preset auto-switch on manual modification
 
 These tests verify the complete filter update flow:
 API → CamillaDSP → WebSocket → Frontend state update
@@ -29,11 +29,11 @@ from backend.core.multiroom.models import (
 
 
 # =============================================================================
-# AC1: Filter parameter update with WebSocket broadcast
+# Filter parameter update with WebSocket broadcast
 # =============================================================================
 
-class TestAC1FilterParameterUpdate:
-    """AC1: Filter parameter update broadcasts equalizer_changed event within 200ms"""
+class TestFilterParameterUpdate:
+    """Filter parameter update broadcasts equalizer_changed event within 200ms"""
 
     @pytest.fixture
     def mock_settings_service(self):
@@ -133,11 +133,11 @@ class TestAC1FilterParameterUpdate:
 
 
 # =============================================================================
-# AC2: DspService.set_filter method validation
+# DspService.set_filter method validation
 # =============================================================================
 
-class TestAC2SetFilterMethod:
-    """AC2: DspService.set_filter validates and applies filter parameters"""
+class TestSetFilterMethod:
+    """DspService.set_filter validates and applies filter parameters"""
 
     @pytest.fixture
     def mock_settings_service(self):
@@ -177,7 +177,7 @@ class TestAC2SetFilterMethod:
 
     @pytest.mark.asyncio
     async def test_set_filter_accepts_valid_frequency_range(self, connected_camilladsp_service):
-        """Should accept frequency in range 20-20000 Hz (AC3 requirement)"""
+        """Should accept frequency in range 20-20000 Hz (requirement)"""
         mock_config = {"filters": {}}
 
         with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
@@ -192,22 +192,22 @@ class TestAC2SetFilterMethod:
 
     @pytest.mark.asyncio
     async def test_set_filter_accepts_valid_gain_range(self, connected_camilladsp_service):
-        """Should accept gain in range -12 to +12 dB (AC3 requirement)"""
+        """Should accept gain in range -12 to +12 dB (requirement)"""
         mock_config = {"filters": {}}
 
         with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
             with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Test minimum gain (-12 dB per AC3, but implementation allows -15)
+                # Test minimum gain (-12 dB, but implementation allows -15)
                 result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=-12, q=1.0)
                 assert result is True
 
-                # Test maximum gain (+12 dB per AC3, but implementation allows +15)
+                # Test maximum gain (+12 dB, but implementation allows +15)
                 result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=12, q=1.0)
                 assert result is True
 
     @pytest.mark.asyncio
     async def test_set_filter_accepts_valid_q_range(self, connected_camilladsp_service):
-        """Should accept Q in range 0.1-10 (AC3 requirement)"""
+        """Should accept Q in range 0.1-10 (requirement)"""
         mock_config = {"filters": {}}
 
         with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
@@ -251,11 +251,11 @@ class TestAC2SetFilterMethod:
 
 
 # =============================================================================
-# AC3: 10-band parametric EQ configuration
+# 10-band parametric EQ configuration
 # =============================================================================
 
-class TestAC3TenBandEQConfiguration:
-    """AC3: 10-band parametric EQ with correct default frequencies"""
+class TestTenBandEqConfiguration:
+    """10-band parametric EQ with correct default frequencies"""
 
     def test_default_eq_frequencies_match_spec(self):
         """Should have exactly 10 bands with standard frequencies"""
@@ -319,11 +319,11 @@ class TestAC3TenBandEQConfiguration:
 
 
 # =============================================================================
-# AC4: No auto-switch on filter modification
+# No auto-switch on filter modification
 # =============================================================================
 
-class TestAC4NoAutoSwitch:
-    """AC4: Modifying filters does NOT auto-switch preset (removed behavior)"""
+class TestNoAutoSwitchOnFilterEdit:
+    """Modifying filters does NOT auto-switch preset (removed behavior)"""
 
     @pytest.fixture
     def mock_settings_service(self):

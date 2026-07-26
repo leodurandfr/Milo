@@ -407,7 +407,7 @@ class TestZoneAverageStabilityDuringReconnects:
         ws = _make_ws_service(registry)
         startup = ws._volume_service.volume_config.startup_volume_db
 
-        # Client A reconnects first — all others offline → FR8
+        # Client A reconnects first — all others offline →
         context_a = registry.get_reconnection_context("client-a")
         assert context_a == ReconnectionContext.IN_ZONE_ALL_OFFLINE
         vol_a = ws._resolve_target_volume("client-a", context_a)
@@ -417,7 +417,7 @@ class TestZoneAverageStabilityDuringReconnects:
         await registry.update_volume("client-a", volume_db=vol_a)
         await registry.set_client_online("client-a", True)
 
-        # Client B reconnects — A is online → FR7 (zone average of A)
+        # Client B reconnects — A is online → (zone average of A)
         context_b = registry.get_reconnection_context("client-b")
         assert context_b == ReconnectionContext.IN_ZONE_OTHERS_ONLINE
         vol_b = ws._resolve_target_volume("client-b", context_b)
@@ -426,7 +426,7 @@ class TestZoneAverageStabilityDuringReconnects:
         await registry.update_volume("client-b", volume_db=vol_b)
         await registry.set_client_online("client-b", True)
 
-        # Client C reconnects — A and B are online → FR7 (zone average of A+B)
+        # Client C reconnects — A and B are online → (zone average of A+B)
         context_c = registry.get_reconnection_context("client-c")
         assert context_c == ReconnectionContext.IN_ZONE_OTHERS_ONLINE
         vol_c = ws._resolve_target_volume("client-c", context_c)

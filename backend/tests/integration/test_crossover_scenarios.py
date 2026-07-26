@@ -1,14 +1,14 @@
 # backend/tests/integration/test_crossover_scenarios.py
 """
-Integration tests for crossover scenarios - Stories 5.4 and 5.5.
+Integration tests for crossover scenarios.
 
 Tests:
-- E2E crossover activation when subwoofer joins zone (AC#1, AC#4)
+- E2E crossover activation when subwoofer joins zone
 - E2E crossover deactivation when subwoofer leaves zone
 - E2E crossover recalculation on speaker_type change
-- E2E pending settings applied on client reconnect (AC#6)
-- E2E automatic crossover activation/deactivation (Story 5.5)
-- E2E WebSocket event broadcasting on crossover state change (Story 5.5 AC#4)
+- E2E pending settings applied on client reconnect
+- E2E automatic crossover activation/deactivation
+- E2E WebSocket event broadcasting on crossover state change
 """
 import pytest
 import uuid
@@ -79,7 +79,7 @@ async def crossover_with_registry(mock_settings_service, mock_camilladsp_service
 
 
 # =============================================================================
-# Task 9.1: E2E crossover activation when subwoofer joins zone
+# E2E crossover activation when subwoofer joins zone
 # =============================================================================
 
 class TestCrossoverActivation:
@@ -165,7 +165,7 @@ class TestCrossoverActivation:
 
 
 # =============================================================================
-# Task 9.2: E2E crossover deactivation when subwoofer leaves zone
+# E2E crossover deactivation when subwoofer leaves zone
 # =============================================================================
 
 class TestCrossoverDeactivation:
@@ -239,7 +239,7 @@ class TestCrossoverDeactivation:
 
 
 # =============================================================================
-# Task 9.3: E2E crossover recalculation on speaker_type change
+# E2E crossover recalculation on speaker_type change
 # =============================================================================
 
 class TestCrossoverRecalculation:
@@ -345,7 +345,7 @@ class TestCrossoverRecalculation:
 
 
 # =============================================================================
-# Task 9.4: E2E pending settings applied on client reconnect
+# E2E pending settings applied on client reconnect
 # =============================================================================
 
 class TestPendingSettingsOnReconnect:
@@ -467,15 +467,15 @@ class TestRegistryEventIntegration:
 
 
 # =============================================================================
-# Story 5.5: E2E Automatic Crossover Activation Tests
+# E2E Automatic Crossover Activation Tests
 # =============================================================================
 
 class TestAutomaticCrossoverE2E:
-    """E2E tests for automatic crossover activation/deactivation (Story 5.5)."""
+    """E2E tests for automatic crossover activation/deactivation."""
 
     @pytest.mark.asyncio
     async def test_e2e_subwoofer_online_activates_crossover(self, crossover_with_registry, mock_camilladsp_service):
-        """E2E Test: Snapcast event → CLIENT_CONNECTED → crossover activation (AC#1, AC#6)."""
+        """E2E Test: Snapcast event → CLIENT_CONNECTED → crossover activation."""
         crossover, registry = crossover_with_registry
 
         # 1. Register clients (simulating initial discovery)
@@ -507,7 +507,7 @@ class TestAutomaticCrossoverE2E:
 
     @pytest.mark.asyncio
     async def test_e2e_subwoofer_offline_deactivates_crossover(self, crossover_with_registry, mock_camilladsp_service):
-        """E2E Test: Snapcast event → CLIENT_DISCONNECTED → crossover deactivation (AC#5, AC#6)."""
+        """E2E Test: Snapcast event → CLIENT_DISCONNECTED → crossover deactivation."""
         crossover, registry = crossover_with_registry
 
         # 1. Setup: Zone with active crossover (subwoofer online)
@@ -539,7 +539,7 @@ class TestAutomaticCrossoverE2E:
 
     @pytest.mark.asyncio
     async def test_e2e_speaker_type_api_change_triggers_crossover(self, crossover_with_registry, mock_camilladsp_service):
-        """E2E Test: speaker_type API change → crossover recalculation → WebSocket broadcast (AC#7)."""
+        """E2E Test: speaker_type API change → crossover recalculation → WebSocket broadcast."""
         crossover, registry = crossover_with_registry
 
         # 1. Setup: Zone with two bookshelf speakers (no subwoofer, no crossover)
@@ -641,11 +641,11 @@ class TestAutomaticCrossoverE2E:
 
 
 # =============================================================================
-# Story 5.5: Edge Case Tests
+# Edge Case Tests
 # =============================================================================
 
 class TestCrossoverEdgeCases:
-    """Tests for crossover edge cases documented in Story 5.5 Dev Notes."""
+    """Tests for crossover edge cases documented Dev Notes."""
 
     @pytest.mark.asyncio
     async def test_client_changes_zone_both_zones_recalculated(self, crossover_with_registry, mock_camilladsp_service):
@@ -723,11 +723,11 @@ class TestCrossoverEdgeCases:
 
 
 # =============================================================================
-# Story 5.6: E2E Filter Application Tests
+# E2E Filter Application Tests
 # =============================================================================
 
 class TestFilterApplicationE2E:
-    """E2E tests for filter application (Story 5.6 Task 6)."""
+    """E2E tests for filter application."""
 
     @pytest.mark.asyncio
     async def test_e2e_satellite_receives_highpass_at_speaker_type_freq(self, crossover_with_registry, mock_camilladsp_service):
@@ -858,7 +858,7 @@ class TestFilterApplicationE2E:
 
     @pytest.mark.asyncio
     async def test_e2e_dsp_bypass_does_not_affect_crossover(self, crossover_with_registry, mock_camilladsp_service):
-        """E2E Test: Equalizer bypass does not affect crossover filters (Story 5.6 AC#6)."""
+        """E2E Test: Equalizer bypass does not affect crossover filters."""
         crossover, registry = crossover_with_registry
 
         # Setup: Zone with active crossover
@@ -890,7 +890,7 @@ class TestFilterApplicationE2E:
 
 
 # =============================================================================
-# Story 5.6: Mixed Speaker Type Zone Tests
+# Mixed Speaker Type Zone Tests
 # =============================================================================
 
 class TestMixedSpeakerTypeZones:
