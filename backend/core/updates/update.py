@@ -1,6 +1,6 @@
 # backend/core/updates/update.py
 """
-Update service - Phase 2A (go-librespot + snapcast)
+Update service - installs a new version of each program Milo ships.
 """
 import asyncio
 import aiohttp
@@ -739,8 +739,8 @@ class UpdateService(VersionService):
 
     async def _download_shairport_sync_source(self, tag_name: str) -> Dict[str, Any]:
         """Downloads and extracts shairport-sync source tarball from GitHub"""
+        temp_dir = tempfile.mkdtemp(dir="/tmp")
         try:
-            temp_dir = tempfile.mkdtemp(dir="/tmp")
             url = f"https://github.com/mikebrady/shairport-sync/archive/refs/tags/{tag_name}.tar.gz"
 
             self.update_logger.info(f"Downloading shairport-sync source from {url}...")
@@ -749,6 +749,7 @@ class UpdateService(VersionService):
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
                         return {"success": False, "error": f"Download failed: HTTP {response.status}"}
 
                     archive_path = Path(temp_dir) / "shairport-sync-source.tar.gz"
@@ -765,11 +766,13 @@ class UpdateService(VersionService):
             _, stderr = await proc.communicate()
 
             if proc.returncode != 0:
+                shutil.rmtree(temp_dir, ignore_errors=True)
                 return {"success": False, "error": f"Failed to extract archive: {stderr.decode()}"}
 
             # Find the extracted directory (shairport-sync-{tag})
             extracted_dirs = [d for d in Path(temp_dir).iterdir() if d.is_dir()]
             if not extracted_dirs:
+                shutil.rmtree(temp_dir, ignore_errors=True)
                 return {"success": False, "error": "No directory found in archive"}
 
             source_dir = str(extracted_dirs[0])
@@ -782,6 +785,7 @@ class UpdateService(VersionService):
             }
 
         except Exception as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return {"success": False, "error": str(e)}
 
     async def _configure_shairport_sync(self, source_dir: str, configure_flags: list) -> Dict[str, Any]:
@@ -1174,6 +1178,7 @@ class UpdateService(VersionService):
         config = self.update_config["camilladsp"]
         latest_version = status["latest"]["version"]
         service_stopped = False
+        download_result = None
 
         try:
             if progress_callback:
@@ -1240,7 +1245,7 @@ class UpdateService(VersionService):
             }
 
         except Exception as e:
-            if "download_result" in locals():
+            if download_result:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
             if service_stopped:
                 await self._rollback_camilladsp(config)
@@ -1362,6 +1367,7 @@ class UpdateService(VersionService):
         config = self.update_config["navidrome"]
         latest_version = status["latest"]["version"]
         service_stopped = False
+        download_result = None
 
         try:
             if progress_callback:
@@ -1428,7 +1434,7 @@ class UpdateService(VersionService):
             }
 
         except Exception as e:
-            if "download_result" in locals():
+            if download_result:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
             if service_stopped:
                 await self._rollback_navidrome(config)
@@ -1567,15 +1573,15 @@ class UpdateService(VersionService):
 
     async def _download_go_librespot(self, version: str) -> Dict[str, Any]:
         """Downloads go-librespot from GitHub"""
+        temp_dir = tempfile.mkdtemp(dir="/tmp")
         try:
-            temp_dir = tempfile.mkdtemp(dir="/tmp")
-
             url = f"https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz"
 
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
                         return {"success": False, "error": f"Download failed: HTTP {response.status}"}
 
                     archive_path = Path(temp_dir) / "go-librespot.tar.gz"
@@ -1594,10 +1600,12 @@ class UpdateService(VersionService):
             await proc.communicate()
 
             if proc.returncode != 0:
+                shutil.rmtree(temp_dir, ignore_errors=True)
                 return {"success": False, "error": "Failed to extract archive"}
 
             binary_path = extract_dir / "go-librespot"
             if not binary_path.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
                 return {"success": False, "error": "Binary not found in archive"}
 
             return {
@@ -1607,6 +1615,7 @@ class UpdateService(VersionService):
             }
 
         except Exception as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return {"success": False, "error": str(e)}
 
 
@@ -1711,18 +1720,11 @@ class UpdateService(VersionService):
     async def _verify_go_librespot_update(self, expected_version: str) -> Dict[str, Any]:
         """Verifies that go-librespot was updated by checking binary exists and service runs"""
         try:
-            binary_path = Path("/usr/local/bin/go-librespot")
-            if not binary_path.exists():
+            config = self.update_config["go-librespot"]
+            if not Path(config["binary_path"]).exists():
                 return {"success": False, "error": "go-librespot binary not found after update"}
 
-            proc = await asyncio.create_subprocess_exec(
-                "systemctl", "is-active", "milo-spotify.service",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await proc.communicate()
-
-            if stdout.decode().strip() != "active":
+            if not await self._is_service_active(config["service_name"]):
                 return {"success": False, "error": "go-librespot service not running after update"}
 
             return {"success": True, "verified_version": expected_version}
