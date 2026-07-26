@@ -1,432 +1,273 @@
 // frontend/tests/stores/multiroomStore.test.js
 /**
- * Integration tests for multiroomStore - Real-time sync via WebSocket (Story 6.3)
- *
- * Tests verify the reactive chain:
- * WebSocket Event → multiroomStore.handleMultiroomEvent() → clients Map → multiroomStore.clients computed
+ * multiroomStore is the client/zone registry. Its state is delta-fed: every
+ * WS event mutates a Map that a computed derives from, so the tests drive the
+ * handlers and read the public computeds — the same path App.vue takes.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setActivePinia, createPinia } from 'pinia';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useMultiroomStore } from '@/stores/multiroomStore';
-// Note: clientRegistryStore was merged into multiroomStore
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import axios from 'axios';
+import { i18n } from '@/services/i18n';
+import { apiCall } from '@/services/apiCall';
+import { resetApiCallMock, ok } from '../helpers/apiCallMock';
 
-// Mock axios
-vi.mock('axios');
+vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
-// Create base mock for unifiedAudioStore
-const createUnifiedAudioStoreMock = (volumeClients = {}) => ({
-  volumeState: {
-    clients: volumeClients
-  },
-  systemState: {
-    multiroom_enabled: true
-  }
+const CLIENT = (macId, extra = {}) => ({
+  mac_id: macId,
+  snapcast_id: macId,
+  name: `Client ${macId}`,
+  online: true,
+  ...extra,
 });
 
-// Mock unifiedAudioStore
-vi.mock('@/stores/unifiedAudioStore', () => ({
-  useUnifiedAudioStore: vi.fn(() => createUnifiedAudioStoreMock({
-    'dc:a6:32:7e:d3:43': { volume_db: -30, mute: false },
-    'aa:bb:cc:dd:ee:ff': { volume_db: -25, mute: true },
-    'local': { volume_db: -20, mute: false }
-  }))
-}));
+const clientEvent = (macId, client) => ({
+  type: 'client_state_changed',
+  data: client === undefined ? { mac_id: macId } : { mac_id: macId, client },
+});
 
-describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
-  let multiroomStore;
+const zoneEvent = (zoneId, zone) => ({
+  type: 'zone_changed',
+  data: { zone_id: zoneId, zone },
+});
+
+describe('multiroomStore', () => {
+  let store;
 
   beforeEach(() => {
-    setActivePinia(createPinia());
-    multiroomStore = useMultiroomStore();
-    vi.clearAllMocks();
+    resetApiCallMock();
+    store = useMultiroomStore();
   });
 
-  // ===========================================================================
-  // AC1: Client State Changed Event Handling
-  // ===========================================================================
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-  describe('AC1: client_state_changed → multiroomStore.clients reflects new state', () => {
-    it('should update multiroomStore.clients when client_state_changed event adds a new client', () => {
-      // Simulate WebSocket event via handleMultiroomEvent
-      const event = {
-        type: 'client_state_changed',
-        data: {
-          mac_id: 'dc:a6:32:7e:d3:43',
-          client: {
-            mac_id: 'dc:a6:32:7e:d3:43',
-            snapcast_id: 'dc:a6:32:7e:d3:43',
-            name: 'Living Room',
-            host: 'milo-client-01',
-            ip: '192.168.1.100',
-            zone_id: null,
-            speaker_type: 'bookshelf',
-            online: true
-          }
-        }
-      };
+  describe('client registry', () => {
+    it('adds a client on client_state_changed', () => {
+      store.handleMultiroomEvent(clientEvent('mac-a', CLIENT('mac-a', { name: 'Living Room' })));
 
-      multiroomStore.handleMultiroomEvent(event);
-
-      // multiroomStore.clients should reflect the new client
-      const clients = multiroomStore.clients;
-      expect(clients.length).toBe(1);
-      expect(clients[0].name).toBe('Living Room');
-      expect(clients[0].mac_id).toBe('dc:a6:32:7e:d3:43');
-      expect(clients[0].online).toBe(true);
+      expect(store.clientList).toHaveLength(1);
+      expect(store.clientList[0]).toMatchObject({ mac_id: 'mac-a', name: 'Living Room', online: true });
     });
 
-    it('should update multiroomStore.clients when client goes offline', () => {
-      // Add initial client
-      multiroomStore.handleMultiroomEvent({
-        type: 'client_state_changed',
-        data: {
-          mac_id: 'dc:a6:32:7e:d3:43',
-          client: {
-            mac_id: 'dc:a6:32:7e:d3:43',
-            snapcast_id: 'dc:a6:32:7e:d3:43',
-            name: 'Bedroom',
-            online: true
-          }
-        }
-      });
+    it('updates an existing client in place', () => {
+      store.handleMultiroomEvent(clientEvent('mac-a', CLIENT('mac-a', { name: 'Old' })));
+      store.handleMultiroomEvent(clientEvent('mac-a', CLIENT('mac-a', { name: 'New', online: false })));
 
-      expect(multiroomStore.clients[0].online).toBe(true);
-
-      // Client goes offline
-      multiroomStore.handleMultiroomEvent({
-        type: 'client_state_changed',
-        data: {
-          mac_id: 'dc:a6:32:7e:d3:43',
-          client: {
-            mac_id: 'dc:a6:32:7e:d3:43',
-            snapcast_id: 'dc:a6:32:7e:d3:43',
-            name: 'Bedroom',
-            online: false
-          }
-        }
-      });
-
-      // multiroomStore.clients should reflect offline status
-      expect(multiroomStore.clients[0].online).toBe(false);
+      expect(store.clientList).toHaveLength(1);
+      expect(store.clientList[0]).toMatchObject({ name: 'New', online: false });
     });
 
-    it('should update multiroomStore.clients when client name changes', () => {
-      // Add initial client
-      multiroomStore.handleMultiroomEvent({
-        type: 'client_state_changed',
-        data: {
-          mac_id: 'dc:a6:32:7e:d3:43',
-          client: {
-            mac_id: 'dc:a6:32:7e:d3:43',
-            snapcast_id: 'dc:a6:32:7e:d3:43',
-            name: 'Old Name',
-            speaker_type: 'satellite',
-            online: true
-          }
-        }
-      });
+    it('deletes the client when the event carries no client object', () => {
+      store.handleMultiroomEvent(clientEvent('mac-a', CLIENT('mac-a')));
 
-      expect(multiroomStore.clients[0].name).toBe('Old Name');
+      store.handleMultiroomEvent(clientEvent('mac-a'));
 
-      // Name changes
-      multiroomStore.handleMultiroomEvent({
-        type: 'client_state_changed',
-        data: {
-          mac_id: 'dc:a6:32:7e:d3:43',
-          client: {
-            mac_id: 'dc:a6:32:7e:d3:43',
-            snapcast_id: 'dc:a6:32:7e:d3:43',
-            name: 'New Name',
-            speaker_type: 'bookshelf',
-            online: true
-          }
-        }
-      });
+      expect(store.clientList).toHaveLength(0);
+    });
 
-      // multiroomStore.clients should reflect the new name
-      expect(multiroomStore.clients[0].name).toBe('New Name');
+    it('strips volume and mute — those live in volumeState, not the registry', () => {
+      // Two sources of truth for volume is exactly the drift this guards against.
+      store.handleMultiroomEvent(clientEvent('mac-a', CLIENT('mac-a', { volume_db: -25, mute: true })));
+
+      expect(store.clientList[0]).not.toHaveProperty('volume_db');
+      expect(store.clientList[0]).not.toHaveProperty('mute');
+    });
+
+    it('ignores an unknown event type', () => {
+      expect(() => store.handleMultiroomEvent({ type: 'something_else', data: {} })).not.toThrow();
+      expect(store.clientList).toHaveLength(0);
+    });
+
+    it('isClientOnline reports false for an unknown client', () => {
+      store.handleMultiroomEvent(clientEvent('mac-a', CLIENT('mac-a', { online: false })));
+
+      expect(store.isClientOnline('mac-a')).toBe(false);
+      expect(store.isClientOnline('never-seen')).toBe(false);
     });
   });
 
-  // ===========================================================================
-  // AC2: Zone Changed Event Handling
-  // ===========================================================================
+  describe('clientList ordering', () => {
+    it('puts the local client first, then online clients, then offline ones', () => {
+      store.handleMultiroomEvent(clientEvent('mac-z', CLIENT('mac-z', { name: 'Zulu' })));
+      store.handleMultiroomEvent(clientEvent('mac-off', CLIENT('mac-off', { name: 'Alpha', online: false })));
+      store.handleMultiroomEvent(clientEvent('mac-a', CLIENT('mac-a', { name: 'Bravo' })));
+      store.handleMultiroomEvent(clientEvent('mac-local', CLIENT('mac-local', { name: 'Milo', is_local: true })));
 
-  describe('AC2: zone_changed (create) → zones list updated', () => {
-    it('should add zone to multiroomStore.zoneList when zone_changed event creates zone', () => {
-      // Simulate zone creation via WebSocket
-      const event = {
-        type: 'zone_changed',
-        data: {
-          zone_id: 'uuid-zone-living',
-          zone: {
-            id: 'uuid-zone-living',
-            name: 'Living Room',
-            client_ids: ['dc:a6:32:7e:d3:43', 'aa:bb:cc:dd:ee:ff'],
-            online_client_count: 2,
-            has_subwoofer: false,
-            crossover_enabled: false
-          }
-        }
-      };
-
-      multiroomStore.handleMultiroomEvent(event);
-
-      // multiroomStore.zoneList should have the new zone
-      const zones = multiroomStore.zoneList;
-      expect(zones.length).toBe(1);
-      expect(zones[0].name).toBe('Living Room');
-      expect(zones[0].client_ids).toHaveLength(2);
+      expect(store.clientList.map(c => c.name)).toEqual(['Milo', 'Bravo', 'Zulu', 'Alpha']);
     });
 
-    it('should update zone when zone_changed event modifies zone', () => {
-      // Create initial zone
-      multiroomStore.handleMultiroomEvent({
-        type: 'zone_changed',
-        data: {
-          zone_id: 'uuid-zone-1',
-          zone: {
-            id: 'uuid-zone-1',
-            name: 'Bedroom',
-            client_ids: ['client1']
-          }
-        }
-      });
+    it('sorts case-insensitively and falls back to the mac when unnamed', () => {
+      store.handleMultiroomEvent(clientEvent('mac-b', CLIENT('mac-b', { name: 'apple' })));
+      store.handleMultiroomEvent(clientEvent('mac-a', CLIENT('mac-a', { name: 'Banana' })));
+      store.handleMultiroomEvent(clientEvent('aa-nameless', CLIENT('aa-nameless', { name: undefined })));
 
-      expect(multiroomStore.zoneList[0].client_ids).toHaveLength(1);
-
-      // Zone gets more members
-      multiroomStore.handleMultiroomEvent({
-        type: 'zone_changed',
-        data: {
-          zone_id: 'uuid-zone-1',
-          zone: {
-            id: 'uuid-zone-1',
-            name: 'Bedroom Extended',
-            client_ids: ['client1', 'client2', 'client3']
-          }
-        }
-      });
-
-      // Zone should be updated
-      expect(multiroomStore.zoneList[0].name).toBe('Bedroom Extended');
-      expect(multiroomStore.zoneList[0].client_ids).toHaveLength(3);
+      expect(store.clientList.map(c => c.name ?? c.mac_id)).toEqual(['aa-nameless', 'apple', 'Banana']);
     });
   });
 
-  describe('AC2: zone_changed (delete) → zone removed from list', () => {
-    it('should remove zone when zone_changed event has null zone', () => {
-      // Create zone first
-      multiroomStore.handleMultiroomEvent({
-        type: 'zone_changed',
-        data: {
-          zone_id: 'uuid-zone-delete',
-          zone: {
-            id: 'uuid-zone-delete',
-            name: 'Zone to Delete',
-            client_ids: ['client1']
-          }
-        }
-      });
+  describe('zones', () => {
+    it('creates and updates a zone', () => {
+      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', name: 'Living', client_ids: ['mac-a'] }));
+      expect(store.zoneList).toHaveLength(1);
 
-      expect(multiroomStore.zoneList.length).toBe(1);
+      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', name: 'Living Extended', client_ids: ['mac-a', 'mac-b'] }));
 
-      // Delete zone (zone: null)
-      multiroomStore.handleMultiroomEvent({
-        type: 'zone_changed',
-        data: {
-          zone_id: 'uuid-zone-delete',
-          zone: null
-        }
-      });
+      expect(store.zoneList).toHaveLength(1);
+      expect(store.zoneList[0].name).toBe('Living Extended');
+      expect(store.zoneList[0].client_ids).toHaveLength(2);
+    });
 
-      // Zone should be removed
-      expect(multiroomStore.zoneList.length).toBe(0);
+    it('deletes the zone when the event carries a null zone', () => {
+      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', name: 'Living', client_ids: ['mac-a'] }));
+
+      store.handleMultiroomEvent(zoneEvent('z1', null));
+
+      expect(store.zoneList).toHaveLength(0);
+    });
+
+    it('resolves the zone of a member and leaves a standalone client alone', () => {
+      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', name: 'Living', client_ids: ['mac-a', 'mac-b'] }));
+
+      expect(store.getZoneForClient('mac-a').id).toBe('z1');
+      expect(store.getZoneForClient('mac-solo')).toBeNull();
+      expect(store.getLinkedClientIds('mac-a')).toEqual(['mac-a', 'mac-b']);
+      expect(store.getLinkedClientIds('mac-solo')).toEqual(['mac-solo']);
+    });
+
+    it('hasOnlineSubwoofer requires a subwoofer that is actually online', () => {
+      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', client_ids: ['mac-sub', 'mac-sat'] }));
+      store.handleMultiroomEvent(clientEvent('mac-sat', CLIENT('mac-sat', { speaker_type: 'satellite' })));
+
+      store.handleMultiroomEvent(clientEvent('mac-sub', CLIENT('mac-sub', { speaker_type: 'subwoofer', online: false })));
+      expect(store.hasOnlineSubwoofer('z1')).toBe(false);
+
+      store.handleMultiroomEvent(clientEvent('mac-sub', CLIENT('mac-sub', { speaker_type: 'subwoofer', online: true })));
+      expect(store.hasOnlineSubwoofer('z1')).toBe(true);
+    });
+
+    it('hasOnlineSubwoofer is false for an unknown zone', () => {
+      expect(store.hasOnlineSubwoofer('nope')).toBe(false);
     });
   });
 
-  // ===========================================================================
-  // AC4: No Polling Requirement (FR30)
-  // ===========================================================================
+  describe('pending clients', () => {
+    it('registers and then removes a pending client', () => {
+      store.handleMultiroomEvent({
+        type: 'pending_client_changed',
+        data: { action: 'registered', client: { mac_id: 'mac-new', name: 'New satellite' } },
+      });
+      expect(store.pendingClientList).toHaveLength(1);
 
-  describe('AC4: No polling patterns exist', () => {
-    it('should derive clients reactively without polling mechanisms', () => {
-      // Verify store uses reactive derivation, not polling
-      // The store relies on WebSocket events and Vue computed, not setInterval
-
-      // Verify clients is defined and reactive
-      expect(multiroomStore.clients).toBeDefined();
-      expect(Array.isArray(multiroomStore.clients)).toBe(true);
-
-      // Verify isLoading derives from multiroomStore (not internal polling state)
-      expect(typeof multiroomStore.isLoading).toBe('boolean');
-
-      // Verify no fetchClients or refresh methods that would indicate polling
-      // The store should NOT have auto-refresh methods
-      expect(multiroomStore.fetchClients).toBeUndefined();
-      expect(multiroomStore.startPolling).toBeUndefined();
-      expect(multiroomStore.refreshInterval).toBeUndefined();
-    });
-
-    it('should use Vue computed (not ref with polling) for clients', () => {
-      // multiroomStore.clients should be a computed that derives from multiroomStore
-      // Adding a client via event should automatically update multiroomStore.clients
-
-      // Initial state
-      expect(multiroomStore.clients.length).toBe(0);
-
-      // Add client via event (simulating WebSocket)
-      multiroomStore.handleMultiroomEvent({
-        type: 'client_state_changed',
-        data: {
-          mac_id: 'test-client',
-          client: { mac_id: 'test-client', snapcast_id: 'test-client', name: 'Test', online: true }
-        }
+      store.handleMultiroomEvent({
+        type: 'pending_client_changed',
+        data: { action: 'removed', mac_id: 'mac-new' },
       });
 
-      // Should automatically reflect in multiroomStore.clients without any polling
-      expect(multiroomStore.clients.length).toBe(1);
+      expect(store.pendingClientList).toHaveLength(0);
+    });
+
+    it('clears the configuring flag when the pending client is removed', () => {
+      store.handleMultiroomEvent({
+        type: 'pending_client_changed',
+        data: { action: 'registered', client: { mac_id: 'mac-new' } },
+      });
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
+      store.configurePendingClient('mac-new', {});
+      expect(store.isClientConfiguring('mac-new')).toBe(true);
+
+      store.handleMultiroomEvent({
+        type: 'pending_client_changed',
+        data: { action: 'removed', mac_id: 'mac-new' },
+      });
+
+      expect(store.isClientConfiguring('mac-new')).toBe(false);
     });
   });
 
-  // ===========================================================================
-  // AC5: Reactive Chain Verification
-  // ===========================================================================
+  describe('routing transitions', () => {
+    it('tracks enabling and disabling as a transition', () => {
+      store.handleRoutingEvent({ type: 'multiroom_enabling', data: {} });
+      expect(store.isTransitioning).toBe(true);
+      expect(store.transitionState).toBe('enabling');
 
-  describe('AC5: Reactive chain - WebSocket → multiroomStore → multiroomStore', () => {
-    it('should propagate multiple rapid events without data loss', async () => {
-      // Simulate multiple rapid WebSocket events
-      const events = [
-        { type: 'client_state_changed', data: { mac_id: 'client1', client: { mac_id: 'client1', snapcast_id: 'client1', name: 'Client 1', online: true } } },
-        { type: 'client_state_changed', data: { mac_id: 'client2', client: { mac_id: 'client2', snapcast_id: 'client2', name: 'Client 2', online: true } } },
-        { type: 'client_state_changed', data: { mac_id: 'client3', client: { mac_id: 'client3', snapcast_id: 'client3', name: 'Client 3', online: true } } },
-        { type: 'client_state_changed', data: { mac_id: 'client1', client: { mac_id: 'client1', snapcast_id: 'client1', name: 'Client 1 Updated', online: false } } },
-        { type: 'zone_changed', data: { zone_id: 'zone1', zone: { id: 'zone1', name: 'Zone 1', client_ids: ['client1', 'client2'] } } }
-      ];
-
-      // Process all events rapidly
-      events.forEach(event => {
-        multiroomStore.handleMultiroomEvent(event);
-      });
-
-      // All data should be present without loss
-      expect(multiroomStore.clients.length).toBe(3);
-      expect(multiroomStore.zoneList.length).toBe(1);
-
-      // Verify final states
-      const client1 = multiroomStore.clients.find(c => c.mac_id === 'client1');
-      expect(client1.name).toBe('Client 1 Updated');
-      expect(client1.online).toBe(false);
+      store.handleRoutingEvent({ type: 'multiroom_ready', data: {} });
+      expect(store.isTransitioning).toBe(false);
+      expect(store.transitionState).toBe('idle');
     });
 
-    it('should maintain consistency between multiroomStore.clientList and multiroomStore.clients', () => {
-      // Add clients
-      multiroomStore.handleMultiroomEvent({
-        type: 'client_state_changed',
-        data: { mac_id: 'aa:bb:cc:dd:ee:ff', client: { mac_id: 'aa:bb:cc:dd:ee:ff', snapcast_id: 'local', name: 'Milo', online: true, is_local: true } }
-      });
-      multiroomStore.handleMultiroomEvent({
-        type: 'client_state_changed',
-        data: { mac_id: 'remote1', client: { mac_id: 'remote1', snapcast_id: 'remote1', name: 'Remote', online: true, is_local: false } }
-      });
+    it('resolves the backend reason code to a localized message', async () => {
+      // The backend sends a stable code; every consumer must show the same text.
+      await i18n.loadTranslations('english');
 
-      // Both stores should have consistent data
-      expect(multiroomStore.clientList.length).toBe(2);
-      expect(multiroomStore.clients.length).toBe(2);
+      store.handleRoutingEvent({ type: 'multiroom_error', data: { reason: 'enable_failed' } });
 
-      // Verify data is derived (not duplicated)
-      const registryClient = multiroomStore.clientList.find(c => c.is_local);
-      const multiroomClient = multiroomStore.clients.find(c => c.is_local);
-
-      expect(registryClient.name).toBe('Milo');
-      expect(multiroomClient.name).toBe('Milo');
+      expect(store.transitionState).toBe('error');
+      expect(store.transitionError).toBe('Could not enable multiroom');
     });
 
-    it('should update computed properties when Map is modified via set()', () => {
-      // This tests Vue 3 reactivity with Map.set()
-      const initialCount = multiroomStore.clients.length;
-      expect(initialCount).toBe(0);
+    it('leaves the message empty for an unmapped reason', () => {
+      store.handleRoutingEvent({ type: 'multiroom_error', data: { reason: 'who_knows' } });
 
-      // Direct Map modification via handleMultiroomEvent
-      multiroomStore.handleMultiroomEvent({
-        type: 'client_state_changed',
-        data: {
-          mac_id: 'reactive-test',
-          client: {
-            mac_id: 'reactive-test',
-            snapcast_id: 'reactive-test',
-            name: 'Reactive Test',
-            online: true
-          }
-        }
-      });
-
-      // Computed should recalculate
-      expect(multiroomStore.clients.length).toBe(1);
+      expect(store.transitionState).toBe('error');
+      expect(store.transitionError).toBe('');
     });
 
-    it('should update computed properties when Map is modified via delete()', () => {
-      // Add a zone
-      multiroomStore.handleMultiroomEvent({
-        type: 'zone_changed',
-        data: {
-          zone_id: 'zone-to-delete',
-          zone: { id: 'zone-to-delete', name: 'Test Zone', client_ids: ['c1'] }
-        }
-      });
+    it('gives up after 15s when no terminal event arrives', () => {
+      vi.useFakeTimers();
 
-      expect(multiroomStore.zoneList.length).toBe(1);
+      store.handleRoutingEvent({ type: 'multiroom_enabling', data: {} });
+      vi.advanceTimersByTime(15000);
 
-      // Delete the zone
-      multiroomStore.handleMultiroomEvent({
-        type: 'zone_changed',
-        data: {
-          zone_id: 'zone-to-delete',
-          zone: null
-        }
-      });
+      expect(store.transitionState).toBe('error');
+    });
 
-      // Computed should recalculate
-      expect(multiroomStore.zoneList.length).toBe(0);
+    it('cancels the timeout once the transition completes', () => {
+      vi.useFakeTimers();
+
+      store.handleRoutingEvent({ type: 'multiroom_enabling', data: {} });
+      store.handleRoutingEvent({ type: 'multiroom_ready', data: {} });
+      vi.advanceTimersByTime(30000);
+
+      expect(store.transitionState).toBe('idle');
+    });
+
+    it('resetTransition also cancels a pending timeout', () => {
+      vi.useFakeTimers();
+
+      store.handleRoutingEvent({ type: 'multiroom_disabling', data: {} });
+      store.resetTransition();
+      vi.advanceTimersByTime(30000);
+
+      expect(store.transitionState).toBe('idle');
+      expect(store.transitionError).toBe('');
     });
   });
 
-  // ===========================================================================
-  // AC3: Crossover Changed Event Handling
-  // Note: crossover_changed events are handled by equalizerStore, not multiroomStore.
-  // See equalizerStore.test.js "handleZoneCrossoverChanged" tests for AC3 coverage.
-  // App.vue wiring: on('multiroom', 'crossover_changed', (event) => equalizerStore.handleZoneCrossoverChanged(event))
-  // ===========================================================================
+  describe('fetchState', () => {
+    it('replaces both maps and strips runtime fields', async () => {
+      store.handleMultiroomEvent(clientEvent('stale', CLIENT('stale')));
+      apiCall.get.mockResolvedValueOnce(ok({
+        clients: { 'mac-a': { ...CLIENT('mac-a'), volume_db: -25, mute: false } },
+        zones: { z1: { id: 'z1', name: 'Living', client_ids: ['mac-a'] } },
+      }));
 
-  // ===========================================================================
-  // Integration: Volume data from unifiedAudioStore
-  // ===========================================================================
+      await store.fetchState();
 
-  describe('Integration: Volume data derives from unifiedAudioStore', () => {
-    it('should include volume in derived client objects', () => {
-      // Add client that has volume data in unifiedAudioStore mock
-      multiroomStore.handleMultiroomEvent({
-        type: 'client_state_changed',
-        data: {
-          mac_id: 'dc:a6:32:7e:d3:43',
-          client: {
-            mac_id: 'dc:a6:32:7e:d3:43',
-            snapcast_id: 'dc:a6:32:7e:d3:43',
-            name: 'Client with Volume',
-            online: true
-          }
-        }
-      });
+      expect(store.clientList.map(c => c.mac_id)).toEqual(['mac-a']);
+      expect(store.clientList[0]).not.toHaveProperty('volume_db');
+      expect(store.zoneList).toHaveLength(1);
+      expect(store.isLoading).toBe(false);
+    });
 
-      const client = multiroomStore.clients[0];
+    it('keeps the current registry when the fetch fails', async () => {
+      store.handleMultiroomEvent(clientEvent('mac-a', CLIENT('mac-a')));
+      apiCall.get.mockResolvedValueOnce({ ok: false, data: null, error: { detail: 'boom', status: 500 } });
 
-      // Volume should be derived from unifiedAudioStore.volumeState.clients
-      // The mock returns -30 dB for this mac_id, which converts to percentage
-      // dbToPercent(-30) = ((−30 − (−72)) / (0 − (−72))) * 100 = (42/72) * 100 ≈ 58%
-      expect(client.volume).toBeGreaterThan(0);
-      expect(client.muted).toBe(false);
+      await store.fetchState();
+
+      expect(store.clientList).toHaveLength(1);
+      expect(store.isLoading).toBe(false);
     });
   });
 });

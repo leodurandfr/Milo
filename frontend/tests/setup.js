@@ -5,6 +5,11 @@
  */
 import { vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
+import { logger } from '@/services/logger';
+
+// Stores log liberally at debug level under import.meta.env.DEV; that noise would
+// bury the test report. Failures still surface through assertions, not logs.
+logger.setLevel('none');
 
 // Create a fresh Pinia instance for each test
 beforeEach(() => {
