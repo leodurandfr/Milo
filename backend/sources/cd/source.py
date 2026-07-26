@@ -743,6 +743,13 @@ class CdSource(MpvAudioSource):
     async def _handle_pause(self) -> Dict[str, Any]:
         if not self._mpv:
             return self.error_response("CD not active")
+        if not self._is_playing:
+            # Nothing to pause. Marking the source paused here would park it in
+            # the paused state with no stream loaded, and _handle_resume's
+            # paused branch un-pauses mpv in place rather than restarting the
+            # reader — so the next play tap would report playing while staying
+            # silent, with no way back except another pause.
+            return self.success_response("Not playing")
         try:
             # Snapshot the live playhead before pausing so the broadcast lands
             # exactly where the disc stopped — _track_position from the monitor
@@ -851,14 +858,14 @@ class CdSource(MpvAudioSource):
             position = max(0, int(position))
             target_lba = self._track_position_to_lba(self._current_track, position)
 
-            # A seek while paused — including the preload's parked state, where
-            # the user has never pressed play — must move the playhead without
-            # emitting audio, so reload the reader at the target and leave mpv
-            # paused and primed, exactly as the preload does. The default
-            # autostart un-pauses mpv while these flags stay at "paused": the
-            # disc plays behind a UI that shows the play button, and the monitor
-            # tick (gated on _is_playing) never advances the bar.
-            paused = self._is_paused and not self._is_playing
+            # Seek moves the playhead; it never decides to play. Restart the
+            # reader at the target and resume audio only if audio was already
+            # running. With the default autostart, a seek from any non-playing
+            # state — paused, the preload's parked state where the user has
+            # never pressed play, or auto-stopped — un-paused mpv while these
+            # flags stayed put: the disc played behind a UI showing the play
+            # button, and the monitor tick, gated on _is_playing, froze the bar.
+            was_playing = self._is_playing
 
             # Freeze the bar at the seek target during the blocking restart,
             # then settle to the real (already-advanced) playhead.
@@ -867,12 +874,12 @@ class CdSource(MpvAudioSource):
             self._update_connection_state()
 
             restarted = await self._restart_reader_and_mpv(
-                target_lba, autostart=not paused
+                target_lba, autostart=was_playing
             )
-            if paused and not restarted:
-                # Nothing is loaded any more — drop out of paused so a play tap
-                # takes the idle full-restart path instead of un-pausing a dead
-                # mpv (_settle_after_restart only clears _is_playing).
+            if not restarted:
+                # Nothing is loaded any more — leave the paused state so a play
+                # tap takes the idle full-restart path instead of un-pausing a
+                # dead mpv (_settle_after_restart only clears _is_playing).
                 self._is_paused = False
             if not await self._settle_after_restart(restarted):
                 return self.error_response("Seek failed")

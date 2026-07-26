@@ -745,6 +745,7 @@ class TestSeekCommand:
     async def test_success_restarts_at_target_lba(self, source):
         source._mpv = _mpv()
         source._current_track = 2
+        source._is_playing = True
         source._sector_offsets = [0, 15000, 33000]
         source._disc_end_lba = 45000
         source._restart_reader_and_mpv = AsyncMock(return_value=True)
@@ -1002,3 +1003,174 @@ class TestMusicBrainzOfflineFallback:
         result = await service.lookup_metadata("disc-cached", "toc-str", [])
 
         assert result.album == "Cached Album"
+
+
+class _AudioChain:
+    """What actually reaches the speakers: the reader thread feeds the FIFO,
+    mpv reads it, and mpv's pause property gates the output. Audio flows only
+    when all three agree — the module docstring's "NEVER start reader without
+    corresponding mpv loadfile" rule, expressed as state.
+    """
+
+    def __init__(self, reader_running, loaded, paused):
+        self.reader_running = reader_running
+        self.loaded = loaded
+        self.paused = paused
+
+    @property
+    def audible(self):
+        return self.reader_running and self.loaded and not self.paused
+
+
+def _audio_chain(source, reader_running, loaded, paused):
+    """Wire an _AudioChain into `source`'s mpv + reader and return it."""
+    chain = _AudioChain(reader_running, loaded, paused)
+
+    async def set_property(name, value):
+        if name == "pause":
+            chain.paused = value
+        return True
+
+    async def get_property(name):
+        # mpv reports no time-pos once the FIFO read end is closed (EOF).
+        return 5.0 if chain.loaded else None
+
+    def reader_start(start_lba, end_lba):
+        chain.reader_running = True
+        source._reader.is_running = True
+
+    def reader_stop():
+        chain.reader_running = False
+        source._reader.is_running = False
+
+    def load(_path):
+        chain.loaded = True
+        return True
+
+    def unload():
+        chain.loaded = False
+        return True
+
+    def set_paused(value):
+        def _apply():
+            chain.paused = value
+            return True
+        return _apply
+
+    source._mpv = _mpv(
+        set_property=AsyncMock(side_effect=set_property),
+        get_property=AsyncMock(side_effect=get_property),
+        load_stream=AsyncMock(side_effect=load),
+        stop=AsyncMock(side_effect=unload),
+        pause=AsyncMock(side_effect=set_paused(True)),
+        resume=AsyncMock(side_effect=set_paused(False)),
+    )
+    source._reader = Mock(
+        start=Mock(side_effect=reader_start),
+        stop=Mock(side_effect=reader_stop),
+        wait_ready=Mock(return_value=True),
+        is_running=reader_running,
+    )
+    return chain
+
+
+# Every state a CD source can be sitting in when a command arrives, as
+# (is_playing, is_paused, reader running, mpv loaded, mpv paused).
+START_STATES = {
+    "idle_with_disc": (False, False, False, False, True),
+    "preloaded_paused": (False, True, True, True, True),
+    "playing": (True, False, True, True, False),
+    "paused_mid_track": (False, True, True, True, True),
+}
+
+MATRIX_COMMANDS = [
+    ("play_track", PlayTrackParams(track_number=2)),
+    ("pause", None),
+    ("resume", None),
+    ("next", None),
+    ("prev", None),
+    ("seek", SeekParams(position_ms=30000)),
+    ("eject", None),
+]
+
+
+def _source_in_state(source, state_name):
+    """A CD source with a disc loaded, parked in one of START_STATES."""
+    _with_state_machine(source, active=AudioSource.CD)
+    is_playing, is_paused, running, loaded, paused = START_STATES[state_name]
+    source._current_disc = DISC
+    source._tracks = TRACKS
+    source._last_disc_id = DISC.disc_id
+    source._sector_offsets = [0, 15000, 33000]
+    source._disc_end_lba = 45000
+    source._drive_connected = True
+    source._disc_present = True
+    source._disc_ready = True
+    source._current_track = 2
+    source._track_position = 20
+    source._track_duration = TRACKS[1].duration
+    source._is_playing = is_playing
+    source._is_paused = is_paused
+    return _audio_chain(source, running, loaded, paused)
+
+
+class TestPlaybackFlagMatrix:
+    """The audible state and the published state must agree, after every
+    command, from every state a disc can be sitting in.
+
+    Seven of this file's commits are one recurring failure: the playback flags
+    disagreeing with what the drive is actually doing — a frozen progress bar,
+    ACTIVE while idle, a player showing paused while the disc plays. The last
+    of those shipped: `seek` restarted the reader with the default autostart
+    and never touched the flags.
+
+    These are *relations*, not copies of the handlers' expressions — the test
+    knows which flags exist but nothing about which handler sets which. A
+    handler added later that forgets them fails here without anyone thinking
+    to write a test for it.
+    """
+
+    @pytest.mark.parametrize("state_name", list(START_STATES))
+    @pytest.mark.parametrize(
+        "command,params", MATRIX_COMMANDS, ids=[c for c, _ in MATRIX_COMMANDS]
+    )
+    @pytest.mark.asyncio
+    async def test_published_state_matches_the_audio_chain(
+        self, source, state_name, command, params
+    ):
+        chain = _source_in_state(source, state_name)
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as proc:
+            proc.return_value = Mock(wait=AsyncMock(), returncode=0)
+            await source._handle_command(command, params)
+
+        published = source._build_metadata()["is_playing"]
+        assert published == chain.audible, (
+            f"{state_name} + {command}: metadata says is_playing={published} "
+            f"while the audio chain is "
+            f"{'audible' if chain.audible else 'silent'}"
+        )
+
+    @pytest.mark.parametrize("state_name", list(START_STATES))
+    @pytest.mark.parametrize(
+        "command,params", MATRIX_COMMANDS, ids=[c for c, _ in MATRIX_COMMANDS]
+    )
+    @pytest.mark.asyncio
+    async def test_paused_always_has_something_to_unpause(
+        self, source, state_name, command, params
+    ):
+        """`_handle_resume`'s paused branch un-pauses mpv in place instead of
+        restarting the reader, so parking the source in `_is_paused` with no
+        stream loaded makes the next play tap a silent no-op that still reports
+        playing. No command may leave that state.
+        """
+        chain = _source_in_state(source, state_name)
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as proc:
+            proc.return_value = Mock(wait=AsyncMock(), returncode=0)
+            await source._handle_command(command, params)
+
+        assert not source._is_paused or chain.loaded, (
+            f"{state_name} + {command}: left _is_paused with nothing loaded"
+        )
+        assert not (source._is_playing and source._is_paused)
