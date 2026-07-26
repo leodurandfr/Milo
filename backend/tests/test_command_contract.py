@@ -7,7 +7,10 @@ _handle_command and from the commands the hardware playback dispatcher sends —
 a mismatch there fails silently in production (playback_dispatch swallows
 exceptions), so it must be caught here.
 """
+import ast
 import inspect
+import textwrap
+
 import pytest
 from pydantic import BaseModel
 
@@ -36,7 +39,7 @@ ALL_SOURCES = [
 # physical controls break with no user-visible error.
 HARDWARE_COMMANDS = {
     SpotifySource: ["playpause", "next", "prev"],
-    RadioSource: ["stop_playback", "resume_playback"],
+    RadioSource: ["stop", "resume_playback"],
     PodcastSource: ["pause", "resume"],
     CdSource: ["pause", "resume", "next", "prev"],
     MusicLibrarySource: ["pause", "resume", "next", "prev"],
@@ -60,6 +63,53 @@ def test_every_registered_command_has_dispatch_arm(cls):
         assert f'"{cmd}"' in src or f"'{cmd}'" in src, (
             f"{cls.__name__}.COMMANDS has '{cmd}' with no dispatch arm in _handle_command"
         )
+
+
+def _dispatched_commands(cls):
+    """Command names the `_handle_command` if-chain actually branches on."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(cls._handle_command)))
+    found = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare) or not isinstance(node.left, ast.Name):
+            continue
+        if node.left.id != "cmd":
+            continue
+        for comparator in node.comparators:
+            if isinstance(comparator, ast.Constant) and isinstance(comparator.value, str):
+                found.add(comparator.value)
+            elif isinstance(comparator, (ast.List, ast.Tuple, ast.Set)):
+                found.update(
+                    elt.value for elt in comparator.elts
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                )
+    return found
+
+
+@pytest.mark.parametrize("cls", ALL_SOURCES)
+def test_every_dispatch_arm_is_registered(cls):
+    """The reverse of the check above: no arm for an unregistered command.
+
+    An unregistered arm is unreachable — `command()` rejects the name before
+    `_handle_command` runs — so it reads as live playback code while being dead.
+    Family B sources have an empty registry and no if-chain, which is correct.
+    """
+    dispatched = _dispatched_commands(cls)
+    if not cls.COMMANDS:
+        assert not dispatched, (
+            f"{cls.__name__} has an empty COMMANDS registry but branches on "
+            f"{sorted(dispatched)} — those arms are unreachable"
+        )
+        return
+
+    assert dispatched, (
+        f"no `cmd == ...` comparison found in {cls.__name__}._handle_command "
+        f"— the extractor is broken"
+    )
+    orphans = dispatched - set(cls.COMMANDS)
+    assert not orphans, (
+        f"{cls.__name__}._handle_command branches on {sorted(orphans)}, which is "
+        f"not in COMMANDS — unreachable, command() rejects the name first"
+    )
 
 
 @pytest.mark.parametrize("cls,cmds", HARDWARE_COMMANDS.items())
