@@ -10,13 +10,17 @@ offline fallback. The ioctl reader thread and mpv IPC are mocked — no real
 device, FIFO, or subprocess is touched.
 """
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 from backend.core.models.audio_state import AudioSource, SourceState
-from backend.sources.cd.data import CDS_DRIVE_NOT_READY, CdDataService
+from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY, CdDataService
 from backend.sources.cd.models import DiscInfo, PlayTrackParams, SeekParams, TrackInfo
 from backend.sources.cd.reader import SECTORS_PER_SECOND
-from backend.sources.cd.source import CD_PREV_RESTART_THRESHOLD_S, CdSource
+from backend.sources.cd.source import (
+    CD_PREV_RESTART_THRESHOLD_S,
+    TOC_READ_ATTEMPTS,
+    CdSource,
+)
 
 
 @pytest.fixture
@@ -158,6 +162,50 @@ class TestDiscWatcher:
         assert source._last_disc_id is None
         assert source._sector_offsets == []
         assert source._disc_end_lba == 0
+
+    @pytest.mark.asyncio
+    async def test_transient_toc_read_failure_is_retried_next_tick(self, source):
+        """The drive can report CDS_DISC_OK while a TOC read still fails —
+        it is only settling. Latching `_disc_ready` before the read succeeded
+        left the disc marked as handled with no sector offsets: shown as
+        present, never playable, until the user ejected and reinserted it.
+        """
+        _with_state_machine(source, active=None)
+        source._drive_connected = True
+        source._data_service = Mock()
+        source._data_service.probe_drive_and_disc = Mock(
+            return_value=(True, CDS_DISC_OK)
+        )
+        source._data_service.read_disc = AsyncMock(
+            side_effect=[None, ("disc-1", "toc", [{"offset": 0}, {"offset": 15000}], 30000)]
+        )
+
+        await source._check_drive_and_disc()
+        assert source._disc_ready is False
+        assert source._sector_offsets == []
+
+        await source._check_drive_and_disc()
+        assert source._disc_ready is True
+        assert source._sector_offsets == [0, 15000]
+
+    @pytest.mark.asyncio
+    async def test_toc_read_gives_up_after_max_attempts(self, source):
+        """A genuinely unreadable disc must stop re-spinning the drive every
+        tick for as long as it sits in the tray — the retry above is capped.
+        """
+        _with_state_machine(source, active=None)
+        source._drive_connected = True
+        source._data_service = Mock()
+        source._data_service.probe_drive_and_disc = Mock(
+            return_value=(True, CDS_DISC_OK)
+        )
+        source._data_service.read_disc = AsyncMock(return_value=None)
+
+        for _ in range(TOC_READ_ATTEMPTS + 3):
+            await source._check_drive_and_disc()
+
+        assert source._data_service.read_disc.await_count == TOC_READ_ATTEMPTS
+        assert source._disc_ready is True
 
 
 class TestDiscReadyFlow:
@@ -704,7 +752,7 @@ class TestSeekCommand:
         result = await source._handle_seek(SeekParams(position_ms=10000))
 
         assert result["success"] is True
-        source._restart_reader_and_mpv.assert_awaited_once_with(15750)
+        source._restart_reader_and_mpv.assert_awaited_once_with(15750, autostart=True)
         assert source._track_position == 10
 
     @pytest.mark.asyncio
@@ -718,6 +766,53 @@ class TestSeekCommand:
         result = await source._handle_seek(SeekParams(position_ms=5000))
 
         assert result["success"] is False
+
+    @pytest.mark.asyncio
+    async def test_while_paused_moves_the_playhead_without_starting_audio(self, source):
+        """Seeking from the paused state — including the preload's parked
+        state, where the user has never pressed play — must reload the reader
+        at the target with mpv left paused. With the default autostart the disc
+        played while the published metadata still said is_playing=False, and the
+        monitor tick (gated on _is_playing) left the progress bar frozen.
+        """
+        source._mpv = _mpv(get_property=AsyncMock(return_value=0.0))
+        source._reader = Mock(wait_ready=Mock(return_value=True), is_running=True)
+        source._tracks = TRACKS
+        source._sector_offsets = [0, 15000, 33000]
+        source._disc_end_lba = 45000
+        source._current_track = 1
+        source._is_playing = False
+        source._is_paused = True
+
+        result = await source._handle_seek(SeekParams(position_ms=60000))
+
+        assert result["success"] is True
+        # Loaded paused and never un-paused: no ("pause", False) on the wire.
+        assert source._mpv.set_property.await_args_list == [call("pause", True)]
+        assert source._is_paused is True
+        assert source._is_playing is False
+        assert source._build_metadata()["is_playing"] is False
+        assert source._track_position == 60
+
+    @pytest.mark.asyncio
+    async def test_while_paused_failure_leaves_the_paused_state(self, source):
+        """A failed paused-seek has nothing loaded any more, so the source must
+        leave `_is_paused` — otherwise the next play tap takes _handle_resume's
+        paused branch and un-pauses a dead mpv instead of restarting the reader.
+        """
+        source._mpv = _mpv()
+        source._current_track = 1
+        source._sector_offsets = [0, 15000]
+        source._disc_end_lba = 30000
+        source._is_playing = False
+        source._is_paused = True
+        source._restart_reader_and_mpv = AsyncMock(return_value=False)
+
+        result = await source._handle_seek(SeekParams(position_ms=5000))
+
+        assert result["success"] is False
+        assert source._is_paused is False
+        assert source._is_playing is False
 
 
 class TestEjectCommand:
