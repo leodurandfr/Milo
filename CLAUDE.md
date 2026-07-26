@@ -168,8 +168,11 @@ When unsure, ask: *"reproducible from a clean prod boot, or only from dev-sessio
 
 **CI cannot see the appliance.** Any change touching the audio path, a source, or hardware is not done until the ~10-minute smoke subset of [docs/manual/verification-checklist.md](docs/manual/verification-checklist.md) has been run on a unit against the prod build. State in the commit which set was run, and say so explicitly if it was cut short.
 
-## Do not write in french except for i18n
+## Language
 
+**Everything that lands in the repo is in English** — code, identifiers, comments, docstrings, commit messages, docs, test names, log messages. The only French in the repo is user-facing i18n content under `frontend/src/locales/`.
+
+**Conversation with the user follows the user's language** (French). This is not a contradiction: the rule above is about artefacts, this one is about the exchange.
 
 ## Git
 

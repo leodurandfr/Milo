@@ -37,18 +37,43 @@ ETH_IP=""
 
 log() { echo "[milo-first-boot] $1"; }
 
-# Keep only the avahi interface-override drop-in matching the active role. The
-# universal image ships both (server: milo-override.conf, client:
-# milo-client-override.conf); leaving both lets the client drop-in's static
-# allow/deny sed fight the server's dynamic interface selection (and vice-versa).
-# Idempotent — safe to call on every boot.
-prune_avahi_override() {
+# Install the avahi interface-override drop-in matching the active role, and
+# remove the other one. The two must never coexist: the client drop-in's static
+# allow/deny sed would fight the server's dynamic interface selection.
+#
+# Installing — not only pruning — is what makes every path into a role correct.
+# Only pi-gen ships both drop-ins; install.sh ships the server's alone, so a
+# device it installed and this script then converted to client was left with NO
+# drop-in at all. Nothing reset allow-interfaces at boot, and the wlan0 written
+# by the dispatcher during the setup hotspot survived every reboot, leaving avahi
+# bound to a down interface: no mDNS, so the satellite could not resolve
+# milo.local and never registered with the server — silently, with no error on
+# either side.
+#
+# Runs before avahi-daemon starts (see the header), so the drop-in is in place
+# for its ExecStartPre; no restart needed here.
+# Idempotent — safe to call on every boot, and repairs a drifted drop-in.
+apply_avahi_override() {
     local role="$1"  # server | client
     local dir="/etc/systemd/system/avahi-daemon.service.d"
+    local keep drop src
+
     if [[ "$role" == "client" ]]; then
-        rm -f "$dir/milo-override.conf"
+        keep="milo-client-override.conf"
+        drop="milo-override.conf"
+        src="$MILO_APP_DIR/milo-client/system/avahi-daemon-override.conf"
     else
-        rm -f "$dir/milo-client-override.conf"
+        keep="milo-override.conf"
+        drop="milo-client-override.conf"
+        src="$MILO_APP_DIR/system/avahi-daemon-override.conf"
+    fi
+
+    mkdir -p "$dir"
+    rm -f "$dir/$drop"
+    if [[ -f "$src" ]]; then
+        cp "$src" "$dir/$keep"
+    else
+        log "WARNING: $src missing — avahi override for role $role not installed"
     fi
     systemctl daemon-reload 2>/dev/null || true
 }
@@ -252,8 +277,8 @@ EOF
     done
     log "Server services disabled"
 
-    # 8b. Keep only the client avahi override (drop the server one)
-    prune_avahi_override client
+    # 8b. Install the client avahi override (and drop the server one)
+    apply_avahi_override client
 
     # 8c. A client has no backend left to clean up after the setup hotspot. The
     # wifi-adoption path reaches here with setup_completed already true, so
@@ -431,8 +456,8 @@ configure_server() {
     done
     log "Server services enabled"
 
-    # 4b. Keep only the server avahi override (drop the client one)
-    prune_avahi_override server
+    # 4b. Install the server avahi override (and drop the client one)
+    apply_avahi_override server
 
     # 5. Reset only settings.json — other data files (radio, podcast, hardware) are
     # inert on a fresh server and will be overwritten when needed.
@@ -490,9 +515,9 @@ log "Setup not completed (hostname=$current_hostname) — detecting role..."
 # fresh-server path stays a server without ever calling configure_server, so this
 # is the only place a brand-new image drops the unused client override.
 if [[ "$current_hostname" == "milo-client" ]]; then
-    prune_avahi_override client
+    apply_avahi_override client
 else
-    prune_avahi_override server
+    apply_avahi_override server
 fi
 
 # Nothing the setup phase puts on the network may outlive the boot that created
