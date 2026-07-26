@@ -15,6 +15,7 @@ from typing import Dict, Any, Optional
 import aiohttp
 
 from backend.core.multiroom.models import ReconnectionContext
+from backend.core.multiroom.identity import compute_mac_id, is_stale_local_client
 from backend.core.multiroom.client_registry import (
     ClientRegistryService,
     REGISTRY_EVENT_CLASSES,
@@ -318,11 +319,11 @@ class SnapcastWebSocketService:
                     hostname = host.get("name", "")
                     ip = host.get("ip", "").replace("::ffff:", "")
 
-                    if ClientRegistryService.is_stale_local_client(client_id or "", ip):
+                    if is_stale_local_client(client_id or "", ip):
                         self.logger.warning(f"INIT_CLIENTS: Skipping stale local client id={client_id}")
                         continue
 
-                    mac_id = ClientRegistryService.compute_mac_id(hostname, ip, client_id or "")
+                    mac_id = compute_mac_id(hostname, ip, client_id or "")
 
                     if mac_id not in live_mac_ids:
                         self.logger.info(f"INIT_CLIENTS: Skipping {mac_id} — connected but not seen recently")
@@ -607,7 +608,7 @@ class SnapcastWebSocketService:
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
 
         # Compute mac_id early so we can dedup by stable identifier
-        mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_id or "")
+        mac_id = compute_mac_id(client_host, client_ip, client_id or "")
 
         if mac_id in self._syncing_mac_ids:
             self.logger.debug(f"Skipping Client.OnConnect for {mac_id} - sync already in flight")
@@ -664,7 +665,7 @@ class SnapcastWebSocketService:
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
 
         # Compute mac_id using canonical method
-        mac_id = ClientRegistryService.compute_mac_id(
+        mac_id = compute_mac_id(
             client_host, client_ip, client.get("id", "")
         )
 
@@ -689,7 +690,7 @@ class SnapcastWebSocketService:
                     for client in group.get("clients", []):
                         if client.get("id") == client_id:
                             host_info = client.get("host", {})
-                            mac_id = ClientRegistryService.compute_mac_id(
+                            mac_id = compute_mac_id(
                                 host_info.get("name", ""),
                                 host_info.get("ip", "").replace("::ffff:", ""),
                                 client_id
@@ -762,7 +763,7 @@ class SnapcastWebSocketService:
             host = client.get("host", {})
             hostname = host.get("name", "")
             ip = host.get("ip", "").replace("::ffff:", "")
-            mac_id = ClientRegistryService.compute_mac_id(hostname, ip, client_id)
+            mac_id = compute_mac_id(hostname, ip, client_id)
 
             # 1. Detect reconnection context
             context = ReconnectionContext.STANDALONE_ALONE  # Default

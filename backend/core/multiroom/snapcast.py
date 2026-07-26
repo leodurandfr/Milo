@@ -15,7 +15,7 @@ import aiohttp
 import aiofiles
 
 from backend.config.constants import get_client_display_name, DEPLOY_UPDATE_CMD
-from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.core.multiroom.identity import compute_mac_id, is_stale_local_client
 from backend.shared.decorators import handle_errors
 
 # Codec whitelist — single source for _validate_config and the /server-config
@@ -176,11 +176,11 @@ class SnapcastService:
                 ip = client_data["host"]["ip"].replace("::ffff:", "")
                 client_id = client_data.get("id", "")
 
-                if ClientRegistryService.is_stale_local_client(client_id, ip):
+                if is_stale_local_client(client_id, ip):
                     self.logger.warning(f"Skipping stale local client id={client_id}")
                     continue
 
-                mac_id = ClientRegistryService.compute_mac_id(host, ip, client_id)
+                mac_id = compute_mac_id(host, ip, client_id)
 
                 # Calculate online status based on lastSeen timestamp
                 last_seen_data = client_data.get("lastSeen", {})
