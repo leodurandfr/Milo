@@ -3,7 +3,7 @@
 Service Registry for Milo - Feature-based architecture.
 
 Replaces dependency-injector with a simple dict-based registry.
-Supports lazy singleton creation, circular dependency resolution, and test reset.
+Supports lazy singleton creation and circular dependency resolution.
 """
 import asyncio
 import logging
@@ -290,16 +290,20 @@ def _create_equalizer_router():
 
 def initialize_services() -> None:
     """
-    Initialize services after creation - CRITICAL ORDER.
+    Initialize services after creation.
 
-    WARNING: The execution order of this function is CRITICAL.
-    Do not modify without understanding circular dependencies.
-
-    INITIALIZATION ORDER:
+    STEPS:
     1. Retrieve instances (triggers lazy creation)
     2. Resolve circular dependencies via setters
     3. Register sources in state machine
     4. Start parallel async initialization
+
+    The steps run in this order, but within STEP 2 only one thing is actually
+    order-sensitive: the registry-subscription block at the end (subscribers are
+    notified in subscription order). Every other STEP 2 line is a plain
+    assignment and commutes. The cross-step constraints are STEP 3 before the
+    async init, and STEP 3b writing the env files before any source unit starts
+    — both stated where they apply.
     """
     from backend.core.models.audio_state import AudioSource
 
@@ -342,8 +346,9 @@ def initialize_services() -> None:
     # in the factory, NOT here.
 
     # Cycle: routing_service ↔ state_machine
-    #   routing resolves sources via state_machine.get_source(); state_machine
-    #   reads routing back for mode/transition decisions.
+    #   routing resolves sources via state_machine.get_source() and broadcasts
+    #   through it; state_machine reads back routing.multiroom_enabled — for
+    #   full_state aggregation only, never for a transition decision.
     routing_service.set_source_callback(lambda source: state_machine.get_source(source))
     routing_service.set_state_machine(state_machine)
     state_machine.routing_service = routing_service

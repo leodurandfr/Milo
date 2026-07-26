@@ -330,8 +330,9 @@ class BaseAudioSource(ABC):
 
         Sole entry point is the default _on_auto_stop() (auto-stop timer);
         there is no public restart() wrapper. Default: stop + start.
-        Override for custom restart logic (e.g., preserve state) — done by
-        sources that auto-stop via restart (Spotify, AirPlay).
+        Override for custom restart logic (e.g., preserve state) — AirPlay does.
+        A source that instead wants a different auto-stop *action* overrides
+        _on_auto_stop() (Spotify, DLNA, and the shared MpvAudioSource).
 
         Returns:
             True if restart successful
