@@ -584,27 +584,57 @@ See `tests/test_radio_source.py` for a fuller example (mocked service manager, c
 ```bash
 cd frontend
 npm run test            # Watch mode
-npm run test:run        # Single run (CI form)
+npm run test:run        # Single run (CI form — blocking)
 npm run test:coverage   # With coverage
 ```
 
-> ⚠️ The Vitest suite (`frontend/tests/`) is currently **skipped in CI** — ~97 tests still mock `axios.*` after the apiCall migration. See the *Lint and typing floor* section below.
+The suite is **blocking in CI**. Run it from `frontend/`, but note it needs the **whole repo checked out**: the structural guardrails read backend sources (`backend/core/models/ws_events.py`, `audio_state.py`).
 
-**Writing a test:**
+#### What earns a test
 
-`frontend/src/components/__tests__/MyComponent.spec.js`:
+The UI is refactored often, so **tests that mount a component and assert markup or CSS classes are not written here** — they break on every redesign and catch almost nothing. Layout:
+
+| Directory | Holds | Mounts a component? |
+|---|---|---|
+| `tests/architecture/` | invariants over the app's own structure (`deltaStores` completeness) | no |
+| `tests/i18n/` | locale parity, referenced-key and dead-key checks | no |
+| `tests/schemas/` | Zod contracts, cross-checked against the backend event models | no |
+| `tests/stores/` | store logic: WS deltas, derived state, guards | no |
+| `tests/composables/` | composable behaviour (timers, progress interpolation) | a bare host, nothing asserted on the DOM |
+| `tests/pure/` | pure functions (`volumeConversion`, music-library `format`) | no |
+| `tests/helpers/` | the `apiCall` mock and the backend-source extractors | — |
+
+#### Three rules
+
+**1. Mock `apiCall`, never `axios`.** `services/apiCall.js` is the only module allowed to import axios; a store test that mocks axios asserts through a layer it doesn't own. That mismatch is what silently rotted the previous suite when stores migrated to `apiCall`.
+
 ```javascript
-import { describe, it, expect } from 'vitest';
-import { mount } from '@vue/test-utils';
-import MyComponent from '../MyComponent.vue';
+import { apiCall } from '@/services/apiCall';
+import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 
-describe('MyComponent', () => {
-  it('renders properly', () => {
-    const wrapper = mount(MyComponent);
-    expect(wrapper.text()).toContain('My Source');
-  });
+vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
+
+beforeEach(() => resetApiCallMock());
+
+it('refuses to touch a remote client while multiroom is off', async () => {
+  apiCall.patch.mockResolvedValueOnce(ok({ status: 'success' }));
+  expect(await store.updateClientEqualizerVolume(REMOTE_MAC, -25)).toBe(false);
+  expect(apiCall.patch).not.toHaveBeenCalled();
 });
 ```
+
+Assert a URL only where the store *chooses* it (EQ target resolution, `local` vs MAC, zone vs client). On a straight pass-through the assertion only restates a string constant.
+
+**2. Drive the real stores.** `equalizerStore` reads `multiroomStore` and `unifiedAudioStore`; the tests populate them through their own WS handlers rather than mocking them. A mocked sibling store asserts a fixture of its API, and that fixture is what goes stale.
+
+**3. Guardrails must be able to fail.** Anything that derives expectations by parsing another file starts by asserting its own extraction is non-trivial — an empty parse must fail loudly rather than make every later assertion vacuous. Same doctrine as the Milo-Mac contract test. When adding one, verify it goes red against a simulated drift before trusting it green.
+
+#### Backend-derived guardrails
+
+Two tests read the backend and would otherwise need hand-written fixtures:
+
+- `tests/schemas/ws.test.js` — parses every `WsEvent` subclass (resolving inheritance) and, for each `wsEventRegistry` entry, builds the payload **from the model's own fields**, then checks the Zod schema accepts it, requires nothing extra, and ignores no field the backend sends. Catches an added/renamed/retyped field and a deleted event class.
+- `tests/schemas/api.test.js` — asserts `ALL_AUDIO_SOURCES` matches the backend `AudioSource` enum exactly. A source added on the backend but not there is coerced to `'none'` on every state update, which reads as "the new source silently does nothing".
 
 ## Concurrency and thread safety
 
@@ -921,7 +951,7 @@ For these: explain *why* it happened, point to the dev workflow that triggered i
 
 ## Lint and typing floor
 
-The project ships a lightweight lint floor that mechanically locks the conventions of RFCs 15-21. All rules are **built-in** to standard tools (no custom plugins to maintain). CI ([.github/workflows/lint.yml](../.github/workflows/lint.yml)) blocks merges if any of these fail: `ruff check backend/`, `npm run lint:js`, `npm run lint:css`, `pytest backend/`. The vitest `npm run test:run` step is temporarily skipped — the suite (`frontend/tests/`) still mocks `axios.*` directly after the RFC 17 apiCall migration (~97 stale tests); re-enable once retargeted at `apiCall`.
+The project ships a lightweight lint floor that mechanically locks the conventions of RFCs 15-21. All rules are **built-in** to standard tools (no custom plugins to maintain). CI ([.github/workflows/lint.yml](../.github/workflows/lint.yml)) blocks merges if any of these fail: `ruff check backend/`, `npm run lint:js`, `npm run lint:css`, `pytest backend/`, `npm run test:run`. The vitest step was skipped for a while after the RFC 17 apiCall migration left the suite mocking `axios.*` through a layer the stores no longer used; it was rebuilt around the `apiCall` boundary plus structural guardrails and is blocking again — see [What earns a test](#what-earns-a-test).
 
 | Tool | Rule | Source RFC | Activated in |
 |---|---|---|---|
