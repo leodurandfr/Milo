@@ -45,6 +45,13 @@ METADATA_RETRY_INTERVAL_S = 60.0
 # Disc insertion/removal detection latency — one blocking probe per tick.
 DISC_POLL_INTERVAL_S = 2.0
 
+# How many watcher ticks may fail to read the TOC of a disc the drive already
+# reports as CDS_DISC_OK before we stop asking. A read can fail while the drive
+# is still settling, so one failure must not brick the disc; a genuinely
+# unreadable one must not re-spin the drive every tick for as long as it sits in
+# the tray either.
+TOC_READ_ATTEMPTS = 3
+
 
 class CdSource(MpvAudioSource):
     """CD source (Family C — active player): UI-driven playback, rich metadata."""
@@ -87,7 +94,7 @@ class CdSource(MpvAudioSource):
 
         # Disc watcher (permanent, from initialize)
         self._disc_watcher_task: Optional[asyncio.Task] = None
-        self._watcher_first_check_done = False
+        self._toc_read_attempts = 0
 
         # Disc state (persists across start/stop for UI)
         self._current_disc: Optional[DiscInfo] = None
@@ -487,18 +494,25 @@ class CdSource(MpvAudioSource):
         disc_detected = status in (CDS_DRIVE_NOT_READY, CDS_DISC_OK)
         disc_ready = status == CDS_DISC_OK
 
-        if not self._watcher_first_check_done:
-            self._watcher_first_check_done = True
-
         # Phase 1: disc newly detected (spinning up or already ready)
         if disc_detected and not self._disc_present:
             self._disc_present = True
             await self._handle_disc_detected()
 
-        # Phase 2: disc became ready (TOC readable)
+        # Phase 2: disc became ready (TOC readable). Latch only once the TOC
+        # was actually read: latching first left a disc whose read failed once
+        # marked as handled forever — no sector offsets, so never playable,
+        # until the user ejected it. Capped by TOC_READ_ATTEMPTS.
         if disc_ready and not self._disc_ready:
-            self._disc_ready = True
-            await self._handle_disc_ready()
+            if await self._handle_disc_ready():
+                self._disc_ready = True
+            else:
+                self._toc_read_attempts += 1
+                if self._toc_read_attempts >= TOC_READ_ATTEMPTS:
+                    self._logger.error(
+                        f"Giving up on disc TOC after {TOC_READ_ATTEMPTS} attempts"
+                    )
+                    self._disc_ready = True
 
         # Disc removed
         if not disc_detected and self._disc_present:
@@ -527,20 +541,23 @@ class CdSource(MpvAudioSource):
                 "is_playing": False, "is_buffering": False,
             })
 
-    async def _handle_disc_ready(self) -> None:
+    async def _handle_disc_ready(self) -> bool:
         """Phase 2: disc ready (CDS_DISC_OK).
 
         Always reads the TOC (local I/O — needed for sector offsets so playback
         can start instantly later). MusicBrainz lookup is deferred to source
         activation: at boot the source may never be opened, and the network
         often isn't ready when the watcher first sees a disc inserted at boot.
+
+        Returns False only when the TOC read itself failed, so the watcher can
+        retry on a later tick rather than latch the disc as handled.
         """
         self._logger.info("Disc ready, reading TOC")
 
         result = await self._data_service.read_disc()
         if not result:
             self._logger.warning("Failed to read disc TOC")
-            return
+            return False
 
         disc_id, toc_string, toc_tracks, disc_end_lba = result
         self._sector_offsets = [t["offset"] for t in toc_tracks]
@@ -556,7 +573,7 @@ class CdSource(MpvAudioSource):
             self._logger.info(f"Same disc re-detected: {disc_id}")
             if is_active and self._mpv and self._mpv.is_connected:
                 await self._auto_play_track_1()
-            return
+            return True
 
         self._last_disc_id = disc_id
         self._logger.info(f"New disc: {disc_id}, {len(toc_tracks)} tracks")
@@ -564,7 +581,7 @@ class CdSource(MpvAudioSource):
         # Source not active → stop here; _do_start() / _load_disc_metadata()
         # will fetch MusicBrainz when the user opens the CD source.
         if not is_active:
-            return
+            return True
 
         # Source is active: lookup metadata in parallel with mpv warmup.
         pre_start_task = asyncio.create_task(self._pre_start_service())
@@ -576,7 +593,7 @@ class CdSource(MpvAudioSource):
         # Guard: disc may have been ejected during the gather — refuse to
         # repopulate state for a disc that's no longer in the drive.
         if not self._disc_present or self._last_disc_id != disc_id:
-            return
+            return True
         self._current_disc = disc_info
         self._tracks = disc_info.tracks
         self._metadata_retry_pending = disc_info.album is None
@@ -590,6 +607,7 @@ class CdSource(MpvAudioSource):
             await self._auto_play_track_1()
         elif still_active:
             self.set_state(SourceState.WAITING, self._build_metadata())
+        return True
 
     async def _pre_start_service(self) -> None:
         """Start milo-cd service and connect IPC (no stream loading)."""
@@ -641,6 +659,7 @@ class CdSource(MpvAudioSource):
         self._last_disc_id = None
         self._disc_present = False
         self._disc_ready = False
+        self._toc_read_attempts = 0
         self._sector_offsets = []
         self._disc_end_lba = 0
         self._metadata_retry_pending = False
@@ -839,13 +858,29 @@ class CdSource(MpvAudioSource):
             position = max(0, int(position))
             target_lba = self._track_position_to_lba(self._current_track, position)
 
+            # A seek while paused — including the preload's parked state, where
+            # the user has never pressed play — must move the playhead without
+            # emitting audio, so reload the reader at the target and leave mpv
+            # paused and primed, exactly as the preload does. The default
+            # autostart un-pauses mpv while these flags stay at "paused": the
+            # disc plays behind a UI that shows the play button, and the monitor
+            # tick (gated on _is_playing) never advances the bar.
+            paused = self._is_paused and not self._is_playing
+
             # Freeze the bar at the seek target during the blocking restart,
             # then settle to the real (already-advanced) playhead.
             self._track_position = position
             self._is_buffering = True
             self._update_connection_state()
 
-            restarted = await self._restart_reader_and_mpv(target_lba)
+            restarted = await self._restart_reader_and_mpv(
+                target_lba, autostart=not paused
+            )
+            if paused and not restarted:
+                # Nothing is loaded any more — drop out of paused so a play tap
+                # takes the idle full-restart path instead of un-pausing a dead
+                # mpv (_settle_after_restart only clears _is_playing).
+                self._is_paused = False
             if not await self._settle_after_restart(restarted):
                 return self.error_response("Seek failed")
             return self.success_response(f"Seeked to {position}s")
