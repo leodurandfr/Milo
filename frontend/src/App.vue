@@ -540,7 +540,6 @@ onMounted(async () => {
     on('routing', 'multiroom_disabling', (event) => multiroomStore.handleRoutingEvent(event)),
     on('routing', 'multiroom_ready', (event) => multiroomStore.handleRoutingEvent(event)),
     on('routing', 'multiroom_error', (event) => multiroomStore.handleRoutingEvent(event)),
-    // Multiroom events - new standardized format (Story 6.2)
     on('multiroom', 'client_state_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
     on('multiroom', 'zone_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
     on('multiroom', 'pending_client_changed', (event) => {

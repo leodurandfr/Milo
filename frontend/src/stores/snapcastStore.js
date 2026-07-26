@@ -74,15 +74,9 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   ]);
 
   // === COMPUTED ===
-  // Note: sortedClients removed - clients is already sorted (derived from registryStore.clientList)
-  // Components should use 'clients' directly
-
   const hasServerConfigChanges = computed(() => {
     return JSON.stringify(serverConfig.value) !== JSON.stringify(originalServerConfig.value);
   });
-
-  // Note: Client cache management removed - clients are derived from multiroomStore
-  // which has its own caching mechanism
 
   // === DISPLAY CACHE MANAGEMENT ===
   function loadDisplayCache() {
@@ -117,7 +111,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   }
 
   // === API CALLS ===
-  // Note: fetchClients removed - clients are derived from multiroomStore
 
   async function fetchServerConfig(signal = null) {
     const result = await apiCall.get('/api/routing/snapcast/server-config', {
@@ -148,8 +141,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   }
 
   // === ACTIONS - CLIENTS ===
-
-  // Note: Client loading functions removed - clients are derived from multiroomStore
 
   /**
    * Ensure the client registry is initialized (delegates to multiroomStore).
@@ -210,9 +201,6 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       serverConfig.value.snapclient_buffer_time = preset.config.snapclient_buffer_time;
     }
   }
-
-  // Note: WebSocket handlers for client events removed
-  // Client state is now derived from multiroomStore which handles all registry events
 
   return {
     // State (clients is computed from multiroomStore, already sorted: local first, then alphabetical)

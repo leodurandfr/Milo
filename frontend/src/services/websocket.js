@@ -27,8 +27,9 @@ import { logger } from '@/services/logger';
  *               compressor_changed, loudness_changed, mono_changed,
  *               enabled_changed, zone_enabled_changed)
  *   settings  → settingsStore / fanStore (settings.*_changed)
- *   programs  → update/install progress (UpdateManager)
- *   network   → networkStore (status_changed)
+ *   programs  → updatesStore (program + satellite update progress/completion)
+ *   network   → useNetwork's module singleton (status_changed) — the one
+ *               consumer that is not a Pinia store
  */
 class WebSocketSingleton {
   constructor() {
@@ -37,7 +38,6 @@ class WebSocketSingleton {
     this.hasEverConnected = false;
     this.eventHandlers = new Map();
     this.subscribers = new Set();
-    this.lastSystemState = null;
     this.visibilityHandler = null;
     this.lastPingTime = Date.now();
     this.pingCheckInterval = null;
@@ -160,10 +160,9 @@ class WebSocketSingleton {
     this.isConnected.value = false;
     this.stopPingCheck();
 
-    // Only clear handlers and state if this is a full cleanup (no more subscribers)
+    // Only clear handlers if this is a full cleanup (no more subscribers)
     if (fullCleanup) {
       this.eventHandlers.clear();
-      this.lastSystemState = null;
       this.removeVisibilityListener();
     }
   }
@@ -318,13 +317,6 @@ class WebSocketSingleton {
       return;
     }
 
-    // Cache full state from both initial_state and state_changed events
-    if (message.category === 'system' &&
-        (message.type === 'initial_state' || message.type === 'state_changed') &&
-        message.data?.full_state) {
-      this.lastSystemState = message.data.full_state;
-    }
-
     const eventKey = `${message.category}.${message.type}`;
     const handlers = this.eventHandlers.get(eventKey);
 
@@ -450,7 +442,6 @@ if (import.meta.env.DEV) {
       subscribers: wsInstance.subscribers.size,
       connected: wsInstance.isConnected.value,
       eventTypes: Array.from(wsInstance.eventHandlers.keys()),
-      hasCachedState: !!wsInstance.lastSystemState,
       url: wsInstance.socket?.url,
       tabHidden: document.hidden
     });

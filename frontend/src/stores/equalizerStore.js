@@ -877,9 +877,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
   }
 
-  // Note: handleClientNameChanged removed - availableTargets is now a computed
-  // property that automatically updates when multiroomStore changes
-
   // === CLEANUP ===
   function cleanup() {
     // Cancel pending requests
