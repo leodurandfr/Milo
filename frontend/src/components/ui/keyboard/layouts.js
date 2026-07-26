@@ -3,75 +3,56 @@
 /**
  * The static per-language key rows and accent variants the virtual keyboard renders.
  * A language with no entry here falls back to english, like locales/ does.
+ *
+ * Only the abc rows and the currency key differ between languages — the digit,
+ * punctuation and symbol rows are shared, so adding a language means three rows
+ * and two characters, not nine rows.
  */
 
-const layouts = {
+// Row lengths are fixed by the CSS grid: row1/row2 fill 10 columns, row3 fills 8
+// because [caps] and [enter] take the first and last column.
+const DIGIT_ROW = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+const SYMBOL_ROW = ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='];
+const PUNCTUATION_ROW = [',', '?', '!', "'", '…', 'ō', '・', '—'];
+
+const numbersRow2 = (currency) => ['-', '/', ':', ';', '(', ')', currency, '&', '@', '"'];
+const symbolsRow2 = (currency) => ['_', '\\', '|', '~', '<', '>', currency, '£', '¥', '⸱'];
+
+const languages = {
   french: {
+    numbersCurrency: '€',
+    symbolsCurrency: '$',
     abc: {
       row1: ['a', 'z', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
       row2: ['q', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm'],
       row3: ['w', 'x', 'c', 'v', 'b', 'n', '?', ','],
-    },
-    numbers: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['-', '/', ':', ';', '(', ')', '€', '&', '@', '"'],
-      row3: [',', '?', '!', "'", '…', 'ō', '・', '—'],
-    },
-    symbols: {
-      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
-      row2: ['_', '\\', '|', '~', '<', '>', '$', '£', '¥', '⸱'],
-      row3: [',', '?', '!', "'", '…', 'ō', '・', '—'],
     }
   },
   english: {
+    numbersCurrency: '$',
+    symbolsCurrency: '€',
     abc: {
       row1: ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
       row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', "'"],
       row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ','],
-    },
-    numbers: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['-', '/', ':', ';', '(', ')', '$', '&', '@', '"'],
-      row3: [',', '?', '!', "'", '…', 'ō', '・', '—'],
-    },
-    symbols: {
-      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
-      row2: ['_', '\\', '|', '~', '<', '>', '€', '£', '¥', '⸱'],
-      row3: [',', '?', '!', "'", '…', 'ō', '・', '—'],
     }
   },
   spanish: {
+    numbersCurrency: '€',
+    symbolsCurrency: '$',
     abc: {
       row1: ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
       row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ñ'],
       row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ','],
-    },
-    numbers: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['-', '/', ':', ';', '(', ')', '€', '&', '@', '"'],
-      row3: [',', '?', '!', "'", '…', 'ō', '・', '—'],
-    },
-    symbols: {
-      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
-      row2: ['_', '\\', '|', '~', '<', '>', '$', '£', '¥', '⸱'],
-      row3: [',', '?', '!', "'", '…', 'ō', '・', '—'],
     }
   },
   german: {
+    numbersCurrency: '€',
+    symbolsCurrency: '$',
     abc: {
       row1: ['q', 'w', 'e', 'r', 't', 'z', 'u', 'i', 'o', 'p'],
       row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ü'],
       row3: ['y', 'x', 'c', 'v', 'b', 'n', 'm', ','],
-    },
-    numbers: {
-      row1: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      row2: ['-', '/', ':', ';', '(', ')', '€', '&', '@', '"'],
-      row3: [',', '?', '!', "'", '…', 'ō', '・', '—'],
-    },
-    symbols: {
-      row1: ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='],
-      row2: ['_', '\\', '|', '~', '<', '>', '$', '£', '¥', '⸱'],
-      row3: [',', '?', '!', "'", '…', 'ō', '・', '—'],
     }
   }
 };
@@ -107,7 +88,12 @@ const accents = {
 };
 
 export function keyLayout(language) {
-  return layouts[language] || layouts.english;
+  const lang = languages[language] || languages.english;
+  return {
+    abc: lang.abc,
+    numbers: { row1: DIGIT_ROW, row2: numbersRow2(lang.numbersCurrency), row3: PUNCTUATION_ROW },
+    symbols: { row1: SYMBOL_ROW, row2: symbolsRow2(lang.symbolsCurrency), row3: PUNCTUATION_ROW },
+  };
 }
 
 export function accentVariants(language) {
