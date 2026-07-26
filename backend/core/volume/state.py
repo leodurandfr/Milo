@@ -520,7 +520,7 @@ class VolumeStateStore:
                 )
                 self.logger.info(f"Auto-registered client: {mac_id} at {volume_db:.1f}dB")
 
-        # Sync to ClientRegistry for reconnection context (FR7)
+        # Sync to ClientRegistry for reconnection context
         if self._registry:
             await self._registry.update_volume(mac_id, volume_db=volume_db)
 
@@ -618,7 +618,7 @@ class VolumeStateStore:
             self._schedule_persist()
             self.logger.debug(f"Applied {len(updates)} volume updates")
 
-        # Sync to ClientRegistry for reconnection context (FR7)
+        # Sync to ClientRegistry for reconnection context
         if self._registry:
             for mac_id, volume_db in updates.items():
                 await self._registry.update_volume(mac_id, volume_db=volume_db)

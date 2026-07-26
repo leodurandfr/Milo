@@ -265,7 +265,7 @@ class VolumeLimitsChanged(SettingsEvent):
 
 
 class VolumeStartupChanged(SettingsEvent):
-    """App.vue settings listener; also emitted by VolumeService FR11 auto-tracking."""
+    """App.vue settings listener; also emitted by VolumeService startup-volume auto-tracking."""
     TYPE = "volume_startup_changed"
     config: VolumeStartupConfig
 

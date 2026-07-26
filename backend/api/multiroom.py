@@ -320,7 +320,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
 
         When deleted:
         - All member clients have their zone_id set to None
-        - Clients retain zone equalizer settings as their standalone equalizer (FR14)
+        - Clients retain zone equalizer settings as their standalone equalizer
         - 'zone_deleted' WebSocket event is broadcast
 
         Args:
@@ -349,7 +349,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
     @router.post("/zones/{zone_id}/clients", status_code=200, response_model=ZoneMutationResponse)
     async def add_client_to_zone(zone_id: str, request: ZoneAddClient):
         """
-        Add a client to a zone. Client's equalizer is replaced by zone's (FR15).
+        Add a client to a zone. Client's equalizer is replaced by the zone's.
 
         The client will adopt the zone's shared equalizer settings.
         If the client was in another zone, it is removed from that zone first.
@@ -413,7 +413,7 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
     @router.delete("/zones/{zone_id}/clients/{mac_id}", response_model=ZoneOrMessageResponse, response_model_exclude_none=True)
     async def remove_client_from_zone(zone_id: str, mac_id: str):
         """
-        Remove a client from a zone. Client keeps zone equalizer as standalone (FR14).
+        Remove a client from a zone. Client keeps the zone equalizer as standalone.
 
         The client retains the zone's equalizer settings as its standalone settings.
         If the zone has less than 2 clients after removal, the zone is deleted.

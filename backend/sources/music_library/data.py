@@ -1,5 +1,5 @@
 # backend/sources/music_library/data.py
-"""Network-share configuration for the Music Library source (Phase 2).
+"""Network-share configuration for the Music Library source.
 
 Persists the list of SMB/NFS shares the user has added, so they can be re-mounted
 under /media/milo at every boot. Versioned JSON at

@@ -395,13 +395,13 @@ class VolumeService:
         return True
 
     # ============================================================================
-    # STARTUP VOLUME AUTO-UPDATE (FR11)
+    # STARTUP VOLUME AUTO-UPDATE
     # ============================================================================
 
     @handle_errors(default=None)
     async def _update_startup_volume_if_needed(self, volume_db: float) -> None:
         """
-        Auto-update startup_volume_db to track current volume (FR11).
+        Auto-update startup_volume_db to track current volume.
 
         When restore_last_volume is enabled, startup_volume_db tracks the current volume
         so it can be restored correctly at startup/restart (direct and multiroom).
@@ -427,12 +427,12 @@ class VolumeService:
         persisted_value = self._volume_config.startup_volume_db
         await self._broadcast_startup_volume_changed(persisted_value)
 
-        self.logger.debug(f"FR11: Auto-updated startup_volume_db to {persisted_value:.1f} dB")
+        self.logger.debug(f"Auto-updated startup_volume_db to {persisted_value:.1f} dB")
 
     @handle_errors(default=None)
     async def _broadcast_startup_volume_changed(self, volume_db: float) -> None:
         """
-        Broadcast startup volume change via WebSocket (FR11).
+        Broadcast startup volume change via WebSocket.
 
         Args:
             volume_db: The new startup volume in dB
@@ -639,7 +639,7 @@ class VolumeService:
         if failures:
             self.logger.warning(f"Failed to update clients: {failures}")
 
-        # FR11 + broadcast
+        # Startup-volume tracking + broadcast
         local_mac_id = self._state_store.local_mac_id
         local_volume = updates.get(local_mac_id) if local_mac_id else None
         local_volume = local_volume or self._state_store.local_volume_db
@@ -762,7 +762,7 @@ class VolumeService:
 
     async def _apply_startup_volume(self) -> None:
         """
-        Apply startup volume and mute state to CamillaDSP (FR12).
+        Apply startup volume and mute state to CamillaDSP.
 
         Volume source is determined by restore_last_volume setting:
         - True: the local client's OWN persisted per-client volume (state store,
@@ -777,7 +777,7 @@ class VolumeService:
         # Wait for CamillaDSP connection
         if self._camilladsp_service:
             if not await self._camilladsp_service.wait_for_connection(timeout=10.0):
-                self.logger.warning("FR12: CamillaDSP not connected after 10s, startup volume not applied")
+                self.logger.warning("CamillaDSP not connected after 10s, startup volume not applied")
                 return
 
         # DAC mode: pin CamillaDSP at 0 dB (external amp manages volume)
@@ -801,7 +801,7 @@ class VolumeService:
             target_volume = self._state_store.get_client_volume(local_mac_id)
         else:
             target_volume = self._volume_config.startup_volume_db
-        self.logger.info(f"FR12: Applying startup volume: {target_volume:.1f} dB")
+        self.logger.info(f"Applying startup volume: {target_volume:.1f} dB")
 
         # Get persisted mute state from local client (False if no client registered yet)
         local_mute = self._state_store.get_client_mute(local_mac_id) if local_mac_id else False
@@ -810,10 +810,10 @@ class VolumeService:
         if target_volume is not None and self._camilladsp_service:
             await self._camilladsp_service.set_volume(target_volume)
             await self._camilladsp_service.set_mute(local_mute)
-            self.logger.info(f"FR12: Startup state applied - volume={target_volume:.1f}dB, mute={local_mute}")
+            self.logger.info(f"Startup state applied - volume={target_volume:.1f}dB, mute={local_mute}")
         elif self._camilladsp_service:
             await self._camilladsp_service.set_mute(False)
-            self.logger.warning("FR12: No target volume, only unmuted CamillaDSP")
+            self.logger.warning("No target volume, only unmuted CamillaDSP")
 
     @handle_errors(default=None)
     async def _startup_broadcast_after_websocket_ready(self):
@@ -891,7 +891,7 @@ class VolumeService:
         return success
 
     def _schedule_post_volume_tasks(self, target_db: float, show_bar: bool) -> None:
-        """Schedule FR11 check and WebSocket broadcast as background tasks."""
+        """Schedule the startup-volume tracking check and the broadcast in the background."""
         async def _post_update():
             await self._update_startup_volume_if_needed(target_db)
             await self.broadcast_volume_state(show_bar)

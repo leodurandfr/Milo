@@ -1,5 +1,5 @@
 # backend/sources/music_library/discovery.py
-"""mDNS/Bonjour discovery of SMB/NFS servers on the LAN (Phase 2 convenience).
+"""mDNS/Bonjour discovery of SMB/NFS servers on the LAN.
 
 The "Add a share" settings screen calls this to offer a pick-list of servers
 found on the network, so the user taps their NAS instead of typing its address.

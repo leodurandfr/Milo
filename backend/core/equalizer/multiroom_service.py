@@ -168,7 +168,7 @@ class MultiroomEqualizerService:
         """Apply one EQ record to every zone member, keeping them identical.
 
         Each member receives its own copy so later per-member edits never alias.
-        Members are written in parallel (NFR3: < 200ms).
+        Members are written in parallel.
         """
         if not self._registry:
             self.logger.error("ClientRegistryService not available")

@@ -721,7 +721,7 @@ class ClientRegistryService:
         """
         Get online clients in the same zone, excluding the specified client.
 
-        Used for IN_ZONE reconnection context detection (FR7, FR8).
+        Used for IN_ZONE reconnection context detection.
 
         Args:
             mac_id: The client's mac_id to exclude from results
@@ -748,7 +748,7 @@ class ClientRegistryService:
         """
         Get all online clients globally, excluding the specified client.
 
-        Used for STANDALONE reconnection context detection (FR9, FR10).
+        Used for STANDALONE reconnection context detection.
 
         Args:
             mac_id: The client's mac_id to exclude from results
@@ -770,10 +770,10 @@ class ClientRegistryService:
         reconnecting client.
 
         The 4 possible contexts are:
-        - IN_ZONE_OTHERS_ONLINE (FR7): Client in zone, other zone members online
-        - IN_ZONE_ALL_OFFLINE (FR8): Client in zone, all other zone members offline
-        - STANDALONE_OTHERS_ONLINE (FR9): Standalone client, other clients online
-        - STANDALONE_ALONE (FR10): Standalone client, no other clients online
+        - IN_ZONE_OTHERS_ONLINE: Client in zone, other zone members online
+        - IN_ZONE_ALL_OFFLINE: Client in zone, all other zone members offline
+        - STANDALONE_OTHERS_ONLINE: Standalone client, other clients online
+        - STANDALONE_ALONE: Standalone client, no other clients online
 
         Args:
             mac_id: The reconnecting client's mac_id
@@ -793,14 +793,14 @@ class ClientRegistryService:
             other_online_zone_clients = self.get_other_online_zone_clients(mac_id)
 
             if other_online_zone_clients:
-                # FR7: Other zone members are online
+                # Other zone members are online
                 self.logger.debug(
                     f"Client {mac_id} reconnection context: IN_ZONE_OTHERS_ONLINE "
                     f"({len(other_online_zone_clients)} other zone members online)"
                 )
                 return ReconnectionContext.IN_ZONE_OTHERS_ONLINE
             else:
-                # FR8: All other zone members are offline
+                # All other zone members are offline
                 self.logger.debug(
                     f"Client {mac_id} reconnection context: IN_ZONE_ALL_OFFLINE "
                     f"(no other zone members online)"
@@ -811,14 +811,14 @@ class ClientRegistryService:
         other_online_clients = self.get_other_online_clients(mac_id)
 
         if other_online_clients:
-            # FR9: Other clients are online globally
+            # Other clients are online globally
             self.logger.debug(
                 f"Client {mac_id} reconnection context: STANDALONE_OTHERS_ONLINE "
                 f"({len(other_online_clients)} other clients online)"
             )
             return ReconnectionContext.STANDALONE_OTHERS_ONLINE
         else:
-            # FR10: No other clients online - this is the first/only client
+            # No other clients online - this is the first/only client
             self.logger.debug(
                 f"Client {mac_id} reconnection context: STANDALONE_ALONE "
                 f"(no other clients online)"
@@ -833,7 +833,7 @@ class ClientRegistryService:
         """
         Calculate average volume of ONLINE zone clients.
 
-        Used for IN_ZONE_OTHERS_ONLINE reconnection sync (FR7).
+        Used for IN_ZONE_OTHERS_ONLINE reconnection sync.
         Only includes clients that are currently ONLINE.
 
         Args:
@@ -867,7 +867,7 @@ class ClientRegistryService:
         """
         Calculate average volume of ALL ONLINE clients globally.
 
-        Used for STANDALONE_OTHERS_ONLINE reconnection sync (FR9).
+        Used for STANDALONE_OTHERS_ONLINE reconnection sync.
         Includes all online clients regardless of zone membership.
 
         Args:
