@@ -184,6 +184,26 @@ Bypass a rule only with a per-line directive + reason (`# noqa: S110 -- <why>`, 
 
 HTTP goes through the `@/services/apiCall` mock ([frontend/tests/helpers/apiCallMock.js](frontend/tests/helpers/apiCallMock.js)) — **never mock `axios` in a test**; it is a layer the stores don't own, and mocking it is what made the previous suite rot. Assert an endpoint only where the store *chooses* it (target/zone resolution, local-vs-MAC) — not on straight pass-throughs, where the assertion just restates a string constant.
 
+## Backend tests — what earns one
+
+`backend/tests/` is blocking (`pytest backend/`). The behaviours that matter most here — ALSA, CamillaDSP, snapcast, D-Bus, the hardware — **cannot run in CI at all**; they are covered on a real unit by [docs/manual/verification-checklist.md](docs/manual/verification-checklist.md). A backend test therefore buys exactly one thing: it protects the surface CI genuinely owns. Four kinds earn their keep:
+
+1. **Contract guardrails** — `tests/contracts/` (Milo-Mac manifest, response models), `tests/architecture/`, `test_ws_events.py`, `test_command_contract.py`. They derive their expectations from the typed models and enums, never from hand-written fixtures, and every extractor asserts its own output is non-trivial first: a broken parse must **fail loudly, not pass on an empty surface**. The highest-value files in the suite — extend them, don't delete them.
+2. **Pure logic** — parsing, merging, curves, maths: `_to_ms`, disc merge, version compare, volume clamp, IR scancode decode. Deterministic, no mocks, high yield.
+3. **Service behaviour across a mocked boundary** — the mock stands for the **outside world** (CamillaDSP, snapserver, Navidrome, systemd, D-Bus, mpv, HTTP) and the assertion is what the service *did* to it: which call, in which order, under which failure. [backend/tests/test_dlna_source.py](backend/tests/test_dlna_source.py) is the reference: GENA resends the full state on every event, so the bridge must emit each field only when it actually changed, and `assert_called_once` is the only way to state that.
+4. **Persistence and state transitions** — settings round-trips on a `tmp_path`, the `SchemaVersionMismatch` fail-loud path, `AudioStateMachine` transition guards and the drop-during-transition rule.
+
+**The rule that decides the rest: never assert on a value the test itself wrote.** A test that builds a dict, hands it to a passthrough and checks the keys it just typed cannot fail; a test that re-implements the production expression in its own body asserts Python, not Milō. This is the backend's "never mock `axios`" — it is what the 70 tests deleted in the phase-3 pass had in common. Corollaries:
+
+- **Mock the outside world, never the unit's own internals.** `patch.object(service, "_private")` pins a method name: rename it and the test goes red with no behaviour change. Mocking a *collaborator's* public API is fine — that is kind 3.
+- **No wall-clock budgets.** Latency measured on an all-mock path measures the mock; the real cost is network + DSP, which CI does not have. Timing belongs in the manual checklist.
+- **Don't restate a constant.** `assert DEFAULT_X["k"] == 120` only fails when someone changes it on purpose. Assert the behaviour that reads it.
+- **Don't re-check what a guardrail already proves.** `tests/architecture/test_source_conformance.py` covers every source's base contract for all 10; a per-source `isinstance` test adds nothing.
+- **Argv is worth asserting only when argv *is* the contract** — `sudo systemctl restart --no-block …` is pinned by `/etc/sudoers.d/milo-backend`, so `test_systemd.py` asserting it is right. An incidental subprocess call is not.
+- **No coverage threshold in CI.** Coverage as a target rewards exactly the tests this rule excludes.
+
+Docstrings say what breaks when the test fails and name the consumer — no story/AC/ticket references, there is nothing in the repo to resolve them against.
+
 ## Reference docs
 
 - [docs/architecture.md](docs/architecture.md) — technologies, audio routing, persistence inventory, systemd, security.
