@@ -3,7 +3,7 @@
 MpvAudioSource - Intermediate base class for mpv-based audio sources.
 
 Provides a shared _monitor_loop() skeleton with hooks for source-specific
-behavior. Used by RadioSource, PodcastSource, CdSource.
+behavior. Used by RadioSource, PodcastSource, CdSource, MusicLibrarySource.
 
 Hooks:
     _on_mpv_disconnect(): Called on unexpected mpv disconnect during playback
