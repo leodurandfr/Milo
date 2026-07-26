@@ -63,11 +63,8 @@ def mock_mre():
     mre.update_mono = AsyncMock(return_value=True)
     mre.set_client_equalizer_effects_enabled = AsyncMock(return_value=True)
     mre.set_zone_equalizer_effects_enabled = AsyncMock(return_value=True)
-    mre.get_client_equalizer = AsyncMock(return_value=None)
-    mre.get_zone_equalizer = AsyncMock(return_value=None)
     mre.resolve_preset_gains = AsyncMock(return_value=[1.0] * 10)
-    mre.load_client_preset = AsyncMock(return_value=True)
-    mre.load_zone_preset = AsyncMock(return_value=True)
+    mre.load_preset = AsyncMock(return_value=(True, [1.0] * 10))
     mre.save_custom_preset = AsyncMock(return_value=None)
     return mre
 
@@ -272,19 +269,22 @@ class TestTargetPresetWrite:
     def test_preset_client_loads_and_returns_gains(self, client, mock_mre):
         resp = client.post("/api/equalizer/target/local/preset", json={"preset_id": "rock"})
         assert resp.status_code == 200
-        mock_mre.load_client_preset.assert_awaited_once_with("local", "rock")
+        mock_mre.load_preset.assert_awaited_once_with("client", "local", "rock")
+        # The gains come back from the one load call — the route no longer
+        # re-reads the record and re-resolves them to report what it applied.
         assert resp.json()["gains"] == [1.0] * 10
+        mock_mre.resolve_preset_gains.assert_not_called()
 
     def test_preset_zone_loads_zone(self, client, mock_mre):
         resp = client.post("/api/equalizer/target/zone:z1/preset", json={"preset_id": "jazz"})
         assert resp.status_code == 200
-        mock_mre.load_zone_preset.assert_awaited_once_with("z1", "jazz")
+        mock_mre.load_preset.assert_awaited_once_with("zone", "z1", "jazz")
 
     def test_preset_unknown_target_returns_404(self, client, mock_mre):
-        mock_mre.load_client_preset.side_effect = ValueError("Client not found: nope")
+        mock_mre.load_preset.side_effect = ValueError("Client not found: nope")
         resp = client.post("/api/equalizer/target/nope/preset", json={"preset_id": "rock"})
         assert resp.status_code == 404
-        mock_mre.load_client_preset.assert_awaited()  # 404 came from the access layer
+        mock_mre.load_preset.assert_awaited()  # 404 came from the access layer
 
 
 class TestTargetSaveCustomWrite:
