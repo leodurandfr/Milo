@@ -27,10 +27,12 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { useEqualizerStore } from '@/stores/equalizerStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const equalizerStore = useEqualizerStore();
+const multiroomStore = useMultiroomStore();
 const audioStore = useUnifiedAudioStore();
 
 const props = defineProps({
@@ -72,7 +74,7 @@ const zoneTabs = computed(() => {
   for (const target of targets.value) {
     if (processedIds.has(target.id)) continue;
 
-    const linkedIds = equalizerStore.getLinkedClientIds(target.id);
+    const linkedIds = multiroomStore.getLinkedClientIds(target.id);
 
     if (linkedIds.length > 1) {
       // This is a zone - get names of linked clients (backend sorts local first)
@@ -80,8 +82,8 @@ const zoneTabs = computed(() => {
         .map(id => targets.value.find(t => t.id === id))
         .filter(Boolean);
 
-      // Find the group for this zone to get custom name
-      const group = equalizerStore.getZoneGroup(target.id);
+      // Find the zone for this client to get its custom name
+      const group = multiroomStore.getZoneForClient(target.id);
 
       // Use custom zone name if set, otherwise combine client names
       const zoneName = group?.name || (linkedClients.length > 0

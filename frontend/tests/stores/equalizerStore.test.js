@@ -481,19 +481,6 @@ describe('equalizerStore', () => {
       expect(targets[0]).toMatchObject({ name: 'Milo', is_local: true, online: true });
     });
 
-    it('exposes the registry zones as linked groups', () => {
-      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
-
-      expect(equalizerStore.linkedGroups).toHaveLength(1);
-      expect(equalizerStore.getZoneGroup(REMOTE_MAC).id).toBe('z1');
-      expect(equalizerStore.getLinkedClientIds(REMOTE_MAC)).toEqual([LOCAL_MAC, REMOTE_MAC]);
-    });
-
-    it('reports a standalone client as linked only to itself', () => {
-      expect(equalizerStore.getZoneGroup(REMOTE_MAC)).toBeNull();
-      expect(equalizerStore.getLinkedClientIds(REMOTE_MAC)).toEqual([REMOTE_MAC]);
-    });
-
     it('defaults an unconfigured speaker type to bookshelf', () => {
       registerClient(OTHER_MAC, { speaker_type: 'subwoofer' });
 
