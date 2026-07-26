@@ -199,14 +199,14 @@ class AudioStateMachine:
                     self.system_state.transitioning = False
                     self.system_state.error = "Transition timeout"
 
-                # Broadcast error to WebSocket before emergency_stop clears state
+                # Broadcast the error before the reset clears state
                 await self.broadcast(SystemErrorEvent(
                     source=target_source.value,
                     error="Transition timeout",
                     message=f"Transition timeout after {self.TRANSITION_TIMEOUT}s"
                 ))
 
-                await self._emergency_stop()
+                await self._reset_after_failed_transition(target_source)
                 return False
 
             except Exception as e:
@@ -215,14 +215,14 @@ class AudioStateMachine:
                     self.system_state.transitioning = False
                     self.system_state.error = str(e)
 
-                # Broadcast error to WebSocket before emergency_stop clears state
+                # Broadcast the error before the reset clears state
                 await self.broadcast(SystemErrorEvent(
                     source=target_source.value,
                     error=str(e),
                     message=str(e)
                 ))
 
-                await self._emergency_stop()
+                await self._reset_after_failed_transition(target_source)
                 return False
 
     async def update_source_state(
@@ -270,16 +270,17 @@ class AudioStateMachine:
             metadata=metadata
         ))
 
-    def update_position_metadata(
+    async def update_position_metadata(
         self, source: AudioSource, position: int, duration: int
     ) -> None:
         """Sync live position/duration into system_state.metadata (so a new WS
         connection's initial_state carries them). Only the active source may
         write; the write stays here so state mutation lives in the state machine."""
-        sm = self.system_state
-        if sm.metadata is not None and sm.active_source == source:
-            sm.metadata["position"] = position
-            sm.metadata["duration"] = duration
+        async with self._state_lock:
+            sm = self.system_state
+            if sm.metadata is not None and sm.active_source == source:
+                sm.metadata["position"] = position
+                sm.metadata["duration"] = duration
 
     @handle_errors(default=False, level='warning')
     async def refresh_active_metadata(self) -> bool:
@@ -288,10 +289,10 @@ class AudioStateMachine:
             return False
 
         source = self.sources.get(self.system_state.active_source)
-        if not source or not hasattr(source, '_refresh_metadata'):
+        if not source:
             return False
 
-        if await source._refresh_metadata():
+        if await source.refresh_metadata():
             async with self._state_lock:
                 self.system_state.metadata = source.metadata
             return True
@@ -312,22 +313,24 @@ class AudioStateMachine:
         if not instance:
             return False
 
-        if not getattr(instance, '_initialized', False):
-            if await instance.initialize():
-                instance._initialized = True
-            else:
-                return False
+        if not instance.is_initialized and not await instance.initialize():
+            return False
 
         return await instance.start()
 
-    async def _emergency_stop(self) -> None:
-        """Emergency stop all sources and broadcast the reset state."""
-        for source in self.sources.values():
-            if source:
-                try:
-                    await source.stop()
-                except Exception as e:
-                    logger.error(f"Emergency stop error: {e}")
+    async def _reset_after_failed_transition(self, target_source: AudioSource) -> None:
+        """Stop the source whose start failed, then reset to idle and broadcast.
+
+        Only the target is stopped: the previous source was already stopped
+        above, and the one-active-source invariant means nothing else is
+        running. The target still needs it — a start can fail after its systemd
+        unit came up (e.g. mpv started, IPC connect failed). Stopping every
+        registered source instead would run Bluetooth's unconditional teardown
+        (bluetoothctl + bluealsa/bluetooth.service, no is-running guard) on a
+        source the failed transition never touched.
+        """
+        if target_source != AudioSource.NONE:
+            await self._stop_source(target_source)
 
         async with self._state_lock:
             self.system_state.active_source = AudioSource.NONE

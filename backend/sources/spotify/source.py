@@ -174,7 +174,7 @@ class SpotifySource(BaseAudioSource):
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Spotify-specific commands."""
         if cmd == "refresh_metadata":
-            success = await self._refresh_metadata()
+            success = await self.refresh_metadata()
             return self.success_response(
                 "Metadata refreshed" if success else "Refresh failed",
                 metadata=self._metadata
@@ -274,7 +274,7 @@ class SpotifySource(BaseAudioSource):
     async def _on_device_active(self) -> None:
         """Handle device active event."""
         self._device_connected = True
-        await self._refresh_metadata()
+        await self.refresh_metadata()
         self._update_connection_state()
 
     async def _on_device_inactive(self) -> None:
@@ -295,7 +295,7 @@ class SpotifySource(BaseAudioSource):
         else:
             self._start_pause_timer()
 
-        await self._refresh_metadata()
+        await self.refresh_metadata()
         self._metadata["is_playing"] = is_playing
         self._metadata["is_buffering"] = False
         self._update_connection_state()
@@ -306,13 +306,13 @@ class SpotifySource(BaseAudioSource):
         Set is_buffering=true so the frontend shows a spinner while the new
         track loads.  Cleared when the 'playing' event arrives.
         """
-        await self._refresh_metadata()
+        await self.refresh_metadata()
         self._metadata["is_buffering"] = True
         self._update_connection_state()
 
     async def _on_seek(self) -> None:
         """Handle seek event."""
-        await self._refresh_metadata()
+        await self.refresh_metadata()
         self._update_connection_state()
 
     async def _on_stopped(self) -> None:
@@ -345,7 +345,7 @@ class SpotifySource(BaseAudioSource):
         normal source-switch / auto-stop paths already manage state — this only
         catches the un-commanded case.
         """
-        refreshed = await self._refresh_metadata()
+        refreshed = await self.refresh_metadata()
         if not refreshed or not self._device_connected:
             # No session, or state unknown: drop any stale pause timer (so a
             # leftover auto-stop can't later fire /player/stop on a fresh
@@ -411,7 +411,7 @@ class SpotifySource(BaseAudioSource):
         )
         return False
 
-    async def _refresh_metadata(self) -> bool:
+    async def refresh_metadata(self) -> bool:
         """Refresh metadata from go-librespot API."""
         if not self._session or not self._api_url:
             return False

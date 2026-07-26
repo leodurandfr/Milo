@@ -14,6 +14,7 @@ Contract being tested:
 """
 import pytest
 import asyncio
+from unittest.mock import AsyncMock
 
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.state import AudioStateMachine
@@ -439,25 +440,39 @@ class TestErrorHandling:
         assert sm.system_state.transitioning is False
 
     @pytest.mark.asyncio
-    async def test_emergency_stop_clears_all_sources(
+    async def test_failed_transition_stops_only_the_target(
         self,
         state_machine_with_sources: AudioStateMachine,
         mock_sources
     ):
-        """
-        Emergency stop should attempt to stop all registered sources.
+        """A failed start resets to idle and stops ONLY the source that failed.
+
+        Regression guard: the reset used to stop every registered source, which
+        ran Bluetooth's unconditional teardown (bluetoothctl + bluealsa/
+        bluetooth.service) on a source the transition never touched. The
+        previous source is stopped by the transition itself, before the start
+        attempt; the target still needs stopping because a start can fail after
+        its systemd unit came up.
         """
         sm = state_machine_with_sources
+        target = mock_sources[AudioSource.SPOTIFY]
+        uninvolved = mock_sources[AudioSource.BLUETOOTH]
 
-        # Start a source
         await sm.transition_to_source(AudioSource.RADIO)
+        previous = mock_sources[AudioSource.RADIO]
+        previous.stop.reset_mock()
 
-        # Trigger emergency stop
-        await sm._emergency_stop()
+        target.start = AsyncMock(return_value=False)
+        result = await sm.transition_to_source(AudioSource.SPOTIFY)
 
-        # Should be back to NONE
+        assert result is False
         assert sm.system_state.active_source == AudioSource.NONE
         assert sm.system_state.source_state == SourceState.WAITING
+
+        target.stop.assert_awaited()
+        uninvolved.stop.assert_not_awaited()
+        # The previous source is stopped once by the transition, not again by the reset.
+        previous.stop.assert_awaited_once()
 
 
 class TestUpdateSourceStateGuards:

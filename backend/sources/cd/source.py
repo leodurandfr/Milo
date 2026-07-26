@@ -1071,7 +1071,7 @@ class CdSource(MpvAudioSource):
         state = SourceState.ACTIVE if connected else SourceState.WAITING
         self.set_state(state, self._build_metadata())
 
-    async def _refresh_metadata(self) -> bool:
+    async def refresh_metadata(self) -> bool:
         """Refresh metadata so WebSocket initial_state contains live position."""
         self._metadata = self._build_metadata()
         return True

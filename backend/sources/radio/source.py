@@ -167,7 +167,7 @@ class RadioSource(MpvAudioSource):
         """Initialize station data (call at startup for API access)."""
         await self._station_data.initialize()
         self._logger.info("Radio station data initialized")
-        return True
+        return await super().initialize()
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()

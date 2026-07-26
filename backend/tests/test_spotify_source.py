@@ -179,7 +179,7 @@ class TestSpotifySourceCommands:
     @pytest.mark.asyncio
     async def test_refresh_metadata_command(self, spotify_source):
         """Test refresh_metadata command."""
-        with patch.object(spotify_source, '_refresh_metadata', return_value=True):
+        with patch.object(spotify_source, 'refresh_metadata', return_value=True):
             result = await spotify_source.command("refresh_metadata", {})
 
         assert result["success"] is True
@@ -237,7 +237,7 @@ class TestWebSocketEvents:
         """Test handling device active event."""
         spotify_source._session = AsyncMock()
 
-        with patch.object(spotify_source, '_refresh_metadata', return_value=True):
+        with patch.object(spotify_source, 'refresh_metadata', return_value=True):
             await spotify_source._on_device_active()
 
         assert spotify_source._device_connected is True
@@ -261,7 +261,7 @@ class TestWebSocketEvents:
         """Test handling playing event."""
         spotify_source._session = AsyncMock()
 
-        with patch.object(spotify_source, '_refresh_metadata', return_value=True):
+        with patch.object(spotify_source, 'refresh_metadata', return_value=True):
             await spotify_source._on_playback_state(True)
 
         assert spotify_source._is_playing is True
@@ -273,7 +273,7 @@ class TestWebSocketEvents:
         spotify_source._session = AsyncMock()
         spotify_source.auto_stop_enabled = False  # Disable to simplify test
 
-        with patch.object(spotify_source, '_refresh_metadata', return_value=True):
+        with patch.object(spotify_source, 'refresh_metadata', return_value=True):
             await spotify_source._on_playback_state(False)
 
         assert spotify_source._is_playing is False
@@ -283,7 +283,7 @@ class TestWebSocketEvents:
         """Test handling seek event refreshes metadata."""
         spotify_source._metadata = {"title": "Test", "position": 0}
 
-        with patch.object(spotify_source, '_refresh_metadata', new_callable=AsyncMock) as mock_refresh:
+        with patch.object(spotify_source, 'refresh_metadata', new_callable=AsyncMock) as mock_refresh:
             async def set_position():
                 spotify_source._metadata["position"] = 45000
             mock_refresh.side_effect = set_position
@@ -305,12 +305,12 @@ class TestWebSocketEvents:
         assert spotify_source.state == SourceState.ACTIVE
 
         async def idle_refresh():
-            # Mirrors _refresh_metadata against an empty GET /status (no track)
+            # Mirrors refresh_metadata against an empty GET /status (no track)
             spotify_source._device_connected = False
             spotify_source._metadata = {}
             return True
 
-        with patch.object(spotify_source, '_refresh_metadata', side_effect=idle_refresh), \
+        with patch.object(spotify_source, 'refresh_metadata', side_effect=idle_refresh), \
              patch.object(spotify_source, '_cancel_pause_timer') as mock_cancel:
             await spotify_source._reconcile_on_connect()
 
@@ -327,7 +327,7 @@ class TestWebSocketEvents:
             spotify_source._metadata = {"title": "Breathe", "is_playing": True}
             return True
 
-        with patch.object(spotify_source, '_refresh_metadata', side_effect=live_refresh):
+        with patch.object(spotify_source, 'refresh_metadata', side_effect=live_refresh):
             await spotify_source._reconcile_on_connect()
 
         assert spotify_source._device_connected is True
@@ -336,13 +336,13 @@ class TestWebSocketEvents:
     @pytest.mark.asyncio
     async def test_reconcile_on_connect_unreachable_resets_defensively(self, spotify_source):
         """If GET /status is unreachable on reconnect (daemon API not up yet after
-        a crash+restart), _refresh_metadata returns False without clearing the
+        a crash+restart), refresh_metadata returns False without clearing the
         flags. Reconcile must still reset defensively to WAITING rather than
         re-affirm the stale 'now playing' (the WS loop retries in 2s)."""
         spotify_source._device_connected = True
         spotify_source._metadata = {"title": "Breathe", "is_playing": True}
 
-        with patch.object(spotify_source, '_refresh_metadata', new_callable=AsyncMock, return_value=False), \
+        with patch.object(spotify_source, 'refresh_metadata', new_callable=AsyncMock, return_value=False), \
              patch.object(spotify_source, '_cancel_pause_timer') as mock_cancel:
             await spotify_source._reconcile_on_connect()
 
@@ -493,7 +493,7 @@ class TestMetadataTransform:
         mock_cm.__aenter__.return_value = mock_response
         spotify_source._session.get.return_value = mock_cm
 
-        result = await spotify_source._refresh_metadata()
+        result = await spotify_source.refresh_metadata()
 
         assert result is True
         assert spotify_source._metadata["title"] == "Test Song"

@@ -29,7 +29,7 @@ def mock_source():
     source.initialize = AsyncMock(return_value=True)
     source.start = AsyncMock(return_value=True)
     source.stop = AsyncMock(return_value=True)
-    source._initialized = False
+    source.is_initialized = False
     source.state = SourceState.WAITING
     source.metadata = {}
     return source
@@ -113,13 +113,13 @@ class TestDirectTransition:
         mock_radio.initialize = AsyncMock(return_value=True)
         mock_radio.start = AsyncMock(return_value=True)
         mock_radio.stop = AsyncMock(return_value=True)
-        mock_radio._initialized = False
+        mock_radio.is_initialized = False
 
         mock_spotify = Mock()
         mock_spotify.initialize = AsyncMock(return_value=True)
         mock_spotify.start = AsyncMock(return_value=True)
         mock_spotify.stop = AsyncMock(return_value=True)
-        mock_spotify._initialized = False
+        mock_spotify.is_initialized = False
 
         state_machine.register_source(AudioSource.RADIO, mock_radio)
         state_machine.register_source(AudioSource.SPOTIFY, mock_spotify)
@@ -287,7 +287,7 @@ class TestTransitionTimeout:
 
         slow_source.start = slow_start
         slow_source.stop = AsyncMock(return_value=True)
-        slow_source._initialized = False
+        slow_source.is_initialized = False
 
         state_machine.register_source(AudioSource.RADIO, slow_source)
         state_machine.TRANSITION_TIMEOUT = 0.1  # Very short timeout for test
@@ -307,7 +307,7 @@ class TestEmergencyStop:
         failing_source.initialize = AsyncMock(return_value=True)
         failing_source.start = AsyncMock(side_effect=Exception("Start failed"))
         failing_source.stop = AsyncMock(return_value=True)
-        failing_source._initialized = False
+        failing_source.is_initialized = False
 
         state_machine.register_source(AudioSource.RADIO, failing_source)
 
