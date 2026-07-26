@@ -98,11 +98,15 @@ class TestClient:
                           "volume_db", "mute", "online", "is_local", "volume_control"}
         assert set(data.keys()) == expected_fields
 
-        # Explicit: exclude runtime fields (for persistence)
+        # Explicit: the persistence shape drops every field with another
+        # runtime owner, and what it writes reloads into the same client.
         data_persist = client.to_dict(include_runtime=False)
-        assert "online" not in data_persist
-        assert "is_local" not in data_persist
-        assert len(data_persist) == 9  # All fields except 'online' and 'is_local'
+        assert set(data_persist) <= set(data)
+        for runtime_owned in ("online", "is_local", "host", "volume_db", "mute"):
+            assert runtime_owned not in data_persist
+        reloaded = Client.from_dict(data_persist)
+        for name in data_persist:
+            assert getattr(reloaded, name) == getattr(client, name)
 
     def test_client_from_dict(self):
         """Test creating client from dictionary."""
@@ -787,7 +791,7 @@ class TestClientRegistryService:
 
     @pytest.mark.asyncio
     async def test_persistence_called_on_register(self, registry, mock_settings_service):
-        """Test that persistence is called when registering a client."""
+        """Registering a client persists it, through the registry's one write path."""
         await registry.initialize()
 
         await registry.register_client(
@@ -796,14 +800,10 @@ class TestClientRegistryService:
             ip="192.168.1.50"
         )
 
-        # Verify settings service was called to persist
-        mock_settings_service.set_setting.assert_called()
-        call_args = mock_settings_service.set_setting.call_args_list
-        # Should have called set_setting with 'multiroom.clients' key
-        assert any(
-            call[0][0] == "multiroom.clients"
-            for call in call_args
-        )
+        written = {}
+        for call in mock_settings_service.set_settings.call_args_list:
+            written.update(call[0][0])
+        assert "test-client" in written["multiroom.clients"]
 
     @pytest.mark.asyncio
     async def test_initialization_loads_clients_offline(self, mock_settings_service):

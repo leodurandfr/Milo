@@ -379,18 +379,27 @@ class Client:
     speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE
     volume_control: bool = True  # False = DAC card, external amp manages volume
 
+    # The only fields that outlive a reboot, and the single declaration of the
+    # settings.json shape (ClientRegistryService persists exactly this). The
+    # rest is runtime state with another owner: host and online come from
+    # Snapcast on registration, volume_db/mute from the volume store.
+    PERSISTED_FIELDS = ("mac_id", "name", "ip", "zone_id", "speaker_type", "volume_control")
+
     def to_dict(self, include_runtime: bool = True) -> Dict[str, Any]:
         """
         Convert to dictionary for serialization.
 
         Args:
-            include_runtime: If True, includes runtime fields (online).
-                           Set False for persistence (settings.json).
+            include_runtime: True for the complete WebSocket shape; False for
+                the persistence shape, i.e. PERSISTED_FIELDS only.
 
         Returns:
             Complete client dictionary with all fields for WebSocket events,
-            or persistence-only fields when include_runtime=False.
+            or the persistable subset when include_runtime=False.
         """
+        if not include_runtime:
+            return {name: getattr(self, name) for name in self.PERSISTED_FIELDS}
+
         result = {
             "mac_id": self.mac_id,
             "name": self.name,
