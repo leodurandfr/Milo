@@ -49,10 +49,17 @@ while read -r rel_path; do
     # Remove leading ./
     rel_path="${rel_path#./}"
 
-    # Skip directories that are user-configured per-device
+    # Skip per-device config, and files that must not be overwritten during
+    # their own execution. Bash reads a script lazily by byte offset, so
+    # replacing this file mid-run makes the shell resume at the same offset in
+    # different bytes and die on a syntax error in whatever token it lands in —
+    # after the deploy has already happened, so the caller sees a failure for
+    # work that was done. It cost the fleet every satellite app update it ever
+    # attempted. Same guard as the server's milo-deploy-update.
     case "$rel_path" in
         var/lib/milo-client/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
         etc/avahi/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
+        usr/local/bin/milo-client-deploy-update) echo "  Skipping /$rel_path (self-protection)"; continue ;;
     esac
 
     target="/$rel_path"
