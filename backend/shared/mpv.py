@@ -9,6 +9,22 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 
 
+# Reply deadline for a normal command. Generous on purpose: mpv interleaves
+# event lines on the same socket and can burst many of them before answering
+# during a stream load.
+COMMAND_TIMEOUT = 5.0
+
+# Reply deadline for the liveness probe in connect(). A property read on an
+# idle mpv answers immediately or not at all — waiting COMMAND_TIMEOUT for it
+# only inflates the connect budget.
+PROBE_TIMEOUT = 1.0
+
+# Total wall-clock budget for connect(). Sized to fit inside the caller's own
+# budget: _do_start runs under AudioStateMachine.TRANSITION_TIMEOUT (10s), of
+# which _start_service_and_wait already spends its settle delay.
+CONNECT_TIMEOUT = 6.0
+
+
 class MpvController:
     """
     Controls mpv via IPC socket for playing radio streams
@@ -29,63 +45,77 @@ class MpvController:
         # first connect and toggled off for HLS in load_stream. None until captured.
         self._default_stream_lavf_o: Optional[Any] = None
 
-    async def connect(self, max_retries: int = 10, retry_delay: float = 0.5) -> bool:
+    async def connect(
+        self, timeout: float = CONNECT_TIMEOUT, retry_delay: float = 0.5
+    ) -> bool:
         """
-        Connects to mpv IPC socket with retry
+        Connects to mpv IPC socket, retrying until `timeout` elapses.
+
+        Bounded by a wall-clock deadline, not an attempt count: an attempt
+        against a socket that exists but never answers costs a whole probe
+        timeout, so counting attempts gave no usable upper bound (10 attempts
+        could run for ~55s under a 10s caller budget). What the caller has is
+        time, so that is what this spends.
 
         Args:
-            max_retries: Number of connection attempts
+            timeout: Total budget for the whole retry loop (seconds)
             retry_delay: Delay between attempts (seconds)
 
         Returns:
             True if connection successful
         """
-        for attempt in range(max_retries):
+        deadline = time.monotonic() + timeout
+
+        def can_retry() -> bool:
+            """Room for another delay + probe before the deadline."""
+            return time.monotonic() + retry_delay + PROBE_TIMEOUT < deadline
+
+        while True:
             try:
                 if not Path(self.ipc_socket_path).exists():
-                    if attempt < max_retries - 1:
+                    if can_retry():
                         await asyncio.sleep(retry_delay)
                         continue
-                    else:
-                        self.logger.error(f"IPC socket not found: {self.ipc_socket_path}")
-                        return False
+                    self.logger.error(f"IPC socket not found: {self.ipc_socket_path}")
+                    return False
 
                 self.reader, self.writer = await asyncio.open_unix_connection(self.ipc_socket_path)
                 self._connected = True
 
                 # Verify mpv responds to commands before declaring connected
                 # Use get_property with idle-active (always available even when idle)
-                test_response = await self._send_command("get_property", "idle-active")
+                test_response = await self._send_command(
+                    "get_property", "idle-active", timeout=PROBE_TIMEOUT
+                )
                 if test_response is None:
                     self.logger.debug("mpv socket connected but not responding, retrying...")
                     await self.disconnect()
-                    if attempt < max_retries - 1:
+                    if can_retry():
                         await asyncio.sleep(retry_delay)
                         continue
-                    else:
-                        self.logger.error("mpv connected but never responded to commands")
-                        return False
+                    self.logger.error("mpv connected but never responded to commands")
+                    return False
 
                 # Capture the launch-time reconnect options once, while mpv is
                 # pristine — load_stream clears them for HLS and restores this.
                 if self._default_stream_lavf_o is None:
-                    self._default_stream_lavf_o = await self.get_property("stream-lavf-o")
+                    self._default_stream_lavf_o = await self.get_property(
+                        "stream-lavf-o", timeout=PROBE_TIMEOUT
+                    )
 
                 self.logger.info(f"Connected to mpv IPC socket: {self.ipc_socket_path}")
                 return True
 
             except (ConnectionRefusedError, FileNotFoundError) as e:
-                if attempt < max_retries - 1:
-                    self.logger.debug(f"Retry {attempt + 1}/{max_retries}: {e}")
+                if can_retry():
+                    self.logger.debug(f"Retry: {e}")
                     await asyncio.sleep(retry_delay)
-                else:
-                    self.logger.error(f"Failed to connect to mpv after {max_retries} attempts")
-                    return False
+                    continue
+                self.logger.error(f"Failed to connect to mpv within {timeout}s")
+                return False
             except Exception as e:
                 self.logger.error(f"Unexpected error connecting to mpv: {e}")
                 return False
-
-        return False
 
     async def disconnect(self) -> None:
         """Disconnects from IPC socket"""
@@ -106,7 +136,9 @@ class MpvController:
         """Checks if connected to IPC socket"""
         return self._connected and self.writer is not None and not self.writer.is_closing()
 
-    async def _send_command(self, command: str, *args) -> Optional[Dict[str, Any]]:
+    async def _send_command(
+        self, command: str, *args, timeout: float = COMMAND_TIMEOUT
+    ) -> Optional[Dict[str, Any]]:
         """
         Sends a JSON IPC command to mpv
 
@@ -116,6 +148,8 @@ class MpvController:
         Args:
             command: mpv command name
             *args: Command arguments
+            timeout: Reply deadline (seconds); connect() passes a shorter one
+                for its liveness probe so a wedged mpv can't eat its budget.
 
         Returns:
             JSON response from mpv or None if error
@@ -143,7 +177,7 @@ class MpvController:
                 # load or rapid station change it can burst many events before the
                 # reply, so bound the search by a wall-clock deadline rather than a
                 # fixed line count and keep skipping events until our reply arrives.
-                deadline = time.monotonic() + 5.0
+                deadline = time.monotonic() + timeout
                 try:
                     while True:
                         timeout = deadline - time.monotonic()
@@ -264,17 +298,20 @@ class MpvController:
         response = await self._send_command("stop")
         return response is not None and response.get('error') == 'success'
 
-    async def get_property(self, property_name: str) -> Optional[Any]:
+    async def get_property(
+        self, property_name: str, timeout: float = COMMAND_TIMEOUT
+    ) -> Optional[Any]:
         """
         Gets an mpv property
 
         Args:
             property_name: Property name (e.g.: "pause", "volume", "metadata")
+            timeout: Reply deadline (seconds)
 
         Returns:
             Property value or None
         """
-        response = await self._send_command("get_property", property_name)
+        response = await self._send_command("get_property", property_name, timeout=timeout)
         if response and response.get('error') == 'success':
             return response.get('data')
         return None

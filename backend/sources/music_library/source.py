@@ -755,10 +755,13 @@ class MusicLibrarySource(MpvAudioSource):
         self._logger.info("Resumed previous session (paused) at %ss", position)
         return True
 
-    async def _wait_and_seek(self, position: int, timeout: float = 5.0) -> None:
+    async def _wait_and_seek(self, position: int, timeout: float = 2.0) -> None:
         """Wait until the stream is seekable (duration known), then seek there.
 
-        Best-effort: on timeout the restored track simply starts from 0."""
+        Best-effort: on timeout the restored track simply starts from 0. Kept
+        short because this runs inside _do_start, which must fit within
+        AudioStateMachine.TRANSITION_TIMEOUT — losing the saved position is a
+        far smaller regression than timing out the whole source switch."""
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
             duration = await self._mpv.get_property("duration")
