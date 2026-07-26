@@ -76,6 +76,7 @@ import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useScreensaverRevealNonce } from '@/composables/useScreensaverReveal';
+import { isSourceBuffering } from '@/utils/playbackBuffering';
 import { useI18n } from '@/services/i18n';
 
 import PlaybackControls from './PlaybackControls.vue';
@@ -166,21 +167,9 @@ const persistentMetadata = computed(() => lastValidMetadata.value);
 // Real-time playback state (not persisted)
 const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
 
-// Source is spinning up before audio flows (e.g. CD drive starting): the play
-// button shows a spinner instead of pause until the backend clears is_buffering.
-// For CD, also cover the just-opened window where the player is already shown
-// (cache_ready) but the disc identity/metadata is still loading (no disc_id yet,
-// e.g. the MusicBrainz lookup on activation) — mirrors AudioSourceView's
-// 'loading_disc' rule so the play button reads as a loader until the disc is
-// truly ready to play. A fallback DiscInfo always sets disc_id, so it can't hang.
-const isBuffering = computed(() => {
-  const meta = unifiedStore.systemState.metadata || {};
-  if (meta.is_buffering) return true;
-  if (props.source === 'cd' && meta.disc_present && (!meta.cache_ready || !meta.disc_id)) {
-    return true;
-  }
-  return false;
-});
+const isBuffering = computed(() =>
+  isSourceBuffering(props.source, unifiedStore.systemState.metadata)
+);
 
 
 // Client/device name (for source bar when controls are hidden)

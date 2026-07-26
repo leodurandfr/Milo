@@ -83,6 +83,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useCdStore } from '@/stores/cdStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { getTrackIdentity } from '@/stores/lyricsStore';
+import { isSourceBuffering } from '@/utils/playbackBuffering';
 import { useI18n } from '@/services/i18n';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useSwipeVisibility } from '@/composables/useSwipeVisibility';
@@ -131,16 +132,9 @@ function nextTrack() {
 
 const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
 
-// Mirrors AudioPlayerFull's isBuffering: spinner until audio actually flows,
-// plus CD's disc-identity warm-up window.
-const isBuffering = computed(() => {
-  const meta = unifiedStore.systemState.metadata || {};
-  if (meta.is_buffering) return true;
-  if (props.source === 'cd' && meta.disc_present && (!meta.cache_ready || !meta.disc_id)) {
-    return true;
-  }
-  return false;
-});
+const isBuffering = computed(() =>
+  isSourceBuffering(props.source, unifiedStore.systemState.metadata)
+);
 
 // Only CD and music_library have a "last track" concept; spotify has no
 // bound on next. Mirrors CDSource.vue / MusicLibrarySource.vue.
