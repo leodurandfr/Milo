@@ -314,7 +314,9 @@ class TestProcessOnlineStatusChanges:
 
         # Sync task was spawned with set_online_after=True
         await asyncio.sleep(0)  # Let the event loop process the task
-        ws._sync_reconnecting_client_volume.assert_called_once_with("client-a", set_online_after=True)
+        ws._sync_reconnecting_client_volume.assert_called_once_with(
+            "client-a", set_online_after=True, snapcast_id="snap-a"
+        )
 
     @pytest.mark.asyncio
     async def test_client_goes_offline_no_sync(self, mock_settings_service, mock_state_machine):
