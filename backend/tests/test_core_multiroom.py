@@ -3662,3 +3662,26 @@ class TestAdmissionPathConvergence:
         )
 
         snapcast.set_volume.assert_awaited_once_with("snap-1", 100)
+
+    @pytest.mark.asyncio
+    async def test_a_client_snapserver_lists_twice_is_admitted_once(self):
+        """Admission inherits SnapcastService's dedup, and that is load-bearing.
+
+        Reading the raw status instead processed both entries, and the second
+        found the client already registered — so it took the known-client branch
+        and announced a brand new speaker online without waiting for its volume,
+        which is the window this path exists to close.
+        """
+        service, registry, _, _ = await self._service()
+        status = self._status()
+        status["server"]["groups"][0]["clients"].append(
+            dict(status["server"]["groups"][0]["clients"][0])
+        )
+        service._snapcast_service.get_server_status = AsyncMock(return_value=status)
+        service._sync_reconnecting_client_volume = AsyncMock(return_value=True)
+
+        await service._initialize_existing_clients()
+        await asyncio.sleep(0)
+
+        assert registry.get_client(self.MAC).online is False
+        assert service._sync_reconnecting_client_volume.await_count == 1

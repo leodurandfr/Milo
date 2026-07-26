@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional
 import aiohttp
 
 from backend.core.multiroom.models import ReconnectionContext
-from backend.core.multiroom.identity import compute_mac_id, is_stale_local_client
+from backend.core.multiroom.identity import compute_mac_id
 from backend.core.multiroom.client_registry import (
     ClientRegistryService,
     REGISTRY_EVENT_CLASSES,
@@ -285,7 +285,13 @@ class SnapcastWebSocketService:
         self.logger.debug("Snapcast WebSocket initialization phase complete")
 
     async def _initialize_existing_clients(self) -> None:
-        """Initialize clients already connected at WebSocket connection time."""
+        """Admit the clients that were already connected when the socket opened.
+
+        Their Client.OnConnect fired before there was a socket to hear it, so
+        this is the only notification path that will ever see them — which is
+        every satellite that was up before the backend, i.e. the whole fleet
+        after a power cut.
+        """
         try:
             self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: Starting initialization")
 
@@ -298,71 +304,62 @@ class SnapcastWebSocketService:
                 self.logger.warning("Could not get Snapcast status")
                 return
 
-            groups = status.get('server', {}).get('groups', [])
-
-            # One definition of "alive" for the whole file: snapserver's own
+            # One definition of "alive" for the whole file. Snapserver's own
             # `connected` flag outlives a client that vanished without a TCP FIN,
-            # so trusting it alone here re-marked a long-gone satellite online on
-            # every reconnection (a multiroom toggle was enough). Gate on the same
-            # parse the reconcile sweep uses rather than restating its rule.
-            live_mac_ids = {c["mac_id"] for c in self._snapcast_service.extract_clients(status)}
+            # so reading the status directly re-marked a long-gone satellite
+            # online on every reconnection (a multiroom toggle was enough);
+            # extract_clients applies the same lastSeen freshness rule as the
+            # reconcile sweep, and drops snapweb and stale local entries with it.
+            live_clients = self._snapcast_service.extract_clients(status)
 
-            for group in groups:
-                for client in group.get('clients', []):
-                    if not client.get('connected'):
-                        continue
+            claimed = sum(
+                1 for group in status.get("server", {}).get("groups", [])
+                for client in group.get("clients", []) if client.get("connected")
+            )
+            if claimed > len(live_clients):
+                self.logger.info(
+                    f"INIT_CLIENTS: snapserver claims {claimed} connected, "
+                    f"{len(live_clients)} are live — the rest are not admitted"
+                )
 
-                    client_id = client.get('id')
+            for client in live_clients:
+                mac_id = client["mac_id"]
+                is_local = (client["ip"] == "127.0.0.1")
+                is_new_client = self.registry.get_client(mac_id) is None if self.registry else True
 
-                    # Get mac_id for this client using canonical method
-                    host = client.get("host", {})
-                    hostname = host.get("name", "")
-                    ip = host.get("ip", "").replace("::ffff:", "")
-
-                    if is_stale_local_client(client_id or "", ip):
-                        self.logger.warning(f"INIT_CLIENTS: Skipping stale local client id={client_id}")
-                        continue
-
-                    mac_id = compute_mac_id(hostname, ip, client_id or "")
-
-                    if mac_id not in live_mac_ids:
-                        self.logger.info(f"INIT_CLIENTS: Skipping {mac_id} — connected but not seen recently")
-                        continue
-
-                    client_name = client.get("config", {}).get("name") or get_client_display_name(hostname) or mac_id
-
-                    is_new_client = self.registry.get_client(mac_id) is None if self.registry else True
-                    is_local = (ip == "127.0.0.1")
-
-                    if is_new_client:
-                        local_marker = " LOCAL CLIENT" if is_local else ""
-                        self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: New client {client_id} (mac_id: {mac_id}){local_marker}")
-
-                    await self._register_snapclient(
-                        mac_id, client_name, ip, hostname, is_local=is_local
+                if is_new_client:
+                    local_marker = " LOCAL CLIENT" if is_local else ""
+                    self.logger.debug(
+                        f"[{time.time():.3f}] INIT_CLIENTS: New client {client['id']} "
+                        f"(mac_id: {mac_id}){local_marker}"
                     )
 
-                    if is_new_client:
-                        # Same admission sequence as every other path: sync first and
-                        # show the client online only once the hardware confirmed, with
-                        # retries because a satellite's API is often still booting when
-                        # its snapclient is already connected. Registering it online
-                        # here instead left a failed sync unretried — snapserver and the
-                        # registry then both read "online", so no later transition ever
-                        # re-triggered it and the speaker stayed muted (CamillaDSP
-                        # starts with -m) for as long as it was up.
-                        self._bg.spawn(
-                            self._sync_reconnecting_client_volume(
-                                mac_id, set_online_after=True, snapcast_id=client_id
-                            ),
-                            label=f"sync_init_client_{mac_id}",
-                        )
-                    elif self.registry:
-                        # Known client: the backend restarted, the satellite did not.
-                        # Marking it online is all that is due — a resync would apply a
-                        # reconnection volume (peer average / startup) to a speaker that
-                        # never stopped playing.
-                        await self.registry.set_client_online(mac_id, True)
+                await self._register_snapclient(
+                    mac_id, client["name"] or mac_id, client["ip"], client["host"],
+                    is_local=is_local,
+                )
+
+                if is_new_client:
+                    # Same admission sequence as every other path: sync first and
+                    # show the client online only once the hardware confirmed, with
+                    # retries because a satellite's API is often still booting when
+                    # its snapclient is already connected. Registering it online
+                    # here instead left a failed sync unretried — snapserver and the
+                    # registry then both read "online", so no later transition ever
+                    # re-triggered it and the speaker stayed muted (CamillaDSP
+                    # starts with -m) for as long as it was up.
+                    self._bg.spawn(
+                        self._sync_reconnecting_client_volume(
+                            mac_id, set_online_after=True, snapcast_id=client["id"]
+                        ),
+                        label=f"sync_init_client_{mac_id}",
+                    )
+                elif self.registry:
+                    # Known client: the backend restarted, the satellite did not.
+                    # Marking it online is all that is due — a resync would apply a
+                    # reconnection volume (peer average / startup) to a speaker that
+                    # never stopped playing.
+                    await self.registry.set_client_online(mac_id, True)
 
             client_count = len(self.registry.get_all_clients()) if self.registry else 0
             has_local = any(c.is_local for c in self.registry.get_all_clients().values()) if self.registry else False
