@@ -1559,114 +1559,82 @@ class TestZoneDspSync:
 # =============================================================================
 
 class TestPendingEqualizerSettings:
-    """Tests for pending Equalizer settings queue for offline clients."""
+    """Tests for the pending EQ record queue for offline clients."""
 
     @pytest.fixture
-    def mock_camilladsp(self):
-        """Create mock Equalizer service."""
-        camilladsp_mock = AsyncMock()
-        camilladsp_mock.set_filter = AsyncMock(return_value=True)
-        camilladsp_mock.set_compressor = AsyncMock(return_value=True)
-        camilladsp_mock.set_loudness = AsyncMock(return_value=True)
-        camilladsp_mock.set_mute = AsyncMock(return_value=True)
-        return camilladsp_mock
+    def mock_proxy(self):
+        proxy = MagicMock()
+        proxy.try_request = AsyncMock(return_value=200)
+        proxy.apply_record = AsyncMock(return_value=True)
+        return proxy
 
     @pytest.fixture
-    def crossover_service(self, mock_camilladsp):
-        """Create CrossoverService with mock Equalizer and registry for local client."""
-        mock_settings = AsyncMock()
+    def crossover_service(self, mock_proxy):
+        """CrossoverService whose registry knows one remote satellite.
 
-        # Configure mock registry for local client
+        Remote on purpose: an EQ record is only ever queued for a satellite —
+        the local client's record is equalizer.json, restored by CamillaDSPService
+        itself, and the reconnection sync that produces these entries skips it.
+        """
         mock_registry = MagicMock()
-        local_client = MagicMock()
-        local_client.ip = "127.0.0.1"
-        local_client.is_local = True
-        local_client.mac_id = "aa:bb:cc:dd:ee:ff"
-        mock_registry.get_client = MagicMock(side_effect=lambda x: local_client if x == "aa:bb:cc:dd:ee:ff" else None)
+        satellite = MagicMock()
+        satellite.ip = "192.168.1.100"
+        satellite.is_local = False
+        satellite.mac_id = "aa:bb:cc:dd:ee:ff"
+        mock_registry.get_client = MagicMock(
+            side_effect=lambda x: satellite if x == "aa:bb:cc:dd:ee:ff" else None
+        )
 
         service = CrossoverService(
-            settings_service=mock_settings,
-            camilladsp_service=mock_camilladsp
+            settings_service=AsyncMock(),
+            camilladsp_service=AsyncMock(),
+            proxy_service=mock_proxy,
         )
         service.set_registry(mock_registry)
         return service
 
     @pytest.mark.asyncio
-    async def test_queue_filters_pending(self, crossover_service):
-        """Test queuing filters for offline client."""
-        filters = [
-            {"id": "eq_1", "freq": 1000, "gain": 3.0, "q": 1.0, "type": "peaking"},
-            {"id": "eq_2", "freq": 500, "gain": -2.0, "q": 0.7, "type": "peaking"}
-        ]
+    async def test_queue_record_pending(self, crossover_service):
+        from backend.core.multiroom.models import EqualizerSettings
+        record = EqualizerSettings.default()
 
-        await crossover_service.queue_pending_settings("192.168.1.100", "filters", filters)
+        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "record", record)
 
-        assert crossover_service.has_pending_settings("192.168.1.100")
-        pending = crossover_service._pending_settings.get("192.168.1.100", {})
-        assert "filters" in pending
-        assert len(pending["filters"]) == 2
+        assert crossover_service.has_pending_settings("aa:bb:cc:dd:ee:ff")
+        assert crossover_service._pending_settings["aa:bb:cc:dd:ee:ff"]["record"] is record
 
     @pytest.mark.asyncio
-    async def test_queue_compressor_pending(self, crossover_service):
-        """Test queuing compressor settings for offline client."""
-        compressor = {"enabled": True, "threshold": -20, "ratio": 4.0}
-
-        await crossover_service.queue_pending_settings("192.168.1.100", "compressor", compressor)
-
-        pending = crossover_service._pending_settings.get("192.168.1.100", {})
-        assert "compressor" in pending
-        assert pending["compressor"]["threshold"] == -20
-
-    @pytest.mark.asyncio
-    async def test_queue_loudness_pending(self, crossover_service):
-        """Test queuing loudness settings for offline client."""
-        loudness = {"enabled": True, "high_boost": -25}
-
-        await crossover_service.queue_pending_settings("192.168.1.100", "loudness", loudness)
-
-        pending = crossover_service._pending_settings.get("192.168.1.100", {})
-        assert "loudness" in pending
-        assert pending["loudness"]["high_boost"] == -25
-
-    @pytest.mark.asyncio
-    async def test_apply_pending_filters_local(self, crossover_service, mock_camilladsp):
-        """Test applying pending filters to local client."""
-        filters = [{"id": "eq_1", "freq": 1000, "gain": 3.0, "q": 1.0, "type": "peaking"}]
-        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "filters", filters)
+    async def test_apply_pending_record_pushes_it_whole(self, crossover_service, mock_proxy):
+        from backend.core.multiroom.models import EqualizerSettings
+        record = EqualizerSettings.default()
+        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "record", record)
 
         result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
 
         assert result is True
-        mock_camilladsp.set_filter.assert_called_once()
+        mock_proxy.apply_record.assert_awaited_once_with("192.168.1.100", record)
         assert not crossover_service.has_pending_settings("aa:bb:cc:dd:ee:ff")
 
     @pytest.mark.asyncio
-    async def test_apply_pending_compressor_local(self, crossover_service, mock_camilladsp):
-        """Test applying pending compressor to local client."""
-        compressor = {"enabled": True, "threshold": -15}
-        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "compressor", compressor)
+    async def test_failed_replay_is_reported(self, crossover_service, mock_proxy):
+        """A replay that fails reports it, so the caller's retry loop keeps going."""
+        from backend.core.multiroom.models import EqualizerSettings
+        mock_proxy.apply_record.return_value = False
+        await crossover_service.queue_pending_settings(
+            "aa:bb:cc:dd:ee:ff", "record", EqualizerSettings.default()
+        )
 
-        result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
-
-        assert result is True
-        mock_camilladsp.set_compressor.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_apply_pending_loudness_local(self, crossover_service, mock_camilladsp):
-        """Test applying pending loudness to local client."""
-        loudness = {"enabled": True, "high_boost": -30}
-        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "loudness", loudness)
-
-        result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
-
-        assert result is True
-        mock_camilladsp.set_loudness.assert_called_once()
+        assert await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff") is False
 
     @pytest.mark.asyncio
-    async def test_clear_pending_after_apply(self, crossover_service, mock_camilladsp):
-        """Test that pending settings are cleared after successful apply."""
-        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "compressor", {"enabled": True})
-        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "loudness", {"enabled": False})
+    async def test_clear_pending_after_apply(self, crossover_service):
+        from backend.core.multiroom.models import EqualizerSettings
+        await crossover_service.queue_pending_settings(
+            "aa:bb:cc:dd:ee:ff", "record", EqualizerSettings.default()
+        )
+        await crossover_service.queue_pending_settings(
+            "aa:bb:cc:dd:ee:ff", "crossover", {"enabled": True, "frequency": 80}
+        )
 
         assert crossover_service.has_pending_settings("aa:bb:cc:dd:ee:ff")
 
@@ -2716,6 +2684,7 @@ class TestSyncStandaloneDspToClient:
     def mock_proxy(self):
         p = MagicMock()
         p.request = AsyncMock()
+        p.apply_record = AsyncMock(return_value=True)
         return p
 
     @pytest.fixture
@@ -2750,20 +2719,21 @@ class TestSyncStandaloneDspToClient:
         ws = self._make_ws(mock_state_machine, mock_registry, mock_proxy, mock_crossover)
         result = await ws._sync_standalone_equalizer_to_client("test-client")
         assert result is True
-        assert mock_proxy.request.call_count == 0
+        mock_proxy.apply_record.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_saved_settings_applied_via_proxy(self, mock_state_machine, mock_registry, mock_proxy, mock_crossover):
-        """Saved settings are pushed to a remote client via the proxy."""
+        """The saved record is pushed whole, through the one canonical push —
+        the same one the live write and the pending replay use."""
         from backend.core.multiroom.models import EqualizerSettings, EqFilter
-        mock_registry.get_client_equalizer.return_value = EqualizerSettings(
+        record = EqualizerSettings(
             filters=[EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41)],
             mono=False, enabled=True,
         )
+        mock_registry.get_client_equalizer.return_value = record
         ws = self._make_ws(mock_state_machine, mock_registry, mock_proxy, mock_crossover)
         await ws._sync_standalone_equalizer_to_client("test-client")
-        # filter + compressor + loudness + mono + enabled
-        assert mock_proxy.request.call_count >= 3
+        mock_proxy.apply_record.assert_awaited_once_with("192.168.1.100", record)
 
     @pytest.mark.asyncio
     async def test_local_client_is_noop(self, mock_state_machine, mock_proxy, mock_crossover):
@@ -2785,7 +2755,7 @@ class TestSyncStandaloneDspToClient:
         ws = self._make_ws(mock_state_machine, registry, mock_proxy, mock_crossover)
         result = await ws._sync_standalone_equalizer_to_client("local")
         assert result is True
-        mock_proxy.request.assert_not_called()
+        mock_proxy.apply_record.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sync_handles_missing_client(self, mock_state_machine, mock_proxy):
@@ -2797,25 +2767,28 @@ class TestSyncStandaloneDspToClient:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_failed_filter_settings_are_queued_standalone(self, mock_state_machine, mock_registry, mock_crossover):
-        """Failed filter pushes are queued for retry via queue_pending_settings()."""
+    async def test_failed_push_queues_the_whole_record(self, mock_state_machine, mock_registry, mock_crossover):
+        """A partial push is requeued whole: replaying the record is idempotent
+        and converges the client in one shot, where per-setting retries are what
+        leave a satellite half-applied."""
         from backend.core.multiroom.models import EqualizerSettings, EqFilter
-        mock_registry.get_client_equalizer.return_value = EqualizerSettings(
+        record = EqualizerSettings(
             filters=[
                 EqFilter(id="eq_band_00", frequency=100, gain=2.0, q=1.41),
                 EqFilter(id="eq_band_01", frequency=1000, gain=-1.5, q=1.41),
             ],
         )
+        mock_registry.get_client_equalizer.return_value = record
         failing_proxy = MagicMock()
-        failing_proxy.request = AsyncMock(side_effect=Exception("Connection refused"))
+        failing_proxy.apply_record = AsyncMock(return_value=False)
         ws = self._make_ws(mock_state_machine, mock_registry, failing_proxy, mock_crossover)
 
         result = await ws._sync_standalone_equalizer_to_client("test-client")
 
         assert result is False
-        mock_crossover.queue_pending_settings.assert_called()
-        calls = mock_crossover.queue_pending_settings.call_args_list
-        assert any(call[0][1] == "filters" for call in calls), "Filter settings should be queued on failure"
+        mock_crossover.queue_pending_settings.assert_awaited_once_with(
+            "test-client", "record", record
+        )
 
 
 class TestReconnectRepushesEqualizer:

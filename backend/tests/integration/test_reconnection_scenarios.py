@@ -652,40 +652,40 @@ class TestPendingSettingsQueue:
         # Mock Equalizer proxy that will fail
         proxy = AsyncMock()
         proxy.request = AsyncMock(side_effect=Exception("Connection refused"))
+        proxy.apply_record = AsyncMock(return_value=False)
         sm.equalizer_client_proxy_service = proxy
 
         return sm
 
     @pytest.mark.asyncio
-    async def test_failed_compressor_settings_are_queued(
+    async def test_a_failed_sync_queues_the_record(
         self, mock_settings_service, mock_state_machine_with_crossover
     ):
-        """
-        Failed compressor settings are queued via queue_pending_settings().
+        """A satellite that cannot be reached has its whole EQ record requeued.
+
+        One record, one queue entry: replaying it is idempotent and converges the
+        client in one shot, where the per-setting queue this replaced could leave
+        a satellite with some settings applied and some not.
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import EqualizerSettings, CompressorSettings
-
-        # Setup registry
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
+        from backend.core.multiroom.models import (
+            CompressorSettings, EqFilter, EqualizerSettings, FilterType,
         )
+
+        registry = ClientRegistryService(settings_service=mock_settings_service)
         await registry.initialize()
         attach_registry_broadcaster(registry, mock_state_machine_with_crossover)
-
-        # Register client with IP
         await registry.register_client("client-1", "Client 1", "192.168.1.100")
         await registry.register_client("client-2", "Client 2", "192.168.1.101")
 
-        # Create zone with compressor settings
-        equalizer_settings = EqualizerSettings(
+        record = EqualizerSettings(
             enabled=True,
-            compressor=CompressorSettings(enabled=True, threshold=-20.0, ratio=4.0)
+            filters=[EqFilter(id="eq_band_00", frequency=100, gain=3.0, filter_type=FilterType.PEAKING)],
+            compressor=CompressorSettings(enabled=True, threshold=-20.0, ratio=4.0),
         )
-        await registry.set_client_equalizer("client-1", equalizer_settings)
+        await registry.set_client_equalizer("client-1", record)
 
-        # Create websocket service
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine_with_crossover,
             routing_service=MagicMock(),
@@ -694,126 +694,13 @@ class TestPendingSettingsQueue:
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
-        # Call _sync_standalone_equalizer_to_client - compressor sync will fail
         result = await ws_service._sync_standalone_equalizer_to_client("client-1")
 
-        # Assert: sync failed and compressor was queued
         assert result is False
-
         crossover = mock_state_machine_with_crossover.crossover_service
-        crossover.queue_pending_settings.assert_called()
-
-        # Verify compressor was specifically queued
-        calls = crossover.queue_pending_settings.call_args_list
-        compressor_queued = any(
-            call[0][1] == "compressor" for call in calls
-        )
-        assert compressor_queued, "Compressor settings should be queued on failure"
-
-    @pytest.mark.asyncio
-    async def test_failed_loudness_settings_are_queued(
-        self, mock_settings_service, mock_state_machine_with_crossover
-    ):
-        """
-        Failed loudness settings are queued via queue_pending_settings().
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import EqualizerSettings, LoudnessSettings
-
-        # Setup registry
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-        attach_registry_broadcaster(registry, mock_state_machine_with_crossover)
-
-        # Register clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-
-        # Create zone with loudness settings
-        equalizer_settings = EqualizerSettings(
-            enabled=True,
-            loudness=LoudnessSettings(enabled=True, high_boost=10.0)
-        )
-        await registry.set_client_equalizer("client-1", equalizer_settings)
-
-        # Create websocket service
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine_with_crossover,
-            routing_service=MagicMock(),
-        )
-        ws_service.set_registry(registry)
-        ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
-        ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
-
-        # Call _sync_standalone_equalizer_to_client - loudness sync will fail
-        result = await ws_service._sync_standalone_equalizer_to_client("client-1")
-
-        # Assert: sync failed and loudness was queued
-        assert result is False
-
-        crossover = mock_state_machine_with_crossover.crossover_service
-        calls = crossover.queue_pending_settings.call_args_list
-        loudness_queued = any(
-            call[0][1] == "loudness" for call in calls
-        )
-        assert loudness_queued, "Loudness settings should be queued on failure"
-
-    @pytest.mark.asyncio
-    async def test_failed_filter_settings_are_queued(
-        self, mock_settings_service, mock_state_machine_with_crossover
-    ):
-        """
-        Failed filter settings are queued via queue_pending_settings().
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import EqualizerSettings, EqFilter, FilterType
-
-        # Setup registry
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-        attach_registry_broadcaster(registry, mock_state_machine_with_crossover)
-
-        # Register clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-
-        # Create zone with filter settings
-        equalizer_settings = EqualizerSettings(
-            enabled=True,
-            filters=[
-                EqFilter(id="eq_band_00", frequency=100, gain=3.0, filter_type=FilterType.PEAKING),
-                EqFilter(id="eq_band_01", frequency=1000, gain=-2.0, filter_type=FilterType.PEAKING),
-            ]
-        )
-        await registry.set_client_equalizer("client-1", equalizer_settings)
-
-        # Create websocket service
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine_with_crossover,
-            routing_service=MagicMock(),
-        )
-        ws_service.set_registry(registry)
-        ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
-        ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
-
-        # Call _sync_standalone_equalizer_to_client - filter sync will fail
-        result = await ws_service._sync_standalone_equalizer_to_client("client-1")
-
-        # Assert: sync failed and filters were queued
-        assert result is False
-
-        crossover = mock_state_machine_with_crossover.crossover_service
-        calls = crossover.queue_pending_settings.call_args_list
-        filters_queued = any(
-            call[0][1] == "filters" for call in calls
-        )
-        assert filters_queued, "Filter settings should be queued on failure"
+        queued = crossover.queue_pending_settings.await_args
+        assert queued.args[:2] == ("client-1", "record")
+        assert queued.args[2].compressor.threshold == -20.0
 
     @pytest.mark.asyncio
     async def test_successful_sync_does_not_queue_settings(

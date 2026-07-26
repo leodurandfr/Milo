@@ -107,6 +107,7 @@ def mock_proxy_service():
     """Mock EqualizerClientProxyService — non-raising try_request returns a status code."""
     proxy = MagicMock()
     proxy.try_request = AsyncMock(return_value=200)
+    proxy.apply_record = AsyncMock(return_value=True)
     return proxy
 
 
@@ -469,31 +470,27 @@ class TestPendingSettingsQueue:
         were queued by SnapcastWebSocketService's reconnection sync and dropped
         here, which meant a failed mono/bypass push was never retried.
         """
+        from backend.core.multiroom.crossover import PENDING_SETTING_TYPES
+        from backend.core.multiroom.models import EqualizerSettings
+
         service, registry = crossover_service_with_registry
         registry._clients["sat-1"] = Client(
             mac_id="sat-1", name="Bedroom", ip="192.168.1.20", online=True
         )
+        record = EqualizerSettings.default()
 
         await service.queue_pending_settings("sat-1", "crossover", {"enabled": True, "frequency": 80})
         await service.queue_pending_settings("sat-1", "lowpass", {"enabled": False, "frequency": 80})
-        await service.queue_pending_settings("sat-1", "filters", [{"id": "eq_band_00", "freq": 31, "gain": 3.0, "q": 1.41, "type": "Peaking"}])
-        await service.queue_pending_settings("sat-1", "compressor", {"enabled": True})
-        await service.queue_pending_settings("sat-1", "loudness", {"enabled": True})
-        await service.queue_pending_settings("sat-1", "mono", {"enabled": True})
-        await service.queue_pending_settings("sat-1", "enabled", {"enabled": False})
+        await service.queue_pending_settings("sat-1", "record", record)
+        assert set(service._pending_settings["sat-1"]) == set(PENDING_SETTING_TYPES)
 
         assert await service.apply_pending_settings("sat-1") is True
 
         pushed = [c.args[2] for c in mock_proxy_service.try_request.await_args_list]
-        assert pushed == [
-            "/equalizer/crossover",
-            "/equalizer/lowpass",
-            "/equalizer/filter/eq_band_00",
-            "/equalizer/compressor",
-            "/equalizer/loudness",
-            "/equalizer/mono",
-            "/equalizer/enabled",  # master gate last, after the effects it gates
-        ]
+        assert pushed == ["/equalizer/crossover", "/equalizer/lowpass"]
+        # The EQ record goes through the one canonical push, not a per-setting
+        # replay of its own — so it cannot drift from the live write path.
+        mock_proxy_service.apply_record.assert_awaited_once_with("192.168.1.20", record)
 
     @pytest.mark.asyncio
     async def test_unknown_setting_type_fails_loud(self, crossover_service):

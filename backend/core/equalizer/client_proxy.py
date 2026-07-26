@@ -239,6 +239,45 @@ class EqualizerClientProxyService:
             self.logger.debug(f"Cannot reach client {hostname}: {e}")
             return 0
 
+    async def apply_record(self, hostname: str, settings) -> bool:
+        """Send a satellite one complete EQ record, in the canonical order.
+
+        The single way a whole ``EqualizerSettings`` reaches a client: the live
+        write (MultiroomEqualizerService), the reconnection sync
+        (SnapcastWebSocketService) and the pending replay (CrossoverService) all
+        come through here, so a client can never end up holding a record that was
+        assembled differently depending on which path delivered it.
+
+        Bands carry tuning only — their presence in the pipeline is what the
+        master toggle switches — and ``enabled`` goes last, after the effects it
+        gates. Returns False if any leg failed; callers own the retry policy.
+        """
+        try:
+            await self.request(hostname, "PUT", "/equalizer/filters", {
+                "filters": [
+                    {
+                        "id": f.id,
+                        "gain": f.gain,
+                        "freq": f.frequency,
+                        "q": f.q,
+                        "filter_type": f.filter_type.value,
+                    }
+                    for f in settings.filters
+                ],
+            })
+            await self.request(hostname, "PUT", "/equalizer/compressor",
+                               settings.compressor.to_dict())
+            await self.request(hostname, "PUT", "/equalizer/loudness",
+                               settings.loudness.to_dict())
+            await self.request(hostname, "PUT", "/equalizer/mono",
+                               {"enabled": settings.mono})
+            await self.request(hostname, "PUT", "/equalizer/enabled",
+                               {"enabled": settings.enabled})
+            return True
+        except Exception as e:
+            self.logger.warning(f"Failed to apply equalizer record to {hostname}: {e}")
+            return False
+
     async def get_equalizer_levels(self, hostname: str) -> Optional[Dict[str, Any]]:
         """
         Get equalizer levels from a client.

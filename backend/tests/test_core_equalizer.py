@@ -20,6 +20,8 @@ from backend.core.equalizer import (
     BUILTIN_PRESETS,
     is_ip_address,
 )
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.multiroom.models import EqFilter, EqualizerSettings, FilterType
 
 
 # =============================================================================
@@ -108,6 +110,77 @@ class TestEqualizerClientProxyService:
     def test_get_host_with_hostname(self, proxy_service):
         """Should add .local suffix to hostname"""
         assert proxy_service._get_host("milo-client-1") == "milo-client-1.local"
+
+
+class TestApplyRecord:
+    """The wire shape of a whole EQ record reaching a satellite.
+
+    Every path that pushes a full record — the live write, the reconnection sync,
+    the pending replay — goes through apply_record, so these are the invariants
+    for all three at once. When they held only on some paths, the satellite and
+    the server's record disagreed until the next reconnect: the failure behind
+    six `fix(equalizer)` commits.
+    """
+
+    @pytest.fixture
+    def proxy_service(self):
+        proxy = EqualizerClientProxyService()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        return proxy
+
+    @pytest.fixture
+    def record(self):
+        return EqualizerSettings(
+            enabled=False,
+            filters=[
+                EqFilter(id="eq_band_00", frequency=100, gain=3.0, q=1.41,
+                         filter_type=FilterType.PEAKING, enabled=True),
+            ],
+            mono=True,
+        )
+
+    def _sent(self, proxy_service):
+        """[(path, body)] in the order they were pushed."""
+        return [(c.args[2], c.args[3]) for c in proxy_service.request.await_args_list]
+
+    @pytest.mark.asyncio
+    async def test_master_bypass_lands_last(self, proxy_service, record):
+        """On the satellite the bypass and per-band pipeline membership are the
+        same mechanism, so the gate has to be applied after what it gates."""
+        assert await proxy_service.apply_record("192.168.1.100", record) is True
+
+        paths = [path for path, _ in self._sent(proxy_service)]
+        assert paths[-1] == "/equalizer/enabled"
+        assert set(paths[:-1]) == {
+            "/equalizer/filters", "/equalizer/compressor",
+            "/equalizer/loudness", "/equalizer/mono",
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_whole_record_travels(self, proxy_service, record):
+        assert await proxy_service.apply_record("192.168.1.100", record) is True
+        sent = dict(self._sent(proxy_service))
+
+        assert sent["/equalizer/enabled"] == {"enabled": False}
+        assert sent["/equalizer/mono"] == {"enabled": True}
+        assert sent["/equalizer/compressor"] == record.compressor.to_dict()
+        assert sent["/equalizer/loudness"] == record.loudness.to_dict()
+
+    @pytest.mark.asyncio
+    async def test_bands_carry_tuning_only(self, proxy_service, record):
+        """A band carrying `enabled` would re-pipe it on a bypassed client."""
+        await proxy_service.apply_record("192.168.1.100", record)
+
+        bands = dict(self._sent(proxy_service))["/equalizer/filters"]["filters"]
+        assert bands, "no bands pushed — the assertion below would be vacuous"
+        assert all(set(b) == {"id", "gain", "freq", "q", "filter_type"} for b in bands)
+
+    @pytest.mark.asyncio
+    async def test_an_unreachable_satellite_is_a_failure_not_a_raise(self, proxy_service, record):
+        """Callers own the retry policy (requeue as pending), so this reports."""
+        proxy_service.request.side_effect = SatelliteUnreachable("192.168.1.100", "down")
+
+        assert await proxy_service.apply_record("192.168.1.100", record) is False
 
 
 # =============================================================================

@@ -242,22 +242,6 @@ class EqualizerRouter:
 
         return await self._route(mac_id, local, remote, "set_mono")
 
-    # === EQUALIZER ENABLED ===
-
-    async def set_equalizer_enabled(self, mac_id: str, enabled: bool, routing_service=None) -> Dict[str, Any]:
-        """Set equalizer effects enabled state for a client."""
-        async def local():
-            if routing_service:
-                success = await routing_service.set_equalizer_effects_enabled(enabled)
-                return {"status": "success" if success else "error", "enabled": enabled}
-            return {"status": "error", "message": "Routing service not available"}
-
-        async def remote(ip: str):
-            result = await self._proxy_service.request(ip, "PUT", "/equalizer/enabled", {"enabled": enabled})
-            return result
-
-        return await self._route(mac_id, local, remote, "set_equalizer_enabled")
-
     # === STATUS ===
 
     async def get_status(self, mac_id: str) -> Dict[str, Any]:
@@ -297,9 +281,3 @@ class EqualizerRouter:
             return await self._proxy_service.request(ip, "GET", "/equalizer/volume")
 
         return await self._route(mac_id, local, remote, "get_volume")
-
-    # === HELPER: Check if mac_id is local ===
-
-    def is_local_client(self, mac_id: str) -> bool:
-        """Check if mac_id belongs to the local client."""
-        return self._registry.is_local_client(mac_id) if self._registry else False

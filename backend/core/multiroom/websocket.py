@@ -875,33 +875,6 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.warning(f"Could not push snapclient config to {client_ip}: {e}")
 
-    async def _apply_equalizer_setting(
-        self, hostname: str, mac_id: str, setting_type: str, data: Any
-    ) -> bool:
-        """
-        Push a single DSP setting to a REMOTE client via the proxy.
-
-        The local client is restored from equalizer.json by CamillaDSPService and
-        is never driven through this re-sync path.
-
-        Args:
-            hostname: Client IP address
-            mac_id: Client identifier for logging
-            setting_type: "filter/<id>", "compressor", "loudness", "mono", or "enabled"
-            data: Setting payload dict (for "mono"/"enabled": {"enabled": bool})
-
-        Returns:
-            True if applied successfully, False on failure
-        """
-        try:
-            if not self._equalizer_client_proxy_service:
-                return False
-            await self._equalizer_client_proxy_service.request(hostname, "PUT", f"/equalizer/{setting_type}", data)
-            return True
-        except Exception as e:
-            self.logger.warning(f"Failed to apply equalizer {setting_type} to {mac_id}: {e}")
-            return False
-
     async def _sync_standalone_equalizer_to_client(self, mac_id: str) -> bool:
         """Push a reconnecting REMOTE client's own EQ record to the satellite.
 
@@ -933,73 +906,22 @@ class SnapcastWebSocketService:
                 return True
 
             self.logger.info(f"SYNC_EQ: Applying saved settings for {mac_id}")
-            synced = []
-            failed = []
-            filters_failed = []
 
-            # Sync filters
-            if eq.filters:
-                for flt in eq.filters:
-                    if not flt.id:
-                        continue
-                    filter_data = {
-                        'freq': flt.frequency, 'gain': flt.gain, 'q': flt.q,
-                        'filter_type': flt.filter_type.value if hasattr(flt.filter_type, 'value') else flt.filter_type
-                    }
-                    if await self._apply_equalizer_setting(hostname, mac_id, f"filter/{flt.id}", filter_data):
-                        synced.append(f"filter:{flt.id}")
-                    else:
-                        failed.append(f"filter:{flt.id}")
-                        filters_failed.append(flt.to_dict())
+            if not self._equalizer_client_proxy_service:
+                return False
 
-            # Queue failed filters for retry
-            if filters_failed and self._crossover_service:
-                await self._crossover_service.queue_pending_settings(mac_id, "filters", filters_failed)
-
-            # Sync compressor
-            if eq.compressor:
-                data = eq.compressor.to_dict()
-                if await self._apply_equalizer_setting(hostname, mac_id, "compressor", data):
-                    synced.append("compressor")
-                else:
-                    failed.append("compressor")
-                    if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(mac_id, "compressor", data)
-
-            # Sync loudness
-            if eq.loudness:
-                data = eq.loudness.to_dict()
-                if await self._apply_equalizer_setting(hostname, mac_id, "loudness", data):
-                    synced.append("loudness")
-                else:
-                    failed.append("loudness")
-                    if self._crossover_service:
-                        await self._crossover_service.queue_pending_settings(mac_id, "loudness", data)
-
-            # Sync mono
-            mono_data = {"enabled": eq.mono}
-            if await self._apply_equalizer_setting(hostname, mac_id, "mono", mono_data):
-                synced.append("mono")
-            else:
-                failed.append("mono")
-                if self._crossover_service:
-                    await self._crossover_service.queue_pending_settings(mac_id, "mono", mono_data)
-
-            # Sync master enabled/bypass LAST (after the effects it gates).
-            enabled_data = {"enabled": eq.enabled}
-            if await self._apply_equalizer_setting(hostname, mac_id, "enabled", enabled_data):
-                synced.append("enabled")
-            else:
-                failed.append("enabled")
-                if self._crossover_service:
-                    await self._crossover_service.queue_pending_settings(mac_id, "enabled", enabled_data)
-
+            synced = await self._equalizer_client_proxy_service.apply_record(hostname, eq)
             if synced:
-                self.logger.info(f"SYNC_EQ: Synced {synced} to {mac_id}")
-            if failed:
-                self.logger.warning(f"SYNC_EQ: Failed to sync {failed} to {mac_id}")
+                self.logger.info(f"SYNC_EQ: Synced record to {mac_id}")
+                return True
 
-            return len(failed) == 0
+            # The record is the unit of truth, so a partial push is requeued whole:
+            # replaying it is idempotent and converges the client in one shot,
+            # whereas per-setting retries are what leave a satellite half-applied.
+            self.logger.warning(f"SYNC_EQ: Failed to sync record to {mac_id}, queued as pending")
+            if self._crossover_service:
+                await self._crossover_service.queue_pending_settings(mac_id, "record", eq)
+            return False
 
         except Exception as e:
             self.logger.error(f"Error syncing equalizer to {mac_id}: {e}", exc_info=True)
