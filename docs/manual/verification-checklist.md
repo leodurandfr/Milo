@@ -249,6 +249,7 @@ makes this silent.
 | Crossover | With a subwoofer online in a zone, the badge shows the frequency and the mains lose their bass; taking the sub offline restores full-range | targeted |
 | Disable | Turning multiroom off returns to direct mode with audio intact (ALSA device switch) | targeted |
 | Offline client | Unplugging a client leaves the others playing and marks it offline | targeted |
+| Server config write | Changing codec or buffer in Settings > Multiroom restarts snapserver, every client reconnects and plays, and the new values are still shown after a reload. A **rejected** value must surface as an error, not a silent success | targeted |
 
 ## Hardware controls
 
