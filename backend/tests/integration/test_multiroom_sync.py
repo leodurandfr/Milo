@@ -998,14 +998,21 @@ class TestProcessDisconnectedClients:
 
 
 def _make_ws_with_proxy(registry):
-    """SnapcastWebSocketService with a capturing equalizer proxy (no stubbed sync)."""
+    """SnapcastWebSocketService with a real equalizer proxy, HTTP mocked out.
+
+    The proxy is real so the assertions below see the actual wire calls the
+    reconnect sync produces — the record push is the proxy's, not the websocket
+    service's, and stubbing it would assert a fixture instead of the contract.
+    """
+    from backend.core.equalizer.client_proxy import EqualizerClientProxyService
+
     sm = MagicMock()
     sm.broadcast = AsyncMock()
     routing = MagicMock()
     routing.get_state = MagicMock(return_value={"multiroom_enabled": True})
     ws = SnapcastWebSocketService(state_machine=sm, routing_service=routing)
     ws.set_registry(registry)
-    proxy = MagicMock()
+    proxy = EqualizerClientProxyService()
     proxy.request = AsyncMock(return_value={"status": "success"})
     ws._equalizer_client_proxy_service = proxy
     ws._crossover_service = None

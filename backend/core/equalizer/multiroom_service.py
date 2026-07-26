@@ -420,66 +420,10 @@ class MultiroomEqualizerService:
             self.logger.warning(f"Client {mac_id} has no IP")
             return False
 
-        try:
-            # Apply filters as batch for efficiency. No per-band `enabled`: a
-            # band's presence in the pipeline is owned by the master toggle
-            # (/equalizer/enabled), on the satellite as locally.
-            filters_batch = [
-                {
-                    "id": f.id,
-                    "gain": f.gain,
-                    "freq": f.frequency,
-                    "q": f.q,
-                    "filter_type": f.filter_type.value,
-                }
-                for f in settings.filters
-            ]
-            await self._proxy_service.request(
-                client_ip, "PUT", "/equalizer/filters", {"filters": filters_batch}
-            )
-
-            comp = settings.compressor
-            await self._proxy_service.request(
-                client_ip, "PUT", "/equalizer/compressor",
-                {
-                    "enabled": comp.enabled,
-                    "threshold": comp.threshold,
-                    "ratio": comp.ratio,
-                    "attack": comp.attack,
-                    "release": comp.release,
-                    "makeup_gain": comp.makeup_gain
-                }
-            )
-
-            loud = settings.loudness
-            await self._proxy_service.request(
-                client_ip, "PUT", "/equalizer/loudness",
-                {
-                    "enabled": loud.enabled,
-                    "high_boost": loud.high_boost,
-                    "low_boost": loud.low_boost
-                }
-            )
-
-            await self._proxy_service.request(
-                client_ip, "PUT", "/equalizer/mono",
-                {"enabled": settings.mono}
-            )
-
-            # Master bypass gate — last, after the effects it gates (same order as
-            # the reconnection sync). Without it a client adopting a record whose
-            # effects are off (new zone member, zone creation) keeps playing them.
-            await self._proxy_service.request(
-                client_ip, "PUT", "/equalizer/enabled",
-                {"enabled": settings.enabled}
-            )
-
+        applied = await self._proxy_service.apply_record(client_ip, settings)
+        if applied:
             self.logger.debug(f"Equalizer settings applied to remote client {mac_id}")
-            return True
-
-        except Exception as e:
-            self.logger.warning(f"Failed to apply equalizer settings to {mac_id}: {e}")
-            return False
+        return applied
 
     # =========================================================================
     # Partial Equalizer Update Methods

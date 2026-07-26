@@ -410,9 +410,10 @@ class TestPendingSettingsOnReconnect:
         """Test multiple pending settings types are all applied automatically."""
         crossover, registry = crossover_with_registry
 
-        # Queue multiple settings
+        # Queue multiple settings. Only crossover/lowpass can be queued for the
+        # local client — an EQ record is only ever queued for a satellite.
         await crossover.queue_pending_settings("local", "crossover", {"enabled": True, "frequency": 80})
-        await crossover.queue_pending_settings("local", "compressor", {"enabled": True, "threshold": -20})
+        await crossover.queue_pending_settings("local", "lowpass", {"enabled": True, "frequency": 80})
 
         await registry.register_client("local", "Main", "127.0.0.1")
         await registry.set_client_online("local", True)
@@ -420,7 +421,7 @@ class TestPendingSettingsOnReconnect:
         # Both settings should be applied via event handler
         assert crossover.has_pending_settings("local") is False
         mock_camilladsp_service.set_crossover_filter.assert_called()
-        mock_camilladsp_service.set_compressor.assert_called()
+        mock_camilladsp_service.set_lowpass_filter.assert_called()
 
 
 # =============================================================================

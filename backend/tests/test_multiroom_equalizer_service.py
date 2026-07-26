@@ -602,18 +602,12 @@ class TestLocalDspApplication:
 
 
 class TestRemoteRecordPush:
-    """The wire contract of a full-record push to a satellite.
-
-    A record applied to a remote client must reach it *completely* and in the
-    same shape every other push path uses. When it does not, the satellite and
-    the registry's record disagree until the next reconnection sync — the
-    failure behind six `fix(equalizer)` commits on this service.
-    """
+    """A remote write reaches the satellite through the one canonical push."""
 
     @pytest.fixture
     def proxy_service(self):
         proxy = Mock()
-        proxy.request = AsyncMock(return_value={"status": "success"})
+        proxy.apply_record = AsyncMock(return_value=True)
         return proxy
 
     @pytest.fixture
@@ -625,70 +619,40 @@ class TestRemoteRecordPush:
             state_machine=mock_state_machine,
         )
 
-    def _pushed(self, proxy_service, path):
-        """The body of the single PUT to `path`, or None if it was never sent."""
-        for call in proxy_service.request.await_args_list:
-            if call.args[2] == path:
-                return call.args[3]
-        return None
-
     @pytest.mark.asyncio
-    async def test_master_bypass_reaches_the_satellite(
+    async def test_remote_write_delegates_the_whole_record(
         self, service, mock_registry, proxy_service, remote_client, sample_equalizer_settings
     ):
-        """A client adopting a record whose effects are OFF must be told to bypass.
-
-        Reachable from the UI: turn a zone's equalizer off, then add a client to
-        it — the new member adopts the zone record via set_client_eq. Without the
-        /equalizer/enabled push it keeps playing the effects the zone has off.
-        """
+        """The record travels intact — including `enabled`, which this path used
+        to drop, leaving a client adopting a bypassed zone's record still playing
+        the effects the rest of the zone has off."""
         mock_registry.get_client.return_value = remote_client
-        sample_equalizer_settings.enabled = False
 
-        await service.set_client_eq("milo-client-1", sample_equalizer_settings)
-
-        assert self._pushed(proxy_service, "/equalizer/enabled") == {"enabled": False}
+        assert await service.set_client_eq("milo-client-1", sample_equalizer_settings) is True
+        proxy_service.apply_record.assert_awaited_once_with(
+            "192.168.1.100", sample_equalizer_settings
+        )
 
     @pytest.mark.asyncio
-    async def test_master_bypass_is_pushed_after_the_effects_it_gates(
+    async def test_remote_write_reports_a_failed_push(
         self, service, mock_registry, proxy_service, remote_client, sample_equalizer_settings
     ):
-        """Order matters: on the satellite the bypass and per-band pipeline
-        membership are the same mechanism, so `enabled` must land last."""
         mock_registry.get_client.return_value = remote_client
+        proxy_service.apply_record.return_value = False
 
-        await service.set_client_eq("milo-client-1", sample_equalizer_settings)
-
-        paths = [call.args[2] for call in proxy_service.request.await_args_list]
-        assert paths[-1] == "/equalizer/enabled"
-        assert set(paths[:-1]) == {
-            "/equalizer/filters", "/equalizer/compressor",
-            "/equalizer/loudness", "/equalizer/mono",
-        }
-
-    @pytest.mark.asyncio
-    async def test_band_push_carries_no_enabled_flag(
-        self, service, mock_registry, proxy_service, remote_client, sample_equalizer_settings
-    ):
-        """Per-band `enabled` must stay off the wire.
-
-        The satellite implements it as pipeline membership — the very mechanism
-        the master bypass uses — so a band carrying enabled=True would re-pipe
-        that band on a bypassed client and make it audible on its own.
-        """
-        mock_registry.get_client.return_value = remote_client
-
-        await service.set_client_eq("milo-client-1", sample_equalizer_settings)
-
-        bands = self._pushed(proxy_service, "/equalizer/filters")["filters"]
-        assert bands, "no bands pushed — the assertion below would be vacuous"
-        assert all("enabled" not in band for band in bands)
+        assert await service.set_client_eq("milo-client-1", sample_equalizer_settings) is False
 
     @pytest.mark.asyncio
     async def test_targeted_band_update_carries_no_enabled_flag(
         self, service, mock_registry, remote_client
     ):
-        """Same invariant on the targeted path (dragging one band in the UI)."""
+        """Per-band `enabled` must stay off the wire on the targeted path too.
+
+        The satellite implements it as pipeline membership — the very mechanism
+        the master bypass uses — so a band carrying the record's default
+        enabled=True would re-pipe that band on a bypassed client and make it
+        audible on its own. Dragging one band in the UI takes this path.
+        """
         router = Mock()
         router.update_filter = AsyncMock(return_value={"status": "success"})
         service._equalizer_router = router

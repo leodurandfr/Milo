@@ -33,9 +33,10 @@ if TYPE_CHECKING:
 # and apply_pending_settings' dispatch must agree on this set: a type queued but
 # not dispatched is silently discarded, since apply_pending_settings pops the
 # whole per-client dict. Pinned by tests/architecture/test_service_wiring.py.
-PENDING_SETTING_TYPES = frozenset({
-    "crossover", "lowpass", "filters", "compressor", "loudness", "mono", "enabled",
-})
+#
+# "record" holds a whole EqualizerSettings; crossover/lowpass stay separate
+# because they are derived from the zone's speaker layout, not from the record.
+PENDING_SETTING_TYPES = frozenset({"crossover", "lowpass", "record"})
 
 
 class CrossoverService:
@@ -480,12 +481,7 @@ class CrossoverService:
         self.logger.info(f"Queued {setting_type} settings for offline client {client_id}")
 
     async def apply_pending_settings(self, client_id: str) -> bool:
-        """Replay every queued setting to a reconnected client.
-
-        Order matters for the last one: ``enabled`` is the master bypass gate,
-        so it is applied after the effects it gates (same order as the
-        reconnection sync in SnapcastWebSocketService).
-        """
+        """Replay every queued setting to a reconnected client."""
         if client_id not in self._pending_settings:
             return False
 
@@ -510,115 +506,19 @@ class CrossoverService:
                 success = False
                 self.logger.debug(f"Failed to apply pending {filter_name} to {client_id} (zone recalculation will re-apply)")
 
-        if "filters" in pending:
-            for flt in pending["filters"]:
-                filter_id = flt.get("id")
-                if not filter_id:
-                    continue
-                data = {
-                    "freq": flt.get("freq"),
-                    "gain": flt.get("gain"),
-                    "q": flt.get("q"),
-                    "filter_type": flt.get("type")
-                }
-                result = await self._dispatch_to_client(
-                    client_id, f"/equalizer/filter/{filter_id}", data,
-                    lambda fid=filter_id, d=data: self.camilladsp_service.set_filter(fid, **d),
-                    f"filter {filter_id}"
-                )
-                if not result:
+        if "record" in pending:
+            # Only ever queued for a remote client — the local client's record is
+            # equalizer.json, restored by CamillaDSPService itself.
+            client = self._registry.get_client(client_id) if self._registry else None
+            if client and client.ip and self._proxy_service:
+                if not await self._proxy_service.apply_record(client.ip, pending["record"]):
                     success = False
-                    self.logger.warning(f"Failed to apply pending filter {filter_id} to {client_id}")
-
-        if "compressor" in pending:
-            compressor_data = pending["compressor"]
-            result = await self._dispatch_to_client(
-                client_id, "/equalizer/compressor", compressor_data,
-                lambda: self.camilladsp_service.set_compressor(**compressor_data),
-                "compressor"
-            )
-            if not result:
+                    self.logger.warning(f"Failed to apply pending EQ record to {client_id}")
+            else:
                 success = False
-                self.logger.warning(f"Failed to apply pending compressor to {client_id}")
-
-        if "loudness" in pending:
-            loudness_data = pending["loudness"]
-            result = await self._dispatch_to_client(
-                client_id, "/equalizer/loudness", loudness_data,
-                lambda: self.camilladsp_service.set_loudness(**loudness_data),
-                "loudness"
-            )
-            if not result:
-                success = False
-                self.logger.warning(f"Failed to apply pending loudness to {client_id}")
-
-        if "mono" in pending:
-            mono_data = pending["mono"]
-            mono_on = bool(mono_data.get("enabled", False))
-            result = await self._dispatch_to_client(
-                client_id, "/equalizer/mono", mono_data,
-                lambda: self.camilladsp_service.set_mono(enabled=mono_on),
-                "mono"
-            )
-            if not result:
-                success = False
-                self.logger.warning(f"Failed to apply pending mono to {client_id}")
-
-        # Master bypass gate — last, after the effects it gates.
-        if "enabled" in pending:
-            enabled_data = pending["enabled"]
-            effects_on = bool(enabled_data.get("enabled", True))
-            result = await self._dispatch_to_client(
-                client_id, "/equalizer/enabled", enabled_data,
-                lambda: (
-                    self.camilladsp_service.restore_effects() if effects_on
-                    else self.camilladsp_service.bypass_effects()
-                ),
-                "enabled"
-            )
-            if not result:
-                success = False
-                self.logger.warning(f"Failed to apply pending enabled to {client_id}")
+                self.logger.warning(f"Cannot apply pending EQ record: client {client_id} unreachable")
 
         return success
-
-    @handle_errors(default=False, level='warning')
-    async def _dispatch_to_client(
-        self,
-        client_id: str,
-        endpoint: str,
-        payload: Dict[str, Any],
-        local_action,
-        label: str
-    ) -> bool:
-        """Dispatch a pending setting to a client (local CamillaDSP or remote HTTP PUT).
-
-        Args:
-            client_id: Client MAC address
-            endpoint: URL path suffix (e.g. "/equalizer/mute")
-            payload: JSON payload for remote PUT request
-            local_action: Callable returning a coroutine for local execution
-            label: Human-readable label for log messages
-        """
-        client = self._registry.get_client(client_id) if self._registry else None
-        is_local = client.is_local if client else False
-
-        if is_local:
-            if self.camilladsp_service:
-                await local_action()
-                return True
-            return False
-        else:
-            if not client or not client.ip:
-                self.logger.warning(f"Cannot apply pending {label}: client {client_id} has no IP address")
-                return False
-            if not self._proxy_service:
-                self.logger.warning(f"Cannot apply pending {label}: proxy service not available")
-                return False
-            status = await self._proxy_service.try_request(
-                client.ip, "PUT", endpoint, payload, timeout=5.0
-            )
-            return status == 200
 
     def has_pending_settings(self, client_id: str) -> bool:
         """Check if a client has pending settings."""
