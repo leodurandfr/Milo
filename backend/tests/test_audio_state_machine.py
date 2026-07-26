@@ -1,11 +1,14 @@
 # backend/tests/test_audio_state_machine.py
 """
-Unit tests for AudioStateMachine.
+Unit tests for AudioStateMachine — the single source of truth.
 
 Tests cover:
-- Source activation/deactivation
-- State transitions
-- WebSocket broadcasting
+- Source registration, activation, deactivation and direct source-to-source switch
+- The update rules: an inactive source is ignored, an update during a transition
+  is dropped, a state change replaces metadata while metadata=None preserves it
+- Failure unwind: a clean False from start(), a raising start(), and the timeout
+- The transition lock
+- WebSocket broadcasting, and which categories carry full_state
 """
 import pytest
 import asyncio
@@ -185,6 +188,71 @@ class TestSourceStateUpdate:
         assert state_machine.system_state.source_state == SourceState.ERROR
         assert state_machine.system_state.error == "Connection failed"
 
+    @pytest.mark.asyncio
+    async def test_update_during_transition_is_dropped(self, state_machine):
+        """Updates arriving while `transitioning` is set are dropped, not buffered.
+
+        There is no replay queue: the post-start resync re-reads source.state
+        instead. An update that slipped through here would let a source's
+        pre-transition state overwrite the one being transitioned to.
+        """
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
+        state_machine.system_state.transitioning = True
+        before = state_machine.system_state.source_state
+
+        await state_machine.update_source_state(
+            AudioSource.SPOTIFY, SourceState.ACTIVE, {}
+        )
+
+        assert state_machine.system_state.source_state == before
+
+    @pytest.mark.asyncio
+    async def test_state_change_replaces_metadata_wholesale(self, state_machine):
+        """A state transition replaces metadata, it does not merge it.
+
+        Regression guard: update_source_state used to MERGE, so a source
+        dropping to WAITING with a partial payload (Spotify when go-librespot
+        dies, sending only the "off" flags) left the previous track's
+        title/artist/album/uri stale in system_state.metadata — and so in
+        GET /api/audio/state.
+        """
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
+
+        await state_machine.update_source_state(
+            AudioSource.SPOTIFY,
+            SourceState.ACTIVE,
+            {"title": "Song", "artist": "Artist", "album": "Album",
+             "uri": "spotify:track:x", "is_playing": True},
+        )
+        await state_machine.update_source_state(
+            AudioSource.SPOTIFY,
+            SourceState.WAITING,
+            {"device_connected": False, "is_playing": False},
+        )
+
+        assert state_machine.system_state.metadata == {
+            "device_connected": False, "is_playing": False
+        }
+
+    @pytest.mark.asyncio
+    async def test_none_metadata_leaves_the_previous_payload(self, state_machine):
+        """metadata=None is a state-only change: metadata is left untouched.
+
+        This is the routing path — AudioRoutingService flips the active source
+        to STARTING during a reroute while the current track must stay visible
+        in the UI, so it passes no metadata.
+        """
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
+        state_machine.system_state.source_state = SourceState.ACTIVE
+        state_machine.system_state.metadata = {"title": "Song", "artist": "Artist"}
+
+        await state_machine.update_source_state(
+            AudioSource.SPOTIFY, SourceState.STARTING, None
+        )
+
+        assert state_machine.system_state.source_state == SourceState.STARTING
+        assert state_machine.system_state.metadata == {"title": "Song", "artist": "Artist"}
+
 
 class TestWebSocketBroadcasting:
     """Test WebSocket broadcasting via ws_manager."""
@@ -297,8 +365,54 @@ class TestTransitionTimeout:
         assert result is False
 
 
+class TestConcurrency:
+    """Test the transition lock."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_transitions_are_serialized(self, state_machine, mock_source):
+        """Two transitions fired at once must not interleave.
+
+        _transition_lock is what keeps two sources from being started against
+        the same ALSA device; without it the second caller reads a half-applied
+        state and both end up believing they own the output.
+        """
+        async def slow_start():
+            await asyncio.sleep(0.05)
+            return True
+
+        mock_source.start = slow_start
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+
+        results = await asyncio.gather(
+            state_machine.transition_to_source(AudioSource.SPOTIFY),
+            state_machine.transition_to_source(AudioSource.SPOTIFY),
+        )
+
+        assert all(results)
+        assert state_machine.system_state.active_source == AudioSource.SPOTIFY
+        assert state_machine.system_state.transitioning is False
+
+
 class TestEmergencyStop:
     """Test emergency stop functionality."""
+
+    @pytest.mark.asyncio
+    async def test_start_returning_false_leaves_no_active_source(
+        self, state_machine, mock_source
+    ):
+        """A source that reports a clean start failure still unwinds to NONE.
+
+        Distinct from the raising case below: _do_start returning False is the
+        documented way for a source to say "the service did not come up", and
+        it must not leave the machine pointing at a source that is not playing.
+        """
+        mock_source.start = AsyncMock(return_value=False)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
+
+        assert result is False
+        assert state_machine.system_state.active_source == AudioSource.NONE
 
     @pytest.mark.asyncio
     async def test_emergency_stop_on_error(self, state_machine):
