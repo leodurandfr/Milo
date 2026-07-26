@@ -425,7 +425,6 @@
       "loading": "正在加载...",
       "invalidImageFormat": "不支持的图片格式。请使用JPG、PNG、WEBP或GIF。",
       "imageTooLarge": "图片太大。最大5MB。",
-      "editFailed": "编辑电台失败",
       "addFailed": "添加电台失败",
       "errorOccurred": "发生错误",
       "addStationTitle": "添加电台",

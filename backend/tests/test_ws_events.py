@@ -9,9 +9,22 @@ audio source, volume, settings, programs, equalizer, multiroom, routing,
 network, hardware) against its full expected envelope, timestamp excluded —
 including which categories carry full_state and which fields are dropped
 rather than sent as null.
+
+The second half sweeps *every* subclass rather than a representative, and
+enforces the conventions CLAUDE.md states for the category: a unique
+(CATEGORY, TYPE), a category from the declared nine, a `source` field on
+source-category events, snake_case fields, a docstring naming the consumers,
+and an emission site in production code. A new event that forgets one of those
+fails here instead of reaching a client.
 """
+import ast
+import inspect
+from pathlib import Path
+
 import pytest
 
+from backend.core.models import ws_events as ws_events_module
+from backend.core.models.ws_events import WsEvent
 from backend.core.state import AudioStateMachine
 from backend.core.models.ws_events import (
     DockAppsChanged,
@@ -239,3 +252,172 @@ async def test_broadcast_envelope(
 async def test_broadcast_without_ws_manager_is_noop():
     sm = AudioStateMachine()
     await sm.broadcast(SystemTransitionStart())  # must not raise
+
+
+# --------------------------------------------------------------------------- #
+# Whole-surface sweep: the conventions, on every subclass.
+# --------------------------------------------------------------------------- #
+
+# CLAUDE.md § Core code rules: the nine categories, closed set.
+CATEGORIES = {
+    "source", "system", "routing", "equalizer", "multiroom", "volume",
+    "settings", "programs", "network",
+}
+
+# (category, type) pairs served by more than one class ON PURPOSE: a union
+# discriminated by a payload field, documented at its declaration site. Anything
+# not listed here that collides is an accident — two producers of one wire pair
+# whose payloads drift apart with nothing to catch it.
+DECLARED_UNIONS = {
+    # discriminated by data.source (radio | podcast)
+    ("source", "favorite_added"),
+    ("source", "favorite_removed"),
+}
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _subclasses():
+    """Every WsEvent subclass, split into concrete (has TYPE) and base-only."""
+    concrete, bases = [], []
+    for obj in vars(ws_events_module).values():
+        if not (isinstance(obj, type) and issubclass(obj, WsEvent) and obj is not WsEvent):
+            continue
+        (concrete if getattr(obj, "TYPE", None) else bases).append(obj)
+    return concrete, bases
+
+
+CONCRETE, BASE_ONLY = _subclasses()
+
+# The extractor must fail loudly rather than pass on an empty surface: a broken
+# scan would make every parametrized test below vacuously green.
+assert len(CONCRETE) > 50, f"only {len(CONCRETE)} concrete WsEvent classes found — extractor broken?"
+assert BASE_ONLY, "no abstract base found — extractor broken?"
+
+ALL_EVENTS = CONCRETE + BASE_ONLY
+_IDS = [c.__name__ for c in ALL_EVENTS]
+
+
+def test_category_type_pairs_are_unique():
+    """Two classes on one wire pair means two payload shapes, silently diverging.
+
+    Consumers dispatch on (category, type) alone, so a collision that is not a
+    declared union is a bug: whichever producer runs second wins.
+    """
+    seen = {}
+    for cls in CONCRETE:
+        pair = (cls.CATEGORY, cls.TYPE)
+        if pair in DECLARED_UNIONS:
+            continue
+        assert pair not in seen, (
+            f"{cls.__name__} and {seen[pair]} both emit {pair}. Give one a "
+            f"distinct type, or add the pair to DECLARED_UNIONS with a "
+            f"discriminator documented at both declaration sites."
+        )
+        seen[pair] = cls.__name__
+
+
+def test_declared_unions_really_collide():
+    """A stale entry here would hide a real collision on that pair forever."""
+    for pair in DECLARED_UNIONS:
+        owners = [c.__name__ for c in CONCRETE if (c.CATEGORY, c.TYPE) == pair]
+        assert len(owners) > 1, (
+            f"{pair} is listed as a declared union but only {owners} emits it — "
+            f"drop the entry so the uniqueness check covers it again."
+        )
+
+
+@pytest.mark.parametrize("cls", ALL_EVENTS, ids=_IDS)
+def test_category_is_one_of_the_nine(cls):
+    """The frontend WS client routes on category; an unknown one is dropped."""
+    assert cls.CATEGORY in CATEGORIES, f"{cls.__name__}: unknown category {cls.CATEGORY!r}"
+
+
+@pytest.mark.parametrize("cls", ALL_EVENTS, ids=_IDS)
+def test_source_category_declares_a_source_field(cls):
+    """`origin` falls back to CATEGORY without one, so per-source consumers
+    (radioStore, podcastStore, the error banner) could not tell events apart."""
+    if cls.CATEGORY != "source":
+        return
+    assert "source" in cls.model_fields, f"{cls.__name__}: source-category event with no `source` field"
+
+
+@pytest.mark.parametrize("cls", ALL_EVENTS, ids=_IDS)
+def test_fields_are_snake_case(cls):
+    """A camelCase field would reach the wire as-is and break every consumer
+    that reads the documented snake_case key."""
+    camel = [f for f in cls.model_fields if any(c.isupper() for c in f)]
+    assert not camel, f"{cls.__name__}: non-snake_case fields {camel}"
+
+
+@pytest.mark.parametrize("cls", ALL_EVENTS, ids=_IDS)
+def test_docstring_names_the_consumers(cls):
+    """The model IS the payload documentation (module docstring). Without a
+    consumer named, the next person to change a field cannot tell what breaks."""
+    doc = (cls.__doc__ or "").strip()
+    assert len(doc) > 20, f"{cls.__name__}: docstring must name its consumers, got {doc!r}"
+
+
+def _names_referenced_outside_ws_events():
+    """Every identifier used anywhere in backend/ except ws_events.py itself."""
+    used = set()
+    for py in BACKEND_ROOT.rglob("*.py"):
+        if py.name == "ws_events.py" or "/tests/" in str(py):
+            continue
+        try:
+            tree = ast.parse(py.read_text())
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                used.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                used.add(node.attr)
+            elif isinstance(node, ast.alias):
+                used.add(node.name.rsplit(".", 1)[-1])
+    return used
+
+
+_REFERENCED = _names_referenced_outside_ws_events()
+# Sentinels: a name imported by every source module, and a bulk floor. A scan
+# that silently returned a near-empty set would make the emission-site test
+# below pass for reasons that have nothing to do with the code.
+assert "BaseAudioSource" in _REFERENCED, "identifier scan missed a known import — extractor broken?"
+assert len(_REFERENCED) > 2000, f"identifier scan found only {len(_REFERENCED)} names — extractor broken?"
+
+
+@pytest.mark.parametrize("cls", CONCRETE, ids=[c.__name__ for c in CONCRETE])
+def test_event_has_a_production_emission_site(cls):
+    """An event class no producer builds is dead wire surface.
+
+    Phase 3 found a whole `registry` category nobody emitted; this makes the
+    next one fail at pytest time instead of living on as documentation of a
+    feature that does not exist.
+    """
+    assert cls.__name__ in _REFERENCED, (
+        f"{cls.__name__} is never referenced outside ws_events.py — "
+        f"delete it, or wire up the producer."
+    )
+
+
+def test_every_settings_config_model_is_shared_not_redeclared():
+    """The `config`/`limits` payloads must come from core/models/settings_config.
+
+    A settings category has one shape on two surfaces (`GET /api/settings/bulk`
+    and its `settings/<name>_changed` event). Redeclaring it inside ws_events.py
+    is what let the two drift apart before, so the model file is pinned as the
+    single home.
+    """
+    source = inspect.getsource(ws_events_module)
+    tree = ast.parse(source)
+    local_models = {
+        node.name for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name != "WsEvent"  # the envelope base itself, not a payload
+        and any(ast.unparse(b) == "BaseModel" for b in node.bases)
+    }
+    assert not local_models, (
+        f"{sorted(local_models)} declare a payload shape inside ws_events.py — "
+        f"move it to core/models/settings_config.py and import it, so /bulk and "
+        f"the event cannot describe different shapes."
+    )

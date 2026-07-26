@@ -251,7 +251,7 @@ async def modify_favorite_metadata(
         )
 
         if result["success"]:
-            return {"success": True, "station": result["station"]}
+            return {"status": "success", "station": result["station"]}
         else:
             if image_filename:
                 await source.station_data.image_manager.delete_image(image_filename)
@@ -274,7 +274,7 @@ async def restore_favorite_metadata(
         )
 
         if result["success"]:
-            return {"success": True}
+            return {"status": "success"}
         else:
             logger.error("Restore favorite failed: %s", result.get("error", "Unknown error"))
             raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
@@ -385,7 +385,7 @@ async def remove_custom_station(
             logger.error("Remove custom station failed: %s", station_id)
             raise HTTPException(status_code=400, detail="Remove custom station failed")
 
-        return {"success": True, "message": "Custom station removed"}
+        return {"status": "success", "message": "Custom station removed"}
 
 
 # === Image Routes ===

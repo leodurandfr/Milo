@@ -425,7 +425,6 @@
       "loading": "लोड हो रहा है...",
       "invalidImageFormat": "असमर्थित छवि प्रारूप। JPG, PNG, WEBP या GIF का उपयोग करें।",
       "imageTooLarge": "छवि बहुत बड़ी है। अधिकतम 5MB।",
-      "editFailed": "स्टेशन संपादित करने में विफल",
       "addFailed": "स्टेशन जोड़ने में विफल",
       "errorOccurred": "एक त्रुटि हुई",
       "addStationTitle": "स्टेशन जोड़ें",
