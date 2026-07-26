@@ -537,10 +537,14 @@ class CamillaDSPService:
     @handle_errors(default=False)
     async def set_filter(self, filter_id: str, freq: float, gain: float,
                          q: float, filter_type: str = "Peaking",
-                         enabled: bool = True, persist: bool = True,
+                         persist: bool = True,
                          broadcast: bool = True) -> bool:
         """
-        Update a single filter band.
+        Update a single filter band's tuning.
+
+        Takes no `enabled`: a band's presence in the pipeline is owned by the
+        master toggle (bypass_effects/restore_effects), so the band's cached
+        flag is carried through unchanged here.
 
         Args:
             persist: Set to False during bypass operations
@@ -550,6 +554,7 @@ class CamillaDSPService:
             self.logger.warning("Cannot set filter: not connected")
             return False
 
+        enabled = True
         async with self._config_lock:
             config = await self._get_config()
             self._config_set_eq_filter(config, filter_id, freq, gain, q, filter_type)
@@ -562,8 +567,8 @@ class CamillaDSPService:
                         "freq": freq,
                         "gain": gain,
                         "q": q,
-                        "enabled": enabled
                     })
+                    enabled = bool(f.get("enabled", True))
                     break
 
         # Broadcast update (can be suppressed for batch updates)

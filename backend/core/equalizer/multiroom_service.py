@@ -421,7 +421,9 @@ class MultiroomEqualizerService:
             return False
 
         try:
-            # Apply filters as batch for efficiency
+            # Apply filters as batch for efficiency. No per-band `enabled`: a
+            # band's presence in the pipeline is owned by the master toggle
+            # (/equalizer/enabled), on the satellite as locally.
             filters_batch = [
                 {
                     "id": f.id,
@@ -429,7 +431,6 @@ class MultiroomEqualizerService:
                     "freq": f.frequency,
                     "q": f.q,
                     "filter_type": f.filter_type.value,
-                    "enabled": f.enabled
                 }
                 for f in settings.filters
             ]
@@ -463,6 +464,14 @@ class MultiroomEqualizerService:
             await self._proxy_service.request(
                 client_ip, "PUT", "/equalizer/mono",
                 {"enabled": settings.mono}
+            )
+
+            # Master bypass gate — last, after the effects it gates (same order as
+            # the reconnection sync). Without it a client adopting a record whose
+            # effects are off (new zone member, zone creation) keeps playing them.
+            await self._proxy_service.request(
+                client_ip, "PUT", "/equalizer/enabled",
+                {"enabled": settings.enabled}
             )
 
             self.logger.debug(f"Equalizer settings applied to remote client {mac_id}")
@@ -633,7 +642,6 @@ class MultiroomEqualizerService:
                     "gain": updated_filter.gain,
                     "q": updated_filter.q,
                     "filter_type": updated_filter.filter_type.value,
-                    "enabled": updated_filter.enabled,
                 },
             },
             broadcast_settings={
