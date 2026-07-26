@@ -46,20 +46,10 @@ const clientsWrapperRef = ref(null);
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// Get linked groups from equalizer store (zones are a multiroom feature, independent of equalizer effects)
-const linkedGroups = computed(() => equalizerStore.linkedGroups || []);
+const linkedGroups = computed(() => multiroomStore.zoneList);
 
 // Get zone info for a client (returns zone object if linked, null otherwise)
-function getZoneForClient(client) {
-  const macId = client.mac_id;
-  if (!macId) return null;
-  for (const group of linkedGroups.value) {
-    if (group.client_ids?.includes(macId)) {
-      return group;
-    }
-  }
-  return null;
-}
+const getZoneForClient = (client) => multiroomStore.getZoneForClient(client.mac_id);
 
 // Check if a client is the "primary" of its zone (first online in the list)
 function isZonePrimary(client) {

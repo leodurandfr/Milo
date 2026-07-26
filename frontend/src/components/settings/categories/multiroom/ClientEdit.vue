@@ -215,7 +215,7 @@ const clientDisplayName = computed(() =>
 );
 
 const clientZone = computed(() => {
-  return equalizerStore.getZoneGroup(props.macId);
+  return multiroomClientStore.getZoneForClient(props.macId);
 });
 
 const isInZone = computed(() => !!clientZone.value);

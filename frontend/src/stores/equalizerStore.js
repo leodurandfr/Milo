@@ -81,10 +81,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }));
   });
 
-  // Linked clients - delegates to multiroomStore.zoneList
-  // Structure: [{ id: 'group_1', client_ids: ['dc:a6:32:xx:xx:xx', 'dc:a6:32:yy:yy:yy'], name: 'Zone 1' }]
-  const linkedGroups = computed(() => registryStore.zoneList);
-
   // Client types - builds from multiroomStore.clients
   // Structure: { clientId: { speaker_type: 'satellite'|'bookshelf'|'tower'|'subwoofer', crossover_frequency: number|null } }
   const clientTypes = computed(() => {
@@ -215,9 +211,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return result.ok;
   }
 
-  // Note: fetchLinkedGroups, fetchClientTypes, and fetchAvailableTargets removed
-  // linkedGroups and clientTypes now delegate to multiroomStore
-
   async function fetchEnabledState() {
     // The enabled flag travels in the one per-target record.
     const record = await fetchTargetRecord();
@@ -231,26 +224,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       checkStatus: true,
     });
     return result.ok;
-  }
-
-  // Get clients linked to a specific client (including itself)
-  function getLinkedClientIds(clientId) {
-    for (const group of linkedGroups.value) {
-      if (group.client_ids && group.client_ids.includes(clientId)) {
-        return group.client_ids;
-      }
-    }
-    return [clientId]; // Not linked, return just itself
-  }
-
-  // Get zone group for a client ID
-  function getZoneGroup(clientId) {
-    for (const group of linkedGroups.value) {
-      if (group.client_ids && group.client_ids.includes(clientId)) {
-        return group;
-      }
-    }
-    return null;
   }
 
   /**
@@ -1028,7 +1001,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // Multi-client support
     selectedTarget,
     availableTargets,
-    linkedGroups,
 
     // Computed
     isConnected,
@@ -1047,10 +1019,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // Target Management
     loadTargets,
     selectTarget,
-
-    // Linked Clients Management
-    getLinkedClientIds,
-    getZoneGroup,
 
     // Speaker Type / Crossover Management
     getClientSpeakerType,
