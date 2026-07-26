@@ -19,7 +19,6 @@ import logging
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.podcast.models import (
     PlayEpisodeRequest,
-    SpeedRequest,
     SubscribeRequest,
 )
 from backend.sources.podcast.source import PodcastSource
@@ -231,13 +230,20 @@ async def get_episode(
 
 
 # === Playback Routes ===
+#
+# Only the composite lives here. pause/resume/seek/set_speed are plain commands
+# and go through POST /api/audio/control/podcast like every other source's.
 
 @router.post("/play")
 async def play_episode(
     request: PlayEpisodeRequest,
     source: PodcastSource = Depends(get_source)
 ) -> Dict[str, Any]:
-    """Play an episode."""
+    """Play an episode, resuming at `position` when one is carried.
+
+    Two commands in one request: the resume seek must not be a second
+    round-trip, or the episode audibly starts at 0:00 first.
+    """
     result = await run_source_command(
         source, "play_episode", {"episode_uuid": request.episode_uuid}, "Play"
     )
@@ -251,36 +257,11 @@ async def play_episode(
     return result
 
 
-@router.post("/pause")
-async def pause_playback(
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Pause playback."""
-    return await run_source_command(source, "pause", {}, "Pause")
-
-
-@router.post("/resume")
-async def resume_playback(
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Resume playback."""
-    return await run_source_command(source, "resume", {}, "Resume")
-
-
 @router.get("/playback-speeds")
 async def get_playback_speeds() -> Dict[str, Any]:
     """Return the canonical list of valid playback speeds."""
     from backend.sources.podcast.source import VALID_PLAYBACK_SPEEDS
     return {"status": "success", "speeds": VALID_PLAYBACK_SPEEDS}
-
-
-@router.post("/speed")
-async def set_speed(
-    request: SpeedRequest,
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Set playback speed (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)."""
-    return await run_source_command(source, "set_speed", {"speed": request.speed}, "Speed")
 
 
 # === Subscription Routes ===
