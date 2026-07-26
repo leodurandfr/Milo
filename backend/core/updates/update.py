@@ -37,12 +37,19 @@ class UpdateService(VersionService):
                 "service_name": "milo-backend.service",
                 "backup_path": "/var/lib/milo/backups/milo-app"
             },
+            # The three "binary in a release tarball" programs below share one
+            # update flow (_update_binary_program); everything that differs
+            # between them is a key here. "always_on" means the service is
+            # stopped and restarted unconditionally instead of having its
+            # previous state preserved.
             "go-librespot": {
+                "display_name": "go-librespot",
                 "binary_path": "/usr/local/bin/go-librespot",
                 "config_path": "/var/lib/milo/go-librespot/config.yml",
                 "service_name": "milo-spotify.service",
-                "github_asset_pattern": "go-librespot_linux_arm64.tar.gz",
-                "backup_path": "/var/lib/milo/backups/go-librespot"
+                "backup_path": "/var/lib/milo/backups/go-librespot",
+                "asset_url": "https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz",
+                "download_progress_key": "updates.progress.downloadingGoLibrespot"
             },
             "shairport-sync": {
                 "binary_path": "/usr/local/bin/shairport-sync",
@@ -67,9 +74,13 @@ class UpdateService(VersionService):
                 "backup_path": "/var/lib/milo/backups/multiroom"
             },
             "camilladsp": {
+                "display_name": "CamillaDSP",
                 "binary_path": "/usr/local/bin/camilladsp",
                 "service_name": "milo-camilladsp.service",
-                "backup_path": "/var/lib/milo/backups/camilladsp"
+                "backup_path": "/var/lib/milo/backups/camilladsp",
+                "asset_url": "https://github.com/HEnquist/camilladsp/releases/download/v{version}/camilladsp-linux-aarch64.tar.gz",
+                "download_progress_key": "updates.progress.downloadingCamillaDSP",
+                "always_on": True
             },
             "qobuz-proxy": {
                 "service_name": "milo-qobuz.service",
@@ -77,9 +88,15 @@ class UpdateService(VersionService):
                 "backup_path": "/var/lib/milo/backups/qobuz"
             },
             "navidrome": {
+                "display_name": "Navidrome",
                 "binary_path": "/usr/local/bin/navidrome",
                 "service_name": "milo-navidrome.service",
-                "backup_path": "/var/lib/milo/backups/navidrome"
+                "backup_path": "/var/lib/milo/backups/navidrome",
+                "asset_url": "https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_arm64.tar.gz",
+                "download_progress_key": "updates.progress.downloadingNavidrome",
+                # The tarball ships README/LICENSE next to the binary.
+                "tar_member": "navidrome",
+                "always_on": True
             }
         }
 
@@ -99,18 +116,14 @@ class UpdateService(VersionService):
 
             if program_key == "milo":
                 return await self._update_milo_app(status, progress_callback)
-            elif program_key == "go-librespot":
-                return await self._update_go_librespot(status, progress_callback)
             elif program_key == "multiroom":
                 return await self._update_multiroom(status, progress_callback)
             elif program_key == "shairport-sync":
                 return await self._update_shairport_sync(status, progress_callback)
-            elif program_key == "camilladsp":
-                return await self._update_camilladsp(status, progress_callback)
             elif program_key == "qobuz-proxy":
                 return await self._update_qobuz_proxy(status, progress_callback)
-            elif program_key == "navidrome":
-                return await self._update_navidrome(status, progress_callback)
+            elif "asset_url" in self.update_config[program_key]:
+                return await self._update_binary_program(program_key, status, progress_callback)
             else:
                 return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
@@ -411,69 +424,86 @@ class UpdateService(VersionService):
         else:
             self.update_logger.info("System files sync completed")
 
-    async def _update_go_librespot(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Updates go-librespot with proper service state preservation"""
-        config = self.update_config["go-librespot"]
+    async def _update_binary_program(self, program_key: str, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+        """Updates a program shipped as a single binary inside a release tarball.
+
+        go-librespot, CamillaDSP and Navidrome all follow this flow: back the
+        binary up, download and unpack the release asset, stop the service, swap
+        the binary through the deploy wrapper, start it again, verify, and roll
+        back to the backup if anything after the stop fails.
+
+        The one behavioural difference is service policy. CamillaDSP and
+        Navidrome are always-on, so they are stopped and started
+        unconditionally; go-librespot's Spotify service is on-demand, so its
+        previous state is preserved and an inactive service is left inactive.
+        """
+        config = self.update_config[program_key]
+        display_name = config["display_name"]
         latest_version = status["latest"]["version"]
 
         service_was_active = await self._is_service_active(config["service_name"])
         self.update_logger.info(f"Service {config['service_name']} was {'active' if service_was_active else 'inactive'} before update")
+        run_service = config.get("always_on", False) or service_was_active
+
+        download_result = None
+        service_stopped = False
 
         try:
             if progress_callback:
                 await progress_callback("updates.progress.creatingBackup", 10)
 
-            # 1. Create a backup
-            backup_result = await self._backup_go_librespot(config)
+            backup_result = await self._backup_binary_program(config)
             if not backup_result["success"]:
                 return backup_result
 
             if progress_callback:
-                await progress_callback("updates.progress.downloadingGoLibrespot", 20)
+                await progress_callback(config["download_progress_key"], 20)
 
-            # 2. Download the new version
-            download_result = await self._download_go_librespot(latest_version)
+            download_result = await self._download_binary_program(config, latest_version)
             if not download_result["success"]:
                 return download_result
 
-            # 3. Stop service only if it was active
-            if service_was_active:
+            if run_service:
                 if progress_callback:
                     await progress_callback("updates.progress.stoppingService", 60)
 
-                stop_result = await self._stop_service(config["service_name"])
-                if not stop_result:
+                if not await self._stop_service(config["service_name"]):
+                    await self._cleanup_temp_files(download_result.get("temp_dir"))
                     return {"success": False, "error": "Failed to stop service"}
+
+                service_stopped = True
+                # Let the kernel release the running image before it is
+                # overwritten, otherwise install-binary hits "Text file busy".
+                await asyncio.sleep(0.5)
 
             if progress_callback:
                 await progress_callback("updates.progress.installingVersion", 70)
 
-            install_result = await self._install_go_librespot_binary(download_result["binary_path"])
-            if not install_result["success"]:
-                # Rollback
-                await self._rollback_go_librespot(config, service_was_active)
-                return install_result
+            success, output = await self._run_deploy(
+                "install-binary", download_result["binary_path"], config["binary_path"]
+            )
+            if not success:
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+                await self._rollback_binary_program(config, run_service)
+                return {"success": False, "error": f"Failed to install binary: {output}"}
 
-            # 5. Restart service only if it was previously active
-            if service_was_active:
+            if run_service:
                 if progress_callback:
                     await progress_callback("updates.progress.startingService", 90)
 
-                start_result = await self._start_service(config["service_name"])
-                if not start_result:
-                    # Rollback
-                    await self._rollback_go_librespot(config, service_was_active)
-                    return {"success": False, "error": "Failed to start service after update"}
+                if not await self._start_service(config["service_name"]):
+                    await self._cleanup_temp_files(download_result.get("temp_dir"))
+                    await self._rollback_binary_program(config, run_service)
+                    return {"success": False, "error": f"Failed to start {display_name} after update"}
 
-                if progress_callback:
-                    await progress_callback("updates.progress.verifyingUpdate", 95)
+            if progress_callback:
+                await progress_callback("updates.progress.verifyingUpdate", 95)
 
-                # 6. Verify that the update worked (only if service is running)
-                verify_result = await self._verify_go_librespot_update(latest_version)
-                if not verify_result["success"]:
-                    # Rollback
-                    await self._rollback_go_librespot(config, service_was_active)
-                    return verify_result
+            verify_result = await self._verify_binary_program(config, run_service)
+            if not verify_result["success"]:
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+                await self._rollback_binary_program(config, run_service)
+                return verify_result
 
             if progress_callback:
                 await progress_callback("updates.progress.completed", 100)
@@ -482,17 +512,144 @@ class UpdateService(VersionService):
 
             return {
                 "success": True,
-                "message": f"go-librespot updated to {latest_version}",
+                "message": f"{display_name} updated to {latest_version}",
                 "old_version": status["installed"]["versions"].get("main"),
                 "new_version": latest_version,
-                "service_restarted": service_was_active
+                "service_restarted": run_service
             }
 
         except Exception as e:
-            # Rollback in case of error
-            await self._rollback_go_librespot(config, service_was_active)
-            self.update_logger.error(f"go-librespot update failed: {e}")
+            self.update_logger.error(f"{display_name} update failed: {e}")
+            if download_result:
+                await self._cleanup_temp_files(download_result.get("temp_dir"))
+            if service_stopped:
+                await self._rollback_binary_program(config, run_service)
             return {"success": False, "error": str(e)}
+
+    async def _backup_binary_program(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Backs up the program's binary, plus its config file when it has one.
+
+        A missing binary fails the backup on purpose: without one there is
+        nothing to roll back to, so the update must not start.
+        """
+        try:
+            backup_dir = Path(config["backup_path"])
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            binary_path = Path(config["binary_path"])
+            shutil.copy2(binary_path, backup_dir / f"{binary_path.name}.backup")
+
+            config_path = config.get("config_path")
+            if config_path and Path(config_path).exists():
+                shutil.copy2(config_path, backup_dir / f"{Path(config_path).name}.backup")
+
+            return {"success": True, "backup_dir": str(backup_dir)}
+
+        except Exception as e:
+            return {"success": False, "error": f"Backup failed: {e}"}
+
+    async def _download_binary_program(self, config: Dict[str, Any], version: str) -> Dict[str, Any]:
+        """Downloads the release tarball and extracts the program's binary from it."""
+        temp_dir = tempfile.mkdtemp(dir="/tmp")
+        binary_name = Path(config["binary_path"]).name
+        try:
+            url = config["asset_url"].format(version=version)
+
+            timeout = aiohttp.ClientTimeout(total=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
+
+                    archive_path = Path(temp_dir) / f"{binary_name}.tar.gz"
+                    async with aiofiles.open(archive_path, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            await f.write(chunk)
+
+            extract_dir = Path(temp_dir) / "extracted"
+            extract_dir.mkdir()
+
+            # Naming a member keeps the docs some tarballs ship out of the way.
+            tar_args = ["tar", "-xzf", str(archive_path), "-C", str(extract_dir)]
+            if config.get("tar_member"):
+                tar_args.append(config["tar_member"])
+
+            proc = await asyncio.create_subprocess_exec(
+                *tar_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await proc.communicate()
+
+            if proc.returncode != 0:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return {"success": False, "error": "Failed to extract archive"}
+
+            binary_path = extract_dir / binary_name
+            if not binary_path.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return {"success": False, "error": "Binary not found in archive"}
+
+            return {
+                "success": True,
+                "binary_path": str(binary_path),
+                "temp_dir": temp_dir
+            }
+
+        except Exception as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return {"success": False, "error": str(e)}
+
+    async def _verify_binary_program(self, config: Dict[str, Any], expect_service_active: bool) -> Dict[str, Any]:
+        """Verifies the new binary is in place and the service came back up."""
+        try:
+            if not Path(config["binary_path"]).exists():
+                return {"success": False, "error": f"{config['display_name']} binary not found after update"}
+
+            if expect_service_active and not await self._is_service_active(config["service_name"]):
+                return {"success": False, "error": f"{config['display_name']} service not running after update"}
+
+            return {"success": True}
+
+        except Exception as e:
+            return {"success": False, "error": f"Verification failed: {e}"}
+
+    async def _rollback_binary_program(self, config: Dict[str, Any], restart_service: bool = True) -> bool:
+        """Restores the backed-up binary, respecting the service's previous state."""
+        display_name = config["display_name"]
+        try:
+            binary_path = Path(config["binary_path"])
+            binary_backup = Path(config["backup_path"]) / f"{binary_path.name}.backup"
+            if not binary_backup.exists():
+                self.update_logger.error("No backup found for rollback")
+                return False
+
+            await self._stop_service(config["service_name"])
+            await asyncio.sleep(0.5)
+
+            # Copy backup to /tmp for install-binary (requires temp path)
+            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
+            shutil.copy2(binary_backup, tmp_backup)
+            try:
+                success, output = await self._run_deploy(
+                    "install-binary", str(tmp_backup), str(binary_path)
+                )
+                if not success:
+                    self.update_logger.error(f"Rollback install failed: {output}")
+                    return False
+            finally:
+                tmp_backup.unlink(missing_ok=True)
+
+            if restart_service:
+                await self._start_service(config["service_name"])
+
+            self.update_logger.info(f"{display_name} rollback completed (service {'restarted' if restart_service else 'left stopped'})")
+            return True
+
+        except Exception as e:
+            self.update_logger.error(f"{display_name} rollback failed: {e}")
+            return False
 
     async def _update_multiroom(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates both snapserver and snapclient atomically"""
@@ -1167,456 +1324,8 @@ class UpdateService(VersionService):
 
         return {"success": True}
 
-    # === CAMILLADSP (binary download) ===
-
-    async def _update_camilladsp(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Updates CamillaDSP binary from GitHub release.
-
-        CamillaDSP is an always-on service (volume control, DSP), so the service
-        must always be stopped before replacing the binary ("Text file busy").
-        """
-        config = self.update_config["camilladsp"]
-        latest_version = status["latest"]["version"]
-        service_stopped = False
-        download_result = None
-
-        try:
-            if progress_callback:
-                await progress_callback("updates.progress.creatingBackup", 10)
-
-            backup_result = await self._backup_camilladsp(config)
-            if not backup_result["success"]:
-                return backup_result
-
-            if progress_callback:
-                await progress_callback("updates.progress.downloadingCamillaDSP", 20)
-
-            download_result = await self._download_camilladsp(latest_version)
-            if not download_result["success"]:
-                return download_result
-
-            if progress_callback:
-                await progress_callback("updates.progress.stoppingService", 60)
-
-            # 3. Always stop service — binary cannot be replaced while in use
-            await self._stop_service(config["service_name"])
-            service_stopped = True
-            await asyncio.sleep(0.5)
-
-            if progress_callback:
-                await progress_callback("updates.progress.installingVersion", 70)
-
-            success, output = await self._run_deploy(
-                "install-binary", download_result["binary_path"], config["binary_path"]
-            )
-            if not success:
-                await self._cleanup_temp_files(download_result.get("temp_dir"))
-                await self._rollback_camilladsp(config)
-                return {"success": False, "error": f"Failed to install binary: {output}"}
-
-            if progress_callback:
-                await progress_callback("updates.progress.startingService", 90)
-
-            start_result = await self._start_service(config["service_name"])
-            if not start_result:
-                await self._cleanup_temp_files(download_result.get("temp_dir"))
-                await self._rollback_camilladsp(config)
-                return {"success": False, "error": "Failed to start CamillaDSP after update"}
-
-            if progress_callback:
-                await progress_callback("updates.progress.verifyingUpdate", 95)
-
-            verify_result = await self._verify_camilladsp_update(config)
-            if not verify_result["success"]:
-                await self._cleanup_temp_files(download_result.get("temp_dir"))
-                await self._rollback_camilladsp(config)
-                return verify_result
-
-            if progress_callback:
-                await progress_callback("updates.progress.completed", 100)
-
-            await self._cleanup_temp_files(download_result.get("temp_dir"))
-
-            return {
-                "success": True,
-                "message": f"CamillaDSP updated to {latest_version}",
-                "old_version": status["installed"]["versions"].get("main"),
-                "new_version": latest_version
-            }
-
-        except Exception as e:
-            if download_result:
-                await self._cleanup_temp_files(download_result.get("temp_dir"))
-            if service_stopped:
-                await self._rollback_camilladsp(config)
-            self.update_logger.error(f"CamillaDSP update failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    async def _backup_camilladsp(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Backs up CamillaDSP binary"""
-        try:
-            backup_dir = Path(config["backup_path"])
-            backup_dir.mkdir(parents=True, exist_ok=True)
-
-            shutil.copy2(config["binary_path"], backup_dir / "camilladsp.backup")
-
-            return {"success": True, "backup_dir": str(backup_dir)}
-        except Exception as e:
-            return {"success": False, "error": f"Backup failed: {e}"}
-
-    async def _download_camilladsp(self, version: str) -> Dict[str, Any]:
-        """Downloads CamillaDSP binary from GitHub"""
-        temp_dir = tempfile.mkdtemp(dir="/tmp")
-        try:
-            url = f"https://github.com/HEnquist/camilladsp/releases/download/v{version}/camilladsp-linux-aarch64.tar.gz"
-
-            timeout = aiohttp.ClientTimeout(total=300)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
-
-                    archive_path = Path(temp_dir) / "camilladsp.tar.gz"
-                    async with aiofiles.open(archive_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
-
-            # Extract archive
-            extract_dir = Path(temp_dir) / "extracted"
-            extract_dir.mkdir()
-
-            proc = await asyncio.create_subprocess_exec(
-                "tar", "-xzf", str(archive_path), "-C", str(extract_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await proc.communicate()
-
-            if proc.returncode != 0:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return {"success": False, "error": "Failed to extract archive"}
-
-            binary_path = extract_dir / "camilladsp"
-            if not binary_path.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return {"success": False, "error": "Binary not found in archive"}
-
-            return {
-                "success": True,
-                "binary_path": str(binary_path),
-                "temp_dir": temp_dir
-            }
-        except Exception as e:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return {"success": False, "error": str(e)}
-
-    async def _verify_camilladsp_update(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Verifies CamillaDSP was updated successfully"""
-        try:
-            if not Path(config["binary_path"]).exists():
-                return {"success": False, "error": "CamillaDSP binary not found after update"}
-
-            is_active = await self._is_service_active(config["service_name"])
-            if not is_active:
-                return {"success": False, "error": "CamillaDSP service not running after update"}
-
-            return {"success": True}
-        except Exception as e:
-            return {"success": False, "error": f"Verification failed: {e}"}
-
-    async def _rollback_camilladsp(self, config: Dict[str, Any]) -> bool:
-        """Rollback CamillaDSP binary and restart the service"""
-        try:
-            binary_backup = Path(config["backup_path"]) / "camilladsp.backup"
-            if not binary_backup.exists():
-                self.update_logger.error("No backup found for rollback")
-                return False
-
-            await self._stop_service(config["service_name"])
-            await asyncio.sleep(0.5)
-
-            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
-            shutil.copy2(binary_backup, tmp_backup)
-            try:
-                success, output = await self._run_deploy(
-                    "install-binary", str(tmp_backup), config["binary_path"]
-                )
-                if not success:
-                    self.update_logger.error(f"Rollback install failed: {output}")
-                    return False
-            finally:
-                tmp_backup.unlink(missing_ok=True)
-
-            await self._start_service(config["service_name"])
-
-            self.update_logger.info("CamillaDSP rollback completed, service restarted")
-            return True
-        except Exception as e:
-            self.update_logger.error(f"CamillaDSP rollback failed: {e}")
-            return False
-
-    async def _update_navidrome(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Updates Navidrome binary from GitHub release.
-
-        Navidrome (Music Library catalog engine) is an always-on service; the
-        binary is busy while running, so the service must be stopped before it
-        is replaced. Same shape as CamillaDSP — only the release asset naming
-        differs (version embedded in the filename).
-        """
-        config = self.update_config["navidrome"]
-        latest_version = status["latest"]["version"]
-        service_stopped = False
-        download_result = None
-
-        try:
-            if progress_callback:
-                await progress_callback("updates.progress.creatingBackup", 10)
-
-            backup_result = await self._backup_navidrome(config)
-            if not backup_result["success"]:
-                return backup_result
-
-            if progress_callback:
-                await progress_callback("updates.progress.downloadingNavidrome", 20)
-
-            download_result = await self._download_navidrome(latest_version)
-            if not download_result["success"]:
-                return download_result
-
-            if progress_callback:
-                await progress_callback("updates.progress.stoppingService", 60)
-
-            # Always stop service — binary cannot be replaced while in use
-            await self._stop_service(config["service_name"])
-            service_stopped = True
-            await asyncio.sleep(0.5)
-
-            if progress_callback:
-                await progress_callback("updates.progress.installingVersion", 70)
-
-            success, output = await self._run_deploy(
-                "install-binary", download_result["binary_path"], config["binary_path"]
-            )
-            if not success:
-                await self._cleanup_temp_files(download_result.get("temp_dir"))
-                await self._rollback_navidrome(config)
-                return {"success": False, "error": f"Failed to install binary: {output}"}
-
-            if progress_callback:
-                await progress_callback("updates.progress.startingService", 90)
-
-            start_result = await self._start_service(config["service_name"])
-            if not start_result:
-                await self._cleanup_temp_files(download_result.get("temp_dir"))
-                await self._rollback_navidrome(config)
-                return {"success": False, "error": "Failed to start Navidrome after update"}
-
-            if progress_callback:
-                await progress_callback("updates.progress.verifyingUpdate", 95)
-
-            verify_result = await self._verify_navidrome_update(config)
-            if not verify_result["success"]:
-                await self._cleanup_temp_files(download_result.get("temp_dir"))
-                await self._rollback_navidrome(config)
-                return verify_result
-
-            if progress_callback:
-                await progress_callback("updates.progress.completed", 100)
-
-            await self._cleanup_temp_files(download_result.get("temp_dir"))
-
-            return {
-                "success": True,
-                "message": f"Navidrome updated to {latest_version}",
-                "old_version": status["installed"]["versions"].get("main"),
-                "new_version": latest_version
-            }
-
-        except Exception as e:
-            if download_result:
-                await self._cleanup_temp_files(download_result.get("temp_dir"))
-            if service_stopped:
-                await self._rollback_navidrome(config)
-            self.update_logger.error(f"Navidrome update failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    async def _backup_navidrome(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Backs up Navidrome binary"""
-        try:
-            backup_dir = Path(config["backup_path"])
-            backup_dir.mkdir(parents=True, exist_ok=True)
-
-            shutil.copy2(config["binary_path"], backup_dir / "navidrome.backup")
-
-            return {"success": True, "backup_dir": str(backup_dir)}
-        except Exception as e:
-            return {"success": False, "error": f"Backup failed: {e}"}
-
-    async def _download_navidrome(self, version: str) -> Dict[str, Any]:
-        """Downloads Navidrome binary from GitHub.
-
-        Release asset embeds the version (navidrome_{version}_linux_arm64.tar.gz)
-        and the tarball ships extra files (README/LICENSE) alongside the bare
-        `navidrome` binary — extraction targets the binary member only.
-        """
-        temp_dir = tempfile.mkdtemp(dir="/tmp")
-        try:
-            url = f"https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_arm64.tar.gz"
-
-            timeout = aiohttp.ClientTimeout(total=300)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
-
-                    archive_path = Path(temp_dir) / "navidrome.tar.gz"
-                    async with aiofiles.open(archive_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
-
-            extract_dir = Path(temp_dir) / "extracted"
-            extract_dir.mkdir()
-
-            proc = await asyncio.create_subprocess_exec(
-                "tar", "-xzf", str(archive_path), "-C", str(extract_dir), "navidrome",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await proc.communicate()
-
-            if proc.returncode != 0:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return {"success": False, "error": "Failed to extract archive"}
-
-            binary_path = extract_dir / "navidrome"
-            if not binary_path.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return {"success": False, "error": "Binary not found in archive"}
-
-            return {
-                "success": True,
-                "binary_path": str(binary_path),
-                "temp_dir": temp_dir
-            }
-        except Exception as e:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return {"success": False, "error": str(e)}
-
-    async def _verify_navidrome_update(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Verifies Navidrome was updated successfully"""
-        try:
-            if not Path(config["binary_path"]).exists():
-                return {"success": False, "error": "Navidrome binary not found after update"}
-
-            is_active = await self._is_service_active(config["service_name"])
-            if not is_active:
-                return {"success": False, "error": "Navidrome service not running after update"}
-
-            return {"success": True}
-        except Exception as e:
-            return {"success": False, "error": f"Verification failed: {e}"}
-
-    async def _rollback_navidrome(self, config: Dict[str, Any]) -> bool:
-        """Rollback Navidrome binary and restart the service"""
-        try:
-            binary_backup = Path(config["backup_path"]) / "navidrome.backup"
-            if not binary_backup.exists():
-                self.update_logger.error("No backup found for rollback")
-                return False
-
-            await self._stop_service(config["service_name"])
-            await asyncio.sleep(0.5)
-
-            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
-            shutil.copy2(binary_backup, tmp_backup)
-            try:
-                success, output = await self._run_deploy(
-                    "install-binary", str(tmp_backup), config["binary_path"]
-                )
-                if not success:
-                    self.update_logger.error(f"Rollback install failed: {output}")
-                    return False
-            finally:
-                tmp_backup.unlink(missing_ok=True)
-
-            await self._start_service(config["service_name"])
-
-            self.update_logger.info("Navidrome rollback completed, service restarted")
-            return True
-        except Exception as e:
-            self.update_logger.error(f"Navidrome rollback failed: {e}")
-            return False
 
     # === UTILITY METHODS ===
-
-    async def _backup_go_librespot(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Backs up go-librespot"""
-        try:
-            backup_dir = Path(config["backup_path"])
-            backup_dir.mkdir(parents=True, exist_ok=True)
-
-            binary_backup = backup_dir / "go-librespot.backup"
-            shutil.copy2(config["binary_path"], binary_backup)
-
-            # Backup config if it exists
-            config_path = Path(config["config_path"])
-            if config_path.exists():
-                config_backup = backup_dir / "config.yml.backup"
-                shutil.copy2(config_path, config_backup)
-
-            return {"success": True, "backup_dir": str(backup_dir)}
-
-        except Exception as e:
-            return {"success": False, "error": f"Backup failed: {e}"}
-
-    async def _download_go_librespot(self, version: str) -> Dict[str, Any]:
-        """Downloads go-librespot from GitHub"""
-        temp_dir = tempfile.mkdtemp(dir="/tmp")
-        try:
-            url = f"https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz"
-
-            timeout = aiohttp.ClientTimeout(total=300)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
-
-                    archive_path = Path(temp_dir) / "go-librespot.tar.gz"
-                    async with aiofiles.open(archive_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
-
-            extract_dir = Path(temp_dir) / "extracted"
-            extract_dir.mkdir()
-
-            proc = await asyncio.create_subprocess_exec(
-                "tar", "-xzf", str(archive_path), "-C", str(extract_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await proc.communicate()
-
-            if proc.returncode != 0:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return {"success": False, "error": "Failed to extract archive"}
-
-            binary_path = extract_dir / "go-librespot"
-            if not binary_path.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return {"success": False, "error": "Binary not found in archive"}
-
-            return {
-                "success": True,
-                "binary_path": str(binary_path),
-                "temp_dir": temp_dir
-            }
-
-        except Exception as e:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return {"success": False, "error": str(e)}
 
 
     async def _get_debian_codename(self) -> str:
@@ -1681,14 +1390,6 @@ class UpdateService(VersionService):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def _install_go_librespot_binary(self, binary_path: str) -> Dict[str, Any]:
-        """Installs the new go-librespot binary via milo-deploy-update."""
-        success, output = await self._run_deploy(
-            "install-binary", binary_path, "/usr/local/bin/go-librespot"
-        )
-        if not success:
-            return {"success": False, "error": f"Failed to install binary: {output}"}
-        return {"success": True}
 
     async def _install_deb_package(self, deb_path: str) -> Dict[str, Any]:
         """Installs a .deb package via milo-deploy-update (dpkg + apt-get -f)."""
@@ -1717,53 +1418,6 @@ class UpdateService(VersionService):
         """Restarts a systemd service."""
         return await self._systemd.restart(service_name)
 
-    async def _verify_go_librespot_update(self, expected_version: str) -> Dict[str, Any]:
-        """Verifies that go-librespot was updated by checking binary exists and service runs"""
-        try:
-            config = self.update_config["go-librespot"]
-            if not Path(config["binary_path"]).exists():
-                return {"success": False, "error": "go-librespot binary not found after update"}
-
-            if not await self._is_service_active(config["service_name"]):
-                return {"success": False, "error": "go-librespot service not running after update"}
-
-            return {"success": True, "verified_version": expected_version}
-
-        except Exception as e:
-            return {"success": False, "error": f"Verification failed: {e}"}
-
-    async def _rollback_go_librespot(self, config: Dict[str, Any], service_was_active: bool = True) -> bool:
-        """Rollback go-librespot to the backed up version, respecting previous service state."""
-        try:
-            binary_backup = Path(config["backup_path"]) / "go-librespot.backup"
-            if not binary_backup.exists():
-                self.update_logger.error("No backup found for rollback")
-                return False
-
-            await self._stop_service(config["service_name"])
-
-            # Copy backup to /tmp for install-binary (requires temp path)
-            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
-            shutil.copy2(binary_backup, tmp_backup)
-            try:
-                success, output = await self._run_deploy(
-                    "install-binary", str(tmp_backup), config["binary_path"]
-                )
-                if not success:
-                    self.update_logger.error(f"Rollback install failed: {output}")
-                    return False
-            finally:
-                tmp_backup.unlink(missing_ok=True)
-
-            if service_was_active:
-                await self._start_service(config["service_name"])
-
-            self.update_logger.info(f"go-librespot rollback completed (service {'restarted' if service_was_active else 'left stopped'})")
-            return True
-
-        except Exception as e:
-            self.update_logger.error(f"Rollback failed: {e}")
-            return False
 
     async def _cleanup_temp_files(self, temp_dir: Optional[str]) -> None:
         """Cleans up temporary files"""
