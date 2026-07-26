@@ -845,7 +845,7 @@ git push origin feature/my-feature
 - [ ] Code formatted (Black for Python, Prettier for JS)
 - [ ] No linter warnings
 - [ ] Documentation updated if necessary
-- [ ] Tested locally on Raspberry Pi
+- [ ] Tested locally on Raspberry Pi — audio path / source / hardware changes: smoke subset of [manual/verification-checklist.md](manual/verification-checklist.md) run on a unit
 
 ## Important points
 
