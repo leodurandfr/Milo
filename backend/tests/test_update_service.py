@@ -3,6 +3,7 @@
 Tests for UpdateService — update orchestration, backup/restore, service management.
 """
 import asyncio
+from contextlib import ExitStack, contextmanager
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -20,6 +21,12 @@ def update_service():
     """
     with patch.dict("os.environ", {}, clear=True):
         return UpdateService(systemd_manager=SystemdServiceManager())
+
+
+# The programs served by the one shared _update_binary_program flow. Kept as a
+# literal rather than derived from update_config so a program dropping out of
+# the flow is a visible test edit, not a silently shrinking parametrization.
+BINARY_PROGRAMS = ["go-librespot", "camilladsp", "navidrome"]
 
 
 def _make_mock_proc(returncode=0, stdout=b"", stderr=b""):
@@ -63,15 +70,21 @@ class TestUpdateProgram:
         assert "No update available" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_dispatches_to_go_librespot(self, update_service):
+    @pytest.mark.parametrize("program_key", BINARY_PROGRAMS)
+    async def test_dispatches_to_binary_program(self, update_service, program_key):
+        """The three tarball-binary programs must all reach the shared flow.
+
+        A missing "asset_url" in update_config would silently fall through to
+        "Update handler not implemented" instead.
+        """
         status = {"update_available": True, "latest": {"version": "0.7.0"}}
         expected_result = {"success": True, "message": "updated"}
 
         with patch.object(update_service, "get_program_full_status", return_value=status):
-            with patch.object(update_service, "_update_go_librespot", return_value=expected_result) as mock_update:
-                result = await update_service.update_program("go-librespot")
+            with patch.object(update_service, "_update_binary_program", return_value=expected_result) as mock_update:
+                result = await update_service.update_program(program_key)
 
-        mock_update.assert_called_once()
+        assert mock_update.await_args.args[0] == program_key
         assert result["success"] is True
 
     @pytest.mark.asyncio
@@ -122,7 +135,7 @@ class TestUpdateProgram:
         status = {"update_available": True, "latest": {"version": "0.7.0"}}
 
         with patch.object(update_service, "get_program_full_status", return_value=status):
-            with patch.object(update_service, "_update_go_librespot", return_value={"success": True}):
+            with patch.object(update_service, "_update_binary_program", return_value={"success": True}):
                 await update_service.update_program("go-librespot", progress_callback=callback)
 
         callback.assert_called_with("Initializing update...", 0)
@@ -234,8 +247,8 @@ class TestServiceManagement:
         assert result is False
 
 
-class TestBackupGoLibrespot:
-    """Tests for _backup_go_librespot()"""
+class TestBackupBinaryProgram:
+    """Tests for _backup_binary_program()"""
 
     @pytest.mark.asyncio
     async def test_successful_backup(self, update_service, tmp_path):
@@ -248,7 +261,7 @@ class TestBackupGoLibrespot:
         (tmp_path / "go-librespot").write_text("binary")
         (tmp_path / "config.yml").write_text("config")
 
-        result = await update_service._backup_go_librespot(config)
+        result = await update_service._backup_binary_program(config)
         assert result["success"] is True
         assert (tmp_path / "backups" / "go-librespot.backup").exists()
         assert (tmp_path / "backups" / "config.yml.backup").exists()
@@ -263,19 +276,33 @@ class TestBackupGoLibrespot:
         (tmp_path / "go-librespot").write_text("binary")
         # No config file
 
-        result = await update_service._backup_go_librespot(config)
+        result = await update_service._backup_binary_program(config)
         assert result["success"] is True
         assert (tmp_path / "backups" / "go-librespot.backup").exists()
         assert not (tmp_path / "backups" / "config.yml.backup").exists()
 
     @pytest.mark.asyncio
+    async def test_backup_program_without_config_path(self, update_service, tmp_path):
+        """CamillaDSP and Navidrome declare no config_path at all."""
+        config = {
+            "binary_path": str(tmp_path / "camilladsp"),
+            "backup_path": str(tmp_path / "backups")
+        }
+        (tmp_path / "camilladsp").write_text("binary")
+
+        result = await update_service._backup_binary_program(config)
+        assert result["success"] is True
+        assert (tmp_path / "backups" / "camilladsp.backup").exists()
+
+    @pytest.mark.asyncio
     async def test_backup_missing_binary(self, update_service, tmp_path):
+        """No binary means no rollback target, so the update must not start."""
         config = {
             "binary_path": str(tmp_path / "nonexistent"),
             "config_path": str(tmp_path / "config.yml"),
             "backup_path": str(tmp_path / "backups")
         }
-        result = await update_service._backup_go_librespot(config)
+        result = await update_service._backup_binary_program(config)
         assert result["success"] is False
 
 
@@ -305,29 +332,30 @@ class TestBackupShairportSync:
         assert result["success"] is True
 
 
-class TestRollbackGoLibrespot:
-    """Tests for _rollback_go_librespot()"""
+def _rollback_config(tmp_path):
+    return {
+        "display_name": "go-librespot",
+        "backup_path": str(tmp_path / "backups"),
+        "binary_path": "/usr/local/bin/go-librespot",
+        "service_name": "milo-spotify.service"
+    }
+
+
+class TestRollbackBinaryProgram:
+    """Tests for _rollback_binary_program()"""
 
     @pytest.mark.asyncio
     async def test_no_backup_returns_false(self, update_service, tmp_path):
-        config = {
-            "backup_path": str(tmp_path / "backups"),
-            "binary_path": "/usr/local/bin/go-librespot",
-            "service_name": "milo-spotify.service"
-        }
+        config = _rollback_config(tmp_path)
         (tmp_path / "backups").mkdir()
 
         with patch.object(update_service, "_stop_service", return_value=True):
-            result = await update_service._rollback_go_librespot(config, service_was_active=True)
+            result = await update_service._rollback_binary_program(config, restart_service=True)
         assert result is False
 
     @pytest.mark.asyncio
     async def test_rollback_with_active_service(self, update_service, tmp_path):
-        config = {
-            "backup_path": str(tmp_path / "backups"),
-            "binary_path": "/usr/local/bin/go-librespot",
-            "service_name": "milo-spotify.service"
-        }
+        config = _rollback_config(tmp_path)
         (tmp_path / "backups").mkdir()
         (tmp_path / "backups" / "go-librespot.backup").write_text("old binary")
 
@@ -335,17 +363,13 @@ class TestRollbackGoLibrespot:
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             with patch.object(update_service, "_stop_service", return_value=True):
                 with patch.object(update_service, "_start_service", return_value=True):
-                    result = await update_service._rollback_go_librespot(config, service_was_active=True)
+                    result = await update_service._rollback_binary_program(config, restart_service=True)
 
         assert result is True
 
     @pytest.mark.asyncio
     async def test_rollback_inactive_service_not_started(self, update_service, tmp_path):
-        config = {
-            "backup_path": str(tmp_path / "backups"),
-            "binary_path": "/usr/local/bin/go-librespot",
-            "service_name": "milo-spotify.service"
-        }
+        config = _rollback_config(tmp_path)
         (tmp_path / "backups").mkdir()
         (tmp_path / "backups" / "go-librespot.backup").write_text("old binary")
 
@@ -353,29 +377,34 @@ class TestRollbackGoLibrespot:
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             with patch.object(update_service, "_stop_service", return_value=True):
                 with patch.object(update_service, "_start_service", return_value=True) as mock_start:
-                    result = await update_service._rollback_go_librespot(config, service_was_active=False)
+                    result = await update_service._rollback_binary_program(config, restart_service=False)
 
         assert result is True
         mock_start.assert_not_called()
 
 
-class TestInstallGoLibrespotBinary:
-    """Tests for _install_go_librespot_binary()"""
+class TestRunDeploy:
+    """Tests for _run_deploy() — the privileged milo-deploy-update wrapper.
+
+    Every program's install and rollback goes through it, so its
+    (ok, output) contract is what turns a failed deploy into a rollback.
+    """
 
     @pytest.mark.asyncio
-    async def test_successful_install(self, update_service):
-        proc = _make_mock_proc()
+    async def test_success_returns_stdout(self, update_service):
+        proc = _make_mock_proc(stdout=b"installed\n")
         with patch("asyncio.create_subprocess_exec", return_value=proc):
-            result = await update_service._install_go_librespot_binary("/tmp/go-librespot")
-        assert result["success"] is True
+            ok, output = await update_service._run_deploy("install-binary", "/tmp/x", "/usr/local/bin/x")
+        assert ok is True
+        assert output == "installed"
 
     @pytest.mark.asyncio
-    async def test_copy_failure(self, update_service):
+    async def test_failure_returns_stderr(self, update_service):
         proc = _make_mock_proc(returncode=1, stderr=b"permission denied")
         with patch("asyncio.create_subprocess_exec", return_value=proc):
-            result = await update_service._install_go_librespot_binary("/tmp/go-librespot")
-        assert result["success"] is False
-        assert "permission denied" in result["error"]
+            ok, output = await update_service._run_deploy("install-binary", "/tmp/x", "/usr/local/bin/x")
+        assert ok is False
+        assert "permission denied" in output
 
 
 class TestInstallDebPackage:
@@ -506,99 +535,144 @@ class TestCanUpdateProgram:
         assert "deploy wrapper" in result["reason"].lower()
 
 
-class TestUpdateGoLibrespot:
-    """Tests for _update_go_librespot() orchestration"""
+class TestUpdateBinaryProgram:
+    """Tests for _update_binary_program() — the single flow behind go-librespot,
+    CamillaDSP and Navidrome.
+
+    The mocks stand for the outside world the flow drives (systemd, the deploy
+    wrapper, the download); the assertions are what it did to them, and in
+    which order, under which failure.
+    """
+
+    @staticmethod
+    @contextmanager
+    def _flow(service, *, service_active, backup=None, download=None, deploy=(True, ""), stop=True):
+        """Stack the collaborators, leaving the flow under test real."""
+        returns = {
+            "_is_service_active": service_active,
+            "_backup_binary_program": backup or {"success": True},
+            "_download_binary_program": download or {
+                "success": True, "binary_path": "/tmp/bin", "temp_dir": "/tmp/dl"
+            },
+            "_run_deploy": deploy,
+            "_verify_binary_program": {"success": True},
+            "_stop_service": stop,
+            "_start_service": True,
+            "_rollback_binary_program": True,
+            "_cleanup_temp_files": None,
+        }
+        with ExitStack() as stack:
+            mocks = {
+                name: stack.enter_context(patch.object(service, name, return_value=value))
+                for name, value in returns.items()
+            }
+            # The flow waits for the kernel to release the running binary.
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            yield mocks
 
     @pytest.mark.asyncio
-    async def test_successful_update_service_active(self, update_service):
-        status = {
-            "installed": {"versions": {"main": "0.6.1"}},
-            "latest": {"version": "0.7.0"}
-        }
+    @pytest.mark.parametrize("program_key", BINARY_PROGRAMS)
+    async def test_successful_update_with_active_service(self, update_service, program_key):
+        status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
         callback = AsyncMock()
 
-        with patch.object(update_service, "_is_service_active", return_value=True):
-            with patch.object(update_service, "_backup_go_librespot", return_value={"success": True}):
-                with patch.object(update_service, "_download_go_librespot", return_value={
-                    "success": True, "binary_path": "/tmp/bin", "temp_dir": "/tmp/dl"
-                }):
-                    with patch.object(update_service, "_stop_service", return_value=True):
-                        with patch.object(update_service, "_install_go_librespot_binary", return_value={"success": True}):
-                            with patch.object(update_service, "_start_service", return_value=True):
-                                with patch.object(update_service, "_verify_go_librespot_update", return_value={"success": True}):
-                                    with patch.object(update_service, "_cleanup_temp_files"):
-                                        with patch("pathlib.Path.exists", return_value=False):
-                                            result = await update_service._update_go_librespot(status, callback)
+        with self._flow(update_service, service_active=True) as mocks:
+            result = await update_service._update_binary_program(program_key, status, callback)
 
         assert result["success"] is True
         assert result["new_version"] == "0.7.0"
         assert result["service_restarted"] is True
+        mocks["_stop_service"].assert_awaited_once()
+        mocks["_start_service"].assert_awaited_once()
+        mocks["_rollback_binary_program"].assert_not_awaited()
+        assert mocks["_run_deploy"].await_args.args[0] == "install-binary"
 
     @pytest.mark.asyncio
-    async def test_backup_failure_aborts(self, update_service):
+    async def test_on_demand_program_leaves_inactive_service_stopped(self, update_service):
+        """go-librespot's Spotify service is on-demand: updating must not start it."""
         status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
 
-        with patch.object(update_service, "_is_service_active", return_value=False):
-            with patch.object(update_service, "_backup_go_librespot", return_value={
-                "success": False, "error": "Backup failed"
-            }):
-                result = await update_service._update_go_librespot(status)
+        with self._flow(update_service, service_active=False) as mocks:
+            result = await update_service._update_binary_program("go-librespot", status)
+
+        assert result["success"] is True
+        assert result["service_restarted"] is False
+        mocks["_stop_service"].assert_not_awaited()
+        mocks["_start_service"].assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("program_key", ["camilladsp", "navidrome"])
+    async def test_always_on_program_restarts_even_when_inactive(self, update_service, program_key):
+        """CamillaDSP and Navidrome are always-on: the binary cannot be swapped
+        while it is in use, and the service must be back up afterwards — whatever
+        state it happened to be in when the update started.
+        """
+        status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
+
+        with self._flow(update_service, service_active=False) as mocks:
+            result = await update_service._update_binary_program(program_key, status)
+
+        assert result["success"] is True
+        assert result["service_restarted"] is True
+        mocks["_stop_service"].assert_awaited_once()
+        mocks["_start_service"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_backup_failure_aborts_before_download(self, update_service):
+        status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
+
+        with self._flow(
+            update_service, service_active=False,
+            backup={"success": False, "error": "Backup failed"}
+        ) as mocks:
+            result = await update_service._update_binary_program("go-librespot", status)
 
         assert result["success"] is False
         assert "Backup failed" in result["error"]
+        mocks["_download_binary_program"].assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_download_failure_aborts(self, update_service):
+    async def test_download_failure_aborts_before_stopping(self, update_service):
         status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
 
-        with patch.object(update_service, "_is_service_active", return_value=False):
-            with patch.object(update_service, "_backup_go_librespot", return_value={"success": True}):
-                with patch.object(update_service, "_download_go_librespot", return_value={
-                    "success": False, "error": "HTTP 404"
-                }):
-                    result = await update_service._update_go_librespot(status)
+        with self._flow(
+            update_service, service_active=True,
+            download={"success": False, "error": "HTTP 404"}
+        ) as mocks:
+            result = await update_service._update_binary_program("go-librespot", status)
 
         assert result["success"] is False
+        mocks["_stop_service"].assert_not_awaited()
+        mocks["_run_deploy"].assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_install_failure_triggers_rollback(self, update_service):
+    async def test_stop_failure_aborts_without_touching_the_binary(self, update_service):
+        """A service that will not stop would make install-binary hit "Text file
+        busy"; aborting keeps the working binary in place.
+        """
         status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
 
-        with patch.object(update_service, "_is_service_active", return_value=True):
-            with patch.object(update_service, "_backup_go_librespot", return_value={"success": True}):
-                with patch.object(update_service, "_download_go_librespot", return_value={
-                    "success": True, "binary_path": "/tmp/bin", "temp_dir": "/tmp/dl"
-                }):
-                    with patch.object(update_service, "_stop_service", return_value=True):
-                        with patch.object(update_service, "_install_go_librespot_binary", return_value={
-                            "success": False, "error": "install failed"
-                        }):
-                            with patch.object(update_service, "_rollback_go_librespot") as mock_rollback:
-                                result = await update_service._update_go_librespot(status)
+        with self._flow(update_service, service_active=True, stop=False) as mocks:
+            result = await update_service._update_binary_program("camilladsp", status)
 
-        mock_rollback.assert_called_once()
         assert result["success"] is False
+        mocks["_run_deploy"].assert_not_awaited()
+        mocks["_cleanup_temp_files"].assert_awaited()
 
     @pytest.mark.asyncio
-    async def test_service_inactive_skips_stop_start(self, update_service):
+    @pytest.mark.parametrize("program_key", BINARY_PROGRAMS)
+    async def test_install_failure_rolls_back_and_cleans_up(self, update_service, program_key):
         status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
 
-        with patch.object(update_service, "_is_service_active", return_value=False):
-            with patch.object(update_service, "_backup_go_librespot", return_value={"success": True}):
-                with patch.object(update_service, "_download_go_librespot", return_value={
-                    "success": True, "binary_path": "/tmp/bin", "temp_dir": "/tmp/dl"
-                }):
-                    with patch.object(update_service, "_install_go_librespot_binary", return_value={"success": True}):
-                        with patch.object(update_service, "_stop_service") as mock_stop:
-                            with patch.object(update_service, "_start_service") as mock_start:
-                                with patch.object(update_service, "_cleanup_temp_files"):
-                                    with patch("pathlib.Path.exists", return_value=False):
-                                        result = await update_service._update_go_librespot(status)
+        with self._flow(
+            update_service, service_active=True, deploy=(False, "install failed")
+        ) as mocks:
+            result = await update_service._update_binary_program(program_key, status)
 
-        mock_stop.assert_not_called()
-        mock_start.assert_not_called()
-        assert result["success"] is True
-        assert result["service_restarted"] is False
+        assert result["success"] is False
+        assert "install failed" in result["error"]
+        mocks["_rollback_binary_program"].assert_awaited_once()
+        mocks["_cleanup_temp_files"].assert_awaited()
 
 
 class TestUpdateMultiroom:
@@ -774,30 +848,46 @@ class TestUpdateMiloApp:
         assert "Git fetch failed" in result["error"]
 
 
-class TestVerifyGoLibrespotUpdate:
-    """Tests for _verify_go_librespot_update()"""
+class TestVerifyBinaryProgram:
+    """Tests for _verify_binary_program()"""
 
     @pytest.mark.asyncio
     async def test_binary_missing(self, update_service):
+        config = update_service.update_config["go-librespot"]
         with patch("pathlib.Path.exists", return_value=False):
-            result = await update_service._verify_go_librespot_update("0.7.0")
+            result = await update_service._verify_binary_program(config, True)
         assert result["success"] is False
         assert "binary not found" in result["error"]
 
     @pytest.mark.asyncio
     async def test_service_not_running(self, update_service):
+        config = update_service.update_config["camilladsp"]
         proc = _make_mock_proc(stdout=b"inactive\n")
         with patch("pathlib.Path.exists", return_value=True):
             with patch("asyncio.create_subprocess_exec", return_value=proc):
-                result = await update_service._verify_go_librespot_update("0.7.0")
+                result = await update_service._verify_binary_program(config, True)
         assert result["success"] is False
+        assert "not running" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_service_not_checked_when_left_stopped(self, update_service):
+        """A go-librespot update that deliberately left the service stopped must
+        still verify as successful — only the binary is checked.
+        """
+        config = update_service.update_config["go-librespot"]
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch.object(update_service, "_is_service_active") as mock_active:
+                result = await update_service._verify_binary_program(config, False)
+        assert result["success"] is True
+        mock_active.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_verification_success(self, update_service):
+        config = update_service.update_config["navidrome"]
         proc = _make_mock_proc(stdout=b"active\n")
         with patch("pathlib.Path.exists", return_value=True):
             with patch("asyncio.create_subprocess_exec", return_value=proc):
-                result = await update_service._verify_go_librespot_update("0.7.0")
+                result = await update_service._verify_binary_program(config, True)
         assert result["success"] is True
 
 
