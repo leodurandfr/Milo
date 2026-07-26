@@ -54,10 +54,12 @@ jobs:
       - name: Lint CSS
         working-directory: frontend
         run: npm run lint:css
-      # Frontend tests (vitest) are temporarily skipped in CI — the suite still
-      # mocks `axios.*` directly, but RFC 17 migrated stores to apiCall, so 97
-      # tests are stale. Re-enable once the suite has been retargeted at
-      # `apiCall` / fetch mocking.
+      # The structural guardrails (tests/i18n, tests/schemas, tests/architecture)
+      # read backend sources — backend/core/models/ws_events.py, audio_state.py —
+      # so this job needs the whole checkout, not just frontend/.
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm run test:run
 
   milo-mac-freshness:
     name: Milo-Mac contract freshness (non-blocking)

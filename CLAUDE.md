@@ -27,6 +27,7 @@ python -m pytest [-v] [-k name]      # tests
 npm run dev                          # dev server on :5173 (proxies API to backend)
 npm run build                        # → frontend/dist/ (runs lint:css first)
 npm run lint                         # eslint + stylelint
+npm run test:run                     # vitest (needs the full repo: guardrails read backend/)
 
 # Service / logs
 sudo journalctl -u milo-backend -f
@@ -157,12 +158,23 @@ Never create a branch unless explicitly asked — commit to the current branch, 
 
 ## Lint floor
 
-CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `ruff check backend/`, `pytest backend/`, `npm run lint:js`, `npm run lint:css`. Enforced rules:
+CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `ruff check backend/`, `pytest backend/`, `npm run lint:js`, `npm run lint:css`, `npm run test:run`. Enforced rules:
 - **eslint:** `no-restricted-imports` (axios outside `apiCall.js`), `no-restricted-syntax` (`console.*`), `no-restricted-globals` (bare timers).
 - **ruff:** `S110`/`S112` (try-except-pass/continue).
 - **stylelint:** `color-no-hex`, no `rgba|hsla` on color properties, no typography redefinition in scoped CSS.
 
-**Frontend Vitest** suite exists in `frontend/tests/` but is **temporarily skipped in CI** — ~97 tests still mock `axios.*` after the apiCall migration; re-enable once retargeted at `apiCall`. Bypass a rule only with a per-line directive + reason (`# noqa: S110 -- <why>`, `// eslint-disable-next-line <rule> -- <why>`); no file/repo-level disables. History + deferred items (TypeScript, pyright strict, husky): [docs/development.md](docs/development.md).
+Bypass a rule only with a per-line directive + reason (`# noqa: S110 -- <why>`, `// eslint-disable-next-line <rule> -- <why>`); no file/repo-level disables. History + deferred items (TypeScript, pyright strict, husky): [docs/development.md](docs/development.md).
+
+## Frontend tests — what earns one
+
+`frontend/tests/` is **blocking again** (`npm run test:run`). It buys leverage, not coverage: this UI is refactored often, so a test that mounts a component and asserts rendered markup or CSS classes breaks on every redesign for near-zero defect yield. **Do not write them.** Four kinds earn their keep:
+
+1. **Structural guardrails** (`tests/i18n/`, `tests/schemas/ws.test.js`, `tests/architecture/`) — mount nothing, and go red only when a real contract moves. Two of them read the **backend** sources directly (`core/models/ws_events.py`, `core/models/audio_state.py`) and derive their expectations from those typed models rather than from hand-written fixtures, so backend drift surfaces on the frontend build. Every extractor asserts its own output is non-trivial first: a broken parse must **fail loudly, not pass on an empty surface** (same doctrine as the Milo-Mac contract test).
+2. **Store logic** — WS delta handling, derived state, guards. Drive the real stores through their own handlers; don't mock a sibling store, or you assert a fixture of its API instead of its behaviour.
+3. **Pure functions** (`tests/pure/`) and composable logic (`tests/composables/`) — a host component may be mounted to give a composable a lifecycle, but nothing about the DOM is asserted.
+4. **Schema contracts** — `schemas/api.js` are *resilience* schemas (`.catch()` defaults): they coerce, they don't reject. Assert the coercion.
+
+HTTP goes through the `@/services/apiCall` mock ([frontend/tests/helpers/apiCallMock.js](frontend/tests/helpers/apiCallMock.js)) — **never mock `axios` in a test**; it is a layer the stores don't own, and mocking it is what made the previous suite rot. Assert an endpoint only where the store *chooses* it (target/zone resolution, local-vs-MAC) — not on straight pass-throughs, where the assertion just restates a string constant.
 
 ## Reference docs
 
