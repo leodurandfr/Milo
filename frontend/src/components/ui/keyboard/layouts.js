@@ -54,6 +54,26 @@ const languages = {
       row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ü'],
       row3: ['y', 'x', 'c', 'v', 'b', 'n', 'm', ','],
     }
+  },
+  italian: {
+    numbersCurrency: '€',
+    symbolsCurrency: '$',
+    // The same QWERTY block as english — the currency and the accents are what
+    // differ, and the apostrophe earns the tenth slot (dell', un', c'è).
+    abc: {
+      row1: ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+      row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', "'"],
+      row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ','],
+    }
+  },
+  portuguese: {
+    numbersCurrency: '€',
+    symbolsCurrency: '$',
+    abc: {
+      row1: ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+      row2: ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ç'],
+      row3: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ','],
+    }
   }
 };
 
@@ -84,6 +104,21 @@ const accents = {
     'o': ['ö'],
     'u': ['ü'],
     's': ['ß'],
+  },
+  italian: {
+    'a': ['à'],
+    'e': ['è', 'é'],
+    'i': ['ì', 'í'],
+    'o': ['ò', 'ó'],
+    'u': ['ù', 'ú'],
+  },
+  portuguese: {
+    'a': ['á', 'â', 'ã', 'à'],
+    'e': ['é', 'ê'],
+    'i': ['í'],
+    'o': ['ó', 'ô', 'õ'],
+    'u': ['ú'],
+    'c': ['ç'],
   },
 };
 
