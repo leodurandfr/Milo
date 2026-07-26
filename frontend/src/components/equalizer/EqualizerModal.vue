@@ -282,10 +282,11 @@ onMounted(async () => {
 
   equalizerStore.initializeFilters();
 
-  await equalizerStore.loadEnabledState();
-
-  // Load available equalizer targets (Milo + clients)
+  // Targets first: every EQ read is addressed to the selected target, which
+  // outlives the modal and may name a client that no longer exists.
   await equalizerStore.loadTargets();
+
+  await equalizerStore.loadEnabledState();
 
   if (equalizerStore.isEqualizerEffectsEnabled) {
     await equalizerStore.loadStatus();

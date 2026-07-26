@@ -75,6 +75,17 @@ function setMultiroom(enabled, volumeClients = {}) {
   });
 }
 
+/** Answer loadTargets()' registry fetch with the local + one remote client. */
+function registryTargets() {
+  apiCall.get.mockResolvedValueOnce(ok({
+    clients: {
+      [LOCAL_MAC]: { mac_id: LOCAL_MAC, name: 'Milo', online: true, is_local: true },
+      [REMOTE_MAC]: { mac_id: REMOTE_MAC, name: 'Kitchen', online: true },
+    },
+    zones: {},
+  }));
+}
+
 /** The path segment the store derived for the currently selected target. */
 async function resolvedTargetPath() {
   apiCall.post.mockResolvedValueOnce(ok({ status: 'success', gains: [] }));
@@ -476,6 +487,31 @@ describe('equalizerStore', () => {
       expect(equalizerStore.isEqualizerEffectsEnabled).toBe(false);
     });
 
+    /**
+     * enabled_changed is the local DAC's master bypass and carries no target
+     * (routing.py; also fired by toggling the Equalizer dock app). Adopting it
+     * while another target is on screen reports that target as bypassed when it
+     * is not — a zone announces through zone_enabled_changed, a remote client
+     * through its own record.
+     */
+    it('enabled_changed is ignored while a remote client is displayed', () => {
+      equalizerStore.selectedTarget = REMOTE_MAC;
+
+      equalizerStore.handleEnabledChanged({ data: { enabled: false } });
+
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(true);
+    });
+
+    it('enabled_changed is ignored while a zone is displayed', () => {
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(true);
+      equalizerStore.selectedTarget = LOCAL_MAC;
+
+      equalizerStore.handleEnabledChanged({ data: { enabled: false } });
+
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(true);
+    });
+
     it('state_changed records the CamillaDSP state and drives isConnected', () => {
       equalizerStore.handleStateChanged({ state: 'running' });
       expect(equalizerStore.isConnected).toBe(true);
@@ -511,18 +547,39 @@ describe('equalizerStore', () => {
     });
 
     it('loadTargets initialises the registry then auto-selects the local client', async () => {
-      apiCall.get.mockResolvedValueOnce(ok({
-        clients: {
-          [LOCAL_MAC]: { mac_id: LOCAL_MAC, name: 'Milo', online: true, is_local: true },
-          [REMOTE_MAC]: { mac_id: REMOTE_MAC, name: 'Kitchen', online: true },
-        },
-        zones: {},
-      }));
+      registryTargets();
 
       await equalizerStore.loadTargets();
 
       expect(apiCall.get).toHaveBeenCalledWith('/api/multiroom/state', expect.anything());
       expect(equalizerStore.selectedTarget).toBe(LOCAL_MAC);
+    });
+
+    /**
+     * The selected target outlives the modal, so it can name a client that was
+     * forgotten from Réglages meanwhile. Nothing in the store used to check
+     * that: targetRef() kept addressing the dead MAC, so the record GET 404'd,
+     * fetchEnabledState() fell back to `true` and loadStatus() returned in
+     * silence — leaving the previous target's EQ on screen and every write
+     * failing, until the user happened to pick another target by hand.
+     */
+    it('drops a selected target that no longer exists and re-adopts the local client', async () => {
+      registryTargets();
+      equalizerStore.selectedTarget = OTHER_MAC;
+
+      await equalizerStore.loadTargets();
+
+      expect(equalizerStore.selectedTarget).toBe(LOCAL_MAC);
+      expect(await resolvedTargetPath()).toBe('local');
+    });
+
+    it('keeps a selected target that is still registered', async () => {
+      registryTargets();
+      equalizerStore.selectedTarget = REMOTE_MAC;
+
+      await equalizerStore.loadTargets();
+
+      expect(equalizerStore.selectedTarget).toBe(REMOTE_MAC);
     });
   });
 

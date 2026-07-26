@@ -687,8 +687,19 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       await registryStore.resync();
     }
 
+    if (availableTargets.value.length === 0) return;
+
+    // The selected target survives the modal closing, so it can name a client
+    // that has since been forgotten or a zone that was dissolved. Every read and
+    // write is addressed through targetRef(), so a stale MAC 404s the whole page
+    // — and the record GET failing silently leaves the previous target's EQ on
+    // screen. Drop it here, where a valid target is this function's job.
+    if (selectedTarget.value && !availableTargets.value.some(t => t.id === selectedTarget.value)) {
+      selectedTarget.value = null;
+    }
+
     // Auto-select local client if no target selected
-    if (!selectedTarget.value && availableTargets.value.length > 0) {
+    if (!selectedTarget.value) {
       const localTarget = availableTargets.value.find(t => t.is_local);
       if (localTarget) {
         selectedTarget.value = localTarget.id;
@@ -933,7 +944,16 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return success;
   }
 
+  /**
+   * `equalizer/enabled_changed` is the LOCAL DAC's master bypass (broadcast by
+   * routing.py's set_equalizer_effects_enabled, also reached by toggling the
+   * Equalizer dock app). It carries no target, so adopting it while a satellite
+   * or a zone is displayed would report that target as bypassed when it is not:
+   * a zone announces through `zone_enabled_changed`, a remote client through its
+   * own record.
+   */
   function handleEnabledChanged(event) {
+    if (targetRef() !== LOCAL_TARGET) return;
     if (event.data && event.data.enabled !== undefined) {
       isEqualizerEffectsEnabled.value = event.data.enabled;
     }
