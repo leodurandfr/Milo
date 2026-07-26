@@ -10,7 +10,7 @@ import pytest
 import time
 from unittest.mock import AsyncMock, MagicMock
 
-from backend.tests.conftest import attach_registry_broadcaster
+from backend.tests.conftest import attach_registry_broadcaster, drain_background_tasks
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.identity import compute_mac_id
 from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -20,6 +20,7 @@ from backend.core.multiroom.models import (
 from backend.config.constants import DEFAULT_VOLUME_DB
 
 
+@pytest.mark.usefixtures("no_satellite_network")
 class TestSnapcastDetectionIntegration:
     """
     Integration tests for Snapcast client detection.
@@ -132,6 +133,7 @@ class TestSnapcastDetectionIntegration:
 
         # Process the notification
         await ws_service._handle_client_connect(snapcast_notification)
+        await drain_background_tasks()
 
         # Verify 1: Client is registered in registry (by mac_id)
         client = registry.get_client(mac_addr)
@@ -240,6 +242,7 @@ class TestSnapcastDetectionIntegration:
         }
 
         await ws_service._handle_client_connect(snapcast_notification)
+        await drain_background_tasks()
 
         # Verify client was created with correct defaults
         client = registry.get_client(mac_addr)
@@ -278,6 +281,7 @@ class TestSnapcastDetectionIntegration:
                 }
             }
             await ws_service._handle_client_connect(notification)
+            await drain_background_tasks()
 
         # Verify all clients registered (by mac_id)
         for hostname, name, _, mac in clients_data:
@@ -320,6 +324,7 @@ class TestSnapcastDetectionIntegration:
         # Rapid connect/disconnect cycles
         for _ in range(5):
             await ws_service._handle_client_connect(connect_notification)
+            await drain_background_tasks()
             client = registry.get_client(mac_addr)
             assert client.online is True
 
@@ -353,6 +358,7 @@ class TestSnapcastDetectionIntegration:
         }
 
         await ws_service._handle_client_connect(notification)
+        await drain_background_tasks()
 
         # Local client should get the system's actual MAC as mac_id
         client = registry.get_client(local_mac)
@@ -395,6 +401,7 @@ class TestSnapcastDetectionIntegration:
         }
 
         await ws_service._handle_client_connect(notification)
+        await drain_background_tasks()
 
         # Find registry event (category="multiroom", type="client_state_changed")
         registry_events = [

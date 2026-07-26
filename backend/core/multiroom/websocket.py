@@ -624,48 +624,28 @@ class SnapcastWebSocketService:
             self.logger.debug(f"Skipping Client.OnConnect for {mac_id} - sync already in flight")
             return
 
-        self._syncing_mac_ids.add(mac_id)
+        client_name = client.get("config", {}).get("name") or get_client_display_name(client_host) or mac_id
+        is_local = (client_ip == "127.0.0.1")
+        local_marker = " LOCAL CLIENT" if is_local else ""
+        self.logger.debug(f"[{time.time():.3f}] CLIENT_CONNECT: New client {client_id} (mac_id: {mac_id}){local_marker}")
+        self.logger.debug(f"  - Name: {client_name}, Host: {client_host}, IP: {client_ip}")
 
-        try:
-            snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
-            client_name = client.get("config", {}).get("name") or get_client_display_name(client_host) or mac_id
+        # Register client (but don't set online yet — the sync does that once the
+        # hardware confirmed).
+        await self._register_snapclient(
+            mac_id, client_name, client_ip, client_host, is_local=is_local
+        )
 
-            is_local = (client_ip == "127.0.0.1")
-            local_marker = " LOCAL CLIENT" if is_local else ""
-            self.logger.debug(f"[{time.time():.3f}] CLIENT_CONNECT: New client {client_id} (mac_id: {mac_id}){local_marker}")
-            self.logger.debug(f"  - Name: {client_name}, Host: {client_host}, IP: {client_ip}")
-            self.logger.debug(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
-
-            # Register client (but don't set online yet - wait for volume sync)
-            await self._register_snapclient(
-                mac_id, client_name, client_ip, client_host, is_local=is_local
-            )
-
-            self.logger.debug(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
-            sync_status = await self._notify_volume_service_client_connected(client_id, client, mac_id)
-
-            # Only set online if volume was successfully applied to hardware.
-            # If sync failed, the fire-and-forget retry from _process_new_clients
-            # will set online via set_online_after=True when hardware confirms.
-            if sync_status.get("volume_synced") and self.registry:
-                await self.registry.set_client_online(mac_id, True)
-            elif not sync_status.get("volume_synced"):
-                self.logger.warning(
-                    f"CLIENT_CONNECT: {mac_id} volume sync FAILED — client stays offline until retry succeeds "
-                    f"(context: {sync_status.get('context', 'unknown')})"
-                )
-
-            # Crossover recalculation is handled by CrossoverService._handle_registry_event
-            # via CLIENT_CONNECTED event emitted by set_client_online()
-
-            # Push snapclient buffer config to remote clients (fire-and-forget)
-            if not is_local:
-                self._bg.spawn(
-                    self._push_snapclient_config(client_ip),
-                    label=f"push_snapclient_config_{client_ip}",
-                )
-        finally:
-            self._syncing_mac_ids.discard(mac_id)
+        # Hand the sync to a task rather than awaiting it: this runs inside the
+        # snapserver message loop, and a satellite that is still booting takes the
+        # sync through its full retry budget. Server.OnUpdate, on the same loop,
+        # already spawns for that reason.
+        self._bg.spawn(
+            self._sync_reconnecting_client_volume(
+                mac_id, set_online_after=True, snapcast_id=client_id
+            ),
+            label=f"sync_connect_{mac_id}",
+        )
 
     async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:
         """Handle client disconnected event."""
@@ -712,128 +692,6 @@ class SnapcastWebSocketService:
         # Update the registry so the name change persists to settings.json
         if self.registry and name:
             await self.registry.update_client(mac_id, name=name)
-
-    async def _notify_volume_service_client_connected(self, client_id: str, client: Dict[str, Any], mac_id: str) -> Dict[str, Any]:
-        """
-        Initialize new client: set Multiroom group, sync volume, apply pending settings.
-
-        Returns:
-            Dict with sync status: {volume_synced, equalizer_synced, pending_applied}
-        """
-        sync_status = {
-            "volume_synced": False,
-            "equalizer_synced": False,
-            "pending_applied": False
-        }
-        try:
-            self.logger.debug(f"[{time.time():.3f}] NOTIFY_VOLUME: Starting volume sync for {client_id}")
-
-            sync_status = await self._sync_existing_client_volume(client_id, client)
-
-            # Apply pending settings (keyed by mac_id)
-            if self._crossover_service:
-                has_pending = self._crossover_service.has_pending_settings(mac_id)
-                if has_pending:
-                    self.logger.info(f"  - Applying pending settings for reconnected client {mac_id}")
-                    pending_success = await self._crossover_service.apply_pending_settings(mac_id)
-                    sync_status["pending_applied"] = pending_success
-
-        except Exception as e:
-            self.logger.error(f"Error initializing new client: {e}", exc_info=True)
-
-        return sync_status
-
-    async def _sync_existing_client_volume(self, client_id: str, client: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Ensure existing client is in Multiroom group with correct volume.
-
-        Sequence:
-        1. Detect reconnection context
-        2. Join client to multiroom group
-        3. Set Snapcast volume to 100% passthrough
-        4. Apply correct equalizer volume based on context
-        5. Sync zone/standalone equalizer settings based on context
-
-        Returns:
-            Dict with sync status: {volume_synced, equalizer_synced, pending_applied, context}
-        """
-        sync_status = {
-            "volume_synced": False,
-            "equalizer_synced": False,
-            "pending_applied": False,
-            "context": None
-        }
-        try:
-            self.logger.debug(f"[{time.time():.3f}] SYNC_VOLUME: Starting for {client_id}")
-
-            if not self._snapcast_service:
-                self.logger.warning("SnapcastService not available")
-                return sync_status
-
-            host = client.get("host", {})
-            hostname = host.get("name", "")
-            ip = host.get("ip", "").replace("::ffff:", "")
-            mac_id = compute_mac_id(hostname, ip, client_id)
-
-            # 1. Detect reconnection context
-            context = ReconnectionContext.STANDALONE_ALONE  # Default
-            if self.registry:
-                context = self.registry.get_reconnection_context(mac_id)
-            sync_status["context"] = context.value
-            self.logger.debug(
-                f"[{time.time():.3f}] SYNC_VOLUME: Detected reconnection context for {mac_id}: {context.value}"
-            )
-
-            # 2. Set Snapcast volume to 100% passthrough
-            await self._snapcast_service.set_volume(client_id, 100)
-            self.logger.debug(f"[{time.time():.3f}] SYNC_VOLUME: Snapcast volume set to 100% for {client_id}")
-
-            # 4. Apply correct equalizer volume based on context
-            target_volume = self._resolve_target_volume(mac_id, context)
-            self.logger.debug(
-                f"[{time.time():.3f}] SYNC_VOLUME: Applying target volume "
-                f"{target_volume:.1f} dB for {mac_id} (context: {context.value})"
-            )
-            volume_synced = await self._apply_target_volume_to_client(mac_id, target_volume)
-            sync_status["volume_synced"] = volume_synced
-
-            # 5. Sync equalizer settings. In the unified per-client model every
-            #    remote client (zone member or standalone) recovers its OWN EQ
-            #    record — members of a zone hold identical records, so there is no
-            #    separate zone-EQ path. Only the volume context above still differs
-            #    by zone/standalone. The local client owns equalizer.json (restored
-            #    at boot by CamillaDSPService) and is skipped via an explicit
-            #    is_local guard inside the callee, so this is a no-op for it.
-            equalizer_synced = True
-            if self.registry:
-                self.logger.debug(
-                    f"[{time.time():.3f}] SYNC_EQ: Syncing per-client equalizer for {mac_id} "
-                    f"(context: {context.value})"
-                )
-                equalizer_synced = await self._sync_standalone_equalizer_to_client(mac_id)
-            sync_status["equalizer_synced"] = equalizer_synced
-
-            # 6. Broadcast volume state to frontend
-            # This notifies UI about the reconnected client with its synced volume
-            if volume_synced:
-                if self._volume_service:
-                    try:
-                        await self._volume_service.broadcast_volume_state(show_bar=False)
-                        self.logger.debug(
-                            f"[{time.time():.3f}] SYNC_BROADCAST: Volume state broadcast for {mac_id}"
-                        )
-                    except Exception as e:
-                        self.logger.warning(f"Failed to broadcast volume state: {e}")
-
-            self.logger.debug(
-                f"[{time.time():.3f}] SYNC_VOLUME: Client {client_id} fully initialized "
-                f"(context: {context.value})"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error syncing existing client {client_id}: {e}", exc_info=True)
-
-        return sync_status
 
     def _resolve_target_volume(self, mac_id: str, context: ReconnectionContext) -> float:
         """
@@ -1013,12 +871,14 @@ class SnapcastWebSocketService:
         snapcast_id: Optional[str] = None
     ) -> bool:
         """
-        Sync volume for a known client that just came back online.
+        Bring a client that just (re)appeared to the state Milō holds for it.
 
-        Lightweight version of _sync_existing_client_volume that works with
-        just a mac_id (no full Snapcast client object needed). Retries on
-        failure because remote clients may still be booting when their
-        snapclient connects before their API (port 8001) is ready.
+        The one admission recipe, shared by all four notifications that can see
+        a client arrive: restore the snapserver passthrough, resolve the volume
+        its reconnection context calls for, apply it, re-push its EQ record and
+        its snapclient buffer config, then show it online. Retries because a
+        remote client is often still booting when its snapclient connects, its
+        API (port 8001) answering seconds after snapserver has it.
 
         Owns the _syncing_mac_ids guard: marks the mac_id as in-flight on
         entry and clears it on exit, preventing duplicate sync tasks for
@@ -1081,6 +941,17 @@ class SnapcastWebSocketService:
                     # guard inside the callee). Done before showing online so the
                     # client is fully configured first.
                     await self._sync_standalone_equalizer_to_client(mac_id)
+
+                    # Same reason the EQ record is re-pushed: buffer settings
+                    # changed while the client was away never reached it, and
+                    # only the Client.OnConnect path used to send them.
+                    client = self.registry.get_client(mac_id)
+                    if client and not client.is_local:
+                        self._bg.spawn(
+                            self._push_snapclient_config(client.ip),
+                            label=f"push_snapclient_config_{client.ip}",
+                        )
+
                     # Volume confirmed on hardware — now safe to show online
                     if set_online_after and self.registry:
                         await self.registry.set_client_online(mac_id, True)

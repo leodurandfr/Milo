@@ -194,64 +194,6 @@ class TestReconnectionContextDetectionIntegration:
         assert context == ReconnectionContext.STANDALONE_ALONE
 
     @pytest.mark.asyncio
-    async def test_context_in_sync_status_response(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: Context is included in sync_status response after reconnection.
-
-        Validates: Context dispatches to correct sync strategy.
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-        attach_registry_broadcaster(registry, mock_state_machine)
-
-        # Setup mock snapcast service
-        mock_snapcast = AsyncMock()
-        mock_snapcast.set_volume = AsyncMock()
-        mock_state_machine.snapcast_service = mock_snapcast
-
-        # Mock volume service to prevent errors
-        mock_volume = AsyncMock()
-        mock_volume.set_volume_db = AsyncMock(return_value=True)
-        mock_state_machine.volume_service = mock_volume
-
-        # Register standalone client
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.set_client_online("local", False)
-
-        # Create websocket service
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock(),
-        )
-        ws_service.set_registry(registry)
-        ws_service._snapcast_service = mock_snapcast
-        ws_service._volume_service = mock_volume
-
-        # Mock the Equalizer sync methods to avoid errors
-        ws_service._sync_client_volume_and_broadcast = AsyncMock(return_value=True)
-        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
-
-        # Simulate reconnection (include mac matching registered mac_id)
-        client_data = {
-            "id": "snapcast-client-123",
-            "config": {"name": "Main", "volume": {"percent": 100}},
-            "host": {"name": "milo", "ip": "127.0.0.1", "mac": "local"}
-        }
-
-        sync_status = await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
-
-        # Verify context is included in sync_status
-        assert "context" in sync_status
-        assert sync_status["context"] == ReconnectionContext.STANDALONE_ALONE.value
-
-    @pytest.mark.asyncio
     async def test_zone_member_transition_context_change(
         self, mock_settings_service, mock_state_machine
     ):
@@ -562,14 +504,9 @@ class TestInZoneReconnectionSyncIntegration:
         volume_service.state_store._clients = {"client-1": mock_client_state}
         volume_service.equalizer_controller = AsyncMock()
 
-        # Simulate reconnection (include mac matching registered mac_id)
-        client_data = {
-            "id": "snapcast-client-123",
-            "config": {"name": "Client 1", "volume": {"percent": 100}},
-            "host": {"name": "milo-client-01", "ip": "192.168.1.1", "mac": "client-1"}
-        }
-
-        await ws_service._sync_existing_client_volume("snapcast-client-123", client_data)
+        await ws_service._sync_reconnecting_client_volume(
+            "client-1", max_retries=0, retry_delay=0, snapcast_id="snapcast-client-123"
+        )
 
         # Verify broadcast was called
         volume_service.broadcast_volume_state.assert_called()
@@ -1082,16 +1019,12 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service._volume_service = mock_state_machine.volume_service
         ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
-        # Simulate reconnection (the snapclient id IS the registered mac_id)
-        client_data = {
-            "id": "local-main",
-            "config": {"name": "Main", "volume": {"percent": 100}},
-            "host": {"name": "milo", "ip": "192.168.1.10", "mac": "local-main"}
-        }
+        await ws_service._sync_reconnecting_client_volume(
+            "local-main", max_retries=0, retry_delay=0, snapcast_id="local-main"
+        )
 
-        sync_status = await ws_service._sync_existing_client_volume("local-main", client_data)
-
-        # Verify sync_context is in sync_status
-        assert "context" in sync_status
-        assert sync_status["context"] == ReconnectionContext.STANDALONE_OTHERS_ONLINE.value
+        # STANDALONE_OTHERS_ONLINE resolves to the average of the online peers,
+        # not the startup volume — client-1 is the only one, at -30 dB.
+        applied = ws_service._volume_service.equalizer_controller.set_equalizer_volume
+        assert applied.await_args.args[1] == -30.0
 
