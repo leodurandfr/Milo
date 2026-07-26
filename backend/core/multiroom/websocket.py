@@ -331,29 +331,38 @@ class SnapcastWebSocketService:
 
                     client_name = client.get("config", {}).get("name") or get_client_display_name(hostname) or mac_id
 
-                    # Check if client is already in registry
                     is_new_client = self.registry.get_client(mac_id) is None if self.registry else True
+                    is_local = (ip == "127.0.0.1")
 
                     if is_new_client:
-                        is_local = (ip == "127.0.0.1")
                         local_marker = " LOCAL CLIENT" if is_local else ""
                         self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: New client {client_id} (mac_id: {mac_id}){local_marker}")
 
-                    if self.registry:
-                        kwargs = {"host": hostname}
-                        is_local = (ip == "127.0.0.1")
-                        if is_local and self._volume_service:
-                            # Sync hardware volume_control to registry (e.g. DAC mode read at boot)
-                            kwargs["volume_control"] = self._volume_service.volume_control
-                        await self.registry.register_client(mac_id, client_name, ip, **kwargs)
-                        await self.registry.set_client_online(mac_id, True)
+                    await self._register_snapclient(
+                        mac_id, client_name, ip, hostname, is_local=is_local
+                    )
 
                     if is_new_client:
-                        self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: Registered {mac_id}")
-                        # Sync volume from snapserver for new clients
-                        snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
-                        self.logger.debug(f"[{time.time():.3f}] INIT_CLIENTS: Syncing volume from snapserver: {snapcast_volume}%")
-                        await self._sync_existing_client_volume(client_id, client)
+                        # Same admission sequence as every other path: sync first and
+                        # show the client online only once the hardware confirmed, with
+                        # retries because a satellite's API is often still booting when
+                        # its snapclient is already connected. Registering it online
+                        # here instead left a failed sync unretried — snapserver and the
+                        # registry then both read "online", so no later transition ever
+                        # re-triggered it and the speaker stayed muted (CamillaDSP
+                        # starts with -m) for as long as it was up.
+                        self._bg.spawn(
+                            self._sync_reconnecting_client_volume(
+                                mac_id, set_online_after=True, snapcast_id=client_id
+                            ),
+                            label=f"sync_init_client_{mac_id}",
+                        )
+                    elif self.registry:
+                        # Known client: the backend restarted, the satellite did not.
+                        # Marking it online is all that is due — a resync would apply a
+                        # reconnection volume (peer average / startup) to a speaker that
+                        # never stopped playing.
+                        await self.registry.set_client_online(mac_id, True)
 
             client_count = len(self.registry.get_all_clients()) if self.registry else 0
             has_local = any(c.is_local for c in self.registry.get_all_clients().values()) if self.registry else False
@@ -543,7 +552,9 @@ class SnapcastWebSocketService:
                 # _syncing_mac_ids guard and clears it when done.
                 if client["online"]:
                     self._bg.spawn(
-                        self._sync_reconnecting_client_volume(mac_id, set_online_after=True),
+                        self._sync_reconnecting_client_volume(
+                            mac_id, set_online_after=True, snapcast_id=client["id"]
+                        ),
                         label=f"sync_new_client_{mac_id}",
                     )
 
@@ -584,7 +595,9 @@ class SnapcastWebSocketService:
                     # This prevents a window where the frontend shows the client
                     # at a stale volume before sync completes.
                     self._bg.spawn(
-                        self._sync_reconnecting_client_volume(mac_id, set_online_after=True),
+                        self._sync_reconnecting_client_volume(
+                            mac_id, set_online_after=True, snapcast_id=client["id"]
+                        ),
                         label=f"sync_reconnect_{mac_id}",
                     )
                 elif self.registry:
@@ -999,7 +1012,8 @@ class SnapcastWebSocketService:
 
     async def _sync_reconnecting_client_volume(
         self, mac_id: str, set_online_after: bool = False,
-        max_retries: int = 5, retry_delay: float = 3.0
+        max_retries: int = 5, retry_delay: float = 3.0,
+        snapcast_id: Optional[str] = None
     ) -> bool:
         """
         Sync volume for a known client that just came back online.
@@ -1018,6 +1032,8 @@ class SnapcastWebSocketService:
             set_online_after: If True, mark client online in registry after
                 successful sync (keeps client offline/muted in frontend until
                 volume is confirmed on hardware).
+            snapcast_id: Snapcast client id, when the caller has it. Used to
+                restore the snapserver passthrough (see the callee).
         """
         if not self.registry or not self._volume_service:
             return False
@@ -1029,16 +1045,25 @@ class SnapcastWebSocketService:
         self._syncing_mac_ids.add(mac_id)
         try:
             return await self._do_sync_reconnecting_client_volume(
-                mac_id, set_online_after, max_retries, retry_delay
+                mac_id, set_online_after, max_retries, retry_delay, snapcast_id
             )
         finally:
             self._syncing_mac_ids.discard(mac_id)
 
     async def _do_sync_reconnecting_client_volume(
         self, mac_id: str, set_online_after: bool,
-        max_retries: int, retry_delay: float
+        max_retries: int, retry_delay: float,
+        snapcast_id: Optional[str] = None
     ) -> bool:
         """Internal sync implementation (called under _syncing_mac_ids guard)."""
+        if snapcast_id and self._snapcast_service:
+            # Snapserver stays a passthrough — attenuation is CamillaDSP's job on
+            # the client — so every admission path must leave it at 100. Only the
+            # paths holding a Snapcast client id could do it, which is what made
+            # the same client end up differently attenuated depending on which
+            # notification announced it.
+            await self._snapcast_service.set_volume(snapcast_id, 100)
+
         context = self.registry.get_reconnection_context(mac_id)
         target_volume = self._resolve_target_volume(mac_id, context)
 

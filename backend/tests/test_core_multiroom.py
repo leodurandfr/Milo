@@ -3524,3 +3524,141 @@ class TestClientReconcileSweep:
         assert registry.get_client(self.VANISHED).online is False
         announced = [r for r in caplog.records if "CLIENT DISCONNECTED" in r.getMessage()]
         assert len(announced) == 1, [r.getMessage() for r in announced]
+
+
+class TestAdmissionPathConvergence:
+    """Every notification that can be the first to see a client must admit it the same way.
+
+    Three of them exist — the sweep over already-connected clients at WebSocket
+    connect, `Client.OnConnect`, and `Server.OnUpdate` — and which one wins is a
+    race decided by whether the backend or the satellite booted first. The bugs
+    this pins are all "the losing path did less": an identity the setup wizard
+    had just assigned was dropped, a client was announced online before its
+    volume reached the hardware (with nothing to retry it, since snapserver and
+    the registry then agreed and no later transition fired), and snapserver was
+    left attenuating a client the rest of Milō treats as a passthrough.
+    """
+
+    MAC = "dc:a6:32:7e:d3:43"
+    IP = "192.168.1.153"
+
+    def _status(self) -> dict:
+        return {"server": {"groups": [{"id": "g1", "clients": [{
+            "id": self.MAC,
+            "connected": True,
+            "config": {"name": "", "volume": {"percent": 100, "muted": False}},
+            "host": {"name": "milo-client", "ip": f"::ffff:{self.IP}", "mac": self.MAC},
+            "lastSeen": {"sec": int(time.time()), "usec": 0},
+        }]}]}}
+
+    async def _service(self, pending: dict = None):
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+
+        snapcast = SnapcastService(systemd_manager=MagicMock())
+        snapcast.get_server_status = AsyncMock(return_value=self._status())
+        snapcast.set_volume = AsyncMock(return_value=True)
+
+        pending_service = MagicMock()
+        pending_service.get_client = MagicMock(return_value=pending)
+        pending_service.remove_client = AsyncMock()
+
+        sm = MagicMock()
+        sm.broadcast = AsyncMock()
+        service = SnapcastWebSocketService(
+            state_machine=sm,
+            routing_service=MagicMock(),
+            snapcast_service=snapcast,
+            pending_clients_service=pending_service,
+        )
+        service.set_registry(registry)
+        return service, registry, snapcast, pending_service
+
+    @pytest.mark.asyncio
+    async def test_wizard_identity_survives_a_websocket_connect(self):
+        """The name, speaker type and volume_control chosen in the wizard must not be lost.
+
+        `register_client` preserves an existing non-empty name, so a client
+        admitted under its Snapcast host name cannot be repaired by a later
+        notification — the user's speaker comes back as "Milō Client" for good.
+        """
+        service, registry, _, pending_service = await self._service(pending={
+            "name": "Bureau", "speaker_type": "subwoofer", "volume_control": False,
+        })
+        service._sync_reconnecting_client_volume = AsyncMock(return_value=True)
+
+        await service._initialize_existing_clients()
+
+        client = registry.get_client(self.MAC)
+        assert client.name == "Bureau"
+        assert client.speaker_type == "subwoofer"
+        assert client.volume_control is False
+        pending_service.remove_client.assert_awaited_once_with(self.MAC)
+
+    @pytest.mark.asyncio
+    async def test_a_new_client_is_not_announced_before_its_volume_lands(self):
+        """Admission goes through the retrying sync, which owns the online flag.
+
+        Marking it online here instead is unretryable: snapserver and the
+        registry then both read "online", so no transition ever fires again and
+        a satellite whose API was still booting stays muted (CamillaDSP starts
+        with -m) until something else disturbs it.
+        """
+        service, registry, _, _ = await self._service()
+        service._sync_reconnecting_client_volume = AsyncMock(return_value=True)
+
+        await service._initialize_existing_clients()
+        await asyncio.sleep(0)
+
+        assert registry.get_client(self.MAC).online is False
+        service._sync_reconnecting_client_volume.assert_awaited_once_with(
+            self.MAC, set_online_after=True, snapcast_id=self.MAC
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_known_client_is_readmitted_without_a_volume_resync(self):
+        """A backend restart is not a client reconnection.
+
+        The satellite kept playing across it, and the reconnection policy does
+        not restore a client's own volume — it applies the peer average or the
+        startup volume — so resyncing here would audibly reset every speaker
+        each time the backend is restarted.
+        """
+        service, registry, _, _ = await self._service()
+        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+        service._sync_reconnecting_client_volume = AsyncMock(return_value=True)
+
+        await service._initialize_existing_clients()
+        await asyncio.sleep(0)
+
+        assert registry.get_client(self.MAC).online is True
+        service._sync_reconnecting_client_volume.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_snapserver_is_left_a_passthrough_whenever_the_path_can_tell(self):
+        """Attenuation is CamillaDSP's job on the client; snapserver stays at 100.
+
+        Only the paths holding a Snapcast client id can restore it, and they did
+        not, so the same client ended up differently attenuated depending on
+        which notification announced it.
+        """
+        service, registry, snapcast, _ = await self._service()
+        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+        volume_service = MagicMock()
+        volume_service.volume_config = VolumeConfig()
+        volume_service.state_store.set_client_volume = AsyncMock()
+        volume_service.state_store.get_client_mute = MagicMock(return_value=False)
+        volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        volume_service.equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
+        volume_service.broadcast_volume_state = AsyncMock()
+        service.set_volume_service(volume_service)
+
+        assert await service._sync_reconnecting_client_volume(
+            self.MAC, max_retries=0, retry_delay=0, snapcast_id="snap-1"
+        )
+
+        snapcast.set_volume.assert_awaited_once_with("snap-1", 100)
