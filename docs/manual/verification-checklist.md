@@ -61,6 +61,23 @@ by default (README Rule 3):
 
 Anything below marked ⚠ depends on one of these.
 
+### Code with no automated guard at all
+
+Classifying the backend suite (phase 3) surfaced four areas that `pytest` does **not**
+cover and that the tables below do not routinely exercise either. They are the least
+protected code in the repo — a change touching one of them is verified by this file or by
+nothing:
+
+| Area | Why it is exposed | What would catch it |
+|---|---|---|
+| `core/network/` (3 files) | zero tests, and its main path — AP + captive portal + wizard — is the ⚠ blank-SD blind spot above, so it is re-run about once per SD image | the First boot ⚠ row, on a blank card |
+| Privileged-exec argv vs the sudoers policy | `test_systemd.py` pins `sudo systemctl restart --no-block …` and `install/system.sh` writes the matching `NOPASSWD` rules, but nothing compares the two. A divergence is a silent permission failure that only appears on a real unit | any check that reboots, restarts a unit or applies an update |
+| `shared/decorators.py` (`@handle_errors`) | the helper the error-handling doctrine tells every service to use for its fallback path, itself untested | nothing specific — a wrong default would surface as a silently swallowed failure |
+| WS keepalive and dead-connection reaping (`ws/manager.py::_send_ping`) | no test drives the real ping task; `test_manager_removes_dead_connections` asserts `<= 2` connections out of 2, which is true either way | the "WS resync" and "Reconnect" rows under *Shared player and state machine* |
+
+Writing those tests is separate work, decided separately (README anti-goals: phase 3
+removes and codifies, it does not add coverage).
+
 ---
 
 ## Boot and process health
