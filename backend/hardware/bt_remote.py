@@ -527,11 +527,7 @@ class BtRemoteController:
             disconnected = False
             for path in list(self._monitored_paths):
                 if path not in active_paths:
-                    self._device_info.pop(path, None)
-                    self._monitored_paths.discard(path)
-                    task = self._monitor_tasks.pop(path, None)
-                    if task and not task.done():
-                        task.cancel()
+                    self._drop_node(path)
                     logger.info("BT HID device disconnected: %s", path)
                     disconnected = True
             if disconnected and self.running:
@@ -582,17 +578,25 @@ class BtRemoteController:
             if info.get("address")
         }
 
+    def _drop_node(self, path: str):
+        """Forget one evdev node: clear its bookkeeping and cancel its monitor task.
+
+        Not usable from _monitor_device's own teardown, where the task being
+        dropped is the caller and cancelling it would abort that teardown.
+        """
+        self._device_info.pop(path, None)
+        self._monitored_paths.discard(path)
+        task = self._monitor_tasks.pop(path, None)
+        if task and not task.done():
+            task.cancel()
+
     def _cancel_all_for_mac(self, address: str):
         """Cancel all monitor tasks for a given MAC (BLE HID has multiple evdev nodes)."""
         mac = address.upper()
         for path in list(self._monitored_paths):
             info = self._device_info.get(path, {})
             if info.get("address", "").upper() == mac:
-                self._device_info.pop(path, None)
-                self._monitored_paths.discard(path)
-                task = self._monitor_tasks.pop(path, None)
-                if task and not task.done():
-                    task.cancel()
+                self._drop_node(path)
 
     def _is_bt_hid_device(self, device) -> bool:
         """Check if a device is a matching BT HID device."""
