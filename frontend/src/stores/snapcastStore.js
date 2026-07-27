@@ -131,13 +131,8 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     const parsed = validateSchema(SnapcastServerConfigSchema, result.data.config, 'snapcast.server-config');
     if (!parsed.success) return null;
 
-    return {
-      buffer_ms: parsed.data.stream_config.buffer_ms,
-      codec: parsed.data.stream_config.codec,
-      chunk_ms: parsed.data.stream_config.chunk_ms,
-      sampleformat: parsed.data.stream_config.sampleformat,
-      snapclient_buffer_time: parsed.data.snapclient_buffer_time,
-    };
+    // No translation: the GET returns the shape applyServerConfig sends back.
+    return parsed.data;
   }
 
   // === ACTIONS - CLIENTS ===

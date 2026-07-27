@@ -308,7 +308,8 @@ class SnapcastService:
     async def get_server_config(self) -> Dict[str, Any]:
         """Get the canonical stream configuration.
 
-        Returns a single flat shape under `stream_config`. The `buffer_ms`
+        Returns the flat shape ``update_server_config`` consumes, so the read
+        and the write of this resource agree on one body. The `buffer_ms`
         field is only present in snapserver.conf (not exposed by the daemon
         JSON-RPC), so the file is parsed for it and merged with the daemon's
         live `chunk_ms` / `codec` / `sampleformat` values when available.
@@ -322,14 +323,12 @@ class SnapcastService:
         streams = status.get("streams", [])
         query = streams[0].get("uri", {}).get("query", {}) if streams else {}
 
-        stream_config = {
+        return {
             "buffer_ms": int(file_stream.get("buffer") or 1000),
             "chunk_ms": int(query.get("chunk_ms") or file_stream.get("chunk_ms") or 20),
             "codec": query.get("codec") or file_stream.get("codec") or "flac",
             "sampleformat": query.get("sampleformat") or "48000:32:2",
         }
-
-        return {"stream_config": stream_config}
 
     @handle_errors(default={})
     async def _read_snapserver_conf(self) -> Dict[str, Any]:
@@ -381,7 +380,13 @@ class SnapcastService:
         return await self._restart_snapserver()
 
     def _validate_config(self, config: Dict[str, Any]) -> bool:
-        """Validate configuration parameters."""
+        """Validate configuration parameters.
+
+        An unknown key is rejected, not ignored: validating only the keys it
+        recognised meant a body in the wrong shape passed, wrote nothing,
+        returned success and restarted snapserver anyway — the only way this
+        endpoint can lie.
+        """
         validators = {
             "buffer_ms": lambda x: isinstance(x, int) and 150 <= x <= 3000,
             "codec": lambda x: x in SUPPORTED_CODECS,
@@ -389,6 +394,11 @@ class SnapcastService:
             "snapclient_buffer_time": lambda x: isinstance(x, int) and 60 <= x <= 300,
             "snapclient_fragments": lambda x: isinstance(x, int) and 2 <= x <= 8
         }
+
+        unknown = set(config) - set(validators) - {"sampleformat"}
+        if unknown:
+            self.logger.error(f"Unknown server config keys: {sorted(unknown)}")
+            return False
 
         for key, validator in validators.items():
             if key in config and not validator(config[key]):
