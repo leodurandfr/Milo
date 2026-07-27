@@ -73,7 +73,7 @@
       "searchPlaceholder": "Nome da estação",
       "loadingCountries": "A carregar países...",
       "loadingStations": "A carregar estações...",
-      "noInternet": "Sem conexão com a internet",
+      "noInternet": "Sem conexão com a Internet",
       "noInternetHint": "Verifique sua conexão de rede e tente novamente",
       "connectionError": "Erro de conexão",
       "cannotLoadStations": "Não foi possível carregar as estações",
@@ -318,7 +318,7 @@
   },
   "multiroomSettings": {
     "presets": "Presets",
-    "responsive": "Responsivo",
+    "responsive": "Reativo",
     "balanced": "Equilibrado",
     "robust": "Robusto",
     "advanced": "Configurações avançadas",
@@ -432,7 +432,7 @@
       "shazamEnabled": "Reconhecimento de faixas desta estação",
       "createStation": "Criar estação",
       "confirmRestore": "Confirmar restauração",
-      "confirmDelete": "Confirmar exclusão"
+      "confirmDelete": "Confirmar eliminação"
     }
   },
   "radioSettings": {
@@ -484,7 +484,7 @@
     "noSubscriptionsHint": "Pesquise podcasts e subscreva para os encontrar aqui",
     "noPodcastsInGenre": "Nenhum podcast encontrado nesta categoria",
     "notAvailable": "Podcast não disponível",
-    "noInternet": "Sem conexão com a internet",
+    "noInternet": "Sem conexão com a Internet",
     "noInternetHint": "Verifique sua conexão de rede e tente novamente",
     "retry": "Tentar novamente",
     "loading": "A carregar...",
@@ -704,7 +704,7 @@
   "btRemoteSettings": {
     "connected": "Ligado",
     "notConnected": "Não ligado",
-    "discover": "Procurar",
+    "discover": "Pesquisar",
     "discovering": "A procurar...",
     "unpair": "Desemparelhar",
     "batteryLow": "Bateria fraca",

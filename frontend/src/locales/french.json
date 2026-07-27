@@ -73,7 +73,7 @@
       "searchPlaceholder": "Nom d'une station",
       "loadingCountries": "Chargement des pays...",
       "loadingStations": "Chargement des stations...",
-      "noInternet": "Pas de connexion internet",
+      "noInternet": "Pas de connexion Internet",
       "noInternetHint": "Vérifiez votre connexion réseau et réessayez",
       "connectionError": "Erreur de connexion",
       "cannotLoadStations": "Impossible de charger les stations",
@@ -121,7 +121,7 @@
     "pending": {
       "title": "Nouveau Milō Client détecté",
       "notConfigured": "Carte audio non configurée",
-      "rebooting": "Redémarrage...",
+      "rebooting": "Redémarrage en cours...",
       "configureTitle": "Configurer le Milō Client",
       "confirmReboot": "Confirmer le redémarrage ?",
       "audioCard": "Carte audio",
@@ -304,7 +304,7 @@
       "intact": "Intact"
     },
     "apply": "Appliquer & Redémarrer",
-    "restarting": "Redémarrage..."
+    "restarting": "Redémarrage en cours..."
   },
   "qobuzSettings": {
     "accountTitle": "Paramètres du compte",
@@ -318,7 +318,7 @@
   },
   "multiroomSettings": {
     "presets": "Pré-réglages",
-    "responsive": "Réactivité",
+    "responsive": "Réactif",
     "balanced": "Équilibré",
     "robust": "Robuste",
     "advanced": "Paramètres avancés",
@@ -358,8 +358,8 @@
     "otherNetworks": "Autres réseaux WiFi",
     "noNetworks": "Aucun réseau détecté",
     "password": "Mot de passe",
-    "connect": "Connecter",
-    "connecting": "Connexion...",
+    "connect": "Se connecter",
+    "connecting": "Connexion en cours...",
     "connectFailed": "Échec de la connexion",
     "save": "Enregistrer",
     "saving": "Enregistrement...",
@@ -393,7 +393,7 @@
   },
   "common": {
     "settings": "Paramètres",
-    "deleting": "Suppression...",
+    "deleting": "Suppression en cours...",
     "close": "Fermer"
   },
   "radio": {
@@ -473,7 +473,7 @@
     },
     "searchPlaceholder": "Nom d'un podcast ou d'un animateur",
     "podcastsTitle": "Podcasts",
-    "noResultsFor": "Aucun résultat pour \"{query}\"",
+    "noResultsFor": "Aucun résultat pour « {query} »",
     "noResults": "Aucun résultat trouvé",
     "searchPrompt": "Recherchez des podcasts",
     "loadMorePodcasts": "Charger plus de podcasts",
@@ -484,7 +484,7 @@
     "noSubscriptionsHint": "Recherchez des podcasts et abonnez-vous pour les retrouver ici",
     "noPodcastsInGenre": "Aucun podcast trouvé dans cette catégorie",
     "notAvailable": "Podcast non disponible",
-    "noInternet": "Pas de connexion internet",
+    "noInternet": "Pas de connexion Internet",
     "noInternetHint": "Vérifiez votre connexion réseau et réessayez",
     "retry": "Réessayer",
     "loading": "Chargement...",
@@ -673,7 +673,7 @@
       "language": "Langue",
       "audioCard": "Carte audio",
       "screen": "Écran",
-      "applyAndReboot": "Valider & Redémarrer",
+      "applyAndReboot": "Appliquer et redémarrer",
       "confirmReboot": "Confirmer le redémarrage",
       "accessHint": "Après le redémarrage, connectez-vous au réseau {ssid} et ouvrez milo.local dans votre navigateur pour accéder à Milō.",
       "rebooting": "Redémarrage en cours...",

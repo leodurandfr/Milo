@@ -73,7 +73,7 @@
       "searchPlaceholder": "Nome della stazione",
       "loadingCountries": "Caricamento paesi...",
       "loadingStations": "Caricamento stazioni...",
-      "noInternet": "Nessuna connessione internet",
+      "noInternet": "Nessuna connessione Internet",
       "noInternetHint": "Controlla la tua connessione di rete e riprova",
       "connectionError": "Errore di connessione",
       "cannotLoadStations": "Impossibile caricare le stazioni",
@@ -121,7 +121,7 @@
     "pending": {
       "title": "Nuovo Milō Client rilevato",
       "notConfigured": "Scheda audio non configurata",
-      "rebooting": "Riavvio...",
+      "rebooting": "Riavvio in corso...",
       "configureTitle": "Configura Milō Client",
       "confirmReboot": "Confermare il riavvio?",
       "audioCard": "Scheda audio",
@@ -359,7 +359,7 @@
     "noNetworks": "Nessuna rete rilevata",
     "password": "Password",
     "connect": "Connetti",
-    "connecting": "Connessione...",
+    "connecting": "Connessione in corso...",
     "connectFailed": "Connessione fallita",
     "forget": "Dimentica",
     "refresh": "Aggiorna",
@@ -393,7 +393,7 @@
   },
   "common": {
     "settings": "Impostazioni",
-    "deleting": "Eliminazione...",
+    "deleting": "Eliminazione in corso...",
     "close": "Chiudi"
   },
   "radio": {
@@ -458,7 +458,7 @@
     "topPodcasts": "Top Podcast",
     "browseByGenre": "Sfoglia per genere",
     "genres": {
-      "news": "Notizie",
+      "news": "Notiziario",
       "comedy": "Commedia",
       "sports": "Sport",
       "education": "Educazione",
@@ -484,7 +484,7 @@
     "noSubscriptionsHint": "Cerca podcast e iscriviti per trovarli qui",
     "noPodcastsInGenre": "Nessun podcast trovato in questa categoria",
     "notAvailable": "Podcast non disponibile",
-    "noInternet": "Nessuna connessione internet",
+    "noInternet": "Nessuna connessione Internet",
     "noInternetHint": "Controlla la tua connessione di rete e riprova",
     "retry": "Riprova",
     "loading": "Caricamento...",
