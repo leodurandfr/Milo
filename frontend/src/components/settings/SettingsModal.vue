@@ -57,122 +57,13 @@
             </div>
         </div>
         <SettingsSection class="home-card">
-          <div class="home-group">
-            <span class="text-body settings-home-section-title">{{ t('settings.section.appearance') }}</span>
+          <div v-for="section in visibleSections" :key="section.key" class="home-group">
+            <span class="text-body settings-home-section-title">{{ t(section.titleKey) }}</span>
             <div class="settings-nav-grid">
-              <ListItemButton variant="background" :title="t('settings.languages')" action="caret" @click="push('languages')">
+              <ListItemButton v-for="row in section.rows" :key="row.view" variant="background"
+                :title="t(row.titleKey)" action="caret" @click="push(row.view)">
                 <template #icon>
-                  <img :src="languagesIcon" alt="Languages" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton variant="background" :title="t('settings.dock')" action="caret" @click="push('apps')">
-                <template #icon>
-                  <img :src="applicationsIcon" alt="Dock" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton v-if="screenType !== 'none'" variant="background" :title="t('settings.screen')" action="caret" @click="push('screen')">
-                <template #icon>
-                  <img :src="displayIcon" alt="Display" />
-                </template>
-              </ListItemButton>
-            </div>
-          </div>
-
-          <div class="home-group">
-            <span class="text-body settings-home-section-title">{{ t('settings.section.audio') }}</span>
-            <div class="settings-nav-grid">
-              <ListItemButton v-if="unifiedStore.volumeState.any_volume_control" variant="background" :title="t('settings.volume')" action="caret" @click="push('volume')">
-                <template #icon>
-                  <img :src="volumeIcon" alt="Volume" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton variant="background" :title="t('settings.audioPlayback')" action="caret" @click="push('audio-playback')">
-                <template #icon>
-                  <img :src="audioPlaybackIcon" alt="Audio playback" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton variant="background" :title="t('settings.remoteControls')" action="caret" @click="push('remote-controls')">
-                <template #icon>
-                  <img :src="remoteControlsIcon" alt="Remote controls" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton v-if="settingsStore.dockApps.multiroom" variant="background" :title="t('audioSources.multiroom')" action="caret"
-                @click="push('multiroom')">
-                <template #icon>
-                  <img :src="multiroomIcon" alt="Multiroom" />
-                </template>
-              </ListItemButton>
-            </div>
-          </div>
-
-          <div v-if="hasAnyConfigurableSource" class="home-group">
-            <span class="text-body settings-home-section-title">{{ t('settings.section.sources') }}</span>
-            <div class="settings-nav-grid">
-              <ListItemButton v-if="settingsStore.dockApps.mac" variant="background" :title="t('audioSources.macOS')" action="caret"
-                @click="push('macos')">
-                <template #icon>
-                  <img :src="macosIcon" alt="Mac" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton v-if="settingsStore.dockApps.radio" variant="background" :title="t('audioSources.radio')" action="caret"
-                @click="push('radio')">
-                <template #icon>
-                  <img :src="radioIcon" alt="Radio" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton v-if="settingsStore.dockApps.qobuz" variant="background" :title="t('audioSources.qobuz')" action="caret"
-                @click="push('qobuz')">
-                <template #icon>
-                  <img :src="qobuzIcon" alt="Qobuz" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton v-if="settingsStore.dockApps.music_library" variant="background" :title="t('audioSources.musicLibrary')" action="caret"
-                @click="push('music-library')">
-                <template #icon>
-                  <img :src="musicLibraryIcon" alt="Music Library" />
-                </template>
-              </ListItemButton>
-            </div>
-          </div>
-
-          <div class="home-group">
-            <span class="text-body settings-home-section-title">{{ t('settings.section.system') }}</span>
-            <div class="settings-nav-grid">
-              <ListItemButton variant="background" :title="t('settings.network')" action="caret" @click="push('network')">
-                <template #icon>
-                  <img :src="networkIcon" alt="Network" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton variant="background" :title="t('settings.hardware')" action="caret" @click="push('hardware')">
-                <template #icon>
-                  <img :src="hardwareIcon" alt="Hardware" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton v-if="fanStore.available" variant="background" :title="t('settings.fan')" action="caret" @click="push('fan')">
-                <template #icon>
-                  <img :src="fanIcon" alt="Fan" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton variant="background" :title="t('settings.updates')" action="caret" @click="push('updates')">
-                <template #icon>
-                  <img :src="updatesIcon" alt="Updates" />
-                </template>
-              </ListItemButton>
-
-              <ListItemButton variant="background" :title="t('settings.information')" action="caret" @click="push('info')">
-                <template #icon>
-                  <img :src="informationIcon" alt="Information" />
+                  <img :src="row.icon" :alt="row.alt" />
                 </template>
               </ListItemButton>
             </div>
@@ -393,41 +284,96 @@ function push(view, params) {
 }
 function back() { navBack(); prepareNavigation(); }
 
-// Dynamic header title based on current view
+// One declaration per home-screen category: the grid row it renders, the section
+// it sits in, when it is offered, and the header title of the view it pushes.
+// Adding a category is this row plus its component import and mount — the title
+// and the section gate are derived, so they cannot fall out of step with it.
+// `visible` reads stores, so the table is built here rather than in a module.
+const HOME_SECTIONS = [
+  {
+    key: 'appearance',
+    titleKey: 'settings.section.appearance',
+    rows: [
+      { view: 'languages', titleKey: 'settings.languages', icon: languagesIcon, alt: 'Languages' },
+      { view: 'apps', titleKey: 'settings.dock', icon: applicationsIcon, alt: 'Dock' },
+      { view: 'screen', titleKey: 'settings.screen', icon: displayIcon, alt: 'Display',
+        visible: () => screenType.value !== 'none' },
+    ],
+  },
+  {
+    key: 'audio',
+    titleKey: 'settings.section.audio',
+    rows: [
+      { view: 'volume', titleKey: 'settings.volume', icon: volumeIcon, alt: 'Volume',
+        visible: () => unifiedStore.volumeState.any_volume_control },
+      { view: 'audio-playback', titleKey: 'settings.audioPlayback', icon: audioPlaybackIcon, alt: 'Audio playback' },
+      { view: 'remote-controls', titleKey: 'settings.remoteControls', icon: remoteControlsIcon, alt: 'Remote controls' },
+      { view: 'multiroom', titleKey: 'audioSources.multiroom', icon: multiroomIcon, alt: 'Multiroom',
+        visible: () => settingsStore.dockApps.multiroom },
+    ],
+  },
+  {
+    key: 'sources',
+    titleKey: 'settings.section.sources',
+    rows: [
+      { view: 'macos', titleKey: 'audioSources.macOS', icon: macosIcon, alt: 'Mac',
+        visible: () => settingsStore.dockApps.mac },
+      { view: 'radio', titleKey: 'audioSources.radio', icon: radioIcon, alt: 'Radio',
+        visible: () => settingsStore.dockApps.radio },
+      { view: 'qobuz', titleKey: 'audioSources.qobuz', icon: qobuzIcon, alt: 'Qobuz',
+        visible: () => settingsStore.dockApps.qobuz },
+      { view: 'music-library', titleKey: 'audioSources.musicLibrary', icon: musicLibraryIcon, alt: 'Music Library',
+        visible: () => settingsStore.dockApps.music_library },
+    ],
+  },
+  {
+    key: 'system',
+    titleKey: 'settings.section.system',
+    rows: [
+      { view: 'network', titleKey: 'settings.network', icon: networkIcon, alt: 'Network' },
+      { view: 'hardware', titleKey: 'settings.hardware', icon: hardwareIcon, alt: 'Hardware' },
+      { view: 'fan', titleKey: 'settings.fan', icon: fanIcon, alt: 'Fan',
+        visible: () => fanStore.available },
+      { view: 'updates', titleKey: 'settings.updates', icon: updatesIcon, alt: 'Updates' },
+      { view: 'info', titleKey: 'settings.information', icon: informationIcon, alt: 'Information' },
+    ],
+  },
+];
+
+// A section is offered iff it still has a row — so a heading with nothing under
+// it is unrepresentable rather than guarded by a second, hand-kept condition.
+const visibleSections = computed(() =>
+  HOME_SECTIONS
+    .map(section => ({ ...section, rows: section.rows.filter(row => row.visible?.() ?? true) }))
+    .filter(section => section.rows.length > 0)
+);
+
+const HOME_TITLE_KEYS = Object.fromEntries(
+  HOME_SECTIONS.flatMap(section => section.rows.map(row => [row.view, row.titleKey]))
+);
+
+// Views reached from somewhere other than the home grid, so they have no row.
 const headerTitle = computed(() => {
+  const homeKey = HOME_TITLE_KEYS[currentView.value];
+  if (homeKey) return t(homeKey);
+
   const titles = {
     'home': t('settings.title'),
-    'languages': t('settings.languages'),
-    'apps': t('settings.dock'),
-    'volume': t('settings.volume'),
-    'screen': t('settings.screen'),
-    'network': t('settings.network'),
-    'hardware': t('settings.hardware'),
-    'fan': t('settings.fan'),
-    'audio-playback': t('settings.audioPlayback'),
-    'remote-controls': t('settings.remoteControls'),
     'bt-remote': t('settings.btRemote'),
     'ir-remote': t('settings.irRemote'),
-    'multiroom': t('audioSources.multiroom'),
     'multiroom-zone-edit': zoneGroupId.value
       ? t('equalizer.zones.editZone')
       : t('equalizer.zones.createZone'),
     'multiroom-client-edit': t('multiroom.editSystem'),
     'multiroom-configure-system': t('multiroom.pending.configureTitle'),
-    'radio': t('audioSources.radio'),
     'radio-add': t('radio.manageStation.addStationTitle'),
     'radio-edit': t('radio.manageStation.editStationTitle'),
-    'macos': t('audioSources.macOS'),
-    'qobuz': t('audioSources.qobuz'),
-    'music-library': t('audioSources.musicLibrary'),
     'music-library-share-add': t('musicLibrary.shares.addTitle'),
     'music-library-share-browse': shareWizardPhase.value === 'auth'
       ? t('musicLibrary.shares.wizard.authTitle')
       : t('musicLibrary.shares.wizard.browseTitle'),
     'music-library-share-manual': t('musicLibrary.shares.wizard.manualTitle'),
     'music-library-share-edit': t('musicLibrary.shares.editTitle'),
-    'updates': t('settings.updates'),
-    'info': t('settings.information')
   };
   return titles[currentView.value] || t('settings.title');
 });
@@ -670,14 +616,6 @@ async function handleShutdown() {
     shutdownInProgress.value = false;
   }
 }
-
-// Hide the entire Sources section when none of its per-source entries are visible
-const hasAnyConfigurableSource = computed(() =>
-  settingsStore.dockApps.mac
-  || settingsStore.dockApps.radio
-  || settingsStore.dockApps.qobuz
-  || settingsStore.dockApps.music_library
-);
 
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
