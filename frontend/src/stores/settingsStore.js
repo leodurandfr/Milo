@@ -171,71 +171,38 @@ export const useSettingsStore = defineStore('settings', () => {
         message: 'Error loading settings',
       });
 
+      // BulkSettingsResponse declares every category as a required field, so a
+      // 200 carries them all: no key needs a fallback, and restating one here
+      // would be a second declaration of a default the backend owns.
       const d = bulkResult.ok ? bulkResult.data : null;
       if (d) {
-        language.value = d.language ?? 'english';
+        language.value = d.language;
 
-        setIfChanged(volumeLimits, {
-          min_db: d.volume_limits?.min_db ?? -80.0,
-          max_db: d.volume_limits?.max_db ?? -20.0
-        });
+        setIfChanged(volumeLimits, d.volume_limits);
+        setIfChanged(volumeStartup, d.volume_startup);
 
-        setIfChanged(volumeStartup, {
-          startup_volume_db: d.volume_startup?.startup_volume_db ?? -45.0,
-          restore_last_volume: d.volume_startup?.restore_last_volume ?? true
-        });
+        // The three hardware step sizes are separate categories on the wire and
+        // one ref here (step_mobile_db joins them from volume_changed).
+        volumeSteps.value.step_rotary_db = d.rotary_steps.step_rotary_db;
+        volumeSteps.value.step_bt_remote_db = d.bt_remote_steps.step_bt_remote_db;
+        volumeSteps.value.step_ir_remote_db = d.ir_remote_steps.step_ir_remote_db;
 
-        volumeSteps.value.step_rotary_db = d.rotary_steps?.step_rotary_db ?? 2.0;
-        volumeSteps.value.step_bt_remote_db = d.bt_remote_steps?.step_bt_remote_db ?? 2.0;
-        volumeSteps.value.step_ir_remote_db = d.ir_remote_steps?.step_ir_remote_db ?? 2.0;
+        const enabledApps = d.dock_apps.enabled_apps;
+        setIfChanged(dockApps, buildDockAppsMap(enabledApps));
+        syncSourceOrder(enabledApps);
 
-        if (d.dock_apps?.enabled_apps) {
-          const enabledApps = d.dock_apps.enabled_apps;
-          setIfChanged(dockApps, buildDockAppsMap(enabledApps));
-          syncSourceOrder(enabledApps);
-        }
+        setIfChanged(audioPlayback, d.audio_stop);
+        setIfChanged(screenTimeout, d.screen_timeout);
+        setIfChanged(screenBrightness, d.screen_brightness);
+        setIfChanged(screenScreensaver, d.screen_screensaver);
 
-        setIfChanged(audioPlayback, {
-          auto_stop_delay: d.audio_stop?.auto_stop_delay ?? 120.0
-        });
-
-        setIfChanged(screenTimeout, {
-          screen_timeout_enabled: d.screen_timeout?.screen_timeout_enabled ?? true,
-          screen_timeout_seconds: d.screen_timeout?.screen_timeout_seconds ?? 120
-        });
-
-        setIfChanged(screenBrightness, {
-          brightness_on: d.screen_brightness?.brightness_on ?? 5
-        });
-
-        setIfChanged(screenScreensaver, {
-          screensaver_enabled: d.screen_screensaver?.screensaver_enabled ?? true,
-          screensaver_delay_seconds: d.screen_screensaver?.screensaver_delay_seconds ?? 120
-        });
-
-        setIfChanged(screenUiScale, {
-          ui_scale: d.screen_ui_scale?.ui_scale ?? 1.0
-        });
+        setIfChanged(screenUiScale, d.screen_ui_scale);
         applyUiScale(screenUiScale.value.ui_scale);
 
-        setIfChanged(screenColorFilter, {
-          enabled: d.screen_color_filter?.enabled ?? false,
-          warmth: d.screen_color_filter?.warmth ?? 50
-        });
-
-        setIfChanged(radioSettings, {
-          shazam_enabled: d.radio_settings?.shazam_enabled ?? true
-        });
-
-        setIfChanged(qobuzSettings, {
-          allow_app_volume: d.qobuz_settings?.allow_app_volume ?? false
-        });
-
-        setIfChanged(macRocSettings, {
-          target_latency_ms: d.mac_roc?.target_latency_ms ?? 50,
-          latency_profile: d.mac_roc?.latency_profile ?? 'responsive',
-          frame_length_ms: d.mac_roc?.frame_length_ms ?? 4
-        });
+        setIfChanged(screenColorFilter, d.screen_color_filter);
+        setIfChanged(radioSettings, d.radio_settings);
+        setIfChanged(qobuzSettings, d.qobuz_settings);
+        setIfChanged(macRocSettings, d.mac_roc);
       }
 
       hasLoaded.value = true;
