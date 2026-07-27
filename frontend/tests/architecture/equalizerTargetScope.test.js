@@ -45,6 +45,8 @@ import { dirname, join, resolve, relative } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
 const EQ_STORE = join(SRC_DIR, 'stores/equalizerStore.js');
+const PARAMETRIC_EQ = join(SRC_DIR, 'components/equalizer/ParametricEQ.vue');
+const EQ_BAND = join(SRC_DIR, 'components/equalizer/EQBand.vue');
 
 /** Anything that builds, tests or takes apart the `zone:<id>` API token. */
 const ZONE_TOKEN = /(?:`zone:\$\{|['"]zone:)/;
@@ -153,6 +155,37 @@ describe('equalizerStore target scoping', () => {
       .map(file => relative(SRC_DIR, file));
 
     expect(offenders).toEqual([]);
+  });
+
+  it('no band renders a gain the store has not loaded', () => {
+    // cleanup() zeroes the gains so the previous target's curve cannot leak into
+    // the next one. But `isConnected` — the gate that mounts the band section —
+    // is written only by loadStatus(), so the section re-mounts on the zeroed
+    // values and paints a flat curve until the record lands. Measured on the unit
+    // (2026-07-27): 3/6 target switches, 6/8 bypass-then-enable, 4/5 re-openings,
+    // 59-650 ms each. Flat is indistinguishable from a real `flat` preset, so the
+    // fix is to render no gain at all until `filtersLoaded`.
+    const cleanup = FUNCTIONS.find(f => f.name === 'cleanup');
+    const cleanupBody = stripComments(cleanup.body);
+    expect(cleanupBody).toMatch(/filtersLoaded\.value\s*=\s*false/);
+    expect(cleanupBody).toMatch(/\.gain\s*=\s*0/);
+
+    const parametric = stripComments(readFileSync(PARAMETRIC_EQ, 'utf8'));
+    const bandTag = parametric.match(/<EQBand[\s\S]*?\/>/);
+    expect(bandTag, 'no <EQBand> found in ParametricEQ — the extractor is broken').not.toBeNull();
+    expect(bandTag[0]).toMatch(/:loaded="filtersLoaded"/);
+
+    const band = stripComments(readFileSync(EQ_BAND, 'utf8'));
+    // The printed figure, and the slider whose thumb position is a figure too.
+    // The printed figure is the `{{ }}` interpolation alone: a `:class` on the
+    // same element mentioning `loaded` must not satisfy this (a surviving mutation
+    // proved it would).
+    const printed = band.match(/<div class="gain-value[\s\S]*?>\s*(\{\{[\s\S]*?\}\})/);
+    const gainSlider = band.match(/<div class="gain-slider"[^>]*>/);
+    expect(printed, 'no interpolation inside .gain-value — the extractor is broken').not.toBeNull();
+    expect(gainSlider, 'no .gain-slider element in EQBand — the extractor is broken').not.toBeNull();
+    expect(printed[1]).toMatch(/\bloaded\b/);
+    expect(gainSlider[0]).toMatch(/\bloaded\b/);
   });
 
   it('the EQ store addresses no volume endpoint', () => {

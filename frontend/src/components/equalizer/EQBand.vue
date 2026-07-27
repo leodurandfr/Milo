@@ -4,7 +4,7 @@
   <div class="eq-band" :class="{ 'horizontal': orientation === 'horizontal', 'compact': compact }">
     <div class="band-label text-mono-small">{{ displayName }}</div>
 
-    <div class="gain-slider">
+    <div class="gain-slider" :class="{ 'pending': !loaded }">
       <RangeSlider
         :model-value="gainValue"
         :min="-15"
@@ -20,8 +20,9 @@
       />
     </div>
 
-    <div class="gain-value text-mono-small" :class="{ 'dragging': isDragging, 'positive': gainValue > 0, 'negative': gainValue < 0 }">
-      {{ gainValue > 0 ? '+' : '' }}{{ gainValue.toFixed(1) }}
+    <div class="gain-value text-mono-small"
+      :class="{ 'dragging': isDragging, 'positive': loaded && gainValue > 0, 'negative': loaded && gainValue < 0 }">
+      {{ loaded ? `${gainValue > 0 ? '+' : ''}${gainValue.toFixed(1)}` : '—' }}
     </div>
   </div>
 </template>
@@ -36,6 +37,10 @@ const props = defineProps({
   gain: { type: Number, default: 0 },
   displayName: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
+  // The record for the selected target has arrived. Until it has, `gain` is the
+  // zeroed placeholder cleanup() leaves behind, so showing it would assert a flat
+  // curve the target may not have.
+  loaded: { type: Boolean, default: true },
   orientation: { type: String, default: 'vertical' },
   compact: { type: Boolean, default: false }
 });
@@ -101,6 +106,11 @@ function handleDragEnd() {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity var(--transition-fast);
+}
+
+.gain-slider.pending {
+  opacity: 0;
 }
 
 .eq-band:not(.horizontal) .gain-slider {

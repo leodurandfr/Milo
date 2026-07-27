@@ -11,6 +11,7 @@
         :gain="filter.gain"
         :display-name="filter.displayName"
         :orientation="bandOrientation"
+        :loaded="filtersLoaded"
         :disabled="disabled || !filtersLoaded"
         :compact="filters.length > 10"
         @update:gain="handleGainUpdate(filter.id, $event)"
