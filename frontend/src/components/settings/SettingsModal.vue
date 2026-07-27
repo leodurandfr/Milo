@@ -337,8 +337,6 @@ const props = defineProps({
   }
 });
 
-defineEmits(['close']);
-
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
@@ -677,7 +675,6 @@ async function handleShutdown() {
 const hasAnyConfigurableSource = computed(() =>
   settingsStore.dockApps.mac
   || settingsStore.dockApps.radio
-  || settingsStore.dockApps.podcast
   || settingsStore.dockApps.qobuz
   || settingsStore.dockApps.music_library
 );
