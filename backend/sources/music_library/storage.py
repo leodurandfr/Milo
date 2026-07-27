@@ -26,7 +26,7 @@ never crash the backend.
 """
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.config.constants import (
     MILO_MOUNT_CMD,
@@ -36,6 +36,10 @@ from backend.config.constants import (
 from backend.sources.music_library.navidrome_client import NavidromeClient
 
 logger = logging.getLogger("source.music_library.storage")
+
+# How the manager reaches the catalog: the source's shared-client accessor, which
+# returns None until Navidrome's cred file exists.
+NavidromeProvider = Callable[[], Awaitable[Optional[NavidromeClient]]]
 
 # Filesystems worth mounting — mirrors milo-mount's allowlist. The helper is the
 # real security boundary and re-validates independently; this is only a fast
@@ -58,11 +62,14 @@ class StorageManager:
     milo-umount sudoers helpers; Navidrome is told to rescan after every change.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, navidrome_provider: NavidromeProvider) -> None:
         self.logger = logger
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._observer = None  # pyudev.MonitorObserver (monitor thread)
-        self._navidrome: Optional[NavidromeClient] = None
+        # The catalog client is owned by the source and shared, not rebuilt here:
+        # a second instance would keep its own aiohttp session and miss the
+        # auth-recovery path that drops a stale client on a rotated cred file.
+        self._navidrome_provider = navidrome_provider
         # Serializes mount/unmount so concurrent hotplug events can't race on the
         # mountpoint table or the helpers.
         self._lock = asyncio.Lock()
@@ -113,16 +120,13 @@ class StorageManager:
         return True
 
     async def cleanup(self) -> None:
-        """Stop the monitor thread and close the Navidrome client."""
+        """Stop the monitor thread. The Navidrome client belongs to the source."""
         if self._observer is not None:
             try:
                 self._observer.stop()
             except Exception as exc:
                 self.logger.debug("USB monitor stop error: %s", exc)
             self._observer = None
-        if self._navidrome is not None:
-            await self._navidrome.close()
-            self._navidrome = None
 
     # =========================================================================
     # udev detection
@@ -376,10 +380,11 @@ class StorageManager:
 
         Best-effort: Navidrome's own folder watcher also notices, so a failure
         here (not provisioned yet, still starting up) just means a slightly later
-        index update. Rebuilds the client if the cred file only appeared after
-        startup (first boot provisions it asynchronously).
+        index update. The provider builds the client on first use, so a cred file
+        that only appeared after startup is picked up (first boot provisions it
+        asynchronously).
         """
-        client = await self._ensure_navidrome()
+        client = await self._navidrome_provider()
         if client is None:
             self.logger.info(
                 "Navidrome client unavailable; relying on its folder watcher"
@@ -392,9 +397,3 @@ class StorageManager:
                 )
         except Exception as exc:
             self.logger.warning("Navidrome scan trigger failed: %s", exc)
-
-    async def _ensure_navidrome(self) -> Optional[NavidromeClient]:
-        """Lazily build the Navidrome client from the cred file (None until it exists)."""
-        if self._navidrome is None:
-            self._navidrome = NavidromeClient.from_cred_file()
-        return self._navidrome
