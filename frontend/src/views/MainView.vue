@@ -10,10 +10,6 @@
 
     <Logo :position="logoPosition" :visible="logoVisible" />
 
-    <Modal :is-open="isSettingsOpen" @close="closeSettings" height-mode="auto">
-      <SettingsModal @close="closeSettings" />
-    </Modal>
-
     <AudioScreensaver
       :is-visible="isScreensaverVisible"
       :progress-converges="progressConverges"
@@ -45,12 +41,8 @@ import { useTimer } from '@/composables/useTimer';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
-import Modal from '@/components/ui/Modal.vue';
 
 // Lazy-loaded components
-const SettingsModal = defineAsyncComponent(() =>
-  import('@/components/settings/SettingsModal.vue')
-);
 const AudioScreensaver = defineAsyncComponent(() =>
   import('@/components/audio/AudioScreensaver.vue')
 );
@@ -125,14 +117,9 @@ const logoPosition = computed(() => lastVisiblePosition.value);
 /* =========================
    Settings access (secret tap)
    ========================= */
-const isSettingsOpen = ref(false);
-
-function openSettings() {
-  isSettingsOpen.value = true;
-}
-function closeSettings() {
-  isSettingsOpen.value = false;
-}
+// App.vue owns the settings modal and its open state — the pending-client
+// auto-open guards on it, so a second local instance would be invisible to it.
+const openSettings = inject('openSettings');
 
 const SETTINGS_CLICKS_REQUIRED = 5;
 const CLICK_WINDOW_MS = 5000;
