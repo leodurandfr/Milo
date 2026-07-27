@@ -19,7 +19,6 @@ getAlbumList2/getGenres/getSongsByGenre, getPlaylists/getPlaylist, star/unstar,
 and getCoverArt bytes for the cover proxy. Playback wiring in source.py is P1-6.
 P3-11 adds the playlist write verbs (createPlaylist/updatePlaylist/deletePlaylist).
 """
-import asyncio
 import hashlib
 import logging
 import secrets
@@ -231,11 +230,6 @@ class NavidromeClient:
 
     # === Health / scan ===
 
-    async def ping(self) -> bool:
-        """True if Navidrome is up and our credentials authenticate."""
-        response = await self._make_request("ping")
-        return bool(response) and not response.get("_network_error")
-
     async def start_scan(self, full: bool = False) -> bool:
         """Trigger a library scan (quick by default; ``full`` re-reads all tags)."""
         response = await self._make_request(
@@ -254,37 +248,7 @@ class NavidromeClient:
             return None
         return response.get("scanStatus")
 
-    async def wait_until_indexed(
-        self, min_songs: int = 1, timeout: float = 60.0, poll_interval: float = 1.0
-    ) -> bool:
-        """Poll getScanStatus until the library holds >= ``min_songs`` and the
-        scan is idle, or ``timeout`` elapses. Returns True once satisfied.
-
-        Used after seeding/mounting to gate playback on a ready catalog.
-        """
-        deadline = asyncio.get_event_loop().time() + timeout
-        while asyncio.get_event_loop().time() < deadline:
-            status = await self.get_scan_status()
-            if status is not None:
-                count = int(status.get("count", 0) or 0)
-                scanning = bool(status.get("scanning", False))
-                if count >= min_songs and not scanning:
-                    return True
-            await asyncio.sleep(poll_interval)
-        return False
-
     # === Catalog browse ===
-
-    async def get_random_songs(
-        self, size: int = 10, genre: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """Return up to ``size`` random songs (raw Subsonic song dicts)."""
-        response = await self._make_request(
-            "getRandomSongs", {"size": size, "genre": genre}
-        )
-        if not response or response.get("_network_error"):
-            return []
-        return response.get("randomSongs", {}).get("song", []) or []
 
     async def search3(
         self,
@@ -501,10 +465,6 @@ class NavidromeClient:
         directly, so the auth params are embedded in the query string.
         """
         return self._build_url("stream", {"id": song_id, "format": "raw"})
-
-    def cover_art_url(self, cover_id: str, size: Optional[int] = None) -> str:
-        """Authenticated getCoverArt URL (proxied behind /api/music-library)."""
-        return self._build_url("getCoverArt", {"id": cover_id, "size": size})
 
     async def _ensure_placeholder_signature(self) -> None:
         """Fetch (once) the byte-signature of Navidrome's built-in "no cover"

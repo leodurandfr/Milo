@@ -962,22 +962,3 @@ class MusicLibrarySource(MpvAudioSource):
         if req.domain:
             creds["domain"] = req.domain
         return creds
-
-    # =========================================================================
-    # PUBLIC API
-    # =========================================================================
-
-    @property
-    def position(self) -> int:
-        """Current position in seconds."""
-        return self._position
-
-    @property
-    def duration(self) -> int:
-        """Current track duration in seconds."""
-        return self._duration
-
-    @property
-    def queue(self) -> List[Dict[str, Any]]:
-        """The current play queue (Subsonic song dicts)."""
-        return self._queue
