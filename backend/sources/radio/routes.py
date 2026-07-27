@@ -287,13 +287,22 @@ async def get_custom_stations(source: RadioSource = Depends(get_source)) -> Dict
     """
     Get all custom stations (modified metadata and manually created).
 
+    A custom station edited by the user lives in both stores at once: the record
+    written at creation, and the override written by every later save. The override
+    wins, per `_lookup_local`'s priority — merged per station, so the fields only the
+    creation record carries (`id`, `is_custom`) survive the overlay.
+
     Returns:
         Dict of station_id → metadata
     """
     async with api_error_handler("Custom stations error", logger):
         modified_metadata = source.station_data.get_modified_metadata()
         manual_stations = source.station_data.get_manual_stations()
-        return {**modified_metadata, **manual_stations}
+
+        merged = {station_id: dict(meta) for station_id, meta in manual_stations.items()}
+        for station_id, override in modified_metadata.items():
+            merged[station_id] = {**merged.get(station_id, {}), **override}
+        return merged
 
 
 @router.post("/custom/add")
