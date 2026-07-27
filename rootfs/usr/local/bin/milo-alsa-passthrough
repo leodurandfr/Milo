@@ -1,0 +1,41 @@
+#!/bin/bash
+# milo-alsa-passthrough — pin the sound card's hardware mixer at unity (100%).
+#
+# CamillaDSP owns volume on both roles, so the card's own mixer must never
+# attenuate. Which control carries the playback volume depends on the codec
+# ("Digital" on the pcm512x boards, "DAC" on the pcm179x ones) and some boards
+# expose none at all, so it is read from the card itself rather than from a
+# table that drifts from the hardware.
+#
+# Wired as ExecStartPre of the CamillaDSP unit: it therefore runs on every boot
+# before anything opens the card, and again after a card change (which reboots).
+#
+# Twin of milo-client/rootfs/usr/local/bin/milo-alsa-passthrough — server and
+# satellite are deployed from separate trees, same logic on both.
+
+set -uo pipefail
+
+CARD="${1:-sndrpihifiberry}"
+DEADLINE=$((SECONDS + 3))
+
+# CamillaDSP can be ordered before udev has registered the HAT — give it a moment
+# rather than silently leaving the mixer wherever the driver left it.
+until amixer -c "$CARD" scontrols >/dev/null 2>&1; do
+    if [ "$SECONDS" -ge "$DEADLINE" ]; then
+        echo "card '$CARD' not present — nothing to pin"
+        exit 0
+    fi
+    sleep 0.2
+done
+
+for control in Digital DAC Master PCM; do
+    amixer -c "$CARD" sget "$control" 2>/dev/null | grep -q pvolume || continue
+    if amixer -M -c "$CARD" sset "$control" 100% >/dev/null 2>&1; then
+        echo "'$control' pinned at 100% on card '$CARD'"
+        exit 0
+    fi
+    echo "failed to set '$control' to 100% on card '$CARD'" >&2
+done
+
+echo "card '$CARD' exposes no playback volume control — nothing to pin"
+exit 0

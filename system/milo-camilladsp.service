@@ -21,6 +21,11 @@ RuntimeDirectoryPreserve=yes
 # Working directory for config files
 WorkingDirectory=/var/lib/milo/camilladsp
 
+# Pin the card's hardware mixer at unity before CamillaDSP opens it — CamillaDSP
+# is the only volume stage, the card must not attenuate on top of it. Leading "-"
+# so a mixer problem can never keep audio down.
+ExecStartPre=-/usr/local/bin/milo-alsa-passthrough
+
 # Start CamillaDSP with WebSocket server enabled
 # -p 1234: WebSocket server port
 # -a 127.0.0.1: Listen only on localhost

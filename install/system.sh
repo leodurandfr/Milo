@@ -74,6 +74,11 @@ install_apply_hardware_script() {
     sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-set-wifi-country" /usr/local/bin/milo-set-wifi-country
     sudo chmod +x /usr/local/bin/milo-set-wifi-country
 
+    # Hardware mixer unity pin, run as ExecStartPre of milo-camilladsp.service
+    # (no sudoers entry — amixer only needs the audio group).
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-alsa-passthrough" /usr/local/bin/milo-alsa-passthrough
+    sudo chmod +x /usr/local/bin/milo-alsa-passthrough
+
     # Navidrome first-boot service-account provisioning (no sudoers entry — runs
     # as milo, writes only under /var/lib/milo/navidrome).
     sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-navidrome-provision" /usr/local/bin/milo-navidrome-provision
