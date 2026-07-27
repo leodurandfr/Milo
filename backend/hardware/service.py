@@ -85,11 +85,6 @@ class HardwareService:
             "resolution": self.get_screen_resolution()
         }
 
-    def get_alsa_control(self) -> Optional[str]:
-        """Returns the ALSA mixer control name (e.g. "Digital", "DAC")."""
-        config = self._ensure_cache()
-        return config.get('audio', {}).get('alsa_control') or None
-
     def get_audio_id(self) -> Optional[str]:
         """Returns the audio card registry ID (e.g. "hifiberry_amp2")."""
         config = self._ensure_cache()

@@ -16,7 +16,6 @@ file — a bash-seeded file cannot track the schema and shipped a stale one that
 # - label: Human-readable name for the UI dropdown
 # - overlay: dtoverlay value for /boot/firmware/config.txt
 # - card_name: ALSA card name (all HiFiBerry HATs share "sndrpihifiberry")
-# - alsa_control: ALSA mixer control name ("Digital" or "DAC")
 # - brand: Manufacturer (for future grouping in the UI)
 
 AUDIO_CARDS = {
@@ -24,7 +23,6 @@ AUDIO_CARDS = {
         "label": "No audio card",
         "overlay": None,
         "card_name": None,
-        "alsa_control": None,
         "brand": None,
         "category": None,
     },
@@ -32,7 +30,6 @@ AUDIO_CARDS = {
         "label": "HiFiBerry Amp2",
         "overlay": "hifiberry-dacplus-std",
         "card_name": "sndrpihifiberry",
-        "alsa_control": "Digital",
         "brand": "HiFiBerry",
         "category": "amplifier",
     },
@@ -40,7 +37,6 @@ AUDIO_CARDS = {
         "label": "HiFiBerry Amp4",
         "overlay": "hifiberry-dacplus-std",
         "card_name": "sndrpihifiberry",
-        "alsa_control": "Digital",
         "brand": "HiFiBerry",
         "category": "amplifier",
     },
@@ -48,7 +44,6 @@ AUDIO_CARDS = {
         "label": "HiFiBerry Amp4 Pro",
         "overlay": "hifiberry-amp4pro",
         "card_name": "sndrpihifiberry",
-        "alsa_control": "Digital",
         "brand": "HiFiBerry",
         "category": "amplifier",
     },
@@ -56,7 +51,6 @@ AUDIO_CARDS = {
         "label": "HiFiBerry Amp100",
         "overlay": "hifiberry-amp100",
         "card_name": "sndrpihifiberry",
-        "alsa_control": "Digital",
         "brand": "HiFiBerry",
         "category": "amplifier",
     },
@@ -64,7 +58,6 @@ AUDIO_CARDS = {
         "label": "HiFiBerry Beocreate 4CA",
         "overlay": "hifiberry-dac",
         "card_name": "sndrpihifiberry",
-        "alsa_control": "DAC",
         "brand": "HiFiBerry",
         "category": "amplifier",
     },
@@ -72,7 +65,6 @@ AUDIO_CARDS = {
         "label": "HiFiBerry DAC2 HD",
         "overlay": "hifiberry-dacplushd",
         "card_name": "sndrpihifiberry",
-        "alsa_control": "DAC",
         "brand": "HiFiBerry",
         "category": "dac",
     },
@@ -83,7 +75,6 @@ AUDIO_CARDS = {
         # misfires on the Pi 5; the plain name is a deprecated alias.
         "overlay": "hifiberry-dacplus-pro",
         "card_name": "sndrpihifiberry",
-        "alsa_control": "Digital",
         "brand": "HiFiBerry",
         "category": "dac",
     },
@@ -91,7 +82,6 @@ AUDIO_CARDS = {
         "label": "HiFiBerry DAC2 ADC Pro",
         "overlay": "hifiberry-dacplusadcpro",
         "card_name": "sndrpihifiberry",
-        "alsa_control": "Digital",
         "brand": "HiFiBerry",
         "category": "dac",
     },

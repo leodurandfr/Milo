@@ -3,7 +3,8 @@
 Volume management service - CamillaDSP always active.
 
 All volume values are in decibels (-80 to 0 dB).
-ALSA is set to 100% passthrough - volume control is entirely via CamillaDSP.
+Volume control is entirely via CamillaDSP — the card's own mixer is pinned at
+unity outside the backend (see /usr/local/bin/milo-alsa-passthrough).
 
 Architecture:
 - VolumeStateStore: Single source of truth for all volume state
@@ -37,8 +38,6 @@ class VolumeService:
     Volume is ALWAYS controlled via CamillaDSP in dB (-80 to 0).
     - Direct mode: Single local CamillaDSP control
     - Multiroom mode: CamillaDSP volume synchronized across all clients
-
-    ALSA Digital mixer is set to 100% passthrough and never changed.
 
     Architecture:
         VolumeStateStore: Single source of truth (state + zones + clients)
@@ -242,41 +241,8 @@ class VolumeService:
             return False
 
     # ============================================================================
-    # MODE DETECTION & ALSA SETUP
+    # MODE DETECTION
     # ============================================================================
-
-    async def _set_alsa_passthrough(self) -> bool:
-        """Set ALSA mixer to 100% passthrough (volume is via CamillaDSP).
-
-        Reads the mixer control name from hardware.json (set during installation).
-        Falls back to trying common mixer names if not configured.
-        """
-        # Try configured mixer from hardware.json first
-        configured_control = None
-        if self._hardware_service:
-            configured_control = self._hardware_service.get_alsa_control()
-
-        if configured_control:
-            controls_to_try = [configured_control]
-        else:
-            controls_to_try = ["Digital", "DAC", "Master"]
-
-        for control in controls_to_try:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "amixer", "-M", "set", control, "100%",
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL
-                )
-                await proc.communicate()
-                if proc.returncode == 0:
-                    self.logger.info(f"ALSA passthrough set via '{control}' mixer")
-                    return True
-            except Exception as e:
-                self.logger.warning(f"Failed to set ALSA passthrough via '{control}': {e}")
-
-        self.logger.error("Could not set ALSA passthrough (no working mixer control found)")
-        return False
 
     def _is_multiroom_enabled(self) -> bool:
         """Check if multiroom mode is currently enabled."""
@@ -659,7 +625,9 @@ class VolumeService:
         """
         Initialize volume service.
 
-        Sets ALSA to 100% passthrough and initializes CamillaDSP volume.
+        Applies the startup volume to CamillaDSP. The card's own mixer is pinned
+        at unity by milo-alsa-passthrough (ExecStartPre of milo-camilladsp.service),
+        not from here — a satellite runs no backend and needs the same pin.
         """
         try:
             await self._load_volume_config()
@@ -682,10 +650,6 @@ class VolumeService:
 
             # Apply persisted volume to CamillaDSP (safe startup at -50dB, then restore)
             await self._apply_startup_volume()
-
-            # Set ALSA to 100% passthrough - permanent (volume is via CamillaDSP)
-            await self._set_alsa_passthrough()
-            self.logger.info("ALSA set to 100% passthrough mode")
 
             # Start initial broadcast task (waits for Snapcast WebSocket in multiroom mode)
             self._bg.spawn(self._startup_broadcast_after_websocket_ready(), label="startup_broadcast")

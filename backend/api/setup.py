@@ -120,7 +120,6 @@ def create_setup_router(
             if card["overlay"]:
                 audio_config.update({
                     "card_name": card["card_name"],
-                    "alsa_control": card["alsa_control"],
                     "overlay": card["overlay"],
                 })
             if payload.volume_control is not None:
