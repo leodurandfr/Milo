@@ -798,11 +798,14 @@ function handleClientMuteToggle(clientMacId, muted) {
   padding-left: var(--space-04);
 }
 
-/* In volume-wrapper context: absolute positioning for skeleton transition */
+/* In volume-wrapper context: absolute positioning for skeleton transition.
+   margin-block: auto resolves the over-constrained inset+height box by centering it,
+   so the pill sits exactly where the slider does inside the 40px wrapper. */
 .volume-wrapper .client-offline,
 .volume-wrapper .client-external-volume {
   position: absolute;
   inset: 0;
+  margin-block: auto;
   opacity: 0;
   transition: opacity 450ms ease 0ms;
 }
@@ -916,12 +919,14 @@ function handleClientMuteToggle(clientMacId, muted) {
   }
 
   .client-row .client-volume,
-  .client-row .client-offline {
+  .client-row .client-offline,
+  .client-row .client-external-volume {
     grid-column: 1 / -1;
     grid-row: 2;
   }
 
-  .client-offline {
+  .client-offline,
+  .client-external-volume {
     height: 30px;
   }
 
