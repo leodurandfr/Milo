@@ -239,6 +239,7 @@ makes this silent.
 | Bypass | Effects toggle off/on without a gap or click in the audio | targeted |
 | Per-client EQ ⚠ | A remote client's EQ applies to that client only; a zone shows no EQ of its own | targeted |
 | Curve while loading | Switching target, re-enabling after a bypass, or reopening the page must **never** show a flat curve on the way to the real one — until the record lands the figures read "—" and the sliders are hidden. A flat curve is indistinguishable from a real `flat` preset, and this is a race, so repeat it ~5× before calling it clean | targeted |
+| Master bypass in a zone ⚠ | Turning the **dock's** Equalizer app off while the appliance is a zone member must silence the effects on **every** member, satellites included — not only the local DAC. The flag lives in two domains (settings.json locally, the per-client record remotely), so a local-only write leaves satellites audibly out of step with nothing to repair it. Check the satellite itself (`GET :8001/equalizer/status` → `equalizer_enabled`), not just what the page reports | targeted |
 
 ## Multiroom ⚠ second unit
 
