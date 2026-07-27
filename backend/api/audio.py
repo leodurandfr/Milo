@@ -2,15 +2,20 @@
 Main API routes for audio management
 """
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 from backend.api.models import AudioControlRequest
 from backend.api.responses import AudioStateResponse, StatusResponse
 from backend.api.route_helpers import parse_audio_source, run_source_command
 
+if TYPE_CHECKING:
+    from backend.core.state import AudioStateMachine
+
+
 logger = logging.getLogger(__name__)
 
-def create_router(state_machine):
+def create_router(state_machine: "AudioStateMachine"):
     """Creates router with injected dependencies"""
     router = APIRouter(prefix="/api/audio", tags=["audio"])
 

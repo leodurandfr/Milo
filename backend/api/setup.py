@@ -16,11 +16,18 @@ import json
 import logging
 import os
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from typing import Literal, Optional
+from typing import Literal, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field, field_validator
 
 from backend.config.constants import MILO_DATA_DIR
 from backend.core.multiroom.models import SPEAKER_TYPES
+
+if TYPE_CHECKING:
+    from backend.core.network.service import NetworkService
+    from backend.core.settings import SettingsService
+    from backend.core.systemd import SystemdServiceManager
+    from backend.hardware.service import HardwareService
+
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +72,12 @@ def _atomic_write_json(path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def create_setup_router(settings_service, hardware_service, network_service, systemd_manager):
+def create_setup_router(
+    settings_service: "SettingsService",
+    hardware_service: "HardwareService",
+    network_service: "NetworkService",
+    systemd_manager: "SystemdServiceManager"
+):
     """Create setup wizard router with injected services."""
     router = APIRouter(prefix="/api/setup", tags=["setup"])
 

@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 import aiohttp
+from typing import Optional, TYPE_CHECKING
 
 from backend.api.models import (
     SnapcastServerConfigRequest
@@ -17,10 +18,24 @@ from backend.core.models.ws_events import SystemStateChanged
 from backend.core.multiroom.routing import SnapclientEnv, DEFAULT_SNAPCLIENT_CONFIG
 from backend.core.multiroom.snapcast import NETWORK_PRESETS, SUPPORTED_CODECS
 
+if TYPE_CHECKING:
+    from backend.core.multiroom.client_registry import ClientRegistryService
+    from backend.core.multiroom.routing import AudioRoutingService
+    from backend.core.multiroom.snapcast import SnapcastService
+    from backend.core.settings import SettingsService
+    from backend.core.state import AudioStateMachine
+
+
 logger = logging.getLogger(__name__)
 
 
-def create_snapcast_router(routing_service, snapcast_service, state_machine, settings_service=None, client_registry_service=None):
+def create_snapcast_router(
+    routing_service: "AudioRoutingService",
+    snapcast_service: "SnapcastService",
+    state_machine: "AudioStateMachine",
+    settings_service: Optional["SettingsService"] = None,
+    client_registry_service: Optional["ClientRegistryService"] = None
+):
     """Create Snapcast router with all endpoints."""
     router = APIRouter(prefix="/api/routing/snapcast", tags=["snapcast"])
 

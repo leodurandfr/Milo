@@ -8,16 +8,22 @@ telemetry over WS on its own; the PUT route additionally broadcasts
 `fan_config_changed` (same payload shape) so other clients reflect the change.
 """
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 
 from backend.api.models import FanConfigRequest, FanTestRequest
 from backend.api.route_helpers import api_error_handler
 
+if TYPE_CHECKING:
+    from backend.core.settings import SettingsService
+    from backend.hardware.fan import FanController
+
+
 logger = logging.getLogger(__name__)
 
 
-def create_fan_router(fan_controller, settings_service):
+def create_fan_router(fan_controller: "FanController", settings_service: "SettingsService"):
     """Create the fan control API router."""
     router = APIRouter(prefix="/api/fan", tags=["fan"])
 

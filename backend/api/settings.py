@@ -3,7 +3,7 @@
 Settings Routes – Version with app deactivation and process stopping
 """
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 from backend.core.models.audio_state import AudioSource
 from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
 from backend.api.responses import BulkSettingsResponse
@@ -68,16 +68,26 @@ from backend.core.multiroom.routing import MacEnv
 import logging
 import asyncio
 
+if TYPE_CHECKING:
+    from backend.core.multiroom.routing import AudioRoutingService
+    from backend.core.settings import SettingsService
+    from backend.core.state import AudioStateMachine
+    from backend.core.systemd import SystemdServiceManager
+    from backend.core.volume.service import VolumeService
+    from backend.hardware.screen import ScreenController
+    from backend.hardware.service import HardwareService
+
+
 logger = logging.getLogger(__name__)
 
 def create_settings_router(
-    volume_service,
-    state_machine,
-    screen_controller,
-    systemd_manager,
-    routing_service,
-    hardware_service,
-    settings_service
+    volume_service: "VolumeService",
+    state_machine: "AudioStateMachine",
+    screen_controller: "ScreenController",
+    systemd_manager: "SystemdServiceManager",
+    routing_service: "AudioRoutingService",
+    hardware_service: "HardwareService",
+    settings_service: "SettingsService"
 ):
     """Settings router with proper app deactivation"""
     router = APIRouter()

@@ -2,6 +2,7 @@
 API routes for volume management - All values in dB (-80 to 0)
 """
 import logging
+from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException
 
 from backend.api.route_helpers import api_error_handler
@@ -20,10 +21,17 @@ from backend.api.responses import (
     ZoneVolumeDeltaResponse,
 )
 
+if TYPE_CHECKING:
+    from backend.core.multiroom.client_registry import ClientRegistryService
+    from backend.core.volume.service import VolumeService
+
 logger = logging.getLogger(__name__)
 
 
-def create_volume_router(volume_service, client_registry_service=None):
+def create_volume_router(
+    volume_service: "VolumeService",
+    client_registry_service: Optional["ClientRegistryService"] = None
+):
     """Creates volume router with dependency injection"""
     router = APIRouter(prefix="/api/volume", tags=["volume"])
 

@@ -4,6 +4,7 @@ API routes for program management — Full version with satellites
 """
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 from fastapi import APIRouter, BackgroundTasks
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import (
@@ -20,6 +21,12 @@ from backend.core.models.ws_events import (
 )
 from backend.core.updates.helpers import compare_versions, extract_base_tag
 
+if TYPE_CHECKING:
+    from backend.core.state import AudioStateMachine
+    from backend.core.updates.satellite import SatelliteUpdateService
+    from backend.core.updates.update import UpdateService
+
+
 logger = logging.getLogger(__name__)
 
 # Mapping from program key to AudioSource for pre-update deactivation
@@ -31,7 +38,11 @@ PROGRAM_TO_AUDIO_SOURCE = {
     'navidrome': AudioSource.MUSIC_LIBRARY,
 }
 
-def create_programs_router(update_service, satellite_update_service, state_machine):
+def create_programs_router(
+    update_service: "UpdateService",
+    satellite_update_service: "SatelliteUpdateService",
+    state_machine: "AudioStateMachine"
+):
     """Router for local and satellite programs
 
     Args:

@@ -11,7 +11,11 @@ Architecture:
 - Else → proxy_service to remote client
 """
 import logging
-from typing import Any, Dict, Callable, Awaitable
+from typing import Any, Dict, Callable, Awaitable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from backend.core.equalizer.client_proxy import EqualizerClientProxyService
+    from backend.core.equalizer.service import CamillaDSPService
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +33,8 @@ class EqualizerRouter:
     def __init__(
         self,
         client_registry,
-        camilladsp_service,
-        proxy_service
+        camilladsp_service: "CamillaDSPService",
+        proxy_service: "EqualizerClientProxyService"
     ):
         self._registry = client_registry
         self._camilladsp_service = camilladsp_service

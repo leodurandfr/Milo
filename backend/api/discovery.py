@@ -16,7 +16,7 @@ speaker: temporarily join its setup hotspot, push audio + target wifi config,
 then restore the server's original network connection.
 """
 import logging
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -25,6 +25,11 @@ from backend.api.route_helpers import api_error_handler
 from backend.core.multiroom.models import SPEAKER_TYPES
 from backend.core.multiroom.wifi_adoption import AdoptionError
 from backend.core.network.service import HOTSPOT_NAME
+
+if TYPE_CHECKING:
+    from backend.core.multiroom.wifi_adoption import WifiAdoptionService
+    from backend.core.network.service import NetworkService
+
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +66,7 @@ _ADOPTION_CLIENT_ERROR_CODES = {
 }
 
 
-def create_discovery_router(network_service, wifi_adoption_service):
+def create_discovery_router(network_service: "NetworkService", wifi_adoption_service: "WifiAdoptionService"):
     """Create discovery router with injected services."""
     router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 

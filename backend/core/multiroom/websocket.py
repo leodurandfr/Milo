@@ -10,18 +10,23 @@ import asyncio
 import json
 import logging
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 
 import aiohttp
 
 from backend.core.multiroom.models import ReconnectionContext
 from backend.core.multiroom.identity import compute_mac_id
+from backend.core.multiroom.snapcast import SnapcastService
 from backend.core.multiroom.client_registry import (
     ClientRegistryService,
     REGISTRY_EVENT_CLASSES,
 )
 from backend.config.constants import CLIENT_API_PORT, DEFAULT_VOLUME_DB, get_client_display_name
 from backend.shared.background import BackgroundTaskSet
+
+if TYPE_CHECKING:
+    from backend.core.settings import SettingsService
+    from backend.core.state import AudioStateMachine
 
 
 class SnapcastWebSocketService:
@@ -41,12 +46,12 @@ class SnapcastWebSocketService:
 
     def __init__(
         self,
-        state_machine,
+        state_machine: "AudioStateMachine",
         routing_service,
-        settings_service=None,
+        settings_service: Optional["SettingsService"] = None,
         host: str = "localhost",
         port: int = 1780,
-        snapcast_service=None,
+        snapcast_service: Optional[SnapcastService] = None,
         crossover_service=None,
         equalizer_client_proxy_service=None,
         pending_clients_service=None,

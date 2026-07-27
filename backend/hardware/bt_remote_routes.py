@@ -6,15 +6,20 @@ Provides endpoints for status and configuration.
 Discovery and pairing are handled automatically in the background.
 """
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 
 from backend.api.models import BtRemoteConfigRequest
 
+if TYPE_CHECKING:
+    from backend.hardware.bt_remote import BtRemoteController
+
+
 logger = logging.getLogger(__name__)
 
 
-def create_bt_remote_router(bt_remote_controller):
+def create_bt_remote_router(bt_remote_controller: "BtRemoteController"):
     """Create the BT remote API router."""
     router = APIRouter(prefix="/api/bt-remote", tags=["bt-remote"])
 
