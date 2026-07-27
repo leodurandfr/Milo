@@ -183,20 +183,20 @@ describe('VolumeStateSchema', () => {
 describe('Snapcast schemas', () => {
   it('falls back to the documented defaults on a malformed server config', () => {
     const result = SnapcastServerConfigSchema.safeParse({
-      stream_config: { buffer_ms: 'lots', chunk_ms: null, codec: 42, sampleformat: undefined },
+      buffer_ms: 'lots', chunk_ms: null, codec: 42, sampleformat: undefined,
       snapclient_buffer_time: 'soon',
     });
 
     expect(result.success).toBe(true);
-    expect(result.data.stream_config).toEqual({
+    expect(result.data).toEqual({
       buffer_ms: 1000, chunk_ms: 20, codec: 'flac', sampleformat: '48000:32:2',
+      snapclient_buffer_time: 80,
     });
-    expect(result.data.snapclient_buffer_time).toBe(80);
   });
 
   it('keeps a valid server config untouched', () => {
     const config = {
-      stream_config: { buffer_ms: 500, chunk_ms: 10, codec: 'opus', sampleformat: '44100:16:2' },
+      buffer_ms: 500, chunk_ms: 10, codec: 'opus', sampleformat: '44100:16:2',
       snapclient_buffer_time: 40,
     };
 
@@ -225,7 +225,8 @@ describe('validateSchema', () => {
     // test, so silence it rather than let it pollute the run.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const result = validateSchema(SnapcastServerConfigSchema, { stream_config: 'nope' }, 'test');
+    // Every field carries .catch(), so only a non-object is unsalvageable.
+    const result = validateSchema(SnapcastServerConfigSchema, 'nope', 'test');
 
     expect(result.success).toBe(false);
     expect(result.error.issues.length).toBeGreaterThan(0);

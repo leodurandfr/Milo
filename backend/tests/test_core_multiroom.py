@@ -1386,6 +1386,48 @@ class TestSnapcastService:
         config = {"codec": "mp3"}  # Not supported
         assert snapcast_service._validate_config(config) is False
 
+    def test_validate_config_rejects_an_unknown_key(self, snapcast_service):
+        """A body in the wrong shape must be refused, not silently ignored.
+
+        Validating only recognised keys let the nested read shape pass, write
+        nothing, return success and restart snapserver anyway — the one way
+        this endpoint can lie about having applied a change.
+        """
+        nested = {"stream_config": {"buffer_ms": 500, "codec": "flac", "chunk_ms": 20}}
+        assert snapcast_service._validate_config(nested) is False
+
+    def test_validate_config_accepts_the_shape_the_read_returns(self, snapcast_service):
+        """The other half: what GET /server-config serves must be a legal write
+        body, or the unknown-key rule above would reject the app's own payload."""
+        config = {
+            "buffer_ms": 500,
+            "chunk_ms": 20,
+            "codec": "flac",
+            "sampleformat": "48000:32:2",
+        }
+        assert snapcast_service._validate_config(config) is True
+
+    @pytest.mark.asyncio
+    async def test_read_and_write_of_server_config_agree_on_one_body(self, snapcast_service):
+        """What GET serves must be what PUT consumes — driven, not restated.
+
+        The two used to disagree (nested on read, flat on write) and only the
+        frontend's translation hid it. Feeding the real read into the real
+        validator is what keeps them from drifting apart again.
+        """
+        snapcast_service._request = AsyncMock(return_value={
+            "streams": [{"uri": {"query": {"chunk_ms": "20", "codec": "flac",
+                                           "sampleformat": "48000:32:2"}}}]
+        })
+        snapcast_service._read_snapserver_conf = AsyncMock(return_value={
+            "parsed_config": {"stream": {"buffer": "700"}}
+        })
+
+        config = await snapcast_service.get_server_config()
+
+        assert config["buffer_ms"] == 700  # non-vacuous: the read really produced values
+        assert snapcast_service._validate_config(config) is True
+
     @pytest.mark.asyncio
     async def test_is_available_connection_error(self, snapcast_service):
         """Test is_available with connection error."""

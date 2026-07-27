@@ -93,14 +93,13 @@ export const VolumeStateSchema = z.object({
 // === SNAPCAST ===
 
 // Backend: backend/core/multiroom/snapcast.py::get_server_config + route adds
-// snapclient_buffer_time at the top level (defaults to 80 from settings).
+// snapclient_buffer_time (defaults to 80 from settings). Flat, and the same
+// shape PUT /server-config consumes — read and write agree on one body.
 export const SnapcastServerConfigSchema = z.object({
-  stream_config: z.object({
-    buffer_ms: z.number().int().catch(1000),
-    chunk_ms: z.number().int().catch(20),
-    codec: z.string().catch('flac'),
-    sampleformat: z.string().catch('48000:32:2'),
-  }),
+  buffer_ms: z.number().int().catch(1000),
+  chunk_ms: z.number().int().catch(20),
+  codec: z.string().catch('flac'),
+  sampleformat: z.string().catch('48000:32:2'),
   snapclient_buffer_time: z.number().int().catch(80),
 });
 
