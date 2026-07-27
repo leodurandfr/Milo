@@ -13,10 +13,10 @@
 // because [caps] and [enter] take the first and last column.
 const DIGIT_ROW = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
 const SYMBOL_ROW = ['[', ']', '{', '}', '#', '%', '^', '*', '+', '='];
-const PUNCTUATION_ROW = [',', '?', '!', "'", '…', 'ō', '・', '—'];
+const PUNCTUATION_ROW = [',', '?', '!', "'", '…', '«', '»', '—'];
 
 const numbersRow2 = (currency) => ['-', '/', ':', ';', '(', ')', currency, '&', '@', '"'];
-const symbolsRow2 = (currency) => ['_', '\\', '|', '~', '<', '>', currency, '£', '¥', '⸱'];
+const symbolsRow2 = (currency) => ['_', '\\', '|', '~', '<', '>', currency, '£', '¥', '°'];
 
 const languages = {
   french: {
