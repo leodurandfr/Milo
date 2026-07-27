@@ -512,6 +512,12 @@ standing in for Podcast Index and a mount layer underneath.**
   go the same way but are persisted (`data.py`, versioned JSON — non-secret only)
   and replayed at boot. Fail-open throughout (no udev on a dev host just disables
   auto-mount). CIFS credentials are fed to `milo-mount` on **stdin**, never argv.
+- **`shares.py` (`NetworkShareService`) owns where the music comes from** — it holds
+  `data.py` (config) and `storage.py` (mounts) together, so "config first, then
+  mount" is one decision rather than an ordering every caller must remember. It runs
+  the boot remount and its bounded catch-up retry (a NAS often boots slower than the
+  Pi), and `routes.py` reaches it as `source.shares` — the same shape as radio's
+  `source.station_data`. The audio source keeps no share state.
 - **`source.py` builds a gapless mpv playlist** from any context (album / genre /
   playlist / search): the frontend hands ordered Subsonic song dicts to
   `play_context`, the source maps each id to a stream URL and loads them as one mpv

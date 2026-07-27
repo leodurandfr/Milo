@@ -481,7 +481,7 @@ async def trigger_full_scan(
     surface). USB needs no check: an unplug is itself a purge event. 503 until ready.
     """
     async with _catalog_errors("Error starting full scan", source):
-        offline = await source.offline_share_names()
+        offline = await source.shares.offline_names()
         if offline:
             logger.info("Full scan skipped; shares offline: %s", ", ".join(offline))
             return {"status": "blocked", "offline_shares": offline}
@@ -504,7 +504,7 @@ async def list_usb_devices(
     touches the filesystem — so it can't hang on a slow device.
     """
     async with api_error_handler("Error listing USB devices", logger):
-        return {"devices": source.list_usb_devices()}
+        return {"devices": source.shares.usb_devices()}
 
 
 @router.get("/shares/discover")
@@ -546,7 +546,7 @@ async def list_shares(
 ) -> Dict[str, Any]:
     """All configured network shares (non-secret metadata; never credentials)."""
     async with api_error_handler("Error listing shares", logger):
-        return {"shares": await source.list_shares()}
+        return {"shares": await source.shares.list()}
 
 
 @router.post("/shares")
@@ -559,7 +559,7 @@ async def create_share(
     Returns the created share (with its generated id) minus any credentials.
     """
     async with api_error_handler("Error creating share", logger):
-        return {"status": "success", "share": await source.add_share(request)}
+        return {"status": "success", "share": await source.shares.add(request)}
 
 
 @router.put("/shares/{share_id}")
@@ -573,7 +573,7 @@ async def update_share(
     Idempotent: a request that omits the password keeps the existing cred file.
     """
     async with api_error_handler("Error updating share", logger):
-        share = await source.update_share(share_id, request)
+        share = await source.shares.update(share_id, request)
         if share is None:
             logger.error("Share not found: %s", share_id)
             raise HTTPException(status_code=404, detail="Share not found")
@@ -587,7 +587,7 @@ async def delete_share(
 ) -> Dict[str, Any]:
     """Unmount + remove a share and forget its credentials (404 if unknown)."""
     async with api_error_handler("Error deleting share", logger):
-        if not await source.remove_share(share_id):
+        if not await source.shares.remove(share_id):
             logger.error("Share not found: %s", share_id)
             raise HTTPException(status_code=404, detail="Share not found")
         return {"status": "success"}
