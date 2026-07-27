@@ -238,6 +238,7 @@ makes this silent.
 | Compressor | Enabling it audibly narrows the loud/quiet gap | targeted |
 | Bypass | Effects toggle off/on without a gap or click in the audio | targeted |
 | Per-client EQ ⚠ | A remote client's EQ applies to that client only; a zone shows no EQ of its own | targeted |
+| Curve while loading | Switching target, re-enabling after a bypass, or reopening the page must **never** show a flat curve on the way to the real one — until the record lands the figures read "—" and the sliders are hidden. A flat curve is indistinguishable from a real `flat` preset, and this is a race, so repeat it ~5× before calling it clean | targeted |
 
 ## Multiroom ⚠ second unit
 
