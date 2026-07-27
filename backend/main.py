@@ -241,7 +241,8 @@ settings_router = create_settings_router(
     systemd_manager,
     routing_service,
     hardware_service,
-    settings_service
+    settings_service,
+    get_service("multiroom_equalizer_service")
 )
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
