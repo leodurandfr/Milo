@@ -865,7 +865,7 @@ img.player-artwork.loaded {
     align-items: center;
     padding: var(--space-02) var(--space-03) var(--space-02) var(--space-02);
     border-radius: var(--radius-05);
-    box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.24);
+    box-shadow: var(--shadow-raised-03);
   }
 
   .audio-player::before {

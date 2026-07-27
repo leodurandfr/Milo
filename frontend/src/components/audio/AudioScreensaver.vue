@@ -392,7 +392,7 @@ function handleClose() {
   height: 100%;
   border-radius: var(--radius-07);
   overflow: hidden;
-  box-shadow: 0px 0px 96px 0px #0000000d;
+  box-shadow: var(--shadow-artwork);
   pointer-events: none;
 }
 
