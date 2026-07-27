@@ -1,7 +1,7 @@
 #!/bin/bash
 # Shared helpers for milo-apply-hardware and milo-client-apply-hardware.
 #
-# Twin of milo-client/rootfs/usr/local/lib/milo/hardware-helpers.sh — server and
+# Twin of rootfs/usr/local/lib/milo/hardware-helpers.sh — server and
 # satellite are deployed from separate trees, same logic on both.
 #
 # Callers must set:

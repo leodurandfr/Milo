@@ -76,19 +76,25 @@ enable_services() {
 install_wrapper_scripts() {
     log_info "Installing secure wrapper scripts..."
 
-    # Bulk-deploy every milo-client wrapper (apply-hardware, deploy-update,
-    # install-snapclient, install-camilladsp, snapclient-launcher) in one loop.
-    # A hand-maintained per-file allowlist silently drops newly-added scripts —
-    # that is exactly how milo-client-install-camilladsp went missing here while
-    # the sudoers rule and camilladsp_update.py still invoked it (CamillaDSP
-    # updates then failed every time, with no working rollback). pi-gen already
-    # deploys these with a bulk loop; this keeps both install paths in sync.
-    for script in "$MILO_CLIENT_ROOTFS_DIR"/usr/local/bin/*; do
-        [ -f "$script" ] || continue
-        sudo cp "$script" /usr/local/bin/
-        sudo chmod 755 "/usr/local/bin/$(basename "$script")"
-        sudo chown root:root "/usr/local/bin/$(basename "$script")"
-    done
+    # Bulk-deploy everything the tree carries under /usr/local — the wrappers in
+    # bin/ (apply-hardware, deploy-update, install-snapclient, install-camilladsp,
+    # snapclient-launcher) and the helpers they source from lib/.
+    # A hand-maintained allowlist silently drops newly-added files — that is
+    # exactly how milo-client-install-camilladsp went missing here while the
+    # sudoers rule and camilladsp_update.py still invoked it (CamillaDSP updates
+    # then failed every time, with no working rollback), and how
+    # lib/milo/hardware-helpers.sh went missing when this loop covered only bin/
+    # (every satellite reboot then died on an unreadable source, and the server
+    # only warns on that failure, so the wizard reported success). The allowlist
+    # is per-directory here, not per-file, which is why the second one bit.
+    # milo-client-deploy-update walks the whole tree; this keeps the two in sync.
+    while IFS= read -r script; do
+        rel_path="${script#"$MILO_CLIENT_ROOTFS_DIR"/}"
+        sudo install -D -o root -g root -m 644 "$script" "/$rel_path"
+        case "/$rel_path" in
+            /usr/local/bin/*) sudo chmod 755 "/$rel_path" ;;
+        esac
+    done < <(find "$MILO_CLIENT_ROOTFS_DIR/usr/local" -type f)
 
     log_success "Wrapper scripts installed"
 }

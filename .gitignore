@@ -11,9 +11,15 @@ dist/
 downloads/
 eggs/
 .eggs/
+# The two deployment trees mirror a filesystem, so their real directories collide
+# with the Python build-dir ignores above. Both roles need the re-include, not
+# just the server's: milo-client/rootfs/usr/local/lib/ was swallowed by `lib/`,
+# which is why hardware-helpers.sh could not be committed on the satellite side
+# and every satellite reboot died sourcing a file no install path shipped.
 lib/
 !rootfs/var/lib/
 !rootfs/usr/local/lib/
+!milo-client/rootfs/usr/local/lib/
 lib64/
 parts/
 sdist/
