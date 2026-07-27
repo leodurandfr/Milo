@@ -436,12 +436,36 @@ class TestResume:
         assert source._resume["shuffle"] is True
 
     @pytest.mark.asyncio
-    async def test_capture_is_noop_without_queue(self, source):
+    async def test_capture_without_queue_keeps_the_saved_session(self, source):
+        """Capturing with nothing loaded must not forget an earlier snapshot.
+
+        The idle auto-stop saves a session and then empties the queue, so the
+        source switch that follows captures again on an empty queue — clearing
+        there loses the session the auto-stop just took.
+        """
         source._mpv = _mpv()
         source._queue = []
-        source._resume = {"stale": True}
+        saved = {"queue": list(TRACKS), "queue_index": 1, "position": 30}
+        source._resume = saved
         await source._capture_resume_session()
-        assert source._resume is None
+        assert source._resume is saved
+
+    @pytest.mark.asyncio
+    async def test_auto_stop_then_source_switch_keeps_the_session(self, source):
+        """The documented resume case, end to end: pause long enough for the idle
+        auto-stop, then switch to another source — coming back must still resume.
+        """
+        source._mpv = _mpv_with_props({"time-pos": 30})
+        source._queue = list(TRACKS)
+        source._queue_unshuffled = list(TRACKS)
+        source._queue_index = 2
+
+        await source._auto_stop_action()       # idle timeout: saves, clears queue
+        await source._do_stop()                # user switches to another source
+
+        assert source._resume is not None
+        assert source._resume["queue_index"] == 2
+        assert source._resume["position"] == 30
 
     @pytest.mark.asyncio
     async def test_auto_stop_saves_session(self, source):

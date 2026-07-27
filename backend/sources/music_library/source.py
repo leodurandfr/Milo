@@ -87,17 +87,18 @@ class MusicLibrarySource(MpvAudioSource):
             config=config,
         )
         # USB storage watcher — runs for the whole backend lifetime, like the CD
-        # disc-watcher, not gated on this source being active.
-        self._storage = StorageManager()
+        # disc-watcher, not gated on this source being active. It rescans through
+        # the shared catalog client below rather than building its own.
+        self._storage = StorageManager(self.get_navidrome_client)
         # Network-share config (SMB/NFS). Persisted so the shares are remounted at
         # boot; the source orchestrates config writes + milo-mount around it. USB
         # keys are not persisted (auto-detected live by the StorageManager).
         self._data = MusicLibraryDataService()
-        # Navidrome Subsonic client for the /api/music-library/* browse routes
-        # AND for building stream URLs at play time. Built lazily (the cred file
-        # only exists once the daemon has provisioned its service account), and
-        # shared across requests. Independent of the StorageManager's own client
-        # — routes read the catalog even while music_library is not active.
+        # Navidrome Subsonic client for the /api/music-library/* browse routes,
+        # for building stream URLs at play time, and for the StorageManager's
+        # post-mount rescans. Built lazily (the cred file only exists once the
+        # daemon has provisioned its service account) and shared by all three —
+        # routes read the catalog even while music_library is not active.
         self._navidrome: Optional[NavidromeClient] = None
         # Merged (multi-disc) album catalog, cached for the alphabetical grid.
         self._album_cache: Optional[List[Dict[str, Any]]] = None
@@ -682,12 +683,15 @@ class MusicLibrarySource(MpvAudioSource):
     async def _capture_resume_session(self) -> None:
         """Snapshot the live queue/track/position for resume-on-return.
 
-        No-op (and clears any stale snapshot) when nothing is playing. Reads the
-        exact playhead from mpv first so the resume lands where playback actually
-        stopped. In-memory only — a backend restart forgets it.
+        A no-op when nothing is loaded — it must NOT clear an existing snapshot:
+        the idle auto-stop saves one and then empties the queue, so the source
+        switch that follows would otherwise wipe the session it just took. Every
+        deliberate "forget" is explicit elsewhere (explicit Stop, queue finished,
+        a fresh context). Reads the exact playhead from mpv first so the resume
+        lands where playback actually stopped. In-memory only — a backend restart
+        forgets it.
         """
         if not self._queue or not (0 <= self._queue_index < len(self._queue)):
-            self._resume = None
             return
         await self._sync_position_from_mpv()
         self._resume = {

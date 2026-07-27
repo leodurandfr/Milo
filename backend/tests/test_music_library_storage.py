@@ -30,13 +30,23 @@ def _proc(returncode=0, stdout=b"", stderr=b""):
     return proc
 
 
+def _navidrome_provider(client=None):
+    """Stand-in for the source's shared-client accessor (the manager's only way
+    to reach the catalog). ``None`` models a not-yet-provisioned daemon."""
+    return AsyncMock(return_value=client)
+
+
 @pytest.fixture
-def manager():
-    mgr = StorageManager()
-    # Pretend Navidrome is provisioned; record scan triggers.
-    mgr._navidrome = AsyncMock()
-    mgr._navidrome.start_scan = AsyncMock(return_value=True)
-    return mgr
+def navidrome():
+    """A provisioned Navidrome client that records scan triggers."""
+    client = AsyncMock()
+    client.start_scan = AsyncMock(return_value=True)
+    return client
+
+
+@pytest.fixture
+def manager(navidrome):
+    return StorageManager(_navidrome_provider(navidrome))
 
 
 # === classification ===============================================================
@@ -61,7 +71,7 @@ def test_is_usb_fs_partition(props, expected):
 
 # === mount flow ===================================================================
 
-async def test_mount_records_and_triggers_scan(manager):
+async def test_mount_records_and_triggers_scan(manager, navidrome):
     with patch("asyncio.create_subprocess_exec",
                return_value=_proc(stdout=b"/media/milo/USBKEY\n")) as exec_mock:
         await manager._mount("/dev/sda1")
@@ -72,29 +82,29 @@ async def test_mount_records_and_triggers_scan(manager):
     assert args[3] == "/dev/sda1"
     # Mountpoint captured from stdout (whitespace stripped), scan triggered.
     assert manager._mounts == {"/dev/sda1": "/media/milo/USBKEY"}
-    manager._navidrome.start_scan.assert_awaited_once()
+    navidrome.start_scan.assert_awaited_once()
 
 
-async def test_mount_duplicate_is_ignored(manager):
+async def test_mount_duplicate_is_ignored(manager, navidrome):
     manager._mounts["/dev/sda1"] = "/media/milo/USBKEY"
     with patch("asyncio.create_subprocess_exec") as exec_mock:
         await manager._mount("/dev/sda1")
     exec_mock.assert_not_called()
-    manager._navidrome.start_scan.assert_not_awaited()
+    navidrome.start_scan.assert_not_awaited()
 
 
-async def test_mount_helper_failure_records_nothing(manager):
+async def test_mount_helper_failure_records_nothing(manager, navidrome):
     with patch("asyncio.create_subprocess_exec",
                return_value=_proc(returncode=1, stderr=b"not a usb partition")):
         await manager._mount("/dev/sda1")
     assert manager._mounts == {}
     # No scan on a failed mount — nothing changed under /media/milo.
-    manager._navidrome.start_scan.assert_not_awaited()
+    navidrome.start_scan.assert_not_awaited()
 
 
 # === unmount flow =================================================================
 
-async def test_unmount_tracked_device(manager):
+async def test_unmount_tracked_device(manager, navidrome):
     manager._mounts["/dev/sda1"] = "/media/milo/USBKEY"
     with patch("asyncio.create_subprocess_exec",
                return_value=_proc()) as exec_mock:
@@ -104,14 +114,14 @@ async def test_unmount_tracked_device(manager):
     assert args[:3] == ("sudo", "-n", MILO_UMOUNT_CMD)
     assert args[3] == "/media/milo/USBKEY"
     assert manager._mounts == {}
-    manager._navidrome.start_scan.assert_awaited_once()
+    navidrome.start_scan.assert_awaited_once()
 
 
-async def test_unmount_untracked_device_is_noop(manager):
+async def test_unmount_untracked_device_is_noop(manager, navidrome):
     with patch("asyncio.create_subprocess_exec") as exec_mock:
         await manager._unmount("/dev/sdb1")
     exec_mock.assert_not_called()
-    manager._navidrome.start_scan.assert_not_awaited()
+    navidrome.start_scan.assert_not_awaited()
 
 
 # === helper subprocess ============================================================
@@ -141,14 +151,10 @@ async def test_run_helper_times_out(manager):
 # === Navidrome unavailable (not yet provisioned) ==================================
 
 async def test_scan_skipped_when_navidrome_unavailable():
-    mgr = StorageManager()  # no _navidrome set
-    with patch(
-        "backend.sources.music_library.storage.NavidromeClient.from_cred_file",
-        return_value=None,
-    ):
-        # Should not raise even though there is no client to scan with.
-        await mgr._trigger_scan()
-    assert mgr._navidrome is None
+    """A daemon that hasn't provisioned its cred file yet yields no client; the
+    mount path must degrade to "Navidrome's own watcher will notice", not raise."""
+    mgr = StorageManager(_navidrome_provider(None))
+    await mgr._trigger_scan()  # must not raise
 
 
 # === network shares (SMB/NFS) =====================================================
@@ -157,7 +163,7 @@ _CIFS_SHARE = {"id": "nas-abcd1234", "type": "cifs", "host": "192.168.1.10", "pa
 _NFS_SHARE = {"id": "nfs-abcd1234", "type": "nfs", "host": "10.0.0.5", "path": "/volume1/music"}
 
 
-async def test_mount_share_passes_args_and_credentials_on_stdin(manager):
+async def test_mount_share_passes_args_and_credentials_on_stdin(manager, navidrome):
     with patch("asyncio.create_subprocess_exec",
                return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")) as exec_mock:
         mp = await manager.mount_share(
@@ -178,7 +184,7 @@ async def test_mount_share_passes_args_and_credentials_on_stdin(manager):
     assert "SECRETUSER" not in joined and "SECRETPASS" not in joined
     assert mp == "/media/milo/nas-abcd1234"
     assert manager._share_mounts == {"nas-abcd1234": "/media/milo/nas-abcd1234"}
-    manager._navidrome.start_scan.assert_awaited_once()
+    navidrome.start_scan.assert_awaited_once()
 
 
 async def test_mount_share_credentials_stdin_bytes(manager):
@@ -214,16 +220,16 @@ async def test_mount_share_boot_remount_uses_devnull_stdin(manager):
     ]
 
 
-async def test_mount_share_failure_records_nothing(manager):
+async def test_mount_share_failure_records_nothing(manager, navidrome):
     with patch("asyncio.create_subprocess_exec",
                return_value=_proc(returncode=1, stderr=b"cifs mount failed")):
         mp = await manager.mount_share(_CIFS_SHARE, credentials={"password": "p"})
     assert mp is None
     assert manager._share_mounts == {}
-    manager._navidrome.start_scan.assert_not_awaited()
+    navidrome.start_scan.assert_not_awaited()
 
 
-async def test_unmount_share_tracked(manager):
+async def test_unmount_share_tracked(manager, navidrome):
     manager._share_mounts["nas-abcd1234"] = "/media/milo/nas-abcd1234"
     with patch("asyncio.create_subprocess_exec", return_value=_proc()) as exec_mock:
         await manager.unmount_share("nas-abcd1234")
@@ -232,7 +238,7 @@ async def test_unmount_share_tracked(manager):
     assert args[:3] == ("sudo", "-n", MILO_UMOUNT_CMD)
     assert args[3] == "/media/milo/nas-abcd1234"
     assert manager._share_mounts == {}
-    manager._navidrome.start_scan.assert_awaited_once()
+    navidrome.start_scan.assert_awaited_once()
 
 
 async def test_unmount_share_untracked_falls_back_to_deterministic_path(manager):
