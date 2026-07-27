@@ -249,3 +249,147 @@ def test_source_constructor_signature(source_id):
         f"{source_id}: unexpected constructor signature {params} — the first four "
         f"injected services are fixed (extra ones may follow, e.g. camilladsp_service)"
     )
+
+
+# =============================================================================
+# Collaborator ownership (CLAUDE.md § Audio sources — "expose, don't proxy")
+# =============================================================================
+#
+# routes.py can only reach the source instance (that is all
+# `make_source_dependency` injects), so a source's non-playback services have to
+# be reachable *through* it. Radio, Podcast and CD do that by exposing the
+# service as a property and letting routes call it. Music Library instead grew
+# nine forwarding/orchestration methods on the audio source, which is how the
+# network-share lifecycle — config, mounts, boot remount — ended up owned by a
+# class whose job is playing audio, and how its two collaborators each built
+# their own Navidrome client.
+
+
+def _source_ast(source_id):
+    """The `{Name}Source` class body, with the names its own package exports."""
+    tree = ast.parse((SOURCES_ROOT / source_id / "source.py").read_text())
+    package_names = {
+        alias.asname or alias.name.split(".")[-1]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").startswith(f"backend.sources.{source_id}")
+        for alias in node.names
+    }
+    classes = [n for n in tree.body if isinstance(n, ast.ClassDef)]
+    assert classes, f"{source_id}/source.py declares no class — the extractor is broken"
+    return classes[0], package_names
+
+
+def _self_attrs(node):
+    return {
+        n.attr for n in ast.walk(node)
+        if isinstance(n, ast.Attribute)
+        and isinstance(n.value, ast.Name)
+        and n.value.id == "self"
+    }
+
+
+def _is_property(method):
+    return any(
+        isinstance(d, ast.Name) and d.id == "property" for d in method.decorator_list
+    )
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_collaborators_are_exposed_not_proxied(source_id):
+    """A collaborator a public source method touches is exposed as a property.
+
+    Crossing the public boundary is the discriminator, not the collaborator
+    itself: cd's `_reader`, radio's `_artwork` and bluetooth's agent/monitor are
+    referenced only from private playback code and are exactly where they
+    belong. One that a *public* method reaches is one routes.py needs — and then
+    the source must hand it over (`source.shares`, `source.station_data`) rather
+    than grow a forwarding method per call, which is a second API surface that
+    drifts and puts non-playback work on the audio source.
+
+    `initialize`/`refresh_metadata` are exempt: they are the base contract, and
+    bringing a collaborator up is the source's job even when nothing else is.
+    """
+    cls, package_names = _source_ast(source_id)
+    methods = [
+        m for m in cls.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    assert methods, f"{source_id}: no methods parsed — the extractor is broken"
+
+    init = next((m for m in methods if m.name == "__init__"), None)
+    collaborators = {}
+    for node in ast.walk(init) if init else []:
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
+            continue
+        func = node.value.func
+        built = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        if built not in package_names:
+            continue
+        for target in node.targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "self"
+            ):
+                collaborators[target.attr] = built
+    if not collaborators:
+        pytest.skip(f"{source_id} constructs no collaborator from its own package")
+
+    exposed = set()
+    for method in methods:
+        if _is_property(method):
+            exposed |= _self_attrs(method)
+
+    for method in methods:
+        if _is_property(method) or method.name.startswith("_"):
+            continue
+        if method.name in ("initialize", "refresh_metadata"):
+            continue
+        for attr in sorted(_self_attrs(method) & set(collaborators)):
+            assert attr in exposed, (
+                f"{source_id}: public {method.name}() reaches self.{attr} "
+                f"({collaborators[attr]}), which no property exposes — routes.py "
+                f"should call that service directly. See CLAUDE.md § Audio sources."
+            )
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_one_construction_site_per_collaborator(source_id):
+    """Each service class in a source package is built in exactly one module.
+
+    Two owners of one client is two lifecycles: the Music Library source and its
+    storage manager each built a NavidromeClient from the same cred file, so they
+    held separate HTTP sessions and only one of them had the auth-recovery path
+    that drops a stale client. A second construction site is how that starts.
+    """
+    package = SOURCES_ROOT / source_id
+    declared = {}
+    for path in package.glob("*.py"):
+        if path.name == "models.py":  # Pydantic models are built at every call site
+            continue
+        for node in ast.parse(path.read_text()).body:
+            if isinstance(node, ast.ClassDef):
+                declared[node.name] = path.name
+    assert declared, f"{source_id}: no classes parsed — the extractor is broken"
+
+    sites = {}
+    for path in package.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Name) and func.id in declared:
+                sites.setdefault(func.id, set()).add(path.name)
+            elif (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id in declared
+                and func.attr.startswith("from_")  # alternative constructors
+            ):
+                sites.setdefault(func.value.id, set()).add(path.name)
+
+    for name, modules in sorted(sites.items()):
+        assert len(modules) == 1, (
+            f"{source_id}: {name} is constructed in {sorted(modules)} — one owner "
+            f"per service; the others take it from the owner."
+        )
