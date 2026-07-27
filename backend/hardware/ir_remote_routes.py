@@ -7,15 +7,20 @@ machine when state mutates (the controller does this internally) — routes
 do not broadcast directly.
 """
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 
 from backend.api.models import IrRemoteConfigRequest
 
+if TYPE_CHECKING:
+    from backend.hardware.ir_remote import IrRemoteController
+
+
 logger = logging.getLogger(__name__)
 
 
-def create_ir_remote_router(ir_remote_controller):
+def create_ir_remote_router(ir_remote_controller: "IrRemoteController"):
     """Create the IR remote API router."""
     router = APIRouter(prefix="/api/ir-remote", tags=["ir-remote"])
 

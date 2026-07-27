@@ -5,6 +5,7 @@ Full equalizer capabilities including EQ, compressor, loudness, and volume contr
 Supports multi-client equalizer control for multiroom setups
 """
 import logging
+from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.route_helpers import api_error_handler
@@ -29,6 +30,15 @@ from backend.api.models import (
     EqualizerPresetRequest
 )
 
+if TYPE_CHECKING:
+    from backend.core.equalizer.levels_monitor import LevelsMonitor
+    from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
+    from backend.core.equalizer.service import CamillaDSPService
+    from backend.core.multiroom.client_registry import ClientRegistryService
+    from backend.core.multiroom.crossover import CrossoverService
+    from backend.core.multiroom.equalizer_router import EqualizerRouter
+    from backend.core.multiroom.routing import AudioRoutingService
+
 logger = logging.getLogger(__name__)
 
 ZONE_PREFIX = "zone:"
@@ -47,13 +57,13 @@ def _resolve_target(target: str) -> tuple[str, str]:
 
 
 def create_equalizer_router(
-    camilladsp_service,
-    routing_service=None,
-    crossover_service=None,
-    client_registry_service=None,
-    equalizer_router_service=None,
-    multiroom_equalizer_service=None,
-    levels_monitor=None
+    camilladsp_service: "CamillaDSPService",
+    routing_service: Optional["AudioRoutingService"] = None,
+    crossover_service: Optional["CrossoverService"] = None,
+    client_registry_service: Optional["ClientRegistryService"] = None,
+    equalizer_router_service: Optional["EqualizerRouter"] = None,
+    multiroom_equalizer_service: Optional["MultiroomEqualizerService"] = None,
+    levels_monitor: Optional["LevelsMonitor"] = None
 ):
     """Creates equalizer router with injected dependencies"""
     router = APIRouter(prefix="/api/equalizer", tags=["equalizer"])

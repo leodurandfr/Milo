@@ -7,7 +7,7 @@ import logging
 import asyncio
 import os
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.models.ws_events import (
     EqualizerEnabledChanged,
@@ -20,6 +20,10 @@ from backend.core.models.ws_events import (
 from backend.core.systemd import SystemdServiceManager  # noqa: F401 (patched in tests)
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
+
+if TYPE_CHECKING:
+    from backend.core.settings import SettingsService
+    from backend.core.state import AudioStateMachine
 
 
 # =============================================================================
@@ -218,8 +222,10 @@ class AudioRoutingService:
     broadcasts.
     """
 
-    def __init__(self, get_source_callback: Optional[Callable] = None, settings_service=None,
-                 systemd_manager=None, snapcast_service=None, camilladsp_service=None):
+    def __init__(self, get_source_callback: Optional[Callable] = None,
+                 settings_service: Optional["SettingsService"] = None,
+                 systemd_manager: Optional[SystemdServiceManager] = None,
+                 snapcast_service=None, camilladsp_service=None):
         self.logger = logging.getLogger(__name__)
         self.service_manager = systemd_manager
         self.get_source = get_source_callback
@@ -231,7 +237,7 @@ class AudioRoutingService:
         self.snapcast_service = snapcast_service
         self.camilladsp_service = camilladsp_service
         self.snapcast_websocket_service = None
-        self.state_machine = None
+        self.state_machine: Optional["AudioStateMachine"] = None
         self.volume_service = None
 
         # Lock to guarantee atomicity of routing operations
@@ -245,7 +251,7 @@ class AudioRoutingService:
         """Set SnapcastWebSocketService dependency."""
         self.snapcast_websocket_service = service
 
-    def set_state_machine(self, state_machine) -> None:
+    def set_state_machine(self, state_machine: "AudioStateMachine") -> None:
         """Set state machine for event broadcasting."""
         self.state_machine = state_machine
 

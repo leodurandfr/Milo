@@ -5,11 +5,23 @@ Health check and initial state endpoints
 import asyncio
 import time
 from fastapi import APIRouter
-from typing import Dict, Any
+from typing import Dict, Any, TYPE_CHECKING
 
-def create_health_router(state_machine, routing_service,
-                         settings_service, network_service,
-                         camilladsp_service, snapcast_websocket_service):
+if TYPE_CHECKING:
+    from backend.core.equalizer.service import CamillaDSPService
+    from backend.core.multiroom.routing import AudioRoutingService
+    from backend.core.multiroom.websocket import SnapcastWebSocketService
+    from backend.core.network.service import NetworkService
+    from backend.core.settings import SettingsService
+    from backend.core.state import AudioStateMachine
+
+
+def create_health_router(state_machine: "AudioStateMachine",
+                         routing_service: "AudioRoutingService",
+                         settings_service: "SettingsService",
+                         network_service: "NetworkService",
+                         camilladsp_service: "CamillaDSPService",
+                         snapcast_websocket_service: "SnapcastWebSocketService"):
     """Creates health check router"""
     router = APIRouter(prefix="/api", tags=["health"])
 

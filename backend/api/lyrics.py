@@ -12,17 +12,21 @@ shows that same empty state, but must not cache it as a genuine "no lyrics" —
 the service deliberately caches nothing in that case so a reopen retries.
 """
 import logging
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from fastapi import APIRouter
 
 from backend.api.route_helpers import api_error_handler
 from backend.core.lyrics import LyricsUnavailable
 
+if TYPE_CHECKING:
+    from backend.core.lyrics.service import LyricsService
+
+
 logger = logging.getLogger(__name__)
 
 
-def create_lyrics_router(lyrics_service):
+def create_lyrics_router(lyrics_service: "LyricsService"):
     router = APIRouter(prefix="/api/lyrics", tags=["lyrics"])
 
     @router.get("")

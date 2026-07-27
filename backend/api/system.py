@@ -7,11 +7,22 @@ from fastapi import APIRouter, BackgroundTasks
 import asyncio
 import contextlib
 import logging
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from backend.core.connectivity.service import ConnectivityService
+    from backend.core.system.hostname_conflict import HostnameConflictService
+    from backend.core.systemd import SystemdServiceManager
+
 
 logger = logging.getLogger(__name__)
 
 
-def create_system_router(systemd_manager, hostname_conflict_service=None, connectivity_service=None):
+def create_system_router(
+    systemd_manager: "SystemdServiceManager",
+    hostname_conflict_service: Optional["HostnameConflictService"] = None,
+    connectivity_service: Optional["ConnectivityService"] = None
+):
     router = APIRouter()
 
     @router.post("/restart")

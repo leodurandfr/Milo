@@ -6,6 +6,7 @@ Routes:
   WiFi-specific endpoints live under /api/network/wifi/...
 """
 import logging
+from typing import TYPE_CHECKING
 from fastapi import APIRouter
 
 from backend.api.route_helpers import api_error_handler
@@ -19,10 +20,14 @@ from backend.api.responses import (
 )
 from backend.core.network.models import WifiConnectRequest, WifiRadioRequest, WifiCountryRequest
 
+if TYPE_CHECKING:
+    from backend.core.network.service import NetworkService
+
+
 logger = logging.getLogger(__name__)
 
 
-def create_network_router(network_service):
+def create_network_router(network_service: "NetworkService"):
     router = APIRouter(prefix="/api/network", tags=["network"])
 
     @router.get("/status", response_model=NetworkStatusEnvelope)

@@ -27,9 +27,14 @@ from urllib.parse import urlencode
 
 import aiofiles
 import aiohttp
+from typing import TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.config.constants import MILO_DATA_DIR
+
+if TYPE_CHECKING:
+    from backend.core.systemd import SystemdServiceManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +80,7 @@ async def _clear_credentials() -> None:
         raise HTTPException(status_code=500, detail="Could not clear the Qobuz token")
 
 
-def create_qobuz_account_router(systemd_manager) -> APIRouter:
+def create_qobuz_account_router(systemd_manager: "SystemdServiceManager") -> APIRouter:
     """Create the Qobuz account relay router."""
     router = APIRouter(prefix="/api/qobuz/account", tags=["qobuz"])
 

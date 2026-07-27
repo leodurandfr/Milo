@@ -25,7 +25,10 @@ from backend.core.multiroom.models import (
 )
 
 if TYPE_CHECKING:
+    from backend.core.equalizer.client_proxy import EqualizerClientProxyService
     from backend.core.multiroom.client_registry import ClientRegistryService
+    from backend.core.settings import SettingsService
+    from backend.core.state import AudioStateMachine
 
 
 # Every DSP setting the pending queue can hold. Producers (this service's own
@@ -54,8 +57,9 @@ class CrossoverService:
     DEFAULT_CROSSOVER_FREQUENCY = 80  # Hz (THX/Dolby recommended)
     DEFAULT_Q = 0.707  # Butterworth (flattest passband)
 
-    def __init__(self, settings_service=None, camilladsp_service=None,
-                 state_machine=None, volume_service=None, proxy_service=None):
+    def __init__(self, settings_service: Optional["SettingsService"] = None, camilladsp_service=None,
+                 state_machine: Optional["AudioStateMachine"] = None, volume_service=None,
+                 proxy_service: Optional["EqualizerClientProxyService"] = None):
         self.logger = logging.getLogger(__name__)
         self.settings_service = settings_service
         self.camilladsp_service = camilladsp_service
