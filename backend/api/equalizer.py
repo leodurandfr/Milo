@@ -29,6 +29,7 @@ from backend.api.models import (
     ZoneCrossoverRequest,
     EqualizerPresetRequest
 )
+from backend.core.equalizer.presets import DEFAULT_CUSTOM_GAINS
 
 if TYPE_CHECKING:
     from backend.core.equalizer.levels_monitor import LevelsMonitor
@@ -154,7 +155,13 @@ def create_equalizer_router(
                 "mono": record.mono,
                 "compressor": record.compressor.to_dict(),
                 "loudness": record.loudness.to_dict(),
-                "custom_gains": record.custom_gains,
+                # A record carries custom_gains only once a custom curve has been
+                # saved; "not saved yet" reads as flat here, because the response
+                # model — and the curve the UI draws — need ten numbers. Resolved
+                # per target rather than through resolve_preset_gains, whose
+                # fallback is the LOCAL unit's curve: a satellite must not be shown
+                # wearing the server's.
+                "custom_gains": record.custom_gains or DEFAULT_CUSTOM_GAINS,
                 "filters": [f.to_wire_dict() for f in record.filters],
                 "state": status.get("state", "disconnected"),
                 "sample_rate": status.get("sample_rate"),

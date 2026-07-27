@@ -143,6 +143,31 @@ class TestTargetGet:
         mock_equalizer_router.get_status.assert_awaited_once_with(REMOTE_MAC)
         assert resp.json()["sample_rate"] == 48000
 
+    def test_a_record_with_no_saved_custom_curve_still_reads(
+        self, client, mock_mre, mock_registry, mock_equalizer_router
+    ):
+        """The neutral record every client starts from must not 500 the EQ page.
+
+        `EqualizerSettings.default()` carries no custom_gains — nothing has been
+        saved yet — and `to_dict` omits the key, but the response model requires
+        ten numbers for the curve the UI draws. Serving the raw field made a 500
+        on any freshly paired satellite, and on every member of a new zone
+        (creation writes `default_for_zone()` to them). Found on hardware,
+        2026-07-27; every other test here feeds a fully-populated record, which
+        is why CI could not see it.
+        """
+        mock_registry.get_client.return_value = Mock()  # known client
+        mock_mre.get_equalizer = AsyncMock(return_value=EqualizerSettings.default())
+        mock_equalizer_router.get_status = AsyncMock(
+            return_value={"available": True, "state": "running"}
+        )
+        resp = client.get(f"/api/equalizer/target/{REMOTE_MAC}")
+
+        assert resp.status_code == 200
+        gains = resp.json()["custom_gains"]
+        assert len(gains) == len(resp.json()["filters"])
+        assert all(isinstance(g, (int, float)) for g in gains)
+
     def test_zone_target_resolves_to_zone(self, client, mock_mre):
         mock_mre.get_equalizer = AsyncMock(return_value=_sample_record())
         resp = client.get("/api/equalizer/target/zone:zone-1")
