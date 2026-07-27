@@ -80,6 +80,13 @@ class TestSettingsRoutes:
         return service
 
     @pytest.fixture
+    def mock_multiroom_equalizer_service(self):
+        """Multiroom equalizer service mock — owns the dock's master toggle."""
+        service = Mock()
+        service.set_local_equalizer_effects_enabled = AsyncMock(return_value=True)
+        return service
+
+    @pytest.fixture
     def client(
         self,
         mock_volume_service,
@@ -87,7 +94,8 @@ class TestSettingsRoutes:
         mock_screen_controller,
         mock_systemd_manager,
         mock_routing_service,
-        mock_hardware_service
+        mock_hardware_service,
+        mock_multiroom_equalizer_service
     ):
         """Fixture to create a TestClient with mocks"""
         app = FastAPI()
@@ -105,7 +113,8 @@ class TestSettingsRoutes:
             systemd_manager=mock_systemd_manager,
             routing_service=mock_routing_service,
             hardware_service=mock_hardware_service,
-            settings_service=mock_settings
+            settings_service=mock_settings,
+            multiroom_equalizer_service=mock_multiroom_equalizer_service
         )
 
         app.include_router(router, prefix="/api/settings")
@@ -113,6 +122,7 @@ class TestSettingsRoutes:
         client = TestClient(app)
         client._mock_settings = mock_settings
         client._mock_state_machine = mock_state_machine
+        client._mock_multiroom_equalizer_service = mock_multiroom_equalizer_service
         return client
 
     # ===================

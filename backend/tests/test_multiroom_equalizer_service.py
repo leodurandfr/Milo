@@ -224,6 +224,89 @@ class TestPerClientAccessLayer:
         assert await multiroom_equalizer_service.get_zone_eq("z") is None
 
     @pytest.mark.asyncio
+    async def test_get_zone_eq_reports_enabled_off_when_a_satellite_is_bypassed(
+        self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone
+    ):
+        """A zone must not claim effects its satellites are not applying.
+
+        ``enabled`` lives in two domains — settings.json locally, the per-client
+        record remotely — so reading the local member alone let a zone report
+        True while a satellite played bypassed (and the reverse). Breaking this
+        makes the Equalizer page lie about a speaker nobody can hear correctly.
+        """
+        local_snap = EqualizerSettings.default()
+        local_snap.enabled = True
+        mock_camilladsp_service.get_equalizer_settings = Mock(return_value=local_snap)
+        remote_record = EqualizerSettings.default()
+        remote_record.enabled = False
+        mock_registry.get_client_equalizer = Mock(return_value=remote_record)
+        mock_registry.get_zone.return_value = sample_zone
+
+        result = await multiroom_equalizer_service.get_zone_eq("zone-123")
+
+        assert result.enabled is False
+
+    @pytest.mark.asyncio
+    async def test_get_zone_eq_reports_enabled_on_when_every_member_agrees(
+        self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone
+    ):
+        """The other half: the conjunction must still be able to say True, or the
+        test above passes for the wrong reason."""
+        local_snap = EqualizerSettings.default()
+        local_snap.enabled = True
+        mock_camilladsp_service.get_equalizer_settings = Mock(return_value=local_snap)
+        remote_record = EqualizerSettings.default()
+        remote_record.enabled = True
+        mock_registry.get_client_equalizer = Mock(return_value=remote_record)
+        mock_registry.get_zone.return_value = sample_zone
+
+        result = await multiroom_equalizer_service.get_zone_eq("zone-123")
+
+        assert result.enabled is True
+
+    @pytest.mark.asyncio
+    async def test_local_master_toggle_fans_out_when_the_local_client_is_zoned(
+        self, multiroom_equalizer_service, mock_registry, sample_zone
+    ):
+        """The dock's Equalizer switch must move the whole zone, not just the DAC.
+
+        Writing the local domain alone leaves every satellite playing under its
+        own flag with nothing to repair it — the state the unit was found in on
+        2026-07-27. Breaking this re-opens that divergence in one tap.
+        """
+        mock_registry.get_zone_for_client = Mock(return_value=sample_zone)
+        mock_registry.get_all_clients = Mock(
+            return_value={"local": Client(mac_id="local", name="Milo", ip="127.0.0.1")}
+        )
+        multiroom_equalizer_service.set_zone_equalizer_effects_enabled = AsyncMock(return_value=True)
+
+        result = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(False)
+
+        assert result is True
+        multiroom_equalizer_service.set_zone_equalizer_effects_enabled.assert_called_once_with(
+            "zone-123", False
+        )
+
+    @pytest.mark.asyncio
+    async def test_local_master_toggle_stays_local_when_the_local_client_is_not_zoned(
+        self, multiroom_equalizer_service, mock_registry
+    ):
+        """The standalone half — no zone means the plain local write, so the
+        fan-out above cannot be a blanket redirect."""
+        mock_registry.get_zone_for_client = Mock(return_value=None)
+        mock_registry.get_all_clients = Mock(
+            return_value={"local": Client(mac_id="local", name="Milo", ip="127.0.0.1")}
+        )
+        routing = Mock()
+        routing.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+        multiroom_equalizer_service._routing_service = routing
+
+        result = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(True)
+
+        assert result is True
+        routing.set_equalizer_effects_enabled.assert_called_once_with(True)
+
+    @pytest.mark.asyncio
     async def test_set_zone_eq_fans_out_to_all_members(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone, sample_equalizer_settings):
         mock_registry.get_zone.return_value = sample_zone
         result = await multiroom_equalizer_service.set_zone_eq("zone-123", sample_equalizer_settings)

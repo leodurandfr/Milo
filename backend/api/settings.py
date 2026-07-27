@@ -69,6 +69,7 @@ import logging
 import asyncio
 
 if TYPE_CHECKING:
+    from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
     from backend.core.multiroom.routing import AudioRoutingService
     from backend.core.settings import SettingsService
     from backend.core.state import AudioStateMachine
@@ -87,7 +88,8 @@ def create_settings_router(
     systemd_manager: "SystemdServiceManager",
     routing_service: "AudioRoutingService",
     hardware_service: "HardwareService",
-    settings_service: "SettingsService"
+    settings_service: "SettingsService",
+    multiroom_equalizer_service: "MultiroomEqualizerService"
 ):
     """Settings router with proper app deactivation"""
     router = APIRouter()
@@ -379,7 +381,7 @@ def create_settings_router(
 
                         operations_log.append("Disabling equalizer effects")
                         logger.info(f"Disabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_equalizer_effects_enabled(False)
+                        await multiroom_equalizer_service.set_local_equalizer_effects_enabled(False)
 
                 # === HANDLE ENABLES ===
                 for app in enabled_apps_new:
@@ -410,7 +412,7 @@ def create_settings_router(
 
                         operations_log.append("Enabling equalizer effects")
                         logger.info(f"Enabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_equalizer_effects_enabled(True)
+                        await multiroom_equalizer_service.set_local_equalizer_effects_enabled(True)
 
                 operations_log.append("Saving new settings")
                 logger.info("All operations successful, saving settings")

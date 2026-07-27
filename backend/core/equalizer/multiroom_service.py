@@ -152,6 +152,12 @@ class MultiroomEqualizerService:
 
         Reads the local member if the zone contains one (most authoritative),
         otherwise the first member. Returns None if the zone has no members.
+
+        ``enabled`` is the exception: it lives in two domains — settings.json for
+        the local member, the per-client record for a satellite — so one member
+        cannot speak for the zone. It is reported as the conjunction, and a zone
+        that says ``False`` therefore means "not every member is applying
+        effects", never "the local one is bypassed".
         """
         if not self._registry:
             return None
@@ -162,7 +168,13 @@ class MultiroomEqualizerService:
             (m for m in zone.client_ids if self._registry.is_local_client(m)),
             zone.client_ids[0],
         )
-        return await self.get_client_eq(member)
+        record = await self.get_client_eq(member)
+        others = [m for m in zone.client_ids if m != member]
+        for mac_id in others:
+            if not (await self.get_client_eq(mac_id)).enabled:
+                record.enabled = False
+                break
+        return record
 
     async def set_zone_eq(self, zone_id: str, settings: EqualizerSettings) -> bool:
         """Apply one EQ record to every zone member, keeping them identical.
@@ -767,6 +779,39 @@ class MultiroomEqualizerService:
             raise ValueError(f"Client not found: {mac_id}")
         return await self._set_remote_client_enabled(
             mac_id, enabled, fallback=EqualizerSettings.default
+        )
+
+    async def set_local_equalizer_effects_enabled(self, enabled: bool) -> bool:
+        """Toggle the local master bypass, keeping a zone's members identical.
+
+        The dock's Equalizer app owns the *local* flag, but a zone's invariant is
+        that its members hold one record: writing the local domain alone leaves
+        every satellite playing under its own flag, audibly out of step, with no
+        later transition to repair it. So when the local client is a zone member
+        the toggle fans out to the zone; otherwise it is the plain local write.
+
+        This is the entry point for any caller that means "the equalizer of this
+        appliance", as opposed to ``/equalizer/target/local/enabled``, which
+        addresses the local client explicitly.
+        """
+        zone = (
+            self._registry.get_zone_for_client(self._local_mac_id())
+            if self._registry
+            else None
+        )
+        if zone:
+            return await self.set_zone_equalizer_effects_enabled(zone.id, enabled)
+        return await self.set_client_equalizer_effects_enabled(LOCAL_TARGET, enabled)
+
+    def _local_mac_id(self) -> str:
+        """The registered local client's mac_id, or ``LOCAL_TARGET`` when the
+        registry holds none (multiroom off — the local device is addressable
+        without a registry entry)."""
+        if not self._registry:
+            return LOCAL_TARGET
+        return next(
+            (mac for mac, c in self._registry.get_all_clients().items() if c.is_local),
+            LOCAL_TARGET,
         )
 
     async def _set_remote_client_enabled(self, client_id: str, enabled: bool, *, fallback) -> bool:
