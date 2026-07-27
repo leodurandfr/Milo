@@ -203,15 +203,26 @@ class BtRemoteController:
             await self.settings_service.set_setting('hardware.bt_remote', config)
 
             # Handle enable/disable transitions
+            transitioned = False
             if self.enabled and not self.running:
                 self._start_scanning()
+                transitioned = True
             elif not self.enabled and self.running:
-                await self._disconnect_matching_devices()
+                # Stop before disconnecting: _stop_scanning() clears `running`,
+                # so the monitor tasks that die when BlueZ drops the evdev nodes
+                # cannot race a half-broadcast against the explicit one below.
                 await self._stop_scanning()
+                await self._disconnect_matching_devices()
+                transitioned = True
 
         await self.state_machine.broadcast(
             BtRemoteConfigChanged(config=BtRemoteConfig(**config))
         )
+        if transitioned:
+            # The transition changed the monitored set, and _stop_scanning()
+            # notifies nobody. The UI set `discovering`/`connected` optimistically
+            # when it called us and has no other way to learn the real state.
+            await self._broadcast_status()
 
     def get_status(self) -> dict:
         """Return current controller status (one entry per physical device)."""
@@ -614,6 +625,9 @@ class BtRemoteController:
         if not self.enabled:
             return {"status": "error", "message": "BT remote is disabled"}
         if self._monitored_paths:
+            # Nothing else broadcasts on this path, and the UI is waiting on a
+            # status to clear the `discovering` it set before calling.
+            await self._broadcast_status()
             return {"status": "already_connected", "message": "Device already connected"}
 
         logger.info("Manual BT discovery triggered")
