@@ -318,7 +318,7 @@
   },
   "multiroomSettings": {
     "presets": "预设",
-    "responsive": "低延迟",
+    "responsive": "快速响应",
     "balanced": "均衡",
     "robust": "稳健",
     "advanced": "高级设置",
@@ -359,7 +359,7 @@
     "noNetworks": "未检测到网络",
     "password": "密码",
     "connect": "连接",
-    "connecting": "连接中...",
+    "connecting": "正在连接...",
     "connectFailed": "连接失败",
     "forget": "忘记",
     "refresh": "刷新",
@@ -452,7 +452,7 @@
     "podcastDetails": "播客详情",
     "episodeDetails": "单集详情",
     "top30": "热门 30",
-    "nowPlaying": "正在播放",
+    "nowPlaying": "播放中",
     "noEpisode": "没有单集",
     "newEpisodesFromSubscriptions": "订阅播客的新单集",
     "topPodcasts": "热门播客",
@@ -487,7 +487,7 @@
     "noInternet": "无网络连接",
     "noInternetHint": "请检查您的网络连接并重试",
     "retry": "重试",
-    "loading": "加载中...",
+    "loading": "正在加载...",
     "noEpisodesInQueue": "队列中没有单集",
     "noEpisodesInQueueHint": "开始收听单集，它们将显示在这里",
     "episodesCount2": "单集",
@@ -678,7 +678,7 @@
       "rebooting": "正在重启...",
       "rebootingDescription": "请等待系统重启。",
       "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。",
-      "volumeNotManaged": "音量不由 Milō 管理"
+      "volumeNotManaged": "音量未由 Milō 管理"
     }
   },
   "system": {

@@ -77,7 +77,7 @@
       "noInternetHint": "Überprüfe deine Netzwerkverbindung und versuche es erneut",
       "connectionError": "Verbindungsfehler",
       "cannotLoadStations": "Sender können nicht geladen werden",
-      "retry": "Wiederholen",
+      "retry": "Erneut versuchen",
       "noStationsFound": "Keine Sender gefunden",
       "minCharactersRequired": "Gib mindestens 3 Zeichen ein, um zu suchen",
       "noFavorites": "Keine Lieblings-Radios",
@@ -126,7 +126,7 @@
       "confirmReboot": "Neustart bestätigen?",
       "audioCard": "Soundkarte",
       "namePlaceholder": "z.B. Küche",
-      "applyAndReboot": "Anwenden & Neustart",
+      "applyAndReboot": "Anwenden und neu starten",
       "applying": "Wird angewendet...",
       "rebootingMessage": "Milō Client wird neu gestartet...",
       "rebootingDescription": "Der Milō Client erscheint in der Liste der aktiven Systeme, sobald er wieder verbunden ist.",
@@ -271,7 +271,7 @@
     "irRemote": "Infrarot-Empfänger",
     "applyAndReboot": "Anwenden und neu starten",
     "confirmReboot": "Neustart bestätigen",
-    "rebooting": "Neustart läuft..."
+    "rebooting": "Neustart..."
   },
   "fanSettings": {
     "status": "Status",
@@ -304,7 +304,7 @@
       "intact": "Intakt"
     },
     "apply": "Anwenden & neu starten",
-    "restarting": "Wird neu gestartet..."
+    "restarting": "Neustart läuft..."
   },
   "qobuzSettings": {
     "accountTitle": "Kontoeinstellungen",
@@ -334,7 +334,7 @@
     "satelliteProgramsTitle": "Milō Clients",
     "satelliteSectionTitle": "Milō Client Programme",
     "error": "Fehler beim Laden der Aktualisierungen",
-    "retry": "Wiederholen",
+    "retry": "Erneut versuchen",
     "notAvailable": "Nicht verfügbar",
     "update": "Aktualisieren",
     "updating": "Aktualisierung...",
@@ -359,7 +359,7 @@
     "noNetworks": "Keine Netzwerke erkannt",
     "password": "Passwort",
     "connect": "Verbinden",
-    "connecting": "Verbinde...",
+    "connecting": "Verbindung wird hergestellt...",
     "connectFailed": "Verbindung fehlgeschlagen",
     "forget": "Vergessen",
     "refresh": "Aktualisieren",
@@ -678,7 +678,7 @@
       "rebooting": "Neustart...",
       "rebootingDescription": "Bitte warte, während das System neu startet.",
       "accessHint": "Verbinde dich nach dem Neustart mit dem Netzwerk {ssid} und öffne milo.local in deinem Browser, um auf Milō zuzugreifen.",
-      "volumeNotManaged": "Lautstärke nicht von Milō verwaltet"
+      "volumeNotManaged": "Lautstärke nicht von Milō gesteuert"
     }
   },
   "system": {
