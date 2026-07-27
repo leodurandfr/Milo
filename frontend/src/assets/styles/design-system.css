@@ -110,8 +110,23 @@
 
 
     /* === SHADOWS === */
+
+    /* Ambient: a diffuse shadow under a surface at rest. */
     --shadow-02: 0 8px 32px rgba(0, 0, 0, 0.04);
     --shadow-03: 0 16px 96px rgba(0, 0, 0, 0.08);
+
+    /* Raised: one cast at three depths, for a surface floating above what is
+       under the finger — key popup, accent popup above it, mobile mini-player. */
+    --shadow-raised-01: 0 4px 16px rgba(0, 0, 0, 0.15);
+    --shadow-raised-02: 0 4px 16px rgba(0, 0, 0, 0.2);
+    --shadow-raised-03: 0 4px 16px rgba(0, 0, 0, 0.24);
+
+    /* Halo behind full-bleed artwork: no offset, very wide, barely there.
+       Shared byte-for-byte by the full player and the screensaver. */
+    --shadow-artwork: 0 0 96px #0000000d;
+
+    /* Hairline under a key at rest — a bottom edge that takes no layout space. */
+    --shadow-key: 0 1px 0 rgba(0, 0, 0, 0.12);
 
     /* === BLUR === */
     --blur-01: 4px;
