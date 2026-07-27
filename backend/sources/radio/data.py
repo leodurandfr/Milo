@@ -513,19 +513,32 @@ class StationDataService:
 
     @handle_errors(default=False)
     async def remove_custom_station(self, station_id: str) -> bool:
-        """Remove custom station."""
+        """Remove custom station.
+
+        An edited custom station sits in both stores: the record written at
+        creation and the override written by every later save. Dropping only the
+        first leaves the station listed by `get_custom_stations`, un-deletable
+        (this method then answers False for it) and re-creatable by opening its
+        edit form.
+        """
         if not station_id or not station_id.startswith("custom_"):
             return False
 
-        station_to_remove = self._manual_stations.get(station_id)
-        if not station_to_remove:
+        created = self._manual_stations.get(station_id)
+        override = self._modified_metadata.get(station_id)
+        if not created and not override:
             return False
 
-        image_filename = station_to_remove.get('image_filename')
-        if image_filename:
-            await self.image_manager.delete_image(image_filename)
+        # Each save that uploaded a new image named it in the store it wrote, so
+        # the two can point at different files; both belong to this station.
+        for image_filename in {
+            meta.get('image_filename') for meta in (created, override) if meta
+        }:
+            if image_filename:
+                await self.image_manager.delete_image(image_filename)
 
-        del self._manual_stations[station_id]
+        self._manual_stations.pop(station_id, None)
+        self._modified_metadata.pop(station_id, None)
         success = await self._save()
 
         if self.is_favorite(station_id):
