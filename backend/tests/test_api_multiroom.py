@@ -7,6 +7,7 @@ Tests cover:
 - PATCH /api/multiroom/clients/{mac_id} — update name, update speaker_type
 - Validation — 400 for an invalid speaker_type
 """
+import dataclasses
 import logging
 import pytest
 import aiohttp
@@ -55,25 +56,21 @@ def mock_registry_service():
         "local": local_client
     })
 
-    service.get_client = Mock(
-        side_effect=lambda mac_id: test_client if mac_id == "dc:a6:32:7e:d3:43" else None
-    )
+    known_clients = {"dc:a6:32:7e:d3:43": test_client, "local": local_client}
+
+    service.get_client = Mock(side_effect=known_clients.get)
 
     # Return updated client with new values
     def mock_update_client(mac_id, name=None, speaker_type=None, volume_control=None):
-        if mac_id != "dc:a6:32:7e:d3:43":
+        base = known_clients.get(mac_id)
+        if base is None:
             return None
-        updated = Client(
-            mac_id=test_client.mac_id,
-            name=name if name else test_client.name,
-            ip=test_client.ip,
-            online=test_client.online,
-            zone_id=test_client.zone_id,
-            volume_db=test_client.volume_db,
-            mute=test_client.mute,
-            speaker_type=speaker_type if speaker_type else test_client.speaker_type
+        return dataclasses.replace(
+            base,
+            name=name if name else base.name,
+            speaker_type=speaker_type if speaker_type else base.speaker_type,
+            volume_control=base.volume_control if volume_control is None else volume_control
         )
-        return updated
 
     service.update_client = AsyncMock(side_effect=mock_update_client)
 
@@ -1150,3 +1147,153 @@ class TestUnreachableSatellite:
 
         assert [r.message for r in caplog.records if r.levelno >= logging.ERROR] == []
         assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+class TestVolumeControlPush:
+    """
+    Tests for PATCH /clients/{mac_id} carrying `volume_control` on a REMOTE client.
+
+    The satellite owns that flag: it lives in the satellite's own hardware.json,
+    and its registration heartbeat re-sends that value every 15 s. Writing only
+    the registry is therefore undone a few seconds later, with no error and no
+    log — the failure mode the milo-client contract test cannot see, because the
+    route is served and every key is read; what is wrong is only *who* was told.
+
+    If these fail: either the satellite stops being written first (the flag
+    silently reverts), or a satellite that refuses the change is recorded as if
+    it had accepted it.
+    """
+
+    class _FakeResponse:
+        def __init__(self, status, payload):
+            self.status = status
+            self._payload = payload
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def json(self):
+            return self._payload
+
+        async def text(self):
+            return str(self._payload)
+
+    class _RecordingSatellite:
+        """A satellite that answers its hardware read and records what is written."""
+
+        def __init__(self, audio=None, put_status=200):
+            self.audio = {"id": "hifiberry-dacplus", "overlay": "hifiberry-dacplus"} if audio is None else audio
+            self.put_status = put_status
+            self.gets = []
+            self.puts = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def get(self, url, **kwargs):
+            self.gets.append(url)
+            return TestVolumeControlPush._FakeResponse(200, {"audio": self.audio})
+
+        def put(self, url, json=None, **kwargs):
+            self.puts.append((url, json))
+            return TestVolumeControlPush._FakeResponse(self.put_status, {})
+
+    @staticmethod
+    def _patch_session(satellite):
+        return patch("backend.api.multiroom.aiohttp.ClientSession", return_value=satellite)
+
+    def test_the_satellite_is_told_on_its_own_port(self, client, mock_registry_service):
+        """The flag reaches the satellite's hardware config, carrying the card it reported."""
+        satellite = self._RecordingSatellite()
+
+        with self._patch_session(satellite):
+            response = client.patch(
+                "/api/multiroom/clients/dc:a6:32:7e:d3:43",
+                json={"volume_control": False}
+            )
+
+        assert response.status_code == 200
+        assert len(satellite.puts) == 1
+        url, body = satellite.puts[0]
+        assert url == "http://192.168.1.100:8001/api/hardware/audio"
+        assert body["volume_control"] is False
+        # The card is read back from the satellite, not invented here: writing
+        # hardware.json with a wrong audio_id would reconfigure its output.
+        assert body["audio_id"] == satellite.audio["id"]
+        assert body["overlay"] == satellite.audio["overlay"]
+        mock_registry_service.update_client.assert_awaited_once()
+
+    def test_a_refusing_satellite_leaves_the_registry_untouched(self, client, mock_registry_service):
+        """A rejected push must surface as an error, not become a local write the heartbeat undoes."""
+        satellite = self._RecordingSatellite(put_status=500)
+
+        with self._patch_session(satellite):
+            response = client.patch(
+                "/api/multiroom/clients/dc:a6:32:7e:d3:43",
+                json={"volume_control": False}
+            )
+
+        assert response.status_code == 502
+        mock_registry_service.update_client.assert_not_awaited()
+
+    def test_an_unreachable_satellite_is_marked_offline(self, client, mock_registry_service):
+        """Same path as every other satellite call: a dead host stops being shown as controllable."""
+        mock_registry_service.set_client_online = AsyncMock()
+
+        with patch("backend.api.multiroom.aiohttp.ClientSession",
+                   return_value=TestUnreachableSatellite._RefusingSession()):
+            response = client.patch(
+                "/api/multiroom/clients/dc:a6:32:7e:d3:43",
+                json={"volume_control": False}
+            )
+
+        assert response.status_code == 502
+        mock_registry_service.set_client_online.assert_awaited_once_with("dc:a6:32:7e:d3:43", False)
+        mock_registry_service.update_client.assert_not_awaited()
+
+    def test_an_unchanged_value_does_not_reach_the_satellite(self, client, mock_registry_service):
+        """Renaming a speaker must not cost a round trip to it, nor fail when it is asleep."""
+        satellite = self._RecordingSatellite()
+
+        with self._patch_session(satellite):
+            response = client.patch(
+                "/api/multiroom/clients/dc:a6:32:7e:d3:43",
+                json={"volume_control": True, "name": "Kitchen"}
+            )
+
+        assert response.status_code == 200
+        assert satellite.gets == []
+        assert satellite.puts == []
+        mock_registry_service.update_client.assert_awaited_once()
+
+    def test_a_satellite_with_no_audio_card_is_refused(self, client, mock_registry_service):
+        """Nothing to manage the volume of yet — writing `none` back would erase its config."""
+        satellite = self._RecordingSatellite(audio={"id": "none", "overlay": ""})
+
+        with self._patch_session(satellite):
+            response = client.patch(
+                "/api/multiroom/clients/dc:a6:32:7e:d3:43",
+                json={"volume_control": False}
+            )
+
+        assert response.status_code == 400
+        assert satellite.puts == []
+        mock_registry_service.update_client.assert_not_awaited()
+
+    def test_the_local_client_is_not_pushed_to(self, client, mock_registry_service):
+        """The server runs no milo-client: a push to 127.0.0.1:8001 would 502 on its own flag."""
+        satellite = self._RecordingSatellite()
+
+        with self._patch_session(satellite):
+            response = client.patch("/api/multiroom/clients/local", json={"volume_control": False})
+
+        assert response.status_code == 200
+        assert satellite.gets == []
+        assert satellite.puts == []
+        mock_registry_service.update_client.assert_awaited_once()

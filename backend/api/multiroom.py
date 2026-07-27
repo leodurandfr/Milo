@@ -18,6 +18,7 @@ import logging
 import uuid
 
 import aiohttp
+from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.route_helpers import api_error_handler
@@ -37,6 +38,13 @@ from backend.api.responses import (
 )
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.multiroom.models import EqualizerSettings
+
+if TYPE_CHECKING:
+    from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
+    from backend.core.multiroom.client_registry import ClientRegistryService
+    from backend.core.multiroom.crossover import CrossoverService
+    from backend.core.multiroom.pending_clients import PendingClientsService
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +68,53 @@ async def _mark_unreachable(registry_service, mac_id: str, client_ip: str, exc: 
     logger.warning(f"Client {mac_id} unreachable at {client_ip}, marking offline: {exc}")
     if registry_service:
         await registry_service.set_client_online(mac_id, False)
+
+
+async def _push_volume_control(
+    mac_id: str, client_ip: str, volume_control: bool, registry_service=None,
+) -> None:
+    """Write ``volume_control`` into a satellite's own hardware.json.
+
+    The satellite owns this flag: its registration heartbeat re-sends
+    hardware.json's value every 15s and ``POST /register-client`` writes it back
+    over the registry. Updating the registry alone is therefore undone a few
+    seconds later, silently. No reboot follows — nothing on the satellite reads
+    the flag at runtime, it only declares who drives the volume.
+    """
+    timeout = aiohttp.ClientTimeout(total=5)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(f"http://{client_ip}:{CLIENT_API_PORT}/api/hardware") as resp:
+                if resp.status != 200:
+                    logger.error(f"Client {mac_id} returned {resp.status} for its hardware config")
+                    raise HTTPException(status_code=502, detail="Client returned an error")
+                audio = (await resp.json()).get("audio", {})
+
+            audio_id = audio.get("id", "none")
+            if audio_id == "none":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Client '{mac_id}' has no audio card configured",
+                )
+
+            async with session.put(
+                f"http://{client_ip}:{CLIENT_API_PORT}/api/hardware/audio",
+                json={
+                    "audio_id": audio_id,
+                    "overlay": audio.get("overlay", ""),
+                    "volume_control": volume_control,
+                },
+            ) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.error(f"Client {mac_id} rejected volume_control: {resp.status} {body}")
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Client rejected volume management change: {resp.status}",
+                    )
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        await _mark_unreachable(registry_service, mac_id, client_ip, e)
+        raise HTTPException(status_code=502, detail=f"Cannot reach client at {client_ip}")
 
 
 async def _send_audio_config_and_reboot(
@@ -100,7 +155,12 @@ async def _send_audio_config_and_reboot(
         raise HTTPException(status_code=502, detail=f"Cannot reach client at {client_ip}")
 
 
-def create_multiroom_router(registry_service, multiroom_equalizer_service=None, pending_clients_service=None, crossover_service=None):
+def create_multiroom_router(
+    registry_service: "ClientRegistryService",
+    multiroom_equalizer_service: Optional["MultiroomEqualizerService"] = None,
+    pending_clients_service: Optional["PendingClientsService"] = None,
+    crossover_service: Optional["CrossoverService"] = None
+):
     """
     Creates multiroom router with dependency injection.
 
@@ -151,21 +211,23 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
     @router.patch("/clients/{mac_id}", response_model=ClientMutationResponse)
     async def update_client(mac_id: str, request: ClientUpdateRequest):
         """
-        Update client properties (name and/or speaker_type).
+        Update client properties (name, speaker_type and/or volume_control).
 
         Supports partial updates - only provided fields are updated.
         Broadcasts 'client_updated' WebSocket event on success.
 
         Args:
             mac_id: Client MAC address
-            request: Partial update with optional name and speaker_type
+            request: Partial update with optional name, speaker_type, volume_control
 
         Returns:
             {"status": "success", "client": {...}} with updated client data
 
         Raises:
             404: Client not found
-            400: Invalid speaker_type (validation handled by Pydantic)
+            400: Invalid speaker_type (validation handled by Pydantic),
+                 or volume_control on a client with no audio card
+            502: Satellite unreachable or refused the volume_control change
         """
         async with api_error_handler(f"Error updating client {mac_id}", logger):
             client = registry_service.get_client(mac_id)
@@ -173,6 +235,20 @@ def create_multiroom_router(registry_service, multiroom_equalizer_service=None, 
                 raise HTTPException(
                     status_code=404,
                     detail=f"Client with mac_id '{mac_id}' not found"
+                )
+
+            # A remote client's volume_control lives on the satellite; push it
+            # there first, or its heartbeat reverts the registry (see
+            # _push_volume_control). A failure must surface, not be written
+            # locally and undone seconds later.
+            if (
+                request.volume_control is not None
+                and not client.is_local
+                and request.volume_control != client.volume_control
+            ):
+                await _push_volume_control(
+                    mac_id, client.ip, request.volume_control,
+                    registry_service=registry_service,
                 )
 
             updated_client = await registry_service.update_client(
