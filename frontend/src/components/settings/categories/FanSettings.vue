@@ -290,7 +290,7 @@ onMounted(() => {
 }
 
 .fan-warning {
-  color: var(--color-brand);
+  color: var(--color-warning);
 }
 
 /* Curve editor */
