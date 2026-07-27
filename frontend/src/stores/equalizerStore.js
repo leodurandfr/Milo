@@ -83,20 +83,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }));
   });
 
-  // Client types - builds from multiroomStore.clients
-  // Structure: { clientId: { speaker_type: 'satellite'|'bookshelf'|'tower'|'subwoofer' } }
-  const clientTypes = computed(() => {
-    const types = {};
-    for (const client of registryStore.clientList) {
-      if (client.mac_id) {
-        types[client.mac_id] = {
-          speaker_type: client.speaker_type || 'bookshelf'
-        };
-      }
-    }
-    return types;
-  });
-
   // AbortController for cancelling ongoing requests
   let loadAbortController = null;
 
@@ -561,9 +547,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @returns {string} Speaker type: 'satellite', 'bookshelf', 'tower', or 'subwoofer'
    */
   function getClientSpeakerType(clientId) {
-    const clientData = clientTypes.value[clientId];
-    if (!clientData) return 'bookshelf';
-    return clientData.speaker_type || 'bookshelf';
+    const client = registryStore.clientList.find(c => c.mac_id && c.mac_id === clientId);
+    return client?.speaker_type || 'bookshelf';
   }
 
   /**

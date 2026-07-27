@@ -11,8 +11,6 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
 
-const SUPPORTED_LOCAL_UPDATES = ['milo', 'go-librespot', 'shairport-sync', 'multiroom', 'camilladsp', 'qobuz-proxy', 'navidrome'];
-
 export const useUpdatesStore = defineStore('updates', () => {
   // === STATE ===
   const localPrograms = ref({});
@@ -115,8 +113,12 @@ export const useUpdatesStore = defineStore('updates', () => {
     }
   }
 
+  // The updatable programs are exactly the ones GET /api/programs returned:
+  // the backend builds that response from its own catalog. Restating the list
+  // here made adding a program a two-repo edit, and forgetting this half hid
+  // the new program's update button with no error.
   function canUpdateLocal(programKey) {
-    return SUPPORTED_LOCAL_UPDATES.includes(programKey);
+    return programKey in localPrograms.value;
   }
 
   async function startLocalUpdate(programKey) {
