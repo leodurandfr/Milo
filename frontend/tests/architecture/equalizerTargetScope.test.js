@@ -17,6 +17,9 @@
  *      diverges from it, and the two disagree about what is on screen.
  *      loadEnabledState() was that reader: it re-fetched the whole record to
  *      take one field loadStatus() had just set from the same response.
+ *   3. A second representation of "which target is selected" appears. The tab
+ *      strip held one, in its own `zone:<mac1>,<mac2>` grammar against the API's
+ *      `zone:<zoneId>`, and the two could never compare equal.
  *
  * These rules are STRUCTURAL on purpose. A behavioural test only covers the
  * handler someone thought to write one for; these fail on the *next* handler
@@ -35,13 +38,25 @@
  * must fail loudly, not pass on an empty set.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, relative } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
 const EQ_STORE = join(SRC_DIR, 'stores/equalizerStore.js');
+
+/** Anything that builds, tests or takes apart the `zone:<id>` API token. */
+const ZONE_TOKEN = /(?:`zone:\$\{|['"]zone:)/;
+
+function sourceFiles(dir) {
+  return readdirSync(dir).flatMap((entry) => {
+    const full = join(dir, entry);
+    return statSync(full).isDirectory()
+      ? sourceFiles(full)
+      : /\.(js|vue)$/.test(full) ? [full] : [];
+  });
+}
 
 /**
  * State that describes the selected target, and must therefore never be written
@@ -92,6 +107,10 @@ describe('equalizerStore target scoping', () => {
     expect(WS_HANDLERS.length).toBeGreaterThanOrEqual(4);
     expect(FUNCTIONS.map(f => f.name)).toContain('loadStatus');
     expect(FUNCTIONS.map(f => f.name)).toContain('targetRef');
+    // The zone-token pattern must match where the token legitimately lives —
+    // in the store's CODE, not in the prose describing it — or rule 5 would
+    // pass by finding nothing anywhere.
+    expect(ZONE_TOKEN.test(stripComments(source))).toBe(true);
   });
 
   it('every WS handler that writes target-scoped state checks the target first', () => {
@@ -120,6 +139,20 @@ describe('equalizerStore target scoping', () => {
       .map(f => f.name);
 
     expect(readers).toEqual(['fetchTargetRecord', 'loadStatus']);
+  });
+
+  it('spells the zone target in exactly one place', () => {
+    // ItemSelector kept its own tab value, `zone:<mac1>,<mac2>`, beside the
+    // API's `zone:<zoneId>` — two grammars for "which target is selected",
+    // reconciled by three watchers. The mirror could never equal a zone tab's
+    // value, so "does the selected tab still exist?" was permanently false and
+    // the strip re-selected the zone's first client on every render.
+    const offenders = sourceFiles(SRC_DIR)
+      .filter(file => file !== EQ_STORE)
+      .filter(file => ZONE_TOKEN.test(stripComments(readFileSync(file, 'utf8'))))
+      .map(file => relative(SRC_DIR, file));
+
+    expect(offenders).toEqual([]);
   });
 
   it('the EQ store addresses no volume endpoint', () => {

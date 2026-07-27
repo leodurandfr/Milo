@@ -10,11 +10,11 @@
           type="button"
           class="tab-button heading-4"
           :class="{
-            'tab-button--active': selectedTargetLocal === tab.value,
+            'tab-button--active': tab === activeTab,
             'tab-button--disabled': tab.disabled
           }"
           :disabled="tab.disabled"
-          @click="handleTargetChange(tab.value)"
+          @click="handleTargetChange(tab)"
         >
           <SvgIcon v-if="tab.badge" :name="tab.badge" :size="12" class="tab-badge" />
           {{ tab.label }}
@@ -25,7 +25,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { computed, watch } from 'vue';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -35,22 +35,13 @@ const equalizerStore = useEqualizerStore();
 const multiroomStore = useMultiroomStore();
 const audioStore = useUnifiedAudioStore();
 
-const props = defineProps({
-  disabled: {
-    type: Boolean,
-    default: false
-  }
-});
-
-const emit = defineEmits(['targetChange']);
-
-// Local state
-const selectedTargetLocal = ref(equalizerStore.selectedTarget);
-
 // === COMPUTED ===
 const targets = computed(() => equalizerStore.availableTargets);
 
-// Convert targets to tabs format (zones + individual clients)
+// Convert targets to tabs format (zones + individual clients).
+// A tab is addressed by one of its clients — the store holds a client MAC and
+// derives the zone from it (equalizerStore.targetRef()), so a tab carries the
+// members it folds in rather than a second spelling of "which target is this".
 const zoneTabs = computed(() => {
   const tabs = [];
   const multiroomEnabled = audioStore.systemState.multiroom_enabled;
@@ -62,6 +53,7 @@ const zoneTabs = computed(() => {
       return [{
         label: localTarget.name,
         value: localTarget.id,  // Use MAC address, not 'local'
+        memberIds: [localTarget.id],
         disabled: !localTarget.online
       }];
     }
@@ -92,9 +84,10 @@ const zoneTabs = computed(() => {
 
       tabs.push({
         label: zoneName,
-        value: `zone:${linkedIds.join(',')}`,
-        disabled: linkedClients.length === 0 || linkedClients.every(c => !c.online),
-        groupId: group?.id || null
+        // Backend sorts local first, so the representative client is stable.
+        value: linkedIds[0],
+        memberIds: linkedIds,
+        disabled: linkedClients.length === 0 || linkedClients.every(c => !c.online)
       });
 
       // Mark all linked clients as processed
@@ -104,6 +97,7 @@ const zoneTabs = computed(() => {
       tabs.push({
         label: target.name,
         value: target.id,
+        memberIds: [target.id],
         disabled: !target.online
       });
       processedIds.add(target.id);
@@ -113,62 +107,28 @@ const zoneTabs = computed(() => {
   return tabs;
 });
 
-// Check if current selection is a zone (multiple linked clients)
-const isZoneSelected = computed(() => {
-  return selectedTargetLocal.value?.startsWith('zone:') ?? false;
-});
+// The store's selected client decides which tab is lit — no local mirror.
+const activeTab = computed(
+  () => zoneTabs.value.find(tab => tab.memberIds.includes(equalizerStore.selectedTarget)) ?? null
+);
 
 // Selected zone/client name for display in other sections
-const selectedZoneName = computed(() => {
-  const tab = zoneTabs.value.find(t => t.value === selectedTargetLocal.value);
-  return tab ? tab.label : '';
-});
+const selectedZoneName = computed(() => activeTab.value?.label ?? '');
 
 // Selected client IDs (for level meters aggregation)
-const selectedClientIds = computed(() => {
-  if (!selectedTargetLocal.value) {
-    return [];  // No target selected yet
-  }
-  if (isZoneSelected.value) {
-    return selectedTargetLocal.value.replace('zone:', '').split(',');
-  }
-  return [selectedTargetLocal.value];
-});
+const selectedClientIds = computed(() => activeTab.value?.memberIds ?? []);
 
 // === HANDLERS ===
-async function handleTargetChange(targetValue) {
-  selectedTargetLocal.value = targetValue;
-
-  // If it's a zone, select the first client as the active equalizer target
-  if (targetValue.startsWith('zone:')) {
-    const clientIds = targetValue.replace('zone:', '').split(',');
-    if (clientIds.length > 0) {
-      await equalizerStore.selectTarget(clientIds[0]);
-    }
-  } else {
-    await equalizerStore.selectTarget(targetValue);
-  }
-
-  emit('targetChange', targetValue);
+async function handleTargetChange(tab) {
+  await equalizerStore.selectTarget(tab.value);
 }
 
-// Sync local target with store
-watch(() => equalizerStore.selectedTarget, (newTarget) => {
-  // Don't override if we have a zone selected
-  if (!selectedTargetLocal.value?.startsWith('zone:')) {
-    selectedTargetLocal.value = newTarget;
-  }
-});
-
-// Auto-select first tab if current selection doesn't exist
-// immediate: true ensures this runs on initial render (not just on change)
+// Nothing is lit when the store's target is not on the strip: a remote client
+// while multiroom is off, or the first render before loadTargets() has run.
+// immediate: true so that first render is covered too.
 watch(zoneTabs, (tabs) => {
-  if (tabs.length > 0) {
-    const currentTabExists = tabs.some(t => t.value === selectedTargetLocal.value);
-    if (!currentTabExists) {
-      selectedTargetLocal.value = tabs[0].value;
-      handleTargetChange(tabs[0].value);
-    }
+  if (tabs.length > 0 && !activeTab.value) {
+    handleTargetChange(tabs[0]);
   }
 }, { immediate: true });
 
