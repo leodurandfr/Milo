@@ -30,27 +30,15 @@
       <div v-if="currentView === 'home'" key="home" class="view-content home-view">
         <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }">
             <div class="power-menu-items">
-              <ListItemButton @click="handleRestart">
+              <ListItemButton v-for="action in POWER_ACTIONS" :key="action.key" @click="runPowerAction(action)">
                 <template #icon>
-                  <img :src="rebootIcon" alt="Restart" />
+                  <img :src="action.icon" :alt="action.alt" />
                 </template>
                 <template #title="{ headingClass }">
                   <span class="power-text-crossfade" :class="headingClass">
-                    <span class="power-text" :class="{ 'power-text--active': !confirmRestart && !restartInProgress }">{{ t('settings.restart') }}</span>
-                    <span class="power-text" :class="{ 'power-text--active': confirmRestart && !restartInProgress }">{{ t('settings.confirmRestart') }}</span>
-                    <span class="power-text power-text--light" :class="{ 'power-text--active': restartInProgress }">{{ t('settings.restartInProgress') }}</span>
-                  </span>
-                </template>
-              </ListItemButton>
-              <ListItemButton @click="handleShutdown">
-                <template #icon>
-                  <img :src="shutdownIcon" alt="Shutdown" />
-                </template>
-                <template #title="{ headingClass }">
-                  <span class="power-text-crossfade" :class="headingClass">
-                    <span class="power-text" :class="{ 'power-text--active': !confirmShutdown && !shutdownInProgress }">{{ t('settings.shutdown') }}</span>
-                    <span class="power-text" :class="{ 'power-text--active': confirmShutdown && !shutdownInProgress }">{{ t('settings.confirmShutdown') }}</span>
-                    <span class="power-text power-text--light" :class="{ 'power-text--active': shutdownInProgress }">{{ t('settings.shutdownInProgress') }}</span>
+                    <span class="power-text" :class="{ 'power-text--active': !powerState[action.key].confirming && !powerState[action.key].running }">{{ t(action.labels.idle) }}</span>
+                    <span class="power-text" :class="{ 'power-text--active': powerState[action.key].confirming && !powerState[action.key].running }">{{ t(action.labels.confirm) }}</span>
+                    <span class="power-text power-text--light" :class="{ 'power-text--active': powerState[action.key].running }">{{ t(action.labels.running) }}</span>
                   </span>
                 </template>
               </ListItemButton>
@@ -153,7 +141,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, inject, watch } from 'vue';
+import { ref, reactive, computed, onMounted, inject, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -256,10 +244,38 @@ const zoneGroupId = ref(null);
 const macIdToEdit = ref(null);
 const hotspotToAdopt = ref(null);
 const showPowerMenu = ref(false);
-const confirmRestart = ref(false);
-const confirmShutdown = ref(false);
-const restartInProgress = ref(false);
-const shutdownInProgress = ref(false);
+
+// The two power actions differ by endpoint, icon and labels only — the arm-then-
+// send behaviour and its three-way label cross-fade are one mechanism.
+const POWER_ACTIONS = [
+  {
+    key: 'restart',
+    endpoint: '/api/system/restart',
+    error: 'Restart request failed',
+    icon: rebootIcon,
+    alt: 'Restart',
+    labels: { idle: 'settings.restart', confirm: 'settings.confirmRestart', running: 'settings.restartInProgress' },
+  },
+  {
+    key: 'shutdown',
+    endpoint: '/api/system/shutdown',
+    error: 'Shutdown request failed',
+    icon: shutdownIcon,
+    alt: 'Shutdown',
+    labels: { idle: 'settings.shutdown', confirm: 'settings.confirmShutdown', running: 'settings.shutdownInProgress' },
+  },
+];
+
+const powerState = reactive(
+  Object.fromEntries(POWER_ACTIONS.map(a => [a.key, { confirming: false, running: false }]))
+);
+
+function resetPowerActions() {
+  for (const action of POWER_ACTIONS) {
+    powerState[action.key].confirming = false;
+    powerState[action.key].running = false;
+  }
+}
 
 // Scroll-aware view transition (shared with AudioSourceLayout via composable)
 const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTransition({
@@ -275,10 +291,7 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
 // next tick), so prepareNavigation captures the pre-patch height.
 function push(view, params) {
   showPowerMenu.value = false;
-  confirmRestart.value = false;
-  confirmShutdown.value = false;
-  restartInProgress.value = false;
-  shutdownInProgress.value = false;
+  resetPowerActions();
   navPush(view, params);
   prepareNavigation();
 }
@@ -576,44 +589,25 @@ async function handleRadioStationEdited(station) {
 
 function togglePowerMenu() {
   showPowerMenu.value = !showPowerMenu.value;
-  if (!showPowerMenu.value) {
-    confirmRestart.value = false;
-    confirmShutdown.value = false;
-    restartInProgress.value = false;
-    shutdownInProgress.value = false;
-  }
+  if (!showPowerMenu.value) resetPowerActions();
 }
 
-// Power menu handlers
-async function handleRestart() {
-  if (restartInProgress.value) return;
-  if (!confirmRestart.value) {
-    confirmRestart.value = true;
+// First tap arms the button, second sends. On success the unit goes down, so
+// only a failure has to put the button back.
+async function runPowerAction(action) {
+  const state = powerState[action.key];
+  if (state.running) return;
+  if (!state.confirming) {
+    state.confirming = true;
     return;
   }
-  restartInProgress.value = true;
-  const result = await apiCall.post('/api/system/restart', null, {
+  state.running = true;
+  const result = await apiCall.post(action.endpoint, null, {
     category: 'settings',
-    message: 'Restart request failed'
+    message: action.error
   });
   if (!result.ok) {
-    restartInProgress.value = false;
-  }
-}
-
-async function handleShutdown() {
-  if (shutdownInProgress.value) return;
-  if (!confirmShutdown.value) {
-    confirmShutdown.value = true;
-    return;
-  }
-  shutdownInProgress.value = true;
-  const result = await apiCall.post('/api/system/shutdown', null, {
-    category: 'settings',
-    message: 'Shutdown request failed'
-  });
-  if (!result.ok) {
-    shutdownInProgress.value = false;
+    state.running = false;
   }
 }
 
