@@ -49,7 +49,7 @@ function handleToggle(event) {
 .toggle-container {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-03);
 }
 
 .toggle-container h2 {

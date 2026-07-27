@@ -716,7 +716,7 @@ onMounted(async () => {
   background: var(--color-background-neutral-12);
   border: none;
   border-radius: var(--radius-04);
-  padding: 8px;
+  padding: var(--space-02);
   cursor: pointer;
   transition: var(--transition-press);
 }

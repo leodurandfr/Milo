@@ -500,7 +500,7 @@ function handleClose() {
 
 .simple-status {
   color: var(--color-text-contrast-50);
-  margin-top: 24px;
+  margin-top: var(--space-05-fixed);
 }
 
 .simple-icon-invert :deep(.app-icon-svg) {
