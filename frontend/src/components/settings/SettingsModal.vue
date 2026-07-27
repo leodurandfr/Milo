@@ -4,16 +4,16 @@
     <!-- Single NavigationHeader outside transition -->
     <NavigationHeader ref="navHeaderRef" :title="headerTitle" :show-back="canGoBack" :actions-key="currentView"
       @back="back">
-      <template v-if="currentView === 'home' || currentView === 'multiroom' || currentView === 'bt-remote' || showIrRemoteToggle || showFanToggle || stationActionIcon" #actions>
-        <button v-if="currentView === 'home'" v-press class="power-toggle" @click="togglePowerMenu">
+      <template v-if="hasHeaderActions" #actions>
+        <button v-if="showPowerToggle" v-press class="power-toggle" @click="togglePowerMenu">
           <SvgIcon name="power" size="large" color="var(--color-text-contrast)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': showPowerMenu }" />
           <SvgIcon name="caretUp" size="large" color="var(--color-text-contrast)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': !showPowerMenu }" />
         </button>
-        <Toggle v-if="currentView === 'multiroom'" :model-value="isMultiroomActive"
+        <Toggle v-if="showMultiroomToggle" :model-value="isMultiroomActive"
           :disabled="unifiedStore.systemState.transitioning || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
-        <Toggle v-if="currentView === 'bt-remote'" :model-value="settingsStore.btRemote.enabled"
+        <Toggle v-if="showBtRemoteToggle" :model-value="settingsStore.btRemote.enabled"
           @change="handleBtRemoteToggle" />
         <Toggle v-if="showIrRemoteToggle" :model-value="settingsStore.irRemote.enabled"
           @change="handleIrRemoteToggle" />
@@ -587,6 +587,8 @@ async function handleRadioStationEdited(station) {
   back();
 }
 
+const showPowerToggle = computed(() => currentView.value === 'home');
+
 function togglePowerMenu() {
   showPowerMenu.value = !showPowerMenu.value;
   if (!showPowerMenu.value) resetPowerActions();
@@ -611,6 +613,8 @@ async function runPowerAction(action) {
   }
 }
 
+const showMultiroomToggle = computed(() => currentView.value === 'multiroom');
+
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 async function handleMultiroomToggle(enabled) {
@@ -618,6 +622,8 @@ async function handleMultiroomToggle(enabled) {
 }
 
 // BT remote enable/disable (toggle lives in the navigation header for this view)
+const showBtRemoteToggle = computed(() => currentView.value === 'bt-remote');
+
 async function handleBtRemoteToggle(enabled) {
   await settingsStore.toggleBtRemote(enabled);
 }
@@ -641,6 +647,21 @@ const showFanToggle = computed(() => currentView.value === 'fan' && fanStore.ava
 async function handleFanToggle(enabled) {
   await fanStore.updateConfig({ enabled });
 }
+
+// The header slot renders nothing at all unless one of its actions is showing,
+// so its gate used to restate the six conditions below — in two spellings, an
+// inline `currentView === 'x'` next to a `showXToggle` computed embedding the
+// same test. One shape, declared once, and the gate derives from the list.
+const HEADER_ACTIONS = [
+  showPowerToggle,
+  showMultiroomToggle,
+  showBtRemoteToggle,
+  showIrRemoteToggle,
+  showFanToggle,
+  stationActionIcon,
+];
+
+const hasHeaderActions = computed(() => HEADER_ACTIONS.some(action => action.value));
 
 onMounted(async () => {
   // Preload all settings in parallel

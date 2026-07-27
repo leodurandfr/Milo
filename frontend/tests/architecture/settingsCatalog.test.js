@@ -19,11 +19,11 @@
  * added, because they know the shape of the tables and nothing about which
  * category is supposed to exist.
  *
- * Known limit, stated rather than papered over: rule 4 checks that the header
- * actions' outer gate *mentions* each inner condition, not that the disjunction
- * is logically equivalent. A gate reading `showFanToggle && false` still names
- * it. Proving equivalence needs evaluation, not parsing; what recurred is a
- * condition being forgotten entirely, and that is what this catches.
+ * The header-actions rule used to accept any gate that *mentioned* each inner
+ * condition, which a restated disjunction does. The conditions are now one
+ * shape — a named flag per action, listed once in HEADER_ACTIONS — so the rule
+ * asks for identity instead: the gate is the derived `hasHeaderActions`, and the
+ * v-ifs inside are exactly that list, in order.
  *
  * Every extraction asserts it found a plausible surface first — a broken parse
  * must fail loudly, not pass on an empty set.
@@ -94,15 +94,18 @@ function pushedViews() {
   return [...new Set(views)];
 }
 
-/** The header #actions slot: its outer gate, and the conditions used inside it. */
+/** The header #actions slot: its outer gate, the v-ifs inside, the declared list. */
 function headerActions() {
   const m = CODE.match(/<template v-if="([^"]+)" #actions>([\s\S]*?)<\/template>\s*<\/NavigationHeader>/);
   if (!m) throw new Error('the header #actions slot was not found — the extractor is broken');
   const inner = [...m[2].matchAll(/\sv-if="([^"]+)"/g)].map(x => x[1].trim());
-  if (inner.length < 4) {
-    throw new Error(`parsed ${inner.length} header actions — the extractor is broken`);
+  const declared = [...block(/const HEADER_ACTIONS = \[([\s\S]*?)\n\];/, 'HEADER_ACTIONS')
+    .matchAll(/^\s*(\w+),$/gm)].map(x => x[1]);
+  const gateBody = block(/const hasHeaderActions = computed\(([\s\S]*?)\n?\);/, 'hasHeaderActions');
+  if (inner.length < 4 || declared.length < 4) {
+    throw new Error(`parsed ${inner.length} header actions / ${declared.length} declared — the extractor is broken`);
   }
-  return { gate: m[1], inner };
+  return { gate: m[1], inner, declared, gateBody };
 }
 
 /** Every .vue under src/, so "mounted once" is asked of the whole app. */
@@ -154,11 +157,14 @@ describe('SettingsModal category catalog', () => {
     expect(CODE).not.toMatch(/hasAny\w+ = computed/);
   });
 
-  it('the header actions gate names every condition used inside it', () => {
+  it('the header actions gate is derived from the declared list, never restated', () => {
     // The outer v-if decides whether the slot is passed at all, so an action
-    // whose condition it omits never renders — silently, with no error.
-    const missing = ACTIONS.inner.filter(cond => !ACTIONS.gate.includes(cond));
-    expect(missing).toEqual([]);
+    // whose condition it omits never renders — silently, with no error. The
+    // gate can no longer omit one: it is the disjunction of HEADER_ACTIONS, and
+    // each action's v-if is the flag that list holds, in render order.
+    expect(ACTIONS.gate).toBe('hasHeaderActions');
+    expect(ACTIONS.gateBody).toMatch(/HEADER_ACTIONS\.some/);
+    expect(ACTIONS.inner).toEqual(ACTIONS.declared);
   });
 
   it('the settings modal has exactly one mount site', () => {
