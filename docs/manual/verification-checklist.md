@@ -249,6 +249,7 @@ makes this silent.
 | Client volume | The per-speaker slider and mute affect only that speaker | targeted |
 | Zone | A zone groups speakers; its global volume and mute act on all members | targeted |
 | Pending client | A freshly installed client appears under "Pending speakers" without a reload | targeted |
+| Pairing reboot | Finishing the wizard on a new client **actually reboots it** (it drops off the network, then returns with the chosen card working). The server only warns on a failed reboot, so a wizard that reports success while the satellite never restarted is the silent failure to watch for | targeted |
 | Crossover | With a subwoofer online in a zone, the badge shows the frequency and the mains lose their bass; taking the sub offline restores full-range | targeted |
 | Disable | Turning multiroom off returns to direct mode with audio intact (ALSA device switch) | targeted |
 | Offline client | Unplugging a client leaves the others playing and marks it offline | targeted |
