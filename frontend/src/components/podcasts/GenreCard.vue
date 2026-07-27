@@ -1,5 +1,5 @@
 <template>
-  <div class="genre-card" @click="$emit('click')">
+  <div v-press class="genre-card" @click="$emit('click')">
     <div class="genre-image">
       <img :src="genreImage" :alt="label" class="genre-img" />
     </div>

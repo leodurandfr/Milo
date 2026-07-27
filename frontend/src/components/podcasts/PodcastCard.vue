@@ -1,5 +1,6 @@
 <template>
-  <div class="podcast-card" :class="{ 'is-subscribed': isSubscribed, clickable }" @click="handleCardClick">
+  <div v-press="clickable" class="podcast-card" :class="{ 'is-subscribed': isSubscribed, clickable }"
+    @click="handleCardClick">
     <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" lazy class="card-image">
       <div v-if="isLoading" class="card-loading-overlay">
         <LoadingSpinner :size="48" />
@@ -97,10 +98,6 @@ function handleCardClick() {
 
 .podcast-card.clickable {
   cursor: pointer;
-}
-
-.podcast-card:active {
-  transform: translateY(0);
 }
 
 .card-image {
