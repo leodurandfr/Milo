@@ -1,12 +1,12 @@
 # backend/tests/test_routes_snapcast.py
 """
-Unit tests for Snapcast API routes
+Unit tests for the snapcast half of the /api/routing router.
 """
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock
-from backend.core.multiroom.routes import create_snapcast_router
+from backend.api.routing import create_routing_router
 
 
 class TestSnapcastRoutes:
@@ -52,10 +52,10 @@ class TestSnapcastRoutes:
     def client(self, mock_routing_service, mock_snapcast_service, mock_state_machine):
         """Fixture to create a TestClient"""
         app = FastAPI()
-        router = create_snapcast_router(
+        router = create_routing_router(
             mock_routing_service,
-            mock_snapcast_service,
             mock_state_machine,
+            mock_snapcast_service,
         )
         app.include_router(router)
         client = TestClient(app)
