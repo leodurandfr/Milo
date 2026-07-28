@@ -1,11 +1,15 @@
 # Milo Client - Permissions for automatic updates and hardware management
+#
+# Unlike the server's policy these grants are argument-scoped, so a verb or a
+# unit name that moves on one side is a silent permission denial on a satellite
+# — the one machine CI never touches. Both directions are enforced by
+# backend/tests/contracts/test_privileged_exec_contract.py. `systemctl is-active`
+# is deliberately absent: it needs no root and both call sites run it plain.
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl stop milo-client-snapclient.service
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl start milo-client-snapclient.service
-milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl is-active milo-client-snapclient.service
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-install-snapclient
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl stop milo-client-camilladsp.service
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl start milo-client-camilladsp.service
-milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl is-active milo-client-camilladsp.service
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-install-camilladsp
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-deploy-update
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-apply-hardware
