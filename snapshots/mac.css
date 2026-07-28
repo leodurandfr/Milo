@@ -1,0 +1,239 @@
+/* ============================================================================
+   snapshots/mac.css — macOS (connecté)
+
+   Source components (frontend/src/), in cascade order:
+     views/MainView.vue
+     components/audio/AudioSourceView.vue
+     components/ui/Logo.vue
+     components/audio/AudioSourceStatus.vue
+     components/ui/AppIcon.vue
+   Props used for the capture: sourceType="mac", sourceState="active", deviceName=["Mac-mini-de-Leo"] (ROC client list). No action button — that one is Bluetooth-only.
+
+   Captured 2026-07-28 on the unit against the live backend, 1280x800 native,
+   over the LAN dev server (not localhost) so the appliance's kiosk layer —
+   warm colour overlay, ui_scale zoom, screensaver — is off and the UI renders
+   in its native colours. Real state: Mac streaming over ROC: "Audio reçu de / Mac mini de Leo". The Milō wordmark is kept here — MainView shows it exactly when no rich player is mounted.
+
+   Declarations are the components' own <style scoped>, verbatim, with design
+   tokens left as var(--…) (see tokens.css). Removed: every
+   @media (max-aspect-ratio: 4/3) mobile block, and every rule whose selector
+   names a class absent from this DOM (dead variants and interaction states).
+   Vue's :deep(x) is compiled to a plain descendant selector.
+   ========================================================================= */
+
+/* === views/MainView.vue ================================================ */
+.main-view {
+  background: var(--color-background);
+  height: 100%;
+  position: relative;
+}
+
+
+.main-view > .content-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* === components/audio/AudioSourceView.vue ============================== */
+.audio-source-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  /* padding: 0 var(--space-06); */
+  justify-content: center;
+  position: relative;
+}
+
+
+
+.audio-source-slot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  /* Clamp the single row to the slot's fixed height (minmax min:0, not auto) so a
+     source whose content is taller than the viewport doesn't grow the row — which
+     would make the child's height:100% resolve to content height, leaving
+     .audio-source-layout's overflow-y:auto nothing to scroll and clipping the
+     overflow under #app{overflow:hidden}. First surfaced by Music Library's long
+     track lists; the row now stays viewport-height and the layout scrolls. */
+  grid-template-rows: minmax(0, 1fr);
+}
+
+
+
+.source-status-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-05);
+}
+
+/* === components/ui/Logo.vue ============================================ */
+.logo-container {
+  position: fixed;
+  left: 50%;
+  z-index: 100;
+  pointer-events: none;
+  transition: all var(--transition-spring);
+}
+
+
+
+.logo-svg {
+  display: block;
+  height: 32px;
+  color: var(--color-svg-logo-grey);
+  transition: height var(--transition-spring);
+}
+
+
+
+/* === Position TOP === */
+.logo-top {
+  top: calc(var(--space-06) + env(safe-area-inset-top, 0px));
+  transform: translateX(-50%);
+}
+
+/* === components/audio/AudioSourceStatus.vue ============================ */
+/* === COMPONENT STYLES === */
+.source-status {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-07);
+  box-shadow: var(--shadow-02);
+  width: 364px;
+  position: relative;
+  margin: auto;
+}
+
+
+
+.source-status-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  height: 100%;
+}
+
+
+
+.source-status-inner {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+  align-items: center;
+  justify-content: flex-start;
+  padding: var(--space-06) var(--space-04) var(--space-04) var(--space-04);
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+
+
+.device-info {
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+
+
+.device-info-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+
+
+.device-info-inner {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 var(--space-04) var(--space-04) var(--space-04);
+  position: relative;
+  width: 100%;
+}
+
+
+
+/* Source icon */
+.source-icon {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--color-background);
+  border-radius: var(--radius-02);
+}
+
+
+
+/* Text status */
+.device-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+
+
+/* Line-break support for ROC multi-clients */
+.status-line-2 h2 {
+  white-space: pre-line;
+}
+
+/* === components/ui/AppIcon.vue ========================================= */
+.app-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-02);
+  overflow: hidden;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  max-width: 100%;
+  max-height: 100%;
+  isolation: isolate; /* Prevent mix-blend-mode from SVGs leaking to other elements */
+}
+
+
+
+.app-icon-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+
+
+.app-icon-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+
+
+.app-icon-svg svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}

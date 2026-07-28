@@ -1,0 +1,1431 @@
+/* ============================================================================
+   snapshots/podcast.css — Podcasts (accueil)
+
+   Source components (frontend/src/), in cascade order:
+     views/MainView.vue
+     components/audio/AudioSourceView.vue
+     components/podcasts/PodcastSource.vue
+     components/audio/ProgressBar.vue
+     components/podcasts/EpisodeDetails.vue
+     components/ui/IconButton.vue
+     components/ui/SvgIcon.vue
+     components/ui/LazyImage.vue
+     components/podcasts/PodcastDetails.vue
+     components/podcasts/EpisodeCard.vue
+     components/podcasts/GenreView.vue
+     components/ui/MessageContent.vue
+     components/podcasts/PodcastCard.vue
+     components/podcasts/QueueView.vue
+     components/podcasts/SearchView.vue
+     components/podcasts/SubscriptionsView.vue
+     components/podcasts/HomeView.vue
+     components/podcasts/GenreCard.vue
+     components/ui/Dropdown.vue
+     components/audio/PlayerInfoText.vue
+     components/audio/AudioSourceLayout.vue
+     components/ui/NavigationHeader.vue
+     components/ui/AppIcon.vue
+     components/audio/AudioPlayer.vue
+   Props used for the capture: AudioSourceLayout gradient="podcast" showPlayer=true; HomeView (home view); AudioPlayer docked with progress + rewind15/play/forward30 + speed selector
+
+   Captured 2026-07-28 on the unit against the live backend, 1280x800 native,
+   over the LAN dev server (not localhost) so the appliance's kiosk layer —
+   warm colour overlay, ui_scale zoom, screensaver — is off and the UI renders
+   in its native colours. Real state: "La vie compliquée des gens riches : Marlene, millionnaire en quête de justice" (Les Pieds sur terre) playing, 14:56 / 32:02, speed 1x.
+
+   Declarations are the components' own <style scoped>, verbatim, with design
+   tokens left as var(--…) (see tokens.css). Removed: every
+   @media (max-aspect-ratio: 4/3) mobile block, and every rule whose selector
+   names a class absent from this DOM (dead variants and interaction states).
+   Vue's :deep(x) is compiled to a plain descendant selector.
+   ========================================================================= */
+
+/* === views/MainView.vue ================================================ */
+.main-view {
+  background: var(--color-background);
+  height: 100%;
+  position: relative;
+}
+
+
+.main-view > .content-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* === components/audio/AudioSourceView.vue ============================== */
+.audio-source-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  /* padding: 0 var(--space-06); */
+  justify-content: center;
+  position: relative;
+}
+
+
+
+.audio-source-slot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  /* Clamp the single row to the slot's fixed height (minmax min:0, not auto) so a
+     source whose content is taller than the viewport doesn't grow the row — which
+     would make the child's height:100% resolve to content height, leaving
+     .audio-source-layout's overflow-y:auto nothing to scroll and clipping the
+     overflow under #app{overflow:hidden}. First surfaced by Music Library's long
+     track lists; the row now stays viewport-height and the layout scrolls. */
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* === components/podcasts/PodcastSource.vue ============================= */
+::-webkit-scrollbar {
+  display: none;
+}
+
+
+
+/* Player control styles (from PodcastPlayer.vue) */
+.speed-selector {
+  display: flex;
+  align-items: center;
+  position: absolute;
+  left: 0;
+}
+
+
+
+.speed-selector .dropdown {
+  width: auto;
+  flex: none;
+}
+
+/* === components/audio/ProgressBar.vue ================================== */
+.progress-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: var(--space-03);
+}
+
+
+
+@keyframes stagger-transform {
+  to {
+    transform: none;
+  }
+}
+
+
+
+@keyframes stagger-opacity {
+  to {
+    opacity: 1;
+  }
+}
+
+
+
+.progress-container {
+  flex-grow: 1;
+  height: 8px;
+  border-radius: var(--radius-01);
+  cursor: default;
+  position: relative;
+  overflow: hidden;
+}
+
+
+
+.progress-container.interactive {
+  cursor: pointer;
+}
+
+
+
+.progress {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-01);
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+
+
+.progress-bar--dark .progress-container {
+  background-color: var(--color-background-neutral-12);
+}
+
+
+
+.progress-bar--dark .progress {
+  background-color: var(--color-background-neutral);
+}
+
+
+
+.progress-bar--dark .time {
+  color: var(--color-text-contrast-50);
+}
+
+/* === components/podcasts/EpisodeDetails.vue ============================ */
+.transition-container {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+
+
+.transition-container > * {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+/* === components/ui/IconButton.vue ====================================== */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  aspect-ratio: 1 / 1;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), var(--transition-press);
+  position: relative;
+}
+
+
+
+/* === SIZES (Desktop) === */
+.icon-button--small {
+  padding: 8px;
+  border-radius: var(--radius-04);
+}
+
+
+
+.icon-button--medium {
+  padding: 10px;
+  border-radius: var(--radius-04);
+}
+
+
+
+/* === SIZES (Mobile) === */
+
+/* === VARIANTS === */
+.icon-button--background-strong {
+  background: var(--color-background-strong);
+  color: var(--color-text-secondary);
+}
+
+
+
+/* Icon-only, no pill background — a flat padding regardless of size (this
+   comes after the SIZES blocks above so it wins their padding by cascade
+   order at both desktop and mobile). */
+.icon-button--ghost {
+  background: transparent;
+  padding: var(--space-02);
+}
+
+
+
+/* === STATES === */
+.icon-button:disabled {
+  opacity: 0.24;
+  cursor: not-allowed;
+}
+
+/* === components/ui/SvgIcon.vue ========================================= */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+
+.icon svg {
+  fill: currentColor;
+  display: block;
+}
+
+
+
+/* Default responsive behavior (legacy support) */
+.icon .svg-responsive {
+  width: 32px;
+  height: 32px;
+}
+
+
+
+/* Size variants with responsive sizing */
+.icon--size-small .svg-responsive {
+  width: 24px;
+  height: 24px;
+}
+
+
+
+.icon--size-medium .svg-responsive {
+  width: 28px;
+  height: 28px;
+}
+
+/* === components/ui/LazyImage.vue ======================================= */
+.lazy-image {
+  position: relative;
+  overflow: hidden;
+}
+
+
+
+.lazy-image-main,
+.lazy-image-placeholder {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+
+
+img.lazy-image-main,
+img.lazy-image-placeholder {
+  object-fit: cover;
+}
+
+
+
+.lazy-image-placeholder {
+  z-index: 0;
+  transition: opacity 200ms ease-out;
+}
+
+
+
+.lazy-image-placeholder.hidden {
+  opacity: 0;
+}
+
+
+
+.lazy-image-main {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  z-index: 1;
+}
+
+
+
+.lazy-image-main.loaded {
+  opacity: 1;
+}
+
+
+
+/* Cached / instant reveal: swap placeholder → image with no cross-fade, so the
+   generated avatar never flashes over an image that's already there. */
+.lazy-image.instant .lazy-image-placeholder,
+.lazy-image.instant .lazy-image-main {
+  transition: none;
+}
+
+/* === components/podcasts/PodcastDetails.vue ============================ */
+.transition-container {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+
+
+.transition-container > * {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+
+
+.episodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+/* === components/podcasts/EpisodeCard.vue =============================== */
+.episode-card {
+  display: flex;
+  gap: var(--space-03);
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
+  transition: all var(--transition-fast);
+}
+
+
+
+.episode-card.clickable {
+  cursor: pointer;
+}
+
+
+
+.card-image {
+  width: 128px;
+  height: 128px;
+  flex-shrink: 0;
+  border-radius: var(--radius-02);
+}
+
+
+
+.card-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: var(--space-03);
+  align-items: center;
+}
+
+
+
+.content-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+}
+
+
+
+.card-actions {
+  display: flex;
+  gap: var(--space-02);
+  align-items: center;
+}
+
+
+
+.episode-name {
+  color: var(--color-text);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+
+
+.podcast-name {
+  color: var(--color-brand);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+
+
+.podcast-name.clickable-link {
+  cursor: pointer;
+}
+
+
+
+.episode-meta {
+  color: var(--color-text-secondary);
+  display: flex;
+  gap: var(--space-02);
+}
+
+
+
+.separator {
+  opacity: 0.5;
+}
+
+
+
+.progress-container {
+  margin-top: var(--space-02);
+}
+
+
+
+.progress-bar {
+  height: 4px;
+  background: var(--color-background-strong);
+  border-radius: var(--radius-01);
+  overflow: hidden;
+}
+
+/* === components/podcasts/GenreView.vue ================================= */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+
+
+.podcasts-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-02);
+}
+
+/* === components/podcasts/PodcastCard.vue =============================== */
+.podcast-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
+  overflow: hidden;
+  padding: var(--space-03) var(--space-03) var(--space-04) var(--space-03);
+  gap: var(--space-03);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+
+
+.podcast-card.clickable {
+  cursor: pointer;
+}
+
+
+
+.card-image {
+  aspect-ratio: 1;
+  border-radius: var(--radius-02);
+}
+
+
+
+.card-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+}
+
+
+
+.podcast-tag {
+  color: var(--color-brand);
+  margin: 0;
+}
+
+
+
+.podcast-name {
+  color: var(--color-text);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+
+
+.podcast-publisher {
+  color: var(--color-text-secondary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+
+.card-actions {
+  padding: 0;
+}
+
+/* === components/podcasts/QueueView.vue ================================= */
+.episodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+/* === components/podcasts/SearchView.vue ================================ */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+
+
+.podcasts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-02);
+}
+
+/* === components/podcasts/SubscriptionsView.vue ========================= */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+
+
+.episodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+
+
+.podcasts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-02);
+}
+
+/* === components/podcasts/HomeView.vue ================================== */
+.home-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-07);
+}
+
+
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+
+
+.section-title {
+  color: var(--color-text);
+  margin: 0;
+}
+
+
+
+/* Transition container for overlay effect */
+.transition-container {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+
+
+.transition-container > * {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+
+
+.podcasts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-02);
+}
+
+
+
+.episodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+
+
+.genres-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-02);
+}
+
+/* === components/podcasts/GenreCard.vue ================================= */
+.genre-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+  padding: var(--space-03) var(--space-03) var(--space-04) var(--space-03);
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+
+
+.genre-image {
+  aspect-ratio: 8 / 3;
+  width: 100%;
+  border-radius: var(--radius-03);
+  overflow: hidden;
+}
+
+
+
+.genre-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+
+
+.genre-label {
+  margin: 0;
+  color: var(--color-text);
+}
+
+/* === components/ui/Dropdown.vue ======================================== */
+.dropdown {
+  position: relative;
+  display: flex;
+  width: 100%;
+  flex: 1;
+}
+
+
+
+.dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-03) var(--space-04);
+  border-radius: var(--radius-04);
+  background: var(--color-background-neutral);
+  cursor: pointer;
+  outline: none;
+  gap: var(--space-01);
+  box-shadow: inset 0 0 0 2px var(--color-border);
+  transition: box-shadow var(--transition-fast), var(--transition-press);
+}
+
+
+
+.dropdown-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
+
+.dropdown-trigger:disabled .dropdown-label {
+  color: var(--color-text-light);
+}
+
+
+
+/* Minimal variant */
+.dropdown-trigger--minimal {
+  background: none;
+  border: none;
+  box-shadow: none;
+  width: auto;
+  /* Vertical-only padding: no horizontal padding so the trigger hugs its content width */
+  padding: var(--space-04) 0;
+}
+
+
+
+.dropdown-trigger--minimal:focus {
+  box-shadow: none;
+}
+
+
+
+.dropdown-trigger--minimal .dropdown-label {
+  color: var(--color-text-contrast-50);
+  text-align: center;
+}
+
+
+
+.dropdown-label {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 42px;
+  color: var(--color-text-secondary);
+  transition: color var(--transition-fast);
+}
+
+/* === components/audio/PlayerInfoText.vue =============================== */
+.player-info-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+
+
+.player-info-kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  padding-bottom: var(--space-02);
+  min-width: 0;
+}
+
+
+
+.player-info-kicker-label {
+  color: var(--color-text-contrast-50);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+
+.player-info-title {
+  color: var(--color-text-contrast);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* === components/audio/AudioSourceLayout.vue ============================ */
+/* Layout wrapper */
+.audio-source-layout {
+  --audio-player-wrapper-width: 340px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--space-07);
+  overflow-y: auto;
+  /* Hide the scrollbar (Firefox) so a scrollbar appearing/disappearing never
+     reflows the content-box width — otherwise .content-container's percentage
+     width resolves differently and its width transition animates the shift. */
+  scrollbar-width: none;
+}
+
+
+
+/* Same, WebKit — keeps content width independent of scrollbar presence. */
+.audio-source-layout::-webkit-scrollbar {
+  display: none;
+}
+
+
+
+/* iOS only (via the WebKit-only -webkit-touch-callout probe): suppress the
+   rubber-band overscroll that bounces content away from the top on drag-down.
+   Chrome Android is left untouched so its native pull-to-refresh still works. */
+@supports (-webkit-touch-callout: none) {
+  .audio-source-layout {
+    overscroll-behavior-y: none;
+  }
+}
+
+
+
+/* Background gradient (Radio/Podcast) */
+.background-gradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 66%;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 400ms ease-out;
+}
+
+
+
+.gradient-podcast {
+  background: linear-gradient(180deg, rgba(66, 24, 112, 0.08) 0%, rgba(126, 46, 214, 0) 100%);
+}
+
+
+
+/* Content container: animates width to make space for player */
+.audio-source-layout > .content-container {
+  position: relative;
+  z-index: 1;
+  width: 84%;
+  height: auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-07) 0;
+  gap: var(--space-06);
+  flex-shrink: 0;
+  touch-action: pan-y;
+  transition: width 0.6s cubic-bezier(0.5, 0, 0, 1);
+}
+
+
+
+.content-container.has-player {
+  width: calc(100% - var(--audio-player-wrapper-width));
+  transition: width var(--transition-spring);
+}
+
+
+
+/* View stack: leaving + entering views share one grid cell, so the box reserves
+   max(leaving, entering) height intrinsically (no position:absolute overlay). */
+.transition-wrapper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+
+
+/* Inner wrapper for content transition */
+.content-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+
+
+
+/* Player wrapper: animates width to create space for player */
+.player-wrapper {
+  box-sizing: border-box;
+  z-index: 1;
+  width: 0;
+  height: 100%;
+  max-width: var(--audio-player-wrapper-width);
+  padding-left: 0;
+  padding-top: var(--space-07);
+  padding-bottom: var(--space-07);
+  opacity: 0;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  transition:
+    width 0.6s cubic-bezier(0.5, 0, 0, 1),
+    padding-left 0.6s cubic-bezier(0.5, 0, 0, 1),
+    opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
+  pointer-events: none;
+}
+
+
+
+.player-wrapper.has-player {
+  width: var(--audio-player-wrapper-width);
+  max-width: var(--audio-player-wrapper-width);
+  padding-left: var(--space-06); /* 32px spacing (animated with width) */
+  opacity: 1;
+  transition:
+    width var(--transition-spring),
+    padding-left var(--transition-spring),
+    opacity 0.4s ease-out;
+  pointer-events: all;
+}
+
+
+
+/* Mobile: full width content + fixed player (wrapper transparent) */
+
+.navigation-header {
+  position: relative;
+  z-index: 2;
+  transition: padding var(--transition-fast), opacity var(--transition-in-out);
+}
+
+/* === components/ui/NavigationHeader.vue ================================ */
+.navigation-header {
+  position: relative;
+  display: flex;
+  background: var(--color-background-contrast);
+  border-radius: var(--radius-06);
+  padding: var(--space-03);
+  min-height: 72px;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+
+
+.navigation-header.variant-background-neutral {
+  background: var(--color-background-neutral);
+}
+
+
+
+.navigation-header.variant-background-neutral h2 {
+  color: var(--color-text);
+}
+
+
+
+.navigation-header h2 {
+  color: var(--color-text-contrast);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+
+/* Header content - grid stacking ensures both entering/leaving elements overlap cleanly */
+.header-content {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  align-items: center;
+  padding-right: 56px;
+}
+
+
+
+.header-content > * {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+
+
+.title-with-icon {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  width: 100%;
+}
+
+
+
+.header-icon {
+  flex-shrink: 0;
+}
+
+
+
+/* Actions container - absolute right so it never shifts during cross-fade */
+.actions-container {
+  position: absolute;
+  right: var(--space-03);
+  top: 0;
+  bottom: 0;
+  display: grid;
+  align-items: center;
+  justify-items: end;
+}
+
+
+
+.actions-container > * {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+
+
+.actions-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+}
+
+/* === components/ui/AppIcon.vue ========================================= */
+.app-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-02);
+  overflow: hidden;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  max-width: 100%;
+  max-height: 100%;
+  isolation: isolate; /* Prevent mix-blend-mode from SVGs leaking to other elements */
+}
+
+
+
+.app-icon-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+
+
+.app-icon-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+
+
+.app-icon-svg svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+/* === components/audio/AudioPlayer.vue ================================== */
+/* Desktop: Vertical sidebar layout */
+.audio-player {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  height: 100%;
+  max-height: 720px;
+  flex-direction: column;
+  gap: var(--space-04);
+  padding: 0 var(--space-02);
+  background: var(--color-background-medium-32);
+  border-radius: var(--radius-06);
+  backdrop-filter: blur(var(--blur-02));
+  -webkit-backdrop-filter: blur(var(--blur-02));
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  position: relative;
+  overflow: hidden;
+  z-index: 50;
+}
+
+
+
+/* Glass stroke border effect (matching both radio and podcast players exactly) */
+.audio-player::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  opacity: 0.8;
+  background: var(--stroke-glass);
+  border-radius: var(--radius-06);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: 1;
+  pointer-events: none;
+}
+
+
+
+/* Background artwork - heavily blurred and saturated */
+.player-art-background {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+
+
+/* Overlay to darken the background image */
+.player-art-background::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--color-background-contrast-32);
+  z-index: 1;
+  pointer-events: none;
+}
+
+
+
+.background-image {
+  filter: blur(var(--blur-04)) saturate(1.6);
+  transform: scale(1.5) translateZ(0);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+
+
+/* Player content (sits above background) */
+.player-content {
+  height: 100%;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-02) 0 var(--space-05) 0;
+  gap: var(--space-04);
+  overflow-y: auto;
+}
+
+
+
+/* Shared by the docked frame (desktop sidebar + mobile mini-bar, sized via the
+   mobile media query below) and the expanded sheet's artwork (which keeps this
+   base square size — only the docked mobile override shrinks it to 48px). */
+.player-artwork-frame {
+  position: relative;
+  align-self: center;
+  width: 100%;
+  aspect-ratio: 1;
+  /* In the parent flex column, flex-shrink: 1 (default) lets aspect-ratio be
+     overridden when vertical space is tight; pinning it preserves the 1:1
+     box for both <img> (which has intrinsic size) and the <div v-html=svg>
+     wrapper (whose content is the SVG sized below). flex: none (not just
+     flex-shrink: 0) also pins flex-grow/flex-basis so the expanded sheet's
+     column layout can't compress this height (derived from width via
+     aspect-ratio) either. */
+  flex: none;
+}
+
+
+
+.player-artwork-frame.clickable {
+  cursor: pointer;
+}
+
+
+
+.player-artwork {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-04);
+  object-fit: cover;
+  background: var(--color-background-neutral);
+  /* Clip the inline-SVG fallback to the rounded corners. (For <img>, content
+     is clipped natively by border-radius — this matters only for the <div>
+     wrapper case.) */
+  overflow: hidden;
+  display: block;
+}
+
+
+
+img.player-artwork.loaded {
+  opacity: 1;
+}
+
+
+
+/* Inline-SVG fallback: let the SVG sit in normal flow with width:100% and
+   height derived from its 1024×1024 viewBox (height: auto). This gives the
+   wrapper a real, square content height — no circular dependency with the
+   wrapper's aspect-ratio (which would otherwise fall back to the SVG default
+   300×150 / ~1.94:1 box). */
+.player-artwork svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+
+
+.player-info {
+  display: flex;
+  justify-content: center;
+  height: 100%;
+  flex-direction: column;
+  gap: var(--space-04);
+  padding: 0 var(--space-04);
+}
+
+
+
+.player-info-inner {
+  display: flex;
+  flex-direction: column;
+  /* Explicit `inherit` (gap isn't inherited by default) mirrors whatever
+     .player-info currently has — var(--space-04) desktop, var(--space-01) mobile —
+     without duplicating the token here. */
+  gap: inherit;
+  width: 100%;
+}
+
+
+
+.player-title {
+  color: var(--color-text-contrast);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  margin: 0;
+}
+
+
+
+.player-subtitle {
+  color: var(--color-text-contrast-50);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+
+
+/* Vertical (column: kicker/title/secondary via PlayerInfoText) vs horizontal
+   (compact single-line title/subtitle pair) — the #info slot's own layout
+   toggle, orthogonal to desktop-only/mobile-only above: "vertical" also
+   renders on the mobile expanded sheet for sources that reuse it there
+   (podcast, music-library), so naming it "desktop-only" would be wrong.
+   !important: an element carrying .horizontal-layout can also carry another
+   utility class with its own `display` (e.g. radio's .playback-controls,
+   `display: flex`) — same specificity, and without !important here the later
+   rule in the cascade would win regardless of aspect ratio. */
+.horizontal-layout {
+  display: none !important;
+}
+
+
+
+.player-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+  padding: 0 var(--space-04);
+}
+
+
+
+.controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-04);
+  position: relative;
+}
+
+
+
+.playback-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-02);
+  width: 100%;
+}
+
+
+
+/* Mobile: Horizontal bottom panel layout */
+
+/* Vue Transition: Desktop - slide from right with fade */
+@media (min-aspect-ratio: 4/3) {
+
+  .audio-player-enter-active,
+  .audio-player-leave-active {
+    /* Pin to the rendered width (wrapper minus its left padding) so the player
+       doesn't reflow to 100% while .player-wrapper collapses during the slide.
+       Inherits the layout's single source of truth — no JS prop needed. */
+    width: calc(var(--audio-player-wrapper-width) - var(--space-06));
+  }
+
+  .audio-player-enter-active {
+    transition:
+      transform var(--transition-spring-slow),
+      opacity 0.4s ease-out;
+  }
+
+  .audio-player-leave-active {
+    transition:
+      transform 0.6s cubic-bezier(0.5, 0, 0, 1),
+      opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
+  }
+
+  .audio-player-enter-from {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+
+  .audio-player-leave-to {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+
+  /* Screensaver reveal: replay the slide-in (same as the enter transition above)
+     when the screensaver is dismissed, without toggling the v-if/Transition. */
+  .audio-player.audio-player-revealing {
+    animation: audioPlayerReveal var(--transition-spring-slow) forwards;
+  }
+}
+
+
+
+@keyframes audioPlayerReveal {
+  from {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+
+
+/* Mobile radio: the track thumbnail slides out from the station's position
+   (fully overlapping) to its half-overlap resting spot. Transform only —
+   opacity is handled separately by the .loaded fade. */
+@keyframes musicImgReveal {
+  from {
+    transform: translateX(-24px);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+
+
+@media (min-aspect-ratio: 4/3) {
+  .audio-player.source-music_library .ml-transport-main .icon-button--small .svg-responsive {
+    width: 34px;
+    height: 34px;
+  }
+
+  .audio-player .ml-transport-main .icon-button--medium .svg-responsive {
+    width: 44px;
+    height: 44px;
+  }
+
+  .audio-player .ml-transport-main .icon-button--medium.icon-button--loading .loading-spinner--medium {
+    --spinner-size: 44px;
+  }
+
+  .audio-player .ml-transport-main .icon-button--medium.icon-button--loading .loading-spinner--medium .loading-spinner-content {
+    transform: scale(0.85);
+  }
+}
