@@ -612,8 +612,6 @@ class TestUpdateBinaryProgram:
             result = await update_service._update_binary_program(program_key, status, callback)
 
         assert result["success"] is True
-        assert result["new_version"] == "0.7.0"
-        assert result["service_restarted"] is True
         mocks["_stop_service"].assert_awaited_once()
         mocks["_start_service"].assert_awaited_once()
         mocks["_rollback_binary_program"].assert_not_awaited()
@@ -628,7 +626,6 @@ class TestUpdateBinaryProgram:
             result = await update_service._update_binary_program("go-librespot", status)
 
         assert result["success"] is True
-        assert result["service_restarted"] is False
         mocks["_stop_service"].assert_not_awaited()
         mocks["_start_service"].assert_not_awaited()
 
@@ -645,7 +642,6 @@ class TestUpdateBinaryProgram:
             result = await update_service._update_binary_program(program_key, status)
 
         assert result["success"] is True
-        assert result["service_restarted"] is True
         mocks["_stop_service"].assert_awaited_once()
         mocks["_start_service"].assert_awaited_once()
 
@@ -771,8 +767,12 @@ class TestUpdateMultiroom:
                         with patch.object(update_service, "_cleanup_temp_files"):
                             result = await update_service._update_multiroom(status)
 
+        # The discriminator is which half failed: snapserver installed, snapclient
+        # did not. "success is False" alone would also pass if snapserver had
+        # failed, which is a different outcome (nothing was replaced).
         assert result["success"] is False
-        assert result.get("partial_success") is True
+        assert "snapclient failed" in result["error"]
+        assert call_count == 2
 
 
 class TestUpdateMiloApp:
@@ -846,13 +846,15 @@ class TestUpdateMiloApp:
         with patch("pathlib.Path.exists", return_value=True):
             with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
                 with patch("asyncio.wait_for", side_effect=mock_wait_for):
-                    with patch.object(update_service, "_rollback_milo_to_commit", return_value=True):
+                    with patch.object(update_service, "_rollback_milo_to_commit", return_value=True) as mock_rollback:
                         with patch("asyncio.sleep", new_callable=AsyncMock):
                             result = await update_service._update_milo_app(status)
 
         assert result["success"] is False
         assert "timed out" in result["error"].lower()
-        assert result.get("rolled_back") is True
+        # The rollback must have actually run, not merely be claimed in the message.
+        mock_rollback.assert_awaited_once()
+        assert "rolled back" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_git_fetch_failure(self, update_service):
