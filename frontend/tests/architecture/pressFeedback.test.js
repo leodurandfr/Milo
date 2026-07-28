@@ -22,12 +22,19 @@
  *
  * Everything else is listed, with a reason. The list is split in two because the
  * honest state of this surface is split in two: elements that are legitimately
- * not press surfaces, and elements that look like buttons and were never
- * decided. Whether a `.zone-header` should shrink is an eye-on-the-kiosk call,
- * not a grep — so the undecided ones are enumerated here rather than described
- * in a document nobody re-reads. Both lists are checked for staleness: an entry
- * matching nothing fails, the way a `.stylelintrc.cjs` whitelist entry for a
- * deleted file did.
+ * not press surfaces, and elements that look like buttons and carry no feedback
+ * **by decision**.
+ *
+ * That second list used to be called UNDECIDED, and it was: whether a
+ * `.zone-header` should shrink was an eye-on-the-kiosk call. It was reviewed on
+ * 2026-07-28 and the answer is that the existing affordance — shrink 4 px, fade
+ * to 60 %, hold 150 ms — is the app's whole press vocabulary and no second one
+ * is wanted. These fifteen stay as they are. What that costs is stated rather
+ * than hidden: a list row and a large surface get no acknowledgement, because
+ * the one verb available scales them out of their grid.
+ *
+ * Both lists are checked for staleness: an entry matching nothing fails, the way
+ * a `.stylelintrc.cjs` whitelist entry for a deleted file did.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -64,12 +71,12 @@ const NOT_A_PRESS_SURFACE = {
 };
 
 /**
- * Native tap targets with no feedback at all today, and no `:active` style
- * either. Each looks like a button; whether it should shrink is a call to make
- * with the kiosk in front of you, not from a grep. Listed so a new one cannot
- * hide among them.
+ * Native tap targets with no feedback at all, and no `:active` style either, by
+ * decision (2026-07-28 — see the header). Each looks like a button. Listed so a
+ * new one cannot hide among them: adding to this list is a choice to ship a
+ * control that does not acknowledge a tap, not a placeholder.
  */
-const UNDECIDED = [
+const NO_PRESS_BY_DECISION = [
   'components/audio/AudioPlayer.vue::player-artwork-frame',
   'components/audio/AudioPlayer.vue::player-info-inner',
   'components/audio/AudioPlayer.vue::expanded-info',
@@ -132,7 +139,7 @@ function clickableNatives() {
 const NATIVES = clickableNatives();
 const TAP_TARGETS = NATIVES.filter(el => el.handler !== null);
 const UNPRESSED = [...new Set(TAP_TARGETS.filter(el => !el.pressed).map(el => el.key))].sort();
-const LISTED = new Set([...Object.keys(NOT_A_PRESS_SURFACE), ...UNDECIDED]);
+const LISTED = new Set([...Object.keys(NOT_A_PRESS_SURFACE), ...NO_PRESS_BY_DECISION]);
 
 describe('press feedback on native tap targets', () => {
   it('parsed a plausible surface', () => {
