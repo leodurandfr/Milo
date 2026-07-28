@@ -52,7 +52,7 @@ NAVIDROME_URL = f"http://{NAVIDROME_HOST}:{NAVIDROME_PORT}"
 # by these helpers — the backend never calls mount/umount directly. milo-mount also
 # mounts SMB/NFS network shares (`--network`) and writes/removes their root-only
 # credential files (`--forget`); the secret bytes are fed on stdin, never argv. See
-# rootfs/usr/local/bin/milo-mount and docs/plans/music-library.md.
+# rootfs/usr/local/bin/milo-mount.
 MILO_MOUNT_CMD = "/usr/local/bin/milo-mount"
 MILO_UMOUNT_CMD = "/usr/local/bin/milo-umount"
 

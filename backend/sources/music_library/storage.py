@@ -18,7 +18,7 @@ rediscover them, so their config is persisted (MusicLibraryDataService) and the
 source replays it at boot via :meth:`mount_share`. The same milo-mount helper
 mounts them read-only under the mount root; CIFS credentials are handed to it on
 stdin (never argv) and it persists them to a root-only cred file the milo backend
-cannot read. See docs/plans/music-library.md.
+cannot read.
 
 Fail-open throughout: no udev (a dev host without libudev), no sudoers rule, or
 Navidrome not provisioned yet must degrade to "auto-mount disabled" and log,

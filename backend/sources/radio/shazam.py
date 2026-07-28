@@ -31,8 +31,7 @@ MAX_RETRIES = 2
 
 # Consecutive unrecognized rounds (a round = one initial try + immediate
 # retries) after which a stale pinned track is cleared. Prevents a previous
-# title from lingering over an unrecognizable track (rap/ads/talk). Root
-# cause #1 in docs/plans/radio-metadata.md.
+# title from lingering over an unrecognizable track (rap/ads/talk).
 STALE_CLEAR_ROUNDS = 2
 
 # ffmpeg capture timeout (capture duration + buffer for connection/codec init)
