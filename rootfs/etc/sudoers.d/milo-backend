@@ -3,15 +3,18 @@
 # the pi-gen stage both copy it, so a script-installed unit and a flashed image
 # grant exactly the same set. It used to be an inline heredoc in each of them,
 # which is how the two can silently disagree.
+#
+# Every command here has a caller in backend/, and every `sudo` the backend
+# issues is listed here — both directions are enforced by
+# backend/tests/contracts/test_privileged_exec_contract.py.
 
 # Suppress sudo + PAM session logs (noisy in journalctl)
 Defaults:milo !syslog, !pam_session
 
-# System control (used by SystemdServiceManager and api/system.py)
+# System control (SystemdServiceManager: start/stop/restart a unit, and
+# `systemctl reboot|poweroff` for the power path — there is no separate
+# /usr/sbin/reboot grant because nothing shells those binaries)
 milo ALL=(root) NOPASSWD: /usr/bin/systemctl
-milo ALL=(root) NOPASSWD: /usr/bin/hostnamectl
-milo ALL=(root) NOPASSWD: /usr/sbin/reboot
-milo ALL=(root) NOPASSWD: /usr/sbin/poweroff
 # Hardware configuration
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
 # Update deployment (file ops, packages, udev — all via secure wrapper)
