@@ -574,7 +574,14 @@ class TestWebSocketManager:
         self,
         websocket_manager: WebSocketManager
     ):
-        """Test dead connections are removed on broadcast."""
+        """A client that died since it connected is dropped by the next broadcast.
+
+        Complements test_websocket_server.py, which injects the dead socket into
+        the set directly: here both clients arrive through the real connect()
+        path, so a registration that kept its own reference would survive there
+        and be caught here. Reaping is synchronous inside broadcast_dict — the
+        set is exact after it returns, not eventually.
+        """
         client1 = MockWebSocket()
         client2 = MockWebSocket()
 
@@ -593,8 +600,7 @@ class TestWebSocketManager:
             "timestamp": time.time()
         })
 
-        # Only client2 should remain
-        assert len(websocket_manager.active_connections) <= 2  # May not immediately clean up
+        assert websocket_manager.active_connections == {client2}
 
     @pytest.mark.asyncio
     async def test_broadcast_to_empty_connections(
