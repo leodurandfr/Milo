@@ -209,13 +209,26 @@ class FanController:
     # ========================================================================
 
     async def _load_config_from_settings(self) -> None:
-        cfg = await self.settings_service.get_setting("fan") or {}
-        self.enabled = bool(cfg.get("enabled", True))
-        mode = cfg.get("mode", "auto")
-        self.mode = mode if mode in VALID_MODES else "auto"
-        self.manual_percent = _clamp_pct(cfg.get("manual_percent", 50))
-        self.target_temp_c = clamp_target_temp(cfg.get("target_temp_c", self.target_temp_c))
-        self.curve = sanitize_curve(cfg.get("curve"))
+        """Adopt the persisted config. A pure projection, on purpose.
+
+        Every key is guaranteed present and already coerced by
+        ``SettingsService._validate_and_merge`` (a section ``defaults``
+        declares is emitted unconditionally, with its bounds applied). Doing
+        the clamping again here would be a second declaration of the same
+        bounds, free to disagree with the first — which is exactly what the
+        settings pass removed from ``GET /api/settings/bulk``.
+
+        The curve is copied because ``get_setting`` hands out the live cache
+        object: without it the running controller and the settings cache would
+        share one list, and the monitor loop would be reading whatever the
+        last settings write left behind.
+        """
+        cfg = await self.settings_service.get_setting("fan")
+        self.enabled = cfg["enabled"]
+        self.mode = cfg["mode"]
+        self.manual_percent = cfg["manual_percent"]
+        self.target_temp_c = cfg["target_temp_c"]
+        self.curve = [dict(p) for p in cfg["curve"]]
 
     async def reload_config(self, cfg: dict) -> None:
         """Apply a validated config (called by the PUT route after persisting)."""
