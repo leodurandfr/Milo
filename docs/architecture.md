@@ -719,6 +719,7 @@ Allowed origins only:
 ### Permissions
 - Backend runs as `milo` user (not root)
 - Privileged exec is centralized (see CLAUDE.md invariant #1): systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. PolicyKit covers only NetworkManager.
+- Each policy file is authored once under `rootfs/etc/sudoers.d/` (satellite: `milo-client/rootfs/`) and copied by both the install scripts and `pi-gen/`, so the two install routes cannot grant different sets. `backend/tests/contracts/test_privileged_exec_contract.py` compares the granted commands against the argv the code builds, in both directions.
 
 ## Performance
 
