@@ -63,20 +63,17 @@ Anything below marked ⚠ depends on one of these.
 
 ### Code with no automated guard at all
 
-Classifying the backend suite (phase 3) surfaced four areas that `pytest` does **not**
-cover and that the tables below do not routinely exercise either. They are the least
-protected code in the repo — a change touching one of them is verified by this file or by
-nothing:
+Classifying the backend suite (phase 3) surfaced the areas `pytest` did **not** cover and
+that the tables below do not routinely exercise either. Phase 8 closed most of them; what
+this section is *for* is naming what is left, so keep it honest — overstating the gap is
+what made two of its original four rows wrong.
 
-| Area | Why it is exposed | What would catch it |
+| Area | State | What would catch a regression |
 |---|---|---|
-| `core/network/` (3 files) | zero tests, and its main path — AP + captive portal + wizard — is the ⚠ blank-SD blind spot above, so it is re-run about once per SD image | the First boot ⚠ row, on a blank card |
-| Privileged-exec argv vs the sudoers policy | `test_systemd.py` pins `sudo systemctl restart --no-block …` and `install/system.sh` writes the matching `NOPASSWD` rules, but nothing compares the two. A divergence is a silent permission failure that only appears on a real unit | any check that reboots, restarts a unit or applies an update |
-| `shared/decorators.py` (`@handle_errors`) | the helper the error-handling doctrine tells every service to use for its fallback path, itself untested | nothing specific — a wrong default would surface as a silently swallowed failure |
-| WS keepalive and dead-connection reaping (`ws/manager.py::_send_ping`) | no test drives the real ping task; `test_manager_removes_dead_connections` asserts `<= 2` connections out of 2, which is true either way | the "WS resync" and "Reconnect" rows under *Shared player and state machine* |
-
-Writing those tests is separate work, decided separately (README anti-goals: phase 3
-removes and codifies, it does not add coverage).
+| `core/network/` — the D-Bus signal tier | The nmcli read path, the fail-open contract and the hotspot transition are now covered by `test_network_service.py`. The ~300 lines that subscribe to NetworkManager property-changed signals and re-anchor the IP4/AP object paths are **still bare**: they only run against a live NM, and their main path is the ⚠ blank-SD blind spot above | the First boot ⚠ row, on a blank card |
+| Privileged-exec argv vs the sudoers policy | **covered** — `tests/contracts/test_privileged_exec_contract.py` extracts both sides and asserts them in both directions, for the backend and the satellite | — |
+| `shared/decorators.py` (`@handle_errors`) | **covered** — `test_decorators.py`, including that it does not swallow `CancelledError` | — |
+| WS keepalive and dead-connection reaping | **covered** — `test_send_ping` and `test_send_ping_stops_on_error` drive the real ping task; removal is asserted exactly by `test_websocket_server.py::test_broadcast_dict_removes_dead_connections` and, through the real `connect()` path, by `test_websocket_events.py::test_manager_removes_dead_connections` | — |
 
 ---
 
