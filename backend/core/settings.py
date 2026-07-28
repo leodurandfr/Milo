@@ -2,6 +2,7 @@
 """
 Settings management service - OPTIM version with async I/O
 """
+import copy
 import json
 import os
 import logging
@@ -11,6 +12,13 @@ from pathlib import Path
 from typing import Dict, Any
 
 from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS, SETTINGS_FILE, VALID_LANGUAGES
+from backend.hardware.fan import (
+    DEFAULT_CURVE,
+    TARGET_TEMP_DEFAULT_C,
+    VALID_MODES,
+    clamp_target_temp,
+    sanitize_curve,
+)
 from backend.shared.decorators import handle_errors
 from backend.shared.persistence import (
     SchemaVersionMismatch,
@@ -39,6 +47,10 @@ class SettingsService:
         self._cache = None
         self._file_lock = asyncio.Lock()  # Native async lock instead of fcntl.flock
 
+        # The single declaration of every settings default. `_validate_and_merge`
+        # reads its fallback operands from here rather than restating them, so a
+        # value changes in one place; `tests/architecture/test_settings_defaults.py`
+        # holds that property.
         self.defaults = {
             "setup_completed": False,
             "language": "english",
@@ -87,14 +99,24 @@ class SettingsService:
                 "enabled": True,
                 "mode": "auto",
                 "manual_percent": 50,
-                "curve": [
-                    {"temp_c": 55, "percent": 0},
-                    {"temp_c": 66, "percent": 22},
-                    {"temp_c": 79, "percent": 47},
-                    {"temp_c": 82, "percent": 100}
-                ]
+                # The setpoint and the curve belong to the controller that acts on
+                # them (hardware/fan.py owns the thermal band); this is where the
+                # *settings* layer says which of its values is the default.
+                "target_temp_c": TARGET_TEMP_DEFAULT_C,
+                "curve": copy.deepcopy(DEFAULT_CURVE)
             }
         }
+
+    def _default_settings(self) -> Dict[str, Any]:
+        """A private copy of the defaults, safe to hand out and to mutate.
+
+        Deep, not shallow: callers write into the returned dict (``_read_locked``
+        feeds it straight to ``_apply_key``), and a shallow copy shares every
+        section dict with ``self.defaults`` — so one write with no settings.json
+        on disk turned the defaults themselves into the written value for the
+        rest of the process.
+        """
+        return copy.deepcopy(self.defaults)
 
     async def initialize(self) -> None:
         """Pre-load settings.json so a schema mismatch surfaces at boot.
@@ -117,7 +139,7 @@ class SettingsService:
 
             if not data:
                 # Fresh install — write defaults stamped with schema_version
-                self._cache = self.defaults.copy()
+                self._cache = self._default_settings()
                 await self.save_settings(self.defaults)
                 return self._cache
 
@@ -133,12 +155,12 @@ class SettingsService:
                 async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as src:
                     content = await src.read()
                 await self._backup_corrupted_file(content)
-            self._cache = self.defaults.copy()
+            self._cache = self._default_settings()
             await self.save_settings(self.defaults)
             return self._cache
         except Exception as e:
             self.logger.error(f"Error loading settings: {e}")
-            self._cache = self.defaults.copy()
+            self._cache = self._default_settings()
             return self._cache
 
     async def save_settings(self, settings: Dict[str, Any]) -> bool:
@@ -160,22 +182,32 @@ class SettingsService:
             return False
 
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:
-        """Validation and merge with defaults - Support 0 = disabled"""
+        """Validation and merge with defaults - Support 0 = disabled
+
+        Every fallback operand below reads from ``self.defaults``: that dict is
+        the single declaration of what a missing key resolves to. The clamp
+        bounds stay literal on purpose — a tolerance is not a default, and it is
+        deliberately wider than the matching request model's ``ge``/``le`` in
+        ``api/models.py`` (a stored value outside the write range must be
+        reported, not rejected; see the header of ``models/settings_config.py``).
+        """
+        d = self.defaults
         validated = {}
 
         # Setup completed flag (first-boot wizard)
-        validated['setup_completed'] = bool(settings.get('setup_completed', False))
+        validated['setup_completed'] = bool(settings.get('setup_completed', d['setup_completed']))
 
         # Language
-        validated['language'] = settings.get('language') if settings.get('language') in VALID_LANGUAGES else 'english'
+        validated['language'] = settings.get('language') if settings.get('language') in VALID_LANGUAGES else d['language']
 
         # Volume (all values in dB, -80 to 0 range)
         vol_input = settings.get('volume', {})
+        vol_d = d['volume']
         vol = {}
 
         # Limits in dB (-80 to 0)
-        vol['limit_min_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_min_db', -80.0))))
-        vol['limit_max_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_max_db', -20.0))))
+        vol['limit_min_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_min_db', vol_d['limit_min_db']))))
+        vol['limit_max_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_max_db', vol_d['limit_max_db']))))
 
         # Guarantee minimum gap of 6 dB
         if vol['limit_max_db'] - vol['limit_min_db'] < 6.0:
@@ -184,33 +216,33 @@ class SettingsService:
                 vol['limit_max_db'] = 0.0
                 vol['limit_min_db'] = -6.0
 
-        vol['restore_last_volume'] = bool(vol_input.get('restore_last_volume', True))
-        vol['startup_volume_db'] = max(vol['limit_min_db'], min(vol['limit_max_db'], float(vol_input.get('startup_volume_db', DEFAULT_VOLUME_DB))))
-        vol['step_mobile_db'] = max(1.0, min(6.0, float(vol_input.get('step_mobile_db', 2.0))))
-        vol['step_rotary_db'] = max(1.0, min(6.0, float(vol_input.get('step_rotary_db', 2.0))))
-        vol['step_bt_remote_db'] = max(1.0, min(6.0, float(vol_input.get('step_bt_remote_db', 2.0))))
-        vol['step_ir_remote_db'] = max(1.0, min(6.0, float(vol_input.get('step_ir_remote_db', 2.0))))
+        vol['restore_last_volume'] = bool(vol_input.get('restore_last_volume', vol_d['restore_last_volume']))
+        vol['startup_volume_db'] = max(vol['limit_min_db'], min(vol['limit_max_db'], float(vol_input.get('startup_volume_db', vol_d['startup_volume_db']))))
+        # The four step sizes share one rule; only the input they read differs.
+        for step_key in ('step_mobile_db', 'step_rotary_db', 'step_bt_remote_db', 'step_ir_remote_db'):
+            vol[step_key] = max(1.0, min(6.0, float(vol_input.get(step_key, vol_d[step_key]))))
         validated['volume'] = vol
 
         # Screen - MODIFIED: Accept 0 for timeout_seconds (disabled)
         screen_input = settings.get('screen', {})
-        timeout_seconds_raw = int(screen_input.get('timeout_seconds', 120))
+        screen_d = d['screen']
+        timeout_seconds_raw = int(screen_input.get('timeout_seconds', screen_d['timeout_seconds']))
 
         validated['screen'] = {
             # 0 = disabled, otherwise minimum 3 seconds
             'timeout_seconds': 0 if timeout_seconds_raw == 0 else max(3, min(9999, timeout_seconds_raw)),
-            'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', 5)))),
-            'screensaver_enabled': bool(screen_input.get('screensaver_enabled', True)),
-            'screensaver_delay_seconds': max(5, min(1800, int(screen_input.get('screensaver_delay_seconds', 120)))),
-            'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', 1.0)))),
-            'color_filter_enabled': bool(screen_input.get('color_filter_enabled', False)),
-            'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', 50))))
+            'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', screen_d['brightness_on'])))),
+            'screensaver_enabled': bool(screen_input.get('screensaver_enabled', screen_d['screensaver_enabled'])),
+            'screensaver_delay_seconds': max(5, min(1800, int(screen_input.get('screensaver_delay_seconds', screen_d['screensaver_delay_seconds'])))),
+            'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', screen_d['ui_scale'])))),
+            'color_filter_enabled': bool(screen_input.get('color_filter_enabled', screen_d['color_filter_enabled'])),
+            'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', screen_d['color_filter_warmth']))))
         }
 
         # Dock with validation for at least one audio source
         dock_input = settings.get('dock', {})
 
-        enabled_apps = dock_input.get('enabled_apps', [])
+        enabled_apps = dock_input.get('enabled_apps', d['dock']['enabled_apps'])
         filtered_apps = [app for app in enabled_apps if app in VALID_DOCK_APPS]
 
         # Check that at least one audio source is enabled
@@ -219,15 +251,16 @@ class SettingsService:
             # Force at least spotify if no audio source
             filtered_apps = ['spotify'] + [app for app in filtered_apps if app in UTILITY_DOCK_APPS]
 
-        validated['dock'] = {
-            'enabled_apps': filtered_apps if filtered_apps else self.defaults['dock']['enabled_apps'].copy()
-        }
+        # No empty-list fallback: the rule above seeds `filtered_apps` with
+        # spotify whenever it holds no audio source, so it cannot be empty here.
+        validated['dock'] = {'enabled_apps': filtered_apps}
 
         # Routing (multiroom + equalizer effects)
         routing_input = settings.get('routing', {})
+        routing_d = d['routing']
         validated['routing'] = {
-            'multiroom_enabled': bool(routing_input.get('multiroom_enabled', False)),
-            'equalizer_effects_enabled': bool(routing_input.get('equalizer_effects_enabled', False))
+            'multiroom_enabled': bool(routing_input.get('multiroom_enabled', routing_d['multiroom_enabled'])),
+            'equalizer_effects_enabled': bool(routing_input.get('equalizer_effects_enabled', routing_d['equalizer_effects_enabled']))
         }
 
         # Mac ROC streaming settings
@@ -247,9 +280,9 @@ class SettingsService:
         # Audio (auto-stop on pause)
         audio_input = settings.get('audio', {})
         try:
-            stop_raw = float(audio_input.get('auto_stop_delay', 120.0))
+            stop_raw = float(audio_input.get('auto_stop_delay', d['audio']['auto_stop_delay']))
         except (TypeError, ValueError):
-            stop_raw = 120.0
+            stop_raw = d['audio']['auto_stop_delay']
         validated['audio'] = {
             # 0 = disabled, otherwise clamp to [1.0, 9999.0]
             'auto_stop_delay': 0.0 if stop_raw == 0.0 else max(1.0, min(9999.0, stop_raw))
@@ -258,20 +291,21 @@ class SettingsService:
         # Radio settings
         radio_input = settings.get('radio', {})
         validated['radio'] = {
-            'shazam_enabled': bool(radio_input.get('shazam_enabled', True))
+            'shazam_enabled': bool(radio_input.get('shazam_enabled', d['radio']['shazam_enabled']))
         }
 
         # Qobuz settings
         qobuz_input = settings.get('qobuz', {})
         validated['qobuz'] = {
-            'allow_app_volume': bool(qobuz_input.get('allow_app_volume', False))
+            'allow_app_volume': bool(qobuz_input.get('allow_app_volume', d['qobuz']['allow_app_volume']))
         }
 
         # WiFi regulatory domain
         wifi_input = settings.get('wifi', {})
-        country_raw = str(wifi_input.get('country', ''))
+        country_raw = str(wifi_input.get('country', d['wifi']['country']))
+        country_valid = len(country_raw) == 2 and country_raw.isalpha() and country_raw.isupper()
         validated['wifi'] = {
-            'country': country_raw if len(country_raw) == 2 and country_raw.isalpha() and country_raw.isupper() else ''
+            'country': country_raw if country_valid else d['wifi']['country']
         }
 
         # Multiroom (client_types for crossover) - Preserve multiroom section without strict validation
@@ -307,14 +341,14 @@ class SettingsService:
         # Fan control (optional — runtime PWM fan curve, see hardware/fan.py)
         fan_input = settings.get('fan', {})
         if fan_input:
-            from backend.hardware.fan import VALID_MODES, clamp_target_temp, sanitize_curve
-            mode = fan_input.get('mode', 'auto')
+            fan_d = d['fan']
+            mode = fan_input.get('mode', fan_d['mode'])
             validated['fan'] = {
-                'enabled': bool(fan_input.get('enabled', True)),
-                'mode': mode if mode in VALID_MODES else 'auto',
-                'manual_percent': max(0, min(100, int(fan_input.get('manual_percent', 50)))),
-                'target_temp_c': clamp_target_temp(fan_input.get('target_temp_c')),
-                'curve': sanitize_curve(fan_input.get('curve'))
+                'enabled': bool(fan_input.get('enabled', fan_d['enabled'])),
+                'mode': mode if mode in VALID_MODES else fan_d['mode'],
+                'manual_percent': max(0, min(100, int(fan_input.get('manual_percent', fan_d['manual_percent'])))),
+                'target_temp_c': clamp_target_temp(fan_input.get('target_temp_c', fan_d['target_temp_c'])),
+                'curve': sanitize_curve(fan_input.get('curve', fan_d['curve']))
             }
 
         return validated
@@ -343,10 +377,10 @@ class SettingsService:
                         raw = json.load(f)
                     self._cache = self._validate_and_merge(raw)
                 else:
-                    self._cache = self.defaults.copy()
+                    self._cache = self._default_settings()
             except Exception as e:
                 self.logger.warning(f"get_setting_sync fallback to defaults: {e}")
-                self._cache = self.defaults.copy()
+                self._cache = self._default_settings()
 
         try:
             keys = key_path.split('.')
@@ -487,17 +521,17 @@ class SettingsService:
         corrupt file with defaults, silently losing every setting.
         """
         if not os.path.exists(self.settings_file):
-            return self.defaults.copy()
+            return self._default_settings()
         try:
             async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as f:
                 content = await f.read()
             if not content.strip():
-                return self.defaults.copy()
+                return self._default_settings()
             return self._validate_and_merge(json.loads(content))
         except json.JSONDecodeError:
             self.logger.error("settings.json corrupt during locked read; backing up and using defaults")
             await self._backup_corrupted_file(content)
-            return self.defaults.copy()
+            return self._default_settings()
 
     async def _write_locked(self, settings: Dict[str, Any]) -> bool:
         """Validate + atomically write settings. Caller must hold self._file_lock."""
