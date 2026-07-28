@@ -4,11 +4,6 @@ from unittest.mock import Mock
 
 import pytest
 
-# `backend.sources.radio.routes` cannot be the first backend module a process
-# imports: api/route_helpers -> core/equalizer/client_proxy -> core/multiroom/__init__
-# -> core/multiroom/routes -> api/route_helpers closes a cycle. Importing the
-# multiroom package first resolves it, the way the app's own boot order does.
-import backend.core.multiroom  # noqa: F401
 from backend.sources.radio.routes import get_custom_stations
 
 class TestCustomStationsMerge:

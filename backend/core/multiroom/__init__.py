@@ -7,7 +7,6 @@ This module provides:
 - SnapcastService: REST commands to Snapcast server
 - SnapcastWebSocketService: WebSocket notifications from Snapcast
 - CrossoverService: Speaker type and crossover management
-- Routes: FastAPI router for multiroom API
 """
 
 from backend.core.multiroom.models import (
@@ -32,7 +31,6 @@ from backend.core.multiroom.snapcast import (
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.crossover import CrossoverService
 from backend.core.multiroom.routing import AudioRoutingService
-from backend.core.multiroom.routes import create_snapcast_router
 
 __all__ = [
     # Models
@@ -56,6 +54,4 @@ __all__ = [
     # Helpers
     "get_online_clients",
     "get_online_client_ids",
-    # Routes
-    "create_snapcast_router",
 ]

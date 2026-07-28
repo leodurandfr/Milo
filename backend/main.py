@@ -16,7 +16,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.dependencies import get_service, initialize_services, get_init_task
 from backend.api import audio
 from backend.api.routing import create_routing_router
-from backend.core.multiroom.routes import create_snapcast_router
 from backend.api.equalizer import create_equalizer_router
 from backend.api.volume import create_volume_router
 from backend.sources.radio.routes import setup_radio_routes
@@ -182,15 +181,12 @@ app.add_middleware(
 audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
 
-routing_router = create_routing_router(routing_service, state_machine)
-app.include_router(routing_router)
-
-snapcast_router = create_snapcast_router(
-    routing_service, snapcast_service, state_machine,
+routing_router = create_routing_router(
+    routing_service, state_machine, snapcast_service,
     settings_service=settings_service,
     client_registry_service=client_registry_service,
 )
-app.include_router(snapcast_router)
+app.include_router(routing_router)
 
 multiroom_equalizer_service = get_service("multiroom_equalizer_service")
 equalizer_router = create_equalizer_router(
