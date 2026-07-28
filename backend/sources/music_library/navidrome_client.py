@@ -11,13 +11,11 @@ using the single service account provisioned on first boot by
 milo-navidrome-provision and stored in a milo-owned 0600 cred file
 (NAVIDROME_CRED_FILE). Credentials never touch settings.json or WS payloads.
 
-Phase status (docs/plans/music-library.md): P0-3 landed the auth layer plus the
-handful of calls the end-to-end smoke test exercises (ping, scan trigger/status,
-get_random_songs / search3, the bit-perfect stream URL). P1-5 adds the full
-browse surface consumed by /api/music-library/* — getArtists/getArtist/getAlbum/
-getAlbumList2/getGenres/getSongsByGenre, getPlaylists/getPlaylist, star/unstar,
-and getCoverArt bytes for the cover proxy. Playback wiring in source.py is P1-6.
-P3-11 adds the playlist write verbs (createPlaylist/updatePlaylist/deletePlaylist).
+The surface covered: ping, scan trigger/status, the bit-perfect stream URL,
+the browse calls /api/music-library/* consumes (getArtists/getArtist/getAlbum/
+getAlbumList2/getGenres/getSongsByGenre, getPlaylists/getPlaylist, search3,
+getRandomSongs), star/unstar, getCoverArt bytes for the cover proxy, and the
+playlist write verbs (createPlaylist/updatePlaylist/deletePlaylist).
 """
 import hashlib
 import logging
