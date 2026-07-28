@@ -11,7 +11,20 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Any
 
-from backend.config.constants import DEFAULT_VOLUME_DB, VALID_DOCK_APPS, AUDIO_SOURCE_APPS, UTILITY_DOCK_APPS, DEFAULT_DOCK_APPS, SETTINGS_FILE, VALID_LANGUAGES
+from backend.config.constants import (
+    ALLOWED_FRAME_LENGTHS,
+    ALLOWED_LATENCY_PROFILES,
+    AUDIO_SOURCE_APPS,
+    DEFAULT_DOCK_APPS,
+    DEFAULT_ROC_CONFIG,
+    DEFAULT_VOLUME_DB,
+    MAX_VOLUME_DB,
+    MIN_VOLUME_DB,
+    SETTINGS_FILE,
+    UTILITY_DOCK_APPS,
+    VALID_DOCK_APPS,
+    VALID_LANGUAGES,
+)
 from backend.hardware.fan import (
     DEFAULT_CURVE,
     TARGET_TEMP_DEFAULT_C,
@@ -95,6 +108,12 @@ class SettingsService:
             "wifi": {
                 "country": ""
             },
+            # The `mac` section is the macOS/ROC sender's tuning, not a MAC
+            # address. It used to be the one section with defaults that
+            # `_validate_and_merge` emitted conditionally, which is why it was
+            # absent from every settings.json until someone opened the Mac panel
+            # — and why GET /bulk needed fallbacks at all.
+            "mac": copy.deepcopy(DEFAULT_ROC_CONFIG),
             "fan": {
                 "enabled": True,
                 "mode": "auto",
@@ -205,9 +224,9 @@ class SettingsService:
         vol_d = d['volume']
         vol = {}
 
-        # Limits in dB (-80 to 0)
-        vol['limit_min_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_min_db', vol_d['limit_min_db']))))
-        vol['limit_max_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_max_db', vol_d['limit_max_db']))))
+        # Limits in dB, clamped to the technical range the volume domain declares
+        vol['limit_min_db'] = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, float(vol_input.get('limit_min_db', vol_d['limit_min_db']))))
+        vol['limit_max_db'] = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, float(vol_input.get('limit_max_db', vol_d['limit_max_db']))))
 
         # Guarantee minimum gap of 6 dB
         if vol['limit_max_db'] - vol['limit_min_db'] < 6.0:
@@ -265,12 +284,14 @@ class SettingsService:
 
         # Mac ROC streaming settings
         mac_input = settings.get('mac', {})
-        if mac_input:
-            validated['mac'] = {
-                'target_latency_ms': max(20, min(500, int(mac_input.get('target_latency_ms', 50)))),
-                'latency_profile': mac_input.get('latency_profile', 'responsive') if mac_input.get('latency_profile') in ['responsive', 'gradual', 'intact'] else 'responsive',
-                'frame_length_ms': mac_input.get('frame_length_ms', 4) if mac_input.get('frame_length_ms') in [2, 4, 6, 8, 10, 12] else 4
-            }
+        mac_d = d['mac']
+        profile = mac_input.get('latency_profile', mac_d['latency_profile'])
+        frame_length = mac_input.get('frame_length_ms', mac_d['frame_length_ms'])
+        validated['mac'] = {
+            'target_latency_ms': max(20, min(500, int(mac_input.get('target_latency_ms', mac_d['target_latency_ms'])))),
+            'latency_profile': profile if profile in ALLOWED_LATENCY_PROFILES else mac_d['latency_profile'],
+            'frame_length_ms': frame_length if frame_length in ALLOWED_FRAME_LENGTHS else mac_d['frame_length_ms']
+        }
 
         # Equalizer (saved_bands) - Preserve equalizer section without strict validation
         equalizer_input = settings.get('equalizer', {})
@@ -340,16 +361,15 @@ class SettingsService:
 
         # Fan control (optional — runtime PWM fan curve, see hardware/fan.py)
         fan_input = settings.get('fan', {})
-        if fan_input:
-            fan_d = d['fan']
-            mode = fan_input.get('mode', fan_d['mode'])
-            validated['fan'] = {
-                'enabled': bool(fan_input.get('enabled', fan_d['enabled'])),
-                'mode': mode if mode in VALID_MODES else fan_d['mode'],
-                'manual_percent': max(0, min(100, int(fan_input.get('manual_percent', fan_d['manual_percent'])))),
-                'target_temp_c': clamp_target_temp(fan_input.get('target_temp_c', fan_d['target_temp_c'])),
-                'curve': sanitize_curve(fan_input.get('curve', fan_d['curve']))
-            }
+        fan_d = d['fan']
+        mode = fan_input.get('mode', fan_d['mode'])
+        validated['fan'] = {
+            'enabled': bool(fan_input.get('enabled', fan_d['enabled'])),
+            'mode': mode if mode in VALID_MODES else fan_d['mode'],
+            'manual_percent': max(0, min(100, int(fan_input.get('manual_percent', fan_d['manual_percent'])))),
+            'target_temp_c': clamp_target_temp(fan_input.get('target_temp_c', fan_d['target_temp_c'])),
+            'curve': sanitize_curve(fan_input.get('curve', fan_d['curve']))
+        }
 
         return validated
 

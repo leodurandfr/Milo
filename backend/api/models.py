@@ -5,7 +5,13 @@ Pydantic models for API request validation
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Dict, Any, List, Literal
 
-from backend.config.constants import GPIO_MIN_PIN, GPIO_MAX_PIN
+from backend.config.constants import (
+    DEFAULT_ROC_CONFIG,
+    GPIO_MAX_PIN,
+    GPIO_MIN_PIN,
+    ROC_FRAME_LENGTHS,
+    ROC_LATENCY_PROFILES,
+)
 
 
 # =============================================================================
@@ -366,9 +372,8 @@ class EqualizerPresetRequest(BaseModel):
 # =============================================================================
 # SETTINGS - MAC ROC STREAMING
 # =============================================================================
-
-ROC_LATENCY_PROFILES = Literal['responsive', 'gradual', 'intact']
-ROC_FRAME_LENGTHS = Literal[2, 4, 6, 8, 10, 12]
+# The accepted values and the defaults live in config/constants.py, shared with
+# the settings validator and with MacEnv (which writes them to mac.env).
 
 
 class RadioSettingsRequest(BaseModel):
@@ -444,9 +449,9 @@ class HardwareConfigRequest(BaseModel):
 
 class MacRocConfigRequest(BaseModel):
     """Mac ROC streaming configuration request"""
-    target_latency_ms: int = Field(default=50, ge=20, le=500, description="Target latency in milliseconds")
-    latency_profile: ROC_LATENCY_PROFILES = Field(default='responsive', description="Latency tuning profile")
-    frame_length_ms: ROC_FRAME_LENGTHS = Field(default=4, description="Internal frame length in milliseconds")
+    target_latency_ms: int = Field(default=DEFAULT_ROC_CONFIG['target_latency_ms'], ge=20, le=500, description="Target latency in milliseconds")
+    latency_profile: ROC_LATENCY_PROFILES = Field(default=DEFAULT_ROC_CONFIG['latency_profile'], description="Latency tuning profile")
+    frame_length_ms: ROC_FRAME_LENGTHS = Field(default=DEFAULT_ROC_CONFIG['frame_length_ms'], description="Internal frame length in milliseconds")
 
 
 # =============================================================================

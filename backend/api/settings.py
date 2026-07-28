@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 from backend.core.models.audio_state import AudioSource
 from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
 from backend.api.responses import BulkSettingsResponse
-from backend.config.constants import DEFAULT_VOLUME_DB, DEFAULT_DOCK_APPS, AUDIO_SOURCE_APPS
+from backend.config.constants import AUDIO_SOURCE_APPS
 from backend.api.models import (
     LanguageRequest,
     VolumeLimitsRequest,
@@ -151,55 +151,60 @@ def create_settings_router(
     # Bulk settings (all categories in one response)
     @router.get("/bulk", response_model=BulkSettingsResponse)
     async def get_bulk_settings():
-        """Return all settings categories in a single response."""
+        """Return all settings categories in a single response.
+
+        A pure projection of the stored settings: every key below is guaranteed
+        by `SettingsService._validate_and_merge`, which emits each declared
+        section unconditionally, so there is no fallback here. There must never
+        be one — a default restated at this layer can only ever disagree with
+        the one `SettingsService.defaults` declares, and it would do so silently,
+        in the direction of showing a stale default as if it were the stored
+        value. `tests/architecture/test_settings_defaults.py` holds that.
+        """
         all_settings = await settings.get_all_settings()
 
-        vol = all_settings.get('volume', {})
-        dock = all_settings.get('dock', {})
-        audio = all_settings.get('audio', {})
-        screen = all_settings.get('screen', {})
-        radio = all_settings.get('radio', {})
-        qobuz = all_settings.get('qobuz', {})
-        mac = all_settings.get('mac', {})
+        vol = all_settings['volume']
+        screen = all_settings['screen']
+        mac = all_settings['mac']
 
-        timeout_seconds = screen.get('timeout_seconds', 120)
+        timeout_seconds = screen['timeout_seconds']
 
         return {
             "status": "success",
-            "language": all_settings.get('language', 'english'),
+            "language": all_settings['language'],
             "volume_limits": {
-                "min_db": vol.get('limit_min_db', -80.0),
-                "max_db": vol.get('limit_max_db', -20.0)
+                "min_db": vol['limit_min_db'],
+                "max_db": vol['limit_max_db']
             },
             "volume_startup": {
-                "startup_volume_db": vol.get('startup_volume_db', DEFAULT_VOLUME_DB),
-                "restore_last_volume": vol.get('restore_last_volume', True)
+                "startup_volume_db": vol['startup_volume_db'],
+                "restore_last_volume": vol['restore_last_volume']
             },
-            "rotary_steps": {"step_rotary_db": vol.get('step_rotary_db', 2.0)},
-            "bt_remote_steps": {"step_bt_remote_db": vol.get('step_bt_remote_db', 2.0)},
-            "ir_remote_steps": {"step_ir_remote_db": vol.get('step_ir_remote_db', 2.0)},
-            "dock_apps": {"enabled_apps": dock.get('enabled_apps', DEFAULT_DOCK_APPS)},
-            "audio_stop": {"auto_stop_delay": audio.get('auto_stop_delay', 120.0)},
+            "rotary_steps": {"step_rotary_db": vol['step_rotary_db']},
+            "bt_remote_steps": {"step_bt_remote_db": vol['step_bt_remote_db']},
+            "ir_remote_steps": {"step_ir_remote_db": vol['step_ir_remote_db']},
+            "dock_apps": {"enabled_apps": all_settings['dock']['enabled_apps']},
+            "audio_stop": {"auto_stop_delay": all_settings['audio']['auto_stop_delay']},
             "screen_timeout": {
                 "screen_timeout_enabled": timeout_seconds != 0,
                 "screen_timeout_seconds": timeout_seconds
             },
-            "screen_brightness": {"brightness_on": screen.get('brightness_on', 5)},
-            "screen_ui_scale": {"ui_scale": screen.get('ui_scale', 1.0)},
+            "screen_brightness": {"brightness_on": screen['brightness_on']},
+            "screen_ui_scale": {"ui_scale": screen['ui_scale']},
             "screen_screensaver": {
-                "screensaver_enabled": screen.get('screensaver_enabled', True),
-                "screensaver_delay_seconds": screen.get('screensaver_delay_seconds', 120)
+                "screensaver_enabled": screen['screensaver_enabled'],
+                "screensaver_delay_seconds": screen['screensaver_delay_seconds']
             },
             "screen_color_filter": {
-                "enabled": screen.get('color_filter_enabled', False),
-                "warmth": screen.get('color_filter_warmth', 50)
+                "enabled": screen['color_filter_enabled'],
+                "warmth": screen['color_filter_warmth']
             },
-            "radio_settings": {"shazam_enabled": radio.get('shazam_enabled', True)},
-            "qobuz_settings": {"allow_app_volume": qobuz.get('allow_app_volume', False)},
+            "radio_settings": {"shazam_enabled": all_settings['radio']['shazam_enabled']},
+            "qobuz_settings": {"allow_app_volume": all_settings['qobuz']['allow_app_volume']},
             "mac_roc": {
-                "target_latency_ms": mac.get('target_latency_ms', 50),
-                "latency_profile": mac.get('latency_profile', 'responsive'),
-                "frame_length_ms": mac.get('frame_length_ms', 4)
+                "target_latency_ms": mac['target_latency_ms'],
+                "latency_profile": mac['latency_profile'],
+                "frame_length_ms": mac['frame_length_ms']
             }
         }
 

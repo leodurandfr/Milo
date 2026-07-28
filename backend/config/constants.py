@@ -4,6 +4,8 @@ Centralized constants for the Milo backend.
 All hardcoded values should be defined here to avoid duplication.
 """
 from pathlib import Path
+from typing import Literal, get_args
+
 from backend.core.models.audio_state import AudioSource
 
 # =============================================================================
@@ -131,6 +133,23 @@ DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "radio", "podcast", "airplay", "mac
 
 # Supported UI languages (single source of truth for validation)
 VALID_LANGUAGES = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']
+
+# =============================================================================
+# MAC / ROC STREAMING (the `mac` settings section → /var/lib/milo/mac.env)
+# =============================================================================
+# The Literal is the declaration; the frozensets are derived from it, so the
+# request model's accepted values and the settings validator's accepted values
+# cannot drift apart.
+ROC_LATENCY_PROFILES = Literal['responsive', 'gradual', 'intact']
+ROC_FRAME_LENGTHS = Literal[2, 4, 6, 8, 10, 12]
+ALLOWED_LATENCY_PROFILES = frozenset(get_args(ROC_LATENCY_PROFILES))
+ALLOWED_FRAME_LENGTHS = frozenset(get_args(ROC_FRAME_LENGTHS))
+
+DEFAULT_ROC_CONFIG = {
+    "target_latency_ms": 50,
+    "latency_profile": "responsive",
+    "frame_length_ms": 4,
+}
 
 # =============================================================================
 # MULTIROOM CLIENT DISPLAY NAMES
