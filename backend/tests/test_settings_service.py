@@ -37,6 +37,24 @@ class TestSettingsService:
         service.settings_file = temp_settings_file
         return service
 
+    @pytest.mark.asyncio
+    async def test_write_with_no_settings_file_leaves_defaults_intact(self, service):
+        """A write on a unit with no settings.json must not rewrite the defaults.
+
+        `_read_locked` falls back to the defaults when the file is missing and
+        hands that dict straight to `_apply_key`. A shallow copy shares every
+        section, so the write landed inside `self.defaults` itself and every
+        later fallback served the written value instead of the default, for the
+        life of the process. Nothing else in the suite reaches that path: every
+        other write test starts from a file that exists.
+        """
+        os.unlink(service.settings_file)
+
+        await service.set_setting('volume.limit_min_db', -33.0)
+
+        assert service.defaults['volume']['limit_min_db'] == -80.0
+        assert SettingsService().defaults == service.defaults
+
     def test_initialization(self, service):
         """Service initialization test"""
         assert service.settings_file is not None
