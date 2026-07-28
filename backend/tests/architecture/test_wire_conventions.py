@@ -176,6 +176,81 @@ def test_settings_category_shapes_live_in_one_module():
 
 
 # --------------------------------------------------------------------------- #
+# Router placement and prefix ownership.
+# --------------------------------------------------------------------------- #
+
+def _declared_routers():
+    """(repo-relative file, prefix) for every APIRouter constructed in backend/.
+
+    AST, not the live app: an unmounted router is still a router someone will
+    mount, and the point is where the file lives.
+    """
+    found = []
+    for path in sorted(BACKEND_ROOT.rglob("*.py")):
+        if "tests" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(), str(path))):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "APIRouter"):
+                continue
+            prefix = ""
+            for kw in node.keywords:
+                if kw.arg == "prefix" and isinstance(kw.value, ast.Constant):
+                    prefix = kw.value.value
+            found.append((str(path.relative_to(BACKEND_ROOT.parent)), prefix))
+    return found
+
+
+ROUTERS = _declared_routers()
+assert len(ROUTERS) > 20, f"only {len(ROUTERS)} routers found — extractor broken?"
+
+
+def test_routers_live_in_api_or_beside_their_subsystem():
+    """A router belongs to `api/`, to a source, or to a hardware feature.
+
+    Those are the three homes the backend actually uses, and each owns its whole
+    prefix. `core/` is infrastructure: it held one router, serving a sub-prefix
+    of `api/routing.py`'s namespace from a different layer, and it was also the
+    closing edge of an import cycle `api/route_helpers` had to be worked around
+    for. Nothing about `core/` makes a router impossible to add there again.
+    """
+    strays = [
+        f
+        for f, _ in ROUTERS
+        if not (
+            f.startswith("backend/api/")
+            or (f.startswith("backend/sources/") and f.endswith("/routes.py"))
+            or (f.startswith("backend/hardware/") and f.endswith("_routes.py"))
+        )
+    ]
+    assert not strays, (
+        f"routers outside the three homes: {sorted(set(strays))} — put it in "
+        f"backend/api/, or next to its source/hardware subsystem."
+    )
+
+
+def test_no_two_routers_split_one_prefix():
+    """One prefix, one owner.
+
+    `/api/routing` used to be served by two routers in two layers, and a quarter
+    of the commits touching either touched both. A prefix that is a strict
+    parent of another's is the same surface edited from two files.
+
+    `/api` itself is exempt: the health router deliberately sits at the root.
+    """
+    prefixes = {p for _, p in ROUTERS if p and p != "/api"}
+    nested = sorted(
+        (child, parent)
+        for parent in prefixes
+        for child in prefixes
+        if child != parent and child.startswith(parent + "/")
+    )
+    assert not nested, (
+        f"one router's prefix is nested inside another's: {nested} — merge them "
+        f"into the file that owns the namespace."
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Response envelope.
 # --------------------------------------------------------------------------- #
 
