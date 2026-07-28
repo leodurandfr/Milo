@@ -1,0 +1,332 @@
+/* ============================================================================
+   snapshots/spotify.css — Spotify "now playing"
+
+   Source components (frontend/src/):
+     views/MainView.vue                    .main-view, .content-container
+     components/audio/AudioSourceView.vue  .audio-source-view, .audio-source-slot
+     components/audio/AudioPlayerFull.vue  source="spotify" showControls=true
+     components/audio/ProgressBar.vue      interactive=true, animateIn, variant "light"
+     components/audio/PlaybackControls.vue isPlaying=true, hasNext=true
+     components/ui/SvgIcon.vue             previous / pause / next, responsive
+
+   Captured 2026-07-28 on the unit, prod bundle over nginx, 1280x800 native
+   (appliance ui_scale neutralised). Playing: Bahamadia — "Uknowhowwedu"
+   (Kollage), 0:09 / 3:34, Spotify Connect.
+
+   Declarations copied verbatim from each component's <style scoped>; design
+   tokens left as var(--…) (see tokens.css). Mobile rules — every
+   @media (max-aspect-ratio: 4/3) block — are excluded on purpose.
+   Vue's :deep(x) is compiled here to a plain descendant selector.
+   ========================================================================= */
+
+/* === MainView.vue ======================================================== */
+.main-view {
+  background: var(--color-background);
+  height: 100%;
+  position: relative;
+}
+
+.content-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* === AudioSourceView.vue ================================================= */
+.audio-source-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
+.audio-source-slot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  /* Clamp the single row to the slot's fixed height (minmax min:0, not auto) so a
+     source whose content is taller than the viewport doesn't grow the row. */
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* === AudioPlayerFull.vue ================================================= */
+
+/* Entrance stagger — the app plays this on mount; drop the two animation
+   declarations below (and the keyframes) for a frozen frame. */
+.stagger-1,
+.stagger-2 {
+  opacity: 0;
+  transform: translateY(var(--space-07));
+}
+
+.connect-player .stagger-1,
+.connect-player .stagger-2 {
+  animation:
+    stagger-transform var(--transition-spring) forwards,
+    stagger-opacity 0.4s ease forwards;
+}
+
+.connect-player .stagger-1 { animation-delay: 0ms; }
+.connect-player .stagger-2 { animation-delay: 0ms; }
+
+@keyframes stagger-transform {
+  to {
+    transform: none;
+  }
+}
+
+@keyframes stagger-opacity {
+  to {
+    opacity: 1;
+  }
+}
+
+.connect-player {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.now-playing {
+  display: flex;
+  height: 100%;
+  padding: var(--space-05) var(--space-06) var(--space-05) var(--space-05);
+  gap: var(--space-06);
+  background: var(--color-background-neutral);
+}
+
+.artwork-section {
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  order: 1;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.content-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  order: 2;
+  z-index: 1;
+}
+
+.player-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 0;
+}
+
+.player-info > .track-info,
+.player-info > .controls-section {
+  opacity: 0;
+  transform: translateY(var(--space-05));
+  animation:
+    stagger-transform var(--transition-spring) forwards,
+    stagger-opacity 0.4s ease forwards;
+}
+
+.player-info > .track-info { animation-delay: 0ms; }
+.player-info > .controls-section { animation-delay: 100ms; }
+
+.artwork-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.artwork-blur {
+  position: absolute;
+  top: -20px;
+  left: -20px;
+  right: -20px;
+  bottom: -20px;
+  z-index: 2;
+  background-size: cover;
+  background-position: center;
+  filter: blur(var(--blur-04)) saturate(1.5);
+  transform: scale(1.1) translateZ(0);
+  opacity: .25;
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  contain: strict;
+}
+
+.artwork {
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-04);
+  overflow: hidden;
+  box-shadow: var(--shadow-artwork);
+  pointer-events: none;
+}
+
+.artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.track-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  gap: var(--space-03);
+  min-width: 0;
+  padding-top: var(--space-06);
+}
+
+.controls-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+
+/* Reserve the progress bar's row height even while it's hidden so the centered
+   track-info doesn't shift when the bar mounts on play. */
+.progress-wrapper {
+  min-height: var(--line-height-mono);
+}
+
+.track-title {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-artist {
+  color: var(--color-text-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* === ProgressBar.vue ===================================================== */
+.progress-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: var(--space-03);
+}
+
+.progress-bar--animated {
+  opacity: 0;
+  transform: translateY(var(--space-05));
+  animation:
+    stagger-transform var(--transition-spring) forwards,
+    stagger-opacity 0.4s ease forwards;
+}
+
+.progress-container {
+  flex-grow: 1;
+  height: 8px;
+  border-radius: var(--radius-01);
+  cursor: default;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-container.interactive {
+  cursor: pointer;
+}
+
+.progress {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-01);
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.progress-bar--light .progress-container {
+  background-color: var(--color-background-strong);
+}
+
+.progress-bar--light .progress {
+  background-color: var(--color-background-contrast);
+}
+
+.progress-bar--light .time {
+  color: var(--color-text-light);
+}
+
+/* === PlaybackControls.vue ================================================ */
+.controls {
+  background: var(--color-background);
+  border-radius: var(--radius-06);
+  display: flex;
+  justify-content: space-evenly;
+  align-items: center;
+  padding: var(--space-01) var(--space-04);
+}
+
+.control-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  transition: background-color 0.2s, var(--transition-press);
+}
+
+.control-button.play-pause {
+  width: 90px;
+  height: 90px;
+}
+
+.control-button.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.icon-primary {
+  color: var(--color-text);
+  pointer-events: none;
+}
+
+.icon-secondary {
+  color: var(--color-text-light);
+  pointer-events: none;
+}
+
+.control-button .svg-responsive {
+  width: 48px;
+  height: 48px;
+}
+
+/* === SvgIcon.vue ========================================================= */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon svg {
+  fill: currentColor;
+  display: block;
+}
+
+.icon .svg-responsive {
+  width: 32px;
+  height: 32px;
+}

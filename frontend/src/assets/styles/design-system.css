@@ -331,6 +331,16 @@
     font-weight: 400;
 }
 
+/* No `.text-clamp-{1,2,3}` here, deliberately (measured 2026-07-28). The
+   -webkit-line-clamp recipe is written in 12 places across 7 components and its
+   three core declarations are byte-identical in 11 of them — it has never
+   drifted, unlike every duplication this codebase has collapsed. A utility would
+   have to be applied in the templates, and three of the sites are :deep() rules
+   where AudioPlayer styles slot content its consumers render, so the clamp would
+   stop being guaranteed by the component that owns it and start being a class
+   someone can forget, silently, with no guardrail able to catch it. Revisit on an
+   8th consumer, or the first real divergence between two blocks. */
+
 
 
 
