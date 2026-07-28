@@ -143,7 +143,6 @@ class UpdateService(VersionService):
     async def _update_milo_app(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates Milo application via git pull with automatic rollback on failure"""
         config = self.programs["milo"]
-        latest_version = status["latest"]["version"]
         original_commit = None
 
         try:
@@ -282,12 +281,7 @@ class UpdateService(VersionService):
             await self._run_deploy("reboot")
 
             # The process will be killed by the reboot, but return success in case it somehow continues
-            return {
-                "success": True,
-                "message": "Milo application updated, rebooting...",
-                "old_version": status["installed"]["versions"].get("main", "unknown"),
-                "new_version": latest_version
-            }
+            return {"success": True}
 
         except Exception as e:
             self.update_logger.error(f"Milo app update failed: {e}")
@@ -306,13 +300,11 @@ class UpdateService(VersionService):
                     return {
                         "success": False,
                         "error": f"Update failed: {str(e)}. Rolled back to previous version.",
-                        "rolled_back": True
                     }
                 else:
                     return {
                         "success": False,
                         "error": f"Update failed: {str(e)}. Rollback also failed - manual intervention required.",
-                        "rolled_back": False
                     }
 
             return {"success": False, "error": str(e)}
@@ -439,13 +431,7 @@ class UpdateService(VersionService):
 
             await self._cleanup_temp_files(download_result.get("temp_dir"))
 
-            return {
-                "success": True,
-                "message": f"{display_name} updated to {latest_version}",
-                "old_version": status["installed"]["versions"].get("main"),
-                "new_version": latest_version,
-                "service_restarted": run_service
-            }
+            return {"success": True}
 
         except Exception as e:
             self.update_logger.error(f"{display_name} update failed: {e}")
@@ -584,7 +570,6 @@ class UpdateService(VersionService):
         """Updates both snapserver and snapclient atomically"""
         config = self.programs["multiroom"]
         latest_version = status["latest"]["version"]
-        old_version = status["installed"]["versions"].get("main", "unknown")
 
         server_download = None
         client_download = None
@@ -639,19 +624,15 @@ class UpdateService(VersionService):
                 return {
                     "success": False,
                     "error": f"Snapserver updated but snapclient failed: {client_install.get('error')}",
-                    "partial_success": True
                 }
 
             # Phase 5: Restart services (80-95%)
             if progress_callback:
                 await progress_callback("updates.progress.startingMultiroom", 85)
 
-            all_services_started = True
             for service in config["services"]:
-                start_result = await self._start_service(service)
-                if not start_result:
+                if not await self._start_service(service):
                     self.update_logger.error(f"Failed to start {service}")
-                    all_services_started = False
 
             # Phase 6: Cleanup (95-100%)
             if progress_callback:
@@ -663,17 +644,9 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.completed", 100)
 
-            result = {
-                "success": True,
-                "message": f"Multiroom updated to {latest_version}",
-                "old_version": old_version,
-                "new_version": latest_version
-            }
-
-            if not all_services_started:
-                result["warning"] = "Some services failed to start automatically"
-
-            return result
+            # A service that failed to come back up is reported by the per-service
+            # error log above; the caller only distinguishes success from failure.
+            return {"success": True}
 
         except Exception as e:
             self.update_logger.error(f"Multiroom update failed: {e}")
@@ -792,13 +765,7 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.completed", 100)
 
-            return {
-                "success": True,
-                "message": f"shairport-sync updated to {latest_version}",
-                "old_version": status["installed"]["versions"].get("main"),
-                "new_version": latest_version,
-                "service_restarted": service_was_active
-            }
+            return {"success": True}
 
         except Exception as e:
             self.update_logger.error(f"shairport-sync update failed: {e}")
@@ -1163,13 +1130,7 @@ class UpdateService(VersionService):
 
             await self._cleanup_qobuz_backup(config)
 
-            return {
-                "success": True,
-                "message": f"qobuz-proxy updated to {latest_version}",
-                "old_version": status["installed"]["versions"].get("main"),
-                "new_version": latest_version,
-                "service_restarted": service_was_active
-            }
+            return {"success": True}
 
         except Exception as e:
             self.update_logger.error(f"qobuz-proxy update failed: {e}")
