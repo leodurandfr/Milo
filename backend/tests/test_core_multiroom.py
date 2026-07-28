@@ -1819,8 +1819,6 @@ class TestStandaloneEqualizerSync:
 
     def test_compute_mac_id_localhost_returns_mac(self):
         """Local client (127.0.0.1) reads MAC from system interface."""
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
         # localhost IP reads MAC from system interface (eth0 or wlan0)
         mac_id = compute_mac_id("milo", "127.0.0.1")
         assert ":" in mac_id  # Returns MAC address format

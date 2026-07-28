@@ -209,7 +209,7 @@ class VersionService:
                         if self.github_token:
                             self.logger.warning(f"GitHub API error despite token: {error_message}")
                         else:
-                            self.logger.warning(f"GitHub API rate limit - consider adding GITHUB_TOKEN")
+                            self.logger.warning("GitHub API rate limit - consider adding GITHUB_TOKEN")
 
                         return {"status": "error", "message": error_message}
                     else:

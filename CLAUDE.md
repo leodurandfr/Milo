@@ -187,7 +187,7 @@ Never create a branch unless explicitly asked — commit to the current branch, 
 
 CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `ruff check backend/`, `pytest backend/`, `npm run lint:js`, `npm run lint:css`, `npm run test:run`. Enforced rules:
 - **eslint:** `no-restricted-imports` (axios outside `apiCall.js`), `no-restricted-syntax` (`console.*`), `no-restricted-globals` (bare timers).
-- **ruff:** `S110`/`S112` (try-except-pass/continue).
+- **ruff:** `F` (pyflakes — undefined name, redefinition, unused import/variable) + `S110`/`S112` (try-except-pass/continue). `F` is selected as a **family**, not rule by rule: `F401` alone is its least valuable member, and enabling that one while `F821`/`F811`/`F841` stay off is what kept individual unused imports coming back as findings. `E4`/`E7`/`E9` stay out on purpose — the `E402`s (imports after code in `api/models.py`, `main.py`) and the `E731` lambdas in tests are deliberate, and they are style rather than faults.
 - **stylelint:** `color-no-hex`, no `rgba|hsla` on color properties, no typography redefinition in scoped CSS.
 
 Bypass a rule only with a per-line directive + reason (`# noqa: S110 -- <why>`, `// eslint-disable-next-line <rule> -- <why>`); no file/repo-level disables. History + deferred items (TypeScript, pyright strict, husky): [docs/development.md](docs/development.md).

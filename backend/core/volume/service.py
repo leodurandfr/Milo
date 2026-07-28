@@ -203,7 +203,7 @@ class VolumeService:
         local_mac = self._state_store.local_mac_id
         local_failed = local_mac and local_mac in updates and not results.get(local_mac, False)
         if local_failed:
-            self.logger.error(f"LOCAL server volume update failed — server audio may be silent")
+            self.logger.error("LOCAL server volume update failed — server audio may be silent")
             return False
         return True  # Remote failures degrade gracefully: clients will sync on reconnect
 

@@ -20,7 +20,6 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import SourceState
 from backend.shared.decorators import handle_errors
 from backend.shared.journalctl import follow_unit, read_unit
 from backend.sources.mac.log_patterns import classify_line, normalize_ip

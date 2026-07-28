@@ -28,8 +28,6 @@ import ast
 import re
 from pathlib import Path
 
-import pytest
-
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_ROOT.parent
 
