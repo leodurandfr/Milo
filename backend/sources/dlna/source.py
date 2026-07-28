@@ -23,6 +23,11 @@ from backend.shared.artwork import decode_artwork_dimensions
 from backend.shared.decorators import handle_errors
 from backend.sources.dlna.metadata_reader import DlnaBridge
 
+# Static controller label so the source bar renders: UPnP never identifies the
+# control point to the renderer, so there is no real name to show — same call as
+# Qobuz (QOBUZ_CLIENT_NAME).
+DLNA_CLIENT_NAME = "DLNA"
+
 
 class DlnaSource(BaseAudioSource):
 
@@ -55,7 +60,6 @@ class DlnaSource(BaseAudioSource):
         self._metadata: Dict[str, Any] = {}
         self._is_playing = False
         self._device_connected = False
-        self._client_name: Optional[str] = None
 
         # Artwork served via dedicated endpoint
         self._artwork_data: Optional[bytes] = None
@@ -71,7 +75,6 @@ class DlnaSource(BaseAudioSource):
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
         self._device_connected = False
-        self._client_name = None
         self._clear_artwork()
 
     async def _do_start(self) -> bool:
@@ -230,7 +233,6 @@ class DlnaSource(BaseAudioSource):
             self._device_connected = False
             self._is_playing = False
             self._metadata = {}
-            self._client_name = None
             self._clear_artwork()
             self._update_connection_state()
 
@@ -241,12 +243,13 @@ class DlnaSource(BaseAudioSource):
 
         Broadcast metadata shape (WS source/state_changed → system_state.metadata):
         title, artist, album, album_art_url, album_art_width, position, duration,
-        is_playing (canonical PlaybackMetadata) + client_name (extra, usually None
-        for DLNA — a control point is not identified by the renderer).
+        is_playing (canonical PlaybackMetadata) + client_name="DLNA" (extra, so the
+        source bar shows a label — a control point is not identified by the
+        renderer, so there is never a device name to report).
         """
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
-        extras["client_name"] = self._client_name
+        extras["client_name"] = DLNA_CLIENT_NAME
         self.emit_connection_state(self._device_connected, core, extras)
 
     async def _cleanup(self) -> None:
