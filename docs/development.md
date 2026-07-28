@@ -965,6 +965,7 @@ The project ships a lightweight lint floor that mechanically locks the conventio
 | eslint | `no-restricted-syntax: console.*` | RFC 17 | Lot A — 2026-05-18 |
 | ruff | `S110` (try-except-pass) | RFC 18 | Lot B — 2026-05-18 |
 | ruff | `S112` (try-except-continue) | RFC 18 | Lot B — 2026-05-18 |
+| ruff | `F` (pyflakes family: `F401` unused import, `F811` redefinition, `F821` undefined name, `F841` unused variable, `F541` empty f-string) | cleanup phase 7 | Lot C — 2026-07-28 |
 | stylelint | `color-no-hex` | RFC 21 | RFC 21 PR3 — 2026-05-18 |
 | stylelint | `declaration-property-value-disallowed-list` (`rgba\|hsla` on any color property) | RFC 21 | RFC 21 PR3 — 2026-05-18 |
 | stylelint | `declaration-property-value-disallowed-list` (typography redefinition in scoped CSS) | RFC 21 + RFC 22 | RFC 21 PR3 — 2026-05-18 |
@@ -979,6 +980,13 @@ The project ships a lightweight lint floor that mechanically locks the conventio
 - CSS / Vue: avoid `// stylelint-disable` inline; extend the design system or whitelist the file in [`frontend/.stylelintrc.cjs`](../frontend/.stylelintrc.cjs).
 
 No file-level or repo-level disabling. No muted `noqa` without a reason.
+
+**The one `per-file-ignores` entry**, in [`pyproject.toml`](../pyproject.toml): `F821` in
+`backend/sources/bluetooth/agent.py`. `dbus-next` declares D-Bus signatures as string
+annotations (`device: 'o'`, `-> 's'`, `passkey: 'u'`) — wire type codes, not Python names, so
+each one reads to ruff as an unresolvable forward reference. Fourteen of them, all in that one
+file. It is pinned to the file rather than the package on purpose: the same annotation anywhere
+else in `sources/bluetooth/` still fails.
 
 ### Future considerations
 

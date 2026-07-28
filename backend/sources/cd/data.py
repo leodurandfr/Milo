@@ -239,7 +239,7 @@ class CdDataService:
             if release:
                 return self._parse_release(release)
         except musicbrainzngs.ResponseError:
-            logger.debug(f"No fuzzy match for disc TOC")
+            logger.debug("No fuzzy match for disc TOC")
 
         return None
 
