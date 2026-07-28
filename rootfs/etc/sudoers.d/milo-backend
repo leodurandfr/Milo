@@ -1,0 +1,23 @@
+# Milō backend — the privileged commands the service (running as `milo`) may run
+# without a password. This file is the single authority: `install/system.sh` and
+# the pi-gen stage both copy it, so a script-installed unit and a flashed image
+# grant exactly the same set. It used to be an inline heredoc in each of them,
+# which is how the two can silently disagree.
+
+# Suppress sudo + PAM session logs (noisy in journalctl)
+Defaults:milo !syslog, !pam_session
+
+# System control (used by SystemdServiceManager and api/system.py)
+milo ALL=(root) NOPASSWD: /usr/bin/systemctl
+milo ALL=(root) NOPASSWD: /usr/bin/hostnamectl
+milo ALL=(root) NOPASSWD: /usr/sbin/reboot
+milo ALL=(root) NOPASSWD: /usr/sbin/poweroff
+# Hardware configuration
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
+# Update deployment (file ops, packages, udev — all via secure wrapper)
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-deploy-update
+# WiFi regulatory domain
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-wifi-country
+# Music Library USB storage (read-only mount / unmount under /media/milo)
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-mount
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-umount

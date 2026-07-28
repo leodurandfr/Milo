@@ -136,26 +136,9 @@ CHROOT
 # ── Sudoers ───────────────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
-# Consolidated sudoers for the milo backend service
-tee /etc/sudoers.d/milo-backend > /dev/null << 'EOF'
-# Suppress sudo + PAM session logs (noisy in journalctl)
-Defaults:milo !syslog, !pam_session
-
-# System control (used by SystemdServiceManager and api/system.py)
-milo ALL=(root) NOPASSWD: /usr/bin/systemctl
-milo ALL=(root) NOPASSWD: /usr/bin/hostnamectl
-milo ALL=(root) NOPASSWD: /usr/sbin/reboot
-milo ALL=(root) NOPASSWD: /usr/sbin/poweroff
-# Hardware configuration
-milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
-# Update deployment (file ops, packages, udev — all via secure wrapper)
-milo ALL=(root) NOPASSWD: /usr/local/bin/milo-deploy-update
-# WiFi regulatory domain
-milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-wifi-country
-# Music Library USB storage (read-only mount / unmount under /media/milo)
-milo ALL=(root) NOPASSWD: /usr/local/bin/milo-mount
-milo ALL=(root) NOPASSWD: /usr/local/bin/milo-umount
-EOF
+# Consolidated sudoers for the milo backend service. Same file install/system.sh
+# deploys, so a flashed image and a script-installed unit grant the same set.
+cp /home/milo/milo/rootfs/etc/sudoers.d/milo-backend /etc/sudoers.d/milo-backend
 visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
 chmod 0440 /etc/sudoers.d/milo-backend
 
