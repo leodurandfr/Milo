@@ -86,7 +86,7 @@ Also here, because they need the panel and nothing else:
 | # | Observable |
 |---|---|
 | C6 | Turn **Écran**, **Ventilateur** and **Multiroom** off in turn → the matching tile disappears and the remaining sections keep their spacing. (The Sources rows and the spacing half are already ✅; these three gates are not cheap — multiroom stops snapcast, the other two are hardware-derived) |
-| D1 | Réglages → Ventilateur with the fan off → the caution line is **legible through the panel's warm colour filter**. Its colour is already proved amber, not brand orange; only legibility on glass is open |
+| ~~D1~~ | **No longer an eye call — measured, and it fails.** The warm filter is not a CSS `filter`, it is a plain DOM overlay (`.color-filter-overlay`, `rgba(255,119,0,0.286)`), so a headless render reproduces it exactly. `.fan-warning` carries `text-mono`, so its WCAG floor is **4.5:1**; composited through the overlay it measures **1.57–1.72:1** depending on the section background — and phase 4's move from `--color-brand` to `--color-warning` made it **worse** (brand: 1.97–2.16). Phase 4's reasoning was semantic and right on its own terms; nobody had measured contrast. **This now needs a colour decision, not a look.** See *Design decisions* below |
 | D3 | The virtual keyboard's press popup vs accent popup — they differ **only in alpha** (.15 vs .20), same offset and blur. Do they read as two depths, or should one move? **A design call, not a bug** |
 | D7 | Podcasts → the genre grid and a podcast card shrink on tap. The machinery is proved (held → `pressed`, 40 px move → cleared); only **how it looks on glass** is open |
 | E | The virtual keyboard's accent popup — how it *looks*. Its behaviour is fully verified |
@@ -225,6 +225,18 @@ The trick this needs: the flow only runs when an update is genuinely available, 
 binary has to be installed first. This is phase 0's *release* blind spot.
 
 ---
+
+## Design decisions — surfaced here, but decidable at a desk
+
+None of these needs the unit. They are recorded here because the sweep that produced this file
+is what found them, and because each one changes something you will then want to *look* at.
+
+| # | Decision | Where it is recorded |
+|---|---|---|
+| **K1** | **The press vocabulary has one verb, and it needs a second.** `v-press` + `.interactive-press` shrink an element by 4 px and fade it to 60 % — right for a compact button, wrong for a full-width list row or the player's artwork, which detach from their grid when scaled. 15 native tap targets currently have **no** feedback at all, and they split cleanly: 6 are ordinary buttons (`v-press` as-is), 4 are list rows and 3 are large surfaces (both want a **background flash**, not a scale). Confirmed as part of the same decision: press feedback applies to the mouse too, so no `@media (hover: hover)` split. Related: `:hover` exists **exactly once** in all of `src/` — `.dismiss-btn`, which is *also* on the undecided list, i.e. the only element in the frontend that answers a mouse and ignores a finger | the `UNDECIDED` list in [`pressFeedback.test.js`](../../frontend/tests/architecture/pressFeedback.test.js) |
+| **K4** | **`.fan-warning`'s colour is below the legibility floor** — see the struck D1 row. Both candidates fail: `--color-warning` 1.57–1.72:1 through the warm filter, `--color-brand` 1.97–2.16:1, against a `text-mono` floor of 4.5:1. Needs a darker amber (or a filled caution surface rather than coloured text). Whatever is chosen, re-measure through the overlay, not against the raw background | [`FanSettings.vue:292`](../../frontend/src/components/settings/categories/FanSettings.vue#L292) |
+| **K5** | **The `-webkit-line-clamp` recipe is written 12 times across 7 files**, and its 3 core declarations (`display:-webkit-box`, `-webkit-box-orient:vertical`, `overflow:hidden`) are byte-identical in **11 of 12** — the 12th being AudioPlayer's deliberate *un*-clamp. Only the line count (1/2/3) and the colour vary. A `text-clamp-{1,2,3}` utility in the design system is the fix; the cost is that some of these are `:deep()` rules styling slot content, so the class has to move to the *consumer's* template — arguably more correct, but it relocates a visual behaviour across 7 components | `AudioScreensaver`, `AudioPlayer`, `PlayerInfoText`, `DetailHeader`, `EpisodeCard`, `PodcastCard`, `NotificationBanner` |
+| **K3** | ✅ **closed 2026-07-28** — the four files phase 2 handed over (`AudioPlayer.vue`, `MultiroomItem.vue`, `Dock.vue`, `musicLibraryStore.js`) were swept mechanically and in a live prod render: 0 dead CSS class, 0 dead script symbol of 194, 0 unused prop of 15, 0 emit never emitted of 14, 82/82 store exports consumed, the 6 hex literals are mask channels correctly whitelisted per-rule, and the live render shows 0 horizontal overflow and 0 clipped text. K4 and K5 are what it found | — |
 
 ## What to do with a result
 
