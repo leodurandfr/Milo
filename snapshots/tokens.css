@@ -2,9 +2,9 @@
    snapshots/tokens.css — the design-system slice the snapshots actually use.
 
    Generated from frontend/src/assets/styles/design-system.css and reset.css.
-   Contains ONLY what the captured views reference: 27 of 89 :root
+   Contains ONLY what the captured views reference: 50 of 89 :root
    tokens (closed transitively — a token used by another token is kept), the
-   3 typography utilities their markup carries, the @font-face rules those
+   7 typography utilities their markup carries, the @font-face rules those
    utilities name, and the part of reset.css the layout depends on.
 
    Excluded on purpose: the whole @media (max-aspect-ratio: 4/3) mobile override
@@ -16,13 +16,22 @@
    ========================================================================= */
 
 :root {
+    --color-brand: #ff6428;
     --color-text: #171817;
+    --color-text-secondary: #767b76;
     --color-text-light: #a6aca6;
+    --color-text-contrast: #ffffff;
+    --color-text-contrast-50: #ffffff80;
     --color-background: #f7f7f7;
     --color-background-strong: #f2f2f2;
     --color-background-neutral: #ffffff;
+    --color-background-neutral-50: #ffffff80;
+    --color-background-neutral-12: #ffffff1e;
     --color-background-contrast: #181d1e;
+    --color-background-contrast-32: #181d1e51;
+    --color-background-medium-32: #78787851;
     --space-01: 4px;
+    --space-02: 8px;
     --space-03: 12px;
     --space-04: 16px;
     --space-05: 24px;
@@ -32,15 +41,30 @@
     --line-height-h1: 30px;
     --font-size-h2: 22px;
     --line-height-h2: 26px;
+    --font-size-h3: 20px;
+    --line-height-h3: 24px;
+    --font-size-body: 18px;
+    --line-height-body: 24px;
     --font-size-mono: 16px;
     --line-height-mono: 20px;
+    --font-size-mono-small: 14px;
+    --line-height-mono-small: 18px;
     --letter-spacing-sans-serif: 1%;
     --letter-spacing-mono: -2%;
     --radius-01: 4px;
+    --radius-02: 8px;
     --radius-04: 16px;
+    --radius-05: 20px;
     --radius-06: 24px;
     --shadow-artwork: 0 0 96px #0000000d;
+    --blur-02: 16px;
     --blur-04: 40px;
+    --easeOutCubic: cubic-bezier(0.33, 1, 0.68, 1);
+    --transition-fast: 200ms var(--easeOutCubic);
+    --transition-normal: 400ms var(--easeOutCubic);
+    --transition-in-out: 250ms cubic-bezier(0.5, 0, 0.1, 1);
+    --transition-spring-slow: 1.6s
+    linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833, 0.4413, 0.4977, 0.5521, 0.604, 0.6529, 0.6986, 0.7409, 0.7799, 0.8154, 0.8475, 0.8763, 0.902, 0.9246, 0.9445, 0.9617, 0.9764, 0.9889, 0.9994, 1.008, 1.0149, 1.0204, 1.0246, 1.0277, 1.0297, 1.031, 1.0315, 1.0314, 1.0309, 1.0299, 1.0287, 1.0272, 1.0256, 1.0238, 1.022, 1.0201, 1.0183, 1.0165, 1.0148, 1.0131, 1.0115, 1.01, 1.0087, 1.0074, 1.0062, 1.0052, 1.0042, 1.0034, 1.0026, 1.002, 1.0014, 1.0009, 1.0005, 1.0001, 0.9998, 0.9996, 0.9994, 0.9993, 0.9992, 0.9991, 0.999, 0.999, 0.999, 0.999, 0.999, 0.9991, 0.9991, 0.9992, 0.9992, 0.9993, 0.9993, 0.9994, 0.9995, 0.9995, 0.9996, 0.9996, 0.9997, 0.9997, 0.9998, 0.9998, 0.9998, 0.9999, 0.9999, 0.9999, 0.9999, 0.9999, 1, 1, 1, 1, 1, 1);
     --transition-spring: 1.28s
     linear(0, 0.0163, 0.0611, 0.1282, 0.2119, 0.3069, 0.4083, 0.5118, 0.6138, 0.7114, 0.8021, 0.8842, 0.9565, 1.0184, 1.0696, 1.1102, 1.1407, 1.1617, 1.1742, 1.1791, 1.1775, 1.1706, 1.1594, 1.145, 1.1284, 1.1104, 1.0919, 1.0735, 1.0558, 1.0392, 1.0241, 1.0107, 0.9991, 0.9895, 0.9818, 0.9759, 0.9718, 0.9692, 0.968, 0.968, 0.9691, 0.9709, 0.9734, 0.9763, 0.9794, 0.9827, 0.9861, 0.9893, 0.9923, 0.9951, 0.9975, 0.9997, 1.0015, 1.003, 1.0041, 1.0049, 1.0054, 1.0057, 1.0058, 1.0056, 1.0053, 1.0049, 1.0044, 1.0038, 1.0032, 1.0026, 1.0021, 1.0015, 1.001, 1.0005, 1.0001, 0.9998, 0.9995, 0.9993, 0.9991, 0.999, 0.999, 0.999, 0.999, 0.999, 0.9991, 0.9992, 0.9993, 0.9994, 0.9995, 0.9996, 0.9997, 0.9998, 0.9999, 1, 1, 1.0001, 1.0001, 1.0001, 1.0002, 1.0002, 1.0002, 1.0002, 1.0002, 1.0002, 1);
     --transition-press: transform 400ms linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%, 0.997 69.8%, 1.003 76.9%, 1),
@@ -110,6 +134,12 @@ img {
 
 /* === @font-face ========================================================== */
 @font-face {
+    font-family: 'Neue Montreal Regular';
+    src: url('assets/fonts/NeueMontreal-Regular.woff2') format('woff2');
+    font-weight: 500;
+}
+
+@font-face {
     font-family: 'Neue Montreal Medium';
     src: url('assets/fonts/NeueMontreal-Medium.woff2') format('woff2');
     font-weight: 500;
@@ -156,10 +186,50 @@ img {
     font-weight: 500;
 }
 
+.heading-3 {
+    font-family: 'Neue Montreal Medium', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
+    font-size: var(--font-size-h3);
+    line-height: var(--line-height-h3);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 500;
+}
+
+.text-body {
+    font-family: 'Neue Montreal Regular', 'Noto Sans Devanagari', 'Noto Sans SC', sans-serif;
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 400;
+}
+
 .text-mono {
     font-family: 'Space Mono Regular', 'Noto Sans Devanagari', 'Noto Sans SC', monospace;
     font-size: var(--font-size-mono);
     line-height: var(--line-height-mono);
     letter-spacing: var(--letter-spacing-mono);
     font-weight: 400;
+}
+
+.text-mono-small {
+    font-family: 'Space Mono Regular', 'Noto Sans Devanagari', 'Noto Sans SC', monospace;
+    font-size: var(--font-size-mono-small);
+    line-height: var(--line-height-mono-small);
+    letter-spacing: var(--letter-spacing-mono);
+    font-weight: 400;
+}
+
+.fade-in {
+    animation: fadeIn var(--transition-normal);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
