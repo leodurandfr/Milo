@@ -170,3 +170,56 @@ class TestSettingsSanitization:
     def test_falls_back_to_default_on_garbage(self, service):
         result = service._validate_and_merge({'fan': {'target_temp_c': 'hot'}})
         assert result['fan']['target_temp_c'] == TARGET_TEMP_DEFAULT_C
+
+
+class TestConfigLoadIsAProjection:
+    """_load_config_from_settings adopts the settings layer's resolved values.
+
+    It re-validates nothing: SettingsService already clamps every fan key, and a
+    second set of bounds in the controller is free to disagree with the first.
+    These drive the REAL validator into the REAL controller, so a bound moved on
+    either side breaks here rather than on a unit.
+    """
+
+    @pytest.fixture
+    def service(self):
+        svc = SettingsService()
+        # Out of range on every axis: if the controller re-clamped with its own
+        # literals, or fell back to one, its values would leave the validator's.
+        svc._cache = svc._validate_and_merge({'fan': {
+            'enabled': 'truthy-string',
+            'mode': 'target',
+            'manual_percent': 300,
+            'target_temp_c': 999,
+            'curve': [{'temp_c': 70, 'percent': 10}, {'temp_c': 60, 'percent': 500}],
+        }})
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_adopts_exactly_what_the_validator_resolved(self, service):
+        controller = FanController(MagicMock(), service)
+        await controller._load_config_from_settings()
+
+        resolved = service._cache['fan']
+        assert controller.enabled == resolved['enabled']
+        assert controller.mode == resolved['mode']
+        assert controller.manual_percent == resolved['manual_percent']
+        assert controller.target_temp_c == resolved['target_temp_c']
+        assert controller.curve == resolved['curve']
+
+    @pytest.mark.asyncio
+    async def test_curve_is_copied_not_aliased(self, service):
+        """get_setting hands out the live cache object.
+
+        Without a copy the running controller and the settings cache share one
+        list of dicts, so a settings write would silently re-point the thermal
+        curve the monitor loop is reading.
+        """
+        controller = FanController(MagicMock(), service)
+        await controller._load_config_from_settings()
+
+        controller.curve[0]['percent'] = 99
+        controller.curve.append({'temp_c': 90, 'percent': 100})
+
+        assert service._cache['fan']['curve'][0]['percent'] != 99
+        assert len(service._cache['fan']['curve']) != len(controller.curve)

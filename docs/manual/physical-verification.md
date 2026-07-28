@@ -104,9 +104,17 @@ kills the observer. These need you, or a session started *after* you reboot.
 | C10 | A cold boot with a configured satellite → speakers, zones, volumes and EQ all present |
 | C14 | A changed setting (rotary step, custom station) survives a **reboot** — the `systemctl restart` half is already ✅ |
 | C7 | The power menu's **second tap** (the actual reboot) and the failed-request path. Arming and disarming are already ✅ |
+| C15 | Set the fan to **manual at a distinctly audible speed** (say 80 %), restart the backend → the fan comes back **at that speed**, not at a default; then switch mode manual → target → auto from the UI and hear it follow each time |
 
 C9 is the one that matters most now: phase 6 made `settings.json` gain a `mac` section and
 changed how every default resolves. The restart path is verified; the cold-boot path is not.
+
+C15 is phase 7's: `FanController._load_config_from_settings` stopped re-validating what
+`SettingsService` already resolved, and it runs **only at controller init**, so a backend
+restart is the trigger. Proved equivalent over 233 validator outputs including this unit's real
+`settings.json` (0 differing) and guarded by `tests/test_fan_controller.py`, but it is a thermal
+path and no CI test hears a fan. `reload_config` — the `PUT` route's partial-payload path — was
+deliberately not touched, which is what the second half of the row checks.
 
 ---
 
