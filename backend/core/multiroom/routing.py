@@ -8,6 +8,11 @@ import asyncio
 import os
 import time
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
+from backend.config.constants import (
+    ALLOWED_FRAME_LENGTHS,
+    ALLOWED_LATENCY_PROFILES,
+    DEFAULT_ROC_CONFIG,
+)
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.models.ws_events import (
     EqualizerEnabledChanged,
@@ -35,15 +40,6 @@ if TYPE_CHECKING:
 #   /var/lib/milo/mac.env         → ROC_* (consumed by milo-mac)
 #   /var/lib/milo/snapclient.env  → MILO_SNAPCLIENT_* (consumed by milo-snapclient-multiroom)
 # =============================================================================
-
-ALLOWED_LATENCY_PROFILES = frozenset(["responsive", "gradual", "intact"])
-ALLOWED_FRAME_LENGTHS = frozenset([2, 4, 6, 8, 10, 12])
-
-DEFAULT_ROC_CONFIG = {
-    "target_latency_ms": 50,
-    "latency_profile": "responsive",
-    "frame_length_ms": 4,
-}
 
 DEFAULT_SNAPCLIENT_CONFIG = {
     "buffer_time": 80,
