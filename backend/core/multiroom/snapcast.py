@@ -53,6 +53,15 @@ class SnapcastService:
     WebSocket notifications are handled by SnapcastWebSocketService.
     """
 
+    # A client that dies without closing its socket (power cut, Wi-Fi drop) stays
+    # `connected: true` in snapserver forever, so liveness is read from lastSeen
+    # instead. snapclient stamps it ~1x/s via its time-sync messages — measured
+    # age stays under 0.7s on a healthy LAN client, playing or idle — so 20s is
+    # ~30x the nominal margin: wide enough to absorb a brief Wi-Fi hiccup without
+    # flapping the client offline, and the smallest of the two terms that decide
+    # detection latency (the other is SnapcastWebSocketService.RECONCILE_INTERVAL_S).
+    LAST_SEEN_FRESHNESS_S = 20
+
     def __init__(self, systemd_manager, host: str = "localhost", port: int = 1780):
         self.base_url = f"http://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
@@ -187,8 +196,10 @@ class SnapcastService:
                 last_seen_sec = last_seen_data.get("sec", 0)
                 last_seen_age = now - last_seen_sec
 
-                # Client is online if connected AND seen recently (within 60 seconds)
-                is_online = client_data.get("connected", False) and last_seen_age < 60
+                is_online = (
+                    client_data.get("connected", False)
+                    and last_seen_age < self.LAST_SEEN_FRESHNESS_S
+                )
 
                 # Main device is always online (localhost)
                 if ip == "127.0.0.1":

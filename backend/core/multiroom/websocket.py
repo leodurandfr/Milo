@@ -39,9 +39,9 @@ class SnapcastWebSocketService:
     - Server updates (availability changes)
     """
 
-    # Reconcile sweep cadence. Combined with the 60s lastSeen freshness rule in
-    # SnapcastService._parse_clients, a silently vanished client is detected in
-    # at most 90s. See _reconcile_loop for why a timer is required at all.
+    # Reconcile sweep cadence. Combined with SnapcastService.LAST_SEEN_FRESHNESS_S,
+    # a silently vanished client is detected in at most the sum of the two.
+    # See _reconcile_loop for why a timer is required at all.
     RECONCILE_INTERVAL_S = 30
 
     def __init__(
