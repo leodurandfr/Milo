@@ -1,11 +1,12 @@
 # backend/tests/test_radio_data.py
-"""StationDataService — the two-store lifecycle of a custom station.
+"""StationDataService — the two-store lifecycle of an edited station.
 
-A custom station lives in `manual_stations` from creation, and every later save
-writes an override into `modified_metadata`. Anything that treats one store as
-the whole station leaves the other behind.
+A custom station lives in `manual_stations` from creation, a favourite's
+original in `favorites_cache`, and every later save writes an override into
+`modified_metadata`. Anything that treats one store as the whole station leaves
+the other behind — a stale record, an orphaned upload, or a dropped image.
 """
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,7 +15,7 @@ from backend.sources.radio.data import StationDataService
 
 @pytest.fixture
 def data(tmp_path):
-    svc = StationDataService()
+    svc = StationDataService(state_machine=MagicMock(broadcast=AsyncMock()))
     svc._data_file = tmp_path / "radio_data.json"
     svc.image_manager.delete_image = AsyncMock(return_value=True)
     return svc
@@ -89,3 +90,68 @@ class TestRemoveCustomStation:
     async def test_an_unknown_station_is_refused(self, data):
         assert await data.remove_custom_station("custom_nope") is False
         assert await data.remove_custom_station("api_42") is False
+
+
+class TestModifyStationImage:
+    """A save owns the upload it replaces — and only the one it replaces.
+
+    Both directions were wrong at once: a re-upload left the previous .webp in
+    /var/lib/milo/radio_images forever (nothing can name it again once the
+    override points elsewhere), and a save carrying no upload read the image
+    from the API cache — where a custom station has none — so renaming one
+    silently dropped the image it was showing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_new_upload_deletes_the_file_it_replaces(self, data):
+        station_id = await _create_then_edit(
+            data, image="first.webp", new_image="second.webp"
+        )
+
+        data.image_manager.delete_image.assert_awaited_once_with("first.webp")
+        assert data.get_favorite_metadata_local(station_id)["image_filename"] == "second.webp"
+
+    @pytest.mark.asyncio
+    async def test_a_save_without_an_upload_keeps_the_current_image(self, data):
+        station_id = await _create_then_edit(data, image="only.webp", new_image=None)
+
+        station = data.get_favorite_metadata_local(station_id)
+        assert station["image_filename"] == "only.webp"
+        assert station["favicon"] == "/api/radio/images/only.webp"
+        data.image_manager.delete_image.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_removing_the_image_deletes_the_file(self, data):
+        station_id = await _create_then_edit(data, image="only.webp", new_image="")
+
+        data.image_manager.delete_image.assert_awaited_once_with("only.webp")
+        assert data.get_favorite_metadata_local(station_id)["favicon"] == ""
+
+
+class TestRestoreFavoriteMetadata:
+    """Restoring must announce the station it restored.
+
+    The stores hold stations by value, so without the event the favorites list
+    kept serving the override — uploaded image included, still rendered from the
+    browser cache after this method deleted the file.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_restored_station_is_broadcast(self, data):
+        station_id = "api-42"
+        data._favorites.append(station_id)
+        data._favorites_cache[station_id] = {"name": "Origin", "favicon": "http://origin/logo.png"}
+        await data.modify_favorite_metadata(
+            station_id, name="Renamed", url="http://example.invalid/s",
+            image_filename="upload.webp",
+        )
+        data._state_machine.broadcast.reset_mock()
+
+        assert (await data.restore_favorite_metadata(station_id))["success"] is True
+
+        data.image_manager.delete_image.assert_awaited_once_with("upload.webp")
+        event = data._state_machine.broadcast.await_args.args[0]
+        assert event.TYPE == "favorite_modified"
+        assert event.station["favicon"] == "http://origin/logo.png"
+        assert event.station["id"] == station_id
+        assert event.station["is_favorite"] is True

@@ -458,10 +458,8 @@ async function handleRestoreStation() {
   });
 
   // The route raises on failure, so result.ok is the whole verdict.
+  // The favorite_modified event carries the restored station, like an edit does.
   if (result.ok) {
-    // Wait a bit for backend to save
-    await new Promise(resolve => timer.setTimeout(resolve, 200));
-    await radioStore.loadRadioSettingsData();
     back();
     stationToEdit.value = null;
   }
