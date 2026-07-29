@@ -311,7 +311,8 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   read-only under `/media/milo/<label>` by the `milo-mount` sudoers helper (SMB/NFS shares the
   same way; `milo-umount` reverses it). Navidrome only indexes folders — mounting the device is
   the backend's job
-- **Catalog engine:** `milo-navidrome.service` (always-on, `BindsTo=milo-backend`) indexes
+- **Catalog engine:** `milo-navidrome.service` (always-on, `PartOf=milo-backend.service` — *not*
+  `BindsTo=`, which propagates stop only; the engine must follow a backend **restart** too) indexes
   everything under `/media/milo` and exposes a localhost **Subsonic API** (`127.0.0.1:4533`). A
   mount change triggers an explicit rescan; scan progress is polled over
   `GET /api/music-library/scan-status` and surfaced as a "building library…" state with a live
@@ -665,7 +666,8 @@ statically verified against the event models on every `pytest` run.
 **Frontend:**
 - Automatic disconnection if tab hidden (resource saving)
 - Automatic reconnection when tab becomes visible
-- Fixed 3s delay between attempts (sufficient for local use)
+- Exponential backoff between attempts: `min(1000 × 2^(attempt−1), 30000)` ms, i.e. 1 s, 2 s, 4 s …
+  capped at 30 s. The counter resets on a successful connection (`services/websocket.js`)
 
 **Backend:**
 - Automatic ping every 30s
@@ -689,7 +691,7 @@ milo-cd                   # CD player
 milo-dlna                 # DLNA/UPnP renderer (gmediarender + GStreamer)
 milo-qobuz                # Qobuz Connect (qobuz-proxy sidecar, backend-managed)
 milo-navidrome-config     # Boot oneshot: re-emit the Navidrome TOML from install/navidrome.sh (before milo-navidrome)
-milo-navidrome            # Music Library catalog engine (Navidrome, always-on, BindsTo=milo-backend)
+milo-navidrome            # Music Library catalog engine (Navidrome, always-on, PartOf=milo-backend)
 milo-music-library        # Music Library player (mpv, gapless; streams from Navidrome)
 milo-camilladsp           # CamillaDSP audio processing (always in path for volume)
 milo-snapserver-multiroom # Snapcast server (started/stopped by AudioRoutingService — no WantedBy)
@@ -697,24 +699,39 @@ milo-snapclient-multiroom # Local snapcast client (started/stopped by AudioRouti
 milo-ir-keytable          # Boot oneshot: enable NEC decoding + reload paired Apple Remote keymap
 milo-kiosk                # Chromium kiosk (touchscreen)
 milo-readiness            # System readiness check
+milo-first-boot           # Boot oneshot: first-boot/role setup (consumes pending_client_role.json)
+milo-eeprom-setup         # Boot oneshot: Pi EEPROM/bootloader configuration
+milo-cpu-governor         # Boot oneshot: pin the CPU governor
 ```
 
+The list above is the whole of `system/` — `ls system/*.service` is the authoritative check.
+
 **Dependencies:**
-- All sources `BindsTo=milo-backend` (stop if backend stops)
+- Source units use `BindsTo=milo-backend` (stop if the backend stops)
+- `milo-navidrome` uses `PartOf=milo-backend.service` instead, because `BindsTo=` propagates
+  *stop* only and the always-on catalog engine must follow a backend **restart** as well. The two
+  directives are not interchangeable — see the comment header in the unit file.
 - Automatic restart on error
 
 **Multiroom lifecycle:** Snapserver and snapclient units do **not** auto-start at boot. `AudioRoutingService._sync_snapcast_state` is the only writer: it reads `settings.routing.multiroom_enabled` and reconciles both units accordingly during backend init and after every multiroom toggle. This avoids the desync class where snapcast could run while the backend believed it was in direct mode (which holds `hw:Loopback,0,0` and produces `Device or resource busy` on other sources).
 
 ## Security
 
+The threat model is a **trusted home LAN**: there is no authentication, no authorization and no
+rate limiting anywhere in the stack. What protects a unit is that nothing reaches it from outside
+the local network. Do not expose a Milō to the internet.
+
 ### Rate limiting
-- Global: 100 requests/minute
-- Sufficient for domestic/family use
+**None.** There is no rate limiter in the backend and none in the nginx config — no `slowapi`, no
+`limit_req`. The API answers every request it receives.
 
 ### CORS
-Allowed origins only:
-- http://milo.local
-- http://localhost:5173 (dev)
+Allowed origins only (`backend/main.py`):
+- `http://milo.local`, `https://milo.local`
+- `http://localhost:5173`, `http://127.0.0.1:5173` (dev)
+
+Allowed methods: `GET POST PUT PATCH DELETE OPTIONS`. Allowed headers: `Content-Type`, `Accept`,
+`Authorization`. Credentials allowed.
 
 ### Permissions
 - Backend runs as `milo` user (not root)
@@ -728,7 +745,8 @@ Allowed origins only:
 **Backend:**
 - Async/await for non-blocking I/O
 - Locks for thread-safety (no race conditions)
-- Timeouts (2s) for volume operations (avoids hangs)
+- Bounded waits so a stalled device cannot hang a request — e.g. `VolumeService.wait_for_availability`
+  defaults to 5 s, and the multi-device apply is wrapped in a 10 s `asyncio.timeout`
 - Settings cached in memory (avoids file reads)
 
 **Frontend:**
@@ -742,22 +760,20 @@ Allowed origins only:
 - Multiroom buffer: 1000ms (adjustable)
 - System state broadcast on every change (can be optimized if needed)
 
-## Scalability
+## Extending Milō
 
-### Adding an audio source
+Adding a source is a **six-step checklist across both code bases** (enum, module, `dependencies.py`
+registration, two ALSA device variants, frontend touchpoints, i18n), and which files a source needs
+depends on its family — a passive receiver and an active player do not have the same layout. That
+checklist is maintained in one place, so it cannot drift from the rules that enforce it:
 
-1. Create source subclassing `BaseAudioSource` (backend/core/audio_source.py)
-2. Register in `dependencies.py`
-3. Add ALSA devices in `/etc/asound.conf`
-4. Create Vue component for UI
-
-### Adding a feature
-
-1. Create service in `backend/core/`
-2. Add API route in `backend/api/`
-3. Create Vue component in `frontend/src/components/`
-4. Update Pinia store if needed
+- **Family rules and the source contract** → [CLAUDE.md](../CLAUDE.md) § *Audio sources*
+- **Step-by-step walkthrough**, incl. the ALSA loopback-subdevice constraint and the frontend
+  touchpoint table → [Adding a new audio source](development.md#adding-a-new-audio-source)
+- **Adding a service** (creator in `dependencies.py::_create_service`, async `initialize()`
+  registration, the init-order constraints) → [development.md](development.md)
 
 ## Additional resources
 
 - [Developer Guide](development.md)
+- [API Overview](api-overview.md)

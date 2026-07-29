@@ -6,9 +6,11 @@ This guide is for developers who want to contribute to or fork the Milō project
 
 ### Prerequisites
 
-- Raspberry Pi 4 or 5 with Raspberry Pi OS 64-bit
-- Python 3.10+
-- Node.js 18+
+- Raspberry Pi 4 or 5 with Raspberry Pi OS 64-bit (Debian Trixie)
+- **Python 3.13** — `pyproject.toml` sets `target-version = "py313"` and CI runs 3.13. A
+  `requirements.txt` marker also pulls `audioop-lts` on 3.13+, because stdlib `audioop` was
+  removed in that version
+- **Node.js 20** — the version CI uses
 - Git
 
 ### Development installation
@@ -127,7 +129,9 @@ frontend/src/
 │   ├── lyricsStore.js        # Lyrics app state (fetch-on-open, per-track cache)
 │   ├── musicLibraryStore.js  # Music Library catalog + queue + scan state
 │   ├── discoveryStore.js     # mDNS discovery
-│   └── systemStore.js        # System info / updates
+│   ├── fanStore.js           # Fan status / config
+│   ├── updatesStore.js       # Update availability + progress
+│   └── systemStore.js        # System info
 ├── composables/              # Vue composables (useSourceProgress, useVolumeThrottle, ...)
 ├── services/
 │   ├── websocket.js          # WebSocket client (auto-reconnect)
@@ -142,7 +146,9 @@ frontend/src/
 **Architectural principles:**
 - **Composition API**: Code organized by functionality
 - **Reactive State**: Pinia + WebSocket sync
-- **Single Page App**: No routing (single view)
+- **Single Page App**: `vue-router` is present but declares exactly **one** route (`/` → `MainView`);
+  it exists only to set the document title. Navigation inside the app is state-driven, not
+  URL-driven — don't add routes without a deliberate decision to change that model
 
 ## Data flow
 
@@ -213,51 +219,63 @@ class AudioSource(Enum):
 
 ### 2. Create the source
 
+`start()`, `stop()`, `command()` and `refresh_metadata()` are **public API on the base class — never
+override them.** They own the locking, the state transitions and the `COMMANDS` validation. What you
+implement are the hooks they call: `_do_start` (the only `@abstractmethod`), plus `_do_stop`,
+`_handle_command`, `_cleanup`, `_reset_playback_state` and `_do_restart` as needed.
+
+There is **no `status()`, `get_status()` or `_get_status()`** anywhere in the hierarchy. Status is
+broadcast over the WebSocket, never polled — a `GET /<source>/status` route is explicitly forbidden
+and `tests/architecture/test_source_conformance.py` fails the build if one appears.
+
 `backend/sources/my_source/source.py`:
 ```python
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel
+
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import SourceState
+from backend.sources.my_source.models import SeekParams
+
 
 class MySource(BaseAudioSource):
-    def __init__(self, state_machine):
-        self.state_machine = state_machine
-        self.source = AudioSource.MY_SOURCE
-
-    async def initialize(self):
-        """Initialization on application startup"""
-        # Initial setup
-        pass
-
-    async def start(self):
-        """Start the service (systemctl start, etc.)"""
-        # Notify state change — WAITING = service up, no client connected yet
-        await self.state_machine.update_source_state(
-            self.source,
-            SourceState.WAITING
-        )
-        return True
-
-    async def stop(self):
-        """Stop the service — the state machine sets the source to NONE
-        when this source is no longer active."""
-        return True
-
-    async def get_status(self):
-        """Get current status"""
-        return {
-            "status": "active",
-            "metadata": {}
-        }
-
     # Per-command parameter contract: command name → Pydantic model (None = no
     # params). command() validates raw input against this at a single boundary
     # before _handle_command() runs, so handlers receive a typed `params`. Param
-    # models live in sources/my_source/models.py (pure pydantic/typing leaf).
+    # models live in sources/my_source/models.py (a pure pydantic/typing leaf).
+    # An entry with no dispatch arm — or an arm with no entry — fails
+    # tests/test_command_contract.py.
     COMMANDS = {"play": None, "seek": SeekParams}
 
-    async def _handle_command(self, cmd: str, params):
-        """Handle commands on validated params. Only state-dependent checks
-        belong here (shape/type/range are already enforced by COMMANDS[cmd])."""
+    def __init__(self, config, state_machine, settings_service, systemd_manager):
+        super().__init__(
+            source_id="my_source",
+            service_name="milo-my-source",
+            state_machine=state_machine,
+            systemd_manager=systemd_manager,
+            settings_service=settings_service,
+            config=config,
+        )
+
+    async def _do_start(self) -> bool:
+        """Bring the source up. The @abstractmethod — start() calls this under
+        the transition lock, then publishes the resulting state."""
+        if not await self._start_service_and_wait():
+            return False
+        # WAITING = service up, no client connected yet. Use set_state (or
+        # emit_connection_state for receivers); never touch the state machine's
+        # private state.
+        self.set_state(SourceState.WAITING)
+        return True
+
+    async def _do_stop(self) -> bool:
+        """Tear down. The state machine moves the active source to NONE itself."""
+        return await self._stop_service()
+
+    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
+        """Handle commands on already-validated params. Only state-dependent
+        checks belong here — shape, type and range are enforced by COMMANDS[cmd]."""
         if cmd == "play":
             return self.success_response("Playing")
         if cmd == "seek":
@@ -265,10 +283,15 @@ class MySource(BaseAudioSource):
         return self.error_response(f"Unhandled command: {cmd}")
 ```
 
-> The other method names above (`initialize`/`start`/`stop`/`get_status`) are a
-> simplified sketch — the real `BaseAudioSource` ABC overrides are
-> `_do_start`/`_do_stop`/`_get_status`/`_handle_command`. See the CLAUDE.md source
-> family table and an existing source (`radio/`) for the authoritative shape.
+**If your source plays through mpv** (like Radio, Podcast, CD and Music Library), extend
+`shared/mpv_audio_source.py::MpvAudioSource` instead of `BaseAudioSource`. It supplies the mpv
+controller, the shared `_monitor_loop()` and auto-stop-on-pause; you implement the
+`_on_monitor_tick` / `_on_mpv_disconnect` / `_auto_stop_action` hooks rather than hand-rolling a
+monitor loop.
+
+The authoritative shape is the family table in [CLAUDE.md](../CLAUDE.md) § *Audio sources* plus an
+existing source — `radio/` is the reference for family C, `qobuz/` for family B, `bluetooth/` for
+family A.
 
 ### 3. Register in container
 
@@ -549,10 +572,12 @@ python -m pytest -m unit                                 # Unit tests only
 python -m pytest -k "test_name"                          # By name (substring, across files)
 python -m pytest tests/test_radio_source.py              # A single file
 python -m pytest tests/test_radio_source.py::TestRadioSourceLifecycle::test_start_success  # A single test
-python -m pytest --cov=backend --cov-report=term-missing  # Coverage summary
-python -m pytest --cov=backend --cov-report=html          # HTML coverage → htmlcov/index.html
 python -m pytest --durations=10                           # 10 slowest tests
 ```
+
+There is **no backend coverage tooling**: `pytest-cov` is deliberately not a dependency, and CI has
+no coverage threshold. Coverage as a target rewards exactly the tests this project excludes — see
+[what earns a test](../CLAUDE.md#tests--what-earns-one).
 
 **Writing a test:**
 
@@ -701,13 +726,15 @@ except SpecificError as e:
 1. **Composition API** instead of Options API
 2. **Computed properties** for derived data
 3. **No direct DOM manipulation** (use Vue refs)
-4. **Debounce** frequent events:
+4. **Debounce** frequent events with the project's own composable — there is no `lodash` dependency,
+   and a bare `setTimeout` is blocked by `no-restricted-globals`:
+It returns `{ debounced, cancel }` and clears its pending timer on unmount by itself:
 ```javascript
-import { debounce } from 'lodash-es';
+import { useDebounce } from '@/composables/useDebounce';
 
-const handleInput = debounce((value) => {
+const { debounced: debouncedSearch, cancel: cancelSearch } = useDebounce((query) => {
   // Logic
-}, 300);
+}, 300);   // delay defaults to 400 ms
 ```
 
 5. **Cleanup** in `onUnmounted`:
@@ -807,9 +834,12 @@ import pdb; pdb.set_trace()
 **Vue DevTools:**
 - Chrome/Firefox extension to inspect Vue state
 
-**Console logs:**
+**Logging:** `console.*` is banned by eslint outside the logger itself — use the logger, which adds
+the category prefix and central handling:
 ```javascript
-console.log('State:', audioStore.$state);
+import { logger } from '@/services/logger';
+
+logger.debug('audio', 'Store state', audioStore.$state);
 ```
 
 **WebSocket debug:**
@@ -847,9 +877,12 @@ git push origin feature/my-feature
 
 ### PR checklist
 
-- [ ] Tests pass (`pytest`, `npm run test`)
-- [ ] Code formatted (Black for Python, Prettier for JS)
-- [ ] No linter warnings
+- [ ] The full CI floor is green — there is no formatter in this project (no Black, no Prettier);
+      `ruff` is the Python linter and eslint/stylelint the JS/CSS ones:
+      ```bash
+      ruff check backend/ && pytest backend/
+      cd frontend && npm run lint:js && npm run lint:css && npm run test:run
+      ```
 - [ ] Documentation updated if necessary
 - [ ] Tested locally on Raspberry Pi — audio path / source / hardware changes: smoke subset of [manual/verification-checklist.md](manual/verification-checklist.md) run on a unit
 
