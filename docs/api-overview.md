@@ -66,11 +66,15 @@ every state change is pushed.
 **Categories:** `source`, `system`, `routing`, `equalizer`, `multiroom`, `volume`, `settings`,
 `programs`, `network`.
 
-On connect the client receives a `full_state` snapshot, then incremental deltas. The events the
-companion apps rely on (the `full_state` envelope, `multiroom_changed`, `volume_changed`,
-`settings/{volume_limits,dock_apps}_changed`) are pinned in the
-[Milo-Mac contract](../backend/tests/contracts/milo_mac_contract.json) and checked on every test
-run, so they cannot silently drift.
+On connect the client receives a `full_state` snapshot, then incremental deltas.
+
+The subset Milo-Mac relies on — `(category, type)` pairs across `system`, `source`, `volume`,
+`routing` and `settings`, plus `payload_invariants` naming the exact fields it reads — is pinned in
+the [Milo-Mac contract](../backend/tests/contracts/milo_mac_contract.json) and verified on every
+`pytest` run, so it cannot silently drift. **Read the manifest for the list**; any summary here
+would be a second, drifting copy. Note in particular `routing/multiroom_error`, whose invariant is
+*presence only, no payload field is read* — it looks unreferenced from every angle and is the
+easiest entry to delete by accident.
 
 ---
 
