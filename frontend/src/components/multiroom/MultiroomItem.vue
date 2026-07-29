@@ -151,7 +151,7 @@
           v-for="(zoneClient, index) in zoneClientDetails"
           :key="zoneClient.mac_id"
           class="client-row"
-          :style="{ '--row-delay': `${60 + index * 90}ms` }"
+          :style="{ '--row-delay': `${Math.round(index * rowDelayStep)}ms` }"
         >
           <!-- Speaker icon -->
           <div class="client-icon" :class="{ 'muted': zoneClient.equalizerMuted, 'offline': !zoneClient.online }">
@@ -251,16 +251,10 @@ const emit = defineEmits([
   'client-mute-toggle'
 ]);
 
-// Modal height coordination (null outside a Modal). Expand and collapse both get the
-// spring/bounce, via a different clip driver each:
-// - expand   → requestHeightDelta: the rows appear at full height at once, the clip
-//   springs to reveal them and overshoots into empty space above (the bounce).
-// - collapse → springCollapse: the wrapper eases its OWN height full → 0 on the SAME
-//   spring curve (masking its rows in place, items below rise), while the clip springs
-//   to the collapsed height. Synced → no gap; the clip's end bounce dips into the
-//   modal's bottom padding. Correct wherever the zone sits in the list.
-const requestHeightDelta = inject('modalRequestHeightDelta', null);
-const springCollapse = inject('modalSpringCollapse', null);
+// Modal height coordination (null outside a Modal). Both directions run the SAME
+// mechanism: the wrapper springs its own height 0 ↔ full while the modal clip springs
+// by the same delta on the same curve, so frame and content are equal at every frame.
+const springHeightDelta = inject('modalSpringHeightDelta', null);
 
 // === LOCAL STATE ===
 const isExpanded = ref(false);
@@ -269,8 +263,7 @@ const clientLocalVolumes = ref({});
 
 // Ref for measuring expanded content height
 const expandedContentRef = ref(null);
-// Explicit height for the wrapper: snaps to full instantly on expand (Modal clip
-// springs to reveal), eases to 0 on collapse (Modal clip follows it 1:1).
+// Explicit height for the wrapper — px both ways, since a spring needs two numbers.
 const expandedWrapperHeight = ref('0px');
 
 // Clear local volume when backend confirms the update (via WebSocket)
@@ -322,6 +315,15 @@ const isExternalVolume = computed(() => {
 const sliderMin = computed(() => settingsStore.volumeLimits.min_db);
 const sliderMax = computed(() => settingsStore.volumeLimits.max_db);
 
+// Per-row delay of the expand stagger. 60ms reads as a stagger where 40 did not, but
+// the TOTAL is what must stay bounded: the reveal is over at ~170ms, so a zone with
+// many clients compresses the step rather than pushing its last rows into an already
+// open box — the exact defect a flat `index * 90ms` produced.
+const rowDelayStep = computed(() => {
+  const count = props.zoneClientDetails?.length || 0;
+  return count > 1 ? Math.min(60, 180 / (count - 1)) : 0;
+});
+
 // Speaker type for standalone client (not zone)
 const clientSpeakerType = computed(() => {
   if (props.isZone) return null;
@@ -360,34 +362,18 @@ function getClientDisplayVolume(macId, serverVolume) {
 
 // === ZONE HEADER HANDLERS ===
 function toggleExpand() {
-  if (!canExpand.value) return;
+  if (!canExpand.value || !expandedContentRef.value) return;
 
-  if (!isExpanded.value) {
-    // OPEN: the rows snap to full height at once (no wrapper transition when expanded);
-    // the Modal clip springs to reveal them and overshoots slightly (the bounce).
-    // Pre-announce the exact delta: full rows height added, minus the .multiroom-item
-    // padding-bottom that's removed when expanded (--space-04 = 16px).
-    if (expandedContentRef.value) {
-      const el = expandedContentRef.value;
-      const marginTop = parseFloat(getComputedStyle(el).marginTop) || 0;
-      const fullHeight = el.offsetHeight + marginTop;
-      requestHeightDelta?.(fullHeight - 16);
-      expandedWrapperHeight.value = `${fullHeight}px`;
-    }
-    isExpanded.value = true;
-  } else {
-    // CLOSE: measure the delta before mutating, then spring the clip to the collapsed
-    // height while the wrapper eases its own height full → 0 on the same curve (masking
-    // its rows in place). The clip's bounce dips into the modal's bottom padding.
-    if (expandedContentRef.value) {
-      const el = expandedContentRef.value;
-      const marginTop = parseFloat(getComputedStyle(el).marginTop) || 0;
-      const fullHeight = el.offsetHeight + marginTop;
-      springCollapse?.(-(fullHeight - 16));
-    }
-    isExpanded.value = false;
-    expandedWrapperHeight.value = '0px';
-  }
+  // Measure BEFORE mutating: the rows sit at their natural height either way (the
+  // wrapper clips them, it doesn't compress them). The delta is the rows height and
+  // nothing else — the item's own box is the same expanded or not, so there is no
+  // padding correction to apply here.
+  const fullHeight = expandedContentRef.value.offsetHeight;
+  const opening = !isExpanded.value;
+
+  springHeightDelta?.(opening ? fullHeight : -fullHeight);
+  isExpanded.value = opening;
+  expandedWrapperHeight.value = opening ? `${fullHeight}px` : '0px';
 }
 
 function handleVolumeInput(newDisplayVolume) {
@@ -442,25 +428,15 @@ function handleClientMuteToggle(clientMacId, muted) {
 </script>
 
 <style scoped>
+/* The bottom padding lives on the header (and on .expanded-clients), never on the item
+   itself: the item's box must not change when the zone expands, or the height delta and
+   the spring would have to carry a correction that silently tracks --space-04. */
 .multiroom-item {
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-06);
-  padding: var(--space-04);
+  padding: var(--space-04) var(--space-04) 0;
   background: var(--color-background-neutral);
-}
-
-/* Collapse eases the bottom padding back on the SAME spring curve as .expanded-wrapper
-   and the Modal clip, so the whole item stays in sync; expand removes it instantly so
-   the reveal is a single clip spring. */
-.multiroom-item.is-zone {
-  transition: padding-bottom var(--transition-spring-light);
-}
-
-/* Remove bottom padding when the zone is expanded (moved to .expanded-clients) */
-.multiroom-item.is-zone.is-expanded {
-  padding-bottom: 0;
-  transition: none;
 }
 
 /* === ITEM HEADER (zone/client row) === */
@@ -470,6 +446,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   align-items: center;
   gap: var(--space-04);
   min-height: 40px;
+  padding-bottom: var(--space-04);
 }
 
 /* === ICON COLUMN === */
@@ -682,39 +659,28 @@ function handleClientMuteToggle(clientMacId, muted) {
 }
 
 /* === EXPANDED CLIENTS SECTION === */
-/* Asymmetric height animation, keyed off .is-expanded (the target state):
-   - EXPAND → instant (transition:none below): the rows are there at once and the
-     Modal clip springs to reveal them (a single native CSS spring = the bounce).
-   - COLLAPSE → springs here full → 0 on the SAME curve as the Modal clip (--transition-
-     spring-light), so the two stay in sync (no gap). The wrapper masks its own rows in
-     place; its height clamps at 0 while the clip's bounce lands in the modal padding. */
+/* Symmetric height animation, both directions on --transition-spring-light — the SAME
+   curve the Modal clip springs on (see toggleExpand). Content and frame are therefore
+   equal at every frame: one visible bounce, no gap, and collapse is the expansion
+   played backwards. overflow:hidden is what hides the rows at height 0. */
 .expanded-wrapper {
   height: 0;
   overflow: hidden;
   transition: height var(--transition-spring-light);
 }
 
-.multiroom-item.is-expanded .expanded-wrapper {
-  transition: none;
-}
-
 .expanded-clients {
   display: flex;
   flex-direction: column;
-  margin-top: var(--space-03);
   padding-top: var(--space-03);
-  padding-bottom: var(--space-04); /* Bottom padding moved from .multiroom-item */
+  padding-bottom: var(--space-04); /* The item has none — see .multiroom-item */
   border-top: 1px solid var(--color-border);
-  /* Hidden by default, visible when expanded */
   opacity: 0;
-  visibility: hidden;
-  transition: opacity var(--transition-fast), visibility 0ms linear 200ms;
+  transition: opacity var(--transition-medium);
 }
 
 .expanded-clients.is-visible {
   opacity: 1;
-  visibility: visible;
-  transition: opacity var(--transition-fast), visibility 0ms linear 0ms;
 }
 
 /* Individual client row in expanded zone */
@@ -724,9 +690,6 @@ function handleClientMuteToggle(clientMacId, muted) {
   align-items: center;
   gap: var(--space-04);
   padding: var(--space-03) 0;
-  /* Fade animation base state */
-  opacity: 0;
-  transition: opacity var(--transition-fast);
 }
 
 .client-row:first-child {
@@ -823,18 +786,21 @@ function handleClientMuteToggle(clientMacId, muted) {
   border-radius: var(--radius-full);
 }
 
-/* Staggered fade-in animation for client rows (when parent is visible) */
-/* backwards: opacity 0 during delay. CSS opacity: 1 takes over after animation for proper fade-out transition */
+/* Staggered fade-in for the rows, made perceptible through AMPLITUDE rather than through
+   longer delays (see rowDelayStep): each row rises 8px out of the still-masked area while
+   the reveal sweeps down over it. At 300ms the last row settles around 480ms, just as the
+   container spring does — so the stagger reads as part of the opening, not after it.
+   `backwards` holds the from-state during the delay; the fade-out is the parent's own
+   opacity, so the rows need no resting state of their own. */
 .expanded-clients.is-visible .client-row {
-  opacity: 1;
-  animation: fadeInRow var(--transition-normal) backwards;
+  animation: fadeInRow var(--transition-medium) backwards;
   animation-delay: var(--row-delay, 0ms);
 }
 
 @keyframes fadeInRow {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;

@@ -145,25 +145,25 @@ export function useAnimatedHeight(contentRef, options = {}) {
   }
 
   /**
-   * Collapse companion to requestHeightDelta for when the CHILD reflows its OWN height
-   * with the SAME spring curve as the clip (e.g. a multiroom zone whose wrapper eases
-   * to 0 over --transition-spring-light, masking its rows in place). Springs ONLY the
-   * clip to the collapsed target — a native CSS spring, so it keeps the bounce — and,
-   * for `durationMs`, has the observer keep the SCROLLER matched to the live content
-   * instead of writing the clip (which must finish its curve uninterrupted).
+   * Companion to requestHeightDelta for when the CHILD animates its OWN height on the
+   * SAME spring curve as the clip (e.g. a multiroom zone whose wrapper springs 0 ↔ full
+   * over --transition-spring-light). Springs ONLY the clip to the target — a native CSS
+   * spring, so it keeps the bounce — and, for `durationMs`, has the observer keep the
+   * SCROLLER matched to the live content instead of writing the clip (which must finish
+   * its curve uninterrupted). Symmetric: expand and collapse both go through here.
    *
-   * Because the child rides the same curve, clip and content stay equal through the
-   * collapse (no gap, no clip of the rows or of items below — the scroller tracks them
-   * so nothing is cut to the target early). The child bottoms out at 0 while the clip's
-   * end bounce dips below the collapsed height into the scroller's bottom padding —
-   * harmless for typical zones. Unlike requestHeightDelta, the scroller is NOT set to
-   * the target up front (that would clip the still-reflowing content instantly).
+   * Because the child rides the same curve, clip and content are equal at every frame
+   * (no gap, nothing cut to the target early — the scroller tracks the live reflow).
+   * Unlike requestHeightDelta, the scroller is NOT set to the target up front: that
+   * would clip the still-reflowing content on collapse, and reveal empty space on expand.
    *
-   * @param {number} delta - negative px (collapse).
-   * @param {number} [durationMs=500] - how long the scroller follows the reflow; cover
-   *   the child's own transition settling (not the whole spring — content settles first).
+   * @param {number} delta - px change (positive expand, negative collapse).
+   * @param {number} [durationMs=900] - how long the scroller follows the reflow. Must
+   *   outlast the child's own spring (820ms): on expand the content overshoots ABOVE the
+   *   target and its residual wobble exceeds `threshold` on tall children, which would
+   *   re-spring the clip mid-curve. On collapse the height clamps at 0 much earlier.
    */
-  function springClipDelta(delta, durationMs = 500) {
+  function springClipDelta(delta, durationMs = 900) {
     isFirstResize = false;
     const clip = clipRef?.value;
     if (!clip) return;
