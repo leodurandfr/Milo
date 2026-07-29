@@ -10,6 +10,7 @@ import { useRadioStore } from '@/stores/radioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useLyricsStore } from '@/stores/lyricsStore';
 import { useI18n } from '@/services/i18n';
 import { isKiosk } from '@/utils/kiosk';
 import { formatDeviceNames } from '@/utils/deviceName';
@@ -43,6 +44,7 @@ export function useScreensaver() {
   const podcastStore = usePodcastStore();
   const musicLibraryStore = useMusicLibraryStore();
   const settingsStore = useSettingsStore();
+  const lyricsStore = useLyricsStore();
   const { t } = useI18n();
   const timer = useTimer();
 
@@ -94,6 +96,9 @@ export function useScreensaver() {
     // filter). Also removes the need for the portrait CSS hide hack it once used.
     if (!isKiosk()) return false;
     if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
+    // Lyrics is itself a full-screen reading view that scrolls on its own: covering
+    // it after a delay would hide the thing being read, without any user inactivity.
+    if (lyricsStore.isOpen) return false;
     if (unifiedStore.systemState.source_state !== 'active') return false;
     const source = unifiedStore.systemState.active_source;
     if (PASSIVE_SOURCES.includes(source)) return true;
