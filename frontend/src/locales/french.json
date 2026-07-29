@@ -137,11 +137,11 @@
       "retry": "Réessayer"
     },
     "adopt": {
-      "networkSection": "Connexion réseau",
+      "networkSection": "Connexion WiFi",
       "useServerWifi": "Utiliser le réseau du serveur ({ssid})",
       "changeNetwork": "Changer",
       "enterCredentials": "Le serveur n'est pas connecté en WiFi. Entrez les identifiants du réseau pour ce haut-parleur.",
-      "adopting": "Adoption en cours...",
+      "adopting": "Configuration en cours...",
       "errorPush": "Le haut-parleur n'a pas accepté la configuration"
     },
     "systemOffline": "« {name} » est hors ligne",

@@ -24,7 +24,17 @@
 
     <!-- Configuration Form -->
     <template v-else>
-      <!-- Network connection (wifi mode only) -->
+      <!-- Speaker Name -->
+      <SettingsSection :title="t('multiroom.systemNameRemote')">
+        <InputText
+          v-model="speakerName"
+          :placeholder="t('multiroom.pending.namePlaceholder')"
+          size="medium"
+          :maxlength="16"
+        />
+      </SettingsSection>
+
+      <!-- WiFi connection (wifi mode only) -->
       <SettingsSection v-if="mode === 'wifi'" :title="t('multiroom.adopt.networkSection')">
         <!-- Auto-fill from server's active wifi -->
         <template v-if="canUseServerWifi && useServerWifi">
@@ -52,16 +62,6 @@
             @update:wifi="onManualWifiUpdate"
           />
         </template>
-      </SettingsSection>
-
-      <!-- Speaker Name -->
-      <SettingsSection :title="t('multiroom.systemNameRemote')">
-        <InputText
-          v-model="speakerName"
-          :placeholder="t('multiroom.pending.namePlaceholder')"
-          size="medium"
-          :maxlength="16"
-        />
       </SettingsSection>
 
       <!-- Audio Card Selection -->

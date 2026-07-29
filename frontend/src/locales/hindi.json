@@ -137,11 +137,11 @@
       "retry": "पुनः प्रयास करें"
     },
     "adopt": {
-      "networkSection": "नेटवर्क कनेक्शन",
+      "networkSection": "WiFi कनेक्शन",
       "useServerWifi": "सर्वर का नेटवर्क उपयोग करें ({ssid})",
       "changeNetwork": "बदलें",
       "enterCredentials": "सर्वर WiFi से कनेक्ट नहीं है। इस स्पीकर के लिए नेटवर्क क्रेडेंशियल दर्ज करें।",
-      "adopting": "जोड़ा जा रहा है...",
+      "adopting": "कॉन्फ़िगर किया जा रहा है...",
       "errorPush": "स्पीकर ने कॉन्फ़िगरेशन स्वीकार नहीं किया"
     },
     "systemOffline": "« {name} » ऑफ़लाइन है",
