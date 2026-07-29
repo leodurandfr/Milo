@@ -137,11 +137,11 @@
       "retry": "Reintentar"
     },
     "adopt": {
-      "networkSection": "Conexión de red",
+      "networkSection": "Conexión WiFi",
       "useServerWifi": "Usar la red del servidor ({ssid})",
       "changeNetwork": "Cambiar",
       "enterCredentials": "El servidor no está conectado por WiFi. Introduce las credenciales de red para este altavoz.",
-      "adopting": "Añadiendo...",
+      "adopting": "Configurando...",
       "errorPush": "El altavoz no aceptó la configuración"
     },
     "systemOffline": "« {name} » está desconectado",

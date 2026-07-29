@@ -137,11 +137,11 @@
       "retry": "Tentar novamente"
     },
     "adopt": {
-      "networkSection": "Ligação de rede",
+      "networkSection": "Ligação WiFi",
       "useServerWifi": "Usar a rede do servidor ({ssid})",
       "changeNetwork": "Alterar",
       "enterCredentials": "O servidor não está ligado por WiFi. Introduza as credenciais de rede para este altifalante.",
-      "adopting": "A adicionar...",
+      "adopting": "A configurar...",
       "errorPush": "O altifalante não aceitou a configuração"
     },
     "systemOffline": "« {name} » está offline",

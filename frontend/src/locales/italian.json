@@ -137,11 +137,11 @@
       "retry": "Riprova"
     },
     "adopt": {
-      "networkSection": "Connessione di rete",
+      "networkSection": "Connessione WiFi",
       "useServerWifi": "Usa la rete del server ({ssid})",
       "changeNetwork": "Cambia",
       "enterCredentials": "Il server non è connesso via WiFi. Inserisci le credenziali di rete per questo altoparlante.",
-      "adopting": "Aggiunta in corso...",
+      "adopting": "Configurazione in corso...",
       "errorPush": "L'altoparlante non ha accettato la configurazione"
     },
     "systemOffline": "« {name} » è offline",

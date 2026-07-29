@@ -137,11 +137,11 @@
       "retry": "Erneut versuchen"
     },
     "adopt": {
-      "networkSection": "Netzwerkverbindung",
+      "networkSection": "WLAN-Verbindung",
       "useServerWifi": "Netzwerk des Servers verwenden ({ssid})",
       "changeNetwork": "Ändern",
       "enterCredentials": "Der Server ist nicht über WLAN verbunden. Geben Sie die Netzwerkdaten für diesen Lautsprecher ein.",
-      "adopting": "Wird hinzugefügt...",
+      "adopting": "Konfiguration läuft...",
       "errorPush": "Der Lautsprecher hat die Konfiguration nicht akzeptiert"
     },
     "systemOffline": "\"{name}\" ist offline",
