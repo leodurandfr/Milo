@@ -529,8 +529,8 @@ class StationDataService:
         if not created and not override:
             return False
 
-        # Each save that uploaded a new image named it in the store it wrote, so
-        # the two can point at different files; both belong to this station.
+        # An edited station's image is named by the override, a never-edited
+        # one's by the creation record; both stores are read so neither leaks.
         for image_filename in {
             meta.get('image_filename') for meta in (created, override) if meta
         }:
@@ -566,14 +566,16 @@ class StationDataService:
         try:
             existing_metadata = self._modified_metadata.get(station_id, {})
             original = self._favorites_cache.get(station_id, {})
+            # The image the station shows right now: override → creation record
+            # → API cache. A custom station's upload lives in the creation record
+            # until its first edit, so the API cache alone is not the fallback —
+            # reading it there is what dropped the image on a rename.
+            current = self._lookup_local(station_id) or {}
 
             if image_filename is None:
-                if existing_metadata.get("favicon"):
-                    favicon_url = existing_metadata.get("favicon", "")
-                    final_image_filename = existing_metadata.get("image_filename", "")
-                else:
-                    favicon_url = original.get("favicon", "")
-                    final_image_filename = ""
+                # No upload in this request: keep whatever is showing.
+                favicon_url = current.get("favicon", "")
+                final_image_filename = current.get("image_filename", "")
             elif image_filename == "":
                 favicon_url = ""
                 final_image_filename = ""
@@ -600,6 +602,18 @@ class StationDataService:
             self._modified_metadata[station_id] = custom_metadata
             success = await self._save()
 
+            if success:
+                # The upload this save replaces is now unreachable — the override
+                # is what `_lookup_local` serves, so no read can name the old file
+                # again. Only this write knows it became garbage.
+                stale_images = {
+                    existing_metadata.get("image_filename"),
+                    self._manual_stations.get(station_id, {}).get("image_filename"),
+                } - {final_image_filename}
+                for stale in stale_images:
+                    if stale:
+                        await self.image_manager.delete_image(stale)
+
             station_data = custom_metadata.copy()
             station_data['id'] = station_id
             station_data['is_favorite'] = station_id in self._favorites
@@ -614,7 +628,13 @@ class StationDataService:
             return {"success": False, "error": str(e)}
 
     async def restore_favorite_metadata(self, station_id: str, radio_api=None) -> Dict[str, Any]:
-        """Restore original metadata by deleting custom metadata."""
+        """Restore original metadata by deleting custom metadata.
+
+        Broadcasts the restored station like `modify_favorite_metadata` does: the
+        stores hold the station by value, so without the event the favorites list
+        keeps serving the override — its uploaded image included, still rendered
+        from the browser cache after the file was deleted here.
+        """
         try:
             if station_id not in self._modified_metadata:
                 return {"success": False, "error": "Station has no modified metadata"}
@@ -634,6 +654,17 @@ class StationDataService:
                     self._favorites_cache[station_id] = cached
 
             await self._save()
+
+            restored = self._lookup_local(station_id)
+            if restored:
+                restored['is_favorite'] = station_id in self._favorites
+                await self._broadcast(RadioFavoriteModified(station=restored))
+            else:
+                # Nothing left to announce: the refetch failed and no original was
+                # cached. The stores keep the override until the next full load.
+                self.logger.warning(
+                    f"Restored {station_id} with no original metadata to broadcast"
+                )
 
             return {"success": True}
 
