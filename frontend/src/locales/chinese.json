@@ -58,7 +58,7 @@
     "macOS": "macOS 接收器",
     "multiroom": "多房间",
     "cd": "CD播放器",
-    "dlna": "DLNA",
+    "dlna": "DLNA/UPnP",
     "qobuz": "Qobuz",
     "musicLibrary": "音乐库",
     "cdSource": {
