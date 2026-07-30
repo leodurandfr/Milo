@@ -37,17 +37,21 @@ export function enumFromValidator(validator) {
   const match = String(validator).match(ENUM_FROM_VALIDATOR);
   if (!match) return null;
 
-  const values = match[1]
-    .split(',')
-    .map(part => part.trim())
-    .filter(Boolean)
-    // A bare `null` in the literal is a value, not a name: AudioSourceLayout
-    // accepts `[null, 'radio', …]` for "no gradient". Stripping quotes off it
-    // like the rest would offer the *string* 'null', which its own validator
-    // then rejects.
-    .map(part => (part === 'null' ? null : part.replace(/^['"]|['"]$/g, '')));
+  const tokens = match[1].split(',').map(part => part.trim()).filter(Boolean);
+  if (!tokens.length) return null;
 
-  if (!values.length) return null;
+  // `[null, ...ALL_AUDIO_SOURCES].includes(v)` — the spread closes over an
+  // identifier, so reading the literal would offer '...ALL_AUDIO_SOURCES' as a
+  // value: a control that looks resolved and is wrong. Same answer as a
+  // validator that closes over one entirely — refuse to guess, and let the
+  // guardrail demand an explicit override.
+  if (tokens.some(token => token.startsWith('...'))) return null;
+
+  // A bare `null` in the literal is a value, not a name: AudioSourceLayout
+  // accepts `[null, 'radio', …]` for "no gradient". Stripping quotes off it
+  // like the rest would offer the *string* 'null', which its own validator
+  // then rejects.
+  const values = tokens.map(token => (token === 'null' ? null : token.replace(/^['"]|['"]$/g, '')));
 
   // ToggleSection accepts both '2' and 2, so the literal carries duplicates
   // once the quotes are stripped.

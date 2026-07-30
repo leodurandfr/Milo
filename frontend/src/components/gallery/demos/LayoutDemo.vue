@@ -29,7 +29,7 @@
     </GalleryVariant>
 
     <GalleryVariant label="contentKey — changing it cross-fades the content out and the next in" contain :contain-height="280">
-      <AudioSourceLayout gradient="music-library" header-title="Music Library"
+      <AudioSourceLayout gradient="music_library" header-title="Music Library"
         :content-key="`view-${viewIndex}`">
         <template #content>
           <FillerBlock :label="`content slot — view ${viewIndex}`" :height="200" />

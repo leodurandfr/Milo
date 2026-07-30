@@ -434,12 +434,7 @@ export const REGISTRY = {
       contentKey: 'home',
       class: 'canvas-fill'
     },
-    overrides: {
-      // NavigationHeader constrains its own `variant` with a validator; this one
-      // forwards the prop without one, so the list has to be restated here.
-      headerVariant: { kind: 'enum', options: ['contrast', 'background-neutral'] },
-      headerIcon: OPTIONAL_ICON
-    },
+    overrides: { headerIcon: OPTIONAL_ICON },
     slots: {
       // Taller than the stage on purpose: the gradient sits in the top 66% and
       // the scroll-crossing fade only means something with somewhere to scroll.

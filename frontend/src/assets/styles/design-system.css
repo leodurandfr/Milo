@@ -50,6 +50,15 @@
     /* === STROKES === */
     --stroke-glass: linear-gradient(190deg, rgba(255, 255, 255, .48) 0.43%, rgba(255, 255, 255, .06) 21.15%, rgba(255, 255, 255, .48) 47.85%, rgba(255, 255, 255, .06) 78.57%);
 
+    /* === SOURCE GRADIENTS === */
+    /* The tint AudioSourceLayout washes behind the top of a browsing source.
+       Three one-off brand colours that belong to no ramp, which is why they
+       live as whole gradients here rather than as colour tokens — like
+       --stroke-glass above. Podcast fades between two purples on purpose. */
+    --gradient-source-radio: linear-gradient(180deg, #f6edcd 0%, rgba(246, 237, 205, 0) 100%);
+    --gradient-source-podcast: linear-gradient(180deg, rgba(66, 24, 112, 0.08) 0%, rgba(126, 46, 214, 0) 100%);
+    --gradient-source-music-library: linear-gradient(180deg, rgba(212, 72, 100, 0.1) 0%, rgba(212, 72, 100, 0) 100%);
+
 
 
     /* === SPACING === */
