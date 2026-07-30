@@ -293,11 +293,14 @@ onUnmounted(() => {
   transform: translateX(-50%);
 }
 
+/* Sized off the track, not the container: `flex: 1` above only means "fill the
+   height" in a column parent — in a row one it stretches the *width* instead,
+   and a container-relative thumb followed it to the full width of the host. */
 .slider-container.vertical .range-thumb {
-  left: 0;
-  width: 100%;
+  left: 50%;
+  width: 36px;
   aspect-ratio: 1 / 1.5;
-  transform: translateY(50%);
+  transform: translate(-50%, 50%);
 }
 
 /* Disabled state */
@@ -342,6 +345,10 @@ onUnmounted(() => {
   }
 
   .slider-container.vertical .range-track {
+    width: 30px;
+  }
+
+  .slider-container.vertical .range-thumb {
     width: 30px;
   }
 

@@ -142,8 +142,11 @@ const crossover = ref({ min: 80, max: 2000 });
 </script>
 
 <style scoped>
-/* The vertical orientation sizes itself from its container, so it needs one. */
+/* The vertical orientation stretches to its container, so it needs a flex one —
+   and one at least as tall as the track's own 260px floor, or it overflows. */
 .vertical-slot {
-  height: 180px;
+  display: flex;
+  flex-direction: column;
+  height: 280px;
 }
 </style>

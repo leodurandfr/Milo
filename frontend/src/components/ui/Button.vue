@@ -3,7 +3,7 @@
     <button v-press :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
         <LoadingSpinner v-if="loading" size="inherit" class="btn-icon" />
         <SvgIcon v-else-if="leftIcon" :name="leftIcon" class="btn-icon" />
-        <slot v-if="!loading || loadingLabel"></slot>
+        <slot></slot>
     </button>
 </template>
 
@@ -23,10 +23,12 @@ const props = defineProps({
         default: 'medium',
         validator: (value) => ['medium', 'small'].includes(value)
     },
+    // 'submit' only for a button inside a <form @submit.prevent>; the default
+    // 'button' is what stops any other button from submitting its ancestor form.
     type: {
         type: String,
         default: 'button',
-        validator: (value) => ['button', 'submit', 'reset'].includes(value)
+        validator: (value) => ['button', 'submit'].includes(value)
     },
     disabled: {
         type: Boolean,
@@ -39,10 +41,6 @@ const props = defineProps({
     loading: {
         type: Boolean,
         default: false
-    },
-    loadingLabel: {
-        type: Boolean,
-        default: true
     }
 })
 
@@ -66,10 +64,9 @@ const buttonClasses = computed(() => {
     const variantClass = `btn--${props.variant}`
     const sizeClass = `btn--${props.size}`
     const stateClass = getStateClass()
-    const iconClass = (props.leftIcon || (props.loading && props.loadingLabel)) ? 'btn--with-icon' : ''
-    const loadingOnlyClass = (props.loading && !props.loadingLabel) ? 'btn--loading-only' : ''
+    const iconClass = (props.leftIcon || props.loading) ? 'btn--with-icon' : ''
 
-    return `${baseClasses} ${variantClass} ${sizeClass} ${stateClass} ${iconClass} ${loadingOnlyClass}`.trim()
+    return `${baseClasses} ${variantClass} ${sizeClass} ${stateClass} ${iconClass}`.trim()
 })
 
 function handleClick(event) {
@@ -262,15 +259,6 @@ function handleClick(event) {
     background-color: var(--color-background-neutral);
     color: var(--color-error);
     box-shadow: inset 0 0 0 2px var(--color-error);
-}
-
-/* === LOADING ONLY (spinner centered, no label) === */
-.btn--medium.btn--loading-only {
-    padding: 10px;
-}
-
-.btn--small.btn--loading-only {
-    padding: 6px;
 }
 
 /* === RESPONSIVE (Mobile) === */

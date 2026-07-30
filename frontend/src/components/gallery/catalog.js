@@ -57,7 +57,7 @@ export const ENTRIES = [
     id: 'Button',
     group: 'actions',
     file: 'components/ui/Button.vue',
-    summary: '7 variants x 2 sizes. loading keeps the variant styling; loading + disabled greys out. loadingLabel: false collapses to a spinner-only square.',
+    summary: '7 variants x 2 sizes. loading keeps the variant styling; loading + disabled greys out. A labelless spinner button is IconButton, not this.',
   },
   {
     id: 'IconButton',

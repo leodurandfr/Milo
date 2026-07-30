@@ -22,7 +22,6 @@
     <GalleryVariant label="states">
       <Button disabled>disabled</Button>
       <Button variant="brand" loading>loading</Button>
-      <Button variant="brand" loading :loading-label="false">hidden label</Button>
       <Button variant="brand" loading disabled>loading + disabled</Button>
     </GalleryVariant>
     <p class="counter text-mono">click count: {{ clicks }}</p>

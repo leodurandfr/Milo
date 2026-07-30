@@ -3,11 +3,7 @@
 <template>
   <div
     class="button-group"
-    :class="[
-      `button-group--${size}`,
-      `button-group--mobile-${mobileLayout}`,
-      { 'button-group--last-full': lastFullWidth }
-    ]"
+    :class="[`button-group--${size}`, `button-group--mobile-${mobileLayout}`]"
   >
     <Button
       v-for="option in options"
@@ -51,10 +47,6 @@ const props = defineProps({
     type: String,
     default: 'wrap',
     validator: (value) => ['wrap', 'column', 'column-reverse', 'grid-3', 'scroll'].includes(value)
-  },
-  lastFullWidth: {
-    type: Boolean,
-    default: false
   },
   disabled: {
     type: Boolean,
@@ -106,11 +98,6 @@ function selectOption(value) {
   .button-group--mobile-grid-3 {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-  }
-
-  /* Last item full width (for grid-3) */
-  .button-group--mobile-grid-3.button-group--last-full :deep(.btn:last-child) {
-    grid-column: 1 / -1;
   }
 
   /* Scroll - single horizontal row, bleeding to the screen edges (assumes the

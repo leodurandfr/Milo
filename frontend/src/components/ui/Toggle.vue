@@ -1,6 +1,6 @@
 <!-- Toggle component with size variants -->
 <template>
-  <div class="toggle-container">
+  <div class="toggle-container" :class="{ 'toggle-container--disabled': disabled }">
     <h2 v-if="title" class="heading-2">{{ title }}</h2>
 
     <label v-press :class="['toggle', `toggle--${variant}`, `toggle--${size}`]">
@@ -55,6 +55,11 @@ function handleToggle(event) {
 .toggle-container h2 {
   margin: 0;
   color: var(--color-text);
+  transition: color var(--transition-fast);
+}
+
+.toggle-container--disabled h2 {
+  color: var(--color-text-light);
 }
 
 .toggle {
