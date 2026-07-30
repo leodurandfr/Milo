@@ -32,16 +32,40 @@
  */
 
 /** Directories the guardrail scans, one level deep. */
-export const SCOPE = ['components/ui', 'components/audio', 'components/settings'];
+export const SCOPE = [
+  'components/ui',
+  'components/audio',
+  'components/settings',
+  'components/radio',
+  'components/podcasts',
+];
 
 /**
- * In scope, deliberately not catalogued. The reason is the point: it is what a
- * reader gets instead of the entry, and what the next person has to disagree
- * with in writing before adding one.
+ * Screens, told apart from shared parts by name rather than one by one.
+ *
+ * A source directory mixes the two: `podcasts/` holds seven screens next to
+ * four cards. Listing every screen in EXCLUDED would mean eighteen near-identical
+ * paragraphs, which is noise a reader learns to skip — a rule stated once is
+ * something they can check. A screen owns a store and a route's worth of state;
+ * a part takes props. `AudioSourceView` is the archetype: useRichDisplay()
+ * decides which player mounts and the file has no appearance of its own.
+ *
+ * `Skeleton*` is the exception the pattern needs: SkeletonPodcastDetails ends in
+ * Details and is a loading placeholder, i.e. exactly the kind of pure part this
+ * page exists to show.
+ */
+export function isScreen(file) {
+  const name = file.split('/').pop().replace(/\.vue$/, '');
+  if (name.startsWith('Skeleton')) return false;
+  return /(View|Details|Source)$/.test(name);
+}
+
+/**
+ * In scope, not a screen by name, and still deliberately not catalogued. The
+ * reason is the point: it is what a reader gets instead of the entry, and what
+ * the next person has to disagree with in writing before adding one.
  */
 export const EXCLUDED = {
-  'components/audio/AudioSourceView.vue':
-    'A dispatcher, not a surface: useRichDisplay() decides which of AudioPlayer / AudioPlayerFull / AudioSourceStatus mounts, and this component has no appearance of its own to show.',
   'components/settings/SettingsModal.vue':
     'The settings application — ~840 lines wiring a dozen stores and every category screen. Its four building blocks are catalogued instead.',
 };
@@ -82,6 +106,11 @@ export const GROUPS = [
     id: 'layout',
     title: 'Source layouts',
     blurb: 'The five full-surface shapes a source can take: the browsing layout, the two shared players, the idle status card, and the screensaver over all of them. Which player mounts — and whether the status card takes over instead — is decided in one place, useRichDisplay().',
+  },
+  {
+    id: 'cards',
+    title: 'Cards & skeletons',
+    blurb: 'What a browsing source lists, and the placeholder each one shows while it loads. The demos pair them: a skeleton\'s whole job is to have the shape of the card it stands in for, and nowhere else in the app do the two ever appear together.',
   },
   {
     id: 'settings',
@@ -309,6 +338,63 @@ export const ENTRIES = [
     file: 'components/audio/AudioScreensaver.vue',
     coupling: 'fixed',
     summary: 'The idle takeover: position: fixed at z-index 7000, over whatever was on screen. media mode is blurred artwork + title + an optional station bar and progress bar; simple mode is an icon and two lines (Bluetooth, Mac). Turning isVisible off plays the leave animation, which lifts each element towards where its AudioPlayerFull counterpart sits. The bottom bar is gated on stationName alone — stationIcon without it renders nothing.',
+  },
+
+  // --- Cards & skeletons ---
+  {
+    id: 'StationCard',
+    group: 'cards',
+    file: 'components/radio/StationCard.vue',
+    summary: 'A radio station, in two shapes the same component serves: `card` is the horizontal row of the search and favourites lists, `image` is the bare favicon tile of the favourites grid. It mounts SkeletonStationCard over itself until the artwork resolves, so the generated SVG fallback never pops into view — the only card here that owns its own skeleton.',
+  },
+  {
+    id: 'SkeletonStationCard',
+    group: 'cards',
+    file: 'components/radio/SkeletonStationCard.vue',
+    summary: 'The tile-shaped placeholder StationCard lays over itself while a favicon loads. No props: it is one shimmering square, sized by whatever it overlays.',
+  },
+  {
+    id: 'PodcastCard',
+    group: 'cards',
+    file: 'components/podcasts/PodcastCard.vue',
+    summary: 'A show, in the search results and the subscription list. `position` prefixes the chart rank, `showActions` arms the subscribe/unsubscribe button, and `is_subscribed` on the podcast itself decides which of the two that button is.',
+  },
+  {
+    id: 'SkeletonPodcastCard',
+    group: 'cards',
+    file: 'components/podcasts/SkeletonPodcastCard.vue',
+    summary: 'The only skeleton with a variant, and the two stand in for different components: `card` is PodcastCard in the home grid, while `row` is used once, inside SkeletonPodcastDetails, where it covers the show page\'s DetailHeader. So its name matches one of its two jobs — pair each with what it replaces below and the mismatch is the thing to see.',
+  },
+  {
+    id: 'EpisodeCard',
+    group: 'cards',
+    file: 'components/podcasts/EpisodeCard.vue',
+    coupling: 'composable',
+    summary: 'An episode row. Its meta line is not a prop but a computation: useEpisodePlaybackStatus() reads the podcast and audio stores to decide between "now playing", "already listened", the time remaining, or the plain duration. Untouched stores mean the plain duration, which is what a freshly booted unit shows.',
+  },
+  {
+    id: 'SkeletonEpisodeCard',
+    group: 'cards',
+    file: 'components/podcasts/SkeletonEpisodeCard.vue',
+    summary: 'EpisodeCard\'s placeholder — cover, two text lines and the round action button, in shimmer. No props.',
+  },
+  {
+    id: 'GenreCard',
+    group: 'cards',
+    file: 'components/podcasts/GenreCard.vue',
+    summary: 'A genre tile for the podcast home. The image is not passed in: the component holds the twelve genre artworks and picks by `value`, so an unknown value renders a tile with no image rather than a broken one.',
+  },
+  {
+    id: 'SkeletonPodcastDetails',
+    group: 'cards',
+    file: 'components/podcasts/SkeletonPodcastDetails.vue',
+    summary: 'The whole show page while it loads: a DetailHeader-shaped block over a run of episode rows. No props — it mimics a layout, not a component.',
+  },
+  {
+    id: 'SkeletonEpisodeDetails',
+    group: 'cards',
+    file: 'components/podcasts/SkeletonEpisodeDetails.vue',
+    summary: 'The same for a single episode page — cover, title block and the description paragraph as shimmering bars. No props.',
   },
 
   // --- Settings composites ---
