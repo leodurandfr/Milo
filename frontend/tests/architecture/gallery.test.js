@@ -251,6 +251,48 @@ describe('component gallery playground', () => {
     expect(gaps).toEqual([]);
   });
 
+  it('invents no store field the component does not read', () => {
+    // A `state` descriptor that writes a whole record is the page simulating an
+    // app state, which is its job — but a simulation nothing consumes is the
+    // failure this page exists to prevent, reproduced inside it: rename
+    // `album_art_url` in the component and a fabricated record keeps rendering a
+    // convincing player from a key that reaches nothing. So each key is checked
+    // against the source of the files declared as reading it.
+    const orphans = [];
+    let checked = 0;
+
+    for (const [id, descriptor] of Object.entries(REGISTRY)) {
+      for (const [name, state] of Object.entries(descriptor.state || {})) {
+        if (!state.records) continue;
+
+        if (!state.readBy?.length) {
+          orphans.push(`${id}.${name} (records with no readBy)`);
+          continue;
+        }
+
+        const missing = state.readBy.filter(file => !existsSync(join(SRC_DIR, file)));
+        if (missing.length) {
+          orphans.push(`${id}.${name} (readBy gone: ${missing.join(', ')})`);
+          continue;
+        }
+
+        const consumers = state.readBy.map(file => readFileSync(join(SRC_DIR, file), 'utf8')).join('\n');
+        for (const record of state.records) {
+          for (const key of Object.keys(record)) {
+            checked += 1;
+            // Property access, not a bare word: a key named in a comment is not
+            // a key anything reads.
+            if (!new RegExp(`\\.${key}\\b`).test(consumers)) orphans.push(`${id}.${name}.${key}`);
+          }
+        }
+      }
+    }
+
+    // A `readBy` list that resolved to nothing would pass vacuously.
+    expect(checked).toBeGreaterThan(0);
+    expect(orphans).toEqual([]);
+  });
+
   it('offers at least one choice per preset, on a prop that takes one', () => {
     const broken = [];
 

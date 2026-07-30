@@ -42,10 +42,6 @@ export const SCOPE = ['components/ui', 'components/audio', 'components/settings'
 export const EXCLUDED = {
   'components/audio/AudioSourceView.vue':
     'A dispatcher, not a surface: useRichDisplay() decides which of AudioPlayer / AudioPlayerFull / AudioSourceStatus mounts, and this component has no appearance of its own to show.',
-  'components/audio/AudioPlayer.vue':
-    'The props-down/events-up player, ~25 props and a Teleport to body. Bindable in principle, but it needs a realistic arg set per source (radio / podcast / music_library) to say anything — a page of its own rather than one more entry here.',
-  'components/audio/AudioPlayerFull.vue':
-    'Store-coupled: it reads unifiedAudioStore.systemState.metadata and sends its own commands. A `state` descriptor would have to fabricate a whole now-playing record, which is the faked-state line the catalogue does not cross.',
   'components/settings/SettingsModal.vue':
     'The settings application — ~840 lines wiring a dozen stores and every category screen. Its four building blocks are catalogued instead.',
 };
@@ -85,7 +81,7 @@ export const GROUPS = [
   {
     id: 'layout',
     title: 'Source layouts',
-    blurb: 'The three full-surface shapes a source can take: the browsing layout, the idle status card, and the screensaver over both. Which one mounts is decided by useRichDisplay(), not here.',
+    blurb: 'The five full-surface shapes a source can take: the browsing layout, the two shared players, the idle status card, and the screensaver over all of them. Which player mounts — and whether the status card takes over instead — is decided in one place, useRichDisplay().',
   },
   {
     id: 'settings',
@@ -282,6 +278,19 @@ export const ENTRIES = [
   },
 
   // --- Source layouts ---
+  {
+    id: 'AudioPlayer',
+    group: 'layout',
+    file: 'components/audio/AudioPlayer.vue',
+    summary: 'The player for the three sources that have a browser (Radio, Podcasts, Music Library). Props-down / events-up over eleven props — it knows no store and no command name, which is what lets one component serve three sources. Its second form is only reachable through the Phone viewport: the Teleport is disabled above 4:3, so below it the docked sidebar card becomes a mini-bar teleported to body, expanding into a full sheet.',
+  },
+  {
+    id: 'AudioPlayerFull',
+    group: 'layout',
+    file: 'components/audio/AudioPlayerFull.vue',
+    coupling: 'store',
+    summary: 'The player for the sources with nothing to browse (Spotify, CD, AirPlay, DLNA, Qobuz). Unlike AudioPlayer it reads unifiedAudioStore itself and sends its own commands, so the now-playing record sits in the State section rather than the props table, and the four booleans are the whole layout matrix. Its progress is gated on active_source matching the source prop — point them at different sources and the bar freezes, which is the guard useSourceProgress exists for.',
+  },
   {
     id: 'AudioSourceLayout',
     group: 'layout',

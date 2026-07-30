@@ -81,6 +81,22 @@ const context = {
   keyboard: useVirtualKeyboard()
 };
 
+/**
+ * The canvas may not drive the appliance.
+ *
+ * AudioPlayerFull is the one catalogued component that acts through the store
+ * instead of emitting, and its transport buttons would otherwise POST to the
+ * real backend on the same origin — a documentation page has no business
+ * pausing what is playing in the next room. The command is reported to the
+ * event log instead, which is what a reader opened the page to see. This is the
+ * harness standing in for the outside world, not the component being altered:
+ * every other path through the store is left alone.
+ */
+context.unified.sendCommand = (source, command, data) => {
+  post({ type: 'event', name: `sendCommand(${source}, ${command})`, arg: data && JSON.stringify(data) });
+  return Promise.resolve(true);
+};
+
 const entry = computed(() => (id.value ? entryFor(id.value) : undefined));
 
 /**
@@ -284,6 +300,20 @@ onUnmounted(() => {
 .canvas :deep(.canvas-column) {
   width: 100%;
   max-width: 560px;
+}
+
+/* AudioPlayer sizes itself to its host (width and height 100%), and its host in
+   the app is AudioSourceLayout's 340px sticky pane — restated here because the
+   stage is not that pane, or the player is a full-width band.
+
+   Named by its own class rather than handed one through the args: its root is a
+   Teleport, so an inherited `class` has no element to land on and Vue says so.
+   That the selector is scoped under `.canvas` is the useful half — below 4:3 the
+   player teleports to body, out of this subtree, so the mobile mini-bar keeps
+   its own full-width geometry and only the docked form is constrained. */
+.canvas :deep(.audio-player) {
+  width: 340px;
+  align-self: stretch;
 }
 
 /* AudioSourceLayout is `height: 100%` of a pane it does not have here, and the

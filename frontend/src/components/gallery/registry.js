@@ -81,6 +81,8 @@ import PlaybackControls from '@/components/audio/PlaybackControls.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
+import AudioPlayer from '@/components/audio/AudioPlayer.vue';
+import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import AudioSourceStatus from '@/components/audio/AudioSourceStatus.vue';
 import AudioScreensaver from '@/components/audio/AudioScreensaver.vue';
@@ -103,6 +105,69 @@ const SELECT_OPTIONS = [
   { label: 'Low', value: 'low' },
   { label: 'Medium', value: 'medium' },
   { label: 'High', value: 'high' }
+];
+
+/**
+ * Simulated now-playing records for AudioPlayerFull, which reads the store
+ * rather than props.
+ *
+ * Simulating state is what a documentation page does — the catalogue's caution
+ * is about *scale* (ninety-odd per-source screens would be a second frontend),
+ * not about fabrication itself. What matters is that a fabrication cannot rot
+ * quietly: each key below is checked against the files that read it, so
+ * renaming `album_art_url` in the component turns the guardrail red instead of
+ * leaving a beautiful player rendering from a record nothing consumes.
+ *
+ * `source` travels with the record because `useSourceProgress` only ticks while
+ * `active_source` matches, so the two have to be written together.
+ */
+const NOW_PLAYING = {
+  'Spotify — playing': {
+    source: 'spotify',
+    metadata: {
+      title: 'Says',
+      artist: 'Nils Frahm',
+      album_art_url: albumPlaceholder,
+      is_playing: true,
+      position: 192000,
+      duration: 511000
+    }
+  },
+  'CD — paused': {
+    source: 'cd',
+    metadata: {
+      title: 'Ambre',
+      artist: 'Nils Frahm',
+      album_art_url: albumPlaceholder,
+      is_playing: false,
+      position: 64000,
+      duration: 264000
+    }
+  },
+  'CD — drive spinning up': {
+    source: 'cd',
+    metadata: { title: 'Ambre', artist: 'Nils Frahm', is_playing: false, disc_present: true }
+  },
+  'AirPlay — receiver, sender named': {
+    source: 'airplay',
+    metadata: {
+      title: 'Ainsi parlait Zarathoustra',
+      artist: 'Alain Bashung',
+      album_art_url: albumPlaceholder,
+      is_playing: true,
+      client_name: 'Leo’s iPhone',
+      position: 41000,
+      duration: 297000
+    }
+  },
+  'Nothing playing yet': { source: 'spotify', metadata: {} }
+};
+
+/** The files that read what NOW_PLAYING writes. Checked by the guardrail. */
+const NOW_PLAYING_READERS = [
+  'components/audio/AudioPlayerFull.vue',
+  'composables/useSourceProgress.js',
+  'utils/playbackBuffering.js'
 ];
 
 export const REGISTRY = {
@@ -418,6 +483,98 @@ export const REGISTRY = {
         'IconButton — the playlist Edit affordance': {
           component: IconButton,
           props: { icon: 'threeDots', variant: 'on-dark', size: 'small' }
+        }
+      }
+    }
+  },
+
+  AudioPlayer: {
+    component: AudioPlayer,
+    args: {
+      source: 'music_library',
+      visible: true,
+      artwork: albumPlaceholder,
+      title: 'Says',
+      isPlaying: true,
+      swipeEnabled: true,
+      currentIndex: 1
+    },
+    presets: {
+      // Read only when swipeEnabled: the carousel renders the neighbours' text
+      // locally so a swipe never waits for the backend echo.
+      tracks: {
+        'Three-track queue': [
+          { title: 'Ambre', artist: 'Nils Frahm' },
+          { title: 'Says', artist: 'Nils Frahm' },
+          { title: 'Hammers', artist: 'Nils Frahm' }
+        ],
+        'Empty queue': []
+      }
+    },
+    // Every slot takes a component this catalogue already carries, which is the
+    // composition the three sources actually build — nothing is stood in for.
+    slots: {
+      info: {
+        'PlayerInfoText': {
+          component: PlayerInfoText,
+          props: { kicker: 'Liked Songs', title: 'Says', secondary: 'Nils Frahm' }
+        },
+        none: null
+      },
+      progress: {
+        'ProgressBar — dark': {
+          component: ProgressBar,
+          props: {
+            currentPosition: 192000,
+            duration: 511000,
+            progressPercentage: 37.6,
+            variant: 'dark',
+            interactive: false
+          }
+        },
+        none: null
+      },
+      controls: {
+        'default — the built-in play/pause': null,
+        'PlaybackControls': { component: PlaybackControls, props: { isPlaying: true } }
+      },
+      'artwork-badge': {
+        none: null,
+        'AppIcon — radio': { component: AppIcon, props: { name: 'radio', size: 32 } }
+      }
+    }
+  },
+
+  AudioPlayerFull: {
+    component: AudioPlayerFull,
+    args: { source: 'spotify', showControls: true, class: 'canvas-fill' },
+    state: {
+      nowPlaying: {
+        kind: 'enum',
+        options: Object.keys(NOW_PLAYING),
+        default: 'Spotify — playing',
+        apply: (value, stores) => {
+          const record = NOW_PLAYING[value] ?? NOW_PLAYING['Spotify — playing'];
+          stores.unified.systemState.active_source = record.source;
+          stores.unified.systemState.metadata = { ...record.metadata };
+        },
+        // What the writer above invents, and where it is read. Declared so the
+        // guardrail can check the two still agree — see gallery.test.js.
+        records: Object.values(NOW_PLAYING).map(record => record.metadata),
+        readBy: NOW_PLAYING_READERS
+      }
+    },
+    slots: {
+      // CD's two: the eject/tracklist row, and the tracklist itself, which
+      // replaces the whole info column when hideContent is set.
+      'action-buttons': {
+        none: null,
+        'IconButton — eject': { component: IconButton, props: { icon: 'eject', variant: 'on-grey' } }
+      },
+      'content-replace': {
+        'FillerBlock — CD’s tracklist': {
+          component: FillerBlock,
+          props: { label: 'content-replace slot — the CD tracklist' }
         }
       }
     }
