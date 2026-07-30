@@ -1,5 +1,48 @@
 <!-- frontend/src/components/gallery/demos/LayoutDemo.vue -->
 <template>
+  <GalleryItem id="AudioPlayer">
+    <GalleryVariant label="desktop — the docked sidebar card, slots filled as the three sources fill them" contain :contain-height="420">
+      <div class="player-pane">
+        <AudioPlayer source="music_library" visible :artwork="albumPlaceholder" title="Says" is-playing>
+          <template #info>
+            <PlayerInfoText kicker="Liked Songs" title="Says" secondary="Nils Frahm" />
+          </template>
+          <template #progress>
+            <ProgressBar :current-position="192000" :duration="511000" :progress-percentage="37.6"
+              variant="dark" :interactive="false" />
+          </template>
+        </AudioPlayer>
+      </div>
+    </GalleryVariant>
+    <GalleryVariant label="controls slot — replaces the built-in play/pause" contain :contain-height="420">
+      <div class="player-pane">
+        <AudioPlayer source="radio" visible :artwork="albumPlaceholder" title="Radio Nova" is-playing>
+          <template #info>
+            <PlayerInfoText kicker="Radio Nova" title="Ainsi parlait Zarathoustra" secondary="Alain Bashung" />
+          </template>
+          <template #controls>
+            <PlaybackControls is-playing />
+          </template>
+        </AudioPlayer>
+      </div>
+    </GalleryVariant>
+    <GalleryVariant label=":is-loading — the built-in play/pause spins" contain :contain-height="420">
+      <div class="player-pane">
+        <AudioPlayer source="podcast" visible :artwork="albumPlaceholder" title="Épisode 214" is-loading>
+          <template #info>
+            <PlayerInfoText kicker="Le Code a changé" title="Épisode 214" secondary="France Inter" />
+          </template>
+        </AudioPlayer>
+      </div>
+    </GalleryVariant>
+    <GalleryVariant label="the mobile form is a viewport, not a prop — open the Playground tab and pick Phone" />
+  </GalleryItem>
+
+  <!-- No variants grid: it reads the app's own store, and this tab renders in
+       the app document rather than the canvas iframe — mounting it here would
+       show the unit's real now-playing state, and its buttons would drive it. -->
+  <GalleryItem id="AudioPlayerFull" />
+
   <GalleryItem id="AudioSourceLayout">
     <GalleryVariant label=":gradient=&quot;radio&quot; — header + content, no player" contain :contain-height="360">
       <AudioSourceLayout gradient="radio" header-title="Radio" header-subtitle="24 stations"
@@ -92,7 +135,11 @@ import { ref } from 'vue';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
 import FillerBlock from '../samples/FillerBlock.vue';
+import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
+import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
+import PlaybackControls from '@/components/audio/PlaybackControls.vue';
+import ProgressBar from '@/components/audio/ProgressBar.vue';
 import AudioSourceStatus from '@/components/audio/AudioSourceStatus.vue';
 import AudioScreensaver from '@/components/audio/AudioScreensaver.vue';
 import Button from '@/components/ui/Button.vue';
@@ -110,3 +157,12 @@ const progress = {
   isReady: true
 };
 </script>
+
+<style scoped>
+/* The 340px sticky pane AudioSourceLayout gives the player — it sizes itself to
+   its host, so without one it spans the card. */
+.player-pane {
+  width: 340px;
+  height: 100%;
+}
+</style>
