@@ -3,7 +3,7 @@
     :class="{ 'is-delayed': loading && !showLoading, 'mc--no-glyph': !icon && !showLoading, 'message-content--dark': variant === 'dark' }">
     <!-- Loading spinner OR icon (mutually exclusive) — same size, so a card
          swapping one for the other doesn't resize its glyph mid-transition. -->
-    <LoadingSpinner v-if="showLoading" :size="48" />
+    <LoadingSpinner v-if="showLoading" :size="48" variant="background" />
     <SvgIcon v-else-if="icon" :name="icon" :size="48" :color="iconColor" />
 
     <!-- Content always visible (even while loading) -->
@@ -150,6 +150,8 @@ watch(() => props.loading, (isLoading) => {
   color: var(--color-text-secondary);
 }
 
+/* The spinner's `background` variant carries its own light plate, so it sits on
+   a known surface in both variants and takes one color, not the card's. */
 .message-content > :deep(.loading-spinner) {
   color: var(--color-text-secondary);
 }
@@ -192,10 +194,6 @@ watch(() => props.loading, (isLoading) => {
 .message-content--dark .mc-subtitle,
 .message-content--dark .mc-details {
   color: var(--color-text-contrast-50);
-}
-
-.message-content--dark > :deep(.loading-spinner) {
-  color: var(--color-text-contrast);
 }
 
 @media (max-aspect-ratio: 4/3) {
