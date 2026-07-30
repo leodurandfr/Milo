@@ -112,6 +112,7 @@ import MediaDemo from '@/components/gallery/demos/MediaDemo.vue';
 import StructureDemo from '@/components/gallery/demos/StructureDemo.vue';
 import PlayerDemo from '@/components/gallery/demos/PlayerDemo.vue';
 import LayoutDemo from '@/components/gallery/demos/LayoutDemo.vue';
+import CardsDemo from '@/components/gallery/demos/CardsDemo.vue';
 import SettingsDemo from '@/components/gallery/demos/SettingsDemo.vue';
 
 // One demo per catalogue group. Keyed by group id, and tests/architecture/
@@ -125,6 +126,7 @@ const DEMOS = {
   structure: StructureDemo,
   player: PlayerDemo,
   layout: LayoutDemo,
+  cards: CardsDemo,
   settings: SettingsDemo
 };
 

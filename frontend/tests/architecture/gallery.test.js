@@ -35,24 +35,28 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
-import { GROUPS, ENTRIES, SCOPE, EXCLUDED, entriesOf } from '../../src/components/gallery/catalog.js';
+import { GROUPS, ENTRIES, SCOPE, EXCLUDED, isScreen, entriesOf } from '../../src/components/gallery/catalog.js';
 import { REGISTRY } from '../../src/components/gallery/registry.js';
 import { describeProps } from '../../src/components/gallery/controls.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
 
-/**
- * Every component in scope, by path relative to `src/`. One level deep, matching
- * the rule catalog.js states: a nested directory is per-feature screens.
- */
-const SCOPED_FILES = SCOPE
+/** Every `.vue` directly inside a scoped directory, screens included. */
+const SCANNED_FILES = SCOPE
   .flatMap(dir =>
     readdirSync(join(SRC_DIR, dir))
       .filter(name => name.endsWith('.vue'))
       .map(name => `${dir}/${name}`)
   )
   .sort();
+
+/**
+ * The shared parts, which is what the catalogue answers for. One level deep —
+ * a nested directory is per-feature screens — and minus the screens a source
+ * directory keeps beside its parts, told apart by name (see isScreen).
+ */
+const SCOPED_FILES = SCANNED_FILES.filter(file => !isScreen(file));
 
 const VIEW = readFileSync(join(SRC_DIR, 'views/ComponentsView.vue'), 'utf8');
 const CANVAS = readFileSync(join(SRC_DIR, 'components/gallery/CanvasApp.vue'), 'utf8');
@@ -105,7 +109,10 @@ describe('component gallery catalogue', () => {
 
     for (const [file, reason] of Object.entries(EXCLUDED)) {
       if (!existsSync(join(SRC_DIR, file))) problems.push(`${file} (no such file)`);
-      if (!SCOPED_FILES.includes(file)) problems.push(`${file} (not in scope — nothing to exclude)`);
+      if (!SCANNED_FILES.includes(file)) problems.push(`${file} (not in scope — nothing to exclude)`);
+      // The by-name rule already answers for it; a second answer is one more
+      // thing to keep true, and the two can disagree.
+      if (isScreen(file)) problems.push(`${file} (already out by name)`);
       if ((reason || '').length < 40) problems.push(`${file} (thin reason)`);
       if (ENTRIES.some(entry => entry.file === file)) problems.push(`${file} (also catalogued)`);
     }
@@ -113,6 +120,23 @@ describe('component gallery catalogue', () => {
     // An exclusion that outlives its file, or that never applied, is the same
     // stale-whitelist failure the catalogue side is checked for.
     expect(problems).toEqual([]);
+  });
+
+  it('separates screens from parts by name, and catalogues no screen', () => {
+    // The rule is only worth stating if it actually divides the scanned set:
+    // a pattern that matches everything, or nothing, is not a rule.
+    const screens = SCANNED_FILES.filter(file => isScreen(file));
+    expect(screens.length).toBeGreaterThan(5);
+    expect(SCOPED_FILES.length).toBeGreaterThan(screens.length);
+
+    // A skeleton is a part whatever it is named after — SkeletonPodcastDetails
+    // ends in Details and is the exception the pattern is written around.
+    const skeletons = SCANNED_FILES.filter(file => file.includes('/Skeleton'));
+    expect(skeletons.length).toBeGreaterThan(0);
+    expect(skeletons.filter(file => isScreen(file))).toEqual([]);
+
+    // And an entry that names a screen would be catalogued *and* out of scope.
+    expect(ENTRIES.map(entry => entry.file).filter(file => isScreen(file))).toEqual([]);
   });
 
   it('carries no entry for a file that no longer exists', () => {

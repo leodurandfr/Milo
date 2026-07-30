@@ -498,7 +498,15 @@ onMounted(() => {
   window.addEventListener('resize', updateFitScale);
 });
 
-onUnmounted(() => window.removeEventListener('resize', updateFitScale));
+onUnmounted(() => {
+  window.removeEventListener('resize', updateFitScale);
+  // Hand the registration back, or App.vue keeps calling into a dead instance.
+  // A full load of a `meta.chrome: false` route (the /components gallery) mounts
+  // the dock for the tick before the route resolves, then drops it — and the
+  // post-boot auto-reveal timer would then reach a showDock whose refs are all
+  // null, throwing on `dockContainer.value.classList`.
+  registerDockControl?.(null);
+});
 // hideTimeout / additionalHideTimeout are auto-cleared on unmount by useTimer;
 // the drag and volumeHold composables register their own onUnmounted hooks internally.
 </script>

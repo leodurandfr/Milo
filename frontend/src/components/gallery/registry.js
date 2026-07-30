@@ -86,6 +86,15 @@ import AudioPlayerFull from '@/components/audio/AudioPlayerFull.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import AudioSourceStatus from '@/components/audio/AudioSourceStatus.vue';
 import AudioScreensaver from '@/components/audio/AudioScreensaver.vue';
+import StationCard from '@/components/radio/StationCard.vue';
+import SkeletonStationCard from '@/components/radio/SkeletonStationCard.vue';
+import PodcastCard from '@/components/podcasts/PodcastCard.vue';
+import SkeletonPodcastCard from '@/components/podcasts/SkeletonPodcastCard.vue';
+import EpisodeCard from '@/components/podcasts/EpisodeCard.vue';
+import SkeletonEpisodeCard from '@/components/podcasts/SkeletonEpisodeCard.vue';
+import GenreCard from '@/components/podcasts/GenreCard.vue';
+import SkeletonPodcastDetails from '@/components/podcasts/SkeletonPodcastDetails.vue';
+import SkeletonEpisodeDetails from '@/components/podcasts/SkeletonEpisodeDetails.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
@@ -715,6 +724,126 @@ export const REGISTRY = {
         }
       }
     }
+  },
+
+  StationCard: {
+    component: StationCard,
+    args: { variant: 'card', class: 'canvas-column' },
+    // `favicon: ''` on purpose — getFaviconUrl returns nothing for it, so the
+    // card takes its generated-avatar path and the page needs no network.
+    presets: {
+      station: {
+        'Named, no favicon': { name: 'Radio Nova', favicon: '', countrycode: 'FR', genre: 'eclectic' },
+        'Country only': { name: 'FIP', favicon: '', countrycode: 'FR' },
+        'Long name, no metadata': {
+          name: 'France Musique — la nuit autour du jazz et des musiques improvisées',
+          favicon: ''
+        }
+      }
+    },
+    slots: {
+      actions: {
+        none: null,
+        'IconButton — favourite': {
+          component: IconButton,
+          props: { icon: 'heart', variant: 'background-strong', size: 'small' }
+        }
+      }
+    }
+  },
+
+  SkeletonStationCard: {
+    component: SkeletonStationCard,
+    args: { class: 'canvas-artwork' }
+  },
+
+  PodcastCard: {
+    component: PodcastCard,
+    args: { showActions: true, class: 'canvas-column' },
+    presets: {
+      podcast: {
+        'Not subscribed': {
+          uuid: 'a1',
+          name: 'Le Code a changé',
+          publisher: 'France Inter',
+          image_url: albumPlaceholder,
+          is_subscribed: false
+        },
+        'Subscribed': {
+          uuid: 'a2',
+          name: 'Le Code a changé',
+          publisher: 'France Inter',
+          image_url: albumPlaceholder,
+          is_subscribed: true
+        },
+        'No artwork': { uuid: 'a3', name: 'Affaires sensibles', publisher: 'France Inter' }
+      }
+    }
+  },
+
+  SkeletonPodcastCard: {
+    component: SkeletonPodcastCard,
+    args: { class: 'canvas-column' }
+  },
+
+  EpisodeCard: {
+    component: EpisodeCard,
+    args: { showCompleteButton: true, class: 'canvas-column' },
+    // `date_published` is epoch seconds, the Podcast Index unit, and `duration`
+    // is seconds — the same pair TrackRow reads as seconds and ProgressBar as
+    // milliseconds. Fixed values rather than a computed "now": a date that moves
+    // with the clock would make the card read differently every day.
+    presets: {
+      episode: {
+        'With show and date': {
+          uuid: 'e1',
+          name: 'Les gens qui parlent à leurs plantes',
+          image_url: albumPlaceholder,
+          duration: 2940,
+          date_published: 1750000000,
+          podcast: { name: 'Le Code a changé', image_url: albumPlaceholder }
+        },
+        'No date, no show': { uuid: 'e2', name: 'Épisode sans métadonnées', duration: 1800 },
+        'Long title': {
+          uuid: 'e3',
+          name: 'Un titre d’épisode assez long pour dépasser la largeur de la carte et devoir être coupé',
+          duration: 5400,
+          date_published: 1750000000,
+          podcast: { name: 'Affaires sensibles' }
+        }
+      }
+    }
+  },
+
+  SkeletonEpisodeCard: {
+    component: SkeletonEpisodeCard,
+    args: { class: 'canvas-column' }
+  },
+
+  GenreCard: {
+    component: GenreCard,
+    args: { label: 'True Crime', value: 'true_crime' },
+    // The twelve artworks live in the component; `value` picks one, and a value
+    // it does not know renders the tile with no image at all.
+    overrides: {
+      value: {
+        kind: 'enum',
+        options: [
+          'comedy', 'society_and_culture', 'news', 'true_crime', 'business', 'education',
+          'health_and_fitness', 'sports', 'arts', 'science', 'tv_and_film', 'music', 'unknown'
+        ]
+      }
+    }
+  },
+
+  SkeletonPodcastDetails: {
+    component: SkeletonPodcastDetails,
+    args: { class: 'canvas-column' }
+  },
+
+  SkeletonEpisodeDetails: {
+    component: SkeletonEpisodeDetails,
+    args: { class: 'canvas-column' }
   },
 
   SettingsContainer: {

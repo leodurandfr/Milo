@@ -452,7 +452,9 @@ function closeSettings() {
   settingsInitialView.value = 'home'; // Reset for next open
 }
 
-// Dock control registration (for auto-show on boot)
+// Dock control registration (for auto-show on boot). The Dock hands it back on
+// unmount — `null` — so a route that drops the chrome cannot leave this holding
+// a callback whose component is gone.
 let showDockFn = null;
 function registerDockControl(showFn) {
   showDockFn = showFn;
