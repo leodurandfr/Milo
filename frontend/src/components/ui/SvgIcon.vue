@@ -12,16 +12,6 @@
 </template>
 
 <script>
-// Global counter to generate unique IDs for each instance
-let instanceCounter = 0;
-</script>
-
-<script setup>
-import { computed } from 'vue'
-import { logger } from '@/services/logger'
-
-const instanceId = ++instanceCounter;
-
 import playIcon from '@/assets/icons/play.svg?raw'
 import pauseIcon from '@/assets/icons/pause.svg?raw'
 import nextIcon from '@/assets/icons/next.svg?raw'
@@ -72,6 +62,7 @@ import infraredIcon from '@/assets/icons/infrared.svg?raw'
 import shuffleIcon from '@/assets/icons/shuffle.svg?raw'
 import lyricsIcon from '@/assets/icons/lyrics.svg?raw'
 import arrowExtendedIcon from '@/assets/icons/arrow-extended.svg?raw'
+import hardwareIcon from '@/assets/icons/hardware.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -123,8 +114,29 @@ const icons = {
   infrared: infraredIcon,
   shuffle: shuffleIcon,
   lyrics: lyricsIcon,
-  arrowExtended: arrowExtendedIcon
+  arrowExtended: arrowExtendedIcon,
+  hardware: hardwareIcon
 }
+
+/**
+ * Every name `<SvgIcon>` can resolve, derived from the registry above.
+ *
+ * The component gallery renders the whole set from this list, so a newly
+ * imported icon shows up there without a second list to remember — and an
+ * `icon="…"` prop pointing at an unregistered name (which renders nothing and
+ * only warns) stays visible instead of silently missing.
+ */
+export const ICON_NAMES = Object.keys(icons)
+
+// Global counter to generate unique IDs for each instance
+let instanceCounter = 0;
+</script>
+
+<script setup>
+import { computed } from 'vue'
+import { logger } from '@/services/logger'
+
+const instanceId = ++instanceCounter;
 
 const props = defineProps({
   name: { type: String, required: true },

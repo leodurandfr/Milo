@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" class="notranslate" translate="no">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="google" content="notranslate" />
+  <title>Milō — component canvas</title>
+
+  <!--
+    The gallery's isolated render surface, loaded only inside the /components
+    iframe — never navigated to directly.
+
+    It is a second entry rather than a route so it does not boot the app: no
+    WebSocket, no settings fetch, no boot gating, no Dock. Being its own document
+    is also the whole reason the iframe exists — the app's breakpoints are
+    `@media (max-aspect-ratio: 4/3)`, and only a real viewport of its own makes
+    that branch reachable from a desktop browser.
+  -->
+</head>
+
+<body>
+  <div id="canvas"></div>
+  <script type="module" src="/src/canvas-main.js"></script>
+</body>
+
+</html>
