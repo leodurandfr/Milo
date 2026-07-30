@@ -207,13 +207,23 @@ export const REGISTRY = {
     component: ListItemButton,
     args: { title: 'Loudness', subtitle: 'A subtitle stacks under the title', action: 'toggle' },
     // The leading icon is a slot, not a prop, so it cannot appear in the props
-    // table — these are the choices the Slots section offers instead.
+    // table — these are the choices the Slots section offers instead. `title`
+    // and `subtitle` are slots *over* props of the same name: filling one
+    // replaces the text the prop would have printed.
     slots: {
       icon: {
         none: null,
         'AppIcon — radio': { component: AppIcon, props: { name: 'radio', size: 32 } },
         'AppIcon — spotify': { component: AppIcon, props: { name: 'spotify', size: 32 } },
         'SvgIcon — speakerShelf': { component: SvgIcon, props: { name: 'speakerShelf', size: 24 } }
+      },
+      title: {
+        'none — the title prop shows': null,
+        'text override': { text: 'Slotted title' }
+      },
+      subtitle: {
+        'none — the subtitle prop shows': null,
+        'text override': { text: 'Slotted subtitle' }
       }
     }
   },
@@ -226,7 +236,18 @@ export const REGISTRY = {
   ToggleSection: {
     component: ToggleSection,
     args: { title: 'Compressor', enabled: true },
-    slots: { default: 'Content revealed by the header toggle.' },
+    slots: {
+      default: 'Content revealed by the header toggle.',
+      title: {
+        'none — the title prop shows': null,
+        'text override': { text: 'Slotted title' }
+      },
+      // Sits beside the header toggle, so it holds the row's secondary control.
+      actions: {
+        none: null,
+        'IconButton — reset': { component: IconButton, props: { icon: 'arrowCounterClockwise', size: 'small' } }
+      }
+    },
     // No v-model here: the section reports through `change`.
     sync: { change: 'enabled' }
   },
@@ -306,7 +327,15 @@ export const REGISTRY = {
     // The class goes on the component: its layers are absolutely positioned, so
     // the root collapses unless something sizes it.
     args: { src: albumPlaceholder, alt: 'Artwork', class: 'canvas-artwork' },
-    overrides: { priority: { kind: 'enum', options: ['auto', 'high', 'low'] } }
+    overrides: { priority: { kind: 'enum', options: ['auto', 'high', 'low'] } },
+    // The default slot lays over the image rather than beside it — where a
+    // caller puts a play affordance or a badge on top of the artwork.
+    slots: {
+      default: {
+        none: null,
+        'IconButton — a play badge': { component: IconButton, props: { icon: 'play', variant: 'on-grey' } }
+      }
+    }
   },
 
   SvgIcon: {
@@ -349,7 +378,16 @@ export const REGISTRY = {
   NavigationHeader: {
     component: NavigationHeader,
     args: { title: 'Radio Nova', subtitle: 'Paris, France', showBack: true },
-    overrides: { icon: OPTIONAL_ICON }
+    overrides: { icon: OPTIONAL_ICON },
+    // The slot hands down the icon variant matching the header's own — a scoped
+    // prop the canvas cannot pass to a fixed choice, so the variant is pinned
+    // here and the Variants tab is where that wiring is shown.
+    slots: {
+      actions: {
+        none: null,
+        'IconButton — search': { component: IconButton, props: { icon: 'search', variant: 'on-dark' } }
+      }
+    }
   },
 
   Dock: {
