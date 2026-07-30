@@ -77,7 +77,7 @@
           ref="scrollSentinel"
           class="scroll-sentinel"
         >
-          <Button variant="background-strong" disabled loading loading-label>
+          <Button variant="background-strong" disabled loading>
             {{ t('audioSources.radioSource.loadingStations') }}
           </Button>
         </div>

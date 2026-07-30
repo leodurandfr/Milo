@@ -78,17 +78,50 @@ const selectedLabel = computed(() => {
   return selected ? selected.label : props.placeholder;
 });
 
+/**
+ * The trigger's viewport box *at rest*.
+ *
+ * The menu is positioned one tick after the click, while v-press still holds
+ * its scale-down on the trigger — reading the raw BCR there is what made the
+ * menu narrower than the button and nudged it right. So take the untransformed
+ * layout size (`offsetWidth`, transform-immune), scale it by whatever the
+ * ancestors apply (the kiosk `ui_scale` on #app — the menu teleports outside
+ * it, so it must be positioned in scaled viewport coordinates), and rebuild the
+ * box around the centre, which the press transform leaves in place.
+ */
+function getTriggerRestRect() {
+  const wrapper = dropdownRef.value;
+  const trigger = wrapper?.querySelector('.dropdown-trigger');
+  if (!trigger) return null;
+
+  const pressed = trigger.getBoundingClientRect();
+  // The wrapper carries no transform of its own, so it reveals the ancestor scale.
+  const scale = wrapper.offsetWidth > 0
+    ? wrapper.getBoundingClientRect().width / wrapper.offsetWidth
+    : 1;
+  const width = trigger.offsetWidth * scale;
+  const height = trigger.offsetHeight * scale;
+  const centerX = pressed.left + pressed.width / 2;
+  const centerY = pressed.top + pressed.height / 2;
+
+  return {
+    width,
+    height,
+    left: centerX - width / 2,
+    right: centerX + width / 2,
+    top: centerY - height / 2,
+    bottom: centerY + height / 2
+  };
+}
+
 function calculateDropdownDirection() {
   if (!dropdownRef.value) return;
 
   const BOTTOM_MARGIN = 24; // Minimum margin in pixels
   const MENU_MAX_HEIGHT = 340; // Max height of dropdown menu (CSS max-height)
 
-  // Get trigger button position (not the wrapper div)
-  const triggerButton = dropdownRef.value.querySelector('.dropdown-trigger');
-  if (!triggerButton) return;
-
-  const triggerRect = triggerButton.getBoundingClientRect();
+  const triggerRect = getTriggerRestRect();
+  if (!triggerRect) return;
 
   // Get actual menu height if available (after render), otherwise use max
   const actualMenuHeight = menuRef.value?.offsetHeight || MENU_MAX_HEIGHT;
