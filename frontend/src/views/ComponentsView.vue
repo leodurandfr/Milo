@@ -60,6 +60,7 @@
           :id="selected"
           :args="args"
           :slots="slotChoices"
+          :presets="presetChoices"
           :state="stateValues"
           class="gallery__canvas"
           @event="pushEvent"
@@ -79,12 +80,15 @@
         :args="args"
         :slot-options="slotOptions"
         :slot-choices="slotChoices"
+        :preset-options="presetOptions"
+        :preset-choices="presetChoices"
         :state="playground?.state || {}"
         :state-values="stateValues"
         :action-names="actionNames"
         :log="log"
         @update="mergeArgs"
         @slot="mergeSlots"
+        @preset="mergePresets"
         @state="mergeState"
         @action="runAction"
       />
@@ -106,6 +110,9 @@ import ControlsDemo from '@/components/gallery/demos/ControlsDemo.vue';
 import FeedbackDemo from '@/components/gallery/demos/FeedbackDemo.vue';
 import MediaDemo from '@/components/gallery/demos/MediaDemo.vue';
 import StructureDemo from '@/components/gallery/demos/StructureDemo.vue';
+import PlayerDemo from '@/components/gallery/demos/PlayerDemo.vue';
+import LayoutDemo from '@/components/gallery/demos/LayoutDemo.vue';
+import SettingsDemo from '@/components/gallery/demos/SettingsDemo.vue';
 
 // One demo per catalogue group. Keyed by group id, and tests/architecture/
 // gallery.test.js checks the two sets match — a group with no demo would
@@ -115,7 +122,10 @@ const DEMOS = {
   controls: ControlsDemo,
   feedback: FeedbackDemo,
   media: MediaDemo,
-  structure: StructureDemo
+  structure: StructureDemo,
+  player: PlayerDemo,
+  layout: LayoutDemo,
+  settings: SettingsDemo
 };
 
 const TAB_OPTIONS = [
@@ -133,6 +143,7 @@ const query = ref('');
 const tab = ref('playground');
 const args = ref({});
 const slotChoices = ref({});
+const presetChoices = ref({});
 const stateValues = ref({});
 const log = ref([]);
 const canvas = ref(null);
@@ -169,6 +180,14 @@ const slotOptions = computed(() => {
   return offered;
 });
 
+/** prop name -> the preset keys the descriptor names for it. */
+const presetOptions = computed(() => {
+  const presets = playground.value?.presets ?? {};
+  const offered = {};
+  for (const [name, choices] of Object.entries(presets)) offered[name] = Object.keys(choices);
+  return offered;
+});
+
 const actionNames = computed(() => Object.keys(playground.value?.actions ?? {}));
 
 /**
@@ -200,6 +219,10 @@ function mergeArgs(patch) {
 
 function mergeSlots(patch) {
   slotChoices.value = { ...slotChoices.value, ...patch };
+}
+
+function mergePresets(patch) {
+  presetChoices.value = { ...presetChoices.value, ...patch };
 }
 
 function mergeState(patch) {
@@ -234,9 +257,20 @@ function initialSlots(id) {
   return choices;
 }
 
+/** Same rule for the preset props: whichever the descriptor declares first. */
+function initialPresets(id) {
+  const descriptor = entryFor(id);
+  const choices = {};
+  for (const [name, definition] of Object.entries(descriptor?.presets ?? {})) {
+    choices[name] = Object.keys(definition)[0];
+  }
+  return choices;
+}
+
 watch(selected, (id) => {
   args.value = initialArgs(id);
   slotChoices.value = initialSlots(id);
+  presetChoices.value = initialPresets(id);
   stateValues.value = initialState(id);
   log.value = [];
 }, { immediate: true });

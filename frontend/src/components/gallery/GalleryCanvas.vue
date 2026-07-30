@@ -65,6 +65,11 @@ const props = defineProps({
     type: Object,
     default: () => ({})
   },
+  /** prop name -> chosen preset key, resolved canvas-side like the slots. */
+  presets: {
+    type: Object,
+    default: () => ({})
+  },
   /** state name -> value, applied by the descriptor's own writer in the canvas. */
   state: {
     type: Object,
@@ -170,6 +175,7 @@ function send() {
       id: props.id,
       args: plain(props.args),
       slots: plain(props.slots),
+      presets: plain(props.presets),
       state: plain(props.state)
     },
     window.location.origin
@@ -208,7 +214,7 @@ function handleMessage(event) {
   }
 }
 
-watch(() => [props.id, props.args, props.slots, props.state], send, { deep: true });
+watch(() => [props.id, props.args, props.slots, props.presets, props.state], send, { deep: true });
 
 let observer = null;
 

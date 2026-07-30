@@ -1,14 +1,12 @@
 // frontend/src/components/gallery/registry.js
 /**
- * What the playground needs to render one primitive on its own.
+ * What the playground needs to render one component on its own.
  *
  * Everything derivable is derived (see controls.js) — this file holds only what
  * a component cannot tell us about itself:
  *
  *   args      starting prop values. A required prop with no default must appear
  *             here or the canvas renders a broken instance.
- *   slots     slot name -> plain text. Text only, on purpose: rich slot content
- *             is composition, and the Variants tab already shows it.
  *   overrides per-prop control shape, for the two cases controls.js cannot read —
  *             a validator closing over an identifier, and a short useful list on
  *             a prop that has no validator at all.
@@ -19,10 +17,22 @@
  *             offers as a select. Slot content cannot be sent over postMessage,
  *             so the parent sends the chosen *key* and the canvas resolves it
  *             here — which works because this file is bundled into both.
+ *   presets   prop name -> a map of named values, for the object-typed props no
+ *             widget can express: a song record, a progress record, a device
+ *             list. Resolved by key on the canvas side exactly like a slot, and
+ *             for the same reason — the *name* is the documentation, and it
+ *             would not survive the trip. A preset satisfies a required prop.
  *   state     store writes a component depends on, exposed as controls. Nothing
  *             here is derivable: a store field is not introspectable the way a
  *             prop is.
  *   actions   named triggers the panel renders as buttons and the canvas runs.
+ *   surface   which tone the canvas paints behind the component, as a function of
+ *             the current args — a translucent variant drawn for a dark backdrop
+ *             is illegible on the light stage, which is how a variant gets read
+ *             as broken. It returns a tone CanvasApp.vue declares a class for
+ *             ('contrast', 'medium'), or nothing for the default light stage, and
+ *             it splits the same way the Variants tab's strips do, so a variant
+ *             is judged against one surface on both tabs.
  *
  * The three store-coupled primitives — Dock, VolumeBar, VirtualKeyboard — are in
  * here rather than excluded, and they need no fabricated state to be worth
@@ -32,6 +42,13 @@
  * honestly now, because the iframe is a viewport of its own. Their actions drive
  * the same paths a user does — the Dock's reveal action clicks its own drag pill
  * rather than reaching into the component.
+ *
+ * The shared composites (the player parts, the three layouts, the settings
+ * wrappers) need no state either — that is the admission rule catalog.js states,
+ * and what is left is props and slot content. Two things recur for them: `class`
+ * in the args, because a component that fills a column in the app shrinks to its
+ * content on a stage that centres, and a slot choice pointing at samples/, for
+ * the slots that receive a whole view rather than a line of text.
  *
  * Vue imports live here rather than in catalog.js, which stays plain data so the
  * architecture test can read it under Node.
@@ -59,6 +76,21 @@ import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import Dock from '@/components/ui/Dock.vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
 import VirtualKeyboard from '@/components/ui/VirtualKeyboard.vue';
+import ProgressBar from '@/components/audio/ProgressBar.vue';
+import PlaybackControls from '@/components/audio/PlaybackControls.vue';
+import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
+import TrackRow from '@/components/audio/TrackRow.vue';
+import DetailHeader from '@/components/audio/DetailHeader.vue';
+import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
+import AudioSourceStatus from '@/components/audio/AudioSourceStatus.vue';
+import AudioScreensaver from '@/components/audio/AudioScreensaver.vue';
+import SettingsContainer from '@/components/settings/SettingsContainer.vue';
+import SettingsSection from '@/components/settings/SettingsSection.vue';
+import SettingItem from '@/components/settings/SettingItem.vue';
+import SectionHeader from '@/components/settings/SectionHeader.vue';
+import FillerBlock from './samples/FillerBlock.vue';
+import ControlSample from './samples/ControlSample.vue';
+import SettingsSample from './samples/SettingsSample.vue';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
@@ -78,13 +110,23 @@ export const REGISTRY = {
     component: Button,
     args: { variant: 'brand' },
     slots: { default: 'Button' },
-    overrides: { leftIcon: OPTIONAL_ICON }
+    overrides: { leftIcon: OPTIONAL_ICON },
+    // Six of the seven variants are self-coloured; `on-dark` is a translucent
+    // white plate with white text, and shows as neither on the light stage.
+    surface: args => (args.variant === 'on-dark' ? 'contrast' : null)
   },
 
   IconButton: {
     component: IconButton,
     args: { icon: 'play' },
-    overrides: { icon: REQUIRED_ICON }
+    overrides: { icon: REQUIRED_ICON },
+    // `on-grey` is the translucent dark plate the app puts over artwork, so its
+    // backdrop is a mid tone rather than a dark one — the split ActionsDemo's two
+    // strips make.
+    surface: args => {
+      if (args.variant === 'on-grey') return 'medium';
+      return ['on-dark', 'ghost'].includes(args.variant) ? 'contrast' : null;
+    }
   },
 
   ButtonGroup: {
@@ -158,7 +200,10 @@ export const REGISTRY = {
   LoadingSpinner: {
     component: LoadingSpinner,
     args: { size: 48 },
-    overrides: { size: PIXEL_SIZE }
+    overrides: { size: PIXEL_SIZE },
+    // The `background` variant is the same spinner on its own light plate: on the
+    // light stage the plate is invisible and the variant looks identical.
+    surface: args => (args.variant === 'background' ? 'contrast' : null)
   },
 
   NotificationBanner: {
@@ -185,7 +230,10 @@ export const REGISTRY = {
       variant: { kind: 'enum', options: ['default', 'dark'] },
       ctaVariant: { kind: 'enum', options: ['brand', 'background-strong', 'outline', 'important'] },
       ctaSecondaryVariant: { kind: 'enum', options: ['background-strong', 'brand', 'outline', 'important'] }
-    }
+    },
+    // `dark` drops the card and colours every line white, for the blurred artwork
+    // the Lyrics view lays it over.
+    surface: args => (args.variant === 'dark' ? 'contrast' : null)
   },
 
   LazyImage: {
@@ -202,7 +250,12 @@ export const REGISTRY = {
     overrides: {
       name: REQUIRED_ICON,
       size: { kind: 'enum', options: [16, 24, 32, 48, 64, 'small', 'medium', 'large'] }
-    }
+    },
+    // Every fill is rewritten to currentColor, including one inside a <mask>, so a
+    // luminance-masked glyph disappears when currentColor is dark. The keyboard
+    // ones are only ever drawn on VirtualKeyboard's light-on-dark keys — same
+    // reason MediaDemo gives them their own strip.
+    surface: args => (String(args.name).startsWith('keyboard') ? 'contrast' : null)
   },
 
   AppIcon: {
@@ -301,6 +354,218 @@ export const REGISTRY = {
       'Open (text)': (ctx) => ctx.keyboard.open({ value: 'Radio Nova', placeholder: 'Station name' }),
       'Open (empty)': (ctx) => ctx.keyboard.open({ placeholder: 'Wi-Fi password' }),
       Close: (ctx) => ctx.keyboard.close()
+    }
+  },
+
+  ProgressBar: {
+    component: ProgressBar,
+    // Milliseconds, the wire convention the component documents: 3:12 of 4:05.
+    args: { currentPosition: 192000, duration: 245000, progressPercentage: 78.4 },
+    // `dark` is the light-fill variant drawn for the surfaces over artwork — on
+    // the light stage its fill is white on white.
+    surface: args => (args.variant === 'dark' ? 'contrast' : null)
+  },
+
+  PlaybackControls: {
+    component: PlaybackControls,
+    args: { isPlaying: true }
+  },
+
+  PlayerInfoText: {
+    component: PlayerInfoText,
+    args: {
+      kicker: 'Radio Nova',
+      title: 'Ainsi parlait Zarathoustra',
+      secondary: 'Alain Bashung',
+      class: 'canvas-column'
+    }
+  },
+
+  TrackRow: {
+    component: TrackRow,
+    args: { number: 4, showArtist: true, showMenu: true, coverUrl: albumPlaceholder, class: 'canvas-column' },
+    // `duration` is seconds here, unlike ProgressBar's milliseconds — the row
+    // formats what the catalogue hands it, and Subsonic reports seconds.
+    presets: {
+      song: {
+        'Track': { title: 'Says', artist: 'Nils Frahm', duration: 511 },
+        'Long title': {
+          title: 'Ambre — a very long track title that has to elide before it reaches the duration',
+          artist: 'Nils Frahm',
+          duration: 264
+        },
+        'No artist (showArtist has nothing to show)': { title: 'Untitled', duration: 128 }
+      }
+    }
+  },
+
+  DetailHeader: {
+    component: DetailHeader,
+    args: {
+      imageSrc: albumPlaceholder,
+      title: 'Spaces',
+      subtitle: 'Nils Frahm',
+      subtitleMeta: '2013 · 17 tracks · 1 h 21',
+      showFavorite: true,
+      class: 'canvas-column'
+    },
+    // `icon` swaps the cover for a tinted tile — the virtual headers (Liked
+    // Songs, a genre) take that branch. No validator on it, so the list is here.
+    overrides: { icon: OPTIONAL_ICON },
+    slots: {
+      actions: {
+        none: null,
+        'IconButton — the playlist Edit affordance': {
+          component: IconButton,
+          props: { icon: 'threeDots', variant: 'on-dark', size: 'small' }
+        }
+      }
+    }
+  },
+
+  AudioSourceLayout: {
+    component: AudioSourceLayout,
+    args: {
+      headerTitle: 'Podcasts',
+      headerSubtitle: '12 subscriptions',
+      headerShowBack: true,
+      gradient: 'podcast',
+      showPlayer: true,
+      contentKey: 'home',
+      class: 'canvas-fill'
+    },
+    overrides: {
+      // NavigationHeader constrains its own `variant` with a validator; this one
+      // forwards the prop without one, so the list has to be restated here.
+      headerVariant: { kind: 'enum', options: ['contrast', 'background-neutral'] },
+      headerIcon: OPTIONAL_ICON
+    },
+    slots: {
+      // Taller than the stage on purpose: the gradient sits in the top 66% and
+      // the scroll-crossing fade only means something with somewhere to scroll.
+      content: {
+        'Tall block — scrolls past the gradient': {
+          component: FillerBlock,
+          props: { label: 'content slot — the source’s own browser', height: 1200 }
+        },
+        'Short block': {
+          component: FillerBlock,
+          props: { label: 'content slot', height: 240 }
+        }
+      },
+      player: {
+        'Player-shaped block': {
+          component: FillerBlock,
+          props: { label: 'player slot — AudioPlayer in the app' }
+        },
+        none: null
+      },
+      'header-actions': {
+        none: null,
+        'IconButton — search': {
+          component: IconButton,
+          props: { icon: 'search', variant: 'ghost' }
+        }
+      }
+    }
+  },
+
+  AudioSourceStatus: {
+    component: AudioSourceStatus,
+    args: { sourceType: 'bluetooth', sourceState: 'active' },
+    overrides: {
+      // The validator is `value === 'none' || ALL_AUDIO_SOURCES.includes(value)`
+      // — not a literal-array test, so there is nothing for the parser to read.
+      sourceType: { kind: 'enum', options: ['none', ...ALL_AUDIO_SOURCES] },
+      // No validator at all. These are the six states the component branches on;
+      // anything else falls through to the "waiting" line.
+      sourceState: {
+        kind: 'enum',
+        options: ['waiting', 'starting', 'active', 'ejecting', 'loading_disc', 'no_drive']
+      }
+    },
+    // Only read in the `active` branch, and the array is the ROC case: several
+    // Macs streaming at once, which formatDeviceNames joins across two lines.
+    presets: {
+      deviceName: {
+        'One sender': 'Leo’s iPhone',
+        'Two senders (ROC)': ['Leo’s MacBook', 'Studio iMac'],
+        none: ''
+      }
+    }
+  },
+
+  AudioScreensaver: {
+    component: AudioScreensaver,
+    args: {
+      isVisible: true,
+      mode: 'media',
+      artwork: albumPlaceholder,
+      title: 'Ainsi parlait Zarathoustra',
+      subtitle: 'Alain Bashung',
+      stationName: 'Radio Nova',
+      sourceType: 'bluetooth'
+    },
+    overrides: {
+      // Doubles as an AppIcon name in simple mode, and has no validator of its
+      // own — the accepted set is AppIcon's, which is the source list.
+      sourceType: { kind: 'enum', options: [null, ...ALL_AUDIO_SOURCES] },
+      // The bottom-bar glyph for the sources with no favicon (AirPlay's sender).
+      // An AppIcon name, not an SvgIcon one — the bar renders <AppIcon>.
+      stationIcon: { kind: 'enum', options: [null, ...APP_ICON_NAMES] }
+    },
+    presets: {
+      progress: {
+        none: null,
+        'Mid-episode': {
+          currentPosition: 812000,
+          duration: 2940000,
+          progressPercentage: 27.6,
+          isReady: true
+        }
+      }
+    }
+  },
+
+  SettingsContainer: {
+    component: SettingsContainer,
+    args: { class: 'canvas-column' },
+    // Declares no props: the gap between children is the entire component, so
+    // the sample has to be two real sections for there to be a gap to see.
+    slots: { default: { 'Two settings sections': { component: SettingsSample } } }
+  },
+
+  SettingsSection: {
+    component: SettingsSection,
+    args: { title: 'Volume', class: 'canvas-column' },
+    slots: {
+      // The header slot replaces the built-in <h2>, so with a choice made the
+      // `title` prop above stops showing — which is the thing worth seeing.
+      header: {
+        'none — the title prop shows': null,
+        'SectionHeader — replaces the title': {
+          component: SectionHeader,
+          props: { title: 'Volume', subtitle: 'Startup level and limits' }
+        }
+      },
+      default: { 'A control': { component: ControlSample } }
+    }
+  },
+
+  SettingItem: {
+    component: SettingItem,
+    args: { label: 'Startup volume', class: 'canvas-column' },
+    slots: { default: { 'A control': { component: ControlSample } } }
+  },
+
+  SectionHeader: {
+    component: SectionHeader,
+    args: { title: 'Stations', subtitle: '24 saved', class: 'canvas-column' },
+    slots: {
+      actions: {
+        none: null,
+        'IconButton — add': { component: IconButton, props: { icon: 'plus', variant: 'brand' } }
+      }
     }
   }
 };

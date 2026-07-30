@@ -1,25 +1,54 @@
 // frontend/src/components/gallery/catalog.js
 /**
- * The primitive catalogue behind /components.
+ * The component catalogue behind /components.
  *
  * Metadata only — no Vue import, no component reference — for two reasons:
  * the page reads it for its headings and nav, and
  * tests/architecture/gallery.test.js reads it under Node to check that every
- * components/ui/*.vue is listed and that no entry points at a deleted file.
+ * file in scope is listed and that no entry points at a deleted file.
  * The demos themselves live in demos/, one file per group.
  *
- * Scope is deliberately ui/ and nothing else. The ~92 per-source screens are
- * coupled to their stores; putting them here would mean faking state, which is
- * a second frontend to maintain. The shared composites (audio/, the
- * settings/ primitives) are a defensible later addition — they are genuinely
- * reused — but they need realistic props, so they are not in v1.
+ * ## What is in scope, and why it is not a glob
  *
- * coupling says why a primitive is not a pure props-in component: it reads a
+ * v1 was `components/ui/` and nothing else, which a directory listing could
+ * check in both directions. The catalogue now also carries the *shared
+ * composites* — the audio parts three or more features build their screens out
+ * of, and the four settings wrappers half the app is made of — and those two
+ * directories cannot be globbed: `AudioSourceView.vue` is a dispatcher with no
+ * appearance of its own, `SettingsModal.vue` is an application.
+ *
+ * So SCOPE names the directories, and every `.vue` directly inside one is
+ * either catalogued below or listed in EXCLUDED **with a reason**. That keeps
+ * the property v1 had — a shared composite cannot land unlisted — without
+ * forcing the dispatchers onto a page that exists to be looked at. Scanning is
+ * one level deep on purpose: `settings/categories/` is per-feature screens,
+ * which are coupled to their stores and would mean faking state.
+ *
+ * coupling says why an entry is not a pure props-in component: it reads a
  * store, is driven by a composable, or is position: fixed app chrome. It is
- * documentation rather than a capability flag — all 23 do render in the
+ * documentation rather than a capability flag — every entry renders in the
  * playground — and it earns its place because a reader who takes Dock for a
  * reusable primitive is the mistake worth preventing.
  */
+
+/** Directories the guardrail scans, one level deep. */
+export const SCOPE = ['components/ui', 'components/audio', 'components/settings'];
+
+/**
+ * In scope, deliberately not catalogued. The reason is the point: it is what a
+ * reader gets instead of the entry, and what the next person has to disagree
+ * with in writing before adding one.
+ */
+export const EXCLUDED = {
+  'components/audio/AudioSourceView.vue':
+    'A dispatcher, not a surface: useRichDisplay() decides which of AudioPlayer / AudioPlayerFull / AudioSourceStatus mounts, and this component has no appearance of its own to show.',
+  'components/audio/AudioPlayer.vue':
+    'The props-down/events-up player, ~25 props and a Teleport to body. Bindable in principle, but it needs a realistic arg set per source (radio / podcast / music_library) to say anything — a page of its own rather than one more entry here.',
+  'components/audio/AudioPlayerFull.vue':
+    'Store-coupled: it reads unifiedAudioStore.systemState.metadata and sends its own commands. A `state` descriptor would have to fabricate a whole now-playing record, which is the faked-state line the catalogue does not cross.',
+  'components/settings/SettingsModal.vue':
+    'The settings application — ~840 lines wiring a dozen stores and every category screen. Its four building blocks are catalogued instead.',
+};
 
 /** Groups, in page order. */
 export const GROUPS = [
@@ -48,9 +77,24 @@ export const GROUPS = [
     title: 'Structure & overlays',
     blurb: 'Page chrome. Three of the four are position: fixed app furniture rather than primitives you compose with.',
   },
+  {
+    id: 'player',
+    title: 'Player parts',
+    blurb: 'The pieces the two shared players and the five browsers are assembled from. All five are props-in / events-out and know no store, which is exactly why they are shared.',
+  },
+  {
+    id: 'layout',
+    title: 'Source layouts',
+    blurb: 'The three full-surface shapes a source can take: the browsing layout, the idle status card, and the screensaver over both. Which one mounts is decided by useRichDisplay(), not here.',
+  },
+  {
+    id: 'settings',
+    title: 'Settings composites',
+    blurb: 'Four wrappers, ~130 lines together, behind every settings screen in the app — and the most-reused components in the frontend. They carry a title and a gap; everything else is slot content.',
+  },
 ];
 
-/** One entry per file in components/ui/. */
+/** One entry per catalogued file, grouped as the sidebar lists them. */
 export const ENTRIES = [
   // --- Actions ---
   {
@@ -203,6 +247,85 @@ export const ENTRIES = [
     file: 'components/ui/VolumeBar.vue',
     coupling: 'store',
     summary: 'The transient volume readout. position: fixed, visible only while unifiedAudioStore.showVolumeBar is set, and its fill interpolates the volume between the two configured limits — all four of those live in stores, so they are in the State section rather than the props table.',
+  },
+
+  // --- Player parts ---
+  {
+    id: 'ProgressBar',
+    group: 'player',
+    file: 'components/audio/ProgressBar.vue',
+    summary: 'The one playback bar, in five surfaces. Positions and durations are always milliseconds — the wire convention — and seek is emitted in ms too. It self-hides when duration is 0 or isReady is false, which is how a source that reports no duration (radio, Qobuz) shows no bar rather than an empty one.',
+  },
+  {
+    id: 'PlaybackControls',
+    group: 'player',
+    file: 'components/audio/PlaybackControls.vue',
+    summary: 'prev / play-pause / next, with the centre button larger than its neighbours. isBuffering swaps the glyph for a spinner while a source spins up; hasNext false disables next for the sources with no "last track". Emits only — it holds no playback state.',
+  },
+  {
+    id: 'PlayerInfoText',
+    group: 'player',
+    file: 'components/audio/PlayerInfoText.vue',
+    summary: 'The three stacked lines every player shows: an optional kicker with its own thumbnail (station, podcast), the title, and a secondary line. Text and one image, no layout of its own — each player positions it.',
+  },
+  {
+    id: 'TrackRow',
+    group: 'player',
+    file: 'components/audio/TrackRow.vue',
+    summary: 'The tracklist row, shared by CD and six Music Library views. Its four state props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showCover prepends the thumbnail, showArtist adds the second line.',
+  },
+  {
+    id: 'DetailHeader',
+    group: 'player',
+    file: 'components/audio/DetailHeader.vue',
+    summary: 'The album / playlist / episode header: cover art, or a tinted icon tile when icon is set instead (the virtual headers — Liked Songs, a genre). Up to three text lines, and an actions slot that renders before the built-in favourite / shuffle / play buttons.',
+  },
+
+  // --- Source layouts ---
+  {
+    id: 'AudioSourceLayout',
+    group: 'layout',
+    file: 'components/audio/AudioSourceLayout.vue',
+    summary: 'The browsing layout behind Radio, Podcasts and Music Library: a scroll container, a header, cross-faded content and a player pane that animates in beside it. The cross-fade is driven by contentKey — change it and the current content leaves as the next enters. The nine header* props are forwarded one by one to NavigationHeader.',
+  },
+  {
+    id: 'AudioSourceStatus',
+    group: 'layout',
+    file: 'components/audio/AudioSourceStatus.vue',
+    summary: 'The fallback card, shown whenever the active source has no rich metadata to display. Every line it prints is derived from (sourceType, sourceState) over ten sources and six states, so the two selects below are the whole component. Two mutually exclusive CTAs hang off it: Bluetooth disconnect while active, Qobuz connect while waiting without an account.',
+  },
+  {
+    id: 'AudioScreensaver',
+    group: 'layout',
+    file: 'components/audio/AudioScreensaver.vue',
+    coupling: 'fixed',
+    summary: 'The idle takeover: position: fixed at z-index 7000, over whatever was on screen. media mode is blurred artwork + title + an optional station bar and progress bar; simple mode is an icon and two lines (Bluetooth, Mac). Turning isVisible off plays the leave animation, which lifts each element towards where its AudioPlayerFull counterpart sits. The bottom bar is gated on stationName alone — stationIcon without it renders nothing.',
+  },
+
+  // --- Settings composites ---
+  {
+    id: 'SettingsContainer',
+    group: 'settings',
+    file: 'components/settings/SettingsContainer.vue',
+    summary: 'Fourteen lines and nineteen consumers: a flex column that puts one gap between settings sections. It carries nothing else, and that is the entry — the alternative was nineteen copies of the same two declarations.',
+  },
+  {
+    id: 'SettingsSection',
+    group: 'settings',
+    file: 'components/settings/SettingsSection.vue',
+    summary: 'The settings card, and the most-imported component in the frontend (28). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
+  },
+  {
+    id: 'SettingItem',
+    group: 'settings',
+    file: 'components/settings/SettingItem.vue',
+    summary: 'A label above its control. Omitting the label renders the wrapper alone, which is how a full-width control opts out of the label without a second component.',
+  },
+  {
+    id: 'SectionHeader',
+    group: 'settings',
+    file: 'components/settings/SectionHeader.vue',
+    summary: 'Title and optional subtitle on the left, an actions slot on the right, stacking to a column below 4:3. Distinct from SettingsSection.title: this is a header placed inside a card, not the card heading.',
   },
 ];
 

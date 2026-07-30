@@ -7,6 +7,12 @@
   be derived and come from the playground descriptor: a slot is not a prop, a
   store field is not introspectable, and a trigger is not a value.
 
+  One prop row is not derived either: an object-typed prop (a song, a progress
+  record, a device list) has no widget that could express it, so the descriptor
+  names a handful and the row becomes a select over those names. It stays in the
+  Props section rather than a fourth one, because it *is* a prop — the reader
+  needs to see it beside the booleans that switch on it.
+
   The chrome here is deliberately its own dense set of small controls rather than
   the app's primitives. That reverses the first version of this page, and for a
   reason: `Button` and `InputText` are sized for a finger on a 7-inch panel, and a
@@ -29,8 +35,20 @@
           <span class="controls__type text-mono-small">{{ prop.types }}</span>
         </div>
 
+        <!-- An object-typed prop: no widget can express it, so the descriptor
+             names a few and this picks one. Sits ahead of the derived kinds
+             because those would report it as `fixed` and show it read-only. -->
         <select
-          v-if="prop.kind === 'enum'"
+          v-if="presetOptions[prop.name]"
+          class="controls__select text-mono-small"
+          :value="presetChoices[prop.name] ?? presetOptions[prop.name][0]"
+          @change="emitPatch('preset', { [prop.name]: $event.target.value })"
+        >
+          <option v-for="key in presetOptions[prop.name]" :key="key" :value="key">{{ key }}</option>
+        </select>
+
+        <select
+          v-else-if="prop.kind === 'enum'"
           class="controls__select text-mono-small"
           :value="asSelectValue(args[prop.name])"
           @change="setEnum(prop, $event.target.value)"
@@ -191,6 +209,16 @@ const props = defineProps({
     type: Object,
     default: () => ({})
   },
+  /** prop name -> array of preset keys, for the props no widget can carry. */
+  presetOptions: {
+    type: Object,
+    default: () => ({})
+  },
+  /** prop name -> chosen preset key. */
+  presetChoices: {
+    type: Object,
+    default: () => ({})
+  },
   /** The descriptor's `state` block. */
   state: {
     type: Object,
@@ -213,7 +241,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['update', 'slot', 'state', 'action']);
+const emit = defineEmits(['update', 'slot', 'preset', 'state', 'action']);
 
 /** `null` has no place in a select, so it travels as this sentinel. */
 const NONE = '—';

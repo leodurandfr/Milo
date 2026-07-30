@@ -1,13 +1,19 @@
 // frontend/tests/architecture/gallery.test.js
 /**
- * Structural guardrail over the primitive gallery at /components.
+ * Structural guardrail over the component gallery at /components.
  *
  * The page is documentation, and documentation that silently falls behind the
- * code is worse than none: a reader who finds 23 primitives listed has no way to
+ * code is worse than none: a reader who finds 23 components listed has no way to
  * know a 24th shipped. So the catalogue is checked against the filesystem in
- * both directions — a new `components/ui/*.vue` with no entry fails, and an
- * entry whose file was deleted or renamed fails too, the way a stale
+ * both directions — a new `.vue` in scope with no entry fails, and an entry
+ * whose file was deleted or renamed fails too, the way a stale
  * `.stylelintrc.cjs` whitelist entry does.
+ *
+ * Scope is no longer one directory, so "listed" now means *catalogued or
+ * excluded with a reason*. The escape hatch is the point: `AudioSourceView` and
+ * `SettingsModal` genuinely do not belong on the page, and a reason written down
+ * is what the next person has to disagree with before adding an entry — whereas
+ * a file quietly missing from a glob is indistinguishable from an oversight.
  *
  * The second half guards the controls panel, which is *derived* rather than
  * declared (see controls.js). Derivation has one failure mode worth catching:
@@ -17,6 +23,11 @@
  * must resolve to a list of options, either parsed or explicitly overridden in
  * registry.js. That is the check that keeps "derived" honest.
  *
+ * The stage tones are guarded the same way: a `surface` rule that names a tone
+ * CanvasApp.vue has no class for, or that never fires for any value its own
+ * controls can produce, leaves a dark-surface variant on the light stage looking
+ * broken — and reports nothing.
+ *
  * Mounts nothing and asserts no markup: this is the one kind of test that can
  * cover a page whose whole purpose is to be looked at.
  */
@@ -24,21 +35,44 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
-import { GROUPS, ENTRIES, entriesOf } from '../../src/components/gallery/catalog.js';
+import { GROUPS, ENTRIES, SCOPE, EXCLUDED, entriesOf } from '../../src/components/gallery/catalog.js';
 import { REGISTRY } from '../../src/components/gallery/registry.js';
 import { describeProps } from '../../src/components/gallery/controls.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
-const UI_DIR = join(SRC_DIR, 'components/ui');
 
-/** Every primitive on disk, by path relative to `src/`. */
-const UI_FILES = readdirSync(UI_DIR)
-  .filter(name => name.endsWith('.vue'))
-  .map(name => `components/ui/${name}`)
+/**
+ * Every component in scope, by path relative to `src/`. One level deep, matching
+ * the rule catalog.js states: a nested directory is per-feature screens.
+ */
+const SCOPED_FILES = SCOPE
+  .flatMap(dir =>
+    readdirSync(join(SRC_DIR, dir))
+      .filter(name => name.endsWith('.vue'))
+      .map(name => `${dir}/${name}`)
+  )
   .sort();
 
 const VIEW = readFileSync(join(SRC_DIR, 'views/ComponentsView.vue'), 'utf8');
+const CANVAS = readFileSync(join(SRC_DIR, 'components/gallery/CanvasApp.vue'), 'utf8');
+
+/** Stage tones the canvas declares a class for — `.canvas--contrast`, … */
+const SURFACES = [...CANVAS.matchAll(/\.canvas--([a-z-]+)\s*\{/g)].map(match => match[1]);
+
+/**
+ * The args a primitive's controls can produce: what it starts from, then each
+ * enum option in turn, which is how the panel edits — one prop at a time.
+ */
+function argSweep(descriptor) {
+  const base = descriptor.args || {};
+  const sweep = [base];
+
+  for (const prop of describeProps(descriptor.component, descriptor.overrides || {})) {
+    for (const option of prop.options || []) sweep.push({ ...base, [prop.name]: option });
+  }
+  return sweep;
+}
 
 /**
  * Every primitive needs a playground descriptor. There is no opt-out: the canvas
@@ -49,19 +83,36 @@ const PLAYABLE = ENTRIES;
 
 describe('component gallery catalogue', () => {
   it('read a plausible surface', () => {
-    // A broken glob would make every assertion below vacuously pass.
-    expect(UI_FILES.length).toBeGreaterThan(15);
-    expect(ENTRIES.length).toBeGreaterThan(15);
-    expect(Object.keys(REGISTRY).length).toBeGreaterThan(15);
+    // A broken scan would make every assertion below vacuously pass.
+    expect(SCOPE.length).toBeGreaterThan(1);
+    expect(SCOPED_FILES.length).toBeGreaterThan(30);
+    expect(ENTRIES.length).toBeGreaterThan(30);
+    expect(Object.keys(REGISTRY).length).toBeGreaterThan(30);
   });
 
-  it('lists every primitive in components/ui', () => {
+  it('accounts for every component in scope', () => {
     const listed = new Set(ENTRIES.map(entry => entry.file));
-    const missing = UI_FILES.filter(file => !listed.has(file));
+    const missing = SCOPED_FILES.filter(file => !listed.has(file) && !EXCLUDED[file]);
 
-    // A primitive that reaches `ui/` without an entry is invisible on the page
-    // that is supposed to be the design system's index.
+    // A shared composite that lands in scope without an entry is invisible on
+    // the page that is supposed to be the design system's index. Catalogue it,
+    // or say in EXCLUDED why it does not belong there.
     expect(missing).toEqual([]);
+  });
+
+  it('excludes nothing twice, nothing absent, and nothing without a reason', () => {
+    const problems = [];
+
+    for (const [file, reason] of Object.entries(EXCLUDED)) {
+      if (!existsSync(join(SRC_DIR, file))) problems.push(`${file} (no such file)`);
+      if (!SCOPED_FILES.includes(file)) problems.push(`${file} (not in scope — nothing to exclude)`);
+      if ((reason || '').length < 40) problems.push(`${file} (thin reason)`);
+      if (ENTRIES.some(entry => entry.file === file)) problems.push(`${file} (also catalogued)`);
+    }
+
+    // An exclusion that outlives its file, or that never applied, is the same
+    // stale-whitelist failure the catalogue side is checked for.
+    expect(problems).toEqual([]);
   });
 
   it('carries no entry for a file that no longer exists', () => {
@@ -72,14 +123,24 @@ describe('component gallery catalogue', () => {
     expect(stale).toEqual([]);
   });
 
-  it('names each primitive after its file', () => {
+  it('names each entry after its file', () => {
     // GalleryItem looks entries up by `id`, and the demos pass the component's
     // own name — a mismatch renders the "missing from catalog.js" placeholder.
     const mismatched = ENTRIES
-      .filter(entry => entry.file !== `components/ui/${entry.id}.vue`)
+      .filter(entry => !entry.file.endsWith(`/${entry.id}.vue`))
       .map(entry => `${entry.id} -> ${entry.file}`);
 
     expect(mismatched).toEqual([]);
+  });
+
+  it('keeps every entry inside a scoped directory', () => {
+    // An entry pointing outside SCOPE would be catalogued but unguarded: nothing
+    // would notice when its file moved or its neighbours grew a new one.
+    const outside = ENTRIES
+      .filter(entry => !SCOPED_FILES.includes(entry.file))
+      .map(entry => entry.file);
+
+    expect(outside).toEqual([]);
   });
 
   it('gives every entry a group that exists, and every group entries', () => {
@@ -179,14 +240,35 @@ describe('component gallery playground', () => {
 
     for (const [id, descriptor] of Object.entries(REGISTRY)) {
       for (const prop of describeProps(descriptor.component, descriptor.overrides || {})) {
-        if (prop.required && (descriptor.args || {})[prop.name] === undefined) {
-          gaps.push(`${id}.${prop.name}`);
-        }
+        const fromArgs = (descriptor.args || {})[prop.name] !== undefined;
+        const fromPreset = !!(descriptor.presets || {})[prop.name];
+        if (prop.required && !fromArgs && !fromPreset) gaps.push(`${id}.${prop.name}`);
       }
     }
 
     // A required prop left unset renders a broken instance, and Vue only warns.
+    // A preset counts: the canvas resolves one before the component mounts.
     expect(gaps).toEqual([]);
+  });
+
+  it('offers at least one choice per preset, on a prop that takes one', () => {
+    const broken = [];
+
+    for (const [id, descriptor] of Object.entries(REGISTRY)) {
+      const kinds = new Map(
+        describeProps(descriptor.component, descriptor.overrides || {}).map(prop => [prop.name, prop.kind])
+      );
+
+      for (const [name, choices] of Object.entries(descriptor.presets || {})) {
+        if (!Object.keys(choices || {}).length) broken.push(`${id}.${name} (no choices)`);
+        if (!kinds.has(name)) broken.push(`${id}.${name} (no such prop)`);
+        // A preset on a prop the panel can already edit hides a working control
+        // behind a fixed list — presets exist for the values no widget carries.
+        else if (kinds.get(name) !== 'fixed') broken.push(`${id}.${name} (${kinds.get(name)} is editable)`);
+      }
+    }
+
+    expect(broken).toEqual([]);
   });
 
   it('resolves every enum prop to a list of options', () => {
@@ -205,10 +287,50 @@ describe('component gallery playground', () => {
         if (prop.kind === 'enum' && !prop.options?.length) {
           unresolved.push(`${id}.${prop.name} (empty options)`);
         }
+        // `null` in a validator's array literal is a value, not a name. Reading
+        // it as the string 'null' offers an option the validator then rejects —
+        // a select that produces a Vue warning on the one entry a reader picks
+        // to see "no icon", "no gradient".
+        if (prop.options?.includes('null')) {
+          unresolved.push(`${id}.${prop.name} ('null' parsed as a string)`);
+        }
       }
     }
 
     expect(unresolved).toEqual([]);
+  });
+
+  it('paints only stage tones the canvas can render', () => {
+    // A tone with no class behind it does not fail — the stage silently stays
+    // light, which is the exact outcome a `surface` rule exists to prevent.
+    expect(SURFACES.length).toBeGreaterThan(0);
+
+    const unknown = [];
+
+    for (const [id, descriptor] of Object.entries(REGISTRY)) {
+      if (!descriptor.surface) continue;
+      for (const args of argSweep(descriptor)) {
+        const tone = descriptor.surface(args);
+        if (tone && !SURFACES.includes(tone)) unknown.push(`${id} -> ${tone}`);
+      }
+    }
+
+    expect(unknown).toEqual([]);
+  });
+
+  it('declares no surface rule that never fires', () => {
+    const dead = [];
+
+    for (const [id, descriptor] of Object.entries(REGISTRY)) {
+      if (!descriptor.surface) continue;
+      const fires = argSweep(descriptor).some(args => descriptor.surface(args));
+      if (!fires) dead.push(id);
+    }
+
+    // A rule that answers "light" for every value its own controls can produce is
+    // a variant that was renamed or dropped, not a primitive that turned out to
+    // live on one surface.
+    expect(dead).toEqual([]);
   });
 
   it('overrides nothing that does not exist', () => {
@@ -219,7 +341,8 @@ describe('component gallery playground', () => {
       for (const name of Object.keys(descriptor.overrides || {})) {
         if (!names.has(name)) stale.push(`${id}.${name}`);
       }
-      // `class` is not a prop but is a legitimate arg (it sizes LazyImage).
+      // `class` is not a prop but is a legitimate arg: it is how a descriptor
+      // sizes a component the stage would otherwise collapse.
       for (const name of Object.keys(descriptor.args || {})) {
         if (!names.has(name) && name !== 'class') stale.push(`${id}.${name} (arg)`);
       }
