@@ -58,7 +58,7 @@
     "macOS": "Receptor macOS",
     "multiroom": "Multizona",
     "cd": "Reproductor de CD",
-    "dlna": "DLNA",
+    "dlna": "DLNA/UPnP",
     "qobuz": "Qobuz",
     "musicLibrary": "Biblioteca",
     "cdSource": {
