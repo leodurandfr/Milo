@@ -75,6 +75,7 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 import ProgressBar from './ProgressBar.vue';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
+import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
 const props = defineProps({
   isVisible: {
@@ -94,14 +95,18 @@ const props = defineProps({
     default: 'media',
     validator: (value) => ['media', 'simple'].includes(value)
   },
+  // Simple mode only, where it is both the AppIcon name and the Mac test.
   sourceType: {
     type: String,
-    default: null
+    default: null,
+    validator: (value) => value === null || ALL_AUDIO_SOURCES.includes(value)
   },
   artwork: {
     type: String,
     default: null
   },
+  // Two meanings, one prop: the track title in media mode, the status line
+  // ("Connected to") in simple mode — where `subtitle` carries the device name.
   title: {
     type: String,
     required: true

@@ -267,13 +267,24 @@ onUnmounted(() => {
 
 <style scoped>
 .canvas {
+  --canvas-pad: var(--space-05);
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
   min-height: 100vh;
-  padding: var(--space-05);
+  padding: var(--canvas-pad);
   background: var(--color-background);
+}
+
+/* The height a component that fills its host gets here. Definite on purpose,
+   and not `align-self: stretch`: a stretched flex line inside a `min-height`
+   container resolves to the content's own height, and every fill component
+   declares `height: 100%`, which then has nothing to resolve against — the
+   player rendered as a band a third of the stage tall instead of filling it. */
+.canvas :deep(.canvas-fill),
+.canvas :deep(.audio-player) {
+  height: calc(100vh - 2 * var(--canvas-pad));
 }
 
 /* The two non-default stage tones, named by a descriptor's `surface`. A variant
@@ -313,16 +324,15 @@ onUnmounted(() => {
    its own full-width geometry and only the docked form is constrained. */
 .canvas :deep(.audio-player) {
   width: 340px;
-  align-self: stretch;
 }
 
-/* AudioSourceLayout is `height: 100%` of a pane it does not have here, and the
-   stage centres what it holds — so without this it collapses to its content and
-   neither the scroll container nor the player animation has room to happen.
-   Handed through its args like LazyImage's class below. */
+/* AudioSourceLayout and AudioPlayerFull are `height: 100%` of a pane they do not
+   have here, and the stage centres what it holds — so without this they collapse
+   to their content and neither the scroll container nor the player animation has
+   room to happen. Handed through their args like LazyImage's class below; the
+   height comes from the shared rule at the top. */
 .canvas :deep(.canvas-fill) {
   flex: 1;
-  align-self: stretch;
   min-width: 0;
 }
 

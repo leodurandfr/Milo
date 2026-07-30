@@ -375,6 +375,56 @@ describe('component gallery playground', () => {
     expect(dead).toEqual([]);
   });
 
+  it('offers every slot its component declares', () => {
+    // The panel derives props and events from the component; slots it cannot
+    // derive, so a slot nobody declared is simply absent from the page — the
+    // reader is told the component takes three slots when it takes five, and
+    // nothing anywhere disagrees.
+    const missing = [];
+
+    for (const entry of ENTRIES) {
+      const descriptor = REGISTRY[entry.id];
+      const source = readFileSync(join(SRC_DIR, entry.file), 'utf8');
+      const declared = new Set(
+        [...source.matchAll(/<slot\s[^>]*name="([^"]+)"/g)].map(match => match[1])
+      );
+      if (/<slot(\s[^>]*)?\/?>/.test(source.replace(/<slot\s[^>]*name="[^"]+"/g, ''))) {
+        declared.add('default');
+      }
+
+      const offered = new Set(Object.keys(descriptor.slots || {}));
+      for (const name of declared) {
+        if (!offered.has(name)) missing.push(`${entry.id}.${name}`);
+      }
+    }
+
+    expect(missing).toEqual([]);
+  });
+
+  it('leaves no prop the panel cannot show and nothing supplies', () => {
+    // A prop the controls degrade to `fixed` (an object, an array, a callback)
+    // is read-only in the panel, so the descriptor is the only thing that can
+    // give it a value. Left unset it renders as `undefined` next to its name —
+    // an input the reader is shown and cannot use.
+    const blank = [];
+
+    for (const [id, descriptor] of Object.entries(REGISTRY)) {
+      if (descriptor.alwaysMounted) continue;
+
+      for (const prop of describeProps(descriptor.component, descriptor.overrides || {})) {
+        if (prop.kind !== 'fixed') continue;
+        // A callback prop needs nothing: the canvas stubs it with a reporter.
+        if (prop.types.includes('Function')) continue;
+        if (prop.default !== undefined) continue;
+        if ((descriptor.args || {})[prop.name] !== undefined) continue;
+        if ((descriptor.presets || {})[prop.name]) continue;
+        blank.push(`${id}.${prop.name} (${prop.types})`);
+      }
+    }
+
+    expect(blank).toEqual([]);
+  });
+
   it('overrides nothing that does not exist', () => {
     const stale = [];
 
