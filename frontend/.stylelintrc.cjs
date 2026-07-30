@@ -119,11 +119,7 @@ module.exports = {
     },
     {
       // Screensaver: pure-black backdrop + its dim scrim.
-      // AudioSourceLayout: one-off per-source brand gradients.
-      files: [
-        'src/components/audio/AudioScreensaver.vue',
-        'src/components/audio/AudioSourceLayout.vue',
-      ],
+      files: ['src/components/audio/AudioScreensaver.vue'],
       rules: {
         'color-no-hex': null,
         'declaration-property-value-disallowed-list': NO_TYPOGRAPHY,

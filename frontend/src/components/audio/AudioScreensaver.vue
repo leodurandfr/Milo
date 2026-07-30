@@ -161,6 +161,9 @@ const haloUrl = computed(() => {
   if (fallbackSvg.value) return `data:image/svg+xml;utf8,${encodeURIComponent(fallbackSvg.value)}`;
   return null;
 });
+// The name alone gates the bar: a glyph with nothing to label is not a bar.
+// Deliberate — DLNA renderers routinely send no client name, and useScreensaver
+// passes `stationIcon` unconditionally for them, expecting the bar to hide.
 const showBottomBar = computed(() => !!props.stationName);
 
 // Emit immediately; the parent flips isVisible and <Transition> plays the leave

@@ -66,12 +66,13 @@ const props = defineProps({
     default: false
   },
   /**
-   * Background gradient variant ('radio', 'podcast' or 'music-library')
+   * Background gradient variant — the audio source id, so it reads the same as
+   * headerIcon on the same call site. Its own tint token, per source.
    */
   gradient: {
     type: String,
     default: null,
-    validator: (value) => [null, 'radio', 'podcast', 'music-library'].includes(value)
+    validator: (value) => [null, 'radio', 'podcast', 'music_library'].includes(value)
   },
   /**
    * Header title
@@ -95,11 +96,14 @@ const props = defineProps({
     default: false
   },
   /**
-   * Header variant ('contrast' or 'background-neutral')
+   * Header variant, forwarded to NavigationHeader — same accepted set as its
+   * own `variant`, restated here so a bad value is caught at this call site
+   * rather than one component deeper.
    */
   headerVariant: {
     type: String,
-    default: 'background-neutral'
+    default: 'background-neutral',
+    validator: (value) => ['contrast', 'background-neutral'].includes(value)
   },
   /**
    * Render the header title in the secondary (muted) text color
@@ -278,15 +282,15 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 }
 
 .gradient-radio {
-  background: linear-gradient(180deg, #F6EDCD 0%, rgba(246, 237, 205, 0) 100%);
+  background: var(--gradient-source-radio);
 }
 
 .gradient-podcast {
-  background: linear-gradient(180deg, rgba(66, 24, 112, 0.08) 0%, rgba(126, 46, 214, 0) 100%);
+  background: var(--gradient-source-podcast);
 }
 
-.gradient-music-library {
-  background: linear-gradient(180deg, rgba(212, 72, 100, 0.1) 0%, rgba(212, 72, 100, 0) 100%);
+.gradient-music_library {
+  background: var(--gradient-source-music-library);
 }
 
 /* Content container: animates width to make space for player */

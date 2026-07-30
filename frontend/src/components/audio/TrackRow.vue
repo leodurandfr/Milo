@@ -50,6 +50,9 @@ import LazyImage from '@/components/ui/LazyImage.vue';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
 const props = defineProps({
+  // The catalogue record: { title | name, artist, duration }. `duration` is in
+  // SECONDS — Subsonic's unit, and the opposite of ProgressBar's milliseconds
+  // next door in this directory.
   song: {
     type: Object,
     required: true,
