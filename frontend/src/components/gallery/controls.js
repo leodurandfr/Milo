@@ -39,8 +39,13 @@ export function enumFromValidator(validator) {
 
   const values = match[1]
     .split(',')
-    .map(part => part.trim().replace(/^['"]|['"]$/g, ''))
-    .filter(Boolean);
+    .map(part => part.trim())
+    .filter(Boolean)
+    // A bare `null` in the literal is a value, not a name: AudioSourceLayout
+    // accepts `[null, 'radio', …]` for "no gradient". Stripping quotes off it
+    // like the rest would offer the *string* 'null', which its own validator
+    // then rejects.
+    .map(part => (part === 'null' ? null : part.replace(/^['"]|['"]$/g, '')));
 
   if (!values.length) return null;
 

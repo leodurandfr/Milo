@@ -4,11 +4,11 @@
  *
  * Deliberately not main.js: mounting the app here would open a second
  * WebSocket, refetch settings and sit behind the boot gate, all to display one
- * button. This wires the four things a `components/ui/` primitive actually
- * needs — design tokens, fonts, i18n and the `press` directive — and nothing
- * else. Pinia is created because a store-coupled primitive would otherwise
- * throw on injection, not because any live state exists here; the three
- * primitives that read real state are excluded from the playground.
+ * button. This wires the four things a catalogued component actually needs —
+ * design tokens, fonts, i18n and the `press` directive — and nothing else.
+ * Pinia is created for the three store-coupled primitives (Dock, VolumeBar,
+ * VirtualKeyboard), which read their stores' real defaults here rather than any
+ * live state; the playground's `state` controls write into those same stores.
  */
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'

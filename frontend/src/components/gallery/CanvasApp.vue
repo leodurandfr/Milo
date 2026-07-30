@@ -7,18 +7,19 @@
   keystroke and reloading the document each time would restart the component
   under the finger. The channel is same-origin and checked as such.
 
-  Only serialisable values cross it. Slot content and store writes cannot, so the
-  parent sends the *key* of a choice and this side resolves it out of
-  registry.js — which works because that file is bundled into both documents.
+  Only serialisable values cross it. Slot content and store writes cannot, and a
+  named object value would lose its name, so the parent sends the *key* of a
+  choice and this side resolves it out of registry.js — which works because that
+  file is bundled into both documents.
 
-    parent -> here   { type: 'render', id, args, slots, state }
+    parent -> here   { type: 'render', id, args, slots, presets, state }
                      { type: 'action', id, name }
     here -> parent   { type: 'ready' }                     once, on mount
                      { type: 'event', name, arg }          the component emitted
                      { type: 'args', args }                a v-model wrote back
 -->
 <template>
-  <div class="canvas">
+  <div class="canvas" :class="surfaceClass">
     <p v-if="!entry" class="canvas__empty text-mono-small">
       {{ id ? `No playground descriptor for "${id}".` : 'Waiting for the gallery…' }}
     </p>
@@ -62,6 +63,7 @@ const ALWAYS_MOUNTED = Object.values(REGISTRY).filter(entry => entry.alwaysMount
 const id = ref('');
 const args = ref({});
 const slotChoices = ref({});
+const presetChoices = ref({});
 
 /**
  * The stores a `state` descriptor may write, and the composable an `actions`
@@ -81,6 +83,17 @@ const context = {
 
 const entry = computed(() => (id.value ? entryFor(id.value) : undefined));
 
+/**
+ * The stage tone the current args call for, from the descriptor's own `surface`
+ * rule. Resolved here rather than sent by the parent: this side already holds
+ * both the descriptor and the args, and a tone crossing postMessage as a third
+ * field could only ever disagree with them.
+ */
+const surfaceClass = computed(() => {
+  const tone = entry.value?.surface?.(args.value);
+  return tone ? `canvas--${tone}` : null;
+});
+
 function post(message) {
   window.parent?.postMessage({ source: 'milo-canvas', ...message }, window.location.origin);
 }
@@ -99,14 +112,32 @@ function postArgs() {
 }
 
 /**
- * Props handed to the component: the parent's args, plus a stub for every
- * callback-typed prop. MessageContent takes its CTAs as functions rather than
- * events, so without the stubs those buttons would render dead.
+ * The value each preset-driven prop currently holds, resolved from the chosen
+ * key. A `null` choice is a value like any other (no progress bar, no device
+ * name), so nothing here filters on truthiness.
+ */
+const presetValues = computed(() => {
+  const presets = entry.value?.presets;
+  if (!presets) return {};
+
+  const resolved = {};
+  for (const [name, choices] of Object.entries(presets)) {
+    const keys = Object.keys(choices);
+    resolved[name] = choices[presetChoices.value[name] ?? keys[0]];
+  }
+  return resolved;
+});
+
+/**
+ * Props handed to the component: the parent's args, the resolved presets on top
+ * (an object-typed prop has no editable arg to compete with), plus a stub for
+ * every callback-typed prop. MessageContent takes its CTAs as functions rather
+ * than events, so without the stubs those buttons would render dead.
  */
 const bound = computed(() => {
   if (!entry.value) return {};
 
-  const props = { ...args.value };
+  const props = { ...args.value, ...presetValues.value };
   for (const name of callbackProps(entry.value.component)) {
     if (props[name] == null) {
       props[name] = () => post({ type: 'event', name: `${name}()` });
@@ -201,6 +232,7 @@ function handleMessage(event) {
     id.value = data.id ?? '';
     args.value = data.args ?? {};
     slotChoices.value = data.slots ?? {};
+    presetChoices.value = data.presets ?? {};
     applyState(data.state);
   } else if (data.type === 'action') {
     runAction(data.name);
@@ -228,8 +260,40 @@ onUnmounted(() => {
   background: var(--color-background);
 }
 
+/* The two non-default stage tones, named by a descriptor's `surface`. A variant
+   is only legible over the backdrop it was drawn for, so the stage follows the
+   args instead of staying light and reporting the variant as broken. */
+.canvas--contrast {
+  color: var(--color-text-contrast);
+  background: var(--color-background-contrast);
+}
+
+/* Translucent, so it composites over the body's own background into the mid tone
+   a plate over artwork actually sits on — the app never paints this one solid. */
+.canvas--medium {
+  background: var(--color-background-medium-32);
+}
+
 .canvas__empty {
   color: var(--color-text-light);
+}
+
+/* The shared composites are block-level: a row, a card, a header fills its
+   column in the app, but the stage centres what it holds, so without a width
+   they shrink to their content and read as broken. Handed through their args. */
+.canvas :deep(.canvas-column) {
+  width: 100%;
+  max-width: 560px;
+}
+
+/* AudioSourceLayout is `height: 100%` of a pane it does not have here, and the
+   stage centres what it holds — so without this it collapses to its content and
+   neither the scroll container nor the player animation has room to happen.
+   Handed through its args like LazyImage's class below. */
+.canvas :deep(.canvas-fill) {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
 }
 
 /* LazyImage is handed this class through its args: its layers are absolutely
