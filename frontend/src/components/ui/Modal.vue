@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/Modal.vue -->
 <template>
-  <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" @click.self="handleOverlayClick">
+  <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" @click.self="close">
     <div class="modal-wrapper">
       <div ref="closeButtonWrapper" class="close-btn-wrapper">
         <IconButton ref="closeButton" icon="close" variant="rounded" size="large"
@@ -33,10 +33,6 @@ const props = defineProps({
   isOpen: {
     type: Boolean,
     required: true
-  },
-  closeOnOverlay: {
-    type: Boolean,
-    default: true
   }
 });
 
@@ -175,12 +171,6 @@ const ANIMATION_TIMINGS = {
 
 function close() {
   emit('close');
-}
-
-function handleOverlayClick() {
-  if (props.closeOnOverlay) {
-    close();
-  }
 }
 
 // === ANIMATIONS ===
