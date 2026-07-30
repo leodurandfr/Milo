@@ -13,6 +13,21 @@ export default defineConfig(({ mode }) => ({
     __VUE_OPTIONS_API__: false,
     __VUE_PROD_DEVTOOLS__: false,
   },
+  build: {
+    rollupOptions: {
+      input: {
+        // The app.
+        main: path.resolve(__dirname, 'index.html'),
+        // The /components gallery's iframe. A second document rather than a
+        // route, so it renders one primitive without booting the app — and so it
+        // owns a real viewport, which is the only way the app's
+        // `@media (max-aspect-ratio: 4/3)` rules can be reached from a desktop
+        // browser. nginx serves it directly: `try_files $uri` finds the file
+        // before the SPA fallback.
+        canvas: path.resolve(__dirname, 'canvas.html'),
+      },
+    },
+  },
   preview: {
     allowedHosts: ['milo.local']  // ✅ Autoriser milo.local
   },

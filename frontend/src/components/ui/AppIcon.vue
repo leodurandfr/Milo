@@ -11,27 +11,6 @@
 <script>
 // Global counter to generate unique IDs for each instance
 let instanceCounter = 0;
-</script>
-
-<script setup>
-import { computed } from 'vue';
-import { logger } from '@/services/logger';
-import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
-
-const instanceId = ++instanceCounter;
-
-const props = defineProps({
-  name: {
-    type: String,
-    required: true,
-    validator: (value) => [...ALL_AUDIO_SOURCES, 'multiroom', 'equalizer', 'lyrics', 'settings', 'milo', 'milo-client'].includes(value)
-  },
-  size: {
-    type: [String, Number],
-    default: 32
-  }
-});
-
 
 const iconMapping = {
   'spotify': 'spotify',
@@ -51,6 +30,32 @@ const iconMapping = {
   'milo': 'milo',
   'milo-client': 'milo-client'
 };
+
+/**
+ * Every name `<AppIcon>` accepts. The mapping above is the single source of
+ * truth: it drives the `name` validator and the component gallery's icon grid,
+ * so neither can list a name the component cannot actually resolve.
+ */
+export const APP_ICON_NAMES = Object.keys(iconMapping);
+</script>
+
+<script setup>
+import { computed } from 'vue';
+import { logger } from '@/services/logger';
+
+const instanceId = ++instanceCounter;
+
+const props = defineProps({
+  name: {
+    type: String,
+    required: true,
+    validator: (value) => APP_ICON_NAMES.includes(value)
+  },
+  size: {
+    type: [String, Number],
+    default: 32
+  }
+});
 
 const svgModules = import.meta.glob('@/assets/app-icons/*.svg', {
   query: '?raw',

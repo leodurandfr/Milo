@@ -20,6 +20,7 @@
       <router-view />
       <VolumeBar />
       <Dock
+        v-if="showChrome"
         @open-equalizer="isEqualizerOpen = true"
         @open-multiroom="isMultiroomOpen = true"
         @open-lyrics="lyricsStore.open()"
@@ -47,7 +48,7 @@
          (Dropdown menus, mobile AudioPlayer) that are siblings of #app. -->
     <Teleport to="body">
       <div
-        v-if="colorFilterActive"
+        v-if="colorFilterActive && showChrome"
         class="color-filter-overlay"
         :style="colorFilterStyle"
       />
@@ -69,6 +70,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, provide, defineAsyncComponent } from 'vue';
+import { useRoute } from 'vue-router';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
 import Dock from '@/components/ui/Dock.vue';
 import Modal from '@/components/ui/Modal.vue';
@@ -127,6 +129,7 @@ const LOGO_FADE_DELAY = isFastBoot ? 0 : 400;
 const SCREEN_FADE_DELAY = isFastBoot ? 100 : 500;
 
 const { t } = useI18n();
+const route = useRoute();
 const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
 const podcastStore = usePodcastStore();
@@ -413,6 +416,12 @@ watch(isReady, (ready) => {
 // Only applied on the Pi kiosk (localhost). Remote browsers (e.g. milo.local
 // from another device) keep their native colors — same pattern as ui_scale.
 const COLOR_FILTER_MAX_ALPHA = 0.40;
+
+// App furniture the current route may opt out of: the Dock and the warm colour
+// overlay. Declared by the route (`meta.chrome: false`) rather than matched on a
+// path here, so the shell carries no knowledge of which page wants it — today
+// only /components does, where both would sit over the component being judged.
+const showChrome = computed(() => route.meta.chrome !== false);
 
 const colorFilterActive = computed(() => {
   if (!isKiosk()) return false;
