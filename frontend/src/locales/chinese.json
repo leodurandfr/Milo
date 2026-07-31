@@ -118,6 +118,12 @@
       "badgeInactive": "分频器未启用",
       "subwooferOffline": "低音炮离线"
     },
+    "tuning": {
+      "title": "微调",
+      "eqIndependent": "独立均衡器",
+      "eqIndependentDescription": "为此扬声器设置独立于所在区域的均衡器。",
+      "delay": "延迟"
+    },
     "pending": {
       "title": "检测到新 Milō Client",
       "notConfigured": "音频卡未配置",

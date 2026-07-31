@@ -138,6 +138,27 @@ describe('equalizerStore', () => {
       expect(await resolvedTargetPath()).toBe('zone:z1');
     });
 
+    it('resolves an eq_independent zone member to its MAC, not the zone', async () => {
+      // Detaching a member's EQ keeps it in the zone for playback but addresses
+      // its own record for EQ — targetRef must skip the zone redirect.
+      registerClient(REMOTE_MAC, { name: 'Kitchen', eq_independent: true });
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(true);
+      equalizerStore.selectedTarget = REMOTE_MAC;
+
+      expect(await resolvedTargetPath()).toBe(REMOTE_MAC);
+    });
+
+    it('resolves a shared (non-independent) zone member to the zone', async () => {
+      // The other half: a member that has NOT detached still routes to the zone.
+      registerClient(REMOTE_MAC, { name: 'Kitchen', eq_independent: false });
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(true);
+      equalizerStore.selectedTarget = REMOTE_MAC;
+
+      expect(await resolvedTargetPath()).toBe('zone:z1');
+    });
+
     it('ignores zone membership while multiroom is off', async () => {
       // Zones only exist as an audio grouping under multiroom; with it off the
       // write must address the client itself.

@@ -98,6 +98,23 @@
         </div>
       </SettingsSection>
 
+      <!-- Multiroom tuning: independent EQ (zone members) + playback delay -->
+      <SettingsSection v-if="multiroomEnabled" :title="t('multiroom.tuning.title')">
+        <ListItemButton
+          v-if="isInZone"
+          :title="t('multiroom.tuning.eqIndependent')"
+          :subtitle="t('multiroom.tuning.eqIndependentDescription')"
+          variant="background"
+          action="toggle"
+          :model-value="eqIndependent"
+          @click="toggleEqIndependent"
+        />
+        <SettingItem :label="t('multiroom.tuning.delay')">
+          <RangeSlider v-model="delayMs" :min="0" :max="100" :step="5" value-unit="ms"
+            @change="handleDelayChange" />
+        </SettingItem>
+      </SettingsSection>
+
       <!-- Client Info -->
       <SettingsSection :title="t('multiroom.systemInfo')">
         <div class="info-grid">
@@ -136,6 +153,7 @@ import { useI18n } from '@/services/i18n';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { logger } from '@/services/logger';
 import InputText from '@/components/ui/InputText.vue';
@@ -162,12 +180,15 @@ const timer = useTimer();
 const snapcastStore = useSnapcastStore();
 const multiroomClientStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
+const audioStore = useUnifiedAudioStore();
 const { loadHardwareConfig } = useHardwareConfig();
 
 const clientName = ref('');
 const originalClientName = ref('');
 const selectedSpeakerType = ref('bookshelf');
 const volumeControl = ref(true);
+const eqIndependent = ref(false);
+const delayMs = ref(0);
 const deleting = ref(false);
 const crossoverFrequency = ref(80);
 
@@ -220,6 +241,9 @@ const clientZone = computed(() => {
 
 const isInZone = computed(() => !!clientZone.value);
 
+// EQ independence and delay are multiroom-only tuning.
+const multiroomEnabled = computed(() => audioStore.systemState.multiroom_enabled);
+
 const isSubwoofer = computed(() => selectedSpeakerType.value === 'subwoofer');
 
 const zoneHasSubwoofer = computed(() => {
@@ -241,6 +265,21 @@ watch(
     }
   },
   { immediate: true }
+);
+
+// Keep the tuning controls in step with the client record (e.g. eq_independent
+// is reset by the backend when the client leaves its zone).
+watch(
+  () => client.value?.eq_independent,
+  (v) => {
+    if (v !== undefined) eqIndependent.value = v === true;
+  }
+);
+watch(
+  () => client.value?.delay_ms,
+  (v) => {
+    if (v != null) delayMs.value = v;
+  }
 );
 
 // Watch client coming back online after reboot
@@ -299,6 +338,24 @@ async function toggleVolumeControl() {
       logger.error('multiroom', 'Error saving volume control', error);
       volumeControl.value = !volumeControl.value; // Revert on failure
     }
+  }
+}
+
+async function toggleEqIndependent() {
+  eqIndependent.value = !eqIndependent.value;
+  try {
+    await multiroomClientStore.setClientEqIndependent(props.macId, eqIndependent.value);
+  } catch (error) {
+    logger.error('multiroom', 'Error saving EQ independence', error);
+    eqIndependent.value = !eqIndependent.value; // Revert on failure
+  }
+}
+
+async function handleDelayChange(value) {
+  try {
+    await multiroomClientStore.setClientDelay(props.macId, value);
+  } catch (error) {
+    logger.error('multiroom', 'Error saving client delay', error);
   }
 }
 
@@ -390,6 +447,8 @@ onMounted(async () => {
     originalClientName.value = clientName.value;
     selectedSpeakerType.value = equalizerStore.getClientSpeakerType(props.macId);
     volumeControl.value = client.value.volume_control !== false;
+    eqIndependent.value = client.value.eq_independent === true;
+    delayMs.value = client.value.delay_ms ?? 0;
 
     // Load audio card options and current card for remote clients
     if (!client.value.is_local && client.value.online) {

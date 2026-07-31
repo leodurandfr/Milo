@@ -118,6 +118,12 @@
       "badgeInactive": "Crossover inactif",
       "subwooferOffline": "Caisson hors ligne"
     },
+    "tuning": {
+      "title": "Réglages",
+      "eqIndependent": "Égaliseur indépendant",
+      "eqIndependentDescription": "Donnez à cette enceinte son propre égaliseur, distinct de sa zone.",
+      "delay": "Délai"
+    },
     "pending": {
       "title": "Nouveau Milō Client détecté",
       "notConfigured": "Carte audio non configurée",

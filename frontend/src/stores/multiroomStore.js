@@ -199,6 +199,16 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     return client?.is_local ?? false;
   }
 
+  /**
+   * Check whether a client detached its EQ from its zone (eq_independent).
+   * Read by equalizerStore to decide whether a zone member addresses its zone
+   * or its own MAC. An unknown MAC is not independent.
+   */
+  function isClientEqIndependent(macId) {
+    const client = clients.value.get(macId);
+    return client?.eq_independent ?? false;
+  }
+
   // === ZONE QUERIES ===
 
   /**
@@ -482,6 +492,39 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   /**
+   * Detach (enabled=true) or reattach (enabled=false) a zone member's EQ from
+   * its zone. State updates arrive via the client_state_changed WS event.
+   * @param {string} macId - Client mac_id
+   * @param {boolean} enabled - True = EQ independent from the zone
+   * @returns {Promise<Object>} Updated client data
+   */
+  async function setClientEqIndependent(macId, enabled) {
+    const result = await apiCall.put(`/api/multiroom/clients/${macId}/eq-independent`, { enabled }, {
+      category: 'store',
+      message: 'Error updating EQ independence',
+      rethrow: true,
+    });
+    return result.data;
+  }
+
+  /**
+   * Set a client's playback delay (native Snapcast latency, in ms).
+   * Addresses the exact client (zone member or standalone), never a zone.
+   * State updates arrive via the client_state_changed WS event.
+   * @param {string} macId - Client mac_id
+   * @param {number} delayMs - Delay in milliseconds (0-100)
+   * @returns {Promise<Object>} Updated client data
+   */
+  async function setClientDelay(macId, delayMs) {
+    const result = await apiCall.patch(`/api/multiroom/clients/${macId}/delay`, { delay_ms: delayMs }, {
+      category: 'store',
+      message: 'Error updating client delay',
+      rethrow: true,
+    });
+    return result.data;
+  }
+
+  /**
    * Permanently delete a client from the registry.
    * Removes client from all zones and clears persisted configuration.
    * @param {string} macId - Client mac_id
@@ -632,6 +675,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     // Client queries
     isClientOnline,
     isClientLocal,
+    isClientEqIndependent,
 
     // Zone queries
     getZoneForClient,
@@ -650,6 +694,8 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     addClientToZone,
     removeClientFromZone,
     updateClient,
+    setClientEqIndependent,
+    setClientDelay,
     deleteClient,
 
     // Client hardware

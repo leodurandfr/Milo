@@ -156,6 +156,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
     if (!audioStore.systemState.multiroom_enabled) return null;
 
+    // A zone member that detached its EQ addresses its own MAC, not the zone.
+    if (registryStore.isClientEqIndependent(selectedTarget.value)) return null;
+
     const zone = registryStore.getZoneForClient(selectedTarget.value);
     return zone ? zone.id : null;
   }
