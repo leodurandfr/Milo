@@ -630,7 +630,13 @@
     "usb": {
       "title": "USB storage",
       "connected": "Connected",
-      "notConnected": "Not connected"
+      "notConnected": "Not connected",
+      "rename": "Rename",
+      "renameTitle": "Rename USB key",
+      "namePlaceholder": "USB key name",
+      "name": "Name",
+      "nameHint": "Shown in the library and kept when the key is plugged in again. Leave empty to use the disk label ({label}).",
+      "renameError": "Could not rename this USB key"
     },
     "nas": {
       "title": "NAS server",

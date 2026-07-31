@@ -630,7 +630,13 @@
     "usb": {
       "title": "USB 存储",
       "connected": "已连接",
-      "notConnected": "未连接"
+      "notConnected": "未连接",
+      "rename": "重命名",
+      "renameTitle": "重命名 U 盘",
+      "namePlaceholder": "U 盘名称",
+      "name": "名称",
+      "nameHint": "显示在音乐库中，重新插入 U 盘时保留。留空则使用磁盘卷标（{label}）。",
+      "renameError": "无法重命名此 U 盘"
     },
     "nas": {
       "title": "NAS 服务器",

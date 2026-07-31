@@ -630,7 +630,13 @@
     "usb": {
       "title": "Stockage USB",
       "connected": "Branché",
-      "notConnected": "Non branché"
+      "notConnected": "Non branché",
+      "rename": "Renommer",
+      "renameTitle": "Renommer la clé USB",
+      "namePlaceholder": "Nom de la clé USB",
+      "name": "Nom",
+      "nameHint": "Affiché dans la bibliothèque et conservé au rebranchement de la clé. Laissez vide pour utiliser l'étiquette du disque ({label}).",
+      "renameError": "Impossible de renommer cette clé USB"
     },
     "nas": {
       "title": "Serveur NAS",

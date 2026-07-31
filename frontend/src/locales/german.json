@@ -630,7 +630,13 @@
     "usb": {
       "title": "USB-Speicher",
       "connected": "Verbunden",
-      "notConnected": "Nicht verbunden"
+      "notConnected": "Nicht verbunden",
+      "rename": "Umbenennen",
+      "renameTitle": "USB-Stick umbenennen",
+      "namePlaceholder": "Name des USB-Sticks",
+      "name": "Name",
+      "nameHint": "Wird in der Bibliothek angezeigt und beim erneuten Anstecken beibehalten. Leer lassen, um die Datenträgerbezeichnung zu verwenden ({label}).",
+      "renameError": "USB-Stick konnte nicht umbenannt werden"
     },
     "nas": {
       "title": "NAS-Server",
