@@ -106,6 +106,16 @@ class MultiroomEqualizerService:
             self._registry and self._registry.is_local_client(target_id)
         )
 
+    def _is_eq_independent(self, mac_id: str) -> bool:
+        """True for a zone member whose EQ is detached from its zone.
+
+        Such a member stays in the zone for playback but is excluded from every
+        zone-EQ operation (fan-out, representative selection, enabled
+        conjunction) and is addressed directly as a client instead.
+        """
+        client = self._registry.get_client(mac_id) if self._registry else None
+        return bool(client and client.eq_independent)
+
     async def get_client_eq(self, mac_id: str) -> EqualizerSettings:
         """Read a client's one EQ record.
 
@@ -164,12 +174,18 @@ class MultiroomEqualizerService:
         zone = self._registry.get_zone(zone_id)
         if not zone or not zone.client_ids:
             return None
+        # A member with an independent EQ has left the zone's shared record; it is
+        # neither the representative nor part of the enabled conjunction. If every
+        # member is independent the zone has no EQ of its own to report.
+        members = [m for m in zone.client_ids if not self._is_eq_independent(m)]
+        if not members:
+            return None
         member = next(
-            (m for m in zone.client_ids if self._registry.is_local_client(m)),
-            zone.client_ids[0],
+            (m for m in members if self._registry.is_local_client(m)),
+            members[0],
         )
         record = await self.get_client_eq(member)
-        others = [m for m in zone.client_ids if m != member]
+        others = [m for m in members if m != member]
         for mac_id in others:
             if not (await self.get_client_eq(mac_id)).enabled:
                 record.enabled = False
@@ -188,10 +204,12 @@ class MultiroomEqualizerService:
         zone = self._registry.get_zone(zone_id)
         if not zone:
             raise ValueError(f"Zone not found: {zone_id}")
+        # Skip members that detached their EQ from the zone — they own their record.
         await asyncio.gather(
             *[
                 self.set_client_eq(mac_id, EqualizerSettings.from_dict(settings.to_dict()))
                 for mac_id in zone.client_ids
+                if not self._is_eq_independent(mac_id)
             ],
             return_exceptions=True,
         )
@@ -321,7 +339,9 @@ class MultiroomEqualizerService:
         if not client:
             raise ValueError(f"Client not found: {mac_id}")
 
-        if client.zone_id is not None:
+        # A zone member is normally driven through the zone — unless it detached
+        # its EQ (eq_independent), in which case it is addressed directly.
+        if client.zone_id is not None and not client.eq_independent:
             raise ValueError(
                 f"Client {mac_id} is in zone {client.zone_id}. "
                 "Use apply_zone_equalizer() instead."
@@ -478,10 +498,13 @@ class MultiroomEqualizerService:
         ):
             raise ValueError(f"Client not found: {target_id}")
 
-        # Resolve the affected members (zone fan-out, or a single client).
+        # Resolve the affected members (zone fan-out, or a single client). A zone
+        # member that detached its EQ is excluded — it is edited as its own client.
         if target_type == "zone":
             zone = self._registry.get_zone(target_id)
-            members = list(zone.client_ids) if zone else []
+            members = [
+                m for m in zone.client_ids if not self._is_eq_independent(m)
+            ] if zone else []
         else:
             members = [target_id]
 
@@ -501,7 +524,10 @@ class MultiroomEqualizerService:
         if self._equalizer_router:
             method = getattr(self._equalizer_router, router_method)
             if target_type == "zone":
-                online_clients = self._registry.get_online_zone_clients(target_id)
+                online_clients = [
+                    c for c in self._registry.get_online_zone_clients(target_id)
+                    if not self._is_eq_independent(c.mac_id)
+                ]
                 if online_clients:
                     await asyncio.gather(
                         *[method(mac_id=c.mac_id, persist=False, **router_kwargs)

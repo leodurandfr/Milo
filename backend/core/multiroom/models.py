@@ -364,6 +364,13 @@ class Client:
         volume_db: Current volume in dB
         mute: Mute status
         speaker_type: Type of speaker for crossover configuration
+        eq_independent: Override flag — when a zone member sets this, its
+            CamillaDSP EQ is detached from the zone (addressed as its own client)
+            while it stays in the zone for synchronized playback. Meaningless
+            outside a zone, and reset to False whenever the client leaves one.
+        delay_ms: Per-client playback delay in ms, applied as native Snapcast
+            latency (Client.SetLatency). Milō owns it as the source of truth and
+            re-pushes it on reconnection; it is NOT a CamillaDSP filter.
 
     Properties:
         is_local: True if this is the local client (ip == "127.0.0.1")
@@ -378,12 +385,17 @@ class Client:
     mute: bool = False
     speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE
     volume_control: bool = True  # False = DAC card, external amp manages volume
+    eq_independent: bool = False  # True = zone member with its own EQ (still in zone for audio)
+    delay_ms: int = 0  # Native Snapcast per-client latency in ms
 
     # The only fields that outlive a reboot, and the single declaration of the
     # settings.json shape (ClientRegistryService persists exactly this). The
     # rest is runtime state with another owner: host and online come from
     # Snapcast on registration, volume_db/mute from the volume store.
-    PERSISTED_FIELDS = ("mac_id", "name", "ip", "zone_id", "speaker_type", "volume_control")
+    PERSISTED_FIELDS = (
+        "mac_id", "name", "ip", "zone_id", "speaker_type", "volume_control",
+        "eq_independent", "delay_ms",
+    )
 
     def to_dict(self, include_runtime: bool = True) -> Dict[str, Any]:
         """
@@ -409,7 +421,9 @@ class Client:
             "volume_db": self.volume_db,
             "mute": self.mute,
             "speaker_type": self.speaker_type,
-            "volume_control": self.volume_control
+            "volume_control": self.volume_control,
+            "eq_independent": self.eq_independent,
+            "delay_ms": self.delay_ms
         }
         if include_runtime:
             result["online"] = self.online
@@ -429,7 +443,9 @@ class Client:
             volume_db=data.get("volume_db", DEFAULT_VOLUME_DB),
             mute=data.get("mute", False),
             speaker_type=data.get("speaker_type", DEFAULT_SPEAKER_TYPE),
-            volume_control=data.get("volume_control", True)
+            volume_control=data.get("volume_control", True),
+            eq_independent=data.get("eq_independent", False),
+            delay_ms=data.get("delay_ms", 0)
         )
 
     @property

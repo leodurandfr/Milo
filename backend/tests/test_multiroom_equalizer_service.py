@@ -1083,3 +1083,123 @@ class TestLocalTargetSentinel:
         result = await offline_service.apply_client_equalizer("local", sample_equalizer_settings)
         assert result is True
         mock_camilladsp_service.persist_state.assert_awaited()
+
+
+# =============================================================================
+# EQ-independent zone members
+# =============================================================================
+
+class TestEqIndependentMembers:
+    """A zone member can detach its EQ (eq_independent): it stays in the zone for
+    synchronized playback, but every zone-EQ operation skips it and it is edited
+    directly as a client. Complements the zone fan-out / raise tests above, which
+    cover the default (no member independent) because mock_registry.get_client
+    returns None there — so nothing is independent unless a test says so."""
+
+    @staticmethod
+    def _member(mac_id, *, eq_independent=False, zone_id="z"):
+        return Client(
+            mac_id=mac_id, name=mac_id, ip="192.168.1.9",
+            online=True, zone_id=zone_id, eq_independent=eq_independent,
+        )
+
+    @staticmethod
+    def _rec(enabled=True):
+        rec = EqualizerSettings.default()
+        rec.enabled = enabled
+        return rec
+
+    def _wire(self, mock_registry, macs):
+        """Point the registry at a set of members and a shared record for each."""
+        zone = Zone(id="z", name="Pair", client_ids=list(macs))
+        mock_registry.get_zone.return_value = zone
+        mock_registry.get_client = Mock(side_effect=macs.get)
+        mock_registry.get_client_equalizer = Mock(side_effect=lambda m: self._rec())
+        return zone
+
+    @pytest.mark.asyncio
+    async def test_set_zone_eq_skips_an_independent_member(
+        self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings
+    ):
+        self._wire(mock_registry, {
+            "milo-client-1": self._member("milo-client-1", eq_independent=True),
+            "milo-client-2": self._member("milo-client-2", eq_independent=False),
+        })
+
+        await multiroom_equalizer_service.set_zone_eq("z", sample_equalizer_settings)
+
+        # Only the shared member receives the zone EQ.
+        macs = [c.args[0] for c in mock_registry.set_client_equalizer.call_args_list]
+        assert macs == ["milo-client-2"]
+
+    @pytest.mark.asyncio
+    async def test_get_zone_eq_ignores_an_independent_member(
+        self, multiroom_equalizer_service, mock_registry
+    ):
+        self._wire(mock_registry, {
+            "milo-client-1": self._member("milo-client-1", eq_independent=True),
+            "milo-client-2": self._member("milo-client-2", eq_independent=False),
+        })
+        # The independent member is bypassed; it must NOT drag the zone to enabled=False.
+        records = {"milo-client-1": self._rec(enabled=False), "milo-client-2": self._rec(enabled=True)}
+        mock_registry.get_client_equalizer = Mock(side_effect=records.get)
+
+        result = await multiroom_equalizer_service.get_zone_eq("z")
+
+        assert result.enabled is True
+
+    @pytest.mark.asyncio
+    async def test_get_zone_eq_none_when_every_member_is_independent(
+        self, multiroom_equalizer_service, mock_registry
+    ):
+        self._wire(mock_registry, {
+            "milo-client-1": self._member("milo-client-1", eq_independent=True),
+            "milo-client-2": self._member("milo-client-2", eq_independent=True),
+        })
+
+        assert await multiroom_equalizer_service.get_zone_eq("z") is None
+
+    @pytest.mark.asyncio
+    async def test_apply_client_equalizer_allows_an_independent_member(
+        self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings
+    ):
+        """A zoned member that detached its EQ is addressed directly — no raise."""
+        mock_registry.get_client = Mock(
+            return_value=self._member("milo-client-1", eq_independent=True)
+        )
+
+        result = await multiroom_equalizer_service.apply_client_equalizer(
+            "milo-client-1", sample_equalizer_settings
+        )
+
+        assert result is True
+        mock_registry.set_client_equalizer.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_apply_client_equalizer_still_raises_for_a_shared_member(
+        self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings
+    ):
+        """The other half: a shared (non-independent) zone member still routes
+        through the zone, so the guard must still fire."""
+        mock_registry.get_client = Mock(
+            return_value=self._member("milo-client-1", eq_independent=False)
+        )
+
+        with pytest.raises(ValueError, match="is in zone"):
+            await multiroom_equalizer_service.apply_client_equalizer(
+                "milo-client-1", sample_equalizer_settings
+            )
+
+    @pytest.mark.asyncio
+    async def test_partial_update_skips_an_independent_member(
+        self, multiroom_equalizer_service, mock_registry
+    ):
+        self._wire(mock_registry, {
+            "milo-client-1": self._member("milo-client-1", eq_independent=True),
+            "milo-client-2": self._member("milo-client-2", eq_independent=False),
+        })
+
+        await multiroom_equalizer_service.update_mono("zone", "z", enabled=True)
+
+        persisted = [c.args[0] for c in mock_registry.set_client_equalizer.call_args_list]
+        assert persisted == ["milo-client-2"]

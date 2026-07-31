@@ -480,6 +480,16 @@ class ClientUpdateRequest(BaseModel):
         return v
 
 
+class ClientEqIndependentRequest(BaseModel):
+    """Toggle a zone member's EQ independence (its EQ detaches from the zone)."""
+    enabled: bool
+
+
+class ClientDelayRequest(BaseModel):
+    """Set a client's playback delay (native Snapcast latency, in ms)."""
+    delay_ms: int = Field(..., ge=0, le=100, description="Playback delay in milliseconds")
+
+
 class RegisterClientRequest(BaseModel):
     """Request from a milo-client to register as a pending speaker."""
     mac_id: str = Field(..., min_length=17, max_length=17)

@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from backend.api.multiroom import create_multiroom_router
 from backend.api.models import ZoneCreate, ZoneUpdate, MAX_ZONE_NAME_LENGTH
-from backend.core.multiroom.models import Client
+from backend.core.multiroom.models import Client, Zone, EqualizerSettings
 
 
 @pytest.fixture
@@ -195,6 +195,113 @@ class TestSpeakerTypeValidation:
 
         assert response.status_code == 200
         assert response.json()["client"]["speaker_type"] == speaker_type
+
+
+# =============================================================================
+# Client tuning endpoints (EQ independence + delay)
+# =============================================================================
+
+@pytest.fixture
+def tuning_client():
+    """Router wired with a registry, EQ service and snapcast for the tuning routes.
+
+    Two online zone members ("mac-1" the subject, "mac-2" a shared donor) so the
+    reattach path has a non-independent online member to re-adopt the EQ from.
+    """
+    clients = {
+        "mac-1": Client(mac_id="mac-1", name="Kitchen", ip="192.168.1.50", online=True, zone_id="z1"),
+        "mac-2": Client(mac_id="mac-2", name="Living", ip="192.168.1.51", online=True, zone_id="z1"),
+        "mac-off": Client(mac_id="mac-off", name="Garage", ip="192.168.1.52", online=False, zone_id=None),
+    }
+    registry = Mock()
+    registry.get_client = Mock(side_effect=clients.get)
+    registry.get_zone = Mock(return_value=Zone(id="z1", name="Pair", client_ids=["mac-1", "mac-2"]))
+
+    def _set_eq_ind(mac_id, enabled):
+        clients[mac_id] = dataclasses.replace(clients[mac_id], eq_independent=enabled)
+        return clients[mac_id]
+
+    def _set_delay(mac_id, delay_ms):
+        clients[mac_id] = dataclasses.replace(clients[mac_id], delay_ms=delay_ms)
+        return clients[mac_id]
+
+    registry.set_client_eq_independent = AsyncMock(side_effect=_set_eq_ind)
+    registry.set_client_delay = AsyncMock(side_effect=_set_delay)
+
+    eq = Mock()
+    eq.get_client_eq = AsyncMock(return_value=EqualizerSettings.default())
+    eq.set_client_eq = AsyncMock(return_value=True)
+
+    snapcast = Mock()
+    snapcast.set_latency = AsyncMock(return_value=True)
+
+    app = FastAPI()
+    app.include_router(create_multiroom_router(registry, eq, None, None, snapcast))
+    return TestClient(app), registry, eq, snapcast
+
+
+class TestEqIndependentEndpoint:
+    """PUT /api/multiroom/clients/{mac_id}/eq-independent."""
+
+    def test_detach_sets_the_flag_only(self, tuning_client):
+        """enabled=true copies nothing — the member already holds the zone EQ."""
+        client, registry, eq, _ = tuning_client
+        resp = client.put("/api/multiroom/clients/mac-1/eq-independent", json={"enabled": True})
+
+        assert resp.status_code == 200
+        assert resp.json()["client"]["eq_independent"] is True
+        registry.set_client_eq_independent.assert_awaited_once_with("mac-1", True)
+        eq.get_client_eq.assert_not_awaited()  # no adoption on detach
+        eq.set_client_eq.assert_not_awaited()
+
+    def test_reattach_readopts_the_zone_eq_from_a_shared_member(self, tuning_client):
+        """enabled=false re-adopts the current zone EQ from a shared online member."""
+        client, registry, eq, _ = tuning_client
+        resp = client.put("/api/multiroom/clients/mac-1/eq-independent", json={"enabled": False})
+
+        assert resp.status_code == 200
+        registry.set_client_eq_independent.assert_awaited_once_with("mac-1", False)
+        eq.get_client_eq.assert_awaited_once_with("mac-2")  # the shared donor
+        eq.set_client_eq.assert_awaited_once()
+        assert eq.set_client_eq.await_args.args[0] == "mac-1"
+
+    def test_unknown_client_404(self, tuning_client):
+        client, _, _, _ = tuning_client
+        resp = client.put("/api/multiroom/clients/nope/eq-independent", json={"enabled": True})
+        assert resp.status_code == 404
+
+
+class TestClientDelayEndpoint:
+    """PATCH /api/multiroom/clients/{mac_id}/delay."""
+
+    def test_delay_persists_and_applies_to_snapcast(self, tuning_client):
+        client, registry, _, snapcast = tuning_client
+        resp = client.patch("/api/multiroom/clients/mac-1/delay", json={"delay_ms": 40})
+
+        assert resp.status_code == 200
+        assert resp.json()["client"]["delay_ms"] == 40
+        registry.set_client_delay.assert_awaited_once_with("mac-1", 40)
+        snapcast.set_latency.assert_awaited_once_with("mac-1", 40)
+
+    def test_delay_offline_client_skips_snapcast(self, tuning_client):
+        """An offline client's delay persists but is not pushed — it re-applies on
+        reconnection via the admission path."""
+        client, registry, _, snapcast = tuning_client
+        resp = client.patch("/api/multiroom/clients/mac-off/delay", json={"delay_ms": 20})
+
+        assert resp.status_code == 200
+        registry.set_client_delay.assert_awaited_once_with("mac-off", 20)
+        snapcast.set_latency.assert_not_awaited()
+
+    def test_delay_out_of_range_422(self, tuning_client):
+        client, _, _, _ = tuning_client
+        resp = client.patch("/api/multiroom/clients/mac-1/delay", json={"delay_ms": 500})
+        assert resp.status_code == 422
+
+    def test_delay_unknown_client_404(self, tuning_client):
+        client, _, _, _ = tuning_client
+        resp = client.patch("/api/multiroom/clients/nope/delay", json={"delay_ms": 10})
+        assert resp.status_code == 404
 
 
 # =============================================================================

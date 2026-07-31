@@ -82,6 +82,7 @@ class TestSnapcastDetectionIntegration:
         # Mock snapcast service so volume sync succeeds
         mock_snapcast = MagicMock()
         mock_snapcast.set_volume = AsyncMock(return_value=True)
+        mock_snapcast.set_latency = AsyncMock(return_value=True)
         mock_snapcast.get_clients = AsyncMock(return_value=[])
         service._snapcast_service = mock_snapcast
 

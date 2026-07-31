@@ -313,6 +313,55 @@ class ClientRegistryService:
 
         return client
 
+    async def set_client_eq_independent(self, mac_id: str, enabled: bool) -> Optional[Client]:
+        """Set a client's eq_independent override flag.
+
+        Persists and broadcasts CLIENT_UPDATED so the flag reaches the frontend
+        (which regroups the EQ tab strip from it). The EQ re-adoption on detach/
+        reattach is the caller's concern (MultiroomEqualizerService); this only
+        owns the flag on the client record.
+
+        Returns the updated client, or None if not found.
+        """
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if not client:
+                self.logger.warning(f"Cannot set eq_independent: client {mac_id} not found")
+                return None
+            client.eq_independent = enabled
+            client_dict = client.to_dict()
+
+        await self._persist_state()
+        await self._emit_event(RegistryEventType.CLIENT_UPDATED, {
+            "mac_id": mac_id,
+            "client": client_dict
+        })
+        return client
+
+    async def set_client_delay(self, mac_id: str, delay_ms: int) -> Optional[Client]:
+        """Set a client's per-client playback delay (native Snapcast latency).
+
+        Persists and broadcasts CLIENT_UPDATED so the value reaches the frontend.
+        Applying it to snapserver (Client.SetLatency) is the caller's concern —
+        the registry only owns the source-of-truth value on the client record.
+
+        Returns the updated client, or None if not found.
+        """
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if not client:
+                self.logger.warning(f"Cannot set delay: client {mac_id} not found")
+                return None
+            client.delay_ms = delay_ms
+            client_dict = client.to_dict()
+
+        await self._persist_state()
+        await self._emit_event(RegistryEventType.CLIENT_UPDATED, {
+            "mac_id": mac_id,
+            "client": client_dict
+        })
+        return client
+
     async def update_volume(
         self,
         mac_id: str,
@@ -442,11 +491,14 @@ class ClientRegistryService:
         """Detach clients from their zone (membership only).
 
         EQ is a no-op here: each client already owns its EQ record, which it
-        keeps when the zone goes away. Must be called inside self._lock.
+        keeps when the zone goes away. The eq_independent override is cleared,
+        though — it only means anything relative to a zone the client is in.
+        Must be called inside self._lock.
         """
         for mac_id in mac_ids:
             if mac_id in self._clients:
                 self._clients[mac_id].zone_id = None
+                self._clients[mac_id].eq_independent = False
 
     async def delete_zone(self, zone_id: str) -> bool:
         """
@@ -566,6 +618,9 @@ class ClientRegistryService:
 
             zone.client_ids.append(mac_id)
             client.zone_id = zone_id
+            # A fresh member adopts the zone's shared EQ, so any prior independent
+            # override no longer applies.
+            client.eq_independent = False
             # EQ record is left as-is here; the caller adopts the zone's current
             # EQ onto the new member via MultiroomEqualizerService.set_client_eq().
 

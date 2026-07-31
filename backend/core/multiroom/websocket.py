@@ -926,6 +926,13 @@ class SnapcastWebSocketService:
             # notification announced it.
             await self._snapcast_service.set_volume(snapcast_id, 100)
 
+            # Re-push the per-client delay the same way: it is native Snapcast
+            # latency Milō owns, and a delay set while the client was away never
+            # reached snapserver. Mirror of the volume passthrough above.
+            client = self.registry.get_client(mac_id)
+            if client:
+                await self._snapcast_service.set_latency(snapcast_id, client.delay_ms)
+
         context = self.registry.get_reconnection_context(mac_id)
         target_volume = self._resolve_target_volume(mac_id, context)
 

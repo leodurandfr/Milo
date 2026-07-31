@@ -65,6 +65,8 @@ class TestClient:
         assert client.speaker_type == DEFAULT_SPEAKER_TYPE
         assert client.volume_db == DEFAULT_VOLUME_DB
         assert client.mute is False
+        assert client.eq_independent is False
+        assert client.delay_ms == 0
 
     def test_client_to_dict(self):
         """Test converting client to dictionary - completeness validation."""
@@ -77,7 +79,9 @@ class TestClient:
             online=True,
             zone_id="zone-123",
             volume_db=-25.0,
-            mute=True
+            mute=True,
+            eq_independent=True,
+            delay_ms=40
         )
 
         # Default: include runtime fields (for WebSocket events - )
@@ -91,12 +95,15 @@ class TestClient:
         assert data["zone_id"] == "zone-123"
         assert data["volume_db"] == -25.0
         assert data["mute"] is True
+        assert data["eq_independent"] is True
+        assert data["delay_ms"] == 40
         # Runtime fields are now included by default for complete WebSocket events
         assert data["online"] is True
 
         # Verify all expected fields are present (including is_local, host, volume_control)
         expected_fields = {"mac_id", "name", "ip", "host", "speaker_type", "zone_id",
-                          "volume_db", "mute", "online", "is_local", "volume_control"}
+                          "volume_db", "mute", "online", "is_local", "volume_control",
+                          "eq_independent", "delay_ms"}
         assert set(data.keys()) == expected_fields
 
         # Explicit: the persistence shape drops every field with another
@@ -1494,6 +1501,30 @@ class TestSnapcastService:
         with self._mock_jsonrpc_response(payload={"result": {"volume": {"percent": 50, "muted": False}}}):
             assert await snapcast_service.set_volume("client-1", 50) is True
 
+    @pytest.mark.asyncio
+    async def test_set_latency_emits_the_setlatency_command(self, snapcast_service):
+        """set_latency issues Client.SetLatency with the client id and ms — the
+        exact wire command the per-client delay rides on. Asserted against the
+        JSON-RPC boundary because that command IS the contract with snapserver."""
+        snapcast_service._request = AsyncMock(return_value={})
+        assert await snapcast_service.set_latency("client-1", 40) is True
+        snapcast_service._request.assert_awaited_once_with(
+            "Client.SetLatency", {"id": "client-1", "latency": 40}
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_latency_clamps_negative_to_zero(self, snapcast_service):
+        """A negative delay is clamped, never sent as-is."""
+        snapcast_service._request = AsyncMock(return_value={})
+        await snapcast_service.set_latency("client-1", -5)
+        assert snapcast_service._request.await_args.args[1]["latency"] == 0
+
+    @pytest.mark.asyncio
+    async def test_set_latency_returns_false_on_rpc_error(self, snapcast_service):
+        """set_latency fails loud (returns False) when the RPC errors."""
+        with self._mock_jsonrpc_response(status=503):
+            assert await snapcast_service.set_latency("client-1", 40) is False
+
 
 # =============================================================================
 # Helper Function Tests
@@ -2076,6 +2107,7 @@ class TestSnapcastClientDetection:
         # Mock snapcast and volume services so volume sync succeeds
         mock_snapcast = MagicMock()
         mock_snapcast.set_volume = AsyncMock(return_value=True)
+        mock_snapcast.set_latency = AsyncMock(return_value=True)
         mock_snapcast.get_clients = AsyncMock(return_value=[])
         ws_service._snapcast_service = mock_snapcast
 
@@ -2279,6 +2311,7 @@ class TestSnapcastClientDetection:
         # Mock snapcast and volume services so volume sync succeeds
         mock_snapcast = MagicMock()
         mock_snapcast.set_volume = AsyncMock(return_value=True)
+        mock_snapcast.set_latency = AsyncMock(return_value=True)
         mock_snapcast.get_clients = AsyncMock(return_value=[])
         ws_service._snapcast_service = mock_snapcast
 
@@ -3607,6 +3640,7 @@ class TestAdmissionPathConvergence:
         snapcast = SnapcastService(systemd_manager=MagicMock())
         snapcast.get_server_status = AsyncMock(return_value=self._status())
         snapcast.set_volume = AsyncMock(return_value=True)
+        snapcast.set_latency = AsyncMock(return_value=True)
 
         pending_service = MagicMock()
         pending_service.get_client = MagicMock(return_value=pending)
@@ -3707,6 +3741,34 @@ class TestAdmissionPathConvergence:
         )
 
         snapcast.set_volume.assert_awaited_once_with("snap-1", 100)
+
+    @pytest.mark.asyncio
+    async def test_the_per_client_delay_is_repushed_on_admission(self):
+        """A delay set while a client was away must reach snapserver on reconnect.
+
+        The delay is native Snapcast latency Milō owns as its source of truth,
+        and the admission path is the one place holding the Snapcast id — so it
+        re-pushes the delay right beside the volume-100 passthrough, or a delay
+        changed offline would silently never apply (the mirror of the buffer /
+        EQ re-push bugs).
+        """
+        service, registry, snapcast, _ = await self._service()
+        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+        await registry.set_client_delay(self.MAC, 40)
+        volume_service = MagicMock()
+        volume_service.volume_config = VolumeConfig()
+        volume_service.state_store.set_client_volume = AsyncMock()
+        volume_service.state_store.get_client_mute = MagicMock(return_value=False)
+        volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        volume_service.equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
+        volume_service.broadcast_volume_state = AsyncMock()
+        service.set_volume_service(volume_service)
+
+        assert await service._sync_reconnecting_client_volume(
+            self.MAC, max_retries=0, retry_delay=0, snapcast_id="snap-1"
+        )
+
+        snapcast.set_latency.assert_awaited_once_with("snap-1", 40)
 
     @pytest.mark.asyncio
     async def test_a_client_snapserver_lists_twice_is_admitted_once(self):

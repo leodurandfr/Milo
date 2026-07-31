@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.api.route_helpers import api_error_handler
 from backend.api.models import (
     ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest,
+    ClientEqIndependentRequest, ClientDelayRequest,
     RegisterClientRequest, ConfigurePendingClientRequest,
     ConfigureClientAudioRequest,
 )
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
     from backend.core.multiroom.client_registry import ClientRegistryService
     from backend.core.multiroom.crossover import CrossoverService
     from backend.core.multiroom.pending_clients import PendingClientsService
+    from backend.core.multiroom.snapcast import SnapcastService
 
 
 logger = logging.getLogger(__name__)
@@ -159,7 +161,8 @@ def create_multiroom_router(
     registry_service: "ClientRegistryService",
     multiroom_equalizer_service: Optional["MultiroomEqualizerService"] = None,
     pending_clients_service: Optional["PendingClientsService"] = None,
-    crossover_service: Optional["CrossoverService"] = None
+    crossover_service: Optional["CrossoverService"] = None,
+    snapcast_service: Optional["SnapcastService"] = None
 ):
     """
     Creates multiroom router with dependency injection.
@@ -257,6 +260,92 @@ def create_multiroom_router(
                 speaker_type=request.speaker_type,
                 volume_control=request.volume_control
             )
+
+            return {"status": "success", "client": _client_with_online(updated_client)}
+
+    @router.put("/clients/{mac_id}/eq-independent", response_model=ClientMutationResponse)
+    async def set_client_eq_independent(mac_id: str, request: ClientEqIndependentRequest):
+        """Detach (or reattach) a zone member's EQ from its zone.
+
+        The member stays in the zone for synchronized playback either way.
+
+        - enabled=True (detach): flag only. The member already holds a
+          byte-identical copy of the zone's EQ, so there is nothing to copy and
+          no audible jump; later zone-EQ edits simply skip it.
+        - enabled=False (reattach): clear the flag, then re-adopt the zone's
+          current EQ from a non-independent online member and push it, so the
+          member falls back in step with the zone.
+
+        Returns:
+            {"status": "success", "client": {...}}
+
+        Raises:
+            404: Client not found
+        """
+        async with api_error_handler(f"Error setting eq_independent for client {mac_id}", logger):
+            client = registry_service.get_client(mac_id)
+            if not client:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Client with mac_id '{mac_id}' not found"
+                )
+
+            # On reattachment, capture the zone's current EQ from a member that is
+            # still shared, BEFORE clearing the flag — that is the EQ to re-adopt.
+            zone_eq = None
+            if not request.enabled and client.zone_id and multiroom_equalizer_service:
+                zone = registry_service.get_zone(client.zone_id)
+                donor = next(
+                    (m for m in (zone.client_ids if zone else [])
+                     if m != mac_id
+                     and (c := registry_service.get_client(m)) is not None
+                     and not c.eq_independent
+                     and c.online),
+                    None,
+                )
+                if donor:
+                    zone_eq = await multiroom_equalizer_service.get_client_eq(donor)
+
+            updated_client = await registry_service.set_client_eq_independent(mac_id, request.enabled)
+
+            if zone_eq is not None:
+                try:
+                    await multiroom_equalizer_service.set_client_eq(mac_id, zone_eq)
+                except Exception as e:
+                    logger.warning(f"Failed to re-adopt zone equalizer for {mac_id}: {e}")
+
+            return {"status": "success", "client": _client_with_online(updated_client)}
+
+    @router.patch("/clients/{mac_id}/delay", response_model=ClientMutationResponse)
+    async def set_client_delay(mac_id: str, request: ClientDelayRequest):
+        """Set a client's playback delay (native Snapcast latency, in ms).
+
+        Milō owns the value as source of truth: it is applied to snapserver now
+        when the client is online, and re-pushed on reconnection either way.
+        Addresses the exact client — a zone member and a standalone alike, never
+        a zone redirect.
+
+        Returns:
+            {"status": "success", "client": {...}}
+
+        Raises:
+            404: Client not found
+        """
+        async with api_error_handler(f"Error setting delay for client {mac_id}", logger):
+            client = registry_service.get_client(mac_id)
+            if not client:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Client with mac_id '{mac_id}' not found"
+                )
+
+            updated_client = await registry_service.set_client_delay(mac_id, request.delay_ms)
+
+            # Apply to snapserver now (best-effort — set_latency is fail-open). The
+            # snapcast client id is the mac_id by construction (see compute_mac_id);
+            # an offline client recovers the value via the admission re-push.
+            if snapcast_service and client.online:
+                await snapcast_service.set_latency(mac_id, request.delay_ms)
 
             return {"status": "success", "client": _client_with_online(updated_client)}
 
