@@ -119,10 +119,9 @@
       "subwooferOffline": "Subwoofer offline"
     },
     "tuning": {
-      "title": "Ajustes",
       "eqIndependent": "Equalizador independente",
-      "eqIndependentDescription": "Dê a esta coluna o seu próprio equalizador, separado da sua zona.",
-      "delay": "Atraso"
+      "delay": "Atraso",
+      "delayHint": "Atrase a reprodução desta coluna para a alinhar com as outras."
     },
     "pending": {
       "title": "Novo Milō Client detetado",

@@ -98,22 +98,28 @@
         </div>
       </SettingsSection>
 
-      <!-- Multiroom tuning: independent EQ (zone members) + playback delay -->
-      <SettingsSection v-if="multiroomEnabled" :title="t('multiroom.tuning.title')">
-        <ListItemButton
+      <!-- Multiroom tuning (multiroom only): independent EQ + playback delay -->
+      <template v-if="multiroomEnabled">
+        <!-- EQ independence — toggle only, zone members only -->
+        <ToggleSection
           v-if="isInZone"
           :title="t('multiroom.tuning.eqIndependent')"
-          :subtitle="t('multiroom.tuning.eqIndependentDescription')"
-          variant="background"
-          action="toggle"
-          :model-value="eqIndependent"
-          @click="toggleEqIndependent"
+          :enabled="eqIndependent"
+          @change="toggleEqIndependent"
         />
-        <SettingItem :label="t('multiroom.tuning.delay')">
-          <RangeSlider v-model="delayMs" :min="0" :max="100" :step="5" value-unit="ms"
-            @change="handleDelayChange" />
-        </SettingItem>
-      </SettingsSection>
+
+        <!-- Playback delay — toggle expands to the delay slider (0 = off) -->
+        <ToggleSection
+          :title="t('multiroom.tuning.delay')"
+          :enabled="delayEnabled"
+          @change="handleDelayToggle"
+        >
+          <SettingItem :label="t('multiroom.tuning.delayHint')">
+            <RangeSlider v-model="delayMs" :min="1" :max="100" :step="1" value-unit="ms"
+              @change="handleDelayChange" />
+          </SettingItem>
+        </ToggleSection>
+      </template>
 
       <!-- Client Info -->
       <SettingsSection :title="t('multiroom.systemInfo')">
@@ -159,6 +165,7 @@ import { logger } from '@/services/logger';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -189,6 +196,10 @@ const selectedSpeakerType = ref('bookshelf');
 const volumeControl = ref(true);
 const eqIndependent = ref(false);
 const delayMs = ref(0);
+// Default applied the first time the delay is enabled; also remembers the last
+// non-zero value so toggling OFF then ON restores the user's choice.
+const DEFAULT_DELAY_MS = 20;
+const lastDelay = ref(DEFAULT_DELAY_MS);
 const deleting = ref(false);
 const crossoverFrequency = ref(80);
 
@@ -244,6 +255,9 @@ const isInZone = computed(() => !!clientZone.value);
 // EQ independence and delay are multiroom-only tuning.
 const multiroomEnabled = computed(() => audioStore.systemState.multiroom_enabled);
 
+// The delay is "enabled" whenever a non-zero delay is set (mirror of auto-stop).
+const delayEnabled = computed(() => delayMs.value > 0);
+
 const isSubwoofer = computed(() => selectedSpeakerType.value === 'subwoofer');
 
 const zoneHasSubwoofer = computed(() => {
@@ -278,7 +292,10 @@ watch(
 watch(
   () => client.value?.delay_ms,
   (v) => {
-    if (v != null) delayMs.value = v;
+    if (v != null) {
+      delayMs.value = v;
+      if (v > 0) lastDelay.value = v;
+    }
   }
 );
 
@@ -341,22 +358,40 @@ async function toggleVolumeControl() {
   }
 }
 
-async function toggleEqIndependent() {
-  eqIndependent.value = !eqIndependent.value;
+async function toggleEqIndependent(enabled) {
+  const previous = eqIndependent.value;
+  eqIndependent.value = enabled;
   try {
-    await multiroomClientStore.setClientEqIndependent(props.macId, eqIndependent.value);
+    await multiroomClientStore.setClientEqIndependent(props.macId, enabled);
   } catch (error) {
     logger.error('multiroom', 'Error saving EQ independence', error);
-    eqIndependent.value = !eqIndependent.value; // Revert on failure
+    eqIndependent.value = previous; // Revert on failure
   }
 }
 
-async function handleDelayChange(value) {
+async function persistDelay(value) {
   try {
     await multiroomClientStore.setClientDelay(props.macId, value);
   } catch (error) {
     logger.error('multiroom', 'Error saving client delay', error);
   }
+}
+
+// Toggle ON restores the last (or default) delay; OFF sets it to 0 (disabled).
+function handleDelayToggle(enabled) {
+  if (enabled) {
+    delayMs.value = lastDelay.value;
+  } else {
+    if (delayMs.value > 0) lastDelay.value = delayMs.value;
+    delayMs.value = 0;
+  }
+  persistDelay(delayMs.value);
+}
+
+function handleDelayChange(value) {
+  if (value > 0) lastDelay.value = value;
+  delayMs.value = value;
+  persistDelay(value);
 }
 
 function handleApply() {
@@ -449,6 +484,7 @@ onMounted(async () => {
     volumeControl.value = client.value.volume_control !== false;
     eqIndependent.value = client.value.eq_independent === true;
     delayMs.value = client.value.delay_ms ?? 0;
+    if (delayMs.value > 0) lastDelay.value = delayMs.value;
 
     // Load audio card options and current card for remote clients
     if (!client.value.is_local && client.value.online) {

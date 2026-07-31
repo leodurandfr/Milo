@@ -119,10 +119,9 @@
       "subwooferOffline": "Subwoofer offline"
     },
     "tuning": {
-      "title": "Feinabstimmung",
       "eqIndependent": "Unabhängiger EQ",
-      "eqIndependentDescription": "Gib diesem Lautsprecher einen eigenen Equalizer, getrennt von seiner Zone.",
-      "delay": "Verzögerung"
+      "delay": "Verzögerung",
+      "delayHint": "Verzögere die Wiedergabe dieses Lautsprechers, um ihn an die anderen anzugleichen."
     },
     "pending": {
       "title": "Neuer Milō Client erkannt",

@@ -119,10 +119,9 @@
       "subwooferOffline": "低音炮离线"
     },
     "tuning": {
-      "title": "微调",
       "eqIndependent": "独立均衡器",
-      "eqIndependentDescription": "为此扬声器设置独立于所在区域的均衡器。",
-      "delay": "延迟"
+      "delay": "延迟",
+      "delayHint": "延迟此扬声器的播放，使其与其他扬声器对齐。"
     },
     "pending": {
       "title": "检测到新 Milō Client",
