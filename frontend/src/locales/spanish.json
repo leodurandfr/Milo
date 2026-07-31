@@ -630,7 +630,13 @@
     "usb": {
       "title": "Almacenamiento USB",
       "connected": "Conectado",
-      "notConnected": "No conectado"
+      "notConnected": "No conectado",
+      "rename": "Renombrar",
+      "renameTitle": "Renombrar la memoria USB",
+      "namePlaceholder": "Nombre de la memoria USB",
+      "name": "Nombre",
+      "nameHint": "Se muestra en la biblioteca y se conserva al volver a conectar la memoria. Déjalo vacío para usar la etiqueta del disco ({label}).",
+      "renameError": "No se pudo renombrar esta memoria USB"
     },
     "nas": {
       "title": "Servidor NAS",

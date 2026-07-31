@@ -1,5 +1,10 @@
 <template>
   <div class="library-home">
+    <!-- Storage spaces — only worth a row when there is a choice to make: with
+         one storage space every tab below already shows all of it. -->
+    <ButtonGroup v-if="storageOptions.length > 1" v-model="store.activeLibraryId"
+      :options="storageOptions" size="small" mobile-layout="scroll" />
+
     <!-- Top-level tabs -->
     <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll"
       inactive-variant="background-neutral" />
@@ -35,20 +40,23 @@
         <template v-else-if="store.activeTab === 'artists'">
           <div class="transition-container">
             <Transition name="content-swap">
-              <div v-if="!store.artistIndex.length && (store.artistsLoading || !store.artistsLoaded)" key="loading"
-                class="rows-list">
+              <div v-if="!store.displayedArtistIndex.length && (store.artistsLoading || !store.artistsLoaded)"
+                key="loading" class="rows-list">
                 <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" rounded-cover />
               </div>
-              <MessageContent v-else-if="!store.artistIndex.length" key="empty" :loading="store.isScanning"
+              <MessageContent v-else-if="!store.displayedArtistIndex.length" key="empty" :loading="store.isScanning"
                 :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noArtists')"
                 :subtitle="store.isScanning ? buildingSubtitle : ''" />
-              <div v-else key="loaded" class="index-list">
-                <div v-for="bucket in store.artistIndex" :key="bucket.name" class="index-bucket">
-                  <p class="index-label text-mono">{{ bucket.name }}</p>
-                  <MediaRow v-for="artist in bucket.artist" :key="artist.id" :cover-id="artist.coverArt"
-                    :title="artist.name" :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
-                    rounded-cover @click="$emit('select-artist', artist)" />
+              <div v-else key="loaded">
+                <div class="index-list">
+                  <div v-for="bucket in store.displayedArtistIndex" :key="bucket.name" class="index-bucket">
+                    <p class="index-label text-mono">{{ bucket.name }}</p>
+                    <MediaRow v-for="artist in bucket.artist" :key="artist.id" :cover-id="artist.coverArt"
+                      :title="artist.name" :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
+                      rounded-cover @click="$emit('select-artist', artist)" />
+                  </div>
                 </div>
+                <div ref="artistsSentinelRef" class="scroll-sentinel"></div>
               </div>
             </Transition>
           </div>
@@ -156,6 +164,15 @@ const buildingSubtitle = computed(() =>
     : t('musicLibrary.buildingHint')
 );
 
+// One button per storage space Navidrome can be asked about, labelled with the
+// name the user gave it (a USB key) or the share's name.
+const storageOptions = computed(() =>
+  store.browsableStorages.map((storage) => ({
+    label: storage.name,
+    value: storage.library_id,
+  }))
+);
+
 const tabOptions = computed(() => [
   { label: t('musicLibrary.tabs.albums'), value: 'albums' },
   { label: t('musicLibrary.tabs.artists'), value: 'artists' },
@@ -184,9 +201,21 @@ const { sentinelRef } = useInfiniteScroll({
   isLoading: computed(() => store.albumsLoading),
 });
 
-onMounted(() => {
+// Same sentinel for the artists index — but nothing is fetched here (the whole
+// index arrived in one call), it only widens the store's render window, so
+// there is no loading flag to gate on.
+const { sentinelRef: artistsSentinelRef } = useInfiniteScroll({
+  onLoadMore: () => store.renderMoreArtists(),
+  canLoadMore: computed(() => store.activeTab === 'artists' && store.artistsHasMore),
+});
+
+onMounted(async () => {
   // Scan status backs the albums empty state ("building library…").
   store.refreshScanStatus();
+  // Storage spaces before the first catalog call: every one of them is scoped
+  // to a library, so loading a tab first would fetch the wrong (unscoped) list
+  // and immediately throw it away when the selection lands.
+  await store.loadStorages();
   loadTab(store.activeTab);
 });
 </script>

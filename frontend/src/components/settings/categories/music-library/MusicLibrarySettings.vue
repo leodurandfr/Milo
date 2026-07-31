@@ -1,9 +1,10 @@
 <!-- frontend/src/components/settings/categories/music-library/MusicLibrarySettings.vue -->
 <!--
   Music Library settings screen — the music *origins* Navidrome indexes (SMB/NFS
-  servers, each row opens ManageShare; auto-mounted USB, read-only status) plus a
-  manual library refresh. The backend mounts each origin read-only under
-  /media/milo and rescans on every change.
+  servers, each row opens ManageShare; auto-mounted USB keys, each row opens the
+  rename modal) plus a manual library refresh. The backend mounts each origin
+  read-only under /media/milo, gives it its own Navidrome library, and rescans on
+  every change.
 -->
 <template>
   <SettingsContainer>
@@ -52,9 +53,11 @@
           </template>
         </ListItemButton>
 
-        <!-- USB storage — read-only status, always present (detected or not). -->
-        <ListItemButton v-for="row in usbRows" :key="row.key" variant="background" :interactive="false" action="none"
-          :title="row.label">
+        <!-- USB storage — one row per mounted partition, tap to name it; the
+             no-key placeholder has nothing to name, so it stays inert. -->
+        <ListItemButton v-for="row in usbRows" :key="row.key" variant="background"
+          :interactive="row.connected" :action="row.connected ? 'caret' : 'none'" :title="row.label"
+          @click="row.connected && $emit('rename-usb', row.device)">
           <template #icon>
             <SourceBadge>USB</SourceBadge>
           </template>
@@ -103,7 +106,7 @@ import ScanProgress from '@/components/settings/categories/music-library/ScanPro
 import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
 
-defineEmits(['add-share', 'edit-share']);
+defineEmits(['add-share', 'edit-share', 'rename-usb']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
@@ -117,9 +120,14 @@ function shareTitle(share) {
   return path ? `${share.name} / ${path}` : share.name;
 }
 
+// One row per mounted USB partition — two keys (or one key with two
+// partitions) are two rows. The single placeholder row stands in for "no key
+// plugged in", which is why `connected` is what makes a row tappable.
 const usbRows = computed(() =>
   store.usbDevices.length
-    ? store.usbDevices.map((d) => ({ key: d.mountpoint, label: d.label, connected: true }))
+    ? store.usbDevices.map((d) => ({
+      key: d.mountpoint, label: d.name, connected: true, device: d,
+    }))
     : [{ key: 'usb-none', label: t('musicLibrary.usb.title'), connected: false }]
 );
 

@@ -630,7 +630,13 @@
     "usb": {
       "title": "Archiviazione USB",
       "connected": "Connesso",
-      "notConnected": "Non connesso"
+      "notConnected": "Non connesso",
+      "rename": "Rinomina",
+      "renameTitle": "Rinomina la chiavetta USB",
+      "namePlaceholder": "Nome della chiavetta USB",
+      "name": "Nome",
+      "nameHint": "Mostrato nella libreria e mantenuto quando la chiavetta viene ricollegata. Lascia vuoto per usare l'etichetta del disco ({label}).",
+      "renameError": "Impossibile rinominare questa chiavetta USB"
     },
     "nas": {
       "title": "Server NAS",

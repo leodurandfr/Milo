@@ -117,7 +117,7 @@
       <QobuzSettings v-else-if="currentView === 'qobuz'" key="qobuz" class="view-content" />
 
       <MusicLibrarySettings v-else-if="currentView === 'music-library'" key="music-library" class="view-content"
-        @add-share="handleAddShare" @edit-share="handleEditShare" />
+        @add-share="handleAddShare" @edit-share="handleEditShare" @rename-usb="handleRenameUsb" />
 
       <WizardServer v-else-if="currentView === 'music-library-share-add'" key="music-library-share-add" class="view-content"
         @select="handleWizardSelect" @manual="handleWizardManual" />
@@ -131,6 +131,9 @@
 
       <ManageShare v-else-if="currentView === 'music-library-share-edit'" key="music-library-share-edit" class="view-content"
         mode="edit" :share="shareToEdit" @success="handleShareSaved" />
+
+      <RenameUsb v-else-if="currentView === 'music-library-usb-rename' && usbToRename" key="music-library-usb-rename"
+        class="view-content" :device="usbToRename" @success="handleShareSaved" />
 
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
@@ -196,6 +199,7 @@ import MacSettings from '@/components/settings/categories/MacSettings.vue';
 import QobuzSettings from '@/components/settings/categories/QobuzSettings.vue';
 import MusicLibrarySettings from '@/components/settings/categories/music-library/MusicLibrarySettings.vue';
 import ManageShare from '@/components/settings/categories/music-library/ManageShare.vue';
+import RenameUsb from '@/components/settings/categories/music-library/RenameUsb.vue';
 import WizardServer from '@/components/settings/categories/music-library/WizardServer.vue';
 import WizardBrowse from '@/components/settings/categories/music-library/WizardBrowse.vue';
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
@@ -236,6 +240,7 @@ const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendi
 
 const stationToEdit = ref(null);
 const shareToEdit = ref(null);
+const usbToRename = ref(null);
 const shareWizardServer = ref(null);
 // Mirrors WizardBrowse's internal phase so the header can name the current
 // action (sign-in vs folder pick) instead of just repeating the NAS name.
@@ -387,6 +392,7 @@ const headerTitle = computed(() => {
       : t('musicLibrary.shares.wizard.browseTitle'),
     'music-library-share-manual': t('musicLibrary.shares.wizard.manualTitle'),
     'music-library-share-edit': t('musicLibrary.shares.editTitle'),
+    'music-library-usb-rename': t('musicLibrary.usb.renameTitle'),
   };
   return titles[currentView.value] || t('settings.title');
 });
@@ -519,6 +525,13 @@ function handleEditShare(share) {
   push('music-library-share-edit');
 }
 
+// Naming a USB key is the same act as editing a server — a music origin gets a
+// name — so it is the same depth in the stack, not a modal over this one.
+function handleRenameUsb(device) {
+  usbToRename.value = device;
+  push('music-library-usb-rename');
+}
+
 // The store already refetched the list inside add/update/removeShare. Return
 // straight to the shares list regardless of wizard depth (goTo resets the stack
 // to [home, music-library]), with a cross-fade like push/back.
@@ -526,6 +539,7 @@ function handleShareSaved() {
   goTo('music-library');
   prepareNavigation();
   shareToEdit.value = null;
+  usbToRename.value = null;
   shareWizardServer.value = null;
   shareWizardPhase.value = '';
 }

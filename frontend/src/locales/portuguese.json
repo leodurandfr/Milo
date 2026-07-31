@@ -630,7 +630,13 @@
     "usb": {
       "title": "Armazenamento USB",
       "connected": "Conectado",
-      "notConnected": "Não conectado"
+      "notConnected": "Não conectado",
+      "rename": "Renomear",
+      "renameTitle": "Renomear a pen USB",
+      "namePlaceholder": "Nome da pen USB",
+      "name": "Nome",
+      "nameHint": "Apresentado na biblioteca e mantido quando a pen for ligada de novo. Deixe vazio para usar a etiqueta do disco ({label}).",
+      "renameError": "Não foi possível renomear esta pen USB"
     },
     "nas": {
       "title": "Servidor NAS",

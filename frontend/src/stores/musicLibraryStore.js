@@ -14,6 +14,14 @@
 //      revisiting a tab is instant. Favorites (star) live in Navidrome and ride
 //      the browse payloads' `starred` field; toggling optimistically overrides
 //      it locally since the backend emits no favorite WS event for this source.
+//
+//      Every catalog read is scoped to ONE storage space (`activeLibraryId`, a
+//      Navidrome library id — see backend libraries.py). There is no "all
+//      storages" mode: with a single storage the scope is invisible, and with
+//      two or more the user picks one. That includes playlists and liked songs —
+//      Navidrome keeps both catalog-wide, and the backend narrows them, because
+//      a playlist spanning a NAS and a USB key is what the filter exists to
+//      prevent.
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { apiCall } from '@/services/apiCall';
@@ -21,6 +29,8 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 const BASE = '/api/music-library';
 const ALBUMS_PAGE_SIZE = 40;
+// Artists arrive in one call, so this paces the RENDER, not the fetch.
+const ARTISTS_RENDER_CHUNK = 40;
 // Cover sizes (square max dimension Navidrome resizes to), scaled by
 // devicePixelRatio (capped at 2) so covers stay crisp on HiDPI screens. The
 // player uses the backend-provided full-size album_art_url as-is.
@@ -47,6 +57,58 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   function gridUrl(coverId) {
     return coverUrl(coverId, COVER_GRID_PX);
   }
+
+  // =========================================================================
+  // STORAGE SPACES — the USB keys and network shares music comes from. One
+  // Navidrome library each, so `library_id` is what scopes a catalog read.
+  // =========================================================================
+  const storages = ref([]);
+  const storagesLoaded = ref(false);
+  // The storage space being browsed. Never null once a storage exists: there is
+  // no "all storages" view (see the header note).
+  const activeLibraryId = ref(null);
+
+  // Only a storage Navidrome has accepted can be browsed; one still waiting for
+  // its library is listed by the API but cannot be a filter option.
+  const browsableStorages = computed(() =>
+    storages.value.filter((s) => s.library_id != null)
+  );
+
+  async function loadStorages({ force = false } = {}) {
+    if (storagesLoaded.value && !force) return;
+    const result = await apiCall.get(`${BASE}/storages`, {
+      category: 'musicLibrary',
+      message: 'Error loading storage spaces',
+      logLevel: 'debug',
+    });
+    if (result.ok && Array.isArray(result.data?.storages)) {
+      storages.value = result.data.storages;
+      storagesLoaded.value = true;
+    }
+  }
+
+  // Keep the selection on a storage that still exists: a key unplugged while
+  // its own view is open would otherwise browse a library that is gone.
+  watch(browsableStorages, (list) => {
+    if (!list.length) {
+      activeLibraryId.value = null;
+    } else if (!list.some((s) => s.library_id === activeLibraryId.value)) {
+      activeLibraryId.value = list[0].library_id;
+    }
+  }, { immediate: true });
+
+  // Catalog params for the active storage space.
+  const scoped = (params = {}) =>
+    activeLibraryId.value == null
+      ? params
+      : { ...params, library_id: activeLibraryId.value };
+
+  // Every scoped fetch is issued against the storage space that was active when
+  // it left, and the user can switch while it is in flight. Capturing the scope
+  // and dropping a response that no longer matches is what keeps one storage's
+  // albums out of another's grid — the lists below are shared, so a late
+  // response would otherwise overwrite (or append to) the wrong catalog.
+  const inScope = (scope) => scope === activeLibraryId.value;
 
   // =========================================================================
   // NOW PLAYING (derived from the central mirror)
@@ -95,11 +157,14 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   async function loadLikedSongs({ force = false } = {}) {
     if (likedSongsLoaded.value && !force) return;
+    const scope = activeLibraryId.value;
     const result = await apiCall.get(`${BASE}/starred`, {
       category: 'musicLibrary',
       message: 'Error loading liked songs',
       checkStatus: true,
+      params: scoped(),
     });
+    if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.songs)) {
       likedSongs.value = result.data.songs;
       likedSongIds.value = new Set(result.data.songs.map((s) => s.id));
@@ -190,6 +255,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   async function loadAlbums({ reset = false } = {}) {
     if (albumsLoaded.value && !reset) return;
+    const scope = activeLibraryId.value;
     albumsLoading.value = true;
     if (reset) {
       albums.value = [];
@@ -199,8 +265,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       category: 'musicLibrary',
       message: 'Error loading albums',
       checkStatus: true,
-      params: { type: 'alphabeticalByName', size: ALBUMS_PAGE_SIZE, offset: 0 },
+      params: scoped({ type: 'alphabeticalByName', size: ALBUMS_PAGE_SIZE, offset: 0 }),
     });
+    if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.albums)) {
       albums.value = result.data.albums;
       albumsHasMore.value = result.data.albums.length >= ALBUMS_PAGE_SIZE;
@@ -211,13 +278,19 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   async function loadMoreAlbums() {
     if (albumsLoading.value || !albumsHasMore.value) return;
+    const scope = activeLibraryId.value;
     albumsLoading.value = true;
     const result = await apiCall.get(`${BASE}/albums`, {
       category: 'musicLibrary',
       message: 'Error loading more albums',
       checkStatus: true,
-      params: { type: 'alphabeticalByName', size: ALBUMS_PAGE_SIZE, offset: albums.value.length },
+      params: scoped({
+        type: 'alphabeticalByName',
+        size: ALBUMS_PAGE_SIZE,
+        offset: albums.value.length,
+      }),
     });
+    if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.albums)) {
       albums.value = [...albums.value, ...result.data.albums];
       albumsHasMore.value = result.data.albums.length >= ALBUMS_PAGE_SIZE;
@@ -231,20 +304,55 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const artistIndex = ref([]);
   const artistsLoading = ref(false);
   const artistsLoaded = ref(false);
+  // Render window over the A–Z index. getArtists returns the WHOLE index in one
+  // call (Subsonic has no offset there), so the paging is local: mounting every
+  // row in one tick costs ~1.8 ms each — a second of frozen UI at 550 artists,
+  // several at NAS scale. Extended by the home view's scroll sentinel, exactly
+  // like the albums grid.
+  const artistsRendered = ref(ARTISTS_RENDER_CHUNK);
 
   async function loadArtists({ force = false } = {}) {
     if (artistsLoaded.value && !force) return;
+    const scope = activeLibraryId.value;
     artistsLoading.value = true;
     const result = await apiCall.get(`${BASE}/artists`, {
       category: 'musicLibrary',
       message: 'Error loading artists',
       checkStatus: true,
+      params: scoped(),
     });
+    if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.index)) {
       artistIndex.value = result.data.index;
+      artistsRendered.value = ARTISTS_RENDER_CHUNK;
       artistsLoaded.value = true;
     }
     artistsLoading.value = false;
+  }
+
+  const artistCount = computed(() =>
+    artistIndex.value.reduce((n, bucket) => n + (bucket.artist?.length || 0), 0)
+  );
+
+  // Buckets truncated to the window. The budget counts artists, not buckets, so
+  // one crowded letter can't blow the window open on its own.
+  const displayedArtistIndex = computed(() => {
+    let budget = artistsRendered.value;
+    const out = [];
+    for (const bucket of artistIndex.value) {
+      if (budget <= 0) break;
+      const artist = (bucket.artist || []).slice(0, budget);
+      budget -= artist.length;
+      if (artist.length) out.push({ ...bucket, artist });
+    }
+    return out;
+  });
+
+  const artistsHasMore = computed(() => artistsRendered.value < artistCount.value);
+
+  // Local-only: nothing is fetched, the next slice is simply mounted.
+  function renderMoreArtists() {
+    if (artistsHasMore.value) artistsRendered.value += ARTISTS_RENDER_CHUNK;
   }
 
   // =========================================================================
@@ -256,12 +364,15 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   async function loadGenres({ force = false } = {}) {
     if (genresLoaded.value && !force) return;
+    const scope = activeLibraryId.value;
     genresLoading.value = true;
     const result = await apiCall.get(`${BASE}/genres`, {
       category: 'musicLibrary',
       message: 'Error loading genres',
       checkStatus: true,
+      params: scoped(),
     });
+    if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.genres)) {
       // Alphabetical, skipping the empty-name genre Navidrome can emit.
       genres.value = result.data.genres
@@ -281,12 +392,15 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   async function loadPlaylists({ force = false } = {}) {
     if (playlistsLoaded.value && !force) return;
+    const scope = activeLibraryId.value;
     playlistsLoading.value = true;
     const result = await apiCall.get(`${BASE}/playlists`, {
       category: 'musicLibrary',
       message: 'Error loading playlists',
       checkStatus: true,
+      params: scoped(),
     });
+    if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.playlists)) {
       playlists.value = result.data.playlists;
       playlistsLoaded.value = true;
@@ -301,7 +415,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // of a playlist's entries and pass the full new order to setPlaylistTracks.
   // =========================================================================
   async function createPlaylist(name, songIds = null) {
-    const body = songIds?.length ? { name, song_ids: songIds } : { name };
+    // The storage space rides along: a playlist created empty has no track to be
+    // placed by later, so this is the only moment it can be tied to one.
+    const body = scoped(songIds?.length ? { name, song_ids: songIds } : { name });
     const result = await apiCall.post(`${BASE}/playlists`, body, {
       category: 'musicLibrary',
       message: 'Error creating playlist',
@@ -375,7 +491,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     const result = await apiCall.get(`${BASE}/genre-songs`, {
       category: 'musicLibrary',
       message: 'Error loading genre',
-      params: { genre, count: 500 },
+      params: scoped({ genre, count: 500 }),
     });
     return result.ok ? result.data?.songs || [] : [];
   }
@@ -384,7 +500,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     const result = await apiCall.get(`${BASE}/albums`, {
       category: 'musicLibrary',
       message: 'Error loading genre',
-      params: { type: 'byGenre', genre, size: 500 },
+      params: scoped({ type: 'byGenre', genre, size: 500 }),
     });
     return result.ok ? result.data?.albums || [] : [];
   }
@@ -412,13 +528,15 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       clearSearch();
       return;
     }
+    const scope = activeLibraryId.value;
     searchLoading.value = true;
     const result = await apiCall.get(`${BASE}/search`, {
       category: 'musicLibrary',
       message: 'Error searching library',
       checkStatus: true,
-      params: { query },
+      params: scoped({ query }),
     });
+    if (!inScope(scope)) return;
     if (result.ok) {
       searchResults.value = {
         artists: result.data?.artists || [],
@@ -505,12 +623,49 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // listed) until something reloads them. No WS event marks scan completion, so
   // this is driven by refreshScanStatus() polling flipping isScanning off; only
   // refresh whichever lists are already loaded, same set resync() touches.
-  watch(isScanning, (scanning, wasScanning) => {
+  watch(isScanning, async (scanning, wasScanning) => {
     if (scanning || !wasScanning) return;
+    // Storages first and awaited: a scan can create or retire a library (a share
+    // that came online, a key that was just indexed), and refetching before that
+    // lands would scope every call below to a library that is on its way out.
+    await loadStorages({ force: true });
     if (albumsLoaded.value) loadAlbums({ reset: true });
     if (artistsLoaded.value) loadArtists({ force: true });
     if (genresLoaded.value) loadGenres({ force: true });
     if (playlistsLoaded.value) loadPlaylists({ force: true });
+  });
+
+  // Switching storage space invalidates EVERY cached catalog list, playlists and
+  // liked songs included: a playlist belongs to the storage space it was created
+  // in, and a favourite to the space its track lives on, so nothing here carries
+  // over. Whatever was loaded is refetched, so the tab the user is looking at
+  // repopulates without a second interaction.
+  watch(activeLibraryId, () => {
+    const reload = {
+      albums: albumsLoaded.value,
+      artists: artistsLoaded.value,
+      genres: genresLoaded.value,
+      playlists: playlistsLoaded.value,
+      liked: likedSongsLoaded.value,
+    };
+    albums.value = [];
+    albumsLoaded.value = false;
+    albumsHasMore.value = true;
+    artistIndex.value = [];
+    artistsLoaded.value = false;
+    genres.value = [];
+    genresLoaded.value = false;
+    playlists.value = [];
+    playlistsLoaded.value = false;
+    likedSongs.value = [];
+    likedSongIds.value = new Set();
+    likedSongsLoaded.value = false;
+    clearSearch();
+    if (reload.albums) loadAlbums();
+    if (reload.artists) loadArtists();
+    if (reload.genres) loadGenres();
+    if (reload.playlists) loadPlaylists();
+    if (reload.liked) loadLikedSongs();
   });
 
   // =========================================================================
@@ -599,6 +754,23 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     }
   }
 
+  // Name a plugged-in USB key. The name is stored against its filesystem UUID,
+  // so it comes back with the key; an empty name restores the disk label.
+  async function renameUsbDevice(uuid, name) {
+    // Encoded: a filesystem UUID is URL-safe, but the fallback identity for a
+    // key without one is a kernel device name, and an unescaped one would match
+    // no route.
+    const result = await apiCall.put(`${BASE}/usb-devices/${encodeURIComponent(uuid)}`, { name }, {
+      category: 'musicLibrary',
+      message: 'Error renaming USB device',
+    });
+    if (result.ok && result.data?.status === 'success') {
+      await Promise.all([loadUsbDevices(), loadStorages({ force: true })]);
+      return true;
+    }
+    return false;
+  }
+
   // mDNS discovery of SMB/NFS servers on the LAN (a convenience to prefill the
   // add-share form). Resilient: an empty list simply means "type it manually".
   async function discoverServers() {
@@ -647,6 +819,11 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // already cached, without clearing what the user is currently looking at.
   // =========================================================================
   async function resync() {
+    // Storages first and ALONE: a key plugged in (or pulled) while the tab was
+    // backgrounded changes which library the calls below scope to, and issuing
+    // them in the same batch would send the old id — those responses land after
+    // the switch and write another storage's catalog into the store.
+    await loadStorages({ force: true });
     const tasks = [refreshScanStatus()];
     if (albumsLoaded.value) tasks.push(loadAlbums({ reset: true }));
     if (artistsLoaded.value) tasks.push(loadArtists({ force: true }));
@@ -705,7 +882,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     loadMoreAlbums,
 
     // Artists
-    artistIndex,
+    displayedArtistIndex,
+    artistsHasMore,
+    renderMoreArtists,
     artistsLoading,
     artistsLoaded,
     loadArtists,
@@ -763,9 +942,16 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     discoverServers,
     browseShare,
 
-    // USB devices (read-only)
+    // USB devices
     usbDevices,
     loadUsbDevices,
+    renameUsbDevice,
+
+    // Storage spaces (the catalog scope)
+    storages,
+    browsableStorages,
+    activeLibraryId,
+    loadStorages,
 
     // UI
     activeTab,
