@@ -68,6 +68,8 @@ const NOT_A_PRESS_SURFACE = {
     'the keyboard draws its own press and accent popups (components/ui/keyboard/geometry.js)',
   'views/MainView.vue::SettingsAccess':
     'the invisible five-tap hotspot that opens Settings — it must stay invisible',
+  'views/ComponentsView.vue::gallery__scrim':
+    'the gallery nav-drawer scrim (mobile layout), @click to dismiss — nothing to acknowledge',
 };
 
 /**
