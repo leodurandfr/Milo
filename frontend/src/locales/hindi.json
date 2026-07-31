@@ -119,10 +119,9 @@
       "subwooferOffline": "सबवूफ़र ऑफ़लाइन"
     },
     "tuning": {
-      "title": "ट्यूनिंग",
       "eqIndependent": "स्वतंत्र EQ",
-      "eqIndependentDescription": "इस स्पीकर को उसके ज़ोन से अलग, अपना खुद का इक्वलाइज़र दें।",
-      "delay": "देरी"
+      "delay": "देरी",
+      "delayHint": "इस स्पीकर की प्लेबैक में देरी करें ताकि यह दूसरों के साथ संरेखित हो।"
     },
     "pending": {
       "title": "नया Milō Client पाया गया",

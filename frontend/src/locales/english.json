@@ -119,10 +119,9 @@
       "subwooferOffline": "Subwoofer offline"
     },
     "tuning": {
-      "title": "Tuning",
       "eqIndependent": "Independent EQ",
-      "eqIndependentDescription": "Give this speaker its own equalizer, separate from its zone.",
-      "delay": "Delay"
+      "delay": "Delay",
+      "delayHint": "Delay this speaker's playback to align it with the others."
     },
     "pending": {
       "title": "New Milō Client detected",

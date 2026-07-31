@@ -119,10 +119,9 @@
       "subwooferOffline": "Caisson hors ligne"
     },
     "tuning": {
-      "title": "Réglages",
       "eqIndependent": "Égaliseur indépendant",
-      "eqIndependentDescription": "Donnez à cette enceinte son propre égaliseur, distinct de sa zone.",
-      "delay": "Délai"
+      "delay": "Délai",
+      "delayHint": "Retardez la lecture de cette enceinte pour l'aligner sur les autres."
     },
     "pending": {
       "title": "Nouveau Milō Client détecté",
