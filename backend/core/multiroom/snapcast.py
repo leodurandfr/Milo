@@ -122,6 +122,26 @@ class SnapcastService:
         return True
 
     @handle_errors(default=False, level='warning')
+    async def set_latency(self, client_id: str, ms: int) -> bool:
+        """Set a client's native Snapcast latency (playback delay) in ms.
+
+        This is the per-client delay Milō owns as its source of truth (mirror of
+        set_volume): applied when the user changes it and re-pushed on admission
+        so a reconnecting client recovers it. It is Snapcast's own latency, NOT a
+        CamillaDSP filter — milo-client's /equalizer/delay stays dormant.
+
+        Args:
+            client_id: Snapcast client id (== the client's mac_id by construction)
+            ms: Latency in milliseconds
+        """
+        self.logger.info(f"SNAPCAST_SET_LATENCY: client={client_id}, latency={ms}ms")
+        await self._request("Client.SetLatency", {
+            "id": client_id,
+            "latency": max(0, ms),
+        })
+        return True
+
+    @handle_errors(default=False, level='warning')
     async def set_mute(self, client_id: str, muted: bool, volume: int = 100) -> bool:
         """Mute/unmute a client.
 

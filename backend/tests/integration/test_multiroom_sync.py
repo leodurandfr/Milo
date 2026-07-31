@@ -54,6 +54,7 @@ def _make_ws_service(registry, volume_service=None, snapcast_service=None):
     ws._volume_service = volume_service or _make_volume_service()
     ws._snapcast_service = snapcast_service or MagicMock(
         set_volume=AsyncMock(return_value=True),
+        set_latency=AsyncMock(return_value=True),
         get_clients=AsyncMock(return_value=[]),
     )
     # Stub equalizer sync to isolate volume tests
