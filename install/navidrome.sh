@@ -59,9 +59,15 @@ install_navidrome() {
 configure_navidrome() {
     # DataFolder (DB + cache) under /var/lib/milo so backup/restore captures it.
     sudo mkdir -p "$MILO_DATA_DIR/navidrome"
-    # Mount root Navidrome scans. Empty until a USB key / share mounts under it;
-    # Navidrome indexes an empty folder without complaint.
+    # Where the music actually is: one Navidrome library per mount under this
+    # root, created and retired by the backend (backend/sources/music_library/
+    # libraries.py) so the UI can browse one storage space at a time.
     sudo mkdir -p /media/milo
+    # MusicFolder below points here, NOT at /media/milo. Navidrome demands a
+    # MusicFolder and pins the library it creates from it as undeletable, so a
+    # MusicFolder on the mount root would permanently index every mount a second
+    # time, alongside the per-mount libraries. An empty directory retires it.
+    sudo mkdir -p "$MILO_DATA_DIR/navidrome/default-library"
 
     sudo tee "$MILO_DATA_DIR/navidrome/navidrome.toml" > /dev/null << 'EOF'
 # Navidrome config for Milō (Music Library catalog engine).
@@ -69,8 +75,11 @@ configure_navidrome() {
 # generated per-device on first boot (milo-navidrome-provision) and injected via
 # ND_DEVAUTOCREATEADMINPASSWORD, NOT written here.
 
-# Everything mounted (USB / SMB / NFS) appears under this root.
-MusicFolder = "/media/milo"
+# Deliberately an EMPTY directory, not /media/milo. Navidrome creates one
+# library from this path and refuses to ever delete it; the real libraries are
+# created per mount (USB / SMB / NFS) under /media/milo by the backend, and a
+# library on the mount root would index all of them a second time.
+MusicFolder = "/var/lib/milo/navidrome/default-library"
 # DB + cache; under /var/lib/milo so Milō backup/restore includes it.
 DataFolder = "/var/lib/milo/navidrome"
 

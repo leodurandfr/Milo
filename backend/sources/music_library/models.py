@@ -37,6 +37,10 @@ class CreatePlaylistRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=255)
     song_ids: Optional[List[str]] = None
+    # The storage space the playlist is created in (a Navidrome library id).
+    # Recorded so the playlist shows under that storage space and no other —
+    # for an empty playlist there is no track to work it out from later.
+    library_id: Optional[int] = None
 
 
 class UpdatePlaylistRequest(BaseModel):
@@ -67,6 +71,25 @@ class UpdatePlaylistRequest(BaseModel):
 
 
 # === Network-share requests ===
+
+class UsbNameRequest(BaseModel):
+    """Body for ``PUT /music-library/usb-devices/{uuid}``.
+
+    The name the user gave a USB key. It becomes that key's Navidrome library
+    name, so control characters are rejected and an empty string is allowed —
+    it means "forget the name", falling back to the filesystem label.
+    """
+
+    name: str = Field(max_length=128)
+
+    @field_validator("name")
+    @classmethod
+    def _no_control_chars(cls, value: str) -> str:
+        value = value.strip()
+        if any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("name must not contain control characters")
+        return value
+
 
 class ShareRequest(BaseModel):
     """Body for ``POST /music-library/shares`` and ``PUT .../shares/{id}``.

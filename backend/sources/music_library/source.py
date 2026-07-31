@@ -28,7 +28,7 @@ plugged-in key is indexed even when music_library is not the active source.
 """
 import asyncio
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 
@@ -37,7 +37,11 @@ from backend.core.models.source_metadata import PlaybackMetadata
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
-from backend.sources.music_library.disc_merge import merge_albums
+from backend.sources.music_library.disc_merge import (
+    is_merged_id,
+    merge_albums,
+    parse_merged_id,
+)
 from backend.sources.music_library.models import (
     PlayContextParams,
     PlayIndexParams,
@@ -97,9 +101,13 @@ class MusicLibrarySource(MpvAudioSource):
         # daemon has provisioned its service account) and shared by all three —
         # routes read the catalog even while music_library is not active.
         self._navidrome: Optional[NavidromeClient] = None
-        # Merged (multi-disc) album catalog, cached for the alphabetical grid.
-        self._album_cache: Optional[List[Dict[str, Any]]] = None
-        self._album_cache_at: float = 0.0
+        # Merged (multi-disc) album catalog, cached for the alphabetical grid —
+        # one entry per storage space (library id → (built_at, albums)), since
+        # the grid asks for one library at a time.
+        self._album_cache: Dict[Optional[int], Tuple[float, List[Dict[str, Any]]]] = {}
+        # playlist id → its first track's album id, for placing a playlist Milō
+        # did not create in a storage space (see playlists_in_storage).
+        self._playlist_album: Dict[str, Optional[str]] = {}
 
         # Playback / queue state (reset on stop). The queue holds the Subsonic
         # song dicts verbatim so it can be echoed to the frontend as-is.
@@ -145,18 +153,22 @@ class MusicLibrarySource(MpvAudioSource):
             await self._navidrome.close()
             self._navidrome = None
 
-    async def get_merged_albums(self) -> List[Dict[str, Any]]:
-        """Whole catalog, alphabetical, with multi-disc sets collapsed (cached).
+    async def get_merged_albums(
+        self, library_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """One storage space's catalog, alphabetical, multi-disc sets collapsed.
 
         The album grid pages over this list (see routes.get_albums) so a split
         "… CD 1"/"CD 2" release is merged even when the pair would straddle a page
-        boundary. Cached with a short TTL; an explicit rescan or share change calls
+        boundary. ``library_id`` scopes it to one storage space (None = every
+        one). Cached with a short TTL; an explicit rescan or share change calls
         :meth:`invalidate_album_cache`. Returns [] until the catalog is reachable
         (never caches an empty result — a not-yet-ready daemon retries next call).
         """
         now = asyncio.get_event_loop().time()
-        if self._album_cache is not None and now - self._album_cache_at < ALBUM_CACHE_TTL_S:
-            return self._album_cache
+        cached = self._album_cache.get(library_id)
+        if cached is not None and now - cached[0] < ALBUM_CACHE_TTL_S:
+            return cached[1]
         client = await self.get_navidrome_client()
         if client is None:
             return []
@@ -164,7 +176,10 @@ class MusicLibrarySource(MpvAudioSource):
         offset = 0
         while True:
             page = await client.get_album_list(
-                list_type="alphabeticalByName", size=_ALBUM_PAGE, offset=offset
+                list_type="alphabeticalByName",
+                size=_ALBUM_PAGE,
+                offset=offset,
+                music_folder_id=library_id,
             )
             albums.extend(page)
             if len(page) < _ALBUM_PAGE:
@@ -172,14 +187,147 @@ class MusicLibrarySource(MpvAudioSource):
             offset += _ALBUM_PAGE
         merged = merge_albums(albums)
         if albums:
-            self._album_cache = merged
-            self._album_cache_at = now
+            self._album_cache[library_id] = (now, merged)
         return merged
 
+    async def get_library_genres(self, library_id: int) -> List[Dict[str, Any]]:
+        """The genres present in ONE storage space, in the getGenres shape.
+
+        Navidrome accepts ``musicFolderId`` on getAlbumList2, getArtists,
+        search3 and getSongsByGenre — but **not** on getGenres, which answers
+        with every genre in the catalog whatever is asked. Left as-is, the genre
+        list would offer a genre that belongs to another storage space and open
+        an empty view, since the drill-down *is* scoped.
+
+        So it is derived from the storage space's own album catalog, which is
+        already cached for the album grid. ``songCount`` is the sum of the
+        matching albums' track counts: exact for the usual single-genre album,
+        an over-count for an album whose tracks disagree, and never wrong about
+        *which* genres exist — the part a tap depends on.
+        """
+        totals: Dict[str, List[int]] = {}
+        for album in await self.get_merged_albums(library_id):
+            names = [g.get("name") for g in album.get("genres") or []]
+            if not names and album.get("genre"):
+                names = [album["genre"]]
+            for name in dict.fromkeys(n for n in names if n and n.strip()):
+                entry = totals.setdefault(name, [0, 0])
+                entry[0] += int(album.get("songCount") or 0)
+                entry[1] += 1
+        return [
+            {"value": name, "songCount": counts[0], "albumCount": counts[1]}
+            for name, counts in sorted(totals.items())
+        ]
+
+    async def playlists_in_storage(
+        self, playlists: List[Dict[str, Any]], library_id: int
+    ) -> List[Dict[str, Any]]:
+        """Keep the playlists that belong to ONE storage space.
+
+        Navidrome's playlists are catalog-wide — ``getPlaylists`` accepts
+        ``musicFolderId`` and ignores it — but a playlist mixing a NAS and a USB
+        key is exactly what the storage filter exists to prevent, so membership
+        is decided here, two ways:
+
+        - **Created in Milō** → the storage space it was created in was recorded
+          (``shares.playlist_storages``), and that is the answer. It is the only
+          one that works for an *empty* playlist, which has no content to judge.
+        - **Anything else** — Navidrome auto-imports the ``.m3u`` files it finds,
+          so a music key brings its own playlists — → its first track's album is
+          looked up in this storage's catalog. One extra call per unknown
+          playlist, memoised until the next rescan.
+
+        A playlist that is both unrecorded and empty is shown everywhere: there
+        is nothing to place it by, and hiding it would make it unreachable. A
+        record pointing at a storage space that no longer exists — the share it
+        was created in was removed — is treated as no record at all, for exactly
+        the same reason: it would otherwise match nothing and vanish from every
+        storage space while still existing in Navidrome.
+        """
+        recorded = await self._shares.playlist_storages()
+        entries = await self._shares.storages()
+        storage_id = next(
+            (e["id"] for e in entries if e["library_id"] == library_id), None
+        )
+        live_storages = {entry["id"] for entry in entries}
+        album_ids = await self._library_album_ids(library_id)
+
+        kept: List[Dict[str, Any]] = []
+        undecided: List[Dict[str, Any]] = []
+        for playlist in playlists:
+            known = recorded.get(playlist.get("id"))
+            if known in live_storages:
+                if known == storage_id:
+                    kept.append(playlist)
+            elif not playlist.get("songCount"):
+                kept.append(playlist)
+            else:
+                undecided.append(playlist)
+
+        # One round-trip per unplaced playlist, all at once: they are independent
+        # and a library of imported .m3u files would otherwise serialise dozens.
+        album_of = await asyncio.gather(
+            *(self._playlist_album_id(playlist["id"]) for playlist in undecided)
+        )
+        kept.extend(
+            playlist
+            for playlist, album_id in zip(undecided, album_of)
+            if album_id is not None and album_id in album_ids
+        )
+        # gather() answered out of order relative to getPlaylists; restore it.
+        order = {playlist["id"]: index for index, playlist in enumerate(playlists)}
+        return sorted(kept, key=lambda playlist: order[playlist["id"]])
+
+    async def _library_album_ids(self, library_id: int) -> set:
+        """Every album id in one storage space, merged sets expanded.
+
+        The grid's merged catalog is reused rather than re-fetched, so this
+        usually costs nothing — but a merged multi-disc album carries a
+        synthetic id, and a track points at the member album, so the members are
+        what has to be in the set.
+        """
+        ids: set = set()
+        for album in await self.get_merged_albums(library_id):
+            album_id = album.get("id")
+            if not album_id:
+                continue
+            if is_merged_id(album_id):
+                ids.update(parse_merged_id(album_id))
+            else:
+                ids.add(album_id)
+        return ids
+
+    async def _playlist_album_id(self, playlist_id: str) -> Optional[str]:
+        """The album of a playlist's first track (memoised), or None if empty."""
+        if playlist_id in self._playlist_album:
+            return self._playlist_album[playlist_id]
+        client = await self.get_navidrome_client()
+        album_id = None
+        if client is not None:
+            playlist = await client.get_playlist(playlist_id)
+            entries = (playlist or {}).get("entry") or []
+            album_id = entries[0].get("albumId") if entries else None
+        self._playlist_album[playlist_id] = album_id
+        return album_id
+
+    def forget_playlist_placement(self, playlist_id: str) -> None:
+        """Drop a playlist's memoised album after its contents changed.
+
+        Reordering or removing tracks can move the first one to another storage
+        space, which is what the playlist is placed by — without this the memo
+        would keep it filed under the old one until the next rescan.
+        """
+        self._playlist_album.pop(playlist_id, None)
+
     def invalidate_album_cache(self) -> None:
-        """Drop the merged-album cache so the next grid load rebuilds it (called
-        after an explicit rescan or a share add/update/remove)."""
-        self._album_cache = None
+        """Drop every storage space's merged-album cache so the next grid load
+        rebuilds it (called after an explicit rescan or a share add/update/remove).
+
+        The playlist→album memo goes with it: both answer "what is in this
+        storage space", and a rescan is exactly when that changes.
+        """
+        self._album_cache.clear()
+        self._playlist_album.clear()
 
     # =========================================================================
     # LIFECYCLE

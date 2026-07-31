@@ -41,6 +41,11 @@ logger = logging.getLogger("source.music_library.storage")
 # returns None until Navidrome's cred file exists.
 NavidromeProvider = Callable[[], Awaitable[Optional[NavidromeClient]]]
 
+# Called after every mount/unmount, before the rescan, so the layer above can
+# bring Navidrome's libraries in line with the new set of storage spaces (a
+# library must exist before the scan that fills it).
+StorageChangedHook = Callable[[], Awaitable[None]]
+
 # Filesystems worth mounting — mirrors milo-mount's allowlist. The helper is the
 # real security boundary and re-validates independently; this is only a fast
 # pre-filter so we don't shell out for a partition Navidrome couldn't read anyway.
@@ -57,12 +62,17 @@ class StorageManager:
     """Keeps /media/milo in sync with the USB drives that are plugged in.
 
     Owns a pyudev monitor thread (started in :meth:`initialize`, stopped in
-    :meth:`cleanup`) and a devnode→mountpoint map so a ``remove`` event can
-    unmount the right target. All mount/unmount go through the milo-mount /
-    milo-umount sudoers helpers; Navidrome is told to rescan after every change.
+    :meth:`cleanup`) and a devnode→volume map so a ``remove`` event can unmount
+    the right target. All mount/unmount go through the milo-mount / milo-umount
+    sudoers helpers; the layer above is notified and Navidrome told to rescan
+    after every change.
     """
 
-    def __init__(self, navidrome_provider: NavidromeProvider) -> None:
+    def __init__(
+        self,
+        navidrome_provider: NavidromeProvider,
+        on_storage_changed: StorageChangedHook,
+    ) -> None:
         self.logger = logger
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._observer = None  # pyudev.MonitorObserver (monitor thread)
@@ -70,11 +80,15 @@ class StorageManager:
         # a second instance would keep its own aiohttp session and miss the
         # auth-recovery path that drops a stale client on a rotated cred file.
         self._navidrome_provider = navidrome_provider
+        self._on_storage_changed = on_storage_changed
         # Serializes mount/unmount so concurrent hotplug events can't race on the
         # mountpoint table or the helpers.
         self._lock = asyncio.Lock()
-        # devnode (/dev/sda1) -> mountpoint (/media/milo/<label>)  [USB]
-        self._mounts: Dict[str, str] = {}
+        # devnode (/dev/sda1) -> {mountpoint, uuid, label}  [USB]. The filesystem
+        # UUID is carried because it is the only stable identity of a key: the
+        # mountpoint follows the (renameable) filesystem label, and gains a suffix
+        # when two keys collide on one.
+        self._mounts: Dict[str, Dict[str, str]] = {}
         # share id -> mountpoint (/media/milo/<id>)  [network shares]
         self._share_mounts: Dict[str, str] = {}
 
@@ -143,7 +157,7 @@ class StorageManager:
             return
         for device in devices:
             if self._is_usb_fs_partition(device):
-                await self._mount(device.device_node)
+                await self._mount(device.device_node, *self._identity(device))
 
     def _on_udev_event(self, device) -> None:
         """pyudev callback — runs on the monitor thread, bridges to the loop.
@@ -157,7 +171,7 @@ class StorageManager:
             if not devnode or self._loop is None:
                 return
             if action == "add" and self._is_usb_fs_partition(device):
-                coro = self._mount(devnode)
+                coro = self._mount(devnode, *self._identity(device))
             elif action == "remove":
                 coro = self._unmount(devnode)
             else:
@@ -176,30 +190,54 @@ class StorageManager:
             and device.get("ID_FS_TYPE") in _MOUNTABLE_FSTYPES
         )
 
+    @staticmethod
+    def _identity(device) -> tuple:
+        """``(uuid, label)`` for a partition, read on the udev thread.
+
+        The UUID is what a user-given name is filed under: it survives a relabel
+        and a replug into another port, neither of which the mountpoint does. It
+        falls back to the kernel name for the (rare) filesystem without one, so a
+        key is never identity-less — as the bare name (``sda1``), because the
+        identity travels in a URL path segment and ``/dev/sda1`` would match no
+        route at all.
+        """
+        uuid = device.get("ID_FS_UUID") or ""
+        if not uuid:
+            uuid = (device.get("DEVNAME") or "").rsplit("/", 1)[-1]
+        return uuid, device.get("ID_FS_LABEL") or ""
+
     # =========================================================================
     # mount / unmount via privileged helpers
     # =========================================================================
 
-    async def _mount(self, devnode: str) -> None:
+    async def _mount(self, devnode: str, uuid: str = "", label: str = "") -> None:
         async with self._lock:
             if devnode in self._mounts:
                 return  # duplicate add / re-trigger — already mounted
             mountpoint = await self._run_helper(MILO_MOUNT_CMD, devnode, capture=True)
             if not mountpoint:
                 return
-            self._mounts[devnode] = mountpoint
+            self._mounts[devnode] = {
+                "mountpoint": mountpoint,
+                "uuid": uuid,
+                "label": label,
+            }
             self.logger.info("Mounted %s at %s", devnode, mountpoint)
+        await self._on_storage_changed()
         await self._trigger_scan()
 
     async def _unmount(self, devnode: str) -> None:
         async with self._lock:
-            mountpoint = self._mounts.pop(devnode, None)
-            if not mountpoint:
+            volume = self._mounts.pop(devnode, None)
+            if not volume:
                 return  # not one of ours (some other block device)
+            mountpoint = volume["mountpoint"]
             await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
             self.logger.info("Unmounted %s (%s)", devnode, mountpoint)
-        # Removal is an unambiguous "this storage is gone" signal → full scan so
-        # Navidrome purges the vanished tracks (PurgeMissing="full").
+        # Removal is an unambiguous "this storage is gone" signal → drop the
+        # key's library, then full scan so Navidrome purges what vanished with
+        # it (PurgeMissing="full").
+        await self._on_storage_changed()
         await self._trigger_scan(full=True)
 
     async def _run_helper(
@@ -287,6 +325,7 @@ class StorageManager:
             self.logger.info(
                 "Mounted %s share %s at %s", share["type"], share_id, mountpoint
             )
+        await self._on_storage_changed()
         await self._trigger_scan()
         return mountpoint
 
@@ -304,6 +343,10 @@ class StorageManager:
             await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
             self.logger.info("Unmounted share %s (%s)", share_id, mountpoint)
         # Full scan so Navidrome purges the removed share's now-missing tracks.
+        # The library itself outlives an unmount that is only a remount (an edit
+        # unmounts before it mounts again) — the caller decides, from the share
+        # config, whether it still belongs; here we only report the change.
+        await self._on_storage_changed()
         await self._trigger_scan(full=True)
 
     async def forget_share_credentials(self, share_id: str) -> None:
@@ -342,15 +385,21 @@ class StorageManager:
     def get_usb_mounts(self) -> List[Dict[str, str]]:
         """USB volumes mounted read-only under the mount root right now.
 
-        Backs the settings screen's read-only USB status line (unlike the
-        configurable network shares). Reads the in-session devnode→mountpoint map
-        — the authoritative USB set (network shares live in a separate map) — so
-        it never stats a mountpoint and can't hang. ``label`` is the mountpoint's
-        final segment (milo-mount mounts a key at /media/milo/<label>).
+        One entry per mounted *partition*, so a key holding two of them is two
+        volumes here — as it is two directories under the mount root and two
+        Navidrome libraries. Reads the in-session devnode→volume map (network
+        shares live in a separate one), so it never stats a mountpoint and can't
+        hang. ``label`` is the mountpoint's final segment, which is the sanitized
+        filesystem label milo-mount chose; ``uuid`` is the stable identity a
+        user-given name is filed under.
         """
         return [
-            {"label": mountpoint.rsplit("/", 1)[-1], "mountpoint": mountpoint}
-            for mountpoint in self._mounts.values()
+            {
+                "uuid": volume["uuid"],
+                "label": volume["mountpoint"].rsplit("/", 1)[-1],
+                "mountpoint": volume["mountpoint"],
+            }
+            for volume in self._mounts.values()
         ]
 
     @staticmethod

@@ -175,6 +175,22 @@ def _sum_int(members: List[_Member], field: str) -> int:
     return sum(int(m.album.get(field) or 0) for m in members)
 
 
+def _merge_genres(members: List[_Member]) -> List[Dict[str, Any]]:
+    """Every disc's genres, de-duplicated, in first-seen order.
+
+    A union rather than disc 1's list: the per-storage genre list is derived from
+    this catalog (see source.get_library_genres), and a genre carried only by
+    disc 2 would otherwise vanish from it while its songs stay findable.
+    """
+    seen: Dict[str, Dict[str, Any]] = {}
+    for member in members:
+        for genre in member.album.get("genres") or []:
+            name = genre.get("name")
+            if name and name not in seen:
+                seen[name] = genre
+    return list(seen.values())
+
+
 def _build_merged_album(members: List[_Member]) -> Dict[str, Any]:
     """One synthetic album-list entry from disc-ordered members.
 
@@ -196,6 +212,7 @@ def _build_merged_album(members: List[_Member]) -> Dict[str, Any]:
         "duration": _sum_int(ordered, "duration"),
         "year": disc1.get("year"),
         "genre": disc1.get("genre"),
+        "genres": _merge_genres(ordered),
         "_merged": True,
         "_discCount": len(ordered),
     }

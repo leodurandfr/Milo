@@ -158,6 +158,7 @@ async def lifespan(app: FastAPI):
         await routing_service.cleanup()
         await crossover_service.cleanup()
         await get_service("hostname_conflict_service").cleanup()
+        await get_service("music_library_source").shares.cleanup()
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")

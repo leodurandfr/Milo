@@ -536,11 +536,34 @@ standing in for Podcast Index and a mount layer underneath.**
   and replayed at boot. Fail-open throughout (no udev on a dev host just disables
   auto-mount). CIFS credentials are fed to `milo-mount` on **stdin**, never argv.
 - **`shares.py` (`NetworkShareService`) owns where the music comes from** — it holds
-  `data.py` (config) and `storage.py` (mounts) together, so "config first, then
-  mount" is one decision rather than an ordering every caller must remember. It runs
-  the boot remount and its bounded catch-up retry (a NAS often boots slower than the
-  Pi), and `routes.py` reaches it as `source.shares` — the same shape as radio's
-  `source.station_data`. The audio source keeps no share state.
+  `data.py` (config), `storage.py` (mounts) and `libraries.py` (Navidrome libraries)
+  together, so "config first, then mount, then library" is one decision rather than
+  an ordering every caller must remember. It runs the boot remount and its bounded
+  catch-up retry (a NAS often boots slower than the Pi), exposes the uniform
+  `storages()` list the UI filters by, and `routes.py` reaches it as `source.shares`
+  — the same shape as radio's `source.station_data`. The audio source keeps no share
+  state.
+- **`libraries.py` + `navidrome_admin.py` give each mount its own Navidrome library**,
+  which is what makes "browse this key only" expressible: `musicFolderId` is the sole
+  scoping handle the catalog offers, and only the *native* admin API (JWT, not
+  Subsonic) can create a library. `libraries.py` is a **reconciler** — `StorageManager`
+  calls it after every mount/unmount with the full desired set, so a missed event heals
+  on the next one instead of leaving a queue to replay. Four things to know before
+  touching it. **Every native-API PUT replaces the whole record** — `/api/user/{id}`
+  accepts a partial one and blanks the rest (sending only `libraryIds` empties
+  `userName`, which locks the appliance out of its own catalog, Subsonic included),
+  while `/api/library/{id}` rejects it (`400 path required`), so a name-only rename
+  silently never happens; read-then-merge is the rule on both. Library **1 cannot be
+  deleted**, which is why `MusicFolder` points at an empty directory and why the
+  reconciler only manages libraries under the mount root. An offline share keeps its
+  library while an unplugged key loses its. And **two browse calls ignore
+  `musicFolderId`** where the rest honour it: `getGenres`, answered instead from the
+  storage space's own album catalog (`source.get_library_genres`) — the genre
+  drill-down *is* scoped, so a genre from another storage would open an empty view —
+  and `getPlaylists`, narrowed by `source.playlists_in_storage`, which trusts the
+  storage space recorded at creation (the only thing that can place an *empty*
+  playlist) and otherwise places a playlist by its first track's album. `getStarred2`
+  needs none of this: it takes the scope and honours it.
 - **`source.py` builds a gapless mpv playlist** from any context (album / genre /
   playlist / search): the frontend hands ordered Subsonic song dicts to
   `play_context`, the source maps each id to a stream URL and loads them as one mpv
