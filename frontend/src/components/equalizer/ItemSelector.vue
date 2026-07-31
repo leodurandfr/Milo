@@ -66,34 +66,10 @@ const zoneTabs = computed(() => {
   for (const target of targets.value) {
     if (processedIds.has(target.id)) continue;
 
-    const linkedIds = multiroomStore.getLinkedClientIds(target.id);
+    const zone = multiroomStore.getZoneForClient(target.id);
 
-    if (linkedIds.length > 1) {
-      // This is a zone - get names of linked clients (backend sorts local first)
-      const linkedClients = linkedIds
-        .map(id => targets.value.find(t => t.id === id))
-        .filter(Boolean);
-
-      // Find the zone for this client to get its custom name
-      const group = multiroomStore.getZoneForClient(target.id);
-
-      // Use custom zone name if set, otherwise combine client names
-      const zoneName = group?.name || (linkedClients.length > 0
-        ? linkedClients.map(c => c.name).join(' + ')
-        : target.name);
-
-      tabs.push({
-        label: zoneName,
-        // Backend sorts local first, so the representative client is stable.
-        value: linkedIds[0],
-        memberIds: linkedIds,
-        disabled: linkedClients.length === 0 || linkedClients.every(c => !c.online)
-      });
-
-      // Mark all linked clients as processed
-      linkedIds.forEach(id => processedIds.add(id));
-    } else {
-      // Individual client
+    if (!zone) {
+      // Standalone client
       tabs.push({
         label: target.name,
         value: target.id,
@@ -101,7 +77,42 @@ const zoneTabs = computed(() => {
         disabled: !target.online
       });
       processedIds.add(target.id);
+      continue;
     }
+
+    // A zone member that detached its EQ is NOT folded into the zone tab — it
+    // gets its own individual tab. The zone tab folds only the shared members,
+    // and disappears entirely when every member has gone independent.
+    const memberClients = zone.client_ids
+      .map(id => targets.value.find(t => t.id === id))
+      .filter(Boolean);
+    const sharedClients = memberClients.filter(c => !multiroomStore.isClientEqIndependent(c.id));
+    const independentClients = memberClients.filter(c => multiroomStore.isClientEqIndependent(c.id));
+
+    if (sharedClients.length > 0) {
+      const sharedIds = sharedClients.map(c => c.id);
+      // Use custom zone name if set, otherwise combine the shared client names.
+      const zoneName = zone.name || sharedClients.map(c => c.name).join(' + ');
+      tabs.push({
+        label: zoneName,
+        // Backend sorts local first, so the representative client is stable.
+        value: sharedIds[0],
+        memberIds: sharedIds,
+        disabled: sharedClients.every(c => !c.online)
+      });
+    }
+
+    for (const c of independentClients) {
+      tabs.push({
+        label: c.name,
+        value: c.id,
+        memberIds: [c.id],
+        disabled: !c.online
+      });
+    }
+
+    // Mark all zone members processed (shared, independent, and any offline).
+    zone.client_ids.forEach(id => processedIds.add(id));
   }
 
   return tabs;

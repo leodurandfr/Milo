@@ -35,6 +35,8 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         online: client.online,
         is_local: client.is_local,
         volume_control: client.volume_control,
+        eq_independent: client.eq_independent ?? false,
+        delay_ms: client.delay_ms ?? 0,
         // Convert dB to percentage for UI
         volume: dbToPercent(volumeState?.volume_db ?? -60),
         muted: volumeState?.mute ?? false,

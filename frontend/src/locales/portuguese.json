@@ -118,6 +118,12 @@
       "badgeInactive": "Crossover inativo",
       "subwooferOffline": "Subwoofer offline"
     },
+    "tuning": {
+      "title": "Ajustes",
+      "eqIndependent": "Equalizador independente",
+      "eqIndependentDescription": "Dê a esta coluna o seu próprio equalizador, separado da sua zona.",
+      "delay": "Atraso"
+    },
     "pending": {
       "title": "Novo Milō Client detetado",
       "notConfigured": "Placa de áudio não configurada",

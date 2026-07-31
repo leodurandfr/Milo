@@ -118,6 +118,12 @@
       "badgeInactive": "Crossover inactivo",
       "subwooferOffline": "Subwoofer desconectado"
     },
+    "tuning": {
+      "title": "Ajustes",
+      "eqIndependent": "Ecualizador independiente",
+      "eqIndependentDescription": "Da a este altavoz su propio ecualizador, separado de su zona.",
+      "delay": "Retardo"
+    },
     "pending": {
       "title": "Nuevo Milō Client detectado",
       "notConfigured": "Tarjeta de audio no configurada",
