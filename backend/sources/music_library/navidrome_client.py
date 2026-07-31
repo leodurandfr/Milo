@@ -254,6 +254,7 @@ class NavidromeClient:
         song_count: int = 20,
         album_count: int = 20,
         artist_count: int = 20,
+        music_folder_id: Optional[int] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Fuzzy search across artists/albums/songs (Subsonic ``search3``)."""
         response = await self._make_request(
@@ -263,6 +264,7 @@ class NavidromeClient:
                 "songCount": song_count,
                 "albumCount": album_count,
                 "artistCount": artist_count,
+                "musicFolderId": music_folder_id,
             },
         )
         if not response or response.get("_network_error"):
@@ -274,13 +276,17 @@ class NavidromeClient:
             "song": result.get("song", []) or [],
         }
 
-    async def get_artists(self) -> List[Dict[str, Any]]:
+    async def get_artists(
+        self, music_folder_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """All artists as A–Z index buckets (Subsonic ``getArtists``).
 
         Returns the ``artists.index`` list — ``[{"name": "A", "artist": [...]},
         ...]`` — preserving the alphabetical grouping the Artists view renders.
         """
-        response = await self._make_request("getArtists")
+        response = await self._make_request(
+            "getArtists", {"musicFolderId": music_folder_id}
+        )
         if not response or response.get("_network_error"):
             return []
         return response.get("artists", {}).get("index", []) or []
@@ -307,12 +313,14 @@ class NavidromeClient:
         genre: Optional[str] = None,
         from_year: Optional[int] = None,
         to_year: Optional[int] = None,
+        music_folder_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """A page of albums (Subsonic ``getAlbumList2``).
 
         ``list_type`` is one of :data:`ALBUM_LIST_TYPES`. ``genre`` is required
         for ``byGenre``; ``from_year``/``to_year`` for ``byYear``. Callers page
-        with ``size``/``offset``.
+        with ``size``/``offset``. ``music_folder_id`` scopes the page to one
+        library, i.e. to one storage space.
         """
         response = await self._make_request(
             "getAlbumList2",
@@ -321,6 +329,7 @@ class NavidromeClient:
                 "size": size,
                 "offset": offset,
                 "genre": genre,
+                "musicFolderId": music_folder_id,
                 "fromYear": from_year,
                 "toYear": to_year,
             },
@@ -330,19 +339,34 @@ class NavidromeClient:
         return response.get("albumList2", {}).get("album", []) or []
 
     async def get_genres(self) -> List[Dict[str, Any]]:
-        """All genres with song/album counts (Subsonic ``getGenres``)."""
+        """All genres with song/album counts (Subsonic ``getGenres``).
+
+        Takes no library scope on purpose: Navidrome accepts ``musicFolderId``
+        here and ignores it, answering with the whole catalog either way. One
+        storage space's genres are derived from its albums instead — see
+        ``MusicLibrarySource.get_library_genres``.
+        """
         response = await self._make_request("getGenres")
         if not response or response.get("_network_error"):
             return []
         return response.get("genres", {}).get("genre", []) or []
 
     async def get_songs_by_genre(
-        self, genre: str, count: int = 100, offset: int = 0
+        self,
+        genre: str,
+        count: int = 100,
+        offset: int = 0,
+        music_folder_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Songs tagged with ``genre`` (Subsonic ``getSongsByGenre``)."""
         response = await self._make_request(
             "getSongsByGenre",
-            {"genre": genre, "count": count, "offset": offset},
+            {
+                "genre": genre,
+                "count": count,
+                "offset": offset,
+                "musicFolderId": music_folder_id,
+            },
         )
         if not response or response.get("_network_error"):
             return []
@@ -429,14 +453,20 @@ class NavidromeClient:
         """Remove a star set by :meth:`star` (Subsonic ``unstar``)."""
         return await self._set_star("unstar", item_id, kind)
 
-    async def get_starred(self) -> Dict[str, List[Dict[str, Any]]]:
+    async def get_starred(
+        self, music_folder_id: Optional[int] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """All starred items (Subsonic ``getStarred2``, id3 shape).
 
         Returns the ``starred2`` envelope normalised to
         ``{"song": [...], "album": [...], "artist": [...]}`` — the read side of
         :meth:`star`/:meth:`unstar`, so favourites can actually be enumerated
-        (the browse payloads only carry a per-item ``starred`` flag)."""
-        response = await self._make_request("getStarred2")
+        (the browse payloads only carry a per-item ``starred`` flag).
+        ``music_folder_id`` scopes it to one storage space, which Navidrome does
+        honour here (unlike getGenres)."""
+        response = await self._make_request(
+            "getStarred2", {"musicFolderId": music_folder_id}
+        )
         if not response or response.get("_network_error"):
             return {"song": [], "album": [], "artist": []}
         starred = response.get("starred2", {}) or {}

@@ -152,12 +152,12 @@ class TestMountedShareIds:
             "proc /proc proc rw 0 0\n"
             "/dev/root / ext4 rw 0 0\n"
         )
-        mgr = StorageManager(AsyncMock(return_value=None))
+        mgr = StorageManager(AsyncMock(return_value=None), AsyncMock())
         with patch("builtins.open", mock_open(read_data=proc_mounts)):
             ids = mgr.get_mounted_share_ids()
         assert ids == {"USB-KEY", "music-abc123", "photos-def456"}
 
     def test_fail_open_on_error(self):
-        mgr = StorageManager(AsyncMock(return_value=None))
+        mgr = StorageManager(AsyncMock(return_value=None), AsyncMock())
         with patch("builtins.open", side_effect=OSError("nope")):
             assert mgr.get_mounted_share_ids() == set()

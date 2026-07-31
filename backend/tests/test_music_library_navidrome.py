@@ -97,7 +97,9 @@ class TestNavidromeBrowse:
         songs = await client.get_songs_by_genre("Techno", count=50, offset=0)
         assert [s["id"] for s in songs] == ["s-1", "s-2"]
         _, params = client._make_request.await_args.args
-        assert params == {"genre": "Techno", "count": 50, "offset": 0}
+        assert params == {
+            "genre": "Techno", "count": 50, "offset": 0, "musicFolderId": None,
+        }
 
     async def test_get_playlists_extracts_list(self, client):
         client._make_request = AsyncMock(return_value={
@@ -373,6 +375,11 @@ def source(nav_client):
     src = MagicMock()
     src.get_navidrome_client = AsyncMock(return_value=nav_client)
     src.invalidate_navidrome_client = AsyncMock()
+    # The storage layer the playlist routes reach for the playlist ↔ storage
+    # space association (see shares.py).
+    src.shares.forget_playlist = AsyncMock()
+    src.shares.record_playlist_storage = AsyncMock()
+    src.playlists_in_storage = AsyncMock(return_value=[{"id": "pl-scoped"}])
     return src
 
 

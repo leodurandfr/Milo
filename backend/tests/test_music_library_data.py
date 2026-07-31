@@ -33,7 +33,7 @@ async def test_initialize_seeds_defaults(service):
 async def test_load_data_on_fresh_install_returns_defaults(service):
     # No file on disk yet — load returns the default shape without writing.
     data = await service.load_data()
-    assert data == {"shares": []}
+    assert data == {"shares": [], "usb_names": {}, "playlist_storages": {}}
     assert not service._data_file.exists()
 
 

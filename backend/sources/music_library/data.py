@@ -9,9 +9,12 @@ under /media/milo at every boot. Versioned JSON at
 This file holds **non-secret metadata only** — id, type, host, path, display
 name, and a ``has_credentials`` flag. Share passwords never touch this file (nor
 any WS/API payload): they live in a root-only cred file written by ``milo-mount``
-(see :mod:`backend.sources.music_library.storage`). USB keys are not persisted —
-they are auto-detected live by the StorageManager; only network shares, which
-have no hotplug event to rediscover them, are recorded here.
+(see :mod:`backend.sources.music_library.storage`).
+
+A USB key's *existence* is not persisted — the StorageManager detects it live —
+but the name the user gave it is, under ``usb_names``, keyed by filesystem UUID.
+That is the only identity a key keeps across a replug: its mountpoint follows the
+filesystem label, and gains a disambiguating suffix when two keys share one.
 """
 import asyncio
 import logging
@@ -24,21 +27,21 @@ from typing import Any, Dict, List, Optional
 from backend.config.constants import MUSIC_LIBRARY_DATA_FILE
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
-REQUIRED_TOP_LEVEL_KEYS = ("shares",)
+REQUIRED_TOP_LEVEL_KEYS = ("shares", "usb_names", "playlist_storages")
 
 # Share types we can mount. Mirrors milo-mount's --network dispatch.
 SHARE_TYPES = frozenset({"cifs", "nfs"})
 
 
 class MusicLibraryDataService:
-    """Persistence for the configured network shares (create/read/update/delete).
+    """Persistence for the configured network shares and the USB names.
 
     Pure storage — no mounting. The source orchestrates mount/unmount around
     these writes (config first, then the privileged milo-mount call), so the
     on-disk list is the source of truth a boot remount replays.
     """
 
-    SCHEMA_VERSION: int = 1
+    SCHEMA_VERSION: int = 2
 
     def __init__(self) -> None:
         self._logger = logging.getLogger("source.music_library.data")
@@ -82,7 +85,7 @@ class MusicLibraryDataService:
             )
 
     def _get_default_structure(self) -> Dict[str, Any]:
-        return {"shares": []}
+        return {"shares": [], "usb_names": {}, "playlist_storages": {}}
 
     async def save_data(self, data: Dict[str, Any]) -> bool:
         """Save the shares file with atomic write (schema_version stamped auto)."""
@@ -166,6 +169,52 @@ class MusicLibraryDataService:
         data["shares"] = [s for s in data["shares"] if s.get("id") != share_id]
         await self.save_data(data)
         return removed
+
+    # ========== USB NAMES ==========
+
+    async def get_usb_names(self) -> Dict[str, str]:
+        """Every user-given USB name, keyed by filesystem UUID."""
+        data = await self.load_data()
+        return data["usb_names"]
+
+    async def set_usb_name(self, uuid: str, name: str) -> None:
+        """Name a USB key, or forget the name when ``name`` is empty.
+
+        Kept for keys that are not plugged in: the point of the name is that it
+        comes back with the key. An empty name deletes the entry so the display
+        falls back to the filesystem label.
+        """
+        data = await self.load_data()
+        if name:
+            data["usb_names"][uuid] = name
+        else:
+            data["usb_names"].pop(uuid, None)
+        await self.save_data(data)
+
+    # ========== PLAYLIST ↔ STORAGE SPACE ==========
+
+    async def get_playlist_storages(self) -> Dict[str, str]:
+        """Which storage space each Milō-created playlist belongs to.
+
+        Keyed by playlist id, valued by *storage* id (a USB key's filesystem
+        UUID, a share's id) rather than a Navidrome library id — a library is
+        recreated with a new id every time a key comes back, and the playlist
+        must survive that.
+        """
+        data = await self.load_data()
+        return data["playlist_storages"]
+
+    async def set_playlist_storage(self, playlist_id: str, storage_id: str) -> None:
+        """Record the storage space a playlist was created in."""
+        data = await self.load_data()
+        data["playlist_storages"][playlist_id] = storage_id
+        await self.save_data(data)
+
+    async def forget_playlist(self, playlist_id: str) -> None:
+        """Drop a deleted playlist's association."""
+        data = await self.load_data()
+        if data["playlist_storages"].pop(playlist_id, None) is not None:
+            await self.save_data(data)
 
     @staticmethod
     def _generate_id(name: str, existing_ids: set) -> str:

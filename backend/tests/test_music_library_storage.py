@@ -30,6 +30,11 @@ def _proc(returncode=0, stdout=b"", stderr=b""):
     return proc
 
 
+def _volume(mountpoint, uuid="1234-ABCD", label="USB KEY"):
+    """A row of the manager's devnode→volume map."""
+    return {"mountpoint": mountpoint, "uuid": uuid, "label": label}
+
+
 def _navidrome_provider(client=None):
     """Stand-in for the source's shared-client accessor (the manager's only way
     to reach the catalog). ``None`` models a not-yet-provisioned daemon."""
@@ -46,7 +51,7 @@ def navidrome():
 
 @pytest.fixture
 def manager(navidrome):
-    return StorageManager(_navidrome_provider(navidrome))
+    return StorageManager(_navidrome_provider(navidrome), AsyncMock())
 
 
 # === classification ===============================================================
@@ -74,19 +79,26 @@ def test_is_usb_fs_partition(props, expected):
 async def test_mount_records_and_triggers_scan(manager, navidrome):
     with patch("asyncio.create_subprocess_exec",
                return_value=_proc(stdout=b"/media/milo/USBKEY\n")) as exec_mock:
-        await manager._mount("/dev/sda1")
+        await manager._mount("/dev/sda1", "1234-ABCD", "USB KEY")
 
     # milo-mount invoked via sudo -n with the devnode.
     args = exec_mock.call_args.args
     assert args[:3] == ("sudo", "-n", MILO_MOUNT_CMD)
     assert args[3] == "/dev/sda1"
-    # Mountpoint captured from stdout (whitespace stripped), scan triggered.
-    assert manager._mounts == {"/dev/sda1": "/media/milo/USBKEY"}
+    # Mountpoint captured from stdout (whitespace stripped), filed with the
+    # filesystem identity a user-given name is keyed by; scan triggered.
+    assert manager._mounts == {
+        "/dev/sda1": {
+            "mountpoint": "/media/milo/USBKEY",
+            "uuid": "1234-ABCD",
+            "label": "USB KEY",
+        }
+    }
     navidrome.start_scan.assert_awaited_once()
 
 
 async def test_mount_duplicate_is_ignored(manager, navidrome):
-    manager._mounts["/dev/sda1"] = "/media/milo/USBKEY"
+    manager._mounts["/dev/sda1"] = _volume("/media/milo/USBKEY")
     with patch("asyncio.create_subprocess_exec") as exec_mock:
         await manager._mount("/dev/sda1")
     exec_mock.assert_not_called()
@@ -105,7 +117,7 @@ async def test_mount_helper_failure_records_nothing(manager, navidrome):
 # === unmount flow =================================================================
 
 async def test_unmount_tracked_device(manager, navidrome):
-    manager._mounts["/dev/sda1"] = "/media/milo/USBKEY"
+    manager._mounts["/dev/sda1"] = _volume("/media/milo/USBKEY")
     with patch("asyncio.create_subprocess_exec",
                return_value=_proc()) as exec_mock:
         await manager._unmount("/dev/sda1")
@@ -153,7 +165,7 @@ async def test_run_helper_times_out(manager):
 async def test_scan_skipped_when_navidrome_unavailable():
     """A daemon that hasn't provisioned its cred file yet yields no client; the
     mount path must degrade to "Navidrome's own watcher will notice", not raise."""
-    mgr = StorageManager(_navidrome_provider(None))
+    mgr = StorageManager(_navidrome_provider(None), AsyncMock())
     await mgr._trigger_scan()  # must not raise
 
 

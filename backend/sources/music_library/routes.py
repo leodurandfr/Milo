@@ -15,6 +15,12 @@ REST surface for the indexed catalog served by the Navidrome sidecar:
              which persists its non-secret config, (re)mounts it read-only under
              /media/milo through milo-mount, and rescans. Credentials are write-
              only — the password is handed to milo-mount and never read back.
+- Storages — the storage spaces music can come from (shares + plugged-in USB
+             keys) with the library id that scopes a browse call to one of them,
+             and the name a USB key was given.
+
+Every browse route takes an optional ``library_id``: it is the Navidrome library
+of one storage space (see libraries.py), and omitting it browses all of them.
 
 Playback (play_context/transport) is NOT here — it goes through the generic
 `/api/audio/control/{source}` path and lands in source.py (P1-6). All catalog
@@ -45,6 +51,7 @@ from backend.sources.music_library.models import (
     ShareRequest,
     StarRequest,
     UpdatePlaylistRequest,
+    UsbNameRequest,
 )
 from backend.sources.music_library.navidrome_client import (
     ALBUM_LIST_TYPES,
@@ -61,6 +68,10 @@ router = APIRouter(
 )
 
 set_source_provider, get_source = make_source_dependency("Music Library")
+
+# Every browse route shares this one: the Navidrome library id of a storage
+# space, from GET /storages. Omitted = every storage space at once.
+LIBRARY_ID_DESC = "Scope to one storage space (Navidrome library id)"
 
 
 def setup_music_library_routes(source_provider) -> APIRouter:
@@ -108,11 +119,12 @@ async def _catalog_errors(context: str, source: MusicLibrarySource):
 @router.get("/artists")
 async def get_artists(
     source: MusicLibrarySource = Depends(get_source),
+    library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
     """All artists as A–Z index buckets (Subsonic getArtists)."""
     async with _catalog_errors("Error listing artists", source):
         client = await _require_client(source)
-        return {"index": await client.get_artists()}
+        return {"index": await client.get_artists(music_folder_id=library_id)}
 
 
 @router.get("/artist/{artist_id}")
@@ -168,6 +180,7 @@ async def get_albums(
     genre: Optional[str] = Query(None, description="Required for type=byGenre"),
     from_year: Optional[int] = Query(None, description="Required for type=byYear"),
     to_year: Optional[int] = Query(None, description="Required for type=byYear"),
+    library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
     """A page of albums (Subsonic getAlbumList2). See ALBUM_LIST_TYPES.
 
@@ -182,7 +195,7 @@ async def get_albums(
             raise HTTPException(status_code=400, detail=f"Invalid album list type: {type}")
         client = await _require_client(source)
         if type == "alphabeticalByName" and genre is None:
-            merged = await source.get_merged_albums()
+            merged = await source.get_merged_albums(library_id)
             return {"albums": merged[offset:offset + size]}
         albums = await client.get_album_list(
             list_type=type,
@@ -191,6 +204,7 @@ async def get_albums(
             genre=genre,
             from_year=from_year,
             to_year=to_year,
+            music_folder_id=library_id,
         )
         return {"albums": merge_albums(albums)}
 
@@ -204,6 +218,7 @@ async def search(
     song_count: int = Query(20, ge=0, le=100),
     album_count: int = Query(20, ge=0, le=100),
     artist_count: int = Query(20, ge=0, le=100),
+    library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
     """Fuzzy search across artists/albums/songs (Subsonic search3)."""
     async with _catalog_errors("Error searching library", source):
@@ -215,6 +230,7 @@ async def search(
             song_count=song_count,
             album_count=album_count,
             artist_count=artist_count,
+            music_folder_id=library_id,
         )
         return {
             "artists": result["artist"],
@@ -228,10 +244,18 @@ async def search(
 @router.get("/genres")
 async def get_genres(
     source: MusicLibrarySource = Depends(get_source),
+    library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
-    """All genres with song/album counts (Subsonic getGenres)."""
+    """All genres with song/album counts (Subsonic getGenres).
+
+    Scoping to one storage space is NOT a getGenres param — it ignores
+    musicFolderId — so a scoped call is answered from that storage's own album
+    catalog instead (see source.get_library_genres).
+    """
     async with _catalog_errors("Error listing genres", source):
         client = await _require_client(source)
+        if library_id is not None:
+            return {"genres": await source.get_library_genres(library_id)}
         return {"genres": await client.get_genres()}
 
 
@@ -241,6 +265,7 @@ async def get_genre_songs(
     genre: str = Query(..., min_length=1, description="Genre name"),
     count: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
     """Songs tagged with a genre (Subsonic getSongsByGenre) — a play context.
 
@@ -249,7 +274,9 @@ async def get_genre_songs(
     """
     async with _catalog_errors("Error getting genre songs", source):
         client = await _require_client(source)
-        songs = await client.get_songs_by_genre(genre, count=count, offset=offset)
+        songs = await client.get_songs_by_genre(
+            genre, count=count, offset=offset, music_folder_id=library_id
+        )
         return {"songs": songs}
 
 
@@ -258,11 +285,20 @@ async def get_genre_songs(
 @router.get("/playlists")
 async def get_playlists(
     source: MusicLibrarySource = Depends(get_source),
+    library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
-    """All playlists, without their entries (Subsonic getPlaylists)."""
+    """All playlists, without their entries (Subsonic getPlaylists).
+
+    Scoped to one storage space when asked: Navidrome keeps playlists
+    catalog-wide, so membership is decided by the source (see
+    source.playlists_in_storage), not by a Subsonic param.
+    """
     async with _catalog_errors("Error listing playlists", source):
         client = await _require_client(source)
-        return {"playlists": await client.get_playlists()}
+        playlists = await client.get_playlists()
+        if library_id is not None:
+            playlists = await source.playlists_in_storage(playlists, library_id)
+        return {"playlists": playlists}
 
 
 @router.get("/playlist/{playlist_id}")
@@ -288,6 +324,8 @@ async def create_playlist(
     """Create a playlist (Subsonic createPlaylist), optionally seeded with songs.
 
     Returns the created playlist (with its generated id) so the caller can open it.
+    ``library_id`` ties it to the storage space it was created in — the only way
+    an empty playlist can be placed, since it has no track to be judged by.
     """
     async with _catalog_errors("Error creating playlist", source):
         client = await _require_client(source)
@@ -295,6 +333,10 @@ async def create_playlist(
         if playlist is None:
             logger.error("Navidrome rejected playlist creation: %s", request.name)
             raise HTTPException(status_code=502, detail="Navidrome rejected playlist creation")
+        if request.library_id is not None and playlist.get("id"):
+            await source.shares.record_playlist_storage(
+                playlist["id"], request.library_id
+            )
         return {"status": "success", "playlist": playlist}
 
 
@@ -320,6 +362,9 @@ async def update_playlist(
         if not ok:
             logger.error("Navidrome rejected playlist update: %s", playlist_id)
             raise HTTPException(status_code=502, detail="Navidrome rejected playlist update")
+        # Its first track may have moved to another storage space, which is what
+        # an unrecorded playlist is placed by.
+        source.forget_playlist_placement(playlist_id)
         return {"status": "success"}
 
 
@@ -334,6 +379,8 @@ async def delete_playlist(
         if not await client.delete_playlist(playlist_id):
             logger.error("Navidrome rejected playlist deletion: %s", playlist_id)
             raise HTTPException(status_code=502, detail="Navidrome rejected playlist deletion")
+        await source.shares.forget_playlist(playlist_id)
+        source.forget_playlist_placement(playlist_id)
         return {"status": "success"}
 
 
@@ -411,12 +458,13 @@ async def unstar(
 @router.get("/starred")
 async def get_starred(
     source: MusicLibrarySource = Depends(get_source),
+    library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
     """Starred songs (Subsonic getStarred2) — backs the virtual "Liked Songs"
     playlist. Songs only; albums/artists aren't surfaced as favourites."""
     async with _catalog_errors("Error listing starred songs", source):
         client = await _require_client(source)
-        starred = await client.get_starred()
+        starred = await client.get_starred(music_folder_id=library_id)
         return {"songs": starred["song"]}
 
 
@@ -493,6 +541,20 @@ async def trigger_full_scan(
 
 # === Network shares (SMB/NFS) ===
 
+@router.get("/storages")
+async def list_storages(
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """The storage spaces music can come from, with their library ids.
+
+    What the library view's storage filter is built from: one entry per
+    configured share and per plugged-in USB key, each carrying the ``library_id``
+    a browse call is scoped by (null while Navidrome hasn't accepted it yet).
+    """
+    async with api_error_handler("Error listing storage spaces", logger):
+        return {"storages": await source.shares.storages()}
+
+
 @router.get("/usb-devices")
 async def list_usb_devices(
     source: MusicLibrarySource = Depends(get_source),
@@ -504,7 +566,25 @@ async def list_usb_devices(
     touches the filesystem — so it can't hang on a slow device.
     """
     async with api_error_handler("Error listing USB devices", logger):
-        return {"devices": source.shares.usb_devices()}
+        return {"devices": await source.shares.usb_devices()}
+
+
+@router.put("/usb-devices/{uuid}")
+async def rename_usb_device(
+    uuid: str,
+    request: UsbNameRequest,
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Name a plugged-in USB key (filed under its filesystem UUID).
+
+    The name follows the key across replugs and is what the settings row and the
+    storage filter show; an empty name restores the filesystem label.
+    """
+    async with api_error_handler("Error renaming USB device", logger):
+        if not await source.shares.rename_usb(uuid, request.name):
+            logger.error("USB device not found: %s", uuid)
+            raise HTTPException(status_code=404, detail="USB device not found")
+        return {"status": "success"}
 
 
 @router.get("/shares/discover")
