@@ -19,7 +19,11 @@
   the warm colour filter over this route.
 -->
 <template>
-  <div class="gallery" :class="{ 'gallery--with-panel': showPanel }">
+  <div class="gallery" :class="{ 'gallery--with-panel': showPanel, 'gallery--nav-open': navOpen }">
+    <!-- Both inert on a desktop width (display: none); the drawer only exists
+         once the layout collapses to one column. -->
+    <div class="gallery__scrim" @click="navOpen = false" />
+
     <GallerySidebar
       v-model:query="query"
       :selected="selected"
@@ -29,6 +33,15 @@
 
     <main class="gallery__main">
       <header class="gallery__head">
+        <button
+          v-press
+          type="button"
+          class="gallery__menu text-mono-small"
+          :aria-expanded="navOpen"
+          @click="navOpen = true"
+        >
+          ☰ Components
+        </button>
         <div class="gallery__title">
           <h2 class="heading-4">{{ selected }}</h2>
           <span v-if="entry?.coupling" class="gallery__badge text-mono-small">{{ entry.coupling }}</span>
@@ -143,6 +156,8 @@ const router = useRouter();
 
 const query = ref('');
 const tab = ref('playground');
+/** Drives the mobile drawer only; the desktop grid ignores it. */
+const navOpen = ref(false);
 const args = ref({});
 const slotChoices = ref({});
 const presetChoices = ref({});
@@ -213,6 +228,7 @@ function initialArgs(id) {
 
 function select(id) {
   router.replace({ query: { ...route.query, c: id } });
+  navOpen.value = false;
 }
 
 function mergeArgs(patch) {
@@ -294,6 +310,12 @@ watch(selected, (id) => {
 
 .gallery__sidebar {
   border-right: 1px solid var(--color-border);
+}
+
+/* The hamburger and the drawer scrim exist only once the layout collapses. */
+.gallery__menu,
+.gallery__scrim {
+  display: none;
 }
 
 .gallery__main {
@@ -380,19 +402,68 @@ watch(selected, (id) => {
   border-left: 1px solid var(--color-border);
 }
 
-/* Below a laptop width the three panes stop fitting; stack them instead. */
+/* Below a laptop width the three panes stop fitting. Rather than stack the
+   23-item list on top of every visit, the canvas and its controls become the
+   single column and the list slides in from the side on demand. */
 @media (max-width: 1100px) {
   .gallery,
   .gallery--with-panel {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    height: auto;
-    min-height: 100%;
+    /* The kiosk shell pins html/#app at 100dvh with overflow hidden, so the
+       document itself never scrolls. On desktop each pane scrolls internally;
+       collapsed, the stacked column becomes the one scroll container instead. */
+    height: 100%;
+    overflow-y: auto;
   }
 
+  /* Panes grow to content and let the column above scroll as one — a nested
+     `overflow-y: auto` here would swallow the touch gesture. */
+  .gallery__main,
+  .gallery__panel {
+    overflow: visible;
+  }
+
+  /* The list leaves the grid (it is `position: fixed`), so only the canvas and
+     the panel remain to auto-flow into rows. */
   .gallery__sidebar {
-    border-right: 0;
-    border-bottom: 1px solid var(--color-border);
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    width: min(280px, 82vw);
+    transform: translateX(-100%);
+    transition: transform var(--transition-fast);
+  }
+
+  .gallery--nav-open .gallery__sidebar {
+    transform: translateX(0);
+    box-shadow: var(--shadow-raised-02);
+  }
+
+  .gallery__scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: block;
+    background: var(--color-background-scrim);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition-fast);
+  }
+
+  .gallery--nav-open .gallery__scrim {
+    opacity: 0.5;
+    pointer-events: auto;
+  }
+
+  .gallery__menu {
+    display: inline-flex;
+    align-self: flex-start;
+    padding: var(--space-01) var(--space-03);
+    color: var(--color-text-secondary);
+    background: var(--color-background-neutral);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-02);
+    cursor: pointer;
   }
 
   .gallery__panel {
