@@ -15,12 +15,13 @@ EnvironmentFile=/var/lib/milo/routing.env
 WorkingDirectory=/var/lib/milo
 Restart=always
 RestartSec=5
-# go-librespot 0.7.3 exits gracefully on SIGTERM in ~60ms even with a live
-# AP/dealer session — the case 0.7.2 hung on for the full TimeoutStopSec (fixed
-# upstream in commit c191a43 "proper shutdown sequence on interrupt"; validated
-# on the Pi 2026-05-26 with a direct kill -TERM on a live session → clean exit in
-# 59ms). So systemd's default SIGTERM stop is clean; TimeoutStopSec=5 is just a
-# backstop in case a future upstream regression reappears.
+# go-librespot exits gracefully on SIGTERM even with a live AP/dealer session —
+# the case 0.7.2 hung on for the full TimeoutStopSec (fixed upstream in commit
+# c191a43 "proper shutdown sequence on interrupt"). Re-measured on 0.8.0 on the
+# Pi 2026-08-03, this time on a session actively playing: Stopping → Deactivated
+# in 3.8ms (0.7.3 was 59ms, 2026-05-26, via a direct kill -TERM). So systemd's
+# default SIGTERM stop is clean; TimeoutStopSec=5 is just a backstop in case a
+# future upstream regression reappears.
 TimeoutStopSec=5
 
 StandardOutput=journal

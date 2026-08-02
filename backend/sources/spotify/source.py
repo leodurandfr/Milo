@@ -162,9 +162,9 @@ class SpotifySource(BaseAudioSource):
 
         POST /player/stop first to disconnect the Connect session and release
         the ALSA Loopback in-process, so the next source can grab it without
-        waiting; then cleanup and `systemctl stop`. go-librespot 0.7.3 exits
-        gracefully on SIGTERM (~60ms, validated on the Pi), with TimeoutStopSec=5
-        as a backstop.
+        waiting; then cleanup and `systemctl stop`. go-librespot exits gracefully
+        on SIGTERM (0.8.0: 3.8ms on a live playing session, measured on the Pi
+        2026-08-03), with TimeoutStopSec=5 as a backstop.
 
         A /player/stop failure must NOT block the service stop — log + continue.
         """
