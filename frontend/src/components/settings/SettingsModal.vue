@@ -114,6 +114,8 @@
 
       <MacSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
 
+      <SpotifySettings v-else-if="currentView === 'spotify'" key="spotify" class="view-content" />
+
       <QobuzSettings v-else-if="currentView === 'qobuz'" key="qobuz" class="view-content" />
 
       <MusicLibrarySettings v-else-if="currentView === 'music-library'" key="music-library" class="view-content"
@@ -175,6 +177,7 @@ import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
+import spotifyIcon from '@/assets/settings-icons/spotify.svg';
 import qobuzIcon from '@/assets/settings-icons/qobuz.svg';
 import musicLibraryIcon from '@/assets/settings-icons/music-library.svg';
 import hardwareIcon from '@/assets/settings-icons/hardware.svg';
@@ -196,6 +199,7 @@ import ConfigureSystem from './categories/multiroom/ConfigureSystem.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import MacSettings from '@/components/settings/categories/MacSettings.vue';
+import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
 import QobuzSettings from '@/components/settings/categories/QobuzSettings.vue';
 import MusicLibrarySettings from '@/components/settings/categories/music-library/MusicLibrarySettings.vue';
 import ManageShare from '@/components/settings/categories/music-library/ManageShare.vue';
@@ -338,6 +342,8 @@ const HOME_SECTIONS = [
         visible: () => settingsStore.dockApps.mac },
       { view: 'radio', titleKey: 'audioSources.radio', icon: radioIcon, alt: 'Radio',
         visible: () => settingsStore.dockApps.radio },
+      { view: 'spotify', titleKey: 'audioSources.spotify', icon: spotifyIcon, alt: 'Spotify',
+        visible: () => settingsStore.dockApps.spotify },
       { view: 'qobuz', titleKey: 'audioSources.qobuz', icon: qobuzIcon, alt: 'Qobuz',
         visible: () => settingsStore.dockApps.qobuz },
       { view: 'music-library', titleKey: 'audioSources.musicLibrary', icon: musicLibraryIcon, alt: 'Music Library',

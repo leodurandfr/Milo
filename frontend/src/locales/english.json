@@ -321,6 +321,12 @@
     "appVolumeTitle": "Volume control from the Qobuz app",
     "appVolumeDescription": "Let the Qobuz app change the volume. When off, Milō keeps Qobuz at full volume and its own volume control sets the level."
   },
+  "spotifySettings": {
+    "crossfade": "Crossfade",
+    "crossfadeDuration": "Fade between consecutive tracks over:",
+    "restartToApply": "Restart to apply",
+    "restarting": "Restarting..."
+  },
   "multiroomSettings": {
     "presets": "Presets",
     "responsive": "Responsive",

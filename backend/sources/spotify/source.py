@@ -18,8 +18,10 @@ import os
 import re
 import time
 import yaml
+from pathlib import Path
 from typing import Dict, Any, Optional
 
+import aiofiles
 import aiohttp
 from pydantic import BaseModel
 
@@ -39,6 +41,18 @@ class SpotifySource(BaseAudioSource):
     WebSocket. No dedicated routes.py — commands flow through the generic
     `/api/audio/control/spotify` endpoint. Extends BaseAudioSource.
     """
+
+    # The one go-librespot config key Milō owns. Every other key in config.yml
+    # (device_name, zeroconf_backend, server, external_volume) is written once
+    # by install/go-librespot.sh and never touched here.
+    #
+    # Deliberately NOT owned: flac_enabled. go-librespot 0.8.0 fixed the FLAC
+    # decoder (it normalised samples by 2^bps instead of 2^(bps-1), so lossless
+    # played 6 dB too quiet), but the released binaries still refuse to boot
+    # with the flag on — "fatal: FLAC playback requires a PlapPlay
+    # implementation" (measured on the unit, 2026-08-03). It is a fatal
+    # misconfiguration, not an inert flag: enabling it costs Spotify entirely.
+    CROSSFADE_SETTINGS_KEY = "spotify.crossfade_duration"
 
     # Neutral sink the output is parked on while a multiroom reroute reconciles
     # snapcast. ALSA's `null` discards samples as fast as they are written, so
@@ -103,6 +117,10 @@ class SpotifySource(BaseAudioSource):
             # 1. Load config (sets _api_url / _ws_url)
             if not await self._load_config():
                 return False
+
+            # 1b. Push Milō-owned keys into config.yml BEFORE the daemon reads
+            # it — go-librespot parses its config once, at process start.
+            await self._apply_managed_config()
 
             # 2. Start the service (readiness is polled below, not slept on)
             if not await self._start_service():
@@ -336,6 +354,90 @@ class SpotifySource(BaseAudioSource):
 
         self._logger.info(f"Config loaded: API={self._api_url}")
         return True
+
+    async def _apply_managed_config(self) -> None:
+        """Write the Milō-owned keys into go-librespot's config.yml.
+
+        go-librespot parses its config once, at process start, so this runs from
+        _do_start() before the unit is launched: whatever the settings page
+        stored in the meantime is live on the next start, and there is no reload
+        path to maintain. Only the crossfade value is touched; a start that
+        would change nothing leaves the file alone, so the daemon never reads a
+        file rewritten for nothing.
+
+        Rewriting drops the installer's comments from the deployed copy — their
+        rationale lives in install/go-librespot.sh, which is where it is read.
+
+        Fails open: a config that cannot be patched still starts the daemon on
+        whatever is on disk, rather than blocking Spotify entirely.
+        """
+        if not self._config_path or not os.path.exists(self._config_path):
+            return
+
+        managed = {"crossfade_duration": await self._get_crossfade_duration()}
+
+        try:
+            async with aiofiles.open(self._config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(await f.read()) or {}
+
+            if all(config.get(key) == value for key, value in managed.items()):
+                return
+
+            config.update(managed)
+            await self._write_config(config)
+            self._logger.info(f"go-librespot config updated: {managed}")
+
+        except Exception as e:
+            self._logger.error(f"Failed to apply managed go-librespot config: {e}")
+
+    async def _get_crossfade_duration(self) -> int:
+        """Stored crossfade duration in ms; 0 (disabled) when unreadable.
+
+        Never guess upwards on a missing setting — a fallback that enabled an
+        audible effect nobody asked for would be indistinguishable from a bug.
+        """
+        if not self._settings_service:
+            return 0
+
+        value = await self._settings_service.get_setting(self.CROSSFADE_SETTINGS_KEY)
+        return int(value) if value is not None else 0
+
+    async def _write_config(self, config: Dict[str, Any]) -> None:
+        """Replace config.yml atomically (temp file + os.replace).
+
+        Same primitive as shared/persistence.py: the daemon must never be able
+        to read a half-written config. No schema_version — this file belongs to
+        go-librespot, not to Milō's versioned-persistence protocol.
+        """
+        path = Path(self._config_path)
+        temp_file = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+
+        try:
+            async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
+                await f.write(yaml.safe_dump(config, allow_unicode=True, sort_keys=False))
+                await f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(temp_file, path)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temp_file)
+
+    async def on_spotify_settings_changed(self, apply_now: bool) -> bool:
+        """Re-apply the managed config after a settings change (settings route).
+
+        The value always reaches config.yml, so it is live at the next daemon
+        start whatever happens here. `apply_now` additionally restarts the unit
+        — what the settings page's "restart to apply" button asks for, and the
+        only way to change crossfade on a running daemon. The restart is
+        absorbed by the existing WS retry loop + _reconcile_on_connect.
+        """
+        await self._apply_managed_config()
+
+        if not apply_now:
+            return True
+
+        return await self._restart_service()
 
     # === WebSocket ===
 

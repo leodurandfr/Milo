@@ -321,6 +321,12 @@
     "appVolumeTitle": "从 Qobuz 应用控制音量",
     "appVolumeDescription": "允许 Qobuz 应用调节音量。关闭后，Milō 会将 Qobuz 保持在最大音量，并使用自身的音量控制来设定音量大小。"
   },
+  "spotifySettings": {
+    "crossfade": "淡入淡出",
+    "crossfadeDuration": "连续曲目之间的淡入淡出时长：",
+    "restartToApply": "重启以应用",
+    "restarting": "正在重启..."
+  },
   "multiroomSettings": {
     "presets": "预设",
     "responsive": "快速响应",

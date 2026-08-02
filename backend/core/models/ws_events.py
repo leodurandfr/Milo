@@ -32,6 +32,7 @@ from backend.core.models.settings_config import (
     ScreenScreensaverConfig,
     ScreenTimeoutConfig,
     ScreenUiScaleConfig,
+    SpotifySettingsConfig,
     VolumeLimitsConfig,
     VolumeStartupConfig,
     VolumeStepsConfig,
@@ -373,6 +374,16 @@ class QobuzSettingsChanged(SettingsEvent):
     """App.vue settings listener (Qobuz 'allow app volume' toggle sync)."""
     TYPE = "qobuz_settings_changed"
     config: QobuzSettingsConfig
+
+
+class SpotifySettingsChanged(SettingsEvent):
+    """App.vue settings listener → settingsStore.updateSpotifySettings.
+
+    Keeps every open screen's crossfade slider on the stored value; the daemon
+    itself only picks it up at its next start.
+    """
+    TYPE = "spotify_settings_changed"
+    config: SpotifySettingsConfig
 
 
 class MusicLibrarySettingsChanged(SettingsEvent):

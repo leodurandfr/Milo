@@ -550,6 +550,7 @@ const SETTINGS_CONFIG_EVENTS = [
   ['radio_settings_changed', settingsStore.updateRadioSettings],
   ['music_library_settings_changed', settingsStore.updateMusicLibrarySettings],
   ['qobuz_settings_changed', settingsStore.updateQobuzSettings],
+  ['spotify_settings_changed', settingsStore.updateSpotifySettings],
   ['mac_roc_changed', settingsStore.updateMacRocSettings],
   ['bt_remote_config_changed', settingsStore.updateBtRemoteConfig],
 ];

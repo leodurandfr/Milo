@@ -321,6 +321,12 @@
     "appVolumeTitle": "Qobuz ऐप से वॉल्यूम नियंत्रण",
     "appVolumeDescription": "Qobuz ऐप को वॉल्यूम बदलने दें। बंद होने पर, Milō Qobuz को पूर्ण वॉल्यूम पर रखता है और अपना वॉल्यूम नियंत्रण स्तर सेट करता है।"
   },
+  "spotifySettings": {
+    "crossfade": "क्रॉसफ़ेड",
+    "crossfadeDuration": "लगातार ट्रैक के बीच फ़ेड की अवधि:",
+    "restartToApply": "लागू करने के लिए पुनरारंभ करें",
+    "restarting": "पुनः आरंभ हो रहा है..."
+  },
   "multiroomSettings": {
     "presets": "प्रीसेट्स",
     "responsive": "प्रतिक्रियाशील",
