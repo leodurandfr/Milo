@@ -25,7 +25,7 @@ install_go_librespot() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    wget https://github.com/devgianlu/go-librespot/releases/download/v0.7.3/go-librespot_linux_arm64.tar.gz
+    wget https://github.com/devgianlu/go-librespot/releases/download/v0.8.0/go-librespot_linux_arm64.tar.gz
     tar -xvzf go-librespot_linux_arm64.tar.gz
     sudo cp go-librespot /usr/local/bin/
     sudo chmod +x /usr/local/bin/go-librespot
