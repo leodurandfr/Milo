@@ -321,6 +321,12 @@
     "appVolumeTitle": "Lautstärkeregelung von der Qobuz-App",
     "appVolumeDescription": "Lass die Qobuz-App die Lautstärke ändern. Wenn deaktiviert, hält Milō Qobuz auf voller Lautstärke und die eigene Lautstärkeregelung bestimmt den Pegel."
   },
+  "spotifySettings": {
+    "crossfade": "Überblendung",
+    "crossfadeDuration": "Aufeinanderfolgende Titel überblenden über:",
+    "restartToApply": "Zum Anwenden neu starten",
+    "restarting": "Neustart läuft..."
+  },
   "multiroomSettings": {
     "presets": "Voreinstellungen",
     "responsive": "Reaktiv",

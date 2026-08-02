@@ -253,6 +253,7 @@ def test_bulk_settings_full_key_set():
         "radio_settings": {"shazam_enabled": True},
         "music_library_settings": {"separate_storages": True},
         "qobuz_settings": {"allow_app_volume": False},
+        "spotify_settings": {"crossfade_duration": 6000},
         "mac_roc": {"target_latency_ms": 130, "latency_profile": "responsive", "frame_length_ms": 10},
     }
     out = emit(R.BulkSettingsResponse, data)

@@ -37,6 +37,7 @@ from backend.core.models.settings_config import (
     ScreenScreensaverConfig,
     ScreenTimeoutConfig,
     ScreenUiScaleConfig,
+    SpotifySettingsConfig,
     VolumeLimitsConfig,
     VolumeStartupConfig,
 )
@@ -159,6 +160,7 @@ class BulkSettingsResponse(BaseModel):
     radio_settings: RadioSettingsConfig
     music_library_settings: MusicLibrarySettingsConfig
     qobuz_settings: QobuzSettingsConfig
+    spotify_settings: SpotifySettingsConfig
     mac_roc: MacRocConfig
 
 

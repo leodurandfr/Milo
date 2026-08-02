@@ -11,6 +11,8 @@ Tests cover:
 - Auto-stop timer
 """
 import pytest
+import yaml
+from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.sources.spotify.source import SpotifySource
@@ -620,3 +622,82 @@ class TestMultiroomReroute:
             assert await spotify_source.acquire_after_reroute() is True
 
         start.assert_awaited_once()
+
+
+class TestManagedConfig:
+    """The go-librespot config key Milō owns.
+
+    go-librespot parses config.yml once, at process start, so a crossfade the
+    settings page stored only ever reaches the daemon through this write. If it
+    silently dropped the key — or clobbered one of the installer's, like
+    zeroconf_backend — Spotify would come back up misconfigured with nothing in
+    the logs to say so.
+    """
+
+    @staticmethod
+    def _read(config_path):
+        return yaml.safe_load(Path(config_path).read_text())
+
+    @pytest.mark.asyncio
+    async def test_writes_the_managed_key_and_leaves_the_rest_alone(self, spotify_source):
+        """Crossfade lands in the file; the installer's keys survive."""
+        await spotify_source._apply_managed_config()
+
+        written = self._read(spotify_source._config_path)
+        assert written["crossfade_duration"] == 0
+        # Written by install/go-librespot.sh — this function must not own them.
+        assert written["audio_device"] == "milo_spotify"
+        assert written["server"]["port"] == 3678
+
+    @pytest.mark.asyncio
+    async def test_never_writes_flac_enabled(self, spotify_source):
+        """Turning FLAC on costs Spotify entirely, so it must stay out.
+
+        The released go-librespot binaries exit at boot with "FLAC playback
+        requires a PlapPlay implementation" (measured on the unit 2026-08-03) —
+        the daemon never comes up, so this is not a quality trade-off to revisit
+        casually.
+        """
+        await spotify_source._apply_managed_config()
+
+        assert "flac_enabled" not in self._read(spotify_source._config_path)
+
+    @pytest.mark.asyncio
+    async def test_crossfade_comes_from_settings(self, spotify_source):
+        """The stored setting is what reaches the daemon's config."""
+        spotify_source._settings_service = Mock()
+        spotify_source._settings_service.get_setting = AsyncMock(return_value=6000)
+
+        await spotify_source._apply_managed_config()
+
+        assert self._read(spotify_source._config_path)["crossfade_duration"] == 6000
+
+    @pytest.mark.asyncio
+    async def test_is_idempotent(self, spotify_source):
+        """Re-applying an unchanged config yields the same file, byte for byte."""
+        await spotify_source._apply_managed_config()
+        first = Path(spotify_source._config_path).read_text()
+
+        await spotify_source._apply_managed_config()
+
+        assert Path(spotify_source._config_path).read_text() == first
+
+    @pytest.mark.asyncio
+    async def test_missing_config_file_does_not_raise(self):
+        """Fails open: no config to patch must not block Spotify from starting."""
+        source = SpotifySource({"config_path": "/nonexistent/config.yml"})
+
+        await source._apply_managed_config()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_settings_change_restarts_only_when_asked(self, spotify_source):
+        """`apply_now` is the whole difference between the two write paths.
+
+        Without it a settings write must never bounce the daemon — that would
+        drop a live Connect session from a screen the user thinks is passive.
+        """
+        assert await spotify_source.on_spotify_settings_changed(apply_now=False) is True
+        spotify_source._service_manager.restart.assert_not_called()
+
+        assert await spotify_source.on_spotify_settings_changed(apply_now=True) is True
+        spotify_source._service_manager.restart.assert_called_once_with("milo-spotify.service")

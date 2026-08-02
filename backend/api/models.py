@@ -391,6 +391,19 @@ class MusicLibrarySettingsRequest(BaseModel):
     separate_storages: bool
 
 
+class SpotifySettingsRequest(BaseModel):
+    """Spotify settings request.
+
+    `apply_now` is request-only — it is an action, not a stored value, so it
+    stays out of SpotifySettingsConfig (the shape /bulk and the WS event share).
+    True restarts go-librespot so the new crossfade takes effect immediately;
+    False just stores it for the daemon's next start. Ceiling matches the
+    Spotify app's own 0-12 s range.
+    """
+    crossfade_duration: int = Field(ge=0, le=12000)
+    apply_now: bool = False
+
+
 # =============================================================================
 # HARDWARE CONFIGURATION
 # =============================================================================

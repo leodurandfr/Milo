@@ -27,6 +27,7 @@ from backend.api.models import (
     RadioSettingsRequest,
     MusicLibrarySettingsRequest,
     QobuzSettingsRequest,
+    SpotifySettingsRequest,
     HardwareConfigRequest,
 )
 from backend.core.models.ws_events import (
@@ -47,6 +48,8 @@ from backend.core.models.ws_events import (
     MusicLibrarySettingsConfig,
     QobuzSettingsChanged,
     QobuzSettingsConfig,
+    SpotifySettingsChanged,
+    SpotifySettingsConfig,
     RotaryStepsChanged,
     RotaryStepsConfig,
     ScreenBrightnessChanged,
@@ -207,6 +210,9 @@ def create_settings_router(
                 "separate_storages": all_settings['music_library']['separate_storages']
             },
             "qobuz_settings": {"allow_app_volume": all_settings['qobuz']['allow_app_volume']},
+            "spotify_settings": {
+                "crossfade_duration": all_settings['spotify']['crossfade_duration']
+            },
             "mac_roc": {
                 "target_latency_ms": mac['target_latency_ms'],
                 "latency_profile": mac['latency_profile'],
@@ -810,6 +816,25 @@ def create_settings_router(
             setter=lambda: settings.set_setting('qobuz', qobuz_config),
             event=QobuzSettingsChanged(config=QobuzSettingsConfig(**qobuz_config)),
             reload_callback=apply_to_qobuz
+        )
+
+    # Spotify settings (crossfade duration, written into go-librespot's config)
+    @router.put("/spotify-settings")
+    async def set_spotify_settings(payload: SpotifySettingsRequest):
+        spotify_config = {'crossfade_duration': payload.crossfade_duration}
+
+        async def apply_to_spotify():
+            source = state_machine.get_source(AudioSource.SPOTIFY)
+            if not source:
+                return False
+            return await source.on_spotify_settings_changed(payload.apply_now)
+
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('spotify', spotify_config),
+            event=SpotifySettingsChanged(config=SpotifySettingsConfig(**spotify_config)),
+            reload_callback=apply_to_spotify
         )
 
     return router

@@ -80,6 +80,13 @@ export const useSettingsStore = defineStore('settings', () => {
     allow_app_volume: false
   });
 
+  // === SPOTIFY ===
+  // Crossfade between tracks in ms (0 = disabled). go-librespot reads it once at
+  // start, so the settings view offers an explicit "restart to apply".
+  const spotifySettings = ref({
+    crossfade_duration: 0
+  });
+
   // === MAC ROC ===
   const macRocSettings = ref({
     target_latency_ms: 50,
@@ -210,6 +217,7 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(radioSettings, d.radio_settings);
         setIfChanged(musicLibrarySettings, d.music_library_settings);
         setIfChanged(qobuzSettings, d.qobuz_settings);
+        setIfChanged(spotifySettings, d.spotify_settings);
         setIfChanged(macRocSettings, d.mac_roc);
       }
 
@@ -470,6 +478,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateRadioSettings = makeUpdater(radioSettings);
   const updateMusicLibrarySettings = makeUpdater(musicLibrarySettings);
   const updateQobuzSettings = makeUpdater(qobuzSettings);
+  const updateSpotifySettings = makeUpdater(spotifySettings);
   const updateMacRocSettings = makeUpdater(macRocSettings);
 
   /**
@@ -510,6 +519,7 @@ export const useSettingsStore = defineStore('settings', () => {
     radioSettings,
     musicLibrarySettings,
     qobuzSettings,
+    spotifySettings,
     macRocSettings,
     btRemote,
     irRemote,
@@ -535,6 +545,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateRadioSettings,
     updateMusicLibrarySettings,
     updateQobuzSettings,
+    updateSpotifySettings,
     updateMacRocSettings,
     updateBtRemoteConfig,
     updateBtRemoteStatus,

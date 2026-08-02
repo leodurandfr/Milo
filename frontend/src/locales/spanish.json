@@ -321,6 +321,12 @@
     "appVolumeTitle": "Control del volumen desde la aplicación Qobuz",
     "appVolumeDescription": "Permite que la aplicación Qobuz cambie el volumen. Si está desactivado, Milō mantiene Qobuz al volumen máximo y su propio control de volumen define el nivel."
   },
+  "spotifySettings": {
+    "crossfade": "Fundido encadenado",
+    "crossfadeDuration": "Fundir entre pistas consecutivas durante:",
+    "restartToApply": "Reiniciar para aplicar",
+    "restarting": "Reiniciando..."
+  },
   "multiroomSettings": {
     "presets": "Preajustes",
     "responsive": "Reactivo",

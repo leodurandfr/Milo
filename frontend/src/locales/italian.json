@@ -321,6 +321,12 @@
     "appVolumeTitle": "Controllo del volume dall'app Qobuz",
     "appVolumeDescription": "Consenti all'app Qobuz di modificare il volume. Se disattivato, Milō mantiene Qobuz al volume massimo e il proprio controllo del volume imposta il livello."
   },
+  "spotifySettings": {
+    "crossfade": "Dissolvenza incrociata",
+    "crossfadeDuration": "Dissolvenza tra brani consecutivi su:",
+    "restartToApply": "Riavvia per applicare",
+    "restarting": "Riavvio in corso..."
+  },
   "multiroomSettings": {
     "presets": "Preset",
     "responsive": "Reattivo",

@@ -112,6 +112,12 @@ class SettingsService:
                 # the app slider controls qobuz-proxy's software volume.
                 "allow_app_volume": False
             },
+            "spotify": {
+                # Crossfade between consecutive tracks, in ms. 0 disables it and
+                # keeps go-librespot's original gapless read path untouched.
+                # SpotifySource writes it into go-librespot's config.yml.
+                "crossfade_duration": 0
+            },
             "wifi": {
                 "country": ""
             },
@@ -334,6 +340,16 @@ class SettingsService:
         qobuz_input = settings.get('qobuz', {})
         validated['qobuz'] = {
             'allow_app_volume': bool(qobuz_input.get('allow_app_volume', d['qobuz']['allow_app_volume']))
+        }
+
+        # Spotify settings — clamp wider than SpotifySettingsRequest's 0..12000
+        # so a stored out-of-range crossfade surfaces on the settings page
+        # instead of being rejected on load.
+        spotify_input = settings.get('spotify', {})
+        validated['spotify'] = {
+            'crossfade_duration': max(0, min(60000, int(
+                spotify_input.get('crossfade_duration', d['spotify']['crossfade_duration'])
+            )))
         }
 
         # WiFi regulatory domain
