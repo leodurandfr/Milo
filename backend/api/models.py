@@ -386,6 +386,11 @@ class QobuzSettingsRequest(BaseModel):
     allow_app_volume: bool
 
 
+class MusicLibrarySettingsRequest(BaseModel):
+    """Music Library settings request"""
+    separate_storages: bool
+
+
 # =============================================================================
 # HARDWARE CONFIGURATION
 # =============================================================================

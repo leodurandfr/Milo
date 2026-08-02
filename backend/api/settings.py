@@ -25,6 +25,7 @@ from backend.api.models import (
     ScreenColorFilterRequest,
     MacRocConfigRequest,
     RadioSettingsRequest,
+    MusicLibrarySettingsRequest,
     QobuzSettingsRequest,
     HardwareConfigRequest,
 )
@@ -42,6 +43,8 @@ from backend.core.models.ws_events import (
     MacRocConfig,
     RadioSettingsChanged,
     RadioSettingsConfig,
+    MusicLibrarySettingsChanged,
+    MusicLibrarySettingsConfig,
     QobuzSettingsChanged,
     QobuzSettingsConfig,
     RotaryStepsChanged,
@@ -200,6 +203,9 @@ def create_settings_router(
                 "warmth": screen['color_filter_warmth']
             },
             "radio_settings": {"shazam_enabled": all_settings['radio']['shazam_enabled']},
+            "music_library_settings": {
+                "separate_storages": all_settings['music_library']['separate_storages']
+            },
             "qobuz_settings": {"allow_app_volume": all_settings['qobuz']['allow_app_volume']},
             "mac_roc": {
                 "target_latency_ms": mac['target_latency_ms'],
@@ -766,6 +772,19 @@ def create_settings_router(
             setter=lambda: settings.set_setting('radio', radio_config),
             event=RadioSettingsChanged(config=RadioSettingsConfig(**radio_config)),
             reload_callback=apply_to_radio
+        )
+
+    # Music Library settings (one tab per storage space, or all merged)
+    @router.put("/music-library-settings")
+    async def set_music_library_settings(payload: MusicLibrarySettingsRequest):
+        ml_config = {'separate_storages': payload.separate_storages}
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('music_library', ml_config),
+            event=MusicLibrarySettingsChanged(
+                config=MusicLibrarySettingsConfig(**ml_config)
+            ),
         )
 
     # Qobuz settings (allow the mobile app to control volume)

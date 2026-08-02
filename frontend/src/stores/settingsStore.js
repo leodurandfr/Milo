@@ -66,6 +66,13 @@ export const useSettingsStore = defineStore('settings', () => {
     shazam_enabled: true
   });
 
+  // === MUSIC LIBRARY ===
+  // separate_storages=true → one tab per storage space in the library view;
+  // false → every space merged into a single catalog.
+  const musicLibrarySettings = ref({
+    separate_storages: true
+  });
+
   // === QOBUZ ===
   // allow_app_volume=false → qobuz-proxy stays at unity (CamillaDSP owns volume),
   // the Qobuz app slider is inert; true → the app slider controls qobuz volume.
@@ -201,6 +208,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
         setIfChanged(screenColorFilter, d.screen_color_filter);
         setIfChanged(radioSettings, d.radio_settings);
+        setIfChanged(musicLibrarySettings, d.music_library_settings);
         setIfChanged(qobuzSettings, d.qobuz_settings);
         setIfChanged(macRocSettings, d.mac_roc);
       }
@@ -460,6 +468,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
   const updateRadioSettings = makeUpdater(radioSettings);
+  const updateMusicLibrarySettings = makeUpdater(musicLibrarySettings);
   const updateQobuzSettings = makeUpdater(qobuzSettings);
   const updateMacRocSettings = makeUpdater(macRocSettings);
 
@@ -499,6 +508,7 @@ export const useSettingsStore = defineStore('settings', () => {
     sourceOrder,
     audioPlayback,
     radioSettings,
+    musicLibrarySettings,
     qobuzSettings,
     macRocSettings,
     btRemote,
@@ -523,6 +533,7 @@ export const useSettingsStore = defineStore('settings', () => {
     buildEnabledAppsArray,
     updateAudioPlayback,
     updateRadioSettings,
+    updateMusicLibrarySettings,
     updateQobuzSettings,
     updateMacRocSettings,
     updateBtRemoteConfig,

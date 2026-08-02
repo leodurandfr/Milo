@@ -89,6 +89,11 @@ class QobuzSettingsConfig(BaseModel):
     allow_app_volume: bool
 
 
+class MusicLibrarySettingsConfig(BaseModel):
+    """True → one browsable tab per storage space; False → all of them merged."""
+    separate_storages: bool
+
+
 class BtRemoteConfig(BaseModel):
     """No `/bulk` key: the BT-remote panel reads its config from the WS event only."""
     enabled: bool

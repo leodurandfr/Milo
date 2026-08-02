@@ -10,23 +10,29 @@ REST surface for the indexed catalog served by the Navidrome sidecar:
 - Cover    — a localhost-only proxy for Navidrome getCoverArt bytes, so the
              frontend never talks to Navidrome (or sees its credentials) directly.
 - Favorites — star/unstar a song/album/artist.
-- Scan     — the current scan status (polled while a fresh library indexes).
+- Scan     — trigger a quick or full rescan on demand.
 - Shares   — CRUD for SMB/NFS network shares: add/edit/remove a share,
              which persists its non-secret config, (re)mounts it read-only under
              /media/milo through milo-mount, and rescans. Credentials are write-
              only — the password is handed to milo-mount and never read back.
-- Storages — the storage spaces music can come from (shares + plugged-in USB
-             keys) with the library id that scopes a browse call to one of them,
-             and the name a USB key was given.
+- Storages — the storage spaces music can come from (shares + known USB keys)
+             with the library id that scopes a browse call to one of them, their
+             track/album counts, and a live ``mounted`` flag; plus renaming and
+             forgetting a USB key.
 
 Every browse route takes an optional ``library_id``: it is the Navidrome library
 of one storage space (see libraries.py), and omitting it browses all of them.
 
+There is **no scan-status route**: the scan flag rides the ``/storages`` payload
+and the ``source/storages_changed`` push, so one backend watcher observes
+Navidrome for the whole appliance instead of every browser polling for itself.
+A second endpoint reporting Navidrome's own global counter is what showed a
+frozen "2419 tracks indexed…" for the 18 minutes it took to index an iPod.
+
 Playback (play_context/transport) is NOT here — it goes through the generic
 `/api/audio/control/{source}` path and lands in source.py (P1-6). All catalog
 reads go through the source's shared NavidromeClient; a missing cred file (daemon
-not provisioned yet) surfaces as 503 on browse routes and a null status on the
-polled scan-status route.
+not provisioned yet) surfaces as 503 on browse routes.
 """
 import logging
 from contextlib import asynccontextmanager
@@ -470,29 +476,6 @@ async def get_starred(
 
 # === Scan status ===
 
-@router.get("/scan-status")
-async def get_scan_status(
-    source: MusicLibrarySource = Depends(get_source),
-) -> Dict[str, Any]:
-    """Current library scan status (polled while a fresh library indexes).
-
-    Resilient (always HTTP 200): a not-yet-provisioned or still-starting daemon
-    yields ``scan_status: null`` rather than an error, since the frontend polls
-    this and an unbuilt catalog is a normal transient state, not a failure.
-    """
-    try:
-        client = await source.get_navidrome_client()
-        status = await client.get_scan_status() if client else None
-    except NavidromeAuthError as exc:
-        await source.invalidate_navidrome_client()
-        logger.error("Scan status auth failed: %s", exc)
-        status = None
-    except Exception as exc:
-        logger.error("Error getting scan status: %s", exc)
-        status = None
-    return {"scan_status": status}
-
-
 @router.post("/scan")
 async def trigger_scan(
     source: MusicLibrarySource = Depends(get_source),
@@ -500,11 +483,17 @@ async def trigger_scan(
     """Kick a Navidrome library rescan on demand ("I added music, refresh now").
 
     A quick (mtime-based) scan: it picks up new/changed files but does NOT purge
-    disappeared ones — purging is tied to the removal event itself (unplugging a
-    USB drive / deleting a share triggers a full scan), so a refresh stays a fast,
-    non-destructive "index what's new". Needed because inotify does not report
-    changes made on the far side of a CIFS/NFS mount, so files added directly on a
-    NAS aren't picked up by the watcher — only by a scan. 503 until provisioned.
+    disappeared ones — purging only ever happens on the explicit full scan below,
+    so a refresh stays a fast, non-destructive "index what's new". Needed because
+    inotify does not report changes made on the far side of a CIFS/NFS mount, so
+    files added directly on a NAS aren't picked up by the watcher — only by a
+    scan. 503 until provisioned.
+
+    Cheap on an already-indexed catalog: measured at 401 ms across 12 488 tracks
+    on two storage spaces. Only *new* files cost real time (the first pass over a
+    10 000-track iPod took 18 minutes), which is why plugging a key in triggers
+    an ordinary global scan rather than trying to scope one — Navidrome exposes
+    no per-library scan, and there would be nothing to save.
     """
     async with _catalog_errors("Error starting scan", source):
         client = await _require_client(source)
@@ -512,6 +501,7 @@ async def trigger_scan(
         # The catalog is about to change — drop the merged-album cache so the next
         # grid load reflects new/removed music without waiting for its TTL.
         source.invalidate_album_cache()
+        await source.shares.note_scan_started()
         return {"status": "success"}
 
 
@@ -523,19 +513,22 @@ async def trigger_full_scan(
     music" action (the quick /scan never purges; see its docstring).
 
     A full scan drops every track Navidrome can't see (Scanner.PurgeMissing="full"),
-    so an offline share would have its still-valid tracks purged. When any configured
-    share is unmounted we skip the scan and return ``{"status": "blocked",
-    offline_shares}`` rather than a 5xx (an offline NAS is a normal precondition to
-    surface). USB needs no check: an unplug is itself a purge event. 503 until ready.
+    so a storage space that is away would have its still-valid tracks purged. When
+    any is unmounted we skip the scan and return ``{"status": "blocked",
+    offline_shares}`` rather than a 5xx (an asleep NAS is a normal precondition to
+    surface). Unplugged USB keys count too, and that is the point: a key keeps its
+    library and its index across an unplug, so a full scan run while it is away is
+    exactly what would throw that index out. 503 until ready.
     """
     async with _catalog_errors("Error starting full scan", source):
         offline = await source.shares.offline_names()
         if offline:
-            logger.info("Full scan skipped; shares offline: %s", ", ".join(offline))
+            logger.info("Full scan skipped; storage offline: %s", ", ".join(offline))
             return {"status": "blocked", "offline_shares": offline}
         client = await _require_client(source)
         await client.start_scan(full=True)
         source.invalidate_album_cache()
+        await source.shares.note_scan_started()
         return {"status": "success"}
 
 
@@ -545,28 +538,21 @@ async def trigger_full_scan(
 async def list_storages(
     source: MusicLibrarySource = Depends(get_source),
 ) -> Dict[str, Any]:
-    """The storage spaces music can come from, with their library ids.
+    """The storage spaces music can come from, with their library ids and counts.
 
     What the library view's storage filter is built from: one entry per
-    configured share and per plugged-in USB key, each carrying the ``library_id``
-    a browse call is scoped by (null while Navidrome hasn't accepted it yet).
+    configured share and per known USB key, each carrying the ``library_id`` a
+    browse call is scoped by (null while Navidrome hasn't accepted it yet), a
+    live ``mounted`` flag, and its track/album counts.
+
+    The initial load only — every later change arrives as the
+    ``source/storages_changed`` WS event, which carries this exact shape.
     """
     async with api_error_handler("Error listing storage spaces", logger):
-        return {"storages": await source.shares.storages()}
-
-
-@router.get("/usb-devices")
-async def list_usb_devices(
-    source: MusicLibrarySource = Depends(get_source),
-) -> Dict[str, Any]:
-    """USB volumes mounted under /media/milo right now (read-only status line).
-
-    Sits beside the configurable shares in the settings UI so a plugged-in key is
-    visible as a music origin. Reads the storage manager's live mount map — never
-    touches the filesystem — so it can't hang on a slow device.
-    """
-    async with api_error_handler("Error listing USB devices", logger):
-        return {"devices": await source.shares.usb_devices()}
+        return {
+            "storages": await source.shares.storages_with_stats(),
+            "scanning": bool(source.shares.scan_state().get("scanning")),
+        }
 
 
 @router.put("/usb-devices/{uuid}")
@@ -575,13 +561,37 @@ async def rename_usb_device(
     request: UsbNameRequest,
     source: MusicLibrarySource = Depends(get_source),
 ) -> Dict[str, Any]:
-    """Name a plugged-in USB key (filed under its filesystem UUID).
+    """Name a known USB key (filed under its filesystem UUID).
 
     The name follows the key across replugs and is what the settings row and the
     storage filter show; an empty name restores the filesystem label.
     """
     async with api_error_handler("Error renaming USB device", logger):
         if not await source.shares.rename_usb(uuid, request.name):
+            logger.error("USB device not found: %s", uuid)
+            raise HTTPException(status_code=404, detail="USB device not found")
+        return {"status": "success"}
+
+
+@router.delete("/usb-devices/{uuid}")
+async def forget_usb_device(
+    uuid: str,
+    source: MusicLibrarySource = Depends(get_source),
+) -> Dict[str, Any]:
+    """Forget an unplugged USB key, retiring its Navidrome library and index.
+
+    The counterpart to keeping a key's index forever: a key that will not come
+    back would otherwise hold its catalog rows for good. 409 while it is plugged
+    in — the mount would put it straight back on the next reconcile, so the only
+    readable outcome is to unplug it first.
+    """
+    async with api_error_handler("Error forgetting USB device", logger):
+        if await source.shares.usb_is_mounted(uuid):
+            logger.error("USB device still plugged in: %s", uuid)
+            raise HTTPException(
+                status_code=409, detail="Unplug the key before forgetting it"
+            )
+        if not await source.shares.forget_usb(uuid):
             logger.error("USB device not found: %s", uuid)
             raise HTTPException(status_code=404, detail="USB device not found")
         return {"status": "success"}

@@ -2,9 +2,15 @@
 <!--
   Music Library settings screen — the music *origins* Navidrome indexes (SMB/NFS
   servers, each row opens ManageShare; auto-mounted USB keys, each row opens the
-  rename modal) plus a manual library refresh. The backend mounts each origin
-  read-only under /media/milo, gives it its own Navidrome library, and rescans on
-  every change.
+  rename modal), how they are presented in the library view, and a manual
+  refresh. The backend mounts each origin read-only under /media/milo, gives it
+  its own Navidrome library, and rescans on every change.
+
+  Every row here is live: the storage list arrives on the `source/storages_changed`
+  push, so plugging a key in or pulling it out — or a NAS going unreachable —
+  updates this screen with no refetch and no polling. A key that is unplugged
+  keeps its row (it keeps its Navidrome library and its index too), which is
+  where it gets renamed, or forgotten for good.
 -->
 <template>
   <SettingsContainer>
@@ -35,6 +41,9 @@
               <span class="ml-dot" :class="share.mounted ? 'is-on' : 'is-off'" />
               {{ share.host }}
               <span v-if="!share.mounted" class="ml-off">· {{ t('musicLibrary.shares.notConnected') }}</span>
+              <span v-if="share.track_count" class="ml-count">
+                · {{ t('musicLibrary.songsCount', { count: share.track_count }) }}
+              </span>
             </span>
           </template>
         </ListItemButton>
@@ -53,11 +62,12 @@
           </template>
         </ListItemButton>
 
-        <!-- USB storage — one row per mounted partition, tap to name it; the
-             no-key placeholder has nothing to name, so it stays inert. -->
+        <!-- USB storage — one row per known key, plugged in or not; tap to name
+             it (or, once unplugged, to forget it). The no-key placeholder has
+             nothing to name, so it stays inert. -->
         <ListItemButton v-for="row in usbRows" :key="row.key" variant="background"
-          :interactive="row.connected" :action="row.connected ? 'caret' : 'none'" :title="row.label"
-          @click="row.connected && $emit('rename-usb', row.device)">
+          :interactive="row.known" :action="row.known ? 'caret' : 'none'" :title="row.label"
+          @click="row.known && $emit('rename-usb', row.device)">
           <template #icon>
             <SourceBadge>USB</SourceBadge>
           </template>
@@ -65,11 +75,21 @@
             <span class="ml-sub text-body">
               <span class="ml-dot" :class="row.connected ? 'is-on' : 'is-off'" />
               {{ row.connected ? t('musicLibrary.usb.connected') : t('musicLibrary.usb.notConnected') }}
+              <span v-if="row.known && row.trackCount" class="ml-count">
+                · {{ t('musicLibrary.songsCount', { count: row.trackCount }) }}
+              </span>
             </span>
           </template>
         </ListItemButton>
       </div>
     </SettingsSection>
+
+    <!-- One tab per storage space in the library view, or all of them merged.
+         Only worth showing once there is more than one space to separate. -->
+    <ToggleSection v-if="store.storages.length > 1"
+      :title="t('musicLibrary.storage.separateTitle')"
+      :description="t('musicLibrary.storage.separateDescription')"
+      :enabled="separateStorages" @change="handleSeparateToggle" />
 
     <SettingsSection>
       <template #header>
@@ -78,8 +98,7 @@
 
       <p class="text-mono ml-desc">{{ t('musicLibrary.maintenance.description') }}</p>
 
-      <ScanProgress :open="busy" :has-bar="hasBar"
-        :label="t('musicLibrary.maintenance.refreshProgress', { count: store.scanCount })" />
+      <ScanProgress :open="busy" :has-bar="hasBar" :label="scanLabel" />
 
       <Button variant="brand" size="medium" left-icon="arrowClockwise"
         :disabled="busy" @click="onRefresh">
@@ -98,10 +117,13 @@ import { onMounted, watch, computed, ref } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useTimer } from '@/composables/useTimer';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ScanProgress from '@/components/settings/categories/music-library/ScanProgress.vue';
 import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
@@ -110,6 +132,8 @@ defineEmits(['add-share', 'edit-share', 'rename-usb']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
+const settingsStore = useSettingsStore();
+const { updateSetting } = useSettingsAPI();
 
 function typeLabel(type) {
   return type === 'nfs' ? 'NFS' : 'SMB';
@@ -120,18 +144,23 @@ function shareTitle(share) {
   return path ? `${share.name} / ${path}` : share.name;
 }
 
-// One row per mounted USB partition — two keys (or one key with two
-// partitions) are two rows. The single placeholder row stands in for "no key
-// plugged in", which is why `connected` is what makes a row tappable.
+// One row per USB key Milō knows — two keys (or one key with two partitions)
+// are two rows — each with its live connection dot. The single placeholder row
+// stands in for "no key ever plugged in", which is why `known` (not `connected`)
+// is what makes a row tappable: an unplugged key is still renamed and forgotten
+// from here.
 const usbRows = computed(() =>
   store.usbDevices.length
     ? store.usbDevices.map((d) => ({
-      key: d.mountpoint, label: d.name, connected: true, device: d,
+      key: d.id, label: d.name, known: true, connected: d.mounted,
+      trackCount: d.track_count || 0, device: d,
     }))
-    : [{ key: 'usb-none', label: t('musicLibrary.usb.title'), connected: false }]
+    : [{ key: 'usb-none', label: t('musicLibrary.usb.title'), known: false, connected: false }]
 );
 
-// No scan WS event: poll the status while a scan runs.
+// The scan flag is pushed with the storage list, so nothing is polled here.
+// `inFlight` only covers the gap between our own request and the first push.
+const REFRESH_RELEASE_MS = 15000;
 const timer = useTimer();
 const inFlight = ref(false);
 const offlineShares = ref([]);
@@ -139,43 +168,51 @@ const offlineShares = ref([]);
 const busy = computed(() => inFlight.value || store.isScanning);
 const hasBar = computed(() => busy.value && !offlineShares.value.length);
 
-let polling = false;
-function trackScan() {
-  if (polling) return;
-  polling = true;
-  const tick = () => {
-    if (!store.isScanning) {
-      polling = false;
-      inFlight.value = false;
-      return;
-    }
-    timer.setTimeout(async () => {
-      await store.refreshScanStatus();
-      tick();
-    }, 2000);
-  };
-  tick();
-}
-watch(() => store.isScanning, (scanning) => { if (scanning) trackScan(); });
+// No count while a scan runs unless the storage space on screen actually has
+// tracks: Navidrome's global counter is frozen for the whole scan (it read the
+// previous scan's total for all 18 minutes of a 10 000-track index), so
+// rendering it read "2419 tracks indexed…" forever and looked wedged.
+const scanLabel = computed(() =>
+  store.activeStorageTrackCount > 0
+    ? t('musicLibrary.maintenance.refreshProgress', {
+      count: store.activeStorageTrackCount,
+    })
+    : t('musicLibrary.maintenance.refreshingLabel')
+);
+
+// Our request is over as soon as the backend reports no scan running: it pushes
+// `scanning: true` the moment Navidrome accepts one, so reaching false again
+// means it finished.
+watch(() => store.isScanning, (scanning) => { if (!scanning) inFlight.value = false; });
 
 async function onRefresh() {
   if (busy.value) return;
   inFlight.value = true;
   offlineShares.value = [];
+  // Safety net: if no scan state ever arrives (Navidrome not provisioned, a
+  // dropped socket), release the button rather than leave it disabled for good.
+  timer.setTimeout(() => { inFlight.value = false; }, REFRESH_RELEASE_MS);
   const result = await store.refreshLibrary();
   if (!result.ok) {
     inFlight.value = false;
     return;
   }
   if (result.offlineShares?.length) offlineShares.value = result.offlineShares;
-  trackScan();
+}
+
+const separateStorages = computed(
+  () => settingsStore.musicLibrarySettings.separate_storages
+);
+
+async function handleSeparateToggle(enabled) {
+  settingsStore.updateMusicLibrarySettings({ separate_storages: enabled });
+  await updateSetting('music-library-settings', { separate_storages: enabled });
 }
 
 onMounted(() => {
   store.loadShares();
-  store.loadUsbDevices();
-  store.refreshScanStatus();
-  if (store.isScanning) trackScan();
+  // Carries the storage spaces and the scan flag; every later change is pushed.
+  store.loadStorages({ force: true });
 });
 </script>
 
@@ -222,6 +259,10 @@ onMounted(() => {
 }
 
 .ml-off {
+  color: var(--color-text-light);
+}
+
+.ml-count {
   color: var(--color-text-light);
 }
 

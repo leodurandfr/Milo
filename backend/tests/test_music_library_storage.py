@@ -126,7 +126,11 @@ async def test_unmount_tracked_device(manager, navidrome):
     assert args[:3] == ("sudo", "-n", MILO_UMOUNT_CMD)
     assert args[3] == "/media/milo/USBKEY"
     assert manager._mounts == {}
-    navidrome.start_scan.assert_awaited_once()
+    # No scan on removal, and that is the whole point: the key keeps its library
+    # and its index while it is away, so a replug costs a quick scan instead of
+    # re-reading 10 000 tags. A full scan here would purge them outright
+    # (PurgeMissing="full") and a quick one would walk a path that is now gone.
+    navidrome.start_scan.assert_not_awaited()
 
 
 async def test_unmount_untracked_device_is_noop(manager, navidrome):

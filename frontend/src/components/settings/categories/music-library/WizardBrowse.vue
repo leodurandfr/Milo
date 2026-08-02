@@ -159,21 +159,22 @@ const errorMsg = ref('');
 const connecting = ref(false);
 const creating = ref(false);
 
-// Post-mount indexing / validation. `baseCount` is the library size snapshotted
-// *before* the mount kicks a Navidrome scan, so the delta counts what THIS share
-// contributed ("42 tracks found on this share"). If a scan is already running the
-// baseline can't be isolated, so we fall back to the whole-library total.
-const INDEX_POLL_MS = 1500;
-const INDEX_GRACE_POLLS = 6;   // how long to wait for the scan to visibly start
-const INDEX_MAX_POLLS = 80;    // ~2 min hard cap; the scan continues server-side
-const liveFound = ref(0);      // tracks attributed to this share so far
+// Post-mount indexing / validation. The share gets its own Navidrome library, so
+// its track count IS what this share contributed — no baseline to snapshot and
+// no delta to attribute, which is what the whole-library counter used to force
+// (and got wrong whenever a scan was already running).
+const INDEX_GRACE_MS = 9000;   // how long to wait for the scan to visibly start
+const INDEX_MAX_MS = 120000;   // hard cap; the scan continues server-side
+const newShareId = ref(null);  // the share being indexed
 const finalFound = ref(0);     // settled count
-const indexTotalMode = ref(false); // true → show the library total (fallback)
 const indexEmpty = ref(false);
-let baseCount = 0;
 let sawScanning = false;
-let indexPolls = 0;
 let indexingActive = false;
+
+// Tracks indexed in this share's own storage space, live.
+const liveFound = computed(() =>
+  store.storages.find((s) => s.id === newShareId.value)?.track_count || 0
+);
 
 const isNfs = computed(() => props.server.type === 'nfs');
 const crumbs = computed(() => (path.value ? path.value.split('/') : []));
@@ -253,12 +254,6 @@ async function createShare(targetPath) {
   if (creating.value) return;
   creating.value = true;
   errorMsg.value = '';
-  // Snapshot the library size before the mount triggers a scan, so the indexing
-  // step can attribute the delta to this share. A scan already running means the
-  // baseline is unreliable → show the library total instead.
-  await store.refreshScanStatus();
-  baseCount = store.scanCount;
-  indexTotalMode.value = store.isScanning;
   const payload = {
     type: props.server.type,
     host: props.server.host,
@@ -281,51 +276,35 @@ async function createShare(targetPath) {
     return;
   }
   if (result.mounted) {
-    startIndexing();
+    startIndexing(result.shareId);
   } else {
     phase.value = 'done'; // saved, but the mount didn't come up
   }
 }
 
-// Poll the (global) Navidrome scan status after mounting, showing the live count
-// this share adds. Non-blocking: the "Done" button leaves at any point and the
-// scan finishes server-side.
-function startIndexing() {
+// Watch the scan through after mounting, showing this share's live count.
+// Non-blocking: the "Done" button leaves at any point and the scan finishes
+// server-side. Nothing is polled — the backend pushes the flag and the counts.
+function startIndexing(shareId) {
   sawScanning = false;
-  indexPolls = 0;
-  liveFound.value = 0;
+  newShareId.value = shareId;
   indexingActive = true;
   phase.value = 'indexing';
-  timer.setTimeout(pollIndex, INDEX_POLL_MS);
+  // The scan may be over before it was ever observed (an empty share indexes in
+  // milliseconds), and it may also never visibly start. Both settle on a timer;
+  // the cap only bounds the wizard, never the scan.
+  timer.setTimeout(() => { if (!sawScanning) finishIndexing(); }, INDEX_GRACE_MS);
+  timer.setTimeout(finishIndexing, INDEX_MAX_MS);
 }
 
-async function pollIndex() {
+watch(() => store.isScanning, (scanning) => {
   if (!indexingActive) return;
-  indexPolls += 1;
-  await store.refreshScanStatus();
-  if (!indexingActive) return; // left while awaiting the response
-  const scanning = store.isScanning;
-  liveFound.value = indexTotalMode.value
-    ? store.scanCount
-    : Math.max(0, store.scanCount - baseCount);
   if (scanning) sawScanning = true;
-
-  // Navidrome not reporting yet (daemon not provisioned) — skip validation and
-  // go to the list; the source view's "building library…" state covers it.
-  if (store.scanStatus === null && indexPolls >= INDEX_GRACE_POLLS) {
-    leave();
-    return;
-  }
-  const settled = sawScanning && !scanning;                  // scan ran and finished
-  const neverStarted = !sawScanning && indexPolls >= INDEX_GRACE_POLLS; // instant/idle
-  if (settled || neverStarted || indexPolls >= INDEX_MAX_POLLS) {
-    finishIndexing();
-    return;
-  }
-  timer.setTimeout(pollIndex, INDEX_POLL_MS);
-}
+  else if (sawScanning) finishIndexing();
+});
 
 function finishIndexing() {
+  if (!indexingActive) return;
   indexingActive = false;
   finalFound.value = liveFound.value;
   indexEmpty.value = finalFound.value === 0;

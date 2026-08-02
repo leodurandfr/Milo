@@ -627,6 +627,13 @@
       },
       "pathLabel": "Access path"
     },
+    "storage": {
+      "usbDisconnected": "USB storage disconnected",
+      "shareDisconnected": "{name} is disconnected",
+      "disconnectedHint": "Its music stays indexed and comes back as soon as you reconnect it.",
+      "separateTitle": "Separate storage spaces",
+      "separateDescription": "Show one tab per USB key and network server. Turn off to browse all your music together."
+    },
     "usb": {
       "title": "USB storage",
       "connected": "Connected",
@@ -636,7 +643,11 @@
       "namePlaceholder": "USB key name",
       "name": "Name",
       "nameHint": "Shown in the library and kept when the key is plugged in again. Leave empty to use the disk label ({label}).",
-      "renameError": "Could not rename this USB key"
+      "renameError": "Could not rename this USB key",
+      "forgetTitle": "Forget this key",
+      "forget": "Forget",
+      "forgetDescription": "Removes its {count} indexed tracks from the library. Plugging the key back in indexes it again from scratch.",
+      "forgetError": "Could not forget this USB key"
     },
     "nas": {
       "title": "NAS server",
@@ -648,7 +659,8 @@
       "refresh": "Refresh",
       "refreshing": "Refreshing…",
       "refreshProgress": "{count} tracks indexed…",
-      "cleanupDeferred": "{shares} is offline — deleted music will be removed once it's reconnected."
+      "cleanupDeferred": "{shares} is offline — deleted music will be removed once it's reconnected.",
+      "refreshingLabel": "Indexing in progress…"
     }
   },
   "setup": {

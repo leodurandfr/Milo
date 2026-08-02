@@ -379,6 +379,7 @@ def source(nav_client):
     # space association (see shares.py).
     src.shares.forget_playlist = AsyncMock()
     src.shares.record_playlist_storage = AsyncMock()
+    src.shares.note_scan_started = AsyncMock()
     src.playlists_in_storage = AsyncMock(return_value=[{"id": "pl-scoped"}])
     return src
 
@@ -563,17 +564,6 @@ class TestClientUnavailable:
     def test_browse_503_when_client_missing(self, api, source):
         source.get_navidrome_client = AsyncMock(return_value=None)
         assert api.get("/api/music-library/artists").status_code == 503
-
-    def test_scan_status_resilient_when_client_missing(self, api, source):
-        source.get_navidrome_client = AsyncMock(return_value=None)
-        r = api.get("/api/music-library/scan-status")
-        assert r.status_code == 200
-        assert r.json() == {"scan_status": None}
-
-    def test_scan_status_passthrough(self, api):
-        r = api.get("/api/music-library/scan-status")
-        assert r.status_code == 200
-        assert r.json() == {"scan_status": {"scanning": False, "count": 100}}
 
 
 class TestScanRoute:

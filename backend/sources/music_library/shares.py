@@ -19,10 +19,12 @@ Reached from routes.py as ``source.shares`` — the shape radio (``station_data`
 podcast (``podcast_data``) and cd (``data_service``) already use.
 """
 import asyncio
+import contextlib
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.config.constants import MUSIC_LIBRARY_MOUNT_ROOT
+from backend.shared.background import BackgroundTaskSet
 from backend.sources.music_library.data import MusicLibraryDataService
 from backend.sources.music_library.libraries import NavidromeLibraryService
 from backend.sources.music_library.models import ShareRequest
@@ -33,6 +35,14 @@ from backend.sources.music_library.storage import NavidromeProvider, StorageMana
 # the Pi. ~1.75 min total, then we give up; not an ongoing reconnection loop.
 _SHARE_REMOUNT_RETRY_DELAYS_S = (15, 30, 60)
 
+# Scan-watcher cadence. Navidrome exposes no scan event of any kind and runs its
+# own hourly schedule, so a scan starts that Milō never asked for — polling is
+# the only way to know, and the alternative (every browser polling for itself)
+# is what this replaces. Idle is slow because nothing is happening; the active
+# rate paces how often a storage space's growing track count reaches the UI.
+_SCAN_POLL_IDLE_S = 15.0
+_SCAN_POLL_ACTIVE_S = 3.0
+
 
 class NetworkShareService:
     """The configured SMB/NFS shares: config, mount, rescan, and their status."""
@@ -41,14 +51,27 @@ class NetworkShareService:
         self,
         navidrome_provider: NavidromeProvider,
         on_catalog_changed: Callable[[], None],
+        on_storages_changed: Callable[[], Awaitable[None]],
     ) -> None:
         self._logger = logging.getLogger("source.music_library.shares")
         self._data = MusicLibraryDataService()
         self._libraries = NavidromeLibraryService()
         self._storage = StorageManager(navidrome_provider, self._sync_libraries)
+        self._navidrome_provider = navidrome_provider
         # The merged-album cache lives with the catalog, not here; a share change
         # invalidates it through this callback rather than reaching back up.
         self._on_catalog_changed = on_catalog_changed
+        # Announces a new storage/scan picture to whoever broadcasts it. Called
+        # from exactly two places — the end of _sync_libraries (every mount,
+        # unmount, rename, forget and share write funnels through it) and the
+        # scan watcher — so there is one push per change, not one per caller.
+        self._on_storages_changed = on_storages_changed
+        # Last scan state seen by the watcher, so it only pushes on a change.
+        self._scan: Dict[str, Any] = {"scanning": False}
+        # Cuts the watcher's current sleep short. Set whenever something has just
+        # made a scan likely, so a short one is not missed between two polls.
+        self._scan_kick = asyncio.Event()
+        self._bg = BackgroundTaskSet(self._logger, "music_library.shares")
         # Boot-remount retry for shares whose NAS was still offline at startup
         # (see _mount_configured). Tracked so it isn't GC'd mid-flight; bounded
         # and self-terminating, so it needs no explicit cancellation.
@@ -75,14 +98,17 @@ class NetworkShareService:
         # that did not fire a hook — a configured share whose NAS is offline, and
         # a boot with nothing plugged in at all.
         await self._sync_libraries()
+        self._bg.spawn(self._watch_scan(), label="scan-watcher")
 
     async def cleanup(self) -> None:
         """Stop the USB monitor thread and drain the library reconciler.
 
-        Called from the lifespan teardown: the reconcile retry is a background
-        task, and a task still sleeping on its schedule at shutdown would only
-        wake to talk to a Navidrome that is going down with us.
+        Called from the lifespan teardown: the reconcile retry and the scan
+        watcher are background tasks, and one still sleeping on its schedule at
+        shutdown would only wake to talk to a Navidrome that is going down with
+        us.
         """
+        await self._bg.cancel_all()
         await self._storage.cleanup()
         await self._libraries.cleanup()
 
@@ -144,22 +170,16 @@ class NetworkShareService:
     # READS
     # =========================================================================
 
-    async def usb_devices(self) -> List[Dict[str, Any]]:
-        """USB volumes mounted under the library root right now.
+    async def usb_is_mounted(self, uuid: str) -> bool:
+        """Whether a known USB key is plugged in right now.
 
-        Sits beside :meth:`list` in the settings UI so the user sees every music
-        origin — the auto-mounted key and the configured NAS shares — in one
-        place. The display name comes from :meth:`storages` rather than being
-        resolved a second time here: two keys carrying the same filesystem label
-        must read the same in the settings list as in the library's storage
-        filter, and one naming authority is the only way that holds.
+        Lets the forget route tell "no such key" (404) from "unplug it first"
+        (409) — :meth:`forget_usb` refuses in both cases and cannot say which.
+        There is no list counterpart: the settings screen reads USB keys out of
+        :meth:`storages_with_stats` like every other storage space, which is what
+        makes a hotplug reach it over the same push instead of a second fetch.
         """
-        volumes = {v["mountpoint"]: v for v in self._storage.get_usb_mounts()}
-        return [
-            {**volumes[entry["mountpoint"]], "name": entry["name"]}
-            for entry in await self.storages()
-            if entry["kind"] == "usb" and entry["mountpoint"] in volumes
-        ]
+        return any(v["uuid"] == uuid for v in self._storage.get_usb_mounts())
 
     async def storages(self) -> List[Dict[str, Any]]:
         """Every storage space music can come from, as one uniform list.
@@ -169,9 +189,12 @@ class NetworkShareService:
         Navidrome hasn't accepted the library yet — such an entry cannot be
         filtered by, and the frontend leaves it out).
 
-        Membership follows the same two rules as the libraries themselves: a
-        configured share is listed whether or not its NAS answers right now, an
-        unplugged USB key is not listed at all.
+        Membership is now the *same* rule for both kinds — a storage space is
+        listed once Milō knows it, whether or not it answers right now — and
+        ``mounted`` is what separates "browsable" from "listed". A configured
+        share whose NAS is asleep and an unplugged USB key are the same
+        situation, and were only ever modelled differently because a key used to
+        be detected live and never remembered.
         """
         entries: List[Dict[str, Any]] = [
             {
@@ -183,23 +206,122 @@ class NetworkShareService:
             }
             for share in await self.list()
         ]
-        names = await self._data.get_usb_names()
-        entries += [
-            {
+        known = await self._data.get_known_usb()
+        live = {volume["uuid"]: volume for volume in self._storage.get_usb_mounts()}
+        # Known keys first, in first-seen order, so the filter's buttons don't
+        # reshuffle on a replug; a key mounted but not yet remembered (the window
+        # between the mount and the sync that records it) is appended so it is
+        # never invisible.
+        for uuid in [*known, *(u for u in live if u not in known)]:
+            entry = known.get(uuid, {})
+            volume = live.get(uuid)
+            entries.append({
                 "kind": "usb",
-                "id": volume["uuid"],
+                "id": uuid,
                 # The name the user gave this key (filed under its filesystem
                 # UUID, so it survives a replug), else its sanitized disk label.
-                "name": names.get(volume["uuid"]) or volume["label"],
-                "mountpoint": volume["mountpoint"],
-                "mounted": True,
-            }
-            for volume in self._storage.get_usb_mounts()
-        ]
+                "name": entry.get("name")
+                or (volume or entry).get("label")
+                or uuid,
+                # The disk label milo-mount derived the mountpoint from, kept
+                # beside the display name because clearing a user-given name
+                # restores it — the rename screen offers it as the placeholder.
+                "label": (volume or entry).get("label", ""),
+                # The live mountpoint while plugged in, else the one it was last
+                # mounted at — which is the path its Navidrome library carries,
+                # and therefore what keeps that library findable while it's away.
+                "mountpoint": (volume or entry).get("mountpoint", ""),
+                "mounted": volume is not None,
+            })
         self._disambiguate(entries)
         for entry in entries:
             entry["library_id"] = self._libraries.library_id(entry["mountpoint"])
         return entries
+
+    async def storages_with_stats(self) -> List[Dict[str, Any]]:
+        """:meth:`storages` plus each space's catalog counts — the UI's shape.
+
+        Kept separate from :meth:`storages` because the counts cost one HTTP call
+        to Navidrome, and the internal callers (library reconcile, playlist
+        placement) want the cheap list. This is what the ``/storages`` route and
+        the ``storages_changed`` broadcast both return, so a page load and a
+        hotplug push agree field for field.
+        """
+        entries = await self.storages()
+        stats = await self._libraries.stats()
+        for entry in entries:
+            entry.update(
+                stats.get(entry["mountpoint"], {"track_count": 0, "album_count": 0,
+                                                "missing_count": 0})
+            )
+        return entries
+
+    def scan_state(self) -> Dict[str, Any]:
+        """Whether a Navidrome scan is running right now, as last polled."""
+        return dict(self._scan)
+
+    async def note_scan_started(self) -> None:
+        """Navidrome has just accepted a scan — push it and watch it closely.
+
+        Without this a manual refresh is invisible: a quick scan over an
+        already-indexed catalog takes ~0.4 s while the idle poll is 15 s, so it
+        would start and finish between two polls and no client would ever learn
+        it happened — the refresh button would sit there saying nothing.
+
+        Not optimism: ``start_scan`` returned success, so a scan *is* running at
+        the moment of this push. The kick then has the watcher confirm the end of
+        it within one active poll rather than one idle one.
+        """
+        self._scan = {"scanning": True}
+        await self._on_storages_changed()
+        self._scan_kick.set()
+
+    async def _watch_scan(self) -> None:
+        """Poll Navidrome's scan status and push every change out.
+
+        Replaces the per-browser polling the settings screen used to do: one
+        watcher for the whole appliance, and every client learns a scan started
+        or finished — including the hourly one Navidrome schedules itself, which
+        no client could have known to poll for.
+
+        A finished scan is a catalog change, so the merged-album cache is dropped
+        and the same push carries the storage spaces' new counts.
+        """
+        while True:
+            try:
+                scanning = await self._poll_scan()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._logger.debug("Scan watcher poll failed: %s", exc)
+                scanning = False
+            # Sleep until the cadence elapses OR something kicks us — a mount
+            # change and an explicit refresh both make a scan imminent, and
+            # waiting out the idle cadence would miss a short one entirely.
+            delay = _SCAN_POLL_ACTIVE_S if scanning else _SCAN_POLL_IDLE_S
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._scan_kick.wait(), timeout=delay)
+            self._scan_kick.clear()
+
+    async def _poll_scan(self) -> bool:
+        """One poll; broadcasts on a change. Returns whether a scan is running."""
+        client = await self._navidrome_provider()
+        if client is None:
+            return False
+        status = await client.get_scan_status()
+        if status is None:
+            return False
+        was_scanning = bool(self._scan.get("scanning"))
+        scanning = bool(status.get("scanning"))
+        self._scan = {"scanning": scanning}
+        # While a scan runs, each poll carries the storage spaces' growing track
+        # counts, so a freshly-plugged key's tab fills as it is indexed. A scan
+        # that just ended also invalidates the catalog caches built from it.
+        if scanning or was_scanning:
+            if was_scanning and not scanning:
+                self._on_catalog_changed()
+            await self._on_storages_changed()
+        return scanning
 
     async def storage_id_for_library(self, library_id: int) -> Optional[str]:
         """The storage space a Navidrome library belongs to, or None.
@@ -260,16 +382,20 @@ class NetworkShareService:
         ]
 
     async def offline_names(self) -> List[str]:
-        """Configured network shares not mounted right now (empty if all up).
+        """Storage spaces not mounted right now (empty when everything is up).
 
-        Gates the full-scan/purge route: purging while a share's NAS is offline would
-        wrongly drop its still-valid tracks. USB is excluded — an unplug already
-        purges its own tracks.
+        Gates the full-scan/purge route: a full scan purges every track Navidrome
+        cannot see (Scanner.PurgeMissing="full"), so running one while a storage
+        space is away drops a catalog that is still perfectly valid.
+
+        USB keys count here, and that is the whole point of remembering them: an
+        unplugged key keeps its library and its index, so a full scan would now
+        undo exactly the 18-minute indexing pass a replug is supposed to skip.
         """
         return [
-            share.get("name") or share.get("host") or share.get("id")
-            for share in await self.list()
-            if not share.get("mounted")
+            entry["name"]
+            for entry in await self.storages()
+            if not entry["mounted"]
         ]
 
     # =========================================================================
@@ -283,6 +409,13 @@ class NetworkShareService:
         write path for the library set — it is a reconcile, so calling it twice
         costs nothing and a missed call heals on the next change.
         """
+        # Record whatever is mounted before reading the set: a key that just
+        # arrived has to be in the known set for storages() to list it, and the
+        # mountpoint milo-mount chose is only knowable now.
+        for volume in self._storage.get_usb_mounts():
+            await self._data.remember_usb(
+                volume["uuid"], volume["label"], volume["mountpoint"]
+            )
         entries = await self.storages()
         await self._libraries.reconcile(
             {entry["mountpoint"]: entry["name"] for entry in entries}
@@ -291,17 +424,45 @@ class NetworkShareService:
         # invalidates the per-storage album lists cached for the grid, and with
         # them the cache entries of libraries that no longer exist.
         self._on_catalog_changed()
+        # The single push. Every storage change reaches this line — mount,
+        # unmount, rename, forget, and the three share writes, which all route
+        # through here — so the frontend needs no refetch and no polling to see
+        # a key appear or go.
+        await self._on_storages_changed()
+        # A mount change is about to trigger a scan (StorageManager does it right
+        # after this hook): have the watcher look now rather than up to a full
+        # idle cadence later, so "indexing…" appears with the new storage space
+        # instead of 15 seconds after it.
+        self._scan_kick.set()
 
     async def rename_usb(self, uuid: str, name: str) -> bool:
-        """Name a plugged-in USB key. False when no mounted key has that UUID.
+        """Name a known USB key. False when no key has that UUID.
 
         The name is persisted against the key's filesystem UUID and pushed to its
         Navidrome library, so the storage filter and Navidrome's own UI agree.
+        Works while the key is unplugged: its library outlives the unplug, so the
+        rename has somewhere to land.
         """
-        if not any(v["uuid"] == uuid for v in self._storage.get_usb_mounts()):
+        if not await self._data.set_usb_name(uuid, name):
             return False
-        await self._data.set_usb_name(uuid, name)
         await self._sync_libraries()
+        return True
+
+    async def forget_usb(self, uuid: str) -> bool:
+        """Drop a USB key from the known set. False when no key has that UUID.
+
+        Refuses while the key is plugged in: the mount would put it straight back
+        on the next sync, so the only readable outcome is to unplug it first.
+        Dropping it retires its Navidrome library on the reconcile below, which is
+        what actually frees the index — the deliberate counterpart to keeping one
+        forever by default.
+        """
+        if any(v["uuid"] == uuid for v in self._storage.get_usb_mounts()):
+            return False
+        if not await self._data.forget_usb(uuid):
+            return False
+        await self._sync_libraries()
+        self._on_catalog_changed()
         return True
 
     async def add(self, req: ShareRequest) -> Dict[str, Any]:

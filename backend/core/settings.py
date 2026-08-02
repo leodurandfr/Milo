@@ -99,6 +99,13 @@ class SettingsService:
             "radio": {
                 "shazam_enabled": True
             },
+            "music_library": {
+                # True → one tab per storage space (a USB key, a NAS share) in
+                # the library view. False → every space merged into one catalog.
+                # Separate by default: a key and a NAS hold different collections,
+                # and merging them is the deliberate choice, not the neutral one.
+                "separate_storages": True
+            },
             "qobuz": {
                 # False → the local qobuz-proxy backend stays at unity gain and the
                 # Qobuz app's volume slider is inert (CamillaDSP owns volume). True →
@@ -313,6 +320,14 @@ class SettingsService:
         radio_input = settings.get('radio', {})
         validated['radio'] = {
             'shazam_enabled': bool(radio_input.get('shazam_enabled', d['radio']['shazam_enabled']))
+        }
+
+        # Music Library settings
+        ml_input = settings.get('music_library', {})
+        validated['music_library'] = {
+            'separate_storages': bool(ml_input.get(
+                'separate_storages', d['music_library']['separate_storages']
+            ))
         }
 
         # Qobuz settings

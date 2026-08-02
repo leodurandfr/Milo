@@ -16,12 +16,12 @@ one of those — renames the drifted ones, and re-grants the service account
 access to the result. Any mount change calls it again with the new full set, so
 a missed event heals on the next one rather than leaving a queue to replay.
 
-Two deliberate asymmetries in what counts as "should exist":
-  - a **configured share** keeps its library even while its NAS is offline
-    (deleting it would purge a still-valid catalog every time the NAS boots
-    slower than the Pi);
-  - an **unplugged USB key** loses its library, which matches the purge the
-    unmount already triggers.
+What counts as "should exist" is *known to Milō*, not *reachable right now*: a
+configured share keeps its library while its NAS is asleep, and an unplugged USB
+key keeps its library too. Deleting either would throw away a catalog that is
+still valid — for the key, the 18-minute pass that indexed 10 000 tracks, every
+single time it is unplugged. A storage space only loses its library when the user
+removes the share or forgets the key.
 
 Fail-open: Navidrome not up yet, a rejected write, an expired token — log, retry
 on a short bounded schedule, and let the next mount change reconcile. A mount
@@ -29,7 +29,7 @@ must never fail because the catalog engine was busy.
 """
 import asyncio
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from backend.config.constants import MUSIC_LIBRARY_MOUNT_ROOT
 from backend.shared.background import BackgroundTaskSet
@@ -75,6 +75,37 @@ class NavidromeLibraryService:
     def library_id(self, mountpoint: str) -> Optional[int]:
         """Library id for a mountpoint, or None if it has none (yet)."""
         return self._by_path.get(mountpoint)
+
+    async def stats(self) -> Dict[str, Dict[str, Any]]:
+        """Per-library catalog counts, keyed by mountpoint. Empty when unreachable.
+
+        Navidrome's *Subsonic* scan status reports one global track count that
+        does not move until a scan ends — during the 18 minutes it took to index
+        a 10 000-track iPod it read "2419", the total from the previous scan, and
+        then jumped. These native-API records are the per-library truth behind it
+        (``totalSongs``/``totalAlbums`` per storage space), which is both the only
+        honest progress figure while a scan runs and what lets each storage
+        button state how much is in it.
+
+        Fail-open like every other call here: Navidrome down or still booting
+        yields ``{}``, and the caller shows no counts rather than failing.
+        """
+        async with self._lock:
+            admin = await self._get_admin()
+            if admin is None:
+                return {}
+            libraries = await admin.list_libraries()
+        if libraries is None:
+            return {}
+        return {
+            lib["path"]: {
+                "track_count": lib.get("totalSongs") or 0,
+                "album_count": lib.get("totalAlbums") or 0,
+                "missing_count": lib.get("totalMissingFiles") or 0,
+            }
+            for lib in libraries
+            if lib.get("path")
+        }
 
     # =========================================================================
     # RECONCILE

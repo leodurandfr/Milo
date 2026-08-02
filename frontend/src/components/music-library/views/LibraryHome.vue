@@ -1,7 +1,8 @@
 <template>
   <div class="library-home">
     <!-- Storage spaces — only worth a row when there is a choice to make: with
-         one storage space every tab below already shows all of it. -->
+         one storage space every tab below already shows all of it, and with the
+         spaces merged there is nothing to pick. -->
     <ButtonGroup v-if="storageOptions.length > 1" v-model="store.activeLibraryId"
       :options="storageOptions" size="small" mobile-layout="scroll" />
 
@@ -9,10 +10,17 @@
     <ButtonGroup v-model="store.activeTab" :options="tabOptions" mobile-layout="scroll"
       inactive-variant="background-neutral" />
 
+    <!-- The storage space on screen has just been disconnected. It keeps its
+         button until the user picks another one — dropping it here would swap
+         the view out with no explanation, where holding it lets us say why it
+         is empty. -->
+    <MessageContent v-if="store.disconnectedStorage" :title="disconnectedTitle"
+      :subtitle="t('musicLibrary.storage.disconnectedHint')" />
+
     <!-- Tab switch: same overlapping fade-slide crossfade as AudioSourceLayout's view
          transition — leaving + entering tab-content share one grid cell (.tab-transition),
          no out-in gap — so switching tabs feels as fast as switching views. -->
-    <div class="tab-transition"><Transition name="fade-slide">
+    <div v-else class="tab-transition"><Transition name="fade-slide">
       <div :key="store.activeTab" class="tab-content">
         <!-- ALBUMS -->
         <template v-if="store.activeTab === 'albums'">
@@ -155,23 +163,38 @@ async function handleCreate(name) {
   if (created) createOpen.value = false;
 }
 
-// Building-state subtitle: the reassuring hint until Navidrome reports a track
-// count, then live progress ("1,234 tracks indexed…"). Shared by every tab's
-// empty state during a scan.
+// Building-state subtitle: the reassuring hint until this storage space has
+// tracks, then live progress ("1,234 tracks indexed…"). Shared by every tab's
+// empty state during a scan. The count is the space's own — Navidrome's global
+// one does not move until the scan ends.
 const buildingSubtitle = computed(() =>
-  store.scanCount > 0
-    ? t('musicLibrary.buildingProgress', { count: store.scanCount })
+  store.activeStorageTrackCount > 0
+    ? t('musicLibrary.buildingProgress', { count: store.activeStorageTrackCount })
     : t('musicLibrary.buildingHint')
 );
 
-// One button per storage space Navidrome can be asked about, labelled with the
-// name the user gave it (a USB key) or the share's name.
-const storageOptions = computed(() =>
-  store.browsableStorages.map((storage) => ({
+const disconnectedTitle = computed(() =>
+  store.disconnectedStorage?.kind === 'usb'
+    ? t('musicLibrary.storage.usbDisconnected')
+    : t('musicLibrary.storage.shareDisconnected', {
+      name: store.disconnectedStorage?.name || '',
+    })
+);
+
+// One button per browsable storage space, labelled with the name the user gave
+// it (a USB key) or the share's name. Nothing to pick when the spaces are
+// merged. The space that has just been disconnected keeps its button while it
+// is the selected one, so the message above has something to belong to.
+const storageOptions = computed(() => {
+  if (!store.separateStorages) return [];
+  const options = store.browsableStorages.map((storage) => ({
     label: storage.name,
     value: storage.library_id,
-  }))
-);
+  }));
+  const gone = store.disconnectedStorage;
+  if (gone) options.push({ label: gone.name, value: gone.library_id });
+  return options;
+});
 
 const tabOptions = computed(() => [
   { label: t('musicLibrary.tabs.albums'), value: 'albums' },
@@ -210,11 +233,11 @@ const { sentinelRef: artistsSentinelRef } = useInfiniteScroll({
 });
 
 onMounted(async () => {
-  // Scan status backs the albums empty state ("building library…").
-  store.refreshScanStatus();
   // Storage spaces before the first catalog call: every one of them is scoped
   // to a library, so loading a tab first would fetch the wrong (unscoped) list
-  // and immediately throw it away when the selection lands.
+  // and immediately throw it away when the selection lands. The same response
+  // carries the scan flag that backs the "building library…" empty state; every
+  // later change arrives on the storages_changed push.
   await store.loadStorages();
   loadTab(store.activeTab);
 });

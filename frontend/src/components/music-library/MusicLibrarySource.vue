@@ -215,26 +215,12 @@ function onScrollRestored() {
   pendingScrollRestore.value = null;
 }
 
-// === First-scan progress polling ===
-// A fresh library scan takes minutes; poll scan-status while it runs (or while
-// the catalog still looks empty — so a scan kicked off by a USB key inserted
-// mid-browse is noticed) and quietly stop once the library is populated and
-// idle. The tick is a cheap reactive check; the network call only fires when
-// building or empty. On the completion edge, resync() reloads whichever lists
-// are cached so the freshly-indexed catalog appears without a manual refresh.
-const SCAN_POLL_INTERVAL_MS = 2500;
-const libraryLooksEmpty = computed(() => store.albumsLoaded && !store.albums.length);
-
+// Scan progress needs nothing here any more: the backend watches Navidrome and
+// pushes the flag with the storage list, and the store reloads its cached lists
+// on the completion edge — so a key plugged in mid-browse fills the view on its
+// own, from one watcher for the whole appliance instead of one per open tab.
 onMounted(() => {
-  store.refreshScanStatus();
   store.loadLikedSongs();
-  timer.setInterval(() => {
-    if (store.isScanning || libraryLooksEmpty.value) store.refreshScanStatus();
-  }, SCAN_POLL_INTERVAL_MS);
-});
-
-watch(() => store.isScanning, (scanning, wasScanning) => {
-  if (wasScanning && !scanning) store.resync();
 });
 
 // === Player controls ===

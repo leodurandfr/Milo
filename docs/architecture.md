@@ -314,21 +314,31 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - **Catalog engine:** `milo-navidrome.service` (always-on, `PartOf=milo-backend.service` — *not*
   `BindsTo=`, which propagates stop only; the engine must follow a backend **restart** too) indexes
   everything under `/media/milo` and exposes a localhost **Subsonic API** (`127.0.0.1:4533`). A
-  mount change triggers an explicit rescan; scan progress is polled over
-  `GET /api/music-library/scan-status` and surfaced as a "building library…" state with a live
-  indexed-track count
+  mount change triggers an explicit rescan. Scan state is **pushed, not polled**: one backend
+  watcher (`shares.py::_watch_scan`) observes Navidrome for the whole appliance and broadcasts it
+  with the storage list on `source/storages_changed`, surfaced as a "building library…" state with
+  a live indexed-track count. That count is the storage space's **own** (`totalSongs` from
+  Navidrome's native `/api/library`), because the Subsonic scan status reports a global counter
+  that does not move until a scan ends — it read "2419 tracks indexed…" for the whole 18 minutes
+  it took to index a 10 000-track iPod, then jumped
 - **One Navidrome library per storage space.** Each mount — a USB key, an SMB/NFS share — gets its
   own Navidrome library, created and retired by `libraries.py` through Navidrome's *native* admin
   API (`navidrome_admin.py`, JWT; the Subsonic API cannot create a library). That library's id is
   the Subsonic `musicFolderId`, and it is the only handle a browse call can be scoped by: a track's
   catalog entry names its library, never its mount. It is what `GET /api/music-library/storages`
   returns and what the library view's storage filter switches between (shown only from two storage
-  spaces up — there is no "all storages" mode). Two consequences worth knowing:
+  spaces up, and hidden entirely when `settings.music_library.separate_storages` is off — that
+  setting merges every space into one catalog). Two consequences worth knowing:
   `MusicFolder` in `navidrome.toml` points at an **empty** directory, because Navidrome insists on
   one and pins the library it creates from it as undeletable — on `/media/milo` it would index
   every mount a second time; and a **configured share keeps its library while its NAS is offline**
-  (deleting it would purge a valid catalog every time the NAS boots slower than the Pi), while an
-  **unplugged USB key loses its**, which is the purge the unmount already performs
+  (deleting it would purge a valid catalog every time the NAS boots slower than the Pi), **and so
+  does an unplugged USB key**: it keeps its library and its whole index, so a replug costs a quick
+  scan (~0.4 s measured over 12 488 tracks) instead of re-reading every tag. That is why an unplug
+  triggers no scan at all — a full one would purge outright (`PurgeMissing="full"`), a quick one
+  would walk a path that no longer exists — and why unplugged keys join offline shares in gating
+  the full-scan route. A key only loses its library when the user forgets it
+  (`DELETE /api/music-library/usb-devices/{uuid}`, offered while it is unplugged)
 - **A USB key can be named** (`PUT /api/music-library/usb-devices/{uuid}`, a sub-screen of the
   Music Library settings). The name is filed under the key's filesystem UUID — the only identity
   that survives a relabel or a replug into another port — and becomes its Navidrome library name,
@@ -601,7 +611,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **qobuz/** - qobuz-proxy sidecar home (`QOBUZPROXY_DATA_DIR`): `venv/` (the pinned qobuz-proxy install), `config.yaml`, and the OAuth `credentials.json` written on first login. Owned `milo:audio`. Not baked into the image — the account login is per-user.
 **navidrome/** - Navidrome catalog engine `DataFolder`: the library **DB** (`navidrome.db`), the regenerable art/transcode **cache/**, the baked `navidrome.toml`, and the per-device service-account cred (`milo-service.cred`, 0600) + `navidrome-auth.env` written on first boot. Owned `milo:milo`. Placed under `/var/lib/milo` so any whole-tree backup captures the catalog (see Backups).
 **lyrics/** - LRCLIB lookup cache (one JSON per track key, negatives included). Disposable derived cache: no `schema_version`, safe to wipe.
-**music_library_data.json** (`schema_version` 2) - Music Library storage config, three keys: `shares` — SMB/NFS non-secret metadata only (id/type/host/path/name/`has_credentials`); `usb_names` — the names the user gave USB keys, keyed by filesystem UUID; `playlist_storages` — which storage space each Milō-created playlist belongs to, keyed by playlist id and valued by *storage* id (not a Navidrome library id, which is reassigned whenever a key comes back). Share passwords never land here — they live in root-only cred files written by `milo-mount`. A USB key's *existence* is not persisted (auto-detected live), only its name. Mounts themselves appear under `/media/milo/`, which is a mount root, not persisted data — and note it is **not** the Navidrome `MusicFolder` (see Music Library above). The 1→2 bump is fail-loud like every other: an already-deployed unit stops at boot with the reset banner, and deleting the file loses the configured shares (their passwords too — the orphaned cred files are dropped by `milo-mount --forget` only on a share deletion), so they have to be re-added.
+**music_library_data.json** (`schema_version` 3) - Music Library storage config, three keys: `shares` — SMB/NFS non-secret metadata only (id/type/host/path/name/`has_credentials`); `known_usb` — every USB key ever mounted, keyed by filesystem UUID, each `{name, label, mountpoint, last_seen}`; `playlist_storages` — which storage space each Milō-created playlist belongs to, keyed by playlist id and valued by *storage* id (not a Navidrome library id, which is reassigned whenever a key comes back). Share passwords never land here — they live in root-only cred files written by `milo-mount`. A USB key's mountpoint is persisted because it is what keeps its Navidrome library — and therefore its index — alive while it is unplugged and across a backend restart. Mounts themselves appear under `/media/milo/`, which is a mount root, not persisted data — and note it is **not** the Navidrome `MusicFolder` (see Music Library above). The 2→3 bump (`usb_names` → `known_usb`) is fail-loud like every other: an already-deployed unit stops at boot with the reset banner, and deleting the file loses the configured shares (their passwords too — the orphaned cred files are dropped by `milo-mount --forget` only on a share deletion), so they have to be re-added.
 **shares/** - Root-only (0700, `root:root`) credential store for network (SMB/NFS) shares, one `<id>.cred` file (0600) per share, written/read/removed exclusively by the privileged `milo-mount`/`milo-umount` helpers — the backend process never reads these directly. Durable for any share that has credentials; losing it just means re-entering them on the next mount attempt.
 **app-version** - Written once at image-build time by pi-gen (`git describe --tags --always` at build) — not consulted by the running backend, which checks its own version live via `git describe` instead. A build-time artifact, not runtime data.
 **avahi-interface** - One-line cache of which physical interface (`eth0`/`wlan0`) Avahi should bind mDNS to, written by the NetworkManager dispatcher on every link up/down or IPv4 lease change (and reset to `eth0` by `milo-first-boot` while setup is incomplete), read by `milo-apply-avahi-iface` before avahi-daemon starts. Regenerable — defaults to `eth0` if absent. Exists to avoid the `milo.local` → `milo-2.local` self-loop rename bug.

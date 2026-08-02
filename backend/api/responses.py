@@ -28,6 +28,7 @@ from backend.core.models.settings_config import (
     DockAppsConfig,
     IrRemoteStepsConfig,
     MacRocConfig,
+    MusicLibrarySettingsConfig,
     QobuzSettingsConfig,
     RadioSettingsConfig,
     RotaryStepsConfig,
@@ -156,6 +157,7 @@ class BulkSettingsResponse(BaseModel):
     screen_screensaver: ScreenScreensaverConfig
     screen_color_filter: ScreenColorFilterConfig
     radio_settings: RadioSettingsConfig
+    music_library_settings: MusicLibrarySettingsConfig
     qobuz_settings: QobuzSettingsConfig
     mac_roc: MacRocConfig
 

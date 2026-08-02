@@ -22,17 +22,31 @@ from backend.sources.music_library.source import MusicLibrarySource
 
 # === storages() =============================================================
 
-def _service(shares, usb, library_ids):
+def _service(shares, usb, library_ids, known=None):
     """A NetworkShareService with its three collaborators stubbed out.
 
     The mocks stand for the outside world the service reads: the config file,
-    the mount table, and Navidrome's library list.
+    the mount table, and Navidrome's library list. ``usb`` is what is plugged in
+    right now; ``known`` is what has ever been plugged in (defaulting to the
+    same), which is what the service persists so a key keeps its library while
+    it is away.
     """
     from backend.sources.music_library.shares import NetworkShareService
 
-    service = NetworkShareService(AsyncMock(return_value=None), lambda: None)
+    service = NetworkShareService(
+        AsyncMock(return_value=None), lambda: None, AsyncMock()
+    )
+    if known is None:
+        known = {
+            volume["uuid"]: {
+                "name": None,
+                "label": volume["label"],
+                "mountpoint": volume["mountpoint"],
+            }
+            for volume in usb
+        }
     service._data.list_shares = AsyncMock(return_value=shares)
-    service._data.get_usb_names = AsyncMock(return_value={})
+    service._data.get_known_usb = AsyncMock(return_value=known)
     service._storage.get_mounted_share_ids = MagicMock(
         return_value={s["id"] for s in shares}
     )
@@ -85,6 +99,42 @@ async def test_storage_without_a_library_is_listed_but_not_browsable():
     )
 
     assert (await service.storages())[0]["library_id"] is None
+
+
+async def test_unplugged_key_keeps_its_entry_and_its_library():
+    # What makes a replug cost a quick scan instead of re-indexing 10 000 tracks:
+    # the key stays in the set with its library id, so the reconcile that runs on
+    # the unplug reads it as "should exist" and leaves the library alone. Drop
+    # the entry here and the library goes with it, silently — the next plug-in
+    # just takes 18 minutes again.
+    service = _service(
+        shares=[],
+        usb=[],
+        library_ids={"/media/milo/MUSIC": 3},
+        known={"U-1": {"name": "iPod", "label": "MUSIC",
+                       "mountpoint": "/media/milo/MUSIC"}},
+    )
+
+    entries = await service.storages()
+
+    assert [(e["id"], e["mounted"], e["library_id"]) for e in entries] == [
+        ("U-1", False, 3)
+    ]
+
+
+async def test_offline_names_covers_an_unplugged_key():
+    # offline_names() gates the full scan, and a full scan purges everything
+    # Navidrome cannot see (PurgeMissing="full"). Leaving the unplugged key out
+    # would let a refresh throw away the very index the entry above preserves.
+    service = _service(
+        shares=[],
+        usb=[],
+        library_ids={},
+        known={"U-1": {"name": "iPod de Léo", "label": "MUSIC",
+                       "mountpoint": "/media/milo/MUSIC"}},
+    )
+
+    assert await service.offline_names() == ["iPod de Léo"]
 
 
 # === library reconcile ======================================================
@@ -213,25 +263,6 @@ async def test_playlist_of_a_removed_storage_falls_back_to_its_content(source):
     kept = await source.playlists_in_storage([{"id": "pl-1", "songCount": 4}], library_id=3)
 
     assert [p["id"] for p in kept] == ["pl-1"]
-
-
-async def test_usb_settings_rows_carry_the_same_names_as_the_filter():
-    # Two keys labelled the same: the settings list and the storage filter must
-    # not disagree about which one is which, so both read one naming authority.
-    service = _service(
-        shares=[],
-        usb=[
-            {"uuid": "U-1", "label": "MUSIC", "mountpoint": "/media/milo/MUSIC"},
-            {"uuid": "U-2", "label": "MUSIC", "mountpoint": "/media/milo/MUSIC-1a2b3c4d"},
-        ],
-        library_ids={"/media/milo/MUSIC": 2, "/media/milo/MUSIC-1a2b3c4d": 3},
-    )
-
-    from_settings = [device["name"] for device in await service.usb_devices()]
-    from_filter = [e["name"] for e in await service.storages() if e["kind"] == "usb"]
-
-    assert from_settings == from_filter
-    assert len(set(from_settings)) == 2
 
 
 async def test_unrecorded_empty_playlist_is_never_hidden(source):

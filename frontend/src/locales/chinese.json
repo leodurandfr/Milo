@@ -627,6 +627,13 @@
       },
       "pathLabel": "访问路径"
     },
+    "storage": {
+      "usbDisconnected": "USB 存储设备已拔出",
+      "shareDisconnected": "{name} 已断开连接",
+      "disconnectedHint": "其中的音乐仍保留索引，重新连接后立即恢复。",
+      "separateTitle": "分开显示各存储设备",
+      "separateDescription": "为每个 U 盘和网络服务器显示一个标签页。关闭后将合并浏览全部音乐。"
+    },
     "usb": {
       "title": "USB 存储",
       "connected": "已连接",
@@ -636,7 +643,11 @@
       "namePlaceholder": "U 盘名称",
       "name": "名称",
       "nameHint": "显示在音乐库中，重新插入 U 盘时保留。留空则使用磁盘卷标（{label}）。",
-      "renameError": "无法重命名此 U 盘"
+      "renameError": "无法重命名此 U 盘",
+      "forgetTitle": "忘记此 U 盘",
+      "forget": "忘记",
+      "forgetDescription": "从音乐库中移除其 {count} 首已索引曲目。重新插入后将重新完整索引。",
+      "forgetError": "无法忘记此 U 盘"
     },
     "nas": {
       "title": "NAS 服务器",
@@ -648,7 +659,8 @@
       "refresh": "刷新",
       "refreshing": "正在刷新...",
       "refreshProgress": "已索引 {count} 首曲目...",
-      "cleanupDeferred": "{shares} 已离线 — 已删除的音乐将在重新连接后被移除。"
+      "cleanupDeferred": "{shares} 已离线 — 已删除的音乐将在重新连接后被移除。",
+      "refreshingLabel": "正在索引…"
     }
   },
   "setup": {

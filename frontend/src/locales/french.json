@@ -627,6 +627,13 @@
       },
       "pathLabel": "Chemin d'accès"
     },
+    "storage": {
+      "usbDisconnected": "Support de stockage USB débranché",
+      "shareDisconnected": "{name} est déconnecté",
+      "disconnectedHint": "Sa musique reste indexée et revient dès que vous le rebranchez.",
+      "separateTitle": "Séparer les supports de stockage",
+      "separateDescription": "Affiche un onglet par clé USB et par serveur réseau. Désactivez pour parcourir toute votre musique ensemble."
+    },
     "usb": {
       "title": "Stockage USB",
       "connected": "Branché",
@@ -636,7 +643,11 @@
       "namePlaceholder": "Nom de la clé USB",
       "name": "Nom",
       "nameHint": "Affiché dans la bibliothèque et conservé au rebranchement de la clé. Laissez vide pour utiliser l'étiquette du disque ({label}).",
-      "renameError": "Impossible de renommer cette clé USB"
+      "renameError": "Impossible de renommer cette clé USB",
+      "forgetTitle": "Oublier cette clé",
+      "forget": "Oublier",
+      "forgetDescription": "Retire ses {count} morceaux indexés de la bibliothèque. Rebrancher la clé la réindexera entièrement.",
+      "forgetError": "Impossible d'oublier cette clé USB"
     },
     "nas": {
       "title": "Serveur NAS",
@@ -648,7 +659,8 @@
       "refresh": "Actualiser",
       "refreshing": "Actualisation en cours…",
       "refreshProgress": "{count} morceaux indexés…",
-      "cleanupDeferred": "{shares} est hors-ligne — la musique supprimée sera retirée dès sa reconnexion."
+      "cleanupDeferred": "{shares} est hors-ligne — la musique supprimée sera retirée dès sa reconnexion.",
+      "refreshingLabel": "Indexation en cours…"
     }
   },
   "setup": {

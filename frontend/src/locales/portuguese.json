@@ -627,6 +627,13 @@
       },
       "pathLabel": "Caminho de acesso"
     },
+    "storage": {
+      "usbDisconnected": "Armazenamento USB desligado",
+      "shareDisconnected": "{name} está desligado",
+      "disconnectedHint": "A música continua indexada e volta assim que o ligar novamente.",
+      "separateTitle": "Separar os armazenamentos",
+      "separateDescription": "Mostra um separador por cada pen USB e servidor de rede. Desative para explorar toda a sua música em conjunto."
+    },
     "usb": {
       "title": "Armazenamento USB",
       "connected": "Conectado",
@@ -636,7 +643,11 @@
       "namePlaceholder": "Nome da pen USB",
       "name": "Nome",
       "nameHint": "Apresentado na biblioteca e mantido quando a pen for ligada de novo. Deixe vazio para usar a etiqueta do disco ({label}).",
-      "renameError": "Não foi possível renomear esta pen USB"
+      "renameError": "Não foi possível renomear esta pen USB",
+      "forgetTitle": "Esquecer esta pen",
+      "forget": "Esquecer",
+      "forgetDescription": "Remove as suas {count} faixas indexadas da biblioteca. Ao voltar a ligá-la será indexada de novo.",
+      "forgetError": "Não foi possível esquecer esta pen USB"
     },
     "nas": {
       "title": "Servidor NAS",
@@ -648,7 +659,8 @@
       "refresh": "Atualizar",
       "refreshing": "A atualizar...",
       "refreshProgress": "{count} faixas indexadas...",
-      "cleanupDeferred": "{shares} está offline — a música eliminada será removida assim que for reconectado."
+      "cleanupDeferred": "{shares} está offline — a música eliminada será removida assim que for reconectado.",
+      "refreshingLabel": "Indexação em curso…"
     }
   },
   "setup": {
