@@ -19,9 +19,11 @@ from backend.sources.music_library.shares import NetworkShareService
 @pytest.fixture
 def shares():
     """A share service whose collaborators are stubbed at their own boundary."""
-    service = NetworkShareService(AsyncMock(return_value=None), Mock())
+    service = NetworkShareService(AsyncMock(return_value=None), Mock(), AsyncMock())
     service._data.initialize = AsyncMock()
+    service._data.get_known_usb = AsyncMock(return_value={})
     service._storage.initialize = AsyncMock(return_value=True)
+    service._storage.get_usb_mounts = Mock(return_value=[])
     return service
 
 
@@ -50,14 +52,32 @@ class TestOfflineNames:
         assert await shares.offline_names() == []
 
     @pytest.mark.asyncio
-    async def test_name_falls_back_to_host_then_id(self, shares):
+    async def test_names_come_from_the_storage_list_not_a_second_rule(self, shares):
+        # offline_names() projects storages(), so a share reads the same here as
+        # in the settings row and the storage filter. It used to apply its own
+        # name→host→id fallback, which is how the "cleanup deferred" warning came
+        # to name a share differently from the row the user was looking at.
         shares._data.list_shares = AsyncMock(return_value=[
-            {"id": "a", "host": "10.0.0.2"},   # no name → host
-            {"id": "b"},                        # no name/host → id
+            {"id": "a", "name": "NAS-Leo", "host": "10.0.0.2"},
+            {"id": "b", "host": "10.0.0.3"},   # unnamed → its id, as in storages()
         ])
         shares._storage.get_mounted_share_ids = Mock(return_value=set())
 
-        assert await shares.offline_names() == ["10.0.0.2", "b"]
+        assert await shares.offline_names() == ["NAS-Leo", "b"]
+
+    @pytest.mark.asyncio
+    async def test_unplugged_usb_key_defers_the_purge_too(self, shares):
+        # A full scan purges what Navidrome cannot see. Now that an unplugged key
+        # keeps its library, it has to gate the scan exactly like an asleep NAS —
+        # otherwise a refresh silently destroys the index the key kept.
+        shares._data.list_shares = AsyncMock(return_value=[])
+        shares._storage.get_mounted_share_ids = Mock(return_value=set())
+        shares._data.get_known_usb = AsyncMock(return_value={
+            "U-1": {"name": "iPod", "label": "MUSIC",
+                    "mountpoint": "/media/milo/MUSIC"},
+        })
+
+        assert await shares.offline_names() == ["iPod"]
 
 
 class TestBootRemountRetry:

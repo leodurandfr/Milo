@@ -1,14 +1,16 @@
 // frontend/tests/stores/musicLibraryStore.test.js
 /**
  * musicLibraryStore scopes every catalog read to ONE storage space (a Navidrome
- * library id). Three things can break that and nothing else would notice:
- * the selection landing on a storage Navidrome cannot serve, a cached list
- * surviving a switch (the previous key's albums shown under the new one), and a
- * selection left pointing at a key that has been unplugged.
+ * library id), unless the user merged them. What can break that, silently, is
+ * the selection: landing on a storage Navidrome cannot serve, a cached list
+ * surviving a switch (the previous key's albums shown under the new one), a
+ * dead library id outliving the storage it named — and the two opposite cases
+ * an unplug and a deletion must NOT be confused with each other.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { nextTick } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok } from '../helpers/apiCallMock';
 
@@ -105,7 +107,10 @@ describe('musicLibraryStore — storage scoping', () => {
     expect(store.albums.map((a) => a.id)).toEqual(['usb-1']);
   });
 
-  it('falls back to a remaining storage when the selected key is unplugged', async () => {
+  it('falls back to a remaining storage when the selected one leaves the list', async () => {
+    // Leaving the list is a deletion (share removed, key forgotten) — distinct
+    // from an unplug, which keeps the entry. Nothing scopes to it any more, so
+    // the selection has to move or every read would carry a dead library id.
     apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS, USB] }));
     await store.loadStorages();
     await nextTick();
@@ -117,6 +122,65 @@ describe('musicLibraryStore — storage scoping', () => {
     await nextTick();
 
     expect(store.activeLibraryId).toBe(NAS.library_id);
+  });
+
+  it('keeps the selection on a key that was unplugged, and reports it', async () => {
+    // The opposite of the case above, and the reason the two are told apart:
+    // switching away on an unplug would swap the view out with no explanation.
+    // Holding the selection is what lets LibraryHome say the key was removed —
+    // so a silent fallback here would delete that message from the UI.
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS, USB] }));
+    await store.loadStorages();
+    await nextTick();
+    store.activeLibraryId = USB.library_id;
+    await nextTick();
+
+    store.handleStoragesEvent({
+      data: { storages: [NAS, { ...USB, mounted: false }], scanning: false },
+    });
+    await nextTick();
+
+    expect(store.activeLibraryId).toBe(USB.library_id);
+    expect(store.disconnectedStorage?.id).toBe(USB.id);
+    // …and it is no longer offered as somewhere to browse.
+    expect(store.browsableStorages.map((s) => s.id)).toEqual([NAS.id]);
+  });
+
+  it('drops the scope entirely when storage spaces are merged', async () => {
+    // separate_storages=false is the whole merged mode: every catalog read must
+    // go out unscoped, or the user would still be looking at one storage space
+    // with the picker hidden and no way back.
+    const settings = useSettingsStore();
+    settings.updateMusicLibrarySettings({ separate_storages: false });
+
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS, USB] }));
+    await store.loadStorages();
+    await nextTick();
+
+    apiCall.get.mockResolvedValue(ok({ albums: [], index: [], genres: [] }));
+    await store.loadAlbums();
+
+    expect(store.activeLibraryId).toBeNull();
+    expect(paramsOf('/albums')).not.toHaveProperty('library_id');
+  });
+
+  it('reports the active storage track count, not the frozen global one', async () => {
+    // Navidrome's global scan counter does not move until a scan ends, so the
+    // per-storage total is the only figure that can show progress. Summing them
+    // is what the merged view has instead.
+    apiCall.get.mockResolvedValueOnce(ok({
+      storages: [{ ...NAS, track_count: 2419 }, { ...USB, track_count: 10069 }],
+      scanning: true,
+    }));
+    await store.loadStorages();
+    await nextTick();
+
+    expect(store.isScanning).toBe(true);
+    expect(store.activeStorageTrackCount).toBe(2419);
+
+    store.activeLibraryId = USB.library_id;
+    await nextTick();
+    expect(store.activeStorageTrackCount).toBe(10069);
   });
 });
 

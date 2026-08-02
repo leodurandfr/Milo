@@ -23,6 +23,7 @@ from backend.core.models.settings_config import (
     DockAppsConfig,
     IrRemoteStepsConfig,
     MacRocConfig,
+    MusicLibrarySettingsConfig,
     QobuzSettingsConfig,
     RadioSettingsConfig,
     RotaryStepsConfig,
@@ -227,6 +228,26 @@ class PodcastFavoriteRemoved(WsEvent):
     uuid: str
 
 
+class MusicLibraryStoragesChanged(WsEvent):
+    """musicLibraryStore.applyStorages — the storage spaces music is browsed from.
+
+    Pushed on every mount, unmount, rename, forget and share write, and on each
+    poll while a Navidrome scan runs. Sent as the whole list, not a delta: it is
+    one short entry per USB key and share, and a delta would need a replay path
+    for the pushes a backgrounded tab slept through.
+
+    Each entry is ``{kind, id, name, mountpoint, mounted, library_id,
+    track_count, album_count, missing_count}``. ``scanning`` rides along because
+    a scan is precisely what makes those counts move — one event, so a tab can
+    never hold a storage list and a scan flag that disagree.
+    """
+    CATEGORY = "source"
+    TYPE = "storages_changed"
+    source: Literal["music_library"] = "music_library"
+    storages: List[Dict[str, Any]]
+    scanning: bool
+
+
 # =============================================================================
 # VOLUME
 # =============================================================================
@@ -352,6 +373,17 @@ class QobuzSettingsChanged(SettingsEvent):
     """App.vue settings listener (Qobuz 'allow app volume' toggle sync)."""
     TYPE = "qobuz_settings_changed"
     config: QobuzSettingsConfig
+
+
+class MusicLibrarySettingsChanged(SettingsEvent):
+    """App.vue settings listener → musicLibraryStore.applySettings.
+
+    Flips the library between one tab per storage space and a single merged view,
+    on every screen at once — the storage filter is a display choice, not a
+    per-tab one.
+    """
+    TYPE = "music_library_settings_changed"
+    config: MusicLibrarySettingsConfig
 
 
 class BtRemoteConfigChanged(SettingsEvent):

@@ -505,6 +505,9 @@ const RAW_EVENTS = [
   ['multiroom', 'zone_changed', multiroomStore.handleMultiroomEvent],
   ['equalizer', 'enabled_changed', equalizerStore.handleEnabledChanged],
   ['equalizer', 'zone_enabled_changed', equalizerStore.handleZoneEnabledChanged],
+  // Storage spaces music is browsed from: a USB key plugged in or pulled, a
+  // share written, and the counts growing while Navidrome indexes.
+  ['source', 'storages_changed', musicLibraryStore.handleStoragesEvent],
 ];
 
 /**
@@ -545,6 +548,7 @@ const SETTINGS_CONFIG_EVENTS = [
   ['screen_screensaver_changed', settingsStore.updateScreenScreensaver],
   ['screen_color_filter_changed', settingsStore.updateScreenColorFilter],
   ['radio_settings_changed', settingsStore.updateRadioSettings],
+  ['music_library_settings_changed', settingsStore.updateMusicLibrarySettings],
   ['qobuz_settings_changed', settingsStore.updateQobuzSettings],
   ['mac_roc_changed', settingsStore.updateMacRocSettings],
   ['bt_remote_config_changed', settingsStore.updateBtRemoteConfig],

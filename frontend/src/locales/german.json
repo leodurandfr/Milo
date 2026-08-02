@@ -627,6 +627,13 @@
       },
       "pathLabel": "Zugriffspfad"
     },
+    "storage": {
+      "usbDisconnected": "USB-Speicher getrennt",
+      "shareDisconnected": "{name} ist getrennt",
+      "disconnectedHint": "Die Musik bleibt indexiert und ist sofort wieder da, sobald Sie ihn erneut anschließen.",
+      "separateTitle": "Speicher getrennt anzeigen",
+      "separateDescription": "Zeigt einen Tab pro USB-Stick und Netzwerkserver. Deaktivieren, um die gesamte Musik zusammen zu durchsuchen."
+    },
     "usb": {
       "title": "USB-Speicher",
       "connected": "Verbunden",
@@ -636,7 +643,11 @@
       "namePlaceholder": "Name des USB-Sticks",
       "name": "Name",
       "nameHint": "Wird in der Bibliothek angezeigt und beim erneuten Anstecken beibehalten. Leer lassen, um die Datenträgerbezeichnung zu verwenden ({label}).",
-      "renameError": "USB-Stick konnte nicht umbenannt werden"
+      "renameError": "USB-Stick konnte nicht umbenannt werden",
+      "forgetTitle": "Diesen Stick vergessen",
+      "forget": "Vergessen",
+      "forgetDescription": "Entfernt die {count} indexierten Titel aus der Bibliothek. Beim erneuten Anschließen wird der Stick komplett neu indexiert.",
+      "forgetError": "USB-Stick konnte nicht vergessen werden"
     },
     "nas": {
       "title": "NAS-Server",
@@ -648,7 +659,8 @@
       "refresh": "Aktualisieren",
       "refreshing": "Wird aktualisiert...",
       "refreshProgress": "{count} Titel indiziert...",
-      "cleanupDeferred": "{shares} ist offline — gelöschte Musik wird entfernt, sobald die Verbindung wiederhergestellt ist."
+      "cleanupDeferred": "{shares} ist offline — gelöschte Musik wird entfernt, sobald die Verbindung wiederhergestellt ist.",
+      "refreshingLabel": "Indexierung läuft…"
     }
   },
   "setup": {

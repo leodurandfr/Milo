@@ -234,11 +234,12 @@ class StorageManager:
             mountpoint = volume["mountpoint"]
             await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
             self.logger.info("Unmounted %s (%s)", devnode, mountpoint)
-        # Removal is an unambiguous "this storage is gone" signal → drop the
-        # key's library, then full scan so Navidrome purges what vanished with
-        # it (PurgeMissing="full").
+        # No scan on removal, and deliberately so: the key keeps its library and
+        # its index (libraries.py), and any scan at all here would be the one that
+        # throws them away — a full one purges outright (PurgeMissing="full"), a
+        # quick one walks a path that no longer exists. The layer above is still
+        # told, so the UI drops the key at once.
         await self._on_storage_changed()
-        await self._trigger_scan(full=True)
 
     async def _run_helper(
         self,

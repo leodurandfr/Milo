@@ -527,7 +527,7 @@ standing in for Podcast Index and a mount layer underneath.**
   Auth is Subsonic token auth against a single service account provisioned on first
   boot by `milo-navidrome-provision` (milo-owned 0600 cred file, read via
   `NavidromeClient.from_cred_file()`); a missing cred file surfaces as a 503 on
-  browse routes and a null status on the polled scan-status route (self-healing).
+  browse routes (self-healing — the cred file is re-read on every attempt).
 - **`storage.py` (`StorageManager`) is the only hard part** — Navidrome indexes
   `/media/milo` but never mounts anything. A `pyudev` netlink monitor (unprivileged,
   the analog of the CD disc-watcher) mounts USB partitions read-only via the
@@ -570,12 +570,16 @@ standing in for Podcast Index and a mount layer underneath.**
   native playlist (`--gapless-audio`). Now-playing (title/artist/album/art + queue/
   index/shuffle/repeat) is broadcast as standard source metadata; the frontend
   derives it from `unifiedAudioStore` gated on `active_source === 'music_library'`.
-- **Scan-progress UX.** A fresh library scan takes minutes.
-  `GET /api/music-library/scan-status` returns `{scanning, count, folderCount}`;
-  `MusicLibrarySource.vue` polls it (via `useTimer`) while scanning or while the
-  catalog still looks empty, shows a "building library…" state with a live
-  indexed-track count, and calls `store.resync()` on the completion edge so the
-  catalog appears without a manual refresh.
+- **Scan-progress UX.** A first index takes minutes (18 for a 10 000-track iPod);
+  a rescan of an already-indexed catalog does not (401 ms over 12 488 tracks), so
+  only *new* files ever cost time. Nothing polls: `shares.py::_watch_scan` observes
+  Navidrome once for the whole appliance and broadcasts `{storages, scanning}` on
+  `source/storages_changed`, and `musicLibraryStore` reloads its cached lists on
+  the completion edge. Two cadences plus a kick — 15 s idle, 3 s while scanning,
+  and an immediate wake whenever a mount changes or a refresh is requested,
+  because a quick scan would otherwise begin and end between two idle polls and
+  no client would ever see it. Progress is the storage space's own track count,
+  never Navidrome's global one (frozen for the duration of a scan).
 - **Cover art** is proxied localhost-only behind `/api/music-library/cover/{id}`
   (1-year cache); the frontend never reaches Navidrome directly. Navidrome's online
   metadata/art agents are always enabled (`EnableExternalServices = true` in the

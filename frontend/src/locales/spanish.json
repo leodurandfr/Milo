@@ -627,6 +627,13 @@
       },
       "pathLabel": "Ruta de acceso"
     },
+    "storage": {
+      "usbDisconnected": "Almacenamiento USB desconectado",
+      "shareDisconnected": "{name} está desconectado",
+      "disconnectedHint": "Su música sigue indexada y vuelve en cuanto lo conectes de nuevo.",
+      "separateTitle": "Separar los almacenamientos",
+      "separateDescription": "Muestra una pestaña por cada llave USB y servidor de red. Desactívalo para explorar toda tu música junta."
+    },
     "usb": {
       "title": "Almacenamiento USB",
       "connected": "Conectado",
@@ -636,7 +643,11 @@
       "namePlaceholder": "Nombre de la memoria USB",
       "name": "Nombre",
       "nameHint": "Se muestra en la biblioteca y se conserva al volver a conectar la memoria. Déjalo vacío para usar la etiqueta del disco ({label}).",
-      "renameError": "No se pudo renombrar esta memoria USB"
+      "renameError": "No se pudo renombrar esta memoria USB",
+      "forgetTitle": "Olvidar esta llave",
+      "forget": "Olvidar",
+      "forgetDescription": "Elimina sus {count} pistas indexadas de la biblioteca. Al volver a conectarla se indexará desde cero.",
+      "forgetError": "No se pudo olvidar esta llave USB"
     },
     "nas": {
       "title": "Servidor NAS",
@@ -648,7 +659,8 @@
       "refresh": "Actualizar",
       "refreshing": "Actualizando…",
       "refreshProgress": "{count} pistas indexadas…",
-      "cleanupDeferred": "{shares} está fuera de línea — la música eliminada se retirará en cuanto se reconecte."
+      "cleanupDeferred": "{shares} está fuera de línea — la música eliminada se retirará en cuanto se reconecte.",
+      "refreshingLabel": "Indexación en curso…"
     }
   },
   "setup": {

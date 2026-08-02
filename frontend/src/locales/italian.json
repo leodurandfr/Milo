@@ -627,6 +627,13 @@
       },
       "pathLabel": "Percorso di accesso"
     },
+    "storage": {
+      "usbDisconnected": "Archivio USB scollegato",
+      "shareDisconnected": "{name} è scollegato",
+      "disconnectedHint": "La sua musica resta indicizzata e torna appena lo ricolleghi.",
+      "separateTitle": "Separa gli archivi",
+      "separateDescription": "Mostra una scheda per ogni chiavetta USB e server di rete. Disattiva per sfogliare tutta la musica insieme."
+    },
     "usb": {
       "title": "Archiviazione USB",
       "connected": "Connesso",
@@ -636,7 +643,11 @@
       "namePlaceholder": "Nome della chiavetta USB",
       "name": "Nome",
       "nameHint": "Mostrato nella libreria e mantenuto quando la chiavetta viene ricollegata. Lascia vuoto per usare l'etichetta del disco ({label}).",
-      "renameError": "Impossibile rinominare questa chiavetta USB"
+      "renameError": "Impossibile rinominare questa chiavetta USB",
+      "forgetTitle": "Dimentica questa chiavetta",
+      "forget": "Dimentica",
+      "forgetDescription": "Rimuove i suoi {count} brani indicizzati dalla libreria. Ricollegandola verrà indicizzata da capo.",
+      "forgetError": "Impossibile dimenticare questa chiavetta USB"
     },
     "nas": {
       "title": "Server NAS",
@@ -648,7 +659,8 @@
       "refresh": "Aggiorna",
       "refreshing": "Aggiornamento in corso...",
       "refreshProgress": "{count} brani indicizzati...",
-      "cleanupDeferred": "{shares} è offline — la musica eliminata verrà rimossa una volta riconnesso."
+      "cleanupDeferred": "{shares} è offline — la musica eliminata verrà rimossa una volta riconnesso.",
+      "refreshingLabel": "Indicizzazione in corso…"
     }
   },
   "setup": {

@@ -34,6 +34,7 @@ from pydantic import BaseModel
 
 from backend.core.models.audio_state import SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
+from backend.core.models.ws_events import MusicLibraryStoragesChanged
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
@@ -93,7 +94,9 @@ class MusicLibrarySource(MpvAudioSource):
         # CD disc-watcher, not gated on this source being active — and it rescans
         # through the shared catalog client below rather than building its own.
         self._shares = NetworkShareService(
-            self.get_navidrome_client, self.invalidate_album_cache
+            self.get_navidrome_client,
+            self.invalidate_album_cache,
+            self.broadcast_storages,
         )
         # Navidrome Subsonic client for the /api/music-library/* browse routes,
         # for building stream URLs at play time, and for the StorageManager's
@@ -113,6 +116,10 @@ class MusicLibrarySource(MpvAudioSource):
         # song dicts verbatim so it can be echoed to the frontend as-is.
         self._queue: List[Dict[str, Any]] = []
         self._queue_index: int = 0
+        # The storage space the queue was browsed from (None when the browse was
+        # unscoped). Subsonic song dicts carry no library, so this is what lets a
+        # yanked USB key stop the playback that was reading from it.
+        self._queue_library_id: Optional[int] = None
         self._position: int = 0  # seconds into the current track
         self._duration: int = 0  # seconds
         self._shuffle: bool = False
@@ -329,6 +336,45 @@ class MusicLibrarySource(MpvAudioSource):
         self._album_cache.clear()
         self._playlist_album.clear()
 
+    async def broadcast_storages(self) -> None:
+        """Push the storage spaces (with their counts) and the scan flag over WS.
+
+        The hook NetworkShareService calls on every storage change and on each
+        poll of a running scan — the one thing that makes plugging a key in, or
+        pulling it out, visible without a refetch. Also stops playback when the
+        storage space being played has just gone away: a yanked key leaves mpv
+        reading a path that no longer exists, and the queue is unplayable from
+        that point on, so the honest outcome is a stop the UI can explain.
+        """
+        entries = await self._shares.storages_with_stats()
+        await self._stop_if_storage_gone(entries)
+        if self.state_machine:
+            await self.state_machine.broadcast(MusicLibraryStoragesChanged(
+                storages=entries,
+                scanning=bool(self._shares.scan_state().get("scanning")),
+            ))
+
+    async def _stop_if_storage_gone(self, entries: List[Dict[str, Any]]) -> None:
+        """Stop playback when the queue's storage space is no longer mounted.
+
+        Nothing to do when there is no queue, when the queue was built unscoped
+        (nothing attributes it to the key that left), or when the space is still
+        mounted — an unasked-for stop is worse than a track that happens to keep
+        playing out of page cache.
+        """
+        if not self._queue or self._queue_library_id is None:
+            return
+        if any(
+            entry["library_id"] == self._queue_library_id and entry["mounted"]
+            for entry in entries
+        ):
+            return
+        self._logger.info(
+            "Storage space for library %s is gone — stopping playback",
+            self._queue_library_id,
+        )
+        await self.stop()
+
     # =========================================================================
     # LIFECYCLE
     # =========================================================================
@@ -343,6 +389,7 @@ class MusicLibrarySource(MpvAudioSource):
         self._queue = []
         self._queue_unshuffled = []
         self._queue_index = 0
+        self._queue_library_id = None
         self._position = 0
         self._duration = 0
         self._shuffle = False
@@ -447,6 +494,8 @@ class MusicLibrarySource(MpvAudioSource):
 
         tracks = list(params.tracks)
         original_order = list(tracks)  # pristine order for a later shuffle-off
+        # The storage space this queue came from, so pulling its key can stop it.
+        self._queue_library_id = params.library_id
         start_index = min(params.start_index, len(tracks) - 1)
         shuffle = params.shuffle
         if shuffle:

@@ -11,10 +11,17 @@ name, and a ``has_credentials`` flag. Share passwords never touch this file (nor
 any WS/API payload): they live in a root-only cred file written by ``milo-mount``
 (see :mod:`backend.sources.music_library.storage`).
 
-A USB key's *existence* is not persisted — the StorageManager detects it live —
-but the name the user gave it is, under ``usb_names``, keyed by filesystem UUID.
-That is the only identity a key keeps across a replug: its mountpoint follows the
-filesystem label, and gains a disambiguating suffix when two keys share one.
+A USB key is remembered under ``known_usb``, keyed by filesystem UUID — the only
+identity a key keeps across a replug (its mountpoint follows the filesystem
+label, and gains a disambiguating suffix when two keys share one). The entry
+holds the name the user gave it plus the mountpoint it was last mounted at.
+
+The mountpoint is persisted because it is what keeps a key's *index* alive while
+it is unplugged: a Navidrome library is identified by its path, so a key whose
+mountpoint the backend has forgotten across a restart loses its library on the
+next reconcile — and with it the 18 minutes it took to index 10 000 tracks.
+Remembering it is what makes a replug cost a quick scan (~0.4 s measured) instead
+of a full re-index.
 """
 import asyncio
 import logging
@@ -27,7 +34,7 @@ from typing import Any, Dict, List, Optional
 from backend.config.constants import MUSIC_LIBRARY_DATA_FILE
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
-REQUIRED_TOP_LEVEL_KEYS = ("shares", "usb_names", "playlist_storages")
+REQUIRED_TOP_LEVEL_KEYS = ("shares", "known_usb", "playlist_storages")
 
 # Share types we can mount. Mirrors milo-mount's --network dispatch.
 SHARE_TYPES = frozenset({"cifs", "nfs"})
@@ -41,7 +48,7 @@ class MusicLibraryDataService:
     on-disk list is the source of truth a boot remount replays.
     """
 
-    SCHEMA_VERSION: int = 2
+    SCHEMA_VERSION: int = 3
 
     def __init__(self) -> None:
         self._logger = logging.getLogger("source.music_library.data")
@@ -85,7 +92,7 @@ class MusicLibraryDataService:
             )
 
     def _get_default_structure(self) -> Dict[str, Any]:
-        return {"shares": [], "usb_names": {}, "playlist_storages": {}}
+        return {"shares": [], "known_usb": {}, "playlist_storages": {}}
 
     async def save_data(self, data: Dict[str, Any]) -> bool:
         """Save the shares file with atomic write (schema_version stamped auto)."""
@@ -170,26 +177,64 @@ class MusicLibraryDataService:
         await self.save_data(data)
         return removed
 
-    # ========== USB NAMES ==========
+    # ========== KNOWN USB KEYS ==========
 
-    async def get_usb_names(self) -> Dict[str, str]:
-        """Every user-given USB name, keyed by filesystem UUID."""
-        data = await self.load_data()
-        return data["usb_names"]
+    async def get_known_usb(self) -> Dict[str, Dict[str, Any]]:
+        """Every USB key ever mounted, keyed by filesystem UUID.
 
-    async def set_usb_name(self, uuid: str, name: str) -> None:
-        """Name a USB key, or forget the name when ``name`` is empty.
-
-        Kept for keys that are not plugged in: the point of the name is that it
-        comes back with the key. An empty name deletes the entry so the display
-        falls back to the filesystem label.
+        Each entry is ``{name, label, mountpoint, last_seen}``: ``name`` is the
+        user-given one (None when never renamed — the display falls back to
+        ``label``, the sanitized filesystem label milo-mount derived the
+        mountpoint from).
         """
         data = await self.load_data()
-        if name:
-            data["usb_names"][uuid] = name
-        else:
-            data["usb_names"].pop(uuid, None)
+        return data["known_usb"]
+
+    async def remember_usb(self, uuid: str, label: str, mountpoint: str) -> None:
+        """Record a key that has just been mounted, preserving its given name.
+
+        Called on every mount, so ``mountpoint`` tracks the one milo-mount
+        actually chose — it can differ from the last session's when a second key
+        claimed the same label first and this one took the disambiguating suffix.
+        """
+        data = await self.load_data()
+        entry = data["known_usb"].get(uuid) or {"name": None}
+        data["known_usb"][uuid] = {
+            "name": entry.get("name"),
+            "label": label,
+            "mountpoint": mountpoint,
+            "last_seen": int(time.time()),
+        }
         await self.save_data(data)
+
+    async def set_usb_name(self, uuid: str, name: str) -> bool:
+        """Name a known USB key, or restore its disk label when ``name`` is empty.
+
+        False when the UUID was never mounted — there is nothing to name, and
+        inventing an entry would put a key with no label or mountpoint in the
+        known set. The name outlives an unplug: that it comes back with the key
+        is the whole point of filing it under the filesystem UUID.
+        """
+        data = await self.load_data()
+        entry = data["known_usb"].get(uuid)
+        if entry is None:
+            return False
+        entry["name"] = name or None
+        await self.save_data(data)
+        return True
+
+    async def forget_usb(self, uuid: str) -> bool:
+        """Drop a key from the known set; False when it was not there.
+
+        Retires its Navidrome library on the next reconcile, which is what
+        actually frees the index — so this is the only way a key that will never
+        be plugged in again stops costing catalog rows.
+        """
+        data = await self.load_data()
+        if data["known_usb"].pop(uuid, None) is None:
+            return False
+        await self.save_data(data)
+        return True
 
     # ========== PLAYLIST ↔ STORAGE SPACE ==========
 

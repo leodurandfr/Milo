@@ -199,11 +199,19 @@ class PlayContextParams(BaseModel):
     passed through untouched (the frontend reads Subsonic fields directly).
     ``start_index`` is the entry to begin on; ``shuffle`` randomizes the rest
     behind it (the picked track still plays first).
+
+    ``library_id`` is the storage space the context was browsed from. Subsonic
+    song dicts carry no library of their own, so this is the only way the source
+    can tell that the queue's USB key has just been pulled — without it, mpv
+    would go on reading a path that no longer exists. Omitted when nothing scopes
+    the browse (storage spaces merged into one view), in which case no unplug can
+    be attributed to the queue and playback is left alone.
     """
 
     tracks: List[Dict[str, Any]] = Field(min_length=1)
     start_index: int = Field(default=0, ge=0)
     shuffle: bool = False
+    library_id: Optional[int] = None
 
     @field_validator("tracks")
     @classmethod

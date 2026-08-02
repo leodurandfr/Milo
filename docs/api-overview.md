@@ -52,7 +52,7 @@ and a route Milo-Mac pins.
 So Bluetooth, Mac and Spotify have no router at all; Qobuz's only surface is the
 `/api/qobuz/account/*` one-time-login relay; `/api/airplay` and `/api/dlna` serve proxied
 artwork; `/api/cd` serves disc covers. Music Library is the richest (Subsonic-backed browsing,
-cover-art proxy, `scan-status`, share wizard). API conventions (verbs, the `status` envelope, the
+cover-art proxy, storage spaces, share wizard). API conventions (verbs, the `status` envelope, the
 per-layer error policy) are spelled out in [CLAUDE.md](../CLAUDE.md) and the
 [Developer Guide](development.md).
 

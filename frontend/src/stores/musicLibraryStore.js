@@ -16,16 +16,25 @@
 //      it locally since the backend emits no favorite WS event for this source.
 //
 //      Every catalog read is scoped to ONE storage space (`activeLibraryId`, a
-//      Navidrome library id — see backend libraries.py). There is no "all
-//      storages" mode: with a single storage the scope is invisible, and with
-//      two or more the user picks one. That includes playlists and liked songs —
-//      Navidrome keeps both catalog-wide, and the backend narrows them, because
-//      a playlist spanning a NAS and a USB key is what the filter exists to
-//      prevent.
+//      Navidrome library id — see backend libraries.py), unless the user has
+//      turned that off (`settings.music_library.separate_storages`), in which
+//      case activeLibraryId stays null and every read spans the lot. That
+//      includes playlists and liked songs — Navidrome keeps both catalog-wide,
+//      and the backend narrows them when a scope is given, because a playlist
+//      spanning a NAS and a USB key is what the filter exists to prevent.
+//
+//   3. Storage spaces — pushed, not polled. `source/storages_changed` carries
+//      the whole list (USB keys and shares alike, each with a live `mounted`
+//      flag and its track/album counts) plus whether a Navidrome scan is
+//      running. It arrives on every hotplug, share write and scan poll, so
+//      plugging a key in or pulling it out reaches every open screen without a
+//      refetch — and the settings rows and the library's storage filter are the
+//      same list, so they cannot disagree.
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 const BASE = '/api/music-library';
 const ALBUMS_PAGE_SIZE = 40;
@@ -34,14 +43,19 @@ const ARTISTS_RENDER_CHUNK = 40;
 // Cover sizes (square max dimension Navidrome resizes to), scaled by
 // devicePixelRatio (capped at 2) so covers stay crisp on HiDPI screens. The
 // player uses the backend-provided full-size album_art_url as-is.
-//   - grid: AlbumCard fills 1fr columns that render up to ~350px CSS.
+//   - grid: auto-fill never leaves a card wider than ~240px CSS, so the largest
+//     cover ever painted is a 2-column phone at @3x — 569 physical px. 300 is
+//     the SMALLEST base that still covers it (2 x 300 >= 569, the cap being 2).
+//     Lower blurs large phones; higher only buys decoded bytes the kiosk pays
+//     for in RAM, at ~230kB retained per cover scrolled past.
 //   - row:  MediaRow / picker thumbnails render at ~60px CSS.
 const _DPR = Math.min(window.devicePixelRatio || 1, 2);
-const COVER_GRID_PX = Math.round(350 * _DPR);
+const COVER_GRID_PX = Math.round(300 * _DPR);
 const COVER_ROW_PX = Math.round(80 * _DPR);
 
 export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const unifiedStore = useUnifiedAudioStore();
+  const settingsStore = useSettingsStore();
 
   // Proxy URL for a Navidrome cover id (album/song coverArt id). size omitted
   // → original bytes.
@@ -64,15 +78,56 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // =========================================================================
   const storages = ref([]);
   const storagesLoaded = ref(false);
-  // The storage space being browsed. Never null once a storage exists: there is
-  // no "all storages" view (see the header note).
+  // The storage space being browsed, or null when the spaces are merged into one
+  // catalog (the `separate_storages` setting) or none exists yet.
   const activeLibraryId = ref(null);
 
-  // Only a storage Navidrome has accepted can be browsed; one still waiting for
-  // its library is listed by the API but cannot be a filter option.
-  const browsableStorages = computed(() =>
-    storages.value.filter((s) => s.library_id != null)
+  // One tab per storage space, or all of them merged. A display choice, stored
+  // on the backend so every screen agrees.
+  const separateStorages = computed(
+    () => settingsStore.musicLibrarySettings.separate_storages !== false
   );
+
+  // Storage spaces that can actually be browsed right now: mounted, and with a
+  // library Navidrome has accepted. An unplugged key stays in `storages` — it
+  // keeps its library and its index, and the settings screen still lists it —
+  // but there is nothing to browse in it.
+  const browsableStorages = computed(() =>
+    storages.value.filter((s) => s.library_id != null && s.mounted)
+  );
+
+  // The USB keys among them, for the settings screen. Same list, same names, so
+  // a row and a filter button can never disagree about which key is which.
+  const usbDevices = computed(() => storages.value.filter((s) => s.kind === 'usb'));
+
+  // The pushed storage entry of each configured share, by id. The settings rows
+  // read their mount state and track count from here rather than from the share
+  // config, so an unreachable NAS greys out — and a growing catalog counts up —
+  // the moment the backend notices, with no refetch.
+  const shareStorages = computed(
+    () => new Map(storages.value.filter((s) => s.kind === 'share').map((s) => [s.id, s]))
+  );
+
+  // The storage space the user is looking at that has just gone away. Kept
+  // selected on purpose: it is what LibraryHome puts the "storage unplugged"
+  // message in place of the grid for. Cleared by picking another space.
+  const disconnectedStorage = computed(() => {
+    if (activeLibraryId.value == null) return null;
+    const active = storages.value.find((s) => s.library_id === activeLibraryId.value);
+    return active && !active.mounted ? active : null;
+  });
+
+  /**
+   * Apply a storage picture — the WS push and the initial GET share this, so
+   * both paths land identically.
+   */
+  function applyStorages({ storages: list, scanning }) {
+    if (Array.isArray(list)) {
+      storages.value = list;
+      storagesLoaded.value = true;
+    }
+    if (typeof scanning === 'boolean') applyScanning(scanning);
+  }
 
   async function loadStorages({ force = false } = {}) {
     if (storagesLoaded.value && !force) return;
@@ -81,20 +136,33 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       message: 'Error loading storage spaces',
       logLevel: 'debug',
     });
-    if (result.ok && Array.isArray(result.data?.storages)) {
-      storages.value = result.data.storages;
-      storagesLoaded.value = true;
-    }
+    if (result.ok) applyStorages(result.data || {});
   }
 
-  // Keep the selection on a storage that still exists: a key unplugged while
-  // its own view is open would otherwise browse a library that is gone.
-  watch(browsableStorages, (list) => {
-    if (!list.length) {
+  /** WS: source/storages_changed — a hotplug, a share write, or a scan poll. */
+  function handleStoragesEvent(event) {
+    applyStorages(event.data || {});
+  }
+
+  // Keep the selection somewhere it makes sense. Merged mode has no selection at
+  // all; otherwise the rule is "stay put if you still can". A space that is
+  // merely unplugged deliberately KEEPS the selection: switching away on its own
+  // would swap the view out from under the user with no explanation, where
+  // holding it lets LibraryHome say the key was removed. Only a space that has
+  // left the list entirely (share deleted, key forgotten) forces a move.
+  watch([browsableStorages, separateStorages, storages], () => {
+    if (!separateStorages.value) {
       activeLibraryId.value = null;
-    } else if (!list.some((s) => s.library_id === activeLibraryId.value)) {
-      activeLibraryId.value = list[0].library_id;
+      return;
     }
+    // `!= null` guard first: a storage space Navidrome has not accepted yet also
+    // carries library_id null, and would otherwise match a null selection and
+    // read as "still listed" — leaving nothing selected at all.
+    const stillListed = activeLibraryId.value != null && storages.value.some(
+      (s) => s.library_id === activeLibraryId.value
+    );
+    if (stillListed) return;
+    activeLibraryId.value = browsableStorages.value[0]?.library_id ?? null;
   }, { immediate: true });
 
   // Catalog params for the active storage space.
@@ -226,6 +294,10 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       tracks,
       start_index: startIndex,
       shuffle: shuffleOn,
+      // The storage space these tracks came from. Subsonic song dicts carry no
+      // library of their own, so this is the only thing that lets the backend
+      // stop playback when this queue's USB key is pulled out.
+      library_id: activeLibraryId.value,
     });
   }
   const playIndex = (index) => send('play_index', { index });
@@ -564,53 +636,51 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   );
 
   // =========================================================================
-  // SCAN STATUS (polled/resynced; drives the "building library…" empty state)
+  // SCAN STATE (pushed with the storage list; drives the "building…" state)
   // =========================================================================
-  const scanStatus = ref(null); // { scanning, count, folderCount } | null
+  const scanning = ref(false);
 
-  async function refreshScanStatus() {
-    const result = await apiCall.get(`${BASE}/scan-status`, {
-      category: 'musicLibrary',
-      message: 'Error loading scan status',
-      checkStatus: true,
-      logLevel: 'debug',
-    });
-    if (result.ok) {
-      scanStatus.value = result.data?.scan_status || null;
-    }
+  function applyScanning(value) {
+    scanning.value = value;
   }
 
-  const isScanning = computed(() => !!scanStatus.value?.scanning);
-  // Tracks indexed so far — surfaced in the "building library…" state as live
-  // progress during a fresh scan.
-  const scanCount = computed(() => scanStatus.value?.count || 0);
+  const isScanning = computed(() => scanning.value);
+
+  // Tracks indexed in the storage space on screen. This is the honest progress
+  // figure: Navidrome's global scan status reports a `count` that does NOT move
+  // until a scan ends (it read 2419 — the previous scan's total — for all 18
+  // minutes it took to index a 10 000-track iPod, then jumped), whereas the
+  // per-library totals behind it grow as folders land. Merged view has no one
+  // space to count, so it sums them.
+  const activeStorageTrackCount = computed(() => {
+    if (activeLibraryId.value == null) {
+      return storages.value.reduce((n, s) => n + (s.track_count || 0), 0);
+    }
+    const active = storages.value.find((s) => s.library_id === activeLibraryId.value);
+    return active?.track_count || 0;
+  });
 
   // On-demand rescan ("I added music, refresh now"). The watcher can't see
   // changes made on a NAS over CIFS/NFS, so this forces Navidrome to re-index.
+  // The scan flag comes back on the storages push, so nothing is polled here.
   async function rescan() {
     const result = await apiCall.post(`${BASE}/scan`, null, {
       category: 'musicLibrary',
       message: 'Error starting library scan',
     });
-    if (result.ok && result.data?.status === 'success') {
-      await refreshScanStatus();
-      return true;
-    }
-    return false;
+    return result.ok && result.data?.status === 'success';
   }
 
   // Manual refresh: a full scan (indexes new music + purges gone files) when every
-  // share is mounted, else a quick scan — 'blocked' returns the offline shares that
-  // deferred the cleanup (a full scan would drop their still-valid tracks).
+  // storage space is mounted, else a quick scan — 'blocked' returns the spaces
+  // that deferred the cleanup (a full scan would drop their still-valid tracks,
+  // including an unplugged key's whole index).
   async function refreshLibrary() {
     const full = await apiCall.post(`${BASE}/scan/full`, null, {
       category: 'musicLibrary',
       message: 'Error refreshing library',
     });
-    if (full.ok && full.data?.status === 'success') {
-      await refreshScanStatus();
-      return { ok: true };
-    }
+    if (full.ok && full.data?.status === 'success') return { ok: true };
     if (full.ok && full.data?.status === 'blocked') {
       const ok = await rescan();
       return { ok, offlineShares: full.data.offline_shares || [] };
@@ -618,21 +688,33 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return { ok: false };
   }
 
-  // A scan (manual refresh, or triggered by a share add/remove) just finished —
-  // the catalog caches below are stale (new tracks missing, gone ones still
-  // listed) until something reloads them. No WS event marks scan completion, so
-  // this is driven by refreshScanStatus() polling flipping isScanning off; only
-  // refresh whichever lists are already loaded, same set resync() touches.
-  watch(isScanning, async (scanning, wasScanning) => {
-    if (scanning || !wasScanning) return;
-    // Storages first and awaited: a scan can create or retire a library (a share
-    // that came online, a key that was just indexed), and refetching before that
-    // lands would scope every call below to a library that is on its way out.
-    await loadStorages({ force: true });
+  /** Refetch whichever top-level lists are already cached, in the current scope. */
+  function reloadCachedLists() {
     if (albumsLoaded.value) loadAlbums({ reset: true });
     if (artistsLoaded.value) loadArtists({ force: true });
     if (genresLoaded.value) loadGenres({ force: true });
     if (playlistsLoaded.value) loadPlaylists({ force: true });
+  }
+
+  // A scan just finished — every cached list is stale (new tracks missing, gone
+  // ones still listed). The storages push that flips the flag also carries the
+  // new library set, so there is nothing to refetch before this runs.
+  watch(isScanning, (now, before) => {
+    if (now || !before) return;
+    reloadCachedLists();
+  });
+
+  // …and while it runs, the storage space on screen fills as it is indexed.
+  // Driven by its album count rather than a timer: the count only moves when
+  // Navidrome has actually committed albums, so this refetches exactly when
+  // there is something new to show, and never on an idle poll.
+  const activeStorageAlbumCount = computed(() => {
+    const active = storages.value.find((s) => s.library_id === activeLibraryId.value);
+    return active?.album_count ?? null;
+  });
+  watch(activeStorageAlbumCount, (now, before) => {
+    if (!isScanning.value || now == null || before == null || now === before) return;
+    reloadCachedLists();
   });
 
   // Switching storage space invalidates EVERY cached catalog list, playlists and
@@ -674,8 +756,22 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // secret metadata only ({id, type, host, path, name, has_credentials}); the
   // password is write-only (handed to the mount helper, never read back).
   // =========================================================================
-  const shares = ref([]);
+  // Config only. Whether a share is mounted right now comes from the storage
+  // push (`mountedShareIds`), not from this payload's snapshot — that is what
+  // makes a NAS going offline grey its row out without a refetch.
+  const shareConfigs = ref([]);
   const sharesLoaded = ref(false);
+
+  const shares = computed(() =>
+    shareConfigs.value.map((share) => {
+      const storage = shareStorages.value.get(share.id);
+      return {
+        ...share,
+        mounted: !!storage?.mounted,
+        track_count: storage?.track_count || 0,
+      };
+    })
+  );
 
   async function loadShares({ force = false } = {}) {
     if (sharesLoaded.value && !force) return;
@@ -684,16 +780,17 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       message: 'Error loading network shares',
     });
     if (result.ok && Array.isArray(result.data?.shares)) {
-      shares.value = result.data.shares;
+      shareConfigs.value = result.data.shares;
       sharesLoaded.value = true;
     }
   }
 
-  // Adding/updating a share (re)mounts it and kicks a rescan; refresh the scan
-  // status so the library view reflects the "building…" state. Returns
-  // { ok, mounted, error }: `ok` means the config was saved, `mounted` whether
-  // the read-only mount actually succeeded (a share persists either way, but the
-  // UI tells the user whether it connected). No throw — the form reads the flags.
+  // Adding/updating a share (re)mounts it and kicks a rescan; the storage push
+  // carries the new mount state and the "building…" flag, so only the config
+  // needs refetching here. Returns { ok, mounted, error }: `ok` means the config
+  // was saved, `mounted` whether the read-only mount actually succeeded (a share
+  // persists either way, but the UI tells the user whether it connected). No
+  // throw — the form reads the flags.
   async function addShare(payload) {
     const result = await apiCall.post(`${BASE}/shares`, payload, {
       category: 'musicLibrary',
@@ -701,8 +798,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     });
     if (result.ok && result.data?.status === 'success') {
       await loadShares({ force: true });
-      refreshScanStatus();
-      return { ok: true, mounted: !!result.data.share?.mounted };
+      return {
+        ok: true,
+        mounted: !!result.data.share?.mounted,
+        // The wizard follows this share's own indexing from here.
+        shareId: result.data.share?.id || null,
+      };
     }
     return { ok: false, error: result.error?.detail };
   }
@@ -714,7 +815,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     });
     if (result.ok && result.data?.status === 'success') {
       await loadShares({ force: true });
-      refreshScanStatus();
       return { ok: true, mounted: !!result.data.share?.mounted };
     }
     return { ok: false, error: result.error?.detail };
@@ -727,48 +827,40 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     });
     if (result.ok && result.data?.status === 'success') {
       await loadShares({ force: true });
-      refreshScanStatus();
       return true;
     }
     return false;
   }
 
   // =========================================================================
-  // USB DEVICES (read-only status). The backend auto-mounts keys on hotplug;
-  // this is surfaced only so the settings screen can show whether a key is
-  // plugged in, beside the configurable network shares. No WS event — fetched
-  // when the settings screen mounts and refreshed on resync.
+  // USB KEYS — writes only. The list itself is `usbDevices` up top, a view over
+  // the pushed storage spaces, so a key appearing or going reaches the settings
+  // screen on the same event the library filter reads. Both writes rely on that
+  // push for their refresh: the backend reconciles, then broadcasts.
   // =========================================================================
-  const usbDevices = ref([]);
-  const usbLoaded = ref(false);
 
-  async function loadUsbDevices() {
-    const result = await apiCall.get(`${BASE}/usb-devices`, {
-      category: 'musicLibrary',
-      message: 'Error loading USB devices',
-      logLevel: 'debug',
-    });
-    if (result.ok && Array.isArray(result.data?.devices)) {
-      usbDevices.value = result.data.devices;
-      usbLoaded.value = true;
-    }
-  }
+  // A filesystem UUID is URL-safe, but the fallback identity for a key without
+  // one is a kernel device name — encode so it still matches the route.
+  const usbPath = (uuid) => `${BASE}/usb-devices/${encodeURIComponent(uuid)}`;
 
-  // Name a plugged-in USB key. The name is stored against its filesystem UUID,
-  // so it comes back with the key; an empty name restores the disk label.
+  // Name a known USB key. The name is stored against its filesystem UUID, so it
+  // comes back with the key; an empty name restores the disk label.
   async function renameUsbDevice(uuid, name) {
-    // Encoded: a filesystem UUID is URL-safe, but the fallback identity for a
-    // key without one is a kernel device name, and an unescaped one would match
-    // no route.
-    const result = await apiCall.put(`${BASE}/usb-devices/${encodeURIComponent(uuid)}`, { name }, {
+    const result = await apiCall.put(usbPath(uuid), { name }, {
       category: 'musicLibrary',
       message: 'Error renaming USB device',
     });
-    if (result.ok && result.data?.status === 'success') {
-      await Promise.all([loadUsbDevices(), loadStorages({ force: true })]);
-      return true;
-    }
-    return false;
+    return result.ok && result.data?.status === 'success';
+  }
+
+  // Forget an unplugged key: drops its Navidrome library and its index, which is
+  // the only way a key that will never come back stops holding catalog rows.
+  async function forgetUsbDevice(uuid) {
+    const result = await apiCall.delete(usbPath(uuid), {
+      category: 'musicLibrary',
+      message: 'Error forgetting USB device',
+    });
+    return result.ok && result.data?.status === 'success';
   }
 
   // mDNS discovery of SMB/NFS servers on the LAN (a convenience to prefill the
@@ -814,24 +906,25 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const activeTab = ref('albums'); // albums | artists | genres | playlists
 
   // =========================================================================
-  // RESYNC (App.vue reconnect / tab-visible). Refresh scan status (a scan that
-  // finished while backgrounded) and re-pull whichever top-level lists are
-  // already cached, without clearing what the user is currently looking at.
+  // RESYNC (App.vue reconnect / tab-visible). The storage list and the scan flag
+  // are WS deltas, so every push missed while backgrounded is gone for good —
+  // refetch them, then re-pull whichever top-level lists are already cached,
+  // without clearing what the user is currently looking at.
   // =========================================================================
   async function resync() {
     // Storages first and ALONE: a key plugged in (or pulled) while the tab was
     // backgrounded changes which library the calls below scope to, and issuing
     // them in the same batch would send the old id — those responses land after
-    // the switch and write another storage's catalog into the store.
+    // the switch and write another storage's catalog into the store. It also
+    // carries the scan flag, so it heals a scan that started or ended meanwhile.
     await loadStorages({ force: true });
-    const tasks = [refreshScanStatus()];
+    const tasks = [];
     if (albumsLoaded.value) tasks.push(loadAlbums({ reset: true }));
     if (artistsLoaded.value) tasks.push(loadArtists({ force: true }));
     if (genresLoaded.value) tasks.push(loadGenres({ force: true }));
     if (playlistsLoaded.value) tasks.push(loadPlaylists({ force: true }));
     if (likedSongsLoaded.value) tasks.push(loadLikedSongs({ force: true }));
     if (sharesLoaded.value) tasks.push(loadShares({ force: true }));
-    if (usbLoaded.value) tasks.push(loadUsbDevices());
     await Promise.allSettled(tasks);
   }
 
@@ -926,11 +1019,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     search,
     clearSearch,
 
-    // Scan status
-    scanStatus,
+    // Scan state (pushed with the storage list)
     isScanning,
-    scanCount,
-    refreshScanStatus,
+    activeStorageTrackCount,
     refreshLibrary,
 
     // Network shares
@@ -942,16 +1033,19 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     discoverServers,
     browseShare,
 
-    // USB devices
+    // USB keys (the list is a view over `storages`)
     usbDevices,
-    loadUsbDevices,
     renameUsbDevice,
+    forgetUsbDevice,
 
     // Storage spaces (the catalog scope)
     storages,
     browsableStorages,
+    separateStorages,
+    disconnectedStorage,
     activeLibraryId,
     loadStorages,
+    handleStoragesEvent,
 
     // UI
     activeTab,
