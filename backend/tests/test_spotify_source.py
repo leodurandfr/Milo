@@ -472,3 +472,151 @@ class TestMetadataTransform:
         assert spotify_source._metadata["album"] == "Test Album"
         assert spotify_source._metadata["duration"] == 180000
         assert spotify_source._metadata["is_playing"] is True
+
+
+def mock_librespot_api(source, *, paused=True, post_status=200):
+    """Stand in for go-librespot's HTTP API — the outside world of this source.
+
+    A small stateful fake rather than a fixed answer: /status reports what the
+    POSTs did to it, so the source has to actually pause the daemon to observe a
+    paused daemon. A canned `paused` would let a release that never pauses pass.
+    `post_status` != 200 simulates a daemon that cannot be driven.
+    """
+    state = {"paused": paused}
+
+    source._session = MagicMock()
+    source._session.close = AsyncMock()  # awaited by _cleanup on the fallback path
+    source._api_url = "http://localhost:3678"
+
+    async def status():
+        return {
+            "paused": state["paused"],
+            "track": {
+                "name": "Track", "artist_names": ["Artist"], "album_name": "Album",
+                "album_cover_url": None, "duration": 200000, "position": 76611,
+            },
+        }
+
+    get_response = MagicMock()
+    get_response.status = 200
+    get_response.json = AsyncMock(side_effect=status)
+    get_cm = AsyncMock()
+    get_cm.__aenter__.return_value = get_response
+    source._session.get.return_value = get_cm
+
+    post_response = MagicMock()
+    post_response.status = post_status
+    post_cm = AsyncMock()
+    post_cm.__aenter__.return_value = post_response
+
+    def post(url, json=None):
+        command = url.rsplit("/player/", 1)[-1]
+        if post_status == 200 and command in ("pause", "resume"):
+            state["paused"] = command == "pause"
+        return post_cm
+
+    source._session.post = MagicMock(side_effect=post)
+
+    return source._session
+
+
+def posted_commands(session):
+    """(command, payload) for every POST /player/* the source issued."""
+    return [
+        (call.args[0].rsplit("/player/", 1)[-1], call.kwargs.get("json"))
+        for call in session.post.call_args_list
+    ]
+
+
+class TestMultiroomReroute:
+    """Keeping the Connect session across a multiroom toggle.
+
+    AudioRoutingService._apply_transition releases the source, reconciles
+    snapcast, then re-acquires it. Before go-librespot 0.8.0 that meant a full
+    daemon bounce: the phone lost the speaker and playback stopped. These hooks
+    park the output instead — and the order they do it in is load-bearing, so
+    each rule below pins one thing measured on the unit rather than reasoned.
+    """
+
+    @pytest.mark.asyncio
+    async def test_release_pauses_before_parking_the_output(self, spotify_source):
+        """Pause must land BEFORE the switch, and the service must stay up.
+
+        RELEASE_DEVICE does not rate-limit: switching to it while playing runs
+        the track to its end in seconds (measured on the unit). Pausing after
+        the switch would be too late.
+        """
+        session = mock_librespot_api(spotify_source, paused=False)
+
+        assert await spotify_source.release_for_reroute() is True
+
+        assert posted_commands(session) == [
+            ("pause", {}),
+            ("output", {"device": "null"}),
+        ]
+        spotify_source._service_manager.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_release_of_a_paused_session_skips_the_pause(self, spotify_source):
+        """Nothing to pause: the output is parked straight away."""
+        session = mock_librespot_api(spotify_source, paused=True)
+
+        assert await spotify_source.release_for_reroute() is True
+
+        assert posted_commands(session) == [("output", {"device": "null"})]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["direct", "multiroom"])
+    async def test_acquire_reopens_on_the_device_of_the_new_mode(
+        self, spotify_source, monkeypatch, mode
+    ):
+        """The explicit device is what makes the reroute work without a restart.
+
+        The `milo_spotify` alias resolves MILO_MODE from the daemon's own
+        environment, frozen at its start — it would still name the old mode.
+        """
+        monkeypatch.setenv("MILO_MODE", mode)
+        session = mock_librespot_api(spotify_source)
+        spotify_source._soft_reroute = True
+        spotify_source._reroute_was_playing = False
+
+        assert await spotify_source.acquire_after_reroute() is True
+
+        assert posted_commands(session) == [("output", {"device": f"milo_spotify_{mode}"})]
+        spotify_source._service_manager.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_acquire_resumes_only_what_was_playing(self, spotify_source, monkeypatch):
+        """A session paused by the user must not come back playing."""
+        monkeypatch.setenv("MILO_MODE", "direct")
+        session = mock_librespot_api(spotify_source, paused=False)
+        spotify_source._soft_reroute = True
+        spotify_source._reroute_was_playing = True
+
+        await spotify_source.acquire_after_reroute()
+
+        assert posted_commands(session)[-1] == ("resume", {})
+
+    @pytest.mark.asyncio
+    async def test_unreachable_daemon_falls_back_to_a_full_stop(self, spotify_source):
+        """A source still holding the loopback would block snapclient.
+
+        So a daemon that cannot be driven must lose its session rather than keep
+        the device: the fallback is the base stop(), not a silent no-op.
+        """
+        mock_librespot_api(spotify_source, paused=True, post_status=500)
+
+        assert await spotify_source.release_for_reroute() is True
+
+        spotify_source._service_manager.stop.assert_called_once_with("milo-spotify.service")
+        assert spotify_source._soft_reroute is False
+
+    @pytest.mark.asyncio
+    async def test_a_hard_release_is_re_acquired_by_a_full_start(self, spotify_source):
+        """After the fallback there is no session left to reopen an output on."""
+        spotify_source._soft_reroute = False
+
+        with patch.object(spotify_source, 'start', new_callable=AsyncMock, return_value=True) as start:
+            assert await spotify_source.acquire_after_reroute() is True
+
+        start.assert_awaited_once()

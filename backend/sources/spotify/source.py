@@ -40,6 +40,13 @@ class SpotifySource(BaseAudioSource):
     `/api/audio/control/spotify` endpoint. Extends BaseAudioSource.
     """
 
+    # Neutral sink the output is parked on while a multiroom reroute reconciles
+    # snapcast. ALSA's `null` discards samples as fast as they are written, so
+    # playback MUST be paused before switching to it: measured on the unit
+    # (2026-08-03), an unpaused switch ran a track from 1'10" to its end and
+    # into the next one in about two seconds.
+    RELEASE_DEVICE = "null"
+
     def __init__(
         self,
         config: Optional[Dict[str, Any]] = None,
@@ -75,6 +82,11 @@ class SpotifySource(BaseAudioSource):
         # Auto-stop (uses BaseAudioSource timer infrastructure)
         self.auto_stop_enabled = True
         self.auto_stop_delay = 10.0
+
+        # Multiroom reroute: whether the release went through /player/output
+        # (session kept) or fell back to a full stop, and what to restore.
+        self._soft_reroute = False
+        self._reroute_was_playing = False
 
         # Log monitor for error detection
         self._log_monitor_task: Optional[asyncio.Task] = None
@@ -159,6 +171,116 @@ class SpotifySource(BaseAudioSource):
         result = await self._send_api_command("stop")
         if not result.get("success"):
             self._logger.warning(f"Auto-stop /player/stop failed: {result.get('error')}")
+
+    # === Multiroom reroute ===
+
+    async def release_for_reroute(self) -> bool:
+        """Free the ALSA device for a MILO_MODE change, keeping the session.
+
+        go-librespot 0.8.0 reopens its output in place via POST /player/output,
+        preserving the Connect session, track, position and volume — so a
+        multiroom toggle no longer has to bounce the daemon and send the phone
+        looking for the speaker again.
+
+        Pause first, and wait for the daemon to confirm it: RELEASE_DEVICE does
+        not rate-limit, so an unpaused switch races through the rest of the
+        track. Any step that does not answer falls back to the base stop(): a
+        source still holding the loopback would block snapclient, which is the
+        one outcome worse than a dropped session.
+        """
+        self._soft_reroute = False
+        self._reroute_was_playing = False
+
+        if not self._session or not self._api_url:
+            return await super().release_for_reroute()
+
+        # Ground truth before pausing rather than the cached flag: a stale
+        # _is_playing=False (WS dropped mid-playback) would skip the pause and
+        # hand a live stream to a sink that does not rate-limit.
+        if not await self.refresh_metadata():
+            self._logger.warning("Reroute: daemon unreachable, falling back to a full stop")
+            return await super().release_for_reroute()
+
+        self._reroute_was_playing = self._is_playing
+
+        if self._reroute_was_playing and not await self._pause_and_confirm():
+            self._logger.warning("Reroute: pause unconfirmed, falling back to a full stop")
+            return await super().release_for_reroute()
+
+        result = await self._send_api_command("output", {"device": self.RELEASE_DEVICE})
+        if not result.get("success"):
+            self._logger.warning(
+                f"Reroute: releasing the output failed ({result.get('error')}), "
+                "falling back to a full stop"
+            )
+            return await super().release_for_reroute()
+
+        self._soft_reroute = True
+        self._logger.info("Reroute: output parked, Connect session kept")
+        return True
+
+    async def acquire_after_reroute(self) -> bool:
+        """Reopen the output on the device the new MILO_MODE selects.
+
+        The device name is explicit rather than the `milo_spotify` alias: that
+        alias resolves MILO_MODE from the daemon's own environment, frozen when
+        it started, so with no restart it would still name the old mode.
+
+        _apply_transition left the source in STARTING and nothing else clears it
+        without the usual start(), hence the final state emission here.
+        """
+        if not self._soft_reroute:
+            return await super().acquire_after_reroute()
+
+        self._soft_reroute = False
+        device = self._output_device_for_mode()
+
+        result = await self._send_api_command("output", {"device": device})
+        if not result.get("success"):
+            self._logger.warning(
+                f"Reroute: reopening on {device} failed ({result.get('error')}), "
+                "restarting the source"
+            )
+            return await super().acquire_after_reroute()
+
+        if self._reroute_was_playing:
+            resumed = await self._send_api_command("resume")
+            if not resumed.get("success"):
+                self._logger.warning(f"Reroute: resume failed: {resumed.get('error')}")
+
+        await self.refresh_metadata()
+        self._update_connection_state()
+        self._logger.info(f"Reroute: output reopened on {device}")
+        return True
+
+    @staticmethod
+    def _output_device_for_mode() -> str:
+        """ALSA device for the current routing mode.
+
+        RoutingEnv.regenerate() sets MILO_MODE in this process before the
+        re-acquire step runs, so the backend's own environment is the live
+        value. Default mirrors asound.conf's own fallback.
+        """
+        return f"milo_spotify_{os.environ.get('MILO_MODE', 'direct')}"
+
+    async def _pause_and_confirm(self, timeout: float = 2.0, interval: float = 0.05) -> bool:
+        """Pause playback and wait until go-librespot reports it paused.
+
+        The command returns before the player has actually stopped pulling
+        samples; only /status says when it has.
+        """
+        if not (await self._send_api_command("pause")).get("success"):
+            return False
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not await self.refresh_metadata():
+                return False
+            if not self._is_playing:
+                return True
+            await asyncio.sleep(interval)
+
+        return False
 
     COMMANDS = {
         "pause": None,
