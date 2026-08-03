@@ -7,12 +7,15 @@ Tests cover:
 - Status format
 - BaseAudioSource lifecycle
 """
+import asyncio
+
 import pytest
 from unittest.mock import Mock, AsyncMock
 from pydantic import BaseModel, Field
 
 from backend.core.audio_source import BaseAudioSource
-from backend.core.models.audio_state import SourceState
+from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.state import AudioStateMachine
 
 
 class _ValueParams(BaseModel):
@@ -226,6 +229,69 @@ class TestBaseAudioSourceHelpers:
 
         assert source.state == SourceState.ACTIVE
         assert source.metadata["key"] == "value"
+
+
+class TestSetStateMetadataSemantics:
+    """set_state() must leave the source's metadata copy identical to the one
+    the state machine stores.
+
+    The two are maintained independently, and two paths copy the source's copy
+    back into the machine — the post-start resync and refresh_active_metadata()
+    on every WS handshake. So any divergence (a merge here against the
+    machine's replace) resurrects fields the machine had already dropped, at a
+    moment no source chose.
+    """
+
+    @staticmethod
+    async def _publish(source, state, metadata):
+        """Run set_state and drain the update it spawns at the machine."""
+        spawned = []
+        source._bg.spawn = Mock(
+            side_effect=lambda coro, **kw: spawned.append(asyncio.ensure_future(coro))
+        )
+        source.set_state(state, metadata)
+        await asyncio.gather(*spawned)
+
+    @pytest.fixture
+    def wired(self):
+        """A real state machine with the source registered and active."""
+        state_machine = AudioStateMachine()
+        source = ConcreteAudioSource()
+        source.source_id = AudioSource.RADIO.value
+        source.state_machine = state_machine
+        state_machine.register_source(AudioSource.RADIO, source)
+        state_machine.system_state.active_source = AudioSource.RADIO
+        return source, state_machine
+
+    @pytest.mark.asyncio
+    async def test_successive_states_agree(self, wired):
+        """A second, narrower payload must not leave the earlier track behind
+        on the source while the machine has already dropped it."""
+        source, state_machine = wired
+
+        await self._publish(
+            source, SourceState.ACTIVE,
+            {"title": "Track", "artist": "Artist", "is_playing": True},
+        )
+        await self._publish(
+            source, SourceState.WAITING, {"is_playing": False},
+        )
+
+        assert source.metadata == state_machine.system_state.metadata
+
+    @pytest.mark.asyncio
+    async def test_state_only_change_agrees(self, wired):
+        """metadata=None is a state-only change on both sides (the multiroom
+        reroute flips to STARTING this way to keep the track on screen)."""
+        source, state_machine = wired
+
+        await self._publish(
+            source, SourceState.ACTIVE, {"title": "Track", "is_playing": True},
+        )
+        published = dict(state_machine.system_state.metadata)
+        await self._publish(source, SourceState.STARTING, None)
+
+        assert source.metadata == state_machine.system_state.metadata == published
 
 
 class TestSourceStateValues:
