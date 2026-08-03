@@ -3,10 +3,10 @@
     <section class="section">
       <MessageContent v-if="loading" loading :title="t('podcasts.loading')" />
       <MessageContent
-        v-else-if="networkError"
+        v-else-if="apiError"
         icon="network"
-        :title="t('podcasts.noInternet')"
-        :subtitle="t('podcasts.noInternetHint')"
+        :title="t('podcasts.catalogUnavailable')"
+        :subtitle="t('podcasts.catalogUnavailableHint')"
         :cta-label="t('podcasts.retry')"
         cta-variant="background-strong"
         :cta-click="loadData"
@@ -54,7 +54,7 @@ function isPodcastLoading(podcast) {
   return podcast.itunes_id === props.loadingPodcastId || podcast.uuid === props.loadingPodcastId
 }
 const topPodcasts = ref([])
-const networkError = ref(false)
+const apiError = ref(false)
 
 const { loading, execute: loadData } = useAsyncData(async () => {
   const result = await apiCall.get('/api/podcast/discover/by-genre', {
@@ -63,17 +63,17 @@ const { loading, execute: loadData } = useAsyncData(async () => {
     params: { genre: props.genre, limit: 30 },
   })
   if (!result.ok) {
-    networkError.value = true
+    apiError.value = true
     topPodcasts.value = []
     return
   }
   const data = result.data
-  if (data.network_error) {
-    networkError.value = true
+  if (data.api_error) {
+    apiError.value = true
     topPodcasts.value = []
     return
   }
-  networkError.value = false
+  apiError.value = false
   topPodcasts.value = data.podcasts || []
   logger.debug('podcast', `Loaded ${topPodcasts.value.length} podcasts for genre ${props.genre} in ${data.language}/${data.country}`)
 }, { logTag: 'podcast' })

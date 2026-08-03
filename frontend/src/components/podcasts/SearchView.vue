@@ -9,12 +9,12 @@
       <!-- Loading state -->
       <MessageContent v-if="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
 
-      <!-- Network error state -->
+      <!-- Podcast Index did not answer — subscriptions and playback are unaffected -->
       <MessageContent
-        v-else-if="podcastStore.networkError"
+        v-else-if="podcastStore.apiError"
         icon="network"
-        :title="t('podcasts.noInternet')"
-        :subtitle="t('podcasts.noInternetHint')"
+        :title="t('podcasts.catalogUnavailable')"
+        :subtitle="t('podcasts.catalogUnavailableHint')"
         :cta-label="t('podcasts.retry')"
         cta-variant="background-strong"
         :cta-click="performSearch"
@@ -124,10 +124,10 @@ async function performSearch() {
   })
   if (result.ok) {
     const data = result.data
-    if (data.network_error) {
-      podcastStore.networkError = true
+    if (data.api_error) {
+      podcastStore.apiError = true
     } else {
-      podcastStore.networkError = false
+      podcastStore.apiError = false
       podcastStore.setSearchResults(data.podcasts, data.pagination)
     }
   }

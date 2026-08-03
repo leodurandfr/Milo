@@ -683,7 +683,7 @@ class RadioBrowserAPI:
                 all_stations = await self._fetch_with_search_params(search_params, search_desc)
         except NetworkUnavailableError:
             self.logger.info("Network unavailable for station search")
-            return {"stations": [], "total": 0, "network_error": True}
+            return {"stations": [], "total": 0, "api_error": True}
 
         # Add manually created stations (not modified favorites)
         # Modified favorites are already enriched in the normal API flow via station_manager

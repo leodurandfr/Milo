@@ -10,7 +10,7 @@ shape in OpenAPI and fails loud (500) if a handler ever drifts from it.
 dict already omits a key conditionally, so the wire is reproduced exactly:
   - volume/state: success carries `data` (no `message`), error carries
     `message` (no `data`).
-  - radio/stations: `network_error` appears only on a degraded search.
+  - radio/stations: `api_error` appears only on a degraded search.
 No contract field carries a meaningful null (verified against both the Swift
 consumer and the frontend Zod schemas), so dropping nulls is lossless.
 
@@ -124,13 +124,18 @@ class EqualizerEnabledResponse(BaseModel):
 class RadioStationsResponse(BaseModel):
     """GET /api/radio/stations.
 
-    Served with response_model_exclude_none so `network_error` (emitted only
-    on a degraded RadioBrowser search) is absent on success. Station dicts are
+    Served with response_model_exclude_none so `api_error` (emitted only on a
+    degraded RadioBrowser search) is absent on success. Station dicts are
     opaque (enriched with favorite status) — typed Dict to preserve sub-keys.
+
+    `api_error` says the *directory* (radio-browser.info) did not answer, not
+    that the unit is offline: favourites are local and the streams come from
+    the stations' own hosts, so both keep working while it is set. The link
+    itself is reported by full_state.network_unavailable instead.
     """
     stations: List[Dict[str, Any]]
     total: int
-    network_error: Optional[bool] = None
+    api_error: Optional[bool] = None
 
 
 # --- settings/bulk (GET /api/settings/bulk) --------------------------------

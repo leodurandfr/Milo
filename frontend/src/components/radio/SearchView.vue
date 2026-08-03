@@ -30,12 +30,12 @@
       <!-- Loading state -->
       <MessageContent v-if="isLoading" loading :loading-delay="0" :title="t('audioSources.radioSource.loadingStations')" />
 
-      <!-- Network error state -->
+      <!-- The directory did not answer — favourites and playback are unaffected -->
       <MessageContent
-        v-else-if="networkError && searchResults.length === 0"
+        v-else-if="searchUnavailable && searchResults.length === 0"
         icon="network"
-        :title="t('audioSources.radioSource.noInternet')"
-        :subtitle="t('audioSources.radioSource.noInternetHint')"
+        :title="t('audioSources.radioSource.searchUnavailable')"
+        :subtitle="t('audioSources.radioSource.searchUnavailableHint')"
         :cta-label="t('audioSources.radioSource.retry')"
         cta-variant="background-strong"
         :cta-click="() => $emit('retry')"
@@ -159,9 +159,10 @@ defineProps({
   },
 
   /**
-   * Network error (DNS/connectivity)
+   * The station directory did not answer (or the backend is unreachable).
+   * Scoped to search: favourites and a tuned stream are unaffected.
    */
-  networkError: {
+  searchUnavailable: {
     type: Boolean,
     default: false
   }

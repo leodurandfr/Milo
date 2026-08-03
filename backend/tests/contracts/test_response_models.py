@@ -93,17 +93,17 @@ def test_equalizer_enabled_keys():
     assert set(emit(R.EqualizerEnabledResponse, data)) == set(data)
 
 
-def test_radio_stations_success_omits_network_error():
+def test_radio_stations_success_omits_api_error():
     data = {"stations": [{"id": "1", "name": "FIP", "favorite": True}], "total": 1}
     out = emit(R.RadioStationsResponse, data, exclude_none=True)
-    assert set(out) == {"stations", "total"}  # network_error absent on success
+    assert set(out) == {"stations", "total"}  # api_error absent on success
     assert out["stations"][0] == {"id": "1", "name": "FIP", "favorite": True}
 
 
-def test_radio_stations_degraded_keeps_network_error():
-    data = {"stations": [], "total": 0, "network_error": True}
+def test_radio_stations_degraded_keeps_api_error():
+    data = {"stations": [], "total": 0, "api_error": True}
     out = emit(R.RadioStationsResponse, data, exclude_none=True)
-    assert out["network_error"] is True
+    assert out["api_error"] is True
 
 
 def test_network_status_envelope_preserves_nested_nulls():

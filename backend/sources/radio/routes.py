@@ -144,8 +144,8 @@ async def search_stations(
                 "stations": enriched_stations,
                 "total": result["total"]
             }
-            if result.get("network_error"):
-                response["network_error"] = True
+            if result.get("api_error"):
+                response["api_error"] = True
             return response
 
 

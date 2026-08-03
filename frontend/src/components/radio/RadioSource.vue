@@ -20,7 +20,7 @@
       <SearchView v-else key="search" :country-options="countryOptions" :genre-options="genreOptions"
         :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
         :buffering-station-id="bufferingStationId" :is-loading="radioStore.loading" :has-error="radioStore.hasError"
-        :network-error="radioStore.networkError" @search="handleSearch" @retry="retrySearch"
+        :search-unavailable="radioStore.searchUnavailable" @search="handleSearch" @retry="retrySearch"
         @play-station="playStation" />
     </template>
 

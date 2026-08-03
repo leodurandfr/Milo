@@ -244,32 +244,32 @@ describe('radioStore', () => {
       );
     });
 
-    it('flags a network error when the backend reports one in the payload', async () => {
-      apiCall.get.mockResolvedValueOnce(ok({ network_error: true, stations: [], total: 0 }));
+    it('flags the search unavailable when the directory reports api_error', async () => {
+      apiCall.get.mockResolvedValueOnce(ok({ api_error: true, stations: [], total: 0 }));
 
       const result = await store.loadStations();
 
       expect(result).toBe(false);
-      expect(store.networkError).toBe(true);
+      expect(store.searchUnavailable).toBe(true);
       expect(store.hasError).toBe(true);
     });
 
-    it('flags a network error when the request fails at TCP level (status null)', async () => {
+    it('flags the search unavailable when the request fails at TCP level (status null)', async () => {
       apiCall.get.mockResolvedValueOnce(fail('Network Error', null));
 
       await store.loadStations();
 
-      expect(store.networkError).toBe(true);
+      expect(store.searchUnavailable).toBe(true);
       expect(store.hasError).toBe(true);
     });
 
-    it('does not flag a network error on an HTTP error status', async () => {
+    it('leaves the search available on an HTTP error status', async () => {
       apiCall.get.mockResolvedValueOnce(fail('Bad request', 400));
 
       await store.loadStations();
 
       expect(store.hasError).toBe(true);
-      expect(store.networkError).toBe(false);
+      expect(store.searchUnavailable).toBe(false);
     });
 
     it('stays silent when the request was cancelled by a newer search', async () => {
@@ -280,7 +280,7 @@ describe('radioStore', () => {
 
       expect(result).toBe(false);
       expect(store.hasError).toBe(false);
-      expect(store.networkError).toBe(false);
+      expect(store.searchUnavailable).toBe(false);
     });
 
     it('loads favorites into their own list when favoritesOnly is set', async () => {

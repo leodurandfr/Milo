@@ -99,8 +99,8 @@ async def get_content_by_genre(
             "language": milo_language,
             "country": itunes_country
         }
-        if podcasts_result.get("network_error"):
-            response["network_error"] = True
+        if podcasts_result.get("api_error"):
+            response["api_error"] = True
         return response
 
 
@@ -169,8 +169,8 @@ async def search_podcasts(
                 "podcasts": result.get('pagination', {}).get('podcasts', {"total": 0, "pages": 0}),
             },
         }
-        if result.get("network_error"):
-            response["network_error"] = True
+        if result.get("api_error"):
+            response["api_error"] = True
         return response
 
 
