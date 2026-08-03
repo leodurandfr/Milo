@@ -61,6 +61,11 @@ class SpotifySource(BaseAudioSource):
     # into the next one in about two seconds.
     RELEASE_DEVICE = "null"
 
+    # How long to wait before re-reading /status after a failed refresh. Short
+    # enough that a transient blip doesn't leave a visibly stale screen, long
+    # enough to clear a daemon restart's unreachable window.
+    STATUS_RETRY_DELAY = 2.0
+
     def __init__(
         self,
         config: Optional[Dict[str, Any]] = None,
@@ -92,6 +97,7 @@ class SpotifySource(BaseAudioSource):
         self._is_playing = False
         self._device_connected = False
         self._ws_connected = False
+        self._status_retry_pending = False
 
         # Auto-stop (uses BaseAudioSource timer infrastructure)
         self.auto_stop_enabled = True
@@ -488,11 +494,71 @@ class SpotifySource(BaseAudioSource):
         elif event_type == "not_playing":
             await self._on_not_playing()
 
+    async def _publish_after_refresh(self, context: str, **overrides: Any) -> None:
+        """Re-read go-librespot's /status, then publish what it reported.
+
+        The event handlers below optimistically set _device_connected before
+        calling this, because a go-librespot event *is* a session. But a failed
+        refresh (daemon unreachable, non-200) means we learned nothing:
+        publishing anyway announces ACTIVE carrying whatever stale — or empty —
+        metadata we happen to hold, which is how the screen ends up claiming
+        "waiting" over audible playback. So on failure, keep the last published
+        state, broadcast nothing, and re-read once shortly after.
+
+        `overrides` are the fields the event carries and /status does not (the
+        buffering edge on a track change).
+        """
+        if not await self.refresh_metadata():
+            self._logger.warning(
+                f"{context}: go-librespot status unavailable — keeping last published state"
+            )
+            self._schedule_status_retry()
+            return
+
+        self._metadata.update(overrides)
+
+        # A session whose track carries no name: nothing to render, so publish
+        # the idle state rather than an ACTIVE the UI cannot draw.
+        if self._device_connected and not self._metadata.get("title"):
+            self._logger.warning(
+                f"{context}: go-librespot reports a session with no track title — "
+                f"publishing WAITING"
+            )
+            self._device_connected = False
+
+        self._update_connection_state()
+
+    def _schedule_status_retry(self) -> None:
+        """Re-read /status once, shortly, after a failed refresh.
+
+        go-librespot emits an event only on change, so it will not re-announce
+        the one we just failed to read: without this the source stays on the
+        previous state until the next user action. Coalesced — a burst of failing
+        events schedules one retry, not one each.
+        """
+        if self._status_retry_pending:
+            return
+        self._status_retry_pending = True
+        self._bg.spawn(self._retry_status(), label="status_retry")
+
+    async def _retry_status(self) -> None:
+        """The delayed half of _schedule_status_retry (drained by stop())."""
+        try:
+            await asyncio.sleep(self.STATUS_RETRY_DELAY)
+            if await self.refresh_metadata():
+                self._update_connection_state()
+            else:
+                self._logger.warning(
+                    "go-librespot status still unavailable after retry — "
+                    "leaving the source on its last published state"
+                )
+        finally:
+            self._status_retry_pending = False
+
     async def _on_device_active(self) -> None:
         """Handle device active event."""
         self._device_connected = True
-        await self.refresh_metadata()
-        self._update_connection_state()
+        await self._publish_after_refresh("device active")
 
     async def _on_device_inactive(self) -> None:
         """Handle device inactive event."""
@@ -512,10 +578,9 @@ class SpotifySource(BaseAudioSource):
         else:
             self._start_pause_timer()
 
-        await self.refresh_metadata()
-        self._metadata["is_playing"] = is_playing
-        self._metadata["is_buffering"] = False
-        self._update_connection_state()
+        await self._publish_after_refresh(
+            "playback state", is_playing=is_playing, is_buffering=False
+        )
 
     async def _on_metadata_update(self) -> None:
         """Handle metadata update event.
@@ -523,14 +588,11 @@ class SpotifySource(BaseAudioSource):
         Set is_buffering=true so the frontend shows a spinner while the new
         track loads.  Cleared when the 'playing' event arrives.
         """
-        await self.refresh_metadata()
-        self._metadata["is_buffering"] = True
-        self._update_connection_state()
+        await self._publish_after_refresh("metadata update", is_buffering=True)
 
     async def _on_seek(self) -> None:
         """Handle seek event."""
-        await self.refresh_metadata()
-        self._update_connection_state()
+        await self._publish_after_refresh("seek")
 
     async def _on_stopped(self) -> None:
         """Handle stopped event - context ended, nothing more to play."""
