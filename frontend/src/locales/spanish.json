@@ -243,7 +243,7 @@
     "ejecting": "Expulsando..."
   },
   "volumeSettings": {
-    "volumeManagement": "Gestión del volumen",
+    "volumeManagement": "Volumen gestionado por Milō",
     "volumeNotManaged": "El volumen no es gestionado por Milō",
     "controls": "Controles de volumen",
     "rotaryStep": "Variación de volumen por rotación",
@@ -688,7 +688,7 @@
       "title": "Selecciona tu tarjeta de audio",
       "amplifiers": "Amplificadores",
       "dacs": "DACs",
-      "volumeManagement": "Gestión del volumen",
+      "volumeManagement": "Volumen gestionado por Milō",
       "none": "Sin tarjeta de audio",
       "other": "Otro"
     },
