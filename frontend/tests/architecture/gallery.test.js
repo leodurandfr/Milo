@@ -40,6 +40,15 @@ import { GROUPS, ENTRIES, SCOPE, EXCLUDED, isScreen, entriesOf } from '../../src
 import { REGISTRY, SOURCE_REGISTRY, entryFor, overridesFor, AUDIO_SOURCES_ID } from '../../src/components/gallery/registry.js';
 import { describeProps } from '../../src/components/gallery/controls.js';
 import { SOURCE_PAGES, SNAPSHOT_READERS, allRecords, sourcePageById } from '../../src/components/gallery/sources.js';
+import {
+  SECTIONS,
+  MOBILE,
+  TYPE_STYLES,
+  EXCLUDED_SECTIONS,
+  FOUNDATION_PAGES,
+  FOUNDATION_PAGE_PREFIX,
+  foundationPageById
+} from '../../src/components/gallery/foundations.js';
 import { ALL_AUDIO_SOURCES } from '../../src/constants/audioSources.js';
 import { useRadioStore } from '../../src/stores/radioStore.js';
 import { useMusicLibraryStore } from '../../src/stores/musicLibraryStore.js';
@@ -852,6 +861,7 @@ describe('component gallery source pages', () => {
     // goes through sendCommand, which the canvas replaces with a reporter.
     expect(CANVAS).toMatch(/context\.unified\.sendCommand\s*=/);
   });
+
   it('hands the source stage the viewport its preset is named after', () => {
     // The stage pads itself, which is right for a primitive sitting on it and
     // wrong for a source: the presets are labelled "1280 × 800 — the unit", and
@@ -868,5 +878,157 @@ describe('component gallery source pages', () => {
     // height is `100vh - 2 * var(--canvas-pad)`, so a rule that set `padding: 0`
     // alone would leave the source 48 px taller than its own viewport.
     expect(CANVAS).toMatch(/\.canvas\.canvas--bleed\s*\{\s*--canvas-pad:\s*0/);
+  });
+});
+
+/**
+ * The third axis: the design tokens, parsed out of design-system.css rather
+ * than restated beside it.
+ *
+ * Deriving the page from the stylesheet removes the drift a hand-written token
+ * list would have, and replaces it with a narrower one: the parse can quietly
+ * stop finding things. A renamed `=== SECTION ===` marker, a heading nobody
+ * assigned to a page, a utility class whose font-size token moved — each of
+ * them subtracts a block from the page and reports nothing, which is the exact
+ * failure mode a design-system index cannot afford. So the mapping is checked
+ * in both directions, the way the catalogue's is: every section in the file is
+ * on a page or excluded *with a reason*, and every exclusion still names a
+ * section that exists.
+ */
+describe('component gallery foundations', () => {
+  const CSS = readFileSync(join(SRC_DIR, 'assets/styles/design-system.css'), 'utf8');
+  const RENDERER = readFileSync(join(SRC_DIR, 'components/gallery/FoundationsPage.vue'), 'utf8');
+  const TITLES = SECTIONS.map(section => section.title);
+  const TOKENS = SECTIONS.flatMap(section => section.tokens);
+
+  /** Kinds the renderer declares a branch for — `block.kind === 'swatch'`, … */
+  const DRAWABLE = [...RENDERER.matchAll(/block\.kind === '([a-z]+)'/g)].map(match => match[1]);
+
+  it('read a plausible surface', () => {
+    // Every check below is over what the parse produced, so a parse that fell
+    // over — a moved `:root`, a comment that swallowed the file — would make
+    // them all vacuously pass.
+    expect(TITLES.length).toBeGreaterThan(10);
+    expect(TOKENS.length).toBeGreaterThan(60);
+    expect(TYPE_STYLES.length).toBeGreaterThan(5);
+    expect(Object.keys(MOBILE).length).toBeGreaterThan(5);
+    expect(FOUNDATION_PAGES.length).toBeGreaterThan(3);
+    expect(DRAWABLE.length).toBeGreaterThan(3);
+
+    // The `:root` body is sliced to its first closing brace. TRANSITIONS is the
+    // last section in it, so finding it proves the slice reached the end rather
+    // than stopping at something that looked like one.
+    expect(TITLES).toContain('TRANSITIONS');
+  });
+
+  it('parses declarations, not prose', () => {
+    // The comment branch of the regex is what keeps a token named inside a
+    // paragraph out of the list, and a value from swallowing the comment that
+    // follows it. Both failures look like a plausible page.
+    const malformed = TOKENS
+      .filter(token => !/^--[\w-]+$/.test(token.name) || !token.value || /[{}]|\/\*/.test(token.value))
+      .map(token => token.name);
+
+    expect(malformed).toEqual([]);
+  });
+
+  it('accounts for every section the stylesheet declares', () => {
+    const owned = new Set(FOUNDATION_PAGES.flatMap(page => page.sections));
+    const orphans = TITLES.filter(title => !owned.has(title) && !EXCLUDED_SECTIONS[title]);
+
+    // A section added to design-system.css that reaches no page is invisible on
+    // the page that is supposed to be the design system's index. Put it on one,
+    // or say in EXCLUDED_SECTIONS why it does not belong there.
+    expect(orphans).toEqual([]);
+  });
+
+  it('excludes nothing absent, nothing owned, and nothing without a reason', () => {
+    const owned = new Set(FOUNDATION_PAGES.flatMap(page => page.sections));
+    const problems = [];
+
+    for (const [title, reason] of Object.entries(EXCLUDED_SECTIONS)) {
+      if (!TITLES.includes(title)) problems.push(`${title} (no such section)`);
+      if (owned.has(title)) problems.push(`${title} (also on a page)`);
+      if ((reason || '').length < 40) problems.push(`${title} (thin reason)`);
+    }
+
+    // An exclusion that outlives its section is the same stale-whitelist failure
+    // the catalogue side is checked for.
+    expect(problems).toEqual([]);
+  });
+
+  it('gives every page an id it can be reached by, and something to read', () => {
+    const problems = [];
+    const seen = new Set();
+
+    for (const page of FOUNDATION_PAGES) {
+      if (!page.id.startsWith(FOUNDATION_PAGE_PREFIX)) problems.push(`${page.id} (unprefixed)`);
+      if (seen.has(page.id)) problems.push(`${page.id} (duplicate id)`);
+      seen.add(page.id);
+      // The route carries the id, and the view resolves it back through this.
+      if (foundationPageById(page.id) !== page) problems.push(`${page.id} (not findable by id)`);
+      if ((page.summary || '').length < 40) problems.push(`${page.id} (thin summary)`);
+      if (!page.sections.length) problems.push(`${page.id} (owns no section)`);
+    }
+
+    expect(problems).toEqual([]);
+  });
+
+  it('builds a drawable, non-empty block for every section a page owns', () => {
+    const problems = [];
+
+    for (const page of FOUNDATION_PAGES) {
+      // A section title that no longer matches the stylesheet is dropped by
+      // `sectionBlock`, which is silent: the page renders one block short.
+      const built = page.blocks.filter(block => page.sections.includes(block.title));
+      if (built.length !== page.sections.length) problems.push(`${page.id} (${built.length}/${page.sections.length} sections built)`);
+
+      for (const block of page.blocks) {
+        // An unmapped kind falls through to the plain name/value list — the
+        // colours would render as text, and nothing would say so.
+        if (!DRAWABLE.includes(block.kind)) problems.push(`${page.id}.${block.title} (kind "${block.kind}" has no branch)`);
+        if (block.tokens && !block.tokens.length) problems.push(`${page.id}.${block.title} (no tokens)`);
+      }
+    }
+
+    expect(problems).toEqual([]);
+  });
+
+  it('reads each typography class off the stylesheet, tokens and all', () => {
+    const declared = new Set(SECTIONS.find(section => section.title === 'TEXT STYLES')?.tokens.map(token => token.name));
+    const problems = [];
+
+    expect(declared.size).toBeGreaterThan(0);
+
+    for (const style of TYPE_STYLES) {
+      // Read from the file independently of the parse: a class the parse
+      // invented, or one it kept after a rename, renders a specimen in the
+      // browser's fallback font and looks like a font-loading bug.
+      if (!CSS.includes(`.${style.className} {`)) problems.push(`${style.className} (no such class)`);
+      if (!style.family || style.family.includes('var(')) problems.push(`${style.className} (no family)`);
+
+      for (const field of ['size', 'lineHeight', 'letterSpacing']) {
+        const operand = style[field];
+        if (!operand) {
+          problems.push(`${style.className}.${field} (declares no token)`);
+        } else if (!declared.has(operand.token)) {
+          // The class reads a token TEXT STYLES does not declare — the specimen
+          // would report an empty value beside a correctly rendered sample.
+          problems.push(`${style.className}.${field} (${operand.token} not in TEXT STYLES)`);
+        }
+      }
+    }
+
+    expect(problems).toEqual([]);
+  });
+
+  it('overrides only tokens that exist below 4:3', () => {
+    const base = new Set(TOKENS.map(token => token.name));
+    const orphans = Object.keys(MOBILE).filter(name => !base.has(name));
+
+    // A mobile-only token is undefined on every other viewport, which is a
+    // stylesheet bug this page is in a position to catch — and, short of that,
+    // a value shown beside a base value that was never parsed.
+    expect(orphans).toEqual([]);
   });
 });

@@ -50,6 +50,7 @@ import { computed } from 'vue';
 import { GROUPS, entriesOf } from './catalog';
 import { AUDIO_SOURCES_ID } from './registry';
 import { SOURCE_PAGES } from './sources';
+import { FOUNDATION_PAGES } from './foundations';
 
 /**
  * The second axis, first in the list, and one row rather than ten: the source
@@ -71,6 +72,18 @@ const SOURCE_GROUP = {
   pages: [{ id: AUDIO_SOURCES_ID, label: 'Audio sources' }]
 };
 
+/**
+ * First of the three, because it is the coarsest question of all: a component
+ * is made of these, and a source is made of components. One entry per page
+ * rather than a select like the sources row — four planches of a hundred tokens
+ * are four things to open, not one thing with four states.
+ */
+const FOUNDATION_GROUP = {
+  id: 'foundations',
+  title: 'Foundations',
+  pages: FOUNDATION_PAGES.map(page => ({ id: page.id, label: page.title }))
+};
+
 const props = defineProps({
   /** Catalogue id currently open in the canvas. */
   selected: {
@@ -89,6 +102,12 @@ defineEmits(['select', 'update:query']);
 const visibleGroups = computed(() => {
   const needle = props.query.trim().toLowerCase();
 
+  const foundations = {
+    id: FOUNDATION_GROUP.id,
+    title: FOUNDATION_GROUP.title,
+    entries: FOUNDATION_GROUP.pages.filter(page => !needle || page.label.toLowerCase().includes(needle))
+  };
+
   const matchesSources = !needle
     || SOURCE_GROUP.pages.some(page => page.label.toLowerCase().includes(needle))
     || SOURCE_NAMES.some(name => name.includes(needle));
@@ -105,7 +124,7 @@ const visibleGroups = computed(() => {
       entries: entriesOf(group.id).filter(entry => !needle || entry.id.toLowerCase().includes(needle))
     }));
 
-  return [sources, ...components].filter(group => group.entries.length);
+  return [foundations, sources, ...components].filter(group => group.entries.length);
 });
 </script>
 
