@@ -243,29 +243,7 @@ const hasNext = computed(() => store.queueIndex >= 0 && store.queueIndex < store
   display: none;
 }
 
-/* Docked-player controls: single transport row (shuffle … prev·play·next … like). */
-.ml-controls {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-  width: 100%;
-}
-
-/* Centered transport trio (prev · play · next). */
-.ml-transport-main {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-02);
-}
-
-/* Desktop: shuffle pinned far-left, like far-right, trio centered between.
-   Mobile keeps the trio centered (shuffle/like are hidden there). */
-/* @media (min-aspect-ratio: 4/3) {
-  .ml-controls .playback-controls {
-    justify-content: space-between;
-    padding: 0 var(--space-01);
-  }
-} */
+/* The .ml-controls / .ml-transport-main layout lives in AudioPlayer.vue, in
+   :deep() — this row is slotted into it, and the same row is re-authored by the
+   gallery's SourceStage, which scoped CSS here could never reach. */
 </style>

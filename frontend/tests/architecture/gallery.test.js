@@ -758,47 +758,67 @@ describe('component gallery source pages', () => {
     // the gallery did until someone noticed the wrong button on screen.
     //
     // Checked by class name because the class *is* the contract: AudioPlayer's
-    // CSS sizes and hides these by name (.ml-transport-extra is display:none on
-    // mobile, .desktop-only likewise), so a rename in the source leaves the
-    // gallery rendering an unstyled row that still looks plausible.
+    // CSS lays these rows out, sizes them and hides half of them by name, so a
+    // rename in the source leaves the gallery rendering an unstyled row that
+    // still looks plausible.
+    //
+    // And the layout has to live in AudioPlayer. A `<style scoped>` reaches only
+    // the markup its own file authors, so the same rule written in the source
+    // dresses the app's copy of the row and leaves the stage's copy bare — which
+    // is exactly what happened: radio's stop button was not full width, the
+    // speed selector was not pinned left, and the music-library transport row
+    // was not a flex column, on a page whose entire promise is that it renders
+    // what the unit renders. Both halves are checked, because either one alone
+    // passes while the screen is wrong.
     const stage = readFileSync(join(SRC_DIR, 'components/gallery/SourceStage.vue'), 'utf8');
     const player = readFileSync(join(SRC_DIR, 'components/audio/AudioPlayer.vue'), 'utf8');
 
-    // `styledByPlayer` is the half the gallery renders faithfully: AudioPlayer
-    // styles those by name through :deep(), so the stage's copy of the markup
-    // gets them. The rest are styled in the *source's own scoped* CSS, which by
-    // definition cannot reach the stage — those classes are still checked for
-    // existence, but their layout is a known gap, not a promise.
+    /** A file's `<style>` blocks, comments stripped — a class named in prose is not a rule. */
+    const stylesOf = source =>
+      (source.match(/<style[\s\S]*?<\/style>/g) || []).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+
+    /** Everything before `<script>`: where a class is *used* rather than styled. */
+    const templateOf = source => source.split(/<script[\s>]/)[0];
+
     const CONTRACTS = [
       {
         owner: 'components/radio/RadioSource.vue',
-        classes: ['radio-controls', 'horizontal-layout'],
-        styledByPlayer: ['horizontal-layout']
+        classes: ['radio-controls', 'radio-controls-main', 'horizontal-layout']
       },
       {
         owner: 'components/podcasts/PodcastSource.vue',
-        classes: ['speed-selector', 'desktop-only'],
-        styledByPlayer: ['desktop-only']
+        classes: ['speed-selector', 'desktop-only']
       },
       {
         owner: 'components/music-library/MusicLibrarySource.vue',
-        classes: ['ml-controls', 'ml-transport-main', 'ml-transport-extra'],
-        styledByPlayer: ['ml-controls', 'ml-transport-main', 'ml-transport-extra']
+        classes: ['ml-controls', 'ml-transport-main', 'ml-transport-extra']
       }
     ];
 
+    const playerStyles = stylesOf(player);
     const broken = [];
-    for (const { owner, classes, styledByPlayer } of CONTRACTS) {
+    let checked = 0;
+
+    for (const { owner, classes } of CONTRACTS) {
       const source = readFileSync(join(SRC_DIR, owner), 'utf8');
+      const ownerStyles = stylesOf(source);
+
       for (const name of classes) {
+        checked += 1;
         if (!stage.includes(name)) broken.push(`${name} (missing from SourceStage)`);
-        if (!source.includes(name)) broken.push(`${name} (gone from ${owner})`);
-        if (styledByPlayer.includes(name) && !player.includes(name)) {
-          broken.push(`${name} (AudioPlayer styles it no more)`);
+        if (!templateOf(source).includes(name)) broken.push(`${name} (gone from ${owner})`);
+        // A selector, not a mention: `.name` followed by what can continue one
+        // — including `)`, since AudioPlayer reaches slotted markup via :deep().
+        const selector = new RegExp(`\\.${name}[\\s.,:>){]`);
+        if (!selector.test(playerStyles)) broken.push(`${name} (AudioPlayer styles it no more)`);
+        if (selector.test(ownerStyles)) {
+          broken.push(`${name} (styled in ${owner}'s scoped CSS — the stage's copy cannot see it)`);
         }
       }
     }
 
+    // A CONTRACTS list that emptied itself would pass vacuously.
+    expect(checked).toBeGreaterThan(5);
     expect(broken).toEqual([]);
   });
 

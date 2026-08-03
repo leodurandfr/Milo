@@ -847,6 +847,76 @@ img.player-artwork.loaded {
   width: 100%;
 }
 
+/* === Per-source transport layout ===
+   The #controls slot has a default (a lone play/pause) and all three browser
+   sources replace it with their own row, so its layout has to live somewhere.
+   It lives here, beside the sizing rules that already key off these same class
+   names, rather than in each source's scoped CSS: scoped CSS reaches only the
+   markup that file authors, and the same rows are re-authored by the gallery's
+   SourceStage — which left the transports rendering unstyled there while
+   looking plausible. One home per class, and the class is already the contract. */
+
+/* Radio: a text Button plus a favourite, not a ghost icon row. */
+:deep(.radio-controls) {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-02);
+  z-index: 1;
+  width: 100%;
+}
+
+/* .vertical-layout renders identically wherever it's shown — desktop sidebar
+   and the mobile expanded sheet alike (the layout toggle above hides it in the
+   mobile docked mini-bar only) — so its width/justify rules must NOT be
+   aspect-ratio-gated, or the sheet loses parity with the desktop sidebar. */
+:deep(.radio-controls-main) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-02);
+  width: 100%;
+}
+
+:deep(.radio-controls-main .btn) {
+  width: 100%;
+}
+
+/* Podcast: the speed dropdown is pulled out of the centred transport row and
+   pinned to the row's left edge (.controls is the positioned ancestor). */
+:deep(.speed-selector) {
+  display: flex;
+  align-items: center;
+  position: absolute;
+  left: 0;
+}
+
+:deep(.speed-selector .dropdown) {
+  width: auto;
+  flex: none;
+}
+
+:deep(.speed-selector .dropdown-menu) {
+  min-width: 100px;
+}
+
+/* Music library: one transport row (shuffle … prev·play·next … like), with the
+   trio centred inside it. */
+:deep(.ml-controls) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-03);
+  width: 100%;
+}
+
+:deep(.ml-transport-main) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-02);
+}
+
 /* Mobile: Horizontal bottom panel layout */
 @media (max-aspect-ratio: 4/3) {
   .audio-player {
@@ -1043,6 +1113,19 @@ img.player-artwork.loaded {
      desktop-only — the swipe gesture covers prev/next on mobile instead. */
   .audio-player.source-music_library :deep(.ml-transport-extra) {
     display: none;
+  }
+
+  /* Radio's docked mini-bar renders only the compact ghost icon button
+     (.horizontal-layout) — push it to the row's edge. */
+  :deep(.radio-controls) {
+    justify-content: flex-end;
+  }
+
+  /* Nothing to pin against in the single mini-bar row: the speed selector goes
+     back in flow. (Only reached in the expanded sheet — it is .desktop-only in
+     the docked bar.) */
+  :deep(.speed-selector) {
+    position: static;
   }
 
   /* Radio, track detected: two 48px thumbnails overlapping by half. The station
