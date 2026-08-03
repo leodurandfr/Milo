@@ -637,6 +637,9 @@
       "usbDisconnected": "Archivio USB scollegato",
       "shareDisconnected": "{name} è scollegato",
       "disconnectedHint": "La sua musica resta indicizzata e torna appena lo ricolleghi.",
+      "notIndexed": "{name} deve essere reindicizzato",
+      "notIndexedHint": "I file ci sono, ma l'indice li ha persi di vista. Reindicizzare riporta la musica.",
+      "reindex": "Reindicizza",
       "separateTitle": "Separa gli archivi",
       "separateDescription": "Mostra una scheda per ogni chiavetta USB e server di rete. Disattiva per sfogliare tutta la musica insieme."
     },

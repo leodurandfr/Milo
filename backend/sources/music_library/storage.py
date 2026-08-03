@@ -25,6 +25,7 @@ Navidrome not provisioned yet must degrade to "auto-mount disabled" and log,
 never crash the backend.
 """
 import asyncio
+import contextlib
 import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -56,6 +57,13 @@ _MOUNTABLE_FSTYPES = frozenset(
 # Ceiling on a single mount/unmount helper call (a slow spin-up USB key still
 # mounts well within this; a hang must not wedge the monitor).
 _HELPER_TIMEOUT_S = 30.0
+
+# Cadence and ceiling for waiting out a scan that was already running when a
+# mount landed (see _scan_when_idle). The ceiling only decides how long we keep
+# our own promise: past it, Navidrome's hourly incremental pass still picks the
+# mount up, so an over-long wait costs latency, never correctness.
+_SCAN_WAIT_POLL_S = 5.0
+_SCAN_WAIT_CEILING_S = 600.0
 
 
 class StorageManager:
@@ -91,6 +99,11 @@ class StorageManager:
         self._mounts: Dict[str, Dict[str, str]] = {}
         # share id -> mountpoint (/media/milo/<id>)  [network shares]
         self._share_mounts: Dict[str, str] = {}
+        # A rescan owed to a mount that landed while another scan was running,
+        # and the lock that keeps two mounts from each starting their own waiter.
+        self._deferred_scan: Optional[asyncio.Task] = None
+        self._deferred_scan_full = False
+        self._scan_lock = asyncio.Lock()
 
     async def initialize(self) -> bool:
         """Mount any USB drive already present, then start the hotplug monitor.
@@ -135,6 +148,11 @@ class StorageManager:
 
     async def cleanup(self) -> None:
         """Stop the monitor thread. The Navidrome client belongs to the source."""
+        if self._deferred_scan is not None and not self._deferred_scan.done():
+            self._deferred_scan.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._deferred_scan
+        self._deferred_scan = None
         if self._observer is not None:
             try:
                 self._observer.stop()
@@ -428,22 +446,89 @@ class StorageManager:
         leaving them as empty "ghost" albums. A plain mount keeps the quick scan
         (fast, add-only; a transient outage must never purge valid tracks).
 
-        Best-effort: Navidrome's own folder watcher also notices, so a failure
-        here (not provisioned yet, still starting up) just means a slightly later
-        index update. The provider builds the client on first use, so a cred file
-        that only appeared after startup is picked up (first boot provisions it
-        asynchronously).
+        A scan already in flight started before this mount existed, so it cannot
+        possibly index it — and asking anyway achieves nothing: Navidrome answers
+        `startScan` with HTTP 200 "ok" and its full scanStatus while logging
+        "Error scanning: already scanning" server-side, so the refusal is
+        invisible from here and start_scan() returns True on a call that did
+        nothing. The only honest reading is scanStatus.scanning *before* asking,
+        which is why this checks first and hands a busy scanner to
+        :meth:`_scan_when_idle` rather than firing into it.
+
+        There is no folder watcher to fall back on. inotify reports neither the
+        mount that made these files visible (the contents come from another
+        superblock — no events) nor later writes on the far side of a network
+        share, so nothing else announces a storage space appearing.
         """
         client = await self._navidrome_provider()
         if client is None:
-            self.logger.info(
-                "Navidrome client unavailable; relying on its folder watcher"
-            )
+            # First boot provisions the cred file asynchronously; the provider
+            # builds the client on first use, so a later mount still scans.
+            self.logger.info("Navidrome client unavailable; skipping rescan")
             return
+
+        async with self._scan_lock:
+            if self._deferred_scan is not None and not self._deferred_scan.done():
+                # A waiter is already owed a scan — fold this request into it
+                # rather than queueing a second pass over the same tree.
+                self._deferred_scan_full |= full
+                return
+            if await self._scan_in_progress(client):
+                self._deferred_scan_full = full
+                self._deferred_scan = asyncio.create_task(self._scan_when_idle())
+                return
+
+        await self._start_scan(client, full)
+
+    async def _scan_in_progress(self, client: NavidromeClient) -> bool:
+        """Whether Navidrome is scanning right now; False when it can't say.
+
+        Unknown counts as idle on purpose: a scan we fire needlessly is a wasted
+        incremental pass, while one we skip on a failed poll is a storage space
+        that stays uncatalogued until the hourly schedule.
+        """
+        try:
+            status = await client.get_scan_status()
+        except Exception as exc:
+            self.logger.debug("Could not read Navidrome scan status: %s", exc)
+            return False
+        return bool(status and status.get("scanning"))
+
+    async def _scan_when_idle(self) -> None:
+        """Wait out the running scan, then run the one the mount is owed.
+
+        Tracked on ``self`` and cancelled in :meth:`cleanup`. Giving up at the
+        ceiling is not a lost catalog: Navidrome's hourly incremental pass sees
+        the mount regardless, so this only decides whether the new storage space
+        appears in seconds or within the hour.
+        """
+        waited = 0.0
+        try:
+            client = await self._navidrome_provider()
+            while client is not None and await self._scan_in_progress(client):
+                if waited >= _SCAN_WAIT_CEILING_S:
+                    self.logger.warning(
+                        "Navidrome still scanning after %.0fs; leaving the mount "
+                        "to the scheduled rescan", waited
+                    )
+                    return
+                await asyncio.sleep(_SCAN_WAIT_POLL_S)
+                waited += _SCAN_WAIT_POLL_S
+            if client is None:
+                return
+            async with self._scan_lock:
+                full = self._deferred_scan_full
+                self._deferred_scan_full = False
+            await self._start_scan(client, full)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.logger.warning("Deferred Navidrome rescan failed: %s", exc)
+
+    async def _start_scan(self, client: NavidromeClient, full: bool) -> None:
+        """The one place a scan is actually asked for."""
         try:
             if not await client.start_scan(full=full):
-                self.logger.info(
-                    "Navidrome scan trigger returned falsy (may be starting up)"
-                )
+                self.logger.warning("Navidrome refused the scan request")
         except Exception as exc:
             self.logger.warning("Navidrome scan trigger failed: %s", exc)
