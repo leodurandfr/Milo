@@ -165,14 +165,34 @@ class SystemInitialState(WsEvent):
 # =============================================================================
 
 class SourceStateChanged(WsEvent):
-    """App.vue → unifiedAudioStore + error banner (new_state == "error" reads
-    metadata.error); podcastStore tracks episode state from it."""
+    """App.vue → unifiedAudioStore; podcastStore tracks episode state from it.
+
+    Carries the source's own operational state, `SourceState` verbatim. A failed
+    *operation* is not one of those — it rides on SourceError, and ERROR (the
+    source is down) is settled by the state machine, which broadcasts its
+    snapshot through SystemStateChanged.
+    """
     CATEGORY = "source"
     TYPE = "state_changed"
     INCLUDE_FULL_STATE = True
     source: str
     new_state: str
     metadata: Optional[Dict[str, Any]] = None
+
+
+class SourceError(WsEvent):
+    """App.vue raises the notification banner from it; SourceErrorCleared dismisses.
+
+    The banner half of the two error mechanisms: an *operation* failed (a station
+    that will not tune, a command the daemon refused) while the source stays
+    usable. The source being down is a state instead — SourceState.ERROR in
+    full_state — and no consumer should infer one from the other.
+    """
+    CATEGORY = "source"
+    TYPE = "error"
+    INCLUDE_FULL_STATE = True
+    source: str
+    message: str
 
 
 class SourceErrorCleared(WsEvent):

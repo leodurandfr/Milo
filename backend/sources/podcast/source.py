@@ -380,7 +380,7 @@ class PodcastSource(MpvAudioSource):
                 "ready": True
             }
 
-            self.set_state(SourceState.WAITING, self._metadata)
+            self.set_state(SourceState.READY, self._metadata)
 
             return self.success_response("Playback stopped")
 
@@ -581,11 +581,11 @@ class PodcastSource(MpvAudioSource):
             self._position = 0
             self._duration = 0
 
-            # WAITING metadata: {episode_ended: bool, episode_uuid: str, completed: bool}.
+            # READY metadata: {episode_ended: bool, episode_uuid: str, completed: bool}.
             # episode_uuid + completed let the frontend flip the just-finished card to
             # "already listened" reactively, without a re-fetch.
             self.set_state(
-                SourceState.WAITING,
+                SourceState.READY,
                 {"episode_ended": True, "episode_uuid": finished_uuid, "completed": True}
             )
 

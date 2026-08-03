@@ -106,7 +106,7 @@ class MpvAudioSource(BaseAudioSource):
     async def _on_auto_stop(self) -> None:
         """Stop playback in-source after pause timeout.
 
-        Keeps active_source unchanged (source_state → WAITING). The
+        Keeps active_source unchanged (source_state → READY). The
         AudioPlayer hides while the user's source-tab stays open; the 12h
         INACTIVITY_TIMEOUT in AudioStateMachine handles the final source
         close.
@@ -117,7 +117,7 @@ class MpvAudioSource(BaseAudioSource):
 
         Subclasses implement `_auto_stop_action()` to perform their
         source-specific stop sequence (clear current item, stop mpv,
-        broadcast WAITING).
+        broadcast READY).
         """
         if (
             self.state_machine

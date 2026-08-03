@@ -158,11 +158,11 @@ class TestConnectionState:
     """Test connection state management."""
 
     def test_update_state_no_clients(self, mac_source):
-        """Test state is WAITING with no clients."""
+        """Test state is READY with no clients."""
         mac_source.connected_clients = {}
         mac_source._update_connection_state()
 
-        assert mac_source.state == SourceState.WAITING
+        assert mac_source.state == SourceState.READY
 
     def test_update_state_with_clients(self, mac_source):
         """Test state is ACTIVE with clients."""

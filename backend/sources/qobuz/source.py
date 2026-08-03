@@ -39,7 +39,7 @@ _ACTIVE_STATUSES = {"playing", "paused"}
 
 # A track change makes qobuz-proxy briefly report idle / an empty now_playing for
 # a poll tick or two. Hold the last ACTIVE state for this many ticks (~poll_interval
-# each) before committing to WAITING, so the UI doesn't flash the "ready to stream"
+# each) before committing to READY, so the UI doesn't flash the "ready to stream"
 # fallback between tracks. A real stop persists past the window; a track change
 # does not.
 _IDLE_GRACE_TICKS = 3
@@ -48,7 +48,7 @@ _IDLE_GRACE_TICKS = 3
 # is still empty at the start of a session. Hold rather than publish ACTIVE with
 # no track — nothing renders, so the card would show the idle fallback over
 # playing audio. Bounded, not indefinite: a proxy that never delivers a track
-# must not wedge the source in WAITING forever.
+# must not wedge the source in READY forever.
 _TRACKLESS_GRACE_TICKS = 3
 
 
@@ -167,7 +167,7 @@ class QobuzSource(BaseAudioSource):
         """Map a qobuz-proxy speaker snapshot into connection/playback state.
 
         playing/paused (with now_playing) → ACTIVE with the current track;
-        idle/disconnected/absent → WAITING. Both directions pass through a short
+        idle/disconnected/absent → READY. Both directions pass through a short
         grace window, for the same reason in mirror: qobuz-proxy blips to idle
         between tracks (don't flash the "ready to stream" fallback) and starts a
         session before it has a track to report (don't publish an ACTIVE with
@@ -231,7 +231,7 @@ class QobuzSource(BaseAudioSource):
         else:
             # idle/disconnected/absent. A real stop persists; a track-change blip
             # lasts a tick or two — hold the previous ACTIVE state for the grace
-            # window, then commit to WAITING.
+            # window, then commit to READY.
             if self._device_connected and self._idle_ticks < _IDLE_GRACE_TICKS:
                 self._idle_ticks += 1
                 return

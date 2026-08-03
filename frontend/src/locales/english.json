@@ -18,6 +18,7 @@
     "offlineTitle": "No internet connection",
     "offlineDescription": "Spotify, AirPlay, Radio and Podcasts won't work until the connection is restored.",
     "backendErrorTitle": "System Error",
+    "sourceErrorTitle": "{source} error",
     "commandFailed": "Command failed"
   },
   "settings": {
@@ -227,13 +228,13 @@
     "loadingOfMasculine": "Starting",
     "loadingOfFeminine": "Starting",
     "ready": "Ready to connect",
-    "readyToStream": "Ready to stream",
     "accountNotConnected": "Account not connected",
     "connect": "Connect",
+    "error": "Error",
+    "retry": "Retry",
     "readyToPlay": "Ready to play",
     "loadingAlbum": "Loading album",
     "ejecting": "Ejecting...",
-    "waiting": "Waiting...",
     "playing": "Playing",
     "connectedTo": "Connected to",
     "audioReceivedFrom": "Audio received from",

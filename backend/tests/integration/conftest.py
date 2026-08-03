@@ -66,13 +66,13 @@ def create_mock_source(source: AudioSource, start_success: bool = True) -> Mock:
     mock.stop = AsyncMock(return_value=True)
     mock.restart = AsyncMock(return_value=True)
     mock.status = AsyncMock(return_value={
-        "state": "waiting",
+        "state": "ready",
         "source_id": source.value,
         "service_running": True,
         "metadata": {}
     })
     mock.command = AsyncMock(return_value={"success": True})
-    mock.state = SourceState.WAITING
+    mock.state = SourceState.READY
     mock.metadata = {}
 
     return mock

@@ -18,7 +18,7 @@ import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 const AudioSourceSchema = z.enum(['none', ...ALL_AUDIO_SOURCES]);
 
 const SourceStateSchema = z.enum([
-  'starting', 'waiting', 'active', 'error'
+  'starting', 'ready', 'active', 'error'
 ]);
 
 // Metadata varies by source, so we use a flexible schema.
@@ -51,7 +51,7 @@ const MetadataSchema = z.object({
 
 export const SystemStateSchema = z.object({
   active_source: AudioSourceSchema.catch('none'),
-  source_state: SourceStateSchema.catch('waiting'),
+  source_state: SourceStateSchema.catch('ready'),
   transitioning: z.boolean().catch(false),
   // .catch({}) safety net: an unexpected metadata shape must never block
   // a SystemState update — losing the metadata is preferable to freezing

@@ -77,7 +77,7 @@ class TestStatusToState:
     @pytest.mark.asyncio
     async def test_the_hold_ends_after_the_grace_window(self, qobuz):
         """Bounded, not indefinite: a proxy that never delivers a track must not
-        wedge the source in WAITING while it plays."""
+        wedge the source in READY while it plays."""
         source, publish = qobuz
         trackless = {"status": "playing", "now_playing": {}}
 
@@ -114,7 +114,7 @@ class TestStatusToState:
         # A real stop persists past the idle grace window.
         for _ in range(10):
             await source._on_status({"status": "idle"}, True)
-        assert published_state(publish)[0] == SourceState.WAITING
+        assert published_state(publish)[0] == SourceState.READY
         publish.reset_mock()
 
         await source._on_status(trackless, True)

@@ -148,10 +148,10 @@ watch(
   { immediate: true }
 )
 
-// The backend goes straight to 'waiting' on a radio stop (no pause/auto-stop
+// The backend goes straight to 'ready' on a radio stop (no pause/auto-stop
 // window). Keep the last station shown for the configured auto_stop_delay
 // (seconds → ms), resolved at stop-time so it tracks the setting. This is a
-// frontend-only persistence: source_state is already 'waiting', so it does not
+// frontend-only persistence: source_state is already 'ready', so it does not
 // survive a page reload — irrelevant on the kiosk appliance. 0 (auto-stop
 // disabled) hides immediately.
 const { isPlaying: isCurrentlyPlaying, isBuffering, shouldShowPlayer: shouldShowNowPlayingLayout } =

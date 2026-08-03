@@ -18,6 +18,7 @@
     "offlineTitle": "无网络连接",
     "offlineDescription": "在连接恢复之前，Spotify、AirPlay、广播和播客将无法使用。",
     "backendErrorTitle": "系统错误",
+    "sourceErrorTitle": "{source} 错误",
     "commandFailed": "命令失败"
   },
   "settings": {
@@ -227,10 +228,10 @@
     "loadingOfMasculine": "启动中",
     "loadingOfFeminine": "启动中",
     "ready": "准备连接",
-    "readyToStream": "准备播放",
     "accountNotConnected": "账户未连接",
     "connect": "连接",
-    "waiting": "等待中...",
+    "error": "错误",
+    "retry": "重试",
     "playing": "播放中",
     "connectedTo": "已连接到",
     "audioReceivedFrom": "接收音频来自",

@@ -330,7 +330,7 @@ export const ENTRIES = [
     id: 'AudioSourceStatus',
     group: 'layout',
     file: 'components/audio/AudioSourceStatus.vue',
-    summary: 'The fallback card, shown whenever the active source has no rich metadata to display. Every line it prints is derived from (sourceType, sourceState) over ten sources and six states, so the two selects below are the whole component. Two mutually exclusive CTAs hang off it: Bluetooth disconnect while active, Qobuz connect while waiting without an account.',
+    summary: 'The card shown whenever the active source has no rich display to give. Both lines are derived from (sourceType, displayState) over ten sources and seven states — the four backend ones plus CD\'s three — so the two selects below are the whole component. There is no fall-through: line 1 names the source and line 2 says what it is doing, except in the two cases that read as one sentence over two lines — "Démarrage de <source>" and "Connecté à <sender>" — where the phrase leads and the name takes the emphasis. Three mutually exclusive CTAs hang off it: retry on error, Bluetooth disconnect while active, Qobuz connect while ready without an account.',
   },
   {
     id: 'AudioScreensaver',

@@ -9,7 +9,7 @@ export const useCdStore = defineStore('cd', () => {
   // All disc + playback state is derived from the central audio mirror
   // (unifiedAudioStore.systemState.metadata), the single source of truth. The
   // CD source publishes disc identity as persistent extras (disc_*) that survive
-  // WAITING and a WS reconnect, so deriving here — rather than maintaining
+  // READY and a WS reconnect, so deriving here — rather than maintaining
   // delta-fed refs — keeps the store in sync across source transitions with no
   // resync plumbing (a webradio→CD switch carries the disc extras in the
   // transition_complete full_state).

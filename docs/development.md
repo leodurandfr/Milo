@@ -215,7 +215,10 @@ class AudioSource(Enum):
     MY_SOURCE = "my_source"  # ← Add here
 ```
 
-`SourceState` values: `STARTING`, `WAITING`, `ACTIVE`, `ERROR`.
+`SourceState` values: `STARTING`, `READY` (engine up, nothing in session), `ACTIVE`
+(a session or content exists — a paused radio is still ACTIVE), `ERROR` (not
+operational; written by the state machine when a transition fails, which leaves
+the source selected so re-selecting it retries).
 
 ### 2. Create the source
 
@@ -263,10 +266,10 @@ class MySource(BaseAudioSource):
         the transition lock, then publishes the resulting state."""
         if not await self._start_service_and_wait():
             return False
-        # WAITING = service up, no client connected yet. Use set_state (or
+        # READY = service up, no client connected yet. Use set_state (or
         # emit_connection_state for receivers); never touch the state machine's
         # private state.
-        self.set_state(SourceState.WAITING)
+        self.set_state(SourceState.READY)
         return True
 
     async def _do_stop(self) -> bool:
@@ -632,7 +635,7 @@ async def test_start_success(my_source):
     result = await my_source.start()
 
     assert result is True
-    assert my_source.state == SourceState.WAITING
+    assert my_source.state == SourceState.READY
 ```
 
 See `tests/test_radio_source.py` for a fuller example (mocked service manager, command dispatch, lifecycle transitions).

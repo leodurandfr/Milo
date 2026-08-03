@@ -717,13 +717,13 @@ describe('component gallery source pages', () => {
   it('covers every state the backend can put a source in', () => {
     // The completeness half: the page is a matrix, and a missing column is
     // exactly what a reader cannot notice. `error` is the one this caught —
-    // reachable from `BaseAudioSource` on any failed start, drawn by nothing.
+    // reachable on any failed transition, and drawn by nothing at the time.
     //
-    // Only the dispatcher pages are held to it. For radio, podcasts and music
-    // library `hasRichDisplay` returns true whatever the state, so an errored
-    // one renders the browser exactly as a healthy one does — three more tabs
-    // showing the same screen would document nothing. That is itself a finding,
-    // and it is written down in those pages' summaries.
+    // Only the dispatcher pages are held to the *whole* enum. For radio,
+    // podcasts and music library the idle and playing states all render the
+    // same browser — their own layout handles empty and loading — so three
+    // more tabs of it would document nothing. What they are held to is the one
+    // state that does change their screen, below.
     expect(SOURCE_STATES.length).toBeGreaterThan(3);
 
     const gaps = [];
@@ -735,6 +735,21 @@ describe('component gallery source pages', () => {
     }
 
     expect(gaps).toEqual([]);
+  });
+
+  it('gives all ten sources their errored screen', () => {
+    // ERROR is the state every source can reach and the only one `hasRichDisplay`
+    // answers before looking at the source at all — so it is where the three
+    // browsers stop being special: the card, not their own layout. A page
+    // without it documents a source that cannot fail, which is how the state
+    // went undrawn in the first place.
+    expect(SOURCE_STATES).toContain('error');
+
+    const missing = SOURCE_PAGES
+      .filter(page => !page.scenarios.some(scenario => settledState(scenario).source_state === 'error'))
+      .map(page => page.id);
+
+    expect(missing).toEqual([]);
   });
 
   it('invents no metadata field the app does not read', () => {
@@ -859,15 +874,17 @@ describe('component gallery source pages', () => {
   it('keeps the browser sources away from their own components', () => {
     // The load-bearing safety rule. Radio, Podcasts and Music Library dispatch
     // to *Source.vue files that fetch on mount and whose play paths POST
-    // straight through apiCall — outside the one call CanvasApp neuters. A
-    // scenario of theirs reaches AudioSourceView only while `transitioning`,
-    // which short-circuits useRichDisplay before it can name the source; every
-    // other one must carry its own stand-in.
+    // straight through apiCall — outside the one call CanvasApp neuters. Two
+    // records reach AudioSourceView without mounting one: `transitioning` and
+    // `error`, both of which short-circuit useRichDisplay before it can name
+    // the source; every other one must carry its own stand-in.
     const unsafe = [];
 
     for (const page of SOURCE_PAGES.filter(entry => entry.via === 'browser')) {
       for (const scenario of page.scenarios) {
-        if (!scenario.browser && !settledState(scenario).transitioning) {
+        const settled = settledState(scenario);
+        const dropsToCard = settled.transitioning || settled.source_state === 'error';
+        if (!scenario.browser && !dropsToCard) {
           unsafe.push(`${page.id}.${scenario.id} (would mount the real ${page.source} browser)`);
         }
         if (!scenario.browser) continue;
@@ -1127,15 +1144,19 @@ describe('component gallery source pages', () => {
     expect(CANVAS).toMatch(/installApiHarness\(/);
   });
 
-  it('rests on two guards that are still there', () => {
-    // The rule above is only safe because of these two, and both live in files
-    // this suite would otherwise never look at. Asserted as text because that
-    // is what they are — one line each, and deleting either is silent.
+  it('rests on three guards that are still there', () => {
+    // The rule above is only safe because of these, and they live in files this
+    // suite would otherwise never look at. Asserted as text because that is
+    // what they are — one line each, and deleting any of them is silent.
     const richDisplay = readFileSync(join(SRC_DIR, 'composables/useRichDisplay.js'), 'utf8');
 
     // `transitioning` short-circuiting is what makes a browser source's
     // `starting` scenario reach the status card instead of its own component.
     expect(richDisplay).toMatch(/!transitioning\s*&&/);
+
+    // And the ERROR check, which does the same for its `error` scenario —
+    // before the switch, so the three `return true` browsers are covered too.
+    expect(richDisplay).toMatch(/state === 'error'\) return false/);
 
     // And every action the seven dispatcher sources offer — the Bluetooth
     // disconnect, cdStore's eject and playTrack, AudioPlayerFull's transport —

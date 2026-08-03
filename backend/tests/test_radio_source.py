@@ -367,11 +367,11 @@ class TestConnectionState:
     """Test connection state management."""
 
     def test_update_state_no_station(self, radio_source):
-        """Test state is WAITING with no station."""
+        """Test state is READY with no station."""
         radio_source._current_station = None
         radio_source._update_connection_state()
 
-        assert radio_source.state == SourceState.WAITING
+        assert radio_source.state == SourceState.READY
 
     def test_update_state_with_station(self, radio_source):
         """Test state is ACTIVE with station."""

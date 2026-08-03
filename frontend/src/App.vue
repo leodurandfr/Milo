@@ -578,12 +578,18 @@ onMounted(async () => {
     on('source', 'state_changed', (event) => {
       unifiedStore.updateState(event);
       podcastStore.handleSourceEvent(event);
-      // Display source error in notification banner
-      if (event.data?.new_state === 'error') {
-        const source = event.data?.source || 'source';
-        const error = event.data?.metadata?.error || 'error';
-        currentError.value = { title: `${capitalize(source)} Error`, detail: error, source };
-      }
+    }),
+    // An operation failed on a source that survives it (a station that won't
+    // tune, a command the daemon refused) — banner only. A source that is
+    // *down* arrives as source_state 'error' in full_state and is drawn by the
+    // status card instead, so neither is inferred from the other.
+    on('source', 'error', (event) => {
+      const source = event.data?.source || 'source';
+      currentError.value = {
+        title: t('notification.sourceErrorTitle', { source: capitalize(source) }),
+        detail: event.data?.message || 'error',
+        source,
+      };
     }),
     on('source', 'error_cleared', (event) => {
       // Auto-dismiss the error notification, but only if the displayed error
@@ -595,7 +601,10 @@ onMounted(async () => {
     on('system', 'error', (event) => {
       const source = event.data?.source || 'system';
       const message = event.data?.message || event.data?.error || 'Unknown error';
-      currentError.value = { title: `${capitalize(source)} Error`, detail: message };
+      currentError.value = {
+        title: t('notification.sourceErrorTitle', { source: capitalize(source) }),
+        detail: message,
+      };
     }),
     on('system', 'backend_error', (event) => {
       const message = event.data?.message || 'Backend error';

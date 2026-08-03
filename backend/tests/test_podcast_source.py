@@ -357,11 +357,11 @@ class TestConnectionState:
     """Test connection state management."""
 
     def test_update_state_no_episode(self, podcast_source):
-        """Test state is WAITING with no episode."""
+        """Test state is READY with no episode."""
         podcast_source._current_episode = None
         podcast_source._update_connection_state()
 
-        assert podcast_source.state == SourceState.WAITING
+        assert podcast_source.state == SourceState.READY
 
     def test_update_state_with_episode(self, podcast_source):
         """Test state is ACTIVE with episode."""
@@ -439,7 +439,7 @@ class TestEpisodeEndDetection:
 
     @pytest.mark.asyncio
     async def test_episode_ends_on_idle_even_if_position_short_of_duration(self, podcast_source):
-        """EOF (mpv idle) returns to WAITING and persists completion even when the
+        """EOF (mpv idle) returns to READY and persists completion even when the
         last observed position is far short of the reported duration — the original
         'stuck at the end' bug. The explicit mark_episode_completed forces the
         'already listened' state despite the position-vs-duration heuristic failing
@@ -458,7 +458,7 @@ class TestEpisodeEndDetection:
 
         assert podcast_source._current_episode is None
         assert podcast_source._is_playing is False
-        assert podcast_source.state == SourceState.WAITING
+        assert podcast_source.state == SourceState.READY
         # Final row is saved (so a short clip has a row), then forced completed.
         assert podcast_source._podcast_data.update_playback_progress.await_count == 1
         podcast_source._podcast_data.mark_episode_completed.assert_awaited_once_with("ep1")
@@ -499,8 +499,8 @@ class TestEpisodeEndDetection:
         assert podcast_source._current_episode is not None
 
     @pytest.mark.asyncio
-    async def test_normal_end_returns_to_waiting(self, podcast_source):
-        """Well-behaved file: position reaches duration, mpv idles → WAITING."""
+    async def test_normal_end_returns_to_ready(self, podcast_source):
+        """Well-behaved file: position reaches duration, mpv idles → READY."""
         podcast_source._current_episode = {"uuid": "ep1", "name": "Ep"}
         podcast_source._is_playing = True
         podcast_source._loading = False
@@ -514,7 +514,7 @@ class TestEpisodeEndDetection:
         await podcast_source._on_monitor_tick()
 
         assert podcast_source._current_episode is None
-        assert podcast_source.state == SourceState.WAITING
+        assert podcast_source.state == SourceState.READY
         podcast_source._podcast_data.mark_episode_completed.assert_awaited_once_with("ep1")
 
 

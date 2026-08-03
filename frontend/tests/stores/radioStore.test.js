@@ -146,7 +146,7 @@ describe('radioStore', () => {
         data: {
           full_state: {
             active_source: 'none',
-            source_state: 'waiting',
+            source_state: 'ready',
             transitioning: false,
             multiroom_enabled: false,
             equalizer_effects_enabled: false,

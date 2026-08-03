@@ -124,7 +124,7 @@ def mock_source():
     source.acquire_after_reroute = AsyncMock(return_value=True)
     source.status = AsyncMock(return_value={})
     source.is_initialized = True
-    source.state = SourceState.WAITING
+    source.state = SourceState.READY
     source.metadata = {}
     return source
 

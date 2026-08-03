@@ -200,7 +200,7 @@ class TestConnectionState:
         bluetooth_source.connected_device = None
         bluetooth_source._update_connection_state()
 
-        assert bluetooth_source.state == SourceState.WAITING
+        assert bluetooth_source.state == SourceState.READY
 
     def test_update_state_with_device(self, bluetooth_source):
         """Test state is ACTIVE with device."""

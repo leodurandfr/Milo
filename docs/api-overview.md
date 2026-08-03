@@ -68,6 +68,31 @@ every state change is pushed.
 
 On connect the client receives a `full_state` snapshot, then incremental deltas.
 
+### Source states, and the two kinds of error
+
+`full_state.source_state` carries one of **four** members of `SourceState`, all reachable:
+
+| State | Meaning |
+|---|---|
+| `starting` | The transition to this source is under way |
+| `ready` | Engine up, nothing in session |
+| `active` | A session or content exists — a *paused* radio is still `active` |
+| `error` | The source is not operational |
+
+`ready` rather than `connected`: nothing connects to Radio, CD or the Music Library. The split
+between `ready` and `active` is "is there a session", not "is audio coming out".
+
+The word "error" covers two different facts, and they travel on two different mechanisms — never
+both, so neither can be mistaken for the other:
+
+| Kind | Example | Mechanism | UI |
+|---|---|---|---|
+| The **source** is not operational | go-librespot won't start, transition timeout | `source_state: "error"` in `full_state` + `full_state.error` | Status card `[source, "Error"]` + a retry CTA that re-posts `POST /api/audio/source/{source}` |
+| An **operation** failed, the source survives | a radio station won't tune, a command failed | `source/error` (+ `source/error_cleared`) | Notification banner only; the source's own screen is untouched |
+
+A failed transition leaves the source **selected** in `error` rather than resetting to `none`, which
+is what makes re-selecting it the retry.
+
 The subset Milo-Mac relies on — `(category, type)` pairs across `system`, `source`, `volume`,
 `routing` and `settings`, plus `payload_invariants` naming the exact fields it reads — is pinned in
 the [Milo-Mac contract](../backend/tests/contracts/milo_mac_contract.json) and verified on every

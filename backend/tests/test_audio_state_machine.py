@@ -6,7 +6,9 @@ Tests cover:
 - Source registration, activation, deactivation and direct source-to-source switch
 - The update rules: an inactive source is ignored, an update during a transition
   is dropped, a state change replaces metadata while metadata=None preserves it
-- Failure unwind: a clean False from start(), a raising start(), and the timeout
+- Failure settling: a clean False from start(), a raising start() and the
+  timeout all leave the source selected in ERROR — plus the retry that unlocks
+  and the inactivity sweep that eventually clears it
 - The transition lock
 - WebSocket broadcasting, and which categories carry full_state
 """
@@ -33,7 +35,7 @@ def mock_source():
     source.start = AsyncMock(return_value=True)
     source.stop = AsyncMock(return_value=True)
     source.is_initialized = False
-    source.state = SourceState.WAITING
+    source.state = SourceState.READY
     source.metadata = {}
     return source
 
@@ -42,10 +44,10 @@ class TestAudioStateMachineBasics:
     """Test basic state machine operations."""
 
     def test_initial_state(self, state_machine):
-        """Test initial state is NONE with WAITING."""
+        """Test initial state is NONE with READY."""
         state = state_machine.get_current_state()
         assert state["active_source"] == "none"
-        assert state["source_state"] == "waiting"
+        assert state["source_state"] == "ready"
         assert state["transitioning"] is False
         assert state["error"] is None
 
@@ -74,11 +76,17 @@ class TestSourceActivation:
 
     @pytest.mark.asyncio
     async def test_transition_to_unregistered_source(self, state_machine):
-        """Test transitioning to an unregistered source fails."""
+        """A source with no implementation behind it settles in ERROR.
+
+        Every AudioSource member is a key of `sources` from construction, so an
+        unregistered one gets as far as _start_source and fails there — the
+        same unwind as a daemon that will not come up.
+        """
         result = await state_machine.transition_to_source(AudioSource.RADIO)
 
         assert result is False
-        assert state_machine.system_state.active_source == AudioSource.NONE
+        assert state_machine.system_state.active_source == AudioSource.RADIO
+        assert state_machine.system_state.source_state == SourceState.ERROR
 
     @pytest.mark.asyncio
     async def test_transition_to_none(self, state_machine, mock_source):
@@ -211,7 +219,7 @@ class TestSourceStateUpdate:
         """A state transition replaces metadata, it does not merge it.
 
         Regression guard: update_source_state used to MERGE, so a source
-        dropping to WAITING with a partial payload (Spotify when go-librespot
+        dropping to READY with a partial payload (Spotify when go-librespot
         dies, sending only the "off" flags) left the previous track's
         title/artist/album/uri stale in system_state.metadata — and so in
         GET /api/audio/state.
@@ -226,7 +234,7 @@ class TestSourceStateUpdate:
         )
         await state_machine.update_source_state(
             AudioSource.SPOTIFY,
-            SourceState.WAITING,
+            SourceState.READY,
             {"device_connected": False, "is_playing": False},
         )
 
@@ -393,18 +401,21 @@ class TestConcurrency:
         assert state_machine.system_state.transitioning is False
 
 
-class TestEmergencyStop:
-    """Test emergency stop functionality."""
+class TestFailedTransition:
+    """How a transition that could not complete settles, and how it is retried."""
 
     @pytest.mark.asyncio
-    async def test_start_returning_false_leaves_no_active_source(
+    async def test_start_returning_false_settles_the_source_in_error(
         self, state_machine, mock_source
     ):
-        """A source that reports a clean start failure still unwinds to NONE.
+        """A clean start failure leaves the source selected, in ERROR, with the
+        message kept.
 
         Distinct from the raising case below: _do_start returning False is the
-        documented way for a source to say "the service did not come up", and
-        it must not leave the machine pointing at a source that is not playing.
+        documented way for a source to say "the service did not come up". The
+        machine keeps pointing at it on purpose — "this source is in error" is
+        what happened, and dropping to "no source" is what used to throw it
+        away, message included.
         """
         mock_source.start = AsyncMock(return_value=False)
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
@@ -412,11 +423,21 @@ class TestEmergencyStop:
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
-        assert state_machine.system_state.active_source == AudioSource.NONE
+        assert state_machine.system_state.active_source == AudioSource.SPOTIFY
+        assert state_machine.system_state.source_state == SourceState.ERROR
+        assert state_machine.system_state.error == "Failed to start spotify"
+        assert state_machine.system_state.transitioning is False
 
     @pytest.mark.asyncio
-    async def test_emergency_stop_on_error(self, state_machine):
-        """Test emergency stop is called on transition error."""
+    async def test_raising_start_stops_the_target_and_settles_in_error(
+        self, state_machine
+    ):
+        """A start that raises is stopped, then settled the same way.
+
+        The stop matters on its own: a start can raise after the systemd unit
+        came up (mpv started, IPC connect failed), so the failed target is the
+        one source the unwind must tear down.
+        """
         failing_source = Mock()
         failing_source.initialize = AsyncMock(return_value=True)
         failing_source.start = AsyncMock(side_effect=Exception("Start failed"))
@@ -428,8 +449,52 @@ class TestEmergencyStop:
         result = await state_machine.transition_to_source(AudioSource.RADIO)
 
         assert result is False
-        # Emergency stop should have been called
         failing_source.stop.assert_called()
+        assert state_machine.system_state.active_source == AudioSource.RADIO
+        assert state_machine.system_state.source_state == SourceState.ERROR
+
+    @pytest.mark.asyncio
+    async def test_reselecting_an_errored_source_retries_it(
+        self, state_machine, mock_source
+    ):
+        """Re-selecting the errored source restarts it, and a success clears it.
+
+        The whole point of leaving it selected: re-selecting the *active* source
+        is otherwise a no-op, and the ERROR exception in that guard is what the
+        card's retry rides on. Never exercised before — nothing wrote ERROR.
+        """
+        mock_source.start = AsyncMock(return_value=False)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        await state_machine.transition_to_source(AudioSource.SPOTIFY)
+
+        # The daemon is back: the same gesture now starts it for real.
+        mock_source.start = AsyncMock(return_value=True)
+        mock_source.state = SourceState.READY
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
+
+        assert result is True
+        mock_source.start.assert_awaited_once()
+        assert state_machine.system_state.active_source == AudioSource.SPOTIFY
+        assert state_machine.system_state.source_state == SourceState.READY
+        # The previous attempt's message must not survive its retry.
+        assert state_machine.system_state.error is None
+
+    @pytest.mark.asyncio
+    async def test_errored_source_is_still_deactivated_when_idle(
+        self, state_machine, mock_source
+    ):
+        """The 12 h inactivity sweep covers ERROR, not just READY.
+
+        Without it a source that failed to start would stay selected for ever,
+        since it produces no activity to reset the timer either.
+        """
+        mock_source.start = AsyncMock(return_value=False)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        await state_machine.transition_to_source(AudioSource.SPOTIFY)
+
+        state_machine._last_activity_time -= state_machine.INACTIVITY_TIMEOUT + 1
+        await state_machine._check_inactivity()
+
         assert state_machine.system_state.active_source == AudioSource.NONE
 
 

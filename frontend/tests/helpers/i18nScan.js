@@ -29,9 +29,13 @@ const CALL_RE = /(?:(?<![\w$.])\$?t|\bi18n\.t)\(\s*['"]([^'"]+)['"]/g;
 const CALL_TEMPLATE_RE = /(?:(?<![\w$.])\$?t|\bi18n\.t)\(\s*`([^`]*?)\$\{/g;
 // A prefix built into a variable first: const path = `radio.genres.${key}`.
 const ASSIGNED_TEMPLATE_RE = /(?:const|let)\s+\w+\s*=\s*`([a-z][\w]*(?:\.[\w]+)*\.)\$\{/g;
-// A key-shaped literal anywhere in a file that also talks to i18n.
+// A key-shaped literal anywhere in a file that also talks to i18n — or that
+// declares a `*_KEYS` map, which is how a lookup table lives in a file with no
+// `t()` of its own (constants/audioSources.js's AUDIO_SOURCE_LABEL_KEYS, read
+// by AudioSourceStatus and the dock). Without the second form, moving a key
+// from a literal call into the shared map reports it as dead.
 const KEY_LITERAL_RE = /['"]([a-z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+)['"]/g;
-const USES_I18N_RE = /(?<![\w$.])\$?t\(|\bi18n\.t\(|useI18n\(/;
+const USES_I18N_RE = /(?<![\w$.])\$?t\(|\bi18n\.t\(|useI18n\(|\b[A-Z][A-Z0-9_]*_KEYS\s*=/;
 
 const NON_KEY_SUFFIX = /\.(vue|js|json|css|svg|png|jpg|webp|html|py|sh|md|local)$/;
 

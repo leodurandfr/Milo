@@ -370,7 +370,7 @@ class CdSource(MpvAudioSource):
         the resume point.
 
         Stops the reader + mpv playback and clears the playing/paused flags so
-        the source drops to WAITING (screen can sleep, disc stays visible), but
+        the source drops to READY (screen can sleep, disc stays visible), but
         keeps _current_track + _track_position so a tap on play resumes the same
         track at the same position. mpv stays connected for a cheap restart.
         """
@@ -541,7 +541,7 @@ class CdSource(MpvAudioSource):
 
         # Show the loading-album indicator immediately
         if is_active:
-            self.set_state(SourceState.WAITING, self._build_metadata())
+            self.set_state(SourceState.READY, self._build_metadata())
 
     async def _handle_disc_ready(self) -> bool:
         """Phase 2: disc ready (CDS_DISC_OK).
@@ -602,7 +602,7 @@ class CdSource(MpvAudioSource):
         if still_active and self._mpv and self._mpv.is_connected:
             await self._auto_play_track_1()
         elif still_active:
-            self.set_state(SourceState.WAITING, self._build_metadata())
+            self.set_state(SourceState.READY, self._build_metadata())
         return True
 
     async def _pre_start_service(self) -> None:
@@ -944,7 +944,7 @@ class CdSource(MpvAudioSource):
                     self._is_paused = False
                     self._current_track = 1
                     self._track_position = 0
-                    self._update_connection_state()  # -> WAITING, screen can sleep
+                    self._update_connection_state()  # -> READY, screen can sleep
                     return
                 # Reader stopped mid-album (error or EOF on non-last track)
                 # Try auto-advancing if possible
@@ -1060,7 +1060,7 @@ class CdSource(MpvAudioSource):
                 else (self._tracks[0] if self._tracks else None)
             )
 
-            # Disc identity — persistent extras (survive WAITING): a disc is a
+            # Disc identity — persistent extras (survive READY): a disc is a
             # hardware fact, kept visible while idle and across a WS reconnect.
             metadata.update({
                 "disc_id": self._current_disc.disc_id,
@@ -1094,14 +1094,14 @@ class CdSource(MpvAudioSource):
 
     def _update_connection_state(self) -> None:
         # ACTIVE iff there's a live playback session; a merely-inserted or
-        # auto-stopped/finished disc is WAITING so the screen can sleep. Unlike
+        # auto-stopped/finished disc is READY so the screen can sleep. Unlike
         # the generic emit_connection_state (which drops the now-playing core in
-        # WAITING), a loaded CD stays fully visible while idle — its album,
+        # READY), a loaded CD stays fully visible while idle — its album,
         # artist and cover are a real thing to show in the player — so publish
         # the whole metadata dict in both states. _build_metadata already
         # projects the idle view (album as title, no progress) vs the playing one.
         connected = self._is_playing or self._is_buffering or self._is_paused
-        state = SourceState.ACTIVE if connected else SourceState.WAITING
+        state = SourceState.ACTIVE if connected else SourceState.READY
         self.set_state(state, self._build_metadata())
 
     async def refresh_metadata(self) -> bool:

@@ -17,6 +17,14 @@ import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
 // is shared with the screensaver — see @/constants/imageQuality.
 function hasRichDisplay(source, state, meta) {
   const m = meta || {};
+
+  // ERROR means the source is not operational, so nothing it could draw is
+  // true any more: no player, and no browser either. It is the rule the three
+  // browser sources need most — their `return true` below ignores the state
+  // entirely, which would leave an errored Radio drawing a grid whose every
+  // tap fails. The message itself is the banner's job.
+  if (state === 'error') return false;
+
   switch (source) {
     case 'spotify':
       // Trusted metadata provider: title + artist is enough.
@@ -36,7 +44,7 @@ function hasRichDisplay(source, state, meta) {
       return true;
     case 'cd':
       // Rich player whenever a disc is loaded and ready — playing (ACTIVE) OR
-      // idle (WAITING: tracklist + resume affordance, disc still visible). The
+      // idle (READY: tracklist + resume affordance, disc still visible). The
       // loading (no cache_ready), ejecting, and no-drive windows stay on the
       // AudioSourceStatus card.
       return !!m.disc_present && !!m.cache_ready && !m.ejecting;
@@ -49,7 +57,7 @@ function hasRichDisplay(source, state, meta) {
     case 'qobuz':
       // Trusted metadata provider (Qobuz CDN cover, always full-size — no
       // album_art_width is emitted). Unlike AirPlay/DLNA the proxy reports idle
-      // explicitly (→ WAITING) instead of leaving stale metadata, so no
+      // explicitly (→ READY) instead of leaving stale metadata, so no
       // is_playing gate is needed: title + artist is enough (like Spotify), and
       // a paused track keeps its cover on screen.
       return state === 'active' && !!m.title && !!m.artist;

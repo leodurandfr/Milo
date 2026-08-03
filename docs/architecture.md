@@ -69,6 +69,47 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 
 ## Audio sources
 
+### Source states
+
+`SourceState` has **four** members and all four are reachable — the enum is the
+whole vocabulary, and nothing derives a fifth:
+
+| State | Meaning |
+|---|---|
+| `starting` | The transition to this source is under way |
+| `ready` | Engine up, nothing in session |
+| `active` | A session or content exists |
+| `error` | The source is not operational |
+
+Two things are worth spelling out because both were once ambiguous:
+
+- **`active` is about a session, not about audio coming out.** A paused radio
+  stays `active`: a station is still tuned. `ready` is "nothing in session".
+- **`ready`, not `connected`.** Nothing connects to Radio, CD or the Music
+  Library; they are simply ready to play.
+
+`STARTING` and the machine's `transitioning` flag encode the same fact twice,
+deliberately: `exclusive_transition()` sets the flag *without* the state so a
+multiroom reroute can keep broadcasting live, and Milo-Mac pins `transitioning`
+in `full_state`. Neither is redundant — the frontend follows the flag.
+
+**Two kinds of error, two mechanisms, no overlap.** A source that will not start
+is a *state*: the failed transition leaves the source **selected** in `ERROR`
+with the message in `full_state.error` (re-selecting it is therefore the retry).
+An *operation* that fails while the source keeps working — a station that will
+not tune, a rejected command — rides the typed `source/error` event and raises
+the notification banner only. Putting the second into the state would be the
+mirror of the bug it replaced: a Radio whose browser is perfectly usable would
+claim to be down.
+
+Today the state machine's failed-transition path is the only writer of `ERROR`;
+`broadcast_error()` carries the other kind and never touches the state. The
+frontend adds no fifth member: `useSourceStatusDisplay` derives a *display*
+state — the
+four above plus CD's three hardware screens (`no_drive`, `loading_disc`,
+`ejecting`, all `READY` records about the drive) — and that list, `DISPLAY_STATES`,
+is what `AudioSourceStatus` validates against.
+
 ### 1. Spotify Connect (go-librespot)
 
 **What is it?**

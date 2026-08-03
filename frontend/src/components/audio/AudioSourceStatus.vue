@@ -9,21 +9,21 @@
             <div class="device-info-inner">
               <!-- Source icon -->
               <div class="source-icon">
-                <LoadingSpinner v-if="sourceState === 'starting' || sourceState === 'loading_disc' || sourceState === 'ejecting'" :size="26" variant="background" />
+                <LoadingSpinner v-if="SPINNING_STATES.includes(displayState)" :size="26" variant="background" />
                 <AppIcon v-else :name="sourceType" :size="32" />
               </div>
 
               <!-- Text status -->
               <div class="device-status">
-                <div v-if="displayedStatusLines.length === 1" class="status-single">
-                  <h2 class="heading-2">{{ displayedStatusLines[0] }}</h2>
+                <div v-if="status.lines.length === 1" class="status-single">
+                  <h2 class="heading-2">{{ status.lines[0] }}</h2>
                 </div>
                 <template v-else>
-                  <div class="status-line-1" :class="getDisplayedStatusLine1Class()">
-                    <h2 class="heading-2">{{ displayedStatusLines[0] }}</h2>
+                  <div class="status-line-1" :class="{ 'muted-line': status.nameLine !== 1 }">
+                    <h2 class="heading-2">{{ status.lines[0] }}</h2>
                   </div>
-                  <div class="status-line-2" :class="getDisplayedStatusLine2Class()">
-                    <h2 class="heading-2">{{ displayedStatusLines[1] }}</h2>
+                  <div class="status-line-2" :class="{ 'muted-line': status.nameLine !== 2 }">
+                    <h2 class="heading-2">{{ status.lines[1] }}</h2>
                   </div>
                 </template>
               </div>
@@ -31,8 +31,9 @@
           </div>
         </div>
 
-        <!-- Bottom action button: Bluetooth disconnect or Qobuz connect-account CTA.
-             The <button> IS the full-width bar so the whole surface is clickable. -->
+        <!-- Bottom action button: retry, Bluetooth disconnect, or Qobuz
+             connect-account CTA. The <button> IS the full-width bar so the whole
+             surface is clickable. -->
         <button v-if="actionButton" @click="actionButton.onClick" :disabled="actionButton.disabled"
           class="action-button heading-3">{{ actionButton.label }}</button>
       </div>
@@ -43,11 +44,12 @@
 <script setup>
 import { computed } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
-import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { useI18n } from '@/services/i18n';
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal';
 import { formatDeviceNames } from '@/utils/deviceName';
+import { DISPLAY_STATES } from '@/composables/useSourceStatusDisplay';
 
 const { t } = useI18n();
 
@@ -61,9 +63,13 @@ const props = defineProps({
     required: true,
     validator: (value) => value === 'none' || ALL_AUDIO_SOURCES.includes(value)
   },
-  sourceState: {
+  // The card's own vocabulary, not the backend enum: the four SourceState
+  // members plus CD's three metadata-derived screens. Declared in one place —
+  // see useSourceStatusDisplay, which is what derives it.
+  displayState: {
     type: String,
-    required: true
+    required: true,
+    validator: (value) => DISPLAY_STATES.includes(value)
   },
   deviceName: {
     type: [String, Array],  // Support string or array for ROC multi-clients
@@ -83,128 +89,122 @@ const props = defineProps({
 });
 
 // Emits
-const emit = defineEmits(['disconnect', 'connect']);
+const emit = defineEmits(['disconnect', 'connect', 'retry']);
 
-// === COMPUTED FOR DISPLAYED CONTENT ===
-const displayedStatusLines = computed(() => {
-  // CD: ejecting disc
-  if (props.sourceState === 'ejecting') {
-    return [t('audioSources.cd'), t('status.ejecting')];
-  }
-  // CD: disc inserted, loading album (spinner shown via loading_disc state)
-  if (props.sourceState === 'loading_disc') {
-    return [t('audioSources.cd'), t('status.loadingAlbum')];
-  }
-  // CD: no drive connected
-  if (props.sourceState === 'no_drive') {
-    return [t('audioSources.cd'), t('audioSources.cdSource.noDriveConnected')];
-  }
+// The three states whose icon slot is a spinner instead of the source glyph:
+// something is under way that the card is waiting on.
+const SPINNING_STATES = ['starting', 'loading_disc', 'ejecting'];
 
-  // Starting state
-  if (props.sourceState === 'starting') {
-    switch (props.sourceType) {
-      case 'bluetooth':
-        return [t('status.loadingOfMasculine'), t('audioSources.bluetooth')];
-      case 'mac':
-        return [t('status.loadingOfMasculine'), t('audioSources.macOS')];
-      case 'spotify':
-        return [t('status.loadingOf'), t('audioSources.spotify')];
-      case 'radio':
-        return [t('status.loadingOfFeminine'), t('audioSources.radio')];
-      case 'podcast':
-        return [t('status.loadingOf'), t('audioSources.podcasts')];
-      case 'airplay':
-        return [t('status.loadingOf'), t('audioSources.airplay')];
-      case 'dlna':
-        return [t('status.loadingOf'), t('audioSources.dlna')];
-      case 'qobuz':
-        return [t('status.loadingOf'), t('audioSources.qobuz')];
-      case 'music_library':
-        return [t('status.loadingOf'), t('audioSources.musicLibrary')];
-      case 'cd':
-        return [t('status.loadingOfMasculine'), t('audioSources.cd')];
-      default:
-        return [t('status.loading')];
-    }
-  }
+/**
+ * The phrase for every state that is not "ready", by display state.
+ *
+ * Ready is the one that needs the source to answer (see below), so it is not in
+ * here. Everything else says the same thing whatever the source is — which is
+ * the whole of P4: there is no combination left to fall through, and therefore
+ * no terminal "waiting" line to print when one did.
+ */
+const PHRASE_KEYS = {
+  starting: 'status.loading',   // only reached with no source name to append
+  active: 'status.playing',
+  error: 'status.error',
+  no_drive: 'audioSources.cdSource.noDriveConnected',
+  loading_disc: 'status.loadingAlbum',
+  ejecting: 'status.ejecting'
+};
 
-  // Ready state: waiting messages
-  if (props.sourceState === 'waiting') {
-    switch (props.sourceType) {
-      case 'bluetooth':
-        return [t('audioSources.bluetooth'), t('status.ready')];
-      case 'mac':
-        return [t('audioSources.macOS'), t('status.readyToStream')];
-      case 'spotify':
-        return [t('audioSources.spotify'), t('status.ready')];
-      case 'radio':
-        return [t('audioSources.radio'), t('status.readyToStream')];
-      case 'podcast':
-        return [t('audioSources.podcasts'), t('status.ready')];
-      case 'airplay':
-        return [t('audioSources.airplay'), t('status.readyToStream')];
-      case 'dlna':
-        return [t('audioSources.dlna'), t('status.readyToStream')];
-      case 'qobuz':
-        // No Qobuz account logged in → point the user at the account login
-        // rather than the (unreachable) "ready to stream" state.
-        return props.accountConnected
-          ? [t('audioSources.qobuz'), t('status.readyToStream')]
-          : [t('audioSources.qobuz'), t('status.accountNotConnected')];
-      case 'music_library':
-        return [t('audioSources.musicLibrary'), t('status.readyToPlay')];
-      case 'cd':
-        return [t('audioSources.cd'), t('status.readyToPlay')];
-      default:
-        return [t('status.ready')];
-    }
-  }
+/**
+ * The sources a session is opened *to*, from the other end: a phone picks the
+ * speaker (Spotify, Qobuz), a sender casts (AirPlay, DLNA), a device pairs
+ * (Bluetooth, Mac). Their idle line invites that connection. The other four —
+ * Radio, Podcasts, CD, Music Library — are played from Milō itself and say they
+ * are ready to play. Two phrases derived from who starts a session, instead of
+ * one written per source.
+ */
+const SENDER_DRIVEN_SOURCES = ['spotify', 'qobuz', 'airplay', 'dlna', 'bluetooth', 'mac'];
 
-  // Connected state: messages with device name
-  if (props.sourceState === 'active' && props.deviceName) {
-    const formattedDeviceNames = formatDeviceNames(props.deviceName);
+/**
+ * "Démarrage de <source>" reads as one sentence broken over two lines, and
+ * French agrees the article with the source noun — "du" Bluetooth, "de la"
+ * radio, "de" Spotify. That is what the three keys are for; the other seven
+ * locales collapse them onto one string. It is also why `starting` is the one
+ * state whose phrase leads and whose source name takes the emphasised line.
+ */
+const STARTING_PHRASE_KEYS = {
+  bluetooth: 'status.loadingOfMasculine',
+  mac: 'status.loadingOfMasculine',
+  cd: 'status.loadingOfMasculine',
+  radio: 'status.loadingOfFeminine',
+  spotify: 'status.loadingOf',
+  podcast: 'status.loadingOf',
+  airplay: 'status.loadingOf',
+  dlna: 'status.loadingOf',
+  qobuz: 'status.loadingOf',
+  music_library: 'status.loadingOf'
+};
 
-    switch (props.sourceType) {
-      case 'bluetooth':
-        return [t('status.connectedTo'), formattedDeviceNames];
-      case 'mac':
-        return [t('status.audioReceivedFrom'), formattedDeviceNames];
-      case 'airplay':
-        return [t('status.connectedTo'), formattedDeviceNames];
-      default:
-        return [t('status.connectedTo'), formattedDeviceNames];
-    }
-  }
-
-  // DLNA active without a controller identity: UPnP exposes no "who's casting"
-  // name, and a controller may push only a bare title (no artist/cover) so the
-  // rich player is gated out — show a playing state, not the waiting fallback.
-  if (props.sourceState === 'active' && props.sourceType === 'dlna') {
-    return [t('audioSources.dlna'), t('status.playing')];
-  }
-
-  // Qobuz active in the brief window before the first now_playing arrives (no
-  // title/artist yet → rich player gated out). The proxy exposes no controller
-  // identity, so show a playing state rather than the waiting fallback.
-  if (props.sourceState === 'active' && props.sourceType === 'qobuz') {
-    return [t('audioSources.qobuz'), t('status.playing')];
-  }
-
-  return [t('status.waiting')];
+const sourceName = computed(() => {
+  const key = AUDIO_SOURCE_LABEL_KEYS[props.sourceType];
+  return key ? t(key) : '';
 });
 
-// Single bottom action button on the card, or null to hide it. The two cases are
-// mutually exclusive: Bluetooth's disconnect (active) and Qobuz's connect-account
-// CTA (waiting with no account). 'starting' never shows a button.
+const phrase = computed(() => {
+  if (props.displayState !== 'ready') return t(PHRASE_KEYS[props.displayState]);
+
+  // Qobuz is the only source with a login, and with no account there is nothing
+  // to be ready for — the line says so, and the CTA below offers the fix.
+  if (props.sourceType === 'qobuz' && !props.accountConnected) return t('status.accountNotConnected');
+
+  return SENDER_DRIVEN_SOURCES.includes(props.sourceType)
+    ? t('status.ready')
+    : t('status.readyToPlay');
+});
+
+/**
+ * The two lines, plus which of them carries the identity — the emphasis follows
+ * the name wherever it sits, and the other line is muted.
+ *
+ * Line 1 is the source and line 2 the phrase, except in the two cases where the
+ * phrase is the start of a sentence the name completes: "Démarrage de <source>"
+ * and "Connecté à <sender>". There the phrase leads and the name takes line 2.
+ */
+const status = computed(() => {
+  if (props.displayState === 'starting' && sourceName.value) {
+    return { lines: [t(STARTING_PHRASE_KEYS[props.sourceType]), sourceName.value], nameLine: 2 };
+  }
+
+  if (props.displayState === 'active' && props.deviceName) {
+    // ROC is a one-way stream from N senders rather than a link to one device,
+    // which is a different sentence, not a different layout.
+    const lead = props.sourceType === 'mac' ? t('status.audioReceivedFrom') : t('status.connectedTo');
+    return { lines: [lead, formatDeviceNames(props.deviceName)], nameLine: 2 };
+  }
+
+  // `none` has no label of its own: the phrase is the whole card.
+  return sourceName.value
+    ? { lines: [sourceName.value, phrase.value], nameLine: 1 }
+    : { lines: [phrase.value], nameLine: 1 };
+});
+
+// Single bottom action button on the card, or null to hide it. The three cases
+// are mutually exclusive: retry (error, any source — re-selecting the source is
+// what re-runs the failed transition), Bluetooth's disconnect (active) and
+// Qobuz's connect-account CTA (ready with no account). 'starting' never shows one.
 const actionButton = computed(() => {
-  if (props.sourceType === 'bluetooth' && props.sourceState === 'active') {
+  if (props.displayState === 'error') {
+    return {
+      label: t('status.retry'),
+      disabled: false,
+      onClick: () => emit('retry'),
+    };
+  }
+  if (props.sourceType === 'bluetooth' && props.displayState === 'active') {
     return {
       label: props.isDisconnecting ? t('status.disconnecting') : t('status.disconnect'),
       disabled: props.isDisconnecting,
       onClick: () => emit('disconnect'),
     };
   }
-  if (props.sourceType === 'qobuz' && props.sourceState === 'waiting' && !props.accountConnected) {
+  if (props.sourceType === 'qobuz' && props.displayState === 'ready' && !props.accountConnected) {
     return {
       label: t('status.connect'),
       disabled: false,
@@ -213,27 +213,6 @@ const actionButton = computed(() => {
   }
   return null;
 });
-
-// Classes for status lines
-function getDisplayedStatusLine1Class() {
-  if (props.sourceState === 'starting') {
-    return 'starting-state';
-  }
-  if (props.sourceState === 'active') {
-    return 'active-state';
-  }
-  return '';
-}
-
-function getDisplayedStatusLine2Class() {
-  if (props.sourceState === 'starting') {
-    return 'starting-state';
-  }
-  if (props.sourceState === 'active') {
-    return 'active-state';
-  }
-  return 'secondary-state';
-}
 </script>
 
 <style scoped>
@@ -316,7 +295,6 @@ function getDisplayedStatusLine2Class() {
   text-align: center;
 }
 
-/* Default states */
 .status-single h2,
 .status-line-1 h2,
 .status-line-2 h2 {
@@ -328,19 +306,10 @@ function getDisplayedStatusLine2Class() {
   white-space: pre-line;
 }
 
-/* Special states line 1 */
-.status-line-1.starting-state h2,
-.status-line-1.active-state h2 {
-  color: var(--color-text-secondary);
-}
-
-/* Special states line 2 */
-.status-line-2.starting-state h2,
-.status-line-2.active-state h2 {
-  color: var(--color-text);
-}
-
-.status-line-2.secondary-state h2 {
+/* The line that does not carry the name — the phrase under the source, or the
+   "connected to" above a sender. One rule for both, since which line it lands
+   on is the builder's call (see `status.nameLine`), not the stylesheet's. */
+.muted-line h2 {
   color: var(--color-text-secondary);
 }
 

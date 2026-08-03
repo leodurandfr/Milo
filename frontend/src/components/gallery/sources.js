@@ -18,8 +18,9 @@
  * `App.vue` registers for these pairs, so the record goes through the same Zod
  * validation a real broadcast does. Then *the app's own rules* decide what
  * appears: `useRichDisplay()` picks the player or the status card,
- * `rawSourceState` derives CD's three pseudo-states, `currentDeviceName` maps
- * the per-source identity field.
+ * `useSourceStatusDisplay()` derives the card's display state — the backend
+ * enum plus CD's three pseudo-states — and `currentDeviceName` maps the
+ * per-source identity field.
  *
  * This is a stricter rule than it looks, and it is the second attempt. The first
  * wrote a `systemState` snapshot straight into the store and gave each one a
@@ -55,13 +56,14 @@
  * AudioSourceLayout the header its source passes, and mounts the source's real
  * browsing view inside it. Everything below the wrapper is the app's.
  *
- * Their audio state never varies — `active`, and `hasRichDisplay` returns true
- * for them unconditionally — so the event alone cannot tell two of their
- * scenarios apart. What does is the *catalogue* condition, and that arrives over
- * HTTP rather than the socket. Those scenarios therefore carry a `condition`,
- * spelled with the real field names of the fixture that produces it
- * (`stations=0`, `scanning`), each token checked by the guardrail against the
- * scenario's own browser block. Two axes, two vocabularies, both borrowed.
+ * Their audio state barely varies — `active`, and `hasRichDisplay` returns true
+ * for them whatever the record carries, ERROR excepted — so outside that one
+ * scenario the event alone cannot tell two of theirs apart. What does is the
+ * *catalogue* condition, and that arrives over HTTP rather than the socket.
+ * Those scenarios therefore carry a `condition`, spelled with the real field
+ * names of the fixture that produces it (`stations=0`, `scanning`), each token
+ * checked by the guardrail against the scenario's own browser block. Two axes,
+ * two vocabularies, both borrowed.
  *
  * What a scenario supplies to a browser is what the backend would, in three
  * shapes, because the stores leave three different ways in:
@@ -104,18 +106,20 @@ export const METADATA_READERS = [
   'components/audio/AudioSourceView.vue',
   'components/audio/AudioPlayerFull.vue',
   'composables/useRichDisplay.js',
+  'composables/useSourceStatusDisplay.js',
   'composables/useSourceProgress.js',
   'utils/playbackBuffering.js',
   'stores/cdStore.js'
 ];
 
 /**
- * The three files that turn a record into a screen — the app's deciders. Every
- * field in BEHAVIOURAL_FIELDS must be read by one of them, or it is not
- * behavioural and has no business in a scenario's name.
+ * The files that turn a record into a screen — the app's deciders. Every field
+ * in BEHAVIOURAL_FIELDS must be read by one of them, or it is not behavioural
+ * and has no business in a scenario's name.
  */
 export const DECIDERS = [
   'composables/useRichDisplay.js',
+  'composables/useSourceStatusDisplay.js',
   'components/audio/AudioSourceView.vue',
   'utils/playbackBuffering.js'
 ];
@@ -205,9 +209,9 @@ function fullState(source, sourceState, metadata, { transitioning = false, error
 
 /**
  * `source/state_changed` — the event every source lifecycle change rides on.
- * `data` carries the model's own three fields plus the injected snapshot: the
- * store reads the snapshot and nothing else, App.vue reads `new_state` and
- * `metadata.error` for the notification banner.
+ * `data` carries the model's own three fields plus the injected snapshot, and
+ * the snapshot is what the app reads: `new_state` and `metadata` are duplicated
+ * inside it, and only podcastStore takes the metadata straight off the event.
  */
 function stateChanged(source, newState, metadata = {}, options = {}) {
   return envelope('source', 'state_changed', source, {
@@ -215,6 +219,19 @@ function stateChanged(source, newState, metadata = {}, options = {}) {
     new_state: newState,
     metadata,
     full_state: fullState(source, newState, metadata, options)
+  });
+}
+
+/**
+ * `system/state_changed` — the state machine's settled snapshot, emitted when
+ * it has finished moving on its own rather than at a source's request. Like
+ * `transition_start` it declares nothing of its own beyond `source: 'system'`:
+ * the payload that matters is the injected `full_state`.
+ */
+function systemStateChanged(source, sourceState, metadata = {}, options = {}) {
+  return envelope('system', 'state_changed', 'system', {
+    source: 'system',
+    full_state: fullState(source, sourceState, metadata, options)
   });
 }
 
@@ -245,13 +262,13 @@ function starting(source) {
   return scenario(
     [transitionStart(source)],
     'Starting',
-    'transitioning — the status card takes over whatever the source is, and the spinner replaces its icon. Held for 500 ms minimum so a fast backend never flashes it.'
+    'transitioning — the status card takes over whatever the source is, and the spinner replaces its icon. One of the two states that read as a sentence broken over two lines ("Démarrage de" / the source), so the phrase leads and the source name takes the emphasised line — which is also why French needs three keys for it, agreeing the article with the source noun. Held for 500 ms minimum so a fast backend never flashes it.'
   );
 }
 
 /** Nothing is playing yet: the source is up and idle. */
-function waiting(source, label, note, metadata = {}) {
-  return scenario([stateChanged(source, 'waiting', metadata)], label, note);
+function ready(source, label, note, metadata = {}) {
+  return scenario([stateChanged(source, 'ready', metadata)], label, note);
 }
 
 function active(source, label, note, metadata) {
@@ -259,14 +276,19 @@ function active(source, label, note, metadata) {
 }
 
 /**
- * `SourceState.ERROR`, which every source can reach — `BaseAudioSource` sets it
- * on a failed start and the state machine broadcasts it. Carried twice because
- * the app reads it in two places: `full_state.error` for the store,
- * `metadata.error` for App.vue's notification banner.
+ * `SourceState.ERROR` — the source is not operational, which one place writes:
+ * the state machine, when a transition fails. It stops the target, leaves it
+ * *selected* and keeps the message in `full_state.error`, then broadcasts the
+ * settled snapshot — so this is a `system/state_changed`, not a source event,
+ * and the metadata is empty because a source that never started has none.
+ *
+ * The message the user reads rides on `source/error`, a separate event that
+ * raises App.vue's banner over whatever is on screen. Not replayed here: the
+ * banner belongs to the app shell, not to the source's own screen.
  */
 function errored(source, note, message) {
   return scenario(
-    [stateChanged(source, 'error', { error: message }, { error: message })],
+    [systemStateChanged(source, 'error', {}, { error: message })],
     'Error',
     note
   );
@@ -469,10 +491,10 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (showControls)',
     via: 'dispatcher',
     summary:
-      'The only Connect source Milō drives back: AudioPlayerFull with the full transport. Its rich display is gated on title + artist alone — Spotify is a trusted metadata provider, so no cover-quality check. There is no "active, no metadata" scenario here any more: the source no longer publishes ACTIVE unless go-librespot answered with a track, so the gap between the session opening and the first track event now reads as waiting instead of as a card with nothing to draw.',
+      'The only Connect source Milō drives back: AudioPlayerFull with the full transport. Its rich display is gated on title + artist alone — Spotify is a trusted metadata provider, so no cover-quality check. There is no "active, no metadata" scenario here any more: the source no longer publishes ACTIVE unless go-librespot answered with a track, so the gap between the session opening and the first track event now reads as ready instead of as a card with nothing to draw.',
     scenarios: [
       starting('spotify'),
-      waiting('spotify', 'Waiting', 'Connected to go-librespot, no phone has picked the speaker yet.'),
+      ready('spotify', 'Ready', 'Connected to go-librespot, no phone has picked the speaker yet.'),
       active('spotify', 'Playing', 'Rich display earned: AudioPlayerFull, progress bar and transport. The buttons report to the event log instead of reaching the unit.', {
         title: 'Says',
         artist: 'Nils Frahm',
@@ -500,8 +522,8 @@ export const SOURCE_PAGES = [
       }),
       errored(
         'spotify',
-        'The state every source can reach and none of them draws: AudioSourceStatus has no error branch, so the card falls through to the bare "waiting" line while App.vue raises the notification banner over it. Worth looking at rather than accepting.',
-        'go-librespot exited'
+        'go-librespot not coming up. The source stays selected — that is what makes the retry possible — and the card says so: "Spotify / Error", with a Retry CTA that re-posts the source selection and re-runs the transition the state machine gave up on. The message itself is the banner\'s.',
+        'go-librespot failed to start'
       )
     ]
   },
@@ -517,17 +539,17 @@ export const SOURCE_PAGES = [
       'Receiver-driven, so AudioPlayerFull draws a read-only bar and a source bar instead of a transport. The only source with a login state: account_authenticated false swaps the idle line and arms the connect CTA, and only an explicit false does — an absent field reads as connected so the card never flashes the CTA before the proxy has answered.',
     scenarios: [
       starting('qobuz'),
-      waiting('qobuz', 'Waiting', 'Account connected, waiting for the app to pick the speaker.'),
-      waiting(
+      ready('qobuz', 'Ready', 'Account connected, waiting for the app to pick the speaker.'),
+      ready(
         'qobuz',
-        'Waiting, no account',
+        'Ready, no account',
         'account_authenticated false — the only path to the second CTA in AudioSourceStatus. Tapping it calls inject("openSettings"), which is absent here, so it no-ops.',
         { account_authenticated: false }
       ),
       active(
         'qobuz',
         'Active, before now_playing',
-        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in waiting. The proxy exposes no controller identity, so currentDeviceName is empty and the generic active branch prints "Qobuz / playing" rather than falling back to "waiting".',
+        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in READY. The proxy exposes no controller identity, so currentDeviceName is empty and the generic active line prints "Qobuz / playing" — the same one DLNA lands on, which is why neither needs a branch of its own any more.',
         { is_playing: true }
       ),
       active('qobuz', 'Playing', 'Trusted CDN cover, so no album_art_width gate — title + artist is enough. Read-only bar above the source bar.', {
@@ -541,8 +563,8 @@ export const SOURCE_PAGES = [
       }),
       errored(
         'qobuz',
-        'Same fall-through as every other source: the card prints the bare "waiting" line. Qobuz reaches it when the proxy sidecar dies, which is also the moment its account state stops being knowable.',
-        'qobuz-proxy unreachable'
+        'The proxy sidecar will not start, which is also the moment the account state stops being knowable — so the connect CTA gives way to the retry one. The card\'s three CTAs are mutually exclusive and error is checked first, which is what makes that swap automatic rather than a fourth branch.',
+        'qobuz-proxy failed to start'
       )
     ]
   },
@@ -558,7 +580,7 @@ export const SOURCE_PAGES = [
       'The untrusted-sender gate lives here: title, artist, audio actually flowing AND a cover above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). Two scenarios below fail it for different reasons and land on the same screen — the card names the sender and nothing else, because it reads neither a cover width nor a playing flag. That collision is the page saying the gate has one outcome, not three.',
     scenarios: [
       starting('airplay'),
-      waiting('airplay', 'Waiting', 'shairport-sync advertising, nobody streaming.'),
+      ready('airplay', 'Ready', 'shairport-sync advertising, nobody streaming.'),
       active(
         'airplay',
         'Active, favicon cover',
@@ -597,7 +619,7 @@ export const SOURCE_PAGES = [
       }),
       errored(
         'airplay',
-        'shairport-sync failing to start is the common case — the port is taken, or the ALSA device is busy. The sender name goes with it, so the source that most depends on naming its sender ends up on the anonymous line.',
+        'shairport-sync failing to start is the common case — the port is taken, or the ALSA device is busy. The sender name goes with it, so the source that most depends on naming its sender falls back to naming itself: "AirPlay / Error", with the retry.',
         'shairport-sync failed to start'
       )
     ]
@@ -611,14 +633,14 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (showControls false, showProgress)',
     via: 'dispatcher',
     summary:
-      'Same untrusted-sender gate as AirPlay, and the same player — the difference is identity: UPnP exposes no "who is casting", so currentDeviceName hard-returns empty and the card needs its own active branch to avoid falling back to "waiting". client_name here is the static "DLNA" label the player’s source bar reads, not a controller name.',
+      'Same untrusted-sender gate as AirPlay, and the same player — the difference is identity: UPnP exposes no "who is casting", so currentDeviceName hard-returns empty. That used to need a DLNA-only branch in the card; the generic active line ("DLNA / playing", whenever there is no sender to name) covers it now, and Qobuz’s twin went with it. client_name here is the static "DLNA" label the player’s source bar reads, not a controller name.',
     scenarios: [
       starting('dlna'),
-      waiting('dlna', 'Waiting', 'The UPnP renderer is advertised, no controller has pushed anything.'),
+      ready('dlna', 'Ready', 'The UPnP renderer is advertised, no controller has pushed anything.'),
       active(
         'dlna',
         'Active, no cover',
-        'A controller pushing a bare title: no album_art_width, so the gate declines. The dedicated DLNA active branch prints "DLNA / playing" — without it this would read as "waiting" while audio was flowing.',
+        'A controller pushing a bare title: no album_art_width, so the gate declines. The generic active line prints "DLNA / playing" — the shape every source without a sender to name lands on, and what used to be a per-source branch dodging an idle fallback.',
         { title: 'Untitled', is_playing: true, client_name: 'DLNA' }
       ),
       active('dlna', 'Playing', 'A full-fat controller: cover above the floor, audio flowing. Read-only bar plus the static DLNA source bar.', {
@@ -633,7 +655,7 @@ export const SOURCE_PAGES = [
       }),
       errored(
         'dlna',
-        'The renderer failing to advertise. DLNA has no device name to lose, so what is left is the bare waiting line — the same screen its idle state shows, for the opposite reason.',
+        'The renderer failing to advertise. DLNA has no device name to lose, so the error screen is the same two-line shape as its idle one — the source, then the phrase — and the phrase is the whole difference, which is the point of dropping the fallback.',
         'UPnP renderer failed to advertise'
       )
     ]
@@ -647,31 +669,31 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (+ both slots)',
     via: 'dispatcher',
     summary:
-      'The widest state matrix of the ten, and the one source whose rich-display rule ignores source_state entirely: a disc that is loaded and ready shows the player whether it is playing or idle. Three of the screens below exist nowhere in the backend enum — AudioSourceView derives no_drive, loading_disc and ejecting from metadata — which is exactly why those scenarios are named by the fields they set rather than by a state.',
+      'The widest state matrix of the ten, and the one source whose rich-display rule ignores source_state entirely: a disc that is loaded and ready shows the player whether it is playing or idle. Three of the screens below exist nowhere in the backend enum — useSourceStatusDisplay derives no_drive, loading_disc and ejecting from the metadata of a READY record — which is exactly why those scenarios are named by the fields they set rather than by a state. They are the whole of the card\'s second vocabulary: four backend members plus these three, declared together as DISPLAY_STATES.',
     scenarios: [
       starting('cd'),
-      waiting(
+      ready(
         'cd',
         'No drive',
-        'drive_connected false — the source is active but the hardware is missing. rawSourceState derives the pseudo-state "no_drive" from this one field.',
+        'drive_connected false — the source is active but the hardware is missing. useSourceStatusDisplay derives the pseudo-state "no_drive" from this one field.',
         { drive_connected: false }
       ),
-      waiting(
+      ready(
         'cd',
         'Drive empty',
-        'Drive present, no disc: the plain idle line, and the only CD scenario that reaches the generic waiting branch.',
+        'Drive present, no disc: the plain idle line, and the only CD scenario that reaches the generic READY branch.',
         { drive_connected: true }
       ),
-      waiting(
+      ready(
         'cd',
         'Reading the disc',
         'disc_present with no cache_ready/disc_id yet — the MusicBrainz lookup is in flight. Pseudo-state "loading_disc", spinner in place of the icon. A fallback DiscInfo always sets disc_id, so this window cannot hang.',
         { drive_connected: true, disc_present: true }
       ),
-      waiting(
+      ready(
         'cd',
         'Disc ready, not playing',
-        'source_state is still "waiting" and the player shows anyway — the CD branch of hasRichDisplay never looks at the state. The backend projects the idle view here: track 1’s title and the disc artist, with position and duration zeroed so the bar stays hidden until a session is live.',
+        'source_state is still "ready" and the player shows anyway — the CD branch of hasRichDisplay never looks at the state. The backend projects the idle view here: track 1’s title and the disc artist, with position and duration zeroed so the bar stays hidden until a session is live.',
         {
           ...CD_DISC,
           drive_connected: true,
@@ -695,7 +717,7 @@ export const SOURCE_PAGES = [
         position: 74000,
         duration: 268000
       }),
-      waiting(
+      ready(
         'cd',
         'Ejecting',
         'ejecting wins over a ready disc in hasRichDisplay, so the player gives way to the card mid-eject rather than lingering over a disc that is leaving.',
@@ -703,8 +725,8 @@ export const SOURCE_PAGES = [
       ),
       errored(
         'cd',
-        'A read failure mid-disc. The metadata goes with it, so the player gives way to the card — and the card, having no error branch, prints the bare waiting line over a disc that is still in the drive.',
-        'cdparanoia read failed'
+        'The one source whose rich display ignores source_state — except here: ERROR drops to the card before the CD branch is ever reached, so a disc still in the drive is no longer drawn. The metadata goes with the failed start, which is also what tells the three pseudo-states apart from this one: they are READY records about the drive, not a source that failed.',
+        'cd-paranoia failed to open the drive'
       )
     ]
   },
@@ -720,14 +742,14 @@ export const SOURCE_PAGES = [
       'A mute receiver: no rich metadata, so hasRichDisplay returns false for every record and the status card is the whole UI. It owns one of the card’s two CTAs — disconnect, armed only while active — and it is one of the three sources that put a real name on the second line, from metadata.device_name.',
     scenarios: [
       starting('bluetooth'),
-      waiting('bluetooth', 'Waiting', 'Discoverable, nothing paired-and-connected. No CTA in this state.'),
+      ready('bluetooth', 'Ready', 'Discoverable, nothing paired-and-connected. No CTA in this state.'),
       active('bluetooth', 'Connected', 'device_name fills the second line and the disconnect CTA appears. It routes through sendCommand, so here it reports to the event log.', {
         device_name: 'Leo’s iPhone'
       }),
       errored(
         'bluetooth',
-        'bluealsa dying takes the device name with it, so the CTA disappears with the line it belonged to — the card cannot offer a disconnect from a source it can no longer address.',
-        'bluealsa is not running'
+        'bluealsa failing to come up takes the device name with it, so the disconnect CTA goes with the line it belonged to — the card cannot offer a disconnect from a source it can no longer address. What sits in the same slot instead is the retry, which is the one action that still means something here.',
+        'bluealsa failed to start'
       )
     ]
   },
@@ -743,7 +765,7 @@ export const SOURCE_PAGES = [
       'The other mute receiver, and the only source whose device name is an array: several Macs can stream over ROC at once, and formatDeviceNames joins them across two lines. Its "disconnect" is a no-op in the store, so the card shows no CTA at all — the sender stops from its own side.',
     scenarios: [
       starting('mac'),
-      waiting('mac', 'Waiting', 'roc-recv is listening; no Mac is sending.'),
+      ready('mac', 'Ready', 'roc-recv is listening; no Mac is sending.'),
       active('mac', 'One Mac streaming', 'client_names is an array even with a single entry, which is why the name spells its length rather than its presence.', {
         client_names: ['Leo’s MacBook']
       }),
@@ -752,7 +774,7 @@ export const SOURCE_PAGES = [
       }),
       errored(
         'mac',
-        'roc-recv failing to bind its port. The sender list empties, so the two-line "audio received from" screen collapses to the bare waiting line.',
+        'roc-recv failing to bind its port. The sender list empties, so the "audio received from" line — the one wording the card still chooses per source, because a ROC stream is not a connection to one device — gives way to the same two-line error screen every other source gets.',
         'roc-recv failed to bind'
       )
     ]
@@ -766,7 +788,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'hasRichDisplay returns true unconditionally for the three browser sources — their own layout handles empty and loading — so the status card is only ever reached while transitioning, and an errored radio would still draw the full browser as if nothing had happened. The player is the one with no progress bar at all: a live stream has no duration, which is also why its command is resume_playback (re-tune) rather than resume.',
+      'hasRichDisplay returns true for the three browser sources whatever they carry — their own layout handles empty and loading — so the status card is reached in exactly two places: while transitioning, and in ERROR, which is checked before the per-source rules precisely because a browser whose every tap would fail is worse than no browser. The player is the one with no progress bar at all: a live stream has no duration, which is also why its command is resume_playback (re-tune) rather than resume.',
     scenarios: [
       starting('radio'),
       browsing('radio', 'Favourites loading', 'favoritesInitialized false — the grid is sixteen SkeletonStationCards. It is the state a cold boot opens on, and the only one where the count on screen is a guess rather than the truth.', {
@@ -849,7 +871,12 @@ export const SOURCE_PAGES = [
           isPlaying: true,
           controls: { favorite: false }
         }
-      })
+      }),
+      errored(
+        'radio',
+        'mpv not coming up. The one state where a browser source reaches the status card with no transition under way, and the only scenario of the three that needs no stand-in: the app leaves the browser by itself, rather than drawing a favourites grid whose every tap would fail. The favourites are still there — the retry CTA is what brings them back.',
+        'mpv failed to start'
+      )
     ]
   },
 
@@ -908,7 +935,12 @@ export const SOURCE_PAGES = [
           isPlaying: true,
           progress: { currentPosition: 812000, duration: 2940000, progressPercentage: 27.6 }
         }
-      })
+      }),
+      errored(
+        'podcast',
+        'mpv not coming up, which is a different failure from the unreachable chart above: that one answers network_error and leaves the browser working, this one takes the source down and hands the screen to the status card.',
+        'mpv failed to start'
+      )
     ]
   },
 
@@ -972,7 +1004,12 @@ export const SOURCE_PAGES = [
           progress: { currentPosition: 192000, duration: 511000, progressPercentage: 37.6 },
           controls: { shuffle: true, starred: true, hasNext: true }
         }
-      })
+      }),
+      errored(
+        'music_library',
+        'mpv not coming up. Navidrome and the mounted shares are untouched by it — the catalogue is still there — but nothing can be played from it, so the browser gives way to the card rather than offering a library that cannot sound.',
+        'mpv failed to start'
+      )
     ]
   }
 ];
