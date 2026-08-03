@@ -106,6 +106,7 @@ import SourceStage from './SourceStage.vue';
 import { SOURCE_PAGES } from './sources';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
+import stationImageTurntable from './samples/station-image-turntable.webp';
 
 /** `null` first so a nullable icon prop can be cleared from the select. */
 const OPTIONAL_ICON = { kind: 'enum', options: [null, ...ICON_NAMES] };
@@ -731,11 +732,17 @@ export const REGISTRY = {
   StationCard: {
     component: StationCard,
     args: { variant: 'card', class: 'canvas-column' },
-    // `favicon: ''` on purpose — getFaviconUrl returns nothing for it, so the
-    // card takes its generated-avatar path and the page needs no network.
+    // The card's two branches, and which one a favicon selects. A same-origin
+    // path renders as-is (a custom station's upload in the app, a bundled
+    // sample here); an empty one takes the generated-avatar path. What no
+    // preset offers is an external logo — getFaviconUrl sends that one to
+    // /api/radio/favicon, i.e. an outbound fetch from the unit per render.
     presets: {
       station: {
         'Named, no favicon': { name: 'Radio Nova', favicon: '', countrycode: 'FR', genre: 'eclectic' },
+        'With a custom image': {
+          name: 'Radio Nova', favicon: stationImageTurntable, countrycode: 'FR', genre: 'eclectic'
+        },
         'Country only': { name: 'FIP', favicon: '', countrycode: 'FR' },
         'Long name, no metadata': {
           name: 'France Musique — la nuit autour du jazz et des musiques improvisées',
