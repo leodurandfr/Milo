@@ -243,7 +243,7 @@
     "ejecting": "निकाला जा रहा है..."
   },
   "volumeSettings": {
-    "volumeManagement": "वॉल्यूम प्रबंधन",
+    "volumeManagement": "वॉल्यूम Milō द्वारा प्रबंधित",
     "volumeNotManaged": "वॉल्यूम Milō द्वारा प्रबंधित नहीं है",
     "controls": "वॉल्यूम नियंत्रण",
     "rotaryStep": "प्रति रोटेशन वॉल्यूम परिवर्तन",
@@ -688,7 +688,7 @@
       "title": "अपना ऑडियो कार्ड चुनें",
       "amplifiers": "एम्पलीफायर",
       "dacs": "DACs",
-      "volumeManagement": "वॉल्यूम प्रबंधन",
+      "volumeManagement": "वॉल्यूम Milō द्वारा प्रबंधित",
       "none": "कोई ऑडियो कार्ड नहीं",
       "other": "अन्य"
     },

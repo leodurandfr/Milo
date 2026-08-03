@@ -243,7 +243,7 @@
     "ejecting": "A ejetar..."
   },
   "volumeSettings": {
-    "volumeManagement": "Gestão do volume",
+    "volumeManagement": "Volume gerido pelo Milō",
     "volumeNotManaged": "O volume não é gerido pelo Milō",
     "controls": "Controles de volume",
     "rotaryStep": "Variação de volume por rotação",
@@ -688,7 +688,7 @@
       "title": "Selecione a sua placa de áudio",
       "amplifiers": "Amplificadores",
       "dacs": "DACs",
-      "volumeManagement": "Gestão do volume",
+      "volumeManagement": "Volume gerido pelo Milō",
       "none": "Sem placa de áudio",
       "other": "Outro"
     },

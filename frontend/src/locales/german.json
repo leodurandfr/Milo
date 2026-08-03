@@ -243,7 +243,7 @@
     "ejecting": "Wird ausgeworfen..."
   },
   "volumeSettings": {
-    "volumeManagement": "Lautstärkeregelung",
+    "volumeManagement": "Lautstärke von Milō gesteuert",
     "volumeNotManaged": "Die Lautstärke wird nicht von Milō gesteuert",
     "controls": "Lautstärkeregler",
     "rotaryStep": "Lautstärkeänderung pro Drehung",
@@ -688,7 +688,7 @@
       "title": "Wähle deine Audiokarte",
       "amplifiers": "Verstärker",
       "dacs": "DACs",
-      "volumeManagement": "Lautstärkeregelung",
+      "volumeManagement": "Lautstärke von Milō gesteuert",
       "none": "Keine Audiokarte",
       "other": "Sonstige"
     },

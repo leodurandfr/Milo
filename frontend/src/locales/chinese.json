@@ -243,7 +243,7 @@
     "ejecting": "正在弹出..."
   },
   "volumeSettings": {
-    "volumeManagement": "音量管理",
+    "volumeManagement": "音量由 Milō 管理",
     "volumeNotManaged": "音量未由 Milō 管理",
     "controls": "音量控制",
     "rotaryStep": "每次旋转的音量变化",
@@ -688,7 +688,7 @@
       "title": "选择您的声卡",
       "amplifiers": "功放",
       "dacs": "DACs",
-      "volumeManagement": "音量管理",
+      "volumeManagement": "音量由 Milō 管理",
       "none": "无声卡",
       "other": "其他"
     },

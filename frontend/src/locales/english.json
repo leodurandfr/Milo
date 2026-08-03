@@ -243,7 +243,7 @@
     "unknownArtist": "Unknown Artist"
   },
   "volumeSettings": {
-    "volumeManagement": "Volume management",
+    "volumeManagement": "Volume managed by Milō",
     "volumeNotManaged": "Volume is not managed by Milō",
     "controls": "Volume controls",
     "rotaryStep": "Volume step per rotation",
@@ -688,7 +688,7 @@
       "title": "Select your audio card",
       "amplifiers": "Amplifiers",
       "dacs": "DACs",
-      "volumeManagement": "Volume management",
+      "volumeManagement": "Volume managed by Milō",
       "none": "No audio card",
       "other": "Other"
     },
