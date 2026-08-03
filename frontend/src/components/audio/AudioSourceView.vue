@@ -265,36 +265,10 @@ const contentKey = computed(() => {
 
 /* === TRANSITIONS WITH FORCED DIRECTIONS === */
 
-.audio-content-enter-active {
-  transition: all var(--transition-spring);
-  z-index: 1;
-}
-
-/* No mode="out-in" here (it stranded on rapid switches and mounted nothing —
-   see 8efeb6e7): the two stacked absolute slots cross-fade instead, outgoing
-   rising away while the incoming one comes up from below. z-index keeps the
-   entering view on top for the overlap. */
-.audio-content-leave-active {
-  transition: all var(--transition-fast-leave);
-  z-index: 0;
-}
-
-/* Default direction: ALWAYS bottom to top */
-.audio-content-enter-from {
-  opacity: 0;
-  transform: translateY(var(--space-06)) scale(0.98);
-}
-
-.audio-content-leave-to {
-  opacity: 0;
-  transform: translateY(calc(-1 * var(--space-06))) scale(0.98);
-}
-
-.audio-content-enter-to,
-.audio-content-leave-from {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
+/* The `audio-content` swap itself lives in design-system.css, next to the other
+   named transitions: the gallery's source pages replay it, and a second copy is
+   a second thing to keep true. Only the lyrics exception is local — being
+   scoped, it outranks the shared rules it overrides. */
 
 /* Lyrics fades in/out in place instead of using the generic slide — the spring
    transform above would drag the blurred backdrop along with it. Both
