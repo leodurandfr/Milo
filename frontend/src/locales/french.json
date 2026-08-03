@@ -637,6 +637,9 @@
       "usbDisconnected": "Support de stockage USB débranché",
       "shareDisconnected": "{name} est déconnecté",
       "disconnectedHint": "Sa musique reste indexée et revient dès que vous le rebranchez.",
+      "notIndexed": "{name} doit être ré-indexé",
+      "notIndexedHint": "Les fichiers sont bien là, mais l'index les a perdus de vue. Une ré-indexation ramène la musique.",
+      "reindex": "Ré-indexer",
       "separateTitle": "Séparer les supports de stockage",
       "separateDescription": "Affiche un onglet par clé USB et par serveur réseau. Désactivez pour parcourir toute votre musique ensemble."
     },

@@ -637,6 +637,9 @@
       "usbDisconnected": "Armazenamento USB desligado",
       "shareDisconnected": "{name} está desligado",
       "disconnectedHint": "A música continua indexada e volta assim que o ligar novamente.",
+      "notIndexed": "{name} precisa ser reindexado",
+      "notIndexedHint": "Os ficheiros estão lá, mas o índice perdeu-lhes o rasto. Reindexar traz a música de volta.",
+      "reindex": "Reindexar",
       "separateTitle": "Separar os armazenamentos",
       "separateDescription": "Mostra um separador por cada pen USB e servidor de rede. Desative para explorar toda a sua música em conjunto."
     },

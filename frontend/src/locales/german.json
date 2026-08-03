@@ -637,6 +637,9 @@
       "usbDisconnected": "USB-Speicher getrennt",
       "shareDisconnected": "{name} ist getrennt",
       "disconnectedHint": "Die Musik bleibt indexiert und ist sofort wieder da, sobald Sie ihn erneut anschließen.",
+      "notIndexed": "{name} muss neu indiziert werden",
+      "notIndexedHint": "Die Dateien sind da, aber der Index hat sie aus den Augen verloren. Eine Neuindizierung holt die Musik zurück.",
+      "reindex": "Neu indizieren",
       "separateTitle": "Speicher getrennt anzeigen",
       "separateDescription": "Zeigt einen Tab pro USB-Stick und Netzwerkserver. Deaktivieren, um die gesamte Musik zusammen zu durchsuchen."
     },

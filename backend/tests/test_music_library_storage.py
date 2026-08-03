@@ -41,11 +41,19 @@ def _navidrome_provider(client=None):
     return AsyncMock(return_value=client)
 
 
+def _scan_status(scanning):
+    """One getScanStatus reply. Navidrome answers startScan with "ok" even when
+    it drops the request, so this reply is the manager's ONLY way to know a scan
+    is already running — see StorageManager._trigger_scan."""
+    return {"scanning": scanning, "count": 0, "folderCount": 0}
+
+
 @pytest.fixture
 def navidrome():
-    """A provisioned Navidrome client that records scan triggers."""
+    """A provisioned Navidrome client that records scan triggers, idle by default."""
     client = AsyncMock()
     client.start_scan = AsyncMock(return_value=True)
+    client.get_scan_status = AsyncMock(return_value=_scan_status(False))
     return client
 
 
@@ -168,7 +176,9 @@ async def test_run_helper_times_out(manager):
 
 async def test_scan_skipped_when_navidrome_unavailable():
     """A daemon that hasn't provisioned its cred file yet yields no client; the
-    mount path must degrade to "Navidrome's own watcher will notice", not raise."""
+    mount must still complete rather than raise. Nothing else will notice it —
+    no inotify event reports a mount — so the scheduled rescan is what catches
+    up, and the mount itself must not fail over a catalog that isn't up yet."""
     mgr = StorageManager(_navidrome_provider(None), AsyncMock())
     await mgr._trigger_scan()  # must not raise
 
@@ -284,3 +294,94 @@ async def test_forget_share_credentials(manager):
 ])
 def test_encode_credentials(creds, expected):
     assert StorageManager._encode_credentials(creds) == expected
+
+
+# === rescan against a busy scanner ================================================
+# The boot bug these cover: Navidrome's own startup scan began while /media/milo
+# was still an empty directory, the share mounted four seconds later, and the
+# mount's rescan landed mid-scan. Navidrome answered "ok", logged "already
+# scanning" to its own journal, and indexed nothing — leaving every track in the
+# library flagged missing and the source serving an empty catalog for 16 hours.
+
+async def test_mount_during_a_scan_does_not_fire_into_it(manager, navidrome):
+    """A scan already running started before this mount and cannot see it.
+
+    Firing anyway is not harmless-but-useless: it is the exact call Navidrome
+    accepts with HTTP 200 and silently drops, which is what made the loss
+    invisible. Nothing may be asked of a busy scanner.
+    """
+    navidrome.get_scan_status.return_value = _scan_status(True)
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")):
+        await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
+                                   "host": "nas.local", "path": "music"})
+    navidrome.start_scan.assert_not_awaited()
+    assert manager._deferred_scan is not None
+
+
+async def test_the_deferred_scan_runs_once_the_scanner_goes_idle(manager, navidrome):
+    """The mount is still owed its scan — the wait defers it, never drops it."""
+    navidrome.get_scan_status.side_effect = [
+        _scan_status(True),    # at mount time
+        _scan_status(True),    # first poll of the waiter
+        _scan_status(False),   # scanner free
+    ]
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")), \
+         patch("backend.sources.music_library.storage._SCAN_WAIT_POLL_S", 0):
+        await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
+                                   "host": "nas.local", "path": "music"})
+        await manager._deferred_scan
+    navidrome.start_scan.assert_awaited_once_with(full=False)
+
+
+async def test_two_mounts_racing_one_scan_share_a_single_waiter(manager, navidrome):
+    """Boot mounts a USB key and a share seconds apart; both find the scanner
+    busy. They must collapse into one rescan, not queue a pass each over the
+    same tree — and a removal folded in must keep its full scan, which is what
+    purges the tracks that left with it."""
+    navidrome.get_scan_status.side_effect = (
+        [_scan_status(True)] * 3 + [_scan_status(False)]
+    )
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")), \
+         patch("backend.sources.music_library.storage._SCAN_WAIT_POLL_S", 0):
+        await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
+                                   "host": "nas.local", "path": "music"})
+        await manager.unmount_share("usb-old")   # defers full=True into the waiter
+        await manager._deferred_scan
+    navidrome.start_scan.assert_awaited_once_with(full=True)
+
+
+async def test_an_idle_scanner_is_scanned_straight_away(manager, navidrome):
+    """The common path keeps no latency: nothing running, scan now, no waiter."""
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")):
+        await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
+                                   "host": "nas.local", "path": "music"})
+    navidrome.start_scan.assert_awaited_once_with(full=False)
+    assert manager._deferred_scan is None
+
+
+async def test_unreadable_scan_status_scans_rather_than_skips(manager, navidrome):
+    """A poll that fails must not swallow the rescan: a needless incremental
+    pass costs seconds, a skipped one costs a storage space until the hour."""
+    navidrome.get_scan_status.side_effect = OSError("connection refused")
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")):
+        await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
+                                   "host": "nas.local", "path": "music"})
+    navidrome.start_scan.assert_awaited_once()
+
+
+async def test_cleanup_cancels_a_pending_waiter(manager, navidrome):
+    """Teardown must not leave the waiter polling a daemon that is going away."""
+    navidrome.get_scan_status.return_value = _scan_status(True)
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")):
+        await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
+                                   "host": "nas.local", "path": "music"})
+    pending = manager._deferred_scan
+    await manager.cleanup()
+    assert pending.cancelled()
+    assert manager._deferred_scan is None

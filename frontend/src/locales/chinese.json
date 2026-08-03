@@ -637,6 +637,9 @@
       "usbDisconnected": "USB 存储设备已拔出",
       "shareDisconnected": "{name} 已断开连接",
       "disconnectedHint": "其中的音乐仍保留索引，重新连接后立即恢复。",
+      "notIndexed": "{name} 需要重新索引",
+      "notIndexedHint": "文件都在，但索引已经找不到它们了。重新索引即可找回音乐。",
+      "reindex": "重新索引",
       "separateTitle": "分开显示各存储设备",
       "separateDescription": "为每个 U 盘和网络服务器显示一个标签页。关闭后将合并浏览全部音乐。"
     },

@@ -30,9 +30,8 @@
                 class="albums-grid">
                 <SkeletonAlbumCard v-for="i in 12" :key="`skeleton-${i}`" />
               </div>
-              <MessageContent v-else-if="!store.albums.length" key="empty" :loading="store.isScanning"
-                :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.emptyLibrary')"
-                :subtitle="store.isScanning ? buildingSubtitle : t('musicLibrary.emptyLibraryHint')" />
+              <MessageContent v-else-if="!store.albums.length" key="empty"
+                v-bind="emptyState('musicLibrary.emptyLibrary', 'musicLibrary.emptyLibraryHint')" />
               <div v-else key="loaded">
                 <div class="albums-grid">
                   <AlbumCard v-for="album in store.albums" :key="album.id" :album="album"
@@ -52,9 +51,8 @@
                 key="loading" class="rows-list">
                 <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" rounded-cover />
               </div>
-              <MessageContent v-else-if="!store.displayedArtistIndex.length" key="empty" :loading="store.isScanning"
-                :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noArtists')"
-                :subtitle="store.isScanning ? buildingSubtitle : ''" />
+              <MessageContent v-else-if="!store.displayedArtistIndex.length" key="empty"
+                v-bind="emptyState('musicLibrary.noArtists')" />
               <div v-else key="loaded">
                 <div class="index-list">
                   <div v-for="bucket in store.displayedArtistIndex" :key="bucket.name" class="index-bucket">
@@ -78,9 +76,8 @@
                 class="rows-list">
                 <SkeletonGenreRow v-for="i in 10" :key="`skeleton-${i}`" />
               </div>
-              <MessageContent v-else-if="!store.genres.length" key="empty" :loading="store.isScanning"
-                :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noGenres')"
-                :subtitle="store.isScanning ? buildingSubtitle : ''" />
+              <MessageContent v-else-if="!store.genres.length" key="empty"
+                v-bind="emptyState('musicLibrary.noGenres')" />
               <div v-else key="loaded" class="rows-list">
                 <div v-for="genre in store.genres" :key="genre.value" v-press class="genre-row"
                   @click="$emit('select-genre', genre)">
@@ -111,9 +108,8 @@
                 class="rows-list">
                 <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
               </div>
-              <MessageContent v-else-if="!store.playlists.length" key="empty" :loading="store.isScanning"
-                :title="store.isScanning ? t('musicLibrary.building') : t('musicLibrary.noPlaylists')"
-                :subtitle="store.isScanning ? buildingSubtitle : ''" />
+              <MessageContent v-else-if="!store.playlists.length" key="empty"
+                v-bind="emptyState('musicLibrary.noPlaylists')" />
               <div v-else key="loaded" class="rows-list">
                 <MediaRow v-for="playlist in store.playlists" :key="playlist.id" :cover-id="playlist.coverArt"
                   :title="playlist.name" :subtitle="t('musicLibrary.songsCount', { count: playlist.songCount || 0 })"
@@ -172,6 +168,44 @@ const buildingSubtitle = computed(() =>
     ? t('musicLibrary.buildingProgress', { count: store.activeStorageTrackCount })
     : t('musicLibrary.buildingHint')
 );
+
+// A tab with nothing in it has three possible reasons, and they are NOT
+// interchangeable — the middle one used to be rendered as the last one, which
+// told a user whose NAS was mounted and full to go connect a NAS:
+//   1. a scan is filling it        → wait, here is the progress
+//   2. the index lost its files    → the music is there, re-index it
+//   3. there is genuinely nothing  → connect some storage
+// Only (2) is actionable, and it is the only one a person can't diagnose alone.
+const rescanning = ref(false);
+
+async function handleRescan() {
+  if (rescanning.value) return;
+  rescanning.value = true;
+  await store.rescan();
+  rescanning.value = false;
+}
+
+function emptyState(titleKey, subtitleKey) {
+  if (store.isScanning) {
+    return {
+      loading: true,
+      title: t('musicLibrary.building'),
+      subtitle: buildingSubtitle.value,
+    };
+  }
+  if (store.unindexedStorage) {
+    return {
+      title: t('musicLibrary.storage.notIndexed'),
+      subtitle: t('musicLibrary.storage.notIndexedHint', {
+        name: store.unindexedStorage.name,
+      }),
+      ctaLabel: t('musicLibrary.storage.reindex'),
+      ctaLoading: rescanning.value,
+      ctaClick: handleRescan,
+    };
+  }
+  return { title: t(titleKey), subtitle: subtitleKey ? t(subtitleKey) : '' };
+}
 
 const disconnectedTitle = computed(() =>
   store.disconnectedStorage?.kind === 'usb'

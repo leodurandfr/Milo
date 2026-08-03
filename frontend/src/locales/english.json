@@ -637,6 +637,9 @@
       "usbDisconnected": "USB storage disconnected",
       "shareDisconnected": "{name} is disconnected",
       "disconnectedHint": "Its music stays indexed and comes back as soon as you reconnect it.",
+      "notIndexed": "{name} needs re-indexing",
+      "notIndexedHint": "Its files are there but the index has lost track of them. Re-indexing brings the music back.",
+      "reindex": "Re-index",
       "separateTitle": "Separate storage spaces",
       "separateDescription": "Show one tab per USB key and network server. Turn off to browse all your music together."
     },

@@ -240,3 +240,71 @@ describe('musicLibraryStore — artists render window', () => {
     expect(rendered()).toBe(40);
   });
 });
+
+/**
+ * A mounted storage space whose tracks Navidrome has all flagged missing. The
+ * catalog reads empty, but for the opposite reason to "no music here yet": the
+ * files are present and the index disagrees. Told apart, the screen offers a
+ * re-index; conflated, it tells someone whose NAS is mounted and full to go
+ * connect a NAS — which is what it did for 16 hours after a scan ran against
+ * the mountpoint before the share had finished mounting.
+ */
+describe('musicLibraryStore — a storage space the index has lost', () => {
+  const indexed = (s, tracks) => ({ ...s, track_count: tracks, missing_count: 0 });
+  const lost = (s, missing) => ({ ...s, track_count: 0, missing_count: missing });
+
+  beforeEach(() => {
+    resetApiCallMock();
+  });
+
+  it('names the state when every track of the browsed space is missing', async () => {
+    const store = useMusicLibraryStore();
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [lost(NAS, 2419)] }));
+
+    await store.loadStorages();
+    await nextTick();
+
+    expect(store.unindexedStorage?.name).toBe('NAS-Leo');
+  });
+
+  it('does not confuse it with a space that is simply empty', async () => {
+    const store = useMusicLibraryStore();
+    // Nothing indexed and nothing missing: a blank USB key. Offering a re-index
+    // here would send someone chasing a scan that has nothing to find.
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [lost(USB, 0)] }));
+
+    await store.loadStorages();
+    await nextTick();
+
+    expect(store.unindexedStorage).toBeNull();
+  });
+
+  it('does not confuse it with a space that is merely unplugged', async () => {
+    const store = useMusicLibraryStore();
+    // An unplugged key keeps its index and its counts; it is not browsable, and
+    // it already has its own message. Re-indexing it would purge, not repair.
+    apiCall.get.mockResolvedValueOnce(
+      ok({ storages: [{ ...lost(USB, 10069), mounted: false }] })
+    );
+
+    await store.loadStorages();
+    await nextTick();
+
+    expect(store.unindexedStorage).toBeNull();
+  });
+
+  it('ignores a broken space the user is not looking at', async () => {
+    const store = useMusicLibraryStore();
+    apiCall.get.mockResolvedValueOnce(
+      ok({ storages: [indexed(NAS, 2419), lost(USB, 10069)] })
+    );
+
+    await store.loadStorages();
+    await nextTick();
+
+    // Browsing the healthy NAS: its albums are there, so the empty-state message
+    // belongs to the space on screen, not to whichever one is worst off.
+    expect(store.activeLibraryId).toBe(NAS.library_id);
+    expect(store.unindexedStorage).toBeNull();
+  });
+});

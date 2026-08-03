@@ -88,13 +88,13 @@ DataFolder = "/var/lib/milo/navidrome"
 Address = "127.0.0.1"
 Port = 4533
 
-# We scan explicitly on mount events, and the watcher catches local (USB)
-# changes live. But inotify does NOT see writes on the far side of a CIFS/NFS
-# mount, so a periodic rescan is what eventually picks up music added directly
-# on a NAS (the settings screen also offers an on-demand rescan). Incremental
-# (mtime-based), so an hourly pass over an unchanged library is cheap.
-ScanSchedule = "1h"
-EnableWatcher = true
+# The folder watcher is left at its default (on, Scanner.WatcherWait = "5s";
+# setting that to 0 is what would disable it). Kept because it costs nothing and
+# does catch a local edit, but it is weaker than it looks and nothing here may
+# rely on it: inotify reports neither writes on the far side of a CIFS/NFS mount
+# NOR a mount landing on a watched directory. Everything under /media/milo
+# arrives by mount, so the watcher never announces a storage space appearing.
+# Scans are driven from the backend instead (see [Scanner] below).
 
 # Do NOT turn bundled .m3u/.nsp files into playlists. Navidrome defaults this ON,
 # which silently mints a playlist per sidecar file found in the library — and
@@ -131,11 +131,41 @@ CoverArtPriority = "cover.*, folder.*, front.*, embedded, *front*, *cover*, *fol
 
 LogLevel = "info"
 
+# EVERY key below must sit under [Scanner]: 0.63.2 reads Scanner.Schedule and
+# Scanner.ScanOnStartup, and a key written at the file's top level is dropped in
+# silence — no warning, no deprecation notice. A top-level `ScanSchedule = "1h"`
+# lived here for a fortnight doing nothing at all; the boot log said "Periodic
+# scan is DISABLED" the whole time. Adding a key here: check it against the
+# pinned binary's own log line, never against the docs.
+[Scanner]
+
+# Navidrome must NOT scan on its own at startup. Its libraries live under
+# /media/milo, which the backend mounts a few seconds into its own startup — so a
+# self-triggered boot scan reads the mountpoint while it is still an empty
+# directory, and an empty directory is how Navidrome spells "every one of these
+# tracks is gone". It flags the whole library missing, the Subsonic API filters
+# missing files, and the source serves an empty catalog. The backend's own
+# post-mount trigger cannot save it either: it lands mid-scan and Navidrome
+# answers "already scanning". Boot scanning belongs to whoever knows when the
+# storage is ready, which is the backend, not Navidrome.
+ScanOnStartup = false
+
+# Periodic incremental rescan — the catch-all, and the reason ScanOnStartup can
+# be turned off safely. It is the only mechanism that ever notices (a) music
+# added straight onto a NAS, which no inotify event reports, and (b) a mount the
+# backend's trigger missed, whatever the reason. mtime-based: measured at 7s over
+# 2419 tracks on a CIFS share with nothing changed. An unmounted storage space
+# has no directory at all (milo-umount rmdir's the mountpoint), and Navidrome
+# skips a library whose path does not exist without touching its tracks — so an
+# hourly pass over a sleeping NAS is harmless. That asymmetry between "directory
+# empty" and "directory absent" is what makes this safe; do not paper a
+# mountpoint over with a placeholder file.
+Schedule = "1h"
+
 # Purge files that disappeared (an unplugged USB drive, a removed share) so they
 # don't linger as empty "ghost" albums in the catalog. "full" purges only on an
 # explicit full scan (triggered on removal events), so a transient NAS outage
 # during a quick or scheduled scan never deletes still-valid tracks.
-[Scanner]
 PurgeMissing = "full"
 
 # Album identity: group tracks into one album by album title alone (a MusicBrainz

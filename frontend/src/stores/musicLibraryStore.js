@@ -117,6 +117,31 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return active && !active.mounted ? active : null;
   });
 
+  // A storage space that is mounted and has a library, yet holds nothing but
+  // tracks Navidrome has flagged as gone. The catalog is empty, but for the
+  // opposite reason to "no music here yet": the files are right there and the
+  // index disagrees, which only a rescan settles.
+  //
+  // This is worth naming because it is what a lost scan looks like from the UI,
+  // and the generic empty state actively misleads there — it tells someone whose
+  // NAS is mounted and full to go connect a NAS. A scan that misses a mount is
+  // also invisible everywhere else: it self-heals on a dev machine (inotify sees
+  // files appear locally) and only persists on the appliance, where storage
+  // arrives by mount and no watcher event ever fires.
+  const unindexedStorages = computed(() =>
+    browsableStorages.value.filter((s) => !s.track_count && s.missing_count > 0)
+  );
+
+  // The one the current view is about: the space being browsed, or — when the
+  // spaces are merged — any of them, since a merged catalog is only as complete
+  // as all of its members.
+  const unindexedStorage = computed(() => {
+    if (activeLibraryId.value == null) return unindexedStorages.value[0] || null;
+    return (
+      unindexedStorages.value.find((s) => s.library_id === activeLibraryId.value) || null
+    );
+  });
+
   /**
    * Apply a storage picture — the WS push and the initial GET share this, so
    * both paths land identically.
@@ -193,7 +218,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const currentTrackId = computed(() => meta.value.track_id || null);
   const isPlaying = computed(() => !!meta.value.is_playing);
 
-  // Live now-playing, or null when the queue is cleared (WAITING).
+  // Live now-playing, or null when the queue is cleared (READY).
   const nowPlaying = computed(() => {
     const m = meta.value;
     if (!m.track_id && !m.title) return null;
@@ -209,7 +234,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   });
 
   // Sticky copy preserved through the player's fade-out: the backend clears the
-  // queue metadata the instant it drops to WAITING, so binding the docked
+  // queue metadata the instant it drops to READY, so binding the docked
   // player straight to nowPlaying would blank its artwork/title mid-fade. The
   // component clears this once the fade completes (mirrors podcast displayEpisode).
   const displayTrack = ref(null);
@@ -1023,6 +1048,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     isScanning,
     activeStorageTrackCount,
     refreshLibrary,
+    rescan,
 
     // Network shares
     shares,
@@ -1043,6 +1069,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     browsableStorages,
     separateStorages,
     disconnectedStorage,
+    unindexedStorage,
     activeLibraryId,
     loadStorages,
     handleStoragesEvent,
