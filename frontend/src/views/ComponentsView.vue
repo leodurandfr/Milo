@@ -17,6 +17,12 @@
   props on the right. The route carries the selection (`?c=Button`) so a link
   survives a reload, and `meta.chrome: false` tells App.vue to drop the Dock and
   the warm colour filter over this route.
+
+  The list holds three axes, coarsest first: the design tokens (foundations.js),
+  the ten audio sources in every state they reach (sources.js), and the
+  catalogued components themselves (catalog.js). Only the last two have a live
+  instance to drive, so a foundations page replaces the canvas and the props
+  pane both.
 -->
 <template>
   <div class="gallery" :class="{ 'gallery--with-panel': showPanel, 'gallery--nav-open': navOpen }">
@@ -48,7 +54,7 @@
           <code class="gallery__path text-mono-small">{{ header.path }}</code>
         </div>
         <p class="gallery__summary text-mono-small">{{ header.summary }}</p>
-        <div class="gallery__tabs">
+        <div v-if="tabOptions.length > 1" class="gallery__tabs">
           <button
             v-for="option in tabOptions"
             :key="option.value"
@@ -63,7 +69,9 @@
         </div>
       </header>
 
-      <template v-if="tab === 'playground'">
+      <FoundationsPage v-if="foundationPage" :page="foundationPage" />
+
+      <template v-else-if="tab === 'playground'">
         <div v-if="!playground" class="gallery__note text-mono-small">
           No playground descriptor for this one — see registry.js.
         </div>
@@ -115,10 +123,12 @@ import { ref, computed, watch, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ENTRIES, entryById } from '@/components/gallery/catalog';
 import { sourcePageById } from '@/components/gallery/sources';
+import { foundationPageById, isFoundationId } from '@/components/gallery/foundations';
 import { entryFor, overridesFor, AUDIO_SOURCES_ID } from '@/components/gallery/registry';
 import { describeProps, describeEvents } from '@/components/gallery/controls';
 import GallerySidebar from '@/components/gallery/GallerySidebar.vue';
 import GalleryCanvas from '@/components/gallery/GalleryCanvas.vue';
+import FoundationsPage from '@/components/gallery/FoundationsPage.vue';
 import GalleryControls from '@/components/gallery/GalleryControls.vue';
 import ActionsDemo from '@/components/gallery/demos/ActionsDemo.vue';
 import ControlsDemo from '@/components/gallery/demos/ControlsDemo.vue';
@@ -169,11 +179,20 @@ const canvas = ref(null);
 
 const selected = computed(() => {
   const wanted = route.query.c;
-  return entryById(wanted) || wanted === AUDIO_SOURCES_ID ? wanted : ENTRIES[0].id;
+  const known = !!entryById(wanted) || wanted === AUDIO_SOURCES_ID || isFoundationId(wanted);
+  return known ? wanted : ENTRIES[0].id;
 });
 
 const catalogEntry = computed(() => entryById(selected.value));
 const playground = computed(() => entryFor(selected.value));
+
+/**
+ * The third axis: the design tokens themselves. A page of them has no live
+ * instance, so it replaces the canvas outright rather than rendering in it —
+ * which is also why the props pane disappears on its own (there is no
+ * descriptor for `showPanel` to find).
+ */
+const foundationPage = computed(() => foundationPageById(selected.value));
 
 /**
  * Which source is on the stage — read from the args rather than the selection,
@@ -191,6 +210,11 @@ const sourcePage = computed(() =>
  * answers for a primitive: where does what I am looking at come from.
  */
 const header = computed(() => {
+  const foundation = foundationPage.value;
+  if (foundation) {
+    return { title: foundation.title, path: 'assets/styles/design-system.css', summary: foundation.summary };
+  }
+
   const page = sourcePage.value;
   if (page) {
     return { title: page.title, badge: page.family, path: page.uses, summary: page.summary };
@@ -208,11 +232,15 @@ const header = computed(() => {
 /**
  * A source page has no Variants demo: the demos are one file per catalogue
  * group, and a source belongs to none. Its states are the playground's own
- * `scenario` control, which is the tab it would have pointed at anyway.
+ * `scenario` control, which is the tab it would have pointed at anyway. A
+ * foundations page has neither tab — it is one planche. Below two options the
+ * row is not rendered at all: a lone always-active button is a control that
+ * does nothing.
  */
-const tabOptions = computed(() =>
-  sourcePage.value ? TAB_OPTIONS.filter(option => option.value === 'playground') : TAB_OPTIONS
-);
+const tabOptions = computed(() => {
+  if (foundationPage.value) return [];
+  return sourcePage.value ? TAB_OPTIONS.filter(option => option.value === 'playground') : TAB_OPTIONS;
+});
 
 const descriptors = computed(() =>
   playground.value ? describeProps(playground.value.component, overridesFor(playground.value, args.value)) : []
@@ -350,7 +378,7 @@ watch(selected, (id) => {
   // The sources page offers no Variants tab, so arriving on it from that tab
   // would leave the pane blank and the button that got you there gone. Keyed on
   // the id rather than sourcePage, which reads args this watcher has yet to set.
-  if (id === AUDIO_SOURCES_ID) tab.value = 'playground';
+  if (id === AUDIO_SOURCES_ID || isFoundationId(id)) tab.value = 'playground';
   args.value = initialArgs(id);
   slotChoices.value = initialSlots(id);
   presetChoices.value = initialPresets(id);
