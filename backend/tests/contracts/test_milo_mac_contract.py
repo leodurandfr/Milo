@@ -234,8 +234,7 @@ def _sole_event_class(category: str, evt_type: str):
 
 def test_invariant_full_state_envelope():
     """full_state subkeys Milo-Mac reads exist in the aggregated state dict,
-    and every carrier pair actually gets full_state injected (source/system
-    category + INCLUDE_FULL_STATE)."""
+    and every carrier pair still opts into full_state injection."""
     from backend.core.state import AudioStateMachine
 
     inv = _INVARIANTS["full_state_envelope"]
@@ -249,10 +248,7 @@ def test_invariant_full_state_envelope():
     for pair in inv["carried_by"]:
         category, evt_type = pair.split("/")
         for cls in _EVENT_CLASSES[(category, evt_type)]:
-            assert (
-                cls.INCLUDE_FULL_STATE
-                and category in AudioStateMachine._FULL_STATE_CATEGORIES
-            ), (
+            assert cls.INCLUDE_FULL_STATE, (
                 f"{pair} ({cls.__name__}) no longer carries full_state but "
                 f"Milo-Mac reads it from this event."
             )

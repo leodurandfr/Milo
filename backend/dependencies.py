@@ -379,6 +379,18 @@ def initialize_services() -> None:
     volume_service.set_routing_service(routing_service)
     routing_service.set_volume_service(volume_service)
 
+    # Fail loud on a missing full_state back-reference. get_current_state() reads
+    # multiroom_enabled / equalizer_effects_enabled through these two and falls
+    # back to False when either is unset — indistinguishable on the wire from
+    # "multiroom off, effects off", so a wiring regression would ship as a silent
+    # UI lie rather than a crash.
+    for attr in ("routing_service", "camilladsp_service"):
+        if getattr(state_machine, attr) is None:
+            raise RuntimeError(
+                f"state_machine.{attr} not wired — full_state would report its "
+                f"global flag as False for every client."
+            )
+
     # Ordered registry subscriptions (NOT cycles — ClientRegistryService holds no
     # back-reference; the constraint is subscription order, not construction).
     # The volume state store MUST subscribe before the snapcast WS broadcaster,

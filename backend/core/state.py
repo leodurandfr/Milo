@@ -38,15 +38,18 @@ logger = logging.getLogger(__name__)
 class AudioStateMachine:
     """
     Audio state machine - WebSocketManager for frontend broadcasting.
+
+    Lock order: `_transition_lock` → `_state_lock`, never the reverse. The
+    transition lock serializes whole source lifecycles (stop old / start new,
+    seconds long); the state lock guards individual `system_state` writes and
+    is held for microseconds. Taking the transition lock while holding the
+    state lock would deadlock against transition_to_source(), which holds the
+    former across every acquisition of the latter. `core/multiroom/routing.py`
+    obeys the same order through exclusive_transition().
     """
 
     TRANSITION_TIMEOUT = 10.0
     INACTIVITY_TIMEOUT = 43200  # 12 hours in seconds
-
-    # Only "source"/"system" categories include full_state (used by unifiedAudioStore).
-    # Other categories (volume, equalizer, multiroom, settings) send only
-    # their specific data — their frontend stores don't read full_state.
-    _FULL_STATE_CATEGORIES = frozenset({"source", "system"})
 
     def __init__(self):
         self.system_state = SystemAudioState()
@@ -193,33 +196,25 @@ class AudioStateMachine:
                     logger.info(f"Transition completed: {target_source.value}")
                     return True
 
-            except asyncio.TimeoutError:
-                logger.error(f"Transition timeout after {self.TRANSITION_TIMEOUT}s")
-                async with self._state_lock:
-                    self.system_state.transitioning = False
-                    self.system_state.error = "Transition timeout"
-
-                # Broadcast the error before the reset clears state
-                await self.broadcast(SystemErrorEvent(
-                    source=target_source.value,
-                    error="Transition timeout",
-                    message=f"Transition timeout after {self.TRANSITION_TIMEOUT}s"
-                ))
-
-                await self._reset_after_failed_transition(target_source)
-                return False
-
             except Exception as e:
-                logger.error(f"Transition error: {e}")
+                # A timeout only earns its own message; both failures settle
+                # identically (asyncio.TimeoutError is a builtin Exception).
+                if isinstance(e, asyncio.TimeoutError):
+                    error = "Transition timeout"
+                    message = f"Transition timeout after {self.TRANSITION_TIMEOUT}s"
+                else:
+                    error = message = str(e)
+
+                logger.error(f"Transition failed: {message}")
                 async with self._state_lock:
                     self.system_state.transitioning = False
-                    self.system_state.error = str(e)
+                    self.system_state.error = error
 
                 # Broadcast the error before the reset clears state
                 await self.broadcast(SystemErrorEvent(
                     source=target_source.value,
-                    error=str(e),
-                    message=str(e)
+                    error=error,
+                    message=message
                 ))
 
                 await self._reset_after_failed_transition(target_source)
@@ -378,30 +373,39 @@ class AudioStateMachine:
         with contextlib.suppress(asyncio.CancelledError):
             while True:
                 await asyncio.sleep(60)
+                # Per-iteration guard: transition_to_source() raising (a source
+                # whose stop() blew up) must not kill the monitor for the rest
+                # of the process's life — the next tick retries.
+                try:
+                    await self._check_inactivity()
+                except Exception as e:
+                    logger.error(f"Inactivity check failed: {e}")
 
-                # Atomic snapshot under lock
-                async with self._state_lock:
-                    source = self.system_state.active_source
-                    source_state = self.system_state.source_state
-                    transitioning = self.system_state.transitioning
+    async def _check_inactivity(self) -> None:
+        """One inactivity tick: deactivate the source if it has idled too long."""
+        # Atomic snapshot under lock
+        async with self._state_lock:
+            source = self.system_state.active_source
+            source_state = self.system_state.source_state
+            transitioning = self.system_state.transitioning
 
-                if (
-                    source != AudioSource.NONE
-                    and source_state == SourceState.WAITING
-                    and not transitioning
-                    and (monotonic() - self._last_activity_time) >= self.INACTIVITY_TIMEOUT
-                ):
-                    elapsed = monotonic() - self._last_activity_time
-                    logger.info(
-                        "Deactivating idle source %s after %.0fs of inactivity",
-                        source.value,
-                        elapsed
-                    )
-                    # CAS guard: if active source changed between snapshot
-                    # and lock acquisition, transition_to_source will skip
-                    await self.transition_to_source(
-                        AudioSource.NONE, expected_source=source
-                    )
+        if (
+            source != AudioSource.NONE
+            and source_state == SourceState.WAITING
+            and not transitioning
+            and (monotonic() - self._last_activity_time) >= self.INACTIVITY_TIMEOUT
+        ):
+            elapsed = monotonic() - self._last_activity_time
+            logger.info(
+                "Deactivating idle source %s after %.0fs of inactivity",
+                source.value,
+                elapsed
+            )
+            # CAS guard: if active source changed between snapshot
+            # and lock acquisition, transition_to_source will skip
+            await self.transition_to_source(
+                AudioSource.NONE, expected_source=source
+            )
 
     def cleanup(self) -> None:
         """Cancel background tasks."""
@@ -417,14 +421,14 @@ class AudioStateMachine:
 
         Sole emission API — envelope {category, type, origin, data, timestamp}.
         Payload shape and consumers are documented on the event model
-        (backend/core/models/ws_events.py); full_state is injected for
-        source/system events unless the event class opts out.
+        (backend/core/models/ws_events.py), which also decides — alone — whether
+        full_state rides along, via its INCLUDE_FULL_STATE flag.
         """
         if not self.ws_manager:
             return
 
         event_payload = event.wire_data()
-        if event.INCLUDE_FULL_STATE and event.CATEGORY in self._FULL_STATE_CATEGORIES:
+        if event.INCLUDE_FULL_STATE:
             event_payload["full_state"] = self.get_current_state()
 
         await self.ws_manager.broadcast_dict(event.to_envelope(event_payload))

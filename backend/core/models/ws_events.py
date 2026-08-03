@@ -4,7 +4,7 @@ Typed WebSocket event layer — one class per (category, type) pair.
 
 `CATEGORY`/`TYPE` are class-level, never passed at call sites; the model's own
 fields ARE the wire `data` payload. `AudioStateMachine.broadcast(event)`
-serializes the model, injects `full_state` for source/system categories, and
+serializes the model, injects `full_state` when the class opts in, and
 wraps it in the `{category, type, origin, data, timestamp}` envelope.
 
 The model is the payload documentation: each class docstring names its
@@ -44,9 +44,10 @@ class WsEvent(BaseModel):
 
     CATEGORY: ClassVar[str]
     TYPE: ClassVar[str]
-    # source/system events carry an injected full_state (unifiedAudioStore);
-    # lightweight events (position updates) opt out.
-    INCLUDE_FULL_STATE: ClassVar[bool] = True
+    # Whether broadcast() rides the aggregated full_state along. Sole decision
+    # point — only the source/system carriers read by unifiedAudioStore opt in;
+    # every other category's store reads `data` alone.
+    INCLUDE_FULL_STATE: ClassVar[bool] = False
     # True on models whose None fields must be absent from the wire, not null.
     EXCLUDE_NONE: ClassVar[bool] = False
 
@@ -80,6 +81,7 @@ class SystemTransitionStart(WsEvent):
     """App.vue → unifiedAudioStore.updateState — reads the injected full_state only."""
     CATEGORY = "system"
     TYPE = "transition_start"
+    INCLUDE_FULL_STATE = True
     source: Literal["system"] = "system"
 
 
@@ -87,6 +89,7 @@ class SystemTransitionComplete(WsEvent):
     """App.vue → unifiedAudioStore.updateState — reads the injected full_state only."""
     CATEGORY = "system"
     TYPE = "transition_complete"
+    INCLUDE_FULL_STATE = True
     source: Literal["system"] = "system"
 
 
@@ -94,6 +97,7 @@ class SystemErrorEvent(WsEvent):
     """Transition-failure banner: App.vue on('system','error') displays the message."""
     CATEGORY = "system"
     TYPE = "error"
+    INCLUDE_FULL_STATE = True
     source: str  # audio source id the failed transition targeted
     error: str
     message: str
@@ -104,6 +108,7 @@ class SystemStateChanged(WsEvent):
     multiroom_changed discriminator (absent everywhere but the routing emitter)."""
     CATEGORY = "system"
     TYPE = "state_changed"
+    INCLUDE_FULL_STATE = True
     EXCLUDE_NONE = True
     source: str
     multiroom_changed: Optional[bool] = None
@@ -113,7 +118,6 @@ class SystemConnectivityChanged(WsEvent):
     """App.vue offline banner — NetworkManager connectivity flips."""
     CATEGORY = "system"
     TYPE = "connectivity_changed"
-    INCLUDE_FULL_STATE = False
     source: Literal["system"] = "system"
     online: bool
 
@@ -122,7 +126,6 @@ class SystemHostnameConflictChanged(WsEvent):
     """App.vue hostname-conflict banner (milo.local advertised under another name)."""
     CATEGORY = "system"
     TYPE = "hostname_conflict_changed"
-    INCLUDE_FULL_STATE = False
     source: Literal["system"] = "system"
     hostname_conflict: bool
     advertised_name: Optional[str]
@@ -134,6 +137,7 @@ class SystemBackendError(WsEvent):
     """App.vue error toast — forwarded backend ERROR log records."""
     CATEGORY = "system"
     TYPE = "backend_error"
+    INCLUDE_FULL_STATE = True
     message: str
 
 
@@ -142,6 +146,7 @@ class SystemCdDriveStatus(WsEvent):
     full_state metadata, not in data (App.vue → unifiedAudioStore)."""
     CATEGORY = "system"
     TYPE = "cd_drive_status"
+    INCLUDE_FULL_STATE = True
     source: Literal["cd"] = "cd"
 
 
@@ -150,7 +155,6 @@ class SystemInitialState(WsEvent):
     broadcast; carries its own full_state as an explicit field."""
     CATEGORY = "system"
     TYPE = "initial_state"
-    INCLUDE_FULL_STATE = False
     full_state: Dict[str, Any]
     setup_completed: bool
     hotspot_active: bool
@@ -165,6 +169,7 @@ class SourceStateChanged(WsEvent):
     metadata.error); podcastStore tracks episode state from it."""
     CATEGORY = "source"
     TYPE = "state_changed"
+    INCLUDE_FULL_STATE = True
     source: str
     new_state: str
     metadata: Optional[Dict[str, Any]] = None
@@ -174,6 +179,7 @@ class SourceErrorCleared(WsEvent):
     """App.vue dismisses the error banner when data.source matches the displayed error."""
     CATEGORY = "source"
     TYPE = "error_cleared"
+    INCLUDE_FULL_STATE = True
     source: str
 
 
@@ -181,7 +187,6 @@ class SourcePositionUpdate(WsEvent):
     """Zod source.position_update → unifiedAudioStore playback-position drift correction."""
     CATEGORY = "source"
     TYPE = "position_update"
-    INCLUDE_FULL_STATE = False
     source: str
     position: int  # milliseconds
     duration: int  # milliseconds
@@ -193,6 +198,7 @@ class RadioFavoriteAdded(WsEvent):
     """radioStore favorites sync."""
     CATEGORY = "source"
     TYPE = "favorite_added"
+    INCLUDE_FULL_STATE = True
     source: Literal["radio"] = "radio"
     station_id: str
 
@@ -201,6 +207,7 @@ class RadioFavoriteRemoved(WsEvent):
     """radioStore favorites sync."""
     CATEGORY = "source"
     TYPE = "favorite_removed"
+    INCLUDE_FULL_STATE = True
     source: Literal["radio"] = "radio"
     station_id: str
 
@@ -209,6 +216,7 @@ class RadioFavoriteModified(WsEvent):
     """radioStore metadata edit sync; station dict carries id + is_favorite."""
     CATEGORY = "source"
     TYPE = "favorite_modified"
+    INCLUDE_FULL_STATE = True
     source: Literal["radio"] = "radio"
     station: Dict[str, Any]
 
@@ -217,6 +225,7 @@ class PodcastFavoriteAdded(WsEvent):
     """podcastStore subscriptions sync; podcast = the subscription dict."""
     CATEGORY = "source"
     TYPE = "favorite_added"
+    INCLUDE_FULL_STATE = True
     source: Literal["podcast"] = "podcast"
     podcast: Dict[str, Any]
 
@@ -225,6 +234,7 @@ class PodcastFavoriteRemoved(WsEvent):
     """podcastStore subscriptions sync."""
     CATEGORY = "source"
     TYPE = "favorite_removed"
+    INCLUDE_FULL_STATE = True
     source: Literal["podcast"] = "podcast"
     uuid: str
 
@@ -244,6 +254,7 @@ class MusicLibraryStoragesChanged(WsEvent):
     """
     CATEGORY = "source"
     TYPE = "storages_changed"
+    INCLUDE_FULL_STATE = True
     source: Literal["music_library"] = "music_library"
     storages: List[Dict[str, Any]]
     scanning: bool

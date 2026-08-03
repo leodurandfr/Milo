@@ -542,17 +542,22 @@ class BaseAudioSource(ABC):
 
     def set_state(self, state: SourceState, metadata: Optional[Dict[str, Any]] = None) -> None:
         """
-        Set state and optionally update metadata.
+        Set state and optionally replace metadata.
 
         Syncs with state_machine if available (active sources only).
 
         Args:
             state: New state (SourceState enum)
-            metadata: Optional metadata to merge
+            metadata: Authoritative metadata for the new state, or None for a
+                state-only change (leaves the current metadata untouched).
         """
         self._state = state
-        if metadata:
-            self._metadata.update(metadata)
+        # Replace, don't merge — same rule as update_source_state(), so the
+        # source's copy and the machine's cannot diverge. A source that wants
+        # a field kept re-emits it (the four accumulator sources hand their own
+        # dict back through emit_connection_state, which round-trips it).
+        if metadata is not None:
+            self._metadata = dict(metadata)
 
         if self.state_machine:
             self._bg.spawn(
