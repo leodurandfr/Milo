@@ -44,7 +44,7 @@ def _navidrome_provider(client=None):
 def _scan_status(scanning):
     """One getScanStatus reply. Navidrome answers startScan with "ok" even when
     it drops the request, so this reply is the manager's ONLY way to know a scan
-    is already running — see StorageManager._trigger_scan."""
+    is already running — see StorageManager.request_scan."""
     return {"scanning": scanning, "count": 0, "folderCount": 0}
 
 
@@ -180,7 +180,7 @@ async def test_scan_skipped_when_navidrome_unavailable():
     no inotify event reports a mount — so the scheduled rescan is what catches
     up, and the mount itself must not fail over a catalog that isn't up yet."""
     mgr = StorageManager(_navidrome_provider(None), AsyncMock())
-    await mgr._trigger_scan()  # must not raise
+    await mgr.request_scan()  # must not raise
 
 
 # === network shares (SMB/NFS) =====================================================

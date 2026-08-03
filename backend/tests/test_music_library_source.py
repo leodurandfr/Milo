@@ -8,6 +8,7 @@ shuffle toggle, resume-on-return, and the monitor's gapless auto-advance +
 end-of-queue detection. mpv IPC and the Navidrome client are mocked — no service,
 socket, or daemon is touched.
 """
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -560,3 +561,57 @@ class TestResume:
         assert source.state == SourceState.ACTIVE
         assert source._is_playing is False  # resumed paused, not auto-playing
         mpv.load_playlist.assert_awaited()
+
+
+class TestRescanOnOpen:
+    """Opening the library asks Navidrome to re-index.
+
+    It is the only moment Milō can infer that freshness matters: music copied
+    straight onto a NAS raises no event this appliance can observe — inotify
+    crosses neither a network mount nor a mount itself — so without this the
+    catalog moves only on the 6-hourly scheduled pass, which is deliberately
+    slow so a sleeping NAS is not woken 24 times a day.
+    """
+
+    @staticmethod
+    def _ready(source):
+        source._start_service_and_wait = AsyncMock(return_value=True)
+        source._load_auto_stop_config = AsyncMock()
+        source._start_monitor = Mock()
+        source.shares.request_scan = AsyncMock()
+        mpv = _mpv_with_props({})
+        mpv.connect = AsyncMock(return_value=True)
+        return mpv
+
+    @pytest.mark.asyncio
+    async def test_opening_the_library_requests_a_rescan(self, source):
+        mpv = self._ready(source)
+        with patch("backend.sources.music_library.source.MpvController", return_value=mpv):
+            assert await source._do_start() is True
+        await asyncio.sleep(0)  # let the spawned task reach its await
+        await source._bg.cancel_all()
+        source.shares.request_scan.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_wedged_catalog_cannot_delay_the_source(self, source):
+        """The scan is spawned, not awaited. A Navidrome that never answers must
+        cost the user nothing — the source is up for playback either way, and the
+        request is the layer below's problem (it defers on a busy scanner)."""
+        mpv = self._ready(source)
+        never = asyncio.Event()
+        source.shares.request_scan = AsyncMock(side_effect=lambda: never.wait())
+
+        with patch("backend.sources.music_library.source.MpvController", return_value=mpv):
+            ok = await asyncio.wait_for(source._do_start(), timeout=1)
+
+        assert ok is True
+        await source._bg.cancel_all()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_start_asks_for_nothing(self, source):
+        """No mpv, no library on screen — nothing to refresh for."""
+        self._ready(source)
+        source._start_service_and_wait = AsyncMock(return_value=False)
+
+        assert await source._do_start() is False
+        source.shares.request_scan.assert_not_awaited()

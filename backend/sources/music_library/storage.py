@@ -242,7 +242,7 @@ class StorageManager:
             }
             self.logger.info("Mounted %s at %s", devnode, mountpoint)
         await self._on_storage_changed()
-        await self._trigger_scan()
+        await self.request_scan()
 
     async def _unmount(self, devnode: str) -> None:
         async with self._lock:
@@ -345,7 +345,7 @@ class StorageManager:
                 "Mounted %s share %s at %s", share["type"], share_id, mountpoint
             )
         await self._on_storage_changed()
-        await self._trigger_scan()
+        await self.request_scan()
         return mountpoint
 
     async def unmount_share(self, share_id: str) -> None:
@@ -366,7 +366,7 @@ class StorageManager:
         # unmounts before it mounts again) — the caller decides, from the share
         # config, whether it still belongs; here we only report the change.
         await self._on_storage_changed()
-        await self._trigger_scan(full=True)
+        await self.request_scan(full=True)
 
     async def forget_share_credentials(self, share_id: str) -> None:
         """Drop a share's root-only cred file (called on share deletion)."""
@@ -437,7 +437,7 @@ class StorageManager:
     # Navidrome rescan
     # =========================================================================
 
-    async def _trigger_scan(self, full: bool = False) -> None:
+    async def request_scan(self, full: bool = False) -> None:
         """Ask Navidrome to rescan /media/milo after a mount change.
 
         ``full`` runs a full scan instead of a quick (mtime-based) one — used on
