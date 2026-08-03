@@ -44,6 +44,13 @@ _ACTIVE_STATUSES = {"playing", "paused"}
 # does not.
 _IDLE_GRACE_TICKS = 3
 
+# Mirror of the above for the opposite blip: an active status whose now_playing
+# is still empty at the start of a session. Hold rather than publish ACTIVE with
+# no track — nothing renders, so the card would show the idle fallback over
+# playing audio. Bounded, not indefinite: a proxy that never delivers a track
+# must not wedge the source in WAITING forever.
+_TRACKLESS_GRACE_TICKS = 3
+
 
 class QobuzSource(BaseAudioSource):
     """Qobuz Connect source (Family B — passive player): external control, rich metadata."""
@@ -74,6 +81,7 @@ class QobuzSource(BaseAudioSource):
         self._is_playing = False
         self._device_connected = False
         self._idle_ticks = 0
+        self._trackless_ticks = 0
         # qobuz-proxy account login state (from /api/status auth.authenticated).
         # Optimistic default so the idle card doesn't flash the "connect account"
         # CTA before the first poll confirms there is no account.
@@ -83,6 +91,7 @@ class QobuzSource(BaseAudioSource):
         super()._reset_playback_state()
         self._device_connected = False
         self._idle_ticks = 0
+        self._trackless_ticks = 0
 
     async def _do_start(self) -> bool:
         """Start the qobuz-proxy service and the /api/status poll monitor."""
@@ -158,10 +167,12 @@ class QobuzSource(BaseAudioSource):
         """Map a qobuz-proxy speaker snapshot into connection/playback state.
 
         playing/paused (with now_playing) → ACTIVE with the current track;
-        idle/disconnected/absent → WAITING (after a short grace window that
-        bridges the idle/empty blip qobuz-proxy emits between tracks, so the UI
-        doesn't flash the "ready to stream" fallback). Position/duration ride the
-        same poll (our patched now_playing carries them, see
+        idle/disconnected/absent → WAITING. Both directions pass through a short
+        grace window, for the same reason in mirror: qobuz-proxy blips to idle
+        between tracks (don't flash the "ready to stream" fallback) and starts a
+        session before it has a track to report (don't publish an ACTIVE with
+        nothing to draw). Position/duration ride the same poll (our patched
+        now_playing carries them, see
         install/qobuz_proxy_patches.py) and the frontend interpolates between
         ticks; seeking stays with the Qobuz app — Family B has no local control.
 
@@ -197,6 +208,24 @@ class QobuzSource(BaseAudioSource):
             if self._metadata and "duration_ms" in now:
                 self._metadata["position"] = now["position_ms"]
                 self._metadata["duration"] = now["duration_ms"]
+
+            # Nothing to render: an active status whose now_playing has not
+            # produced a title (the session's first ticks). Committing ACTIVE
+            # here publishes a session the card can only draw as its idle
+            # fallback, over audio that is playing — so hold, exactly as the
+            # idle branch below holds the opposite blip.
+            if not self._metadata.get("title"):
+                if self._trackless_ticks < _TRACKLESS_GRACE_TICKS:
+                    self._trackless_ticks += 1
+                    return
+                self._logger.warning(
+                    "qobuz-proxy reports '%s' with no track after %d ticks — "
+                    "publishing the session without one",
+                    status, _TRACKLESS_GRACE_TICKS,
+                )
+            else:
+                self._trackless_ticks = 0
+
             self._device_connected = True
             self._idle_ticks = 0
         else:
@@ -209,6 +238,7 @@ class QobuzSource(BaseAudioSource):
             self._is_playing = False
             self._metadata = {}
             self._device_connected = False
+            self._trackless_ticks = 0
 
         self._update_connection_state()
 

@@ -469,16 +469,10 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (showControls)',
     via: 'dispatcher',
     summary:
-      'The only Connect source Milō drives back: AudioPlayerFull with the full transport. Its rich display is gated on title + artist alone — Spotify is a trusted metadata provider, so no cover-quality check — which is why an active session with no metadata yet falls through every branch of the status card and prints the bare "waiting" line.',
+      'The only Connect source Milō drives back: AudioPlayerFull with the full transport. Its rich display is gated on title + artist alone — Spotify is a trusted metadata provider, so no cover-quality check. There is no "active, no metadata" scenario here any more: the source no longer publishes ACTIVE unless go-librespot answered with a track, so the gap between the session opening and the first track event now reads as waiting instead of as a card with nothing to draw.',
     scenarios: [
       starting('spotify'),
       waiting('spotify', 'Waiting', 'Connected to go-librespot, no phone has picked the speaker yet.'),
-      active(
-        'spotify',
-        'Active, no metadata',
-        'The gap between the session opening and the first track event. hasRichDisplay wants title AND artist, so the card stays — and with no device name for Spotify it falls through to the single "waiting" line. A real, reachable branch.',
-        { is_playing: true }
-      ),
       active('spotify', 'Playing', 'Rich display earned: AudioPlayerFull, progress bar and transport. The buttons report to the event log instead of reaching the unit.', {
         title: 'Says',
         artist: 'Nils Frahm',
@@ -533,7 +527,7 @@ export const SOURCE_PAGES = [
       active(
         'qobuz',
         'Active, before now_playing',
-        'The proxy exposes no controller identity, so currentDeviceName is empty and the generic active branch prints "Qobuz / playing" rather than falling back to "waiting".',
+        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in waiting. The proxy exposes no controller identity, so currentDeviceName is empty and the generic active branch prints "Qobuz / playing" rather than falling back to "waiting".',
         { is_playing: true }
       ),
       active('qobuz', 'Playing', 'Trusted CDN cover, so no album_art_width gate — title + artist is enough. Read-only bar above the source bar.', {
