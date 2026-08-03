@@ -562,3 +562,40 @@
 .content-swap-leave-to {
     opacity: 0;
 }
+
+/* Source swap: one full-surface source view giving way to the next — the status
+   card to a player, a player to a browser. Two stacked absolute slots cross-fade
+   rather than mode="out-in" (which stranded on rapid switches and mounted
+   nothing, see 8efeb6e7): the outgoing one rises away while the incoming one
+   comes up from below, and z-index keeps the entering view on top through the
+   overlap. Direction is always bottom-to-top, whichever way the switch went.
+
+   Lives here rather than in AudioSourceView because the gallery's source pages
+   replay the same swap, and a transition copied into a second file is one that
+   drifts. AudioSourceView keeps only its own lyrics-slot override, which is
+   scoped and so still outranks this. */
+.audio-content-enter-active {
+    transition: all var(--transition-spring);
+    z-index: 1;
+}
+
+.audio-content-leave-active {
+    transition: all var(--transition-fast-leave);
+    z-index: 0;
+}
+
+.audio-content-enter-from {
+    opacity: 0;
+    transform: translateY(var(--space-06)) scale(0.98);
+}
+
+.audio-content-leave-to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--space-06))) scale(0.98);
+}
+
+.audio-content-enter-to,
+.audio-content-leave-from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
