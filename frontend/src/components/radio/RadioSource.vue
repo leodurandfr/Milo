@@ -317,38 +317,7 @@ async function loadAvailableCountries() {
   display: none;
 }
 
-/* Radio controls layout */
-.radio-controls {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: var(--space-02);
-  z-index: 1;
-  width: 100%;
-}
-
-/* .vertical-layout renders identically wherever it's shown — desktop sidebar
-   and the mobile expanded sheet alike (AudioPlayer.vue's layout toggle hides
-   it in the mobile docked mini-bar only, see .horizontal-layout below) — so
-   its width/justify rules must NOT be aspect-ratio-gated, or the sheet loses
-   parity with the desktop sidebar. */
-.radio-controls-main {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-02);
-  width: 100%;
-}
-
-.radio-controls-main .btn {
-  width: 100%;
-}
-
-/* Mobile docked mini-bar: only the compact ghost icon button (.horizontal-layout)
-   renders — push it to the row's edge. */
-@media (max-aspect-ratio: 4/3) {
-  .radio-controls {
-    justify-content: flex-end;
-  }
-}
+/* The .radio-controls / .radio-controls-main layout lives in AudioPlayer.vue,
+   in :deep() — this row is slotted into it, and the same row is re-authored by
+   the gallery's SourceStage, which scoped CSS here could never reach. */
 </style>

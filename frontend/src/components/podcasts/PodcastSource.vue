@@ -10,7 +10,7 @@
     @scroll-restored="onScrollRestored">
     <!-- Header actions (only on home view) -->
     <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
-      <IconButton icon="heartOff" :variant="iconVariant" :active="false" @click="goToSubscriptions" />
+      <IconButton icon="heartOff" :variant="iconVariant" @click="goToSubscriptions" />
       <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
       <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
     </template>
@@ -353,31 +353,7 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-/* Player control styles (from PodcastPlayer.vue) */
-.speed-selector {
-  display: flex;
-  align-items: center;
-  position: absolute;
-  left: 0;
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .speed-selector {
-    position: static;
-  }
-}
-
-.speed-selector :deep(.dropdown) {
-  width: auto;
-  flex: none;
-}
-
-.speed-selector :deep(.dropdown-menu) {
-  min-width: 100px;
-}
-
-:deep(.dropdown-trigger--transparent) {
-  min-width: 48px;
-  padding: var(--space-02) 0;
-}
+/* The .speed-selector layout lives in AudioPlayer.vue, in :deep() — it is
+   slotted into it, and the same row is re-authored by the gallery's
+   SourceStage, which scoped CSS here could never reach. */
 </style>
