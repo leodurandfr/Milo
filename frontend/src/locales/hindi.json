@@ -15,8 +15,6 @@
   "notification": {
     "connectionLostTitle": "कनेक्शन खो गया",
     "connectionLostDescription": "उपलब्ध होने पर स्वचालित रूप से पुनः कनेक्ट हो रहा है",
-    "offlineTitle": "इंटरनेट कनेक्शन नहीं है",
-    "offlineDescription": "कनेक्शन बहाल होने तक Spotify, AirPlay, रेडियो और पॉडकास्ट काम नहीं करेंगे।",
     "backendErrorTitle": "सिस्टम त्रुटि",
     "sourceErrorTitle": "{source} त्रुटि",
     "commandFailed": "कमांड विफल"
@@ -231,6 +229,9 @@
     "accountNotConnected": "खाता कनेक्ट नहीं है",
     "connect": "कनेक्ट करें",
     "error": "त्रुटि",
+    "noNetwork": "नेटवर्क नहीं है",
+    "noInternet": "इंटरनेट उपलब्ध नहीं है",
+    "networkSettings": "नेटवर्क सेटिंग्स",
     "retry": "पुनः प्रयास करें",
     "playing": "चल रहा है",
     "connectedTo": "से जुड़ा हुआ",

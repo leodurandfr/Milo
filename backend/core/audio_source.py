@@ -7,7 +7,7 @@ import logging
 
 from pydantic import BaseModel, ValidationError
 
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import AudioSource, NetworkRequirement, SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.core.models.ws_events import (
     SourceError,
@@ -79,6 +79,13 @@ class BaseAudioSource(ABC):
     # so _handle_command() receives a validated model. Override per source; an empty
     # map (the default) makes command() reject every command as unknown.
     COMMANDS: Dict[str, Optional[Type[BaseModel]]] = {}
+
+    # What this source needs from the network to work at all. The state machine
+    # crosses it with NetworkManager's connectivity level to decide whether the
+    # active source is blocked (full_state.network_unavailable), so a link
+    # problem is reported to the user only when it actually breaks what they
+    # selected. NONE is the safe default: it reports nothing.
+    NETWORK_REQUIREMENT: NetworkRequirement = NetworkRequirement.NONE
 
     def __init__(
         self,

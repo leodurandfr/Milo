@@ -15,8 +15,13 @@ export const useSystemStore = defineStore('system', () => {
   const advertisedName = ref(null);
   const localIp = ref(null);
   const rechecking = ref(false);
-  // Default true (fail-open): if the backend hasn't reported yet, don't flash an offline banner.
-  const isOnline = ref(true);
+  // NetworkManager's connectivity level, kept whole: 'unknown' | 'none' |
+  // 'portal' | 'limited' | 'full'. 'unknown' is the fail-open default (backend
+  // silent, or NM has not probed yet) and reads as "no problem observed".
+  // Whether a *source* is blocked by it is not decided here — the backend
+  // crosses the level with the source's own requirement and publishes the
+  // answer as full_state.network_unavailable.
+  const connectivity = ref('unknown');
 
   function applyState(state) {
     if (!state) return;
@@ -29,8 +34,8 @@ export const useSystemStore = defineStore('system', () => {
     if (state.local_ip !== undefined) {
       localIp.value = state.local_ip;
     }
-    if (typeof state.online === 'boolean') {
-      isOnline.value = state.online;
+    if (typeof state.connectivity === 'string') {
+      connectivity.value = state.connectivity;
     }
   }
 
@@ -80,7 +85,7 @@ export const useSystemStore = defineStore('system', () => {
     advertisedName,
     localIp,
     rechecking,
-    isOnline,
+    connectivity,
     fetchStatus,
     recheckHostname,
     handleConflictEvent,

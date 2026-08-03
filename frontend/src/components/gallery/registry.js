@@ -105,7 +105,7 @@ import SettingsSample from './samples/SettingsSample.vue';
 import SourceStage from './SourceStage.vue';
 import { SOURCE_PAGES } from './sources';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
-import { DISPLAY_STATES } from '@/composables/useSourceStatusDisplay';
+import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import stationImageTurntable from './samples/station-image-turntable.webp';
 
@@ -683,7 +683,10 @@ export const REGISTRY = {
       // Same: the validator defers to DISPLAY_STATES, so the list is borrowed
       // from the composable that derives it rather than restated here — which
       // is what stops the select outliving a state the app stopped producing.
-      displayState: { kind: 'enum', options: [...DISPLAY_STATES] }
+      displayState: { kind: 'enum', options: [...DISPLAY_STATES] },
+      // Same again, and null is a real value here: it is what "the source can
+      // work" looks like, so the select must be able to go back to it.
+      unavailableReason: { kind: 'enum', options: [null, ...UNAVAILABLE_REASONS] }
     },
     // Only read in the `active` branch, and the array is the ROC case: several
     // Macs streaming at once, which formatDeviceNames joins across two lines.

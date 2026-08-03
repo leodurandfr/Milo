@@ -292,18 +292,17 @@ watch(isConnected, (connected) => {
   }
 });
 
+// Connectivity is deliberately absent from this banner. A missing link is only
+// worth telling the user about when it blocks the source they selected, and
+// that judgement needs the source — which the status card has and the banner
+// does not. The card says it (see useSourceStatusDisplay); raising it here as
+// well fired while listening over Bluetooth or a CD, where nothing was wrong.
 const notificationTitle = computed(() => {
   // Priority 1: Connection lost (WS to backend down — local UI is stale)
   if (showConnectionLost.value) {
     return t('notification.connectionLostTitle');
   }
-  // Priority 2: Internet offline (most sources need internet to function).
-  // Suppressed during the setup wizard: the device is in hotspot mode with no
-  // upstream internet yet, so "no internet" is expected noise, not actionable.
-  if (!systemStore.isOnline && settingsStore.setupCompleted !== false) {
-    return t('notification.offlineTitle');
-  }
-  // Priority 3: System/source errors
+  // Priority 2: System/source errors
   return currentError.value?.title || null;
 });
 
@@ -311,16 +310,13 @@ const notificationDetail = computed(() => {
   if (showConnectionLost.value) {
     return t('notification.connectionLostDescription');
   }
-  if (!systemStore.isOnline && settingsStore.setupCompleted !== false) {
-    return t('notification.offlineDescription');
-  }
   return currentError.value?.detail || null;
 });
 
-// Connection lost and offline auto-resolve when the underlying state changes,
-// so they aren't dismissable. Transient command/system errors are.
+// Connection lost auto-resolves when the socket comes back, so it isn't
+// dismissable. Transient command/system errors are.
 const isNotificationDismissable = computed(() => {
-  return !showConnectionLost.value && systemStore.isOnline && currentError.value !== null;
+  return !showConnectionLost.value && currentError.value !== null;
 });
 
 function dismissNotification() {
@@ -483,6 +479,18 @@ provide('dismissScreensaver', dismissScreensaverSignal);
 // The arms registered further down are the ones that genuinely do more: read a
 // discriminator, drive the notification banner, or touch app-level UI state.
 
+/**
+ * Connectivity feeds two stores from one event: the raw NM level (Settings ›
+ * Network reads it), and the injected full_state, which carries the recomputed
+ * `network_unavailable` for the active source. Losing internet blocks a source
+ * without anything about the source itself changing, so this is the only event
+ * that can move the status card to "no internet".
+ */
+function handleConnectivityChanged(event) {
+  systemStore.handleConnectivityEvent(event);
+  unifiedStore.updateState(event);
+}
+
 /** Store handlers taking the whole event: [category, type, handler]. */
 const RAW_EVENTS = [
   ['volume', 'volume_changed', unifiedStore.handleVolumeEvent],
@@ -493,7 +501,7 @@ const RAW_EVENTS = [
   // (and thus the derived cdStore) reflects drive_connected/disc presence.
   ['system', 'cd_drive_status', unifiedStore.updateState],
   ['system', 'hostname_conflict_changed', systemStore.handleConflictEvent],
-  ['system', 'connectivity_changed', systemStore.handleConnectivityEvent],
+  ['system', 'connectivity_changed', handleConnectivityChanged],
   // Live network status (cable plug/unplug, wifi associate/dissociate), pushed
   // whenever the NM dispatcher signals a physical link change.
   ['network', 'status_changed', handleNetworkStatusChanged],

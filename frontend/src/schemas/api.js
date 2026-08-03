@@ -21,6 +21,8 @@ const SourceStateSchema = z.enum([
   'starting', 'ready', 'active', 'error'
 ]);
 
+const NetworkUnavailableSchema = z.enum(['no_network', 'no_internet']);
+
 // Metadata varies by source, so we use a flexible schema.
 // String/number fields are nullable: backend emits null for "unknown"
 // (e.g. CD with failed MusicBrainz lookup → album/artist/year=null).
@@ -59,7 +61,11 @@ export const SystemStateSchema = z.object({
   metadata: MetadataSchema.catch({}).optional().default({}),
   error: z.string().nullable().optional().catch(null),
   multiroom_enabled: z.boolean().catch(false),
-  equalizer_effects_enabled: z.boolean().catch(false)
+  equalizer_effects_enabled: z.boolean().catch(false),
+  // Why the active source cannot work right now, or null when it can. The
+  // backend already crossed the NetworkManager level with the source's own
+  // requirement, so null here means "nothing to report", never "unknown".
+  network_unavailable: NetworkUnavailableSchema.nullable().optional().catch(null)
 }).passthrough();
 
 // === VOLUME ===

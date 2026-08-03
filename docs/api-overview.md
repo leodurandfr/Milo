@@ -93,6 +93,17 @@ both, so neither can be mistaken for the other:
 A failed transition leaves the source **selected** in `error` rather than resetting to `none`, which
 is what makes re-selecting it the retry.
 
+### `full_state.network_unavailable`
+
+A fifth thing the snapshot carries, and *not* a state: `no_network`, `no_internet`, or `null` when
+the active source can work. The backend crosses NetworkManager's connectivity level with the active
+source's own `NETWORK_REQUIREMENT` (`none` / `lan` / `internet`), so a router with no route out
+reports `no_internet` under Spotify and `null` under AirPlay, which only needs the LAN — and `null`
+under Bluetooth or CD, which need nothing. `system/connectivity_changed` carries the level itself
+(`unknown | none | portal | limited | full`) **and** the recomputed snapshot, since losing internet
+blocks a source without anything about the source changing. See
+[Architecture](architecture.md#unavailable-which-is-not-a-state) for the reason table and the CTAs.
+
 The subset Milo-Mac relies on — `(category, type)` pairs across `system`, `source`, `volume`,
 `routing` and `settings`, plus `payload_invariants` naming the exact fields it reads — is pinned in
 the [Milo-Mac contract](../backend/tests/contracts/milo_mac_contract.json) and verified on every

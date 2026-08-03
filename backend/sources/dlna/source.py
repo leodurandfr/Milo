@@ -11,6 +11,7 @@ referenced by URL in DIDL-Lite; we fetch it, decode its dimensions, cache it in
 memory, and serve it via a dedicated HTTP endpoint.
 """
 import asyncio
+import errno
 import hashlib
 from typing import Any, Dict, Optional, Tuple
 
@@ -18,6 +19,7 @@ import aiohttp
 from async_upnp_client.utils import get_local_ip
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.shared.artwork import decode_artwork_dimensions
 from backend.shared.decorators import handle_errors
@@ -30,6 +32,7 @@ DLNA_CLIENT_NAME = "DLNA"
 
 
 class DlnaSource(BaseAudioSource):
+    NETWORK_REQUIREMENT = NetworkRequirement.LAN
 
     def __init__(
         self,
@@ -104,12 +107,18 @@ class DlnaSource(BaseAudioSource):
             return True
 
         except Exception as e:
-            self._logger.error(f"Start failed: {e}")
+            # ENETUNREACH is the link saying there is nothing to advertise on,
+            # not the renderer failing: it is the expected outcome of starting
+            # DLNA with the network down, and the status card already says so.
+            # ERROR here would forward it to the system-error banner on top.
+            expected = isinstance(e, OSError) and e.errno == errno.ENETUNREACH
+            (self._logger.warning if expected else self._logger.error)(f"Start failed: {e}")
             await self._cleanup()
             return False
 
     # DLNA renderers are passive: playback is controlled by the external sender,
     # so no commands are registered — command() rejects every command as unknown.
+
     COMMANDS = {}
 
     # === Metadata Callbacks (fed by DlnaBridge) ===

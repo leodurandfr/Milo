@@ -20,7 +20,14 @@ from contextlib import asynccontextmanager
 from time import monotonic
 from typing import Dict, Any, Optional
 
-from backend.core.models.audio_state import AudioSource, SourceState, SystemAudioState
+from backend.core.models.audio_state import (
+    AudioSource,
+    ConnectivityLevel,
+    NetworkRequirement,
+    NetworkUnavailable,
+    SourceState,
+    SystemAudioState,
+)
 from backend.core.models.ws_events import (
     SourceStateChanged,
     SystemErrorEvent,
@@ -72,12 +79,15 @@ class AudioStateMachine:
 
         # Set after creation in dependencies.py (circular dependency resolution).
         # Ownership map of the back-references aggregated into full_state:
-        #   routing_service    → multiroom_enabled
-        #   camilladsp_service → effects_enabled (DSP plane; named for what it
-        #                        holds — EQ is just one of its effects)
+        #   routing_service      → multiroom_enabled
+        #   camilladsp_service   → effects_enabled (DSP plane; named for what it
+        #                          holds — EQ is just one of its effects)
+        #   connectivity_service → network_unavailable, crossed with the active
+        #                          source's NETWORK_REQUIREMENT
         self.ws_manager = None
         self.routing_service = None
         self.camilladsp_service = None
+        self.connectivity_service = None
 
     def register_source(self, source: AudioSource, instance: BaseAudioSource) -> None:
         """Register an audio source implementation."""
@@ -89,13 +99,49 @@ class AudioStateMachine:
         """Get audio source implementation for a specific source."""
         return self.sources.get(source)
 
+    def _network_unavailable(self, source: Optional[AudioSource] = None) -> Optional[str]:
+        """Whether a source is blocked by the current link, and how.
+
+        Defaults to the *active* source, which is what full_state reports. The
+        explicit argument is for the transition path, which needs the answer for
+        the source it is moving *to* before that source is the active one.
+
+        Two axes, both of which must say so: what NetworkManager reports, and
+        what the selected source needs. A LAN-only link breaks Spotify and
+        leaves AirPlay untouched; nothing breaks Bluetooth. Reporting on the
+        level alone is what made the old banner fire while playing a CD.
+
+        None whenever the source can work — including on UNKNOWN, the fail-open
+        level, and for AudioSource.NONE, which needs nothing.
+        """
+        if self.connectivity_service is None:
+            return None
+
+        level = self.connectivity_service.level
+        if level in (ConnectivityLevel.FULL, ConnectivityLevel.UNKNOWN):
+            return None
+
+        target = source if source is not None else self.system_state.active_source
+        instance = self.sources.get(target)
+        requirement = instance.NETWORK_REQUIREMENT if instance else NetworkRequirement.NONE
+        if requirement == NetworkRequirement.NONE:
+            return None
+
+        if level == ConnectivityLevel.NONE:
+            return NetworkUnavailable.NO_NETWORK.value
+
+        # PORTAL / LIMITED: the LAN is up, so only internet sources are blocked.
+        if requirement == NetworkRequirement.INTERNET:
+            return NetworkUnavailable.NO_INTERNET.value
+        return None
+
     def get_current_state(self) -> Dict[str, Any]:
         """Return current system state as dict.
 
         Mirrors the full_state aggregation in `broadcast()`: pulls multiroom_enabled
-        from routing_service and equalizer_effects_enabled from camilladsp_service
-        so the wire payload (notably the initial_state on WS connect) carries
-        both global flags.
+        from routing_service, equalizer_effects_enabled from camilladsp_service and
+        the connectivity level from connectivity_service, so the wire payload
+        (notably the initial_state on WS connect) carries all three.
         """
         state = self.system_state.to_dict()
         state["multiroom_enabled"] = (
@@ -104,6 +150,7 @@ class AudioStateMachine:
         state["equalizer_effects_enabled"] = (
             self.camilladsp_service.effects_enabled if self.camilladsp_service else False
         )
+        state["network_unavailable"] = self._network_unavailable()
         return state
 
     @asynccontextmanager
@@ -206,7 +253,16 @@ class AudioStateMachine:
                     # Reset inactivity timer on source change
                     self._last_activity_time = monotonic()
 
-                    logger.info(f"Transition completed: {target_source.value}")
+                    # The one place the two axes are worth recording: a source
+                    # that started fine and still cannot work. Without it, "the
+                    # card showed the wrong screen" is unfalsifiable from the
+                    # logs — nothing else prints what full_state carried.
+                    blocked = self._network_unavailable(target_source)
+                    logger.info(
+                        "Transition completed: %s%s",
+                        target_source.value,
+                        f" (unavailable: {blocked})" if blocked else "",
+                    )
                     return True
 
             except Exception as e:
@@ -218,16 +274,32 @@ class AudioStateMachine:
                 else:
                     error = message = str(e)
 
-                logger.error(f"Transition failed: {message}")
+                blocked = self._network_unavailable(target_source)
+                # WARNING, not ERROR, when the link explains it: WebSocketLogHandler
+                # forwards every ERROR record to the "system error" banner, and a
+                # source that cannot start because there is no network is an
+                # expected outcome the status card already states — the same rule
+                # that keeps an expected 404 on optional artwork off the banner.
+                (logger.warning if blocked else logger.error)(
+                    "Transition failed: %s%s",
+                    message,
+                    f" (link is {blocked})" if blocked else "",
+                )
                 async with self._state_lock:
                     self.system_state.transitioning = False
                     self.system_state.error = error
 
-                await self.broadcast(SystemErrorEvent(
-                    source=target_source.value,
-                    error=error,
-                    message=message
-                ))
+                # No banner when the link already explains it. The status card
+                # says "no internet" and offers the network settings, which is
+                # both more accurate and more actionable than a raw
+                # "Network is unreachable" over the top of it — and two
+                # notifications for one cause is what made this look broken.
+                if not blocked:
+                    await self.broadcast(SystemErrorEvent(
+                        source=target_source.value,
+                        error=error,
+                        message=message
+                    ))
 
                 await self._settle_failed_transition(target_source, error)
                 return False

@@ -11,11 +11,12 @@
 import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
+import { unavailableReasonFor } from '@/composables/useSourceStatusDisplay';
 
 // Pure rule: given a source + its state + metadata, does it earn a rich view?
 // The untrusted-sender artwork-quality gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX)
 // is shared with the screensaver — see @/constants/imageQuality.
-function hasRichDisplay(source, state, meta) {
+function hasRichDisplay(source, state, meta, unavailableReason) {
   const m = meta || {};
 
   // ERROR means the source is not operational, so nothing it could draw is
@@ -24,6 +25,13 @@ function hasRichDisplay(source, state, meta) {
   // entirely, which would leave an errored Radio drawing a grid whose every
   // tap fails. The message itself is the banner's job.
   if (state === 'error') return false;
+
+  // Same rule, one step upstream: a source missing a prerequisite is not
+  // errored, it simply cannot do anything. Radio's favourites grid stays
+  // browsable with the internet down and every tap fails silently — the card
+  // naming the reason, with the Wi-Fi settings one tap away, is the honest
+  // screen. It comes back the moment the link does.
+  if (unavailableReason) return false;
 
   switch (source) {
     case 'spotify':
@@ -82,8 +90,11 @@ export function useRichDisplay() {
 
   // Transitions always defer to the status card.
   const richSource = computed(() => {
-    const { active_source, source_state, metadata, transitioning } = unifiedStore.systemState;
-    return !transitioning && hasRichDisplay(active_source, source_state, metadata)
+    const {
+      active_source, source_state, metadata, transitioning, network_unavailable
+    } = unifiedStore.systemState;
+    const reason = unavailableReasonFor(active_source, metadata, network_unavailable);
+    return !transitioning && hasRichDisplay(active_source, source_state, metadata, reason)
       ? active_source
       : null;
   });

@@ -202,10 +202,12 @@ CASES = [
         False,
     ),
     (
-        SystemConnectivityChanged(online=False),
+        SystemConnectivityChanged(connectivity="limited"),
         {"category": "system", "type": "connectivity_changed", "origin": "system",
-         "data": {"source": "system", "online": False}},
-        False,  # INCLUDE_FULL_STATE=False despite the system category
+         "data": {"source": "system", "connectivity": "limited"}},
+        # Carries full_state: the level change is what recomputes
+        # network_unavailable for a source that did not itself change.
+        True,
     ),
     (
         SystemCdDriveStatus(),

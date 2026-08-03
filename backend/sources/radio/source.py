@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
-from backend.core.models.audio_state import SourceState
+from backend.core.models.audio_state import NetworkRequirement, SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.radio.models import PlayStationParams, RemoveFavoriteParams
 from backend.sources.radio.artwork import RadioArtworkResolver
@@ -108,6 +108,8 @@ class RadioSource(MpvAudioSource):
     Family C (active player): controlled from Milō's UI. Extends MpvAudioSource
     (BaseAudioSource subclass) — implements playback and station commands.
     """
+
+    NETWORK_REQUIREMENT = NetworkRequirement.INTERNET
 
     def __init__(
         self,
@@ -223,6 +225,7 @@ class RadioSource(MpvAudioSource):
             self._logger.error(f"Start failed: {e}")
             await self._cleanup()
             return False
+
 
     COMMANDS = {
         "play_station": PlayStationParams,

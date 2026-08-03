@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
 from backend.config.constants import PODCASTINDEX_API_KEY, PODCASTINDEX_API_SECRET
-from backend.core.models.audio_state import SourceState
+from backend.core.models.audio_state import NetworkRequirement, SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.podcast.models import PlayEpisodeParams, SeekParams, SetSpeedParams
 from backend.sources.podcast.data import PodcastDataService
@@ -37,6 +37,8 @@ class PodcastSource(MpvAudioSource):
     Family C (active player): controlled from Milō's UI. Extends MpvAudioSource
     (BaseAudioSource subclass) — implements playback and data commands.
     """
+
+    NETWORK_REQUIREMENT = NetworkRequirement.INTERNET
 
     def __init__(
         self,
@@ -159,6 +161,7 @@ class PodcastSource(MpvAudioSource):
 
         self._metadata = self._build_playback_metadata()
         return True
+
 
     COMMANDS = {
         "play_episode": PlayEpisodeParams,

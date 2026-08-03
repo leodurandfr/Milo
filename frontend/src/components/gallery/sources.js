@@ -166,9 +166,11 @@ function spell(key, value) {
  * A scenario's name, derived from what it sends — never written by hand.
  *
  * The final event is what the screen settles on, so the id reads its
- * `full_state`: the source state (the backend enum value, verbatim) followed by
- * the behavioural metadata it carries, then the catalogue condition for the
- * three sources that have one.
+ * `full_state`: the source state (the backend enum value, verbatim), then
+ * `network_unavailable` when set — it replaces the state on screen, so it
+ * belongs in the name for the same reason the state does — followed by the
+ * behavioural metadata it carries, then the catalogue condition for the three
+ * sources that have one.
  */
 export function scenarioId(events, browser) {
   const settled = events[events.length - 1].data.full_state;
@@ -177,7 +179,12 @@ export function scenarioId(events, browser) {
     .filter(key => metadata[key] !== undefined)
     .map(key => spell(key, metadata[key]));
 
-  return [settled.source_state, ...facts, ...(browser?.condition ?? [])].join(' ');
+  return [
+    settled.source_state,
+    ...(settled.network_unavailable ? [settled.network_unavailable] : []),
+    ...facts,
+    ...(browser?.condition ?? [])
+  ].join(' ');
 }
 
 /**
@@ -195,7 +202,10 @@ function envelope(category, type, origin, data) {
  * routing and CamillaDSP services. Both are carried because the real payload
  * always carries them, and `unifiedAudioStore` mirrors both.
  */
-function fullState(source, sourceState, metadata, { transitioning = false, error = null } = {}) {
+function fullState(
+  source, sourceState, metadata,
+  { transitioning = false, error = null, networkUnavailable = null } = {}
+) {
   return {
     active_source: source,
     source_state: sourceState,
@@ -203,7 +213,8 @@ function fullState(source, sourceState, metadata, { transitioning = false, error
     metadata,
     error,
     multiroom_enabled: false,
-    equalizer_effects_enabled: true
+    equalizer_effects_enabled: true,
+    network_unavailable: networkUnavailable
   };
 }
 
@@ -290,6 +301,23 @@ function errored(source, note, message) {
   return scenario(
     [systemStateChanged(source, 'error', {}, { error: message })],
     'Error',
+    note
+  );
+}
+
+/**
+ * The link is missing what this source needs. The backend has already crossed
+ * NetworkManager's level with the source's own NETWORK_REQUIREMENT, so the
+ * scenario states the *answer* — the same one field the app reads — rather
+ * than re-deriving it: `no_network` when nothing is reachable, `no_internet`
+ * when the LAN is up but has no route out. Either one drops the source to the
+ * status card, browser sources included: a favourites grid whose every tap
+ * fails is a worse screen than one naming the reason.
+ */
+function offline(source, reason, note) {
+  return scenario(
+    [systemStateChanged(source, 'ready', {}, { networkUnavailable: reason })],
+    reason === 'no_network' ? 'No network' : 'No internet',
     note
   );
 }
@@ -520,6 +548,11 @@ export const SOURCE_PAGES = [
         position: 0,
         duration: 511000
       }),
+      offline(
+        'spotify',
+        'no_internet',
+        'The link is up but has no route out — go-librespot is running and unreachable at once. AudioPlayerFull would keep its transport pointing at a daemon that cannot resolve anything, so the card takes over and names the reason, with the network settings one tap away.'
+      ),
       errored(
         'spotify',
         'go-librespot not coming up. The source stays selected — that is what makes the retry possible — and the card says so: "Spotify / Error", with a Retry CTA that re-posts the source selection and re-runs the transition the state machine gave up on. The message itself is the banner\'s.',
@@ -561,6 +594,11 @@ export const SOURCE_PAGES = [
         position: 64000,
         duration: 264000
       }),
+      offline(
+        'qobuz',
+        'no_internet',
+        'Same link, and the reason outranks the account question: with no route out the proxy cannot tell whether an account exists, so "Account not connected" would be a guess. Network first, and its CTA replaces the connect one.'
+      ),
       errored(
         'qobuz',
         'The proxy sidecar will not start, which is also the moment the account state stops being knowable — so the connect CTA gives way to the retry one. The card\'s three CTAs are mutually exclusive and error is checked first, which is what makes that swap automatic rather than a fourth branch.',
@@ -617,6 +655,11 @@ export const SOURCE_PAGES = [
         position: 41000,
         duration: 297000
       }),
+      offline(
+        'airplay',
+        'no_network',
+        'The LAN-only source\'s own case: shairport-sync needs the local network and nothing beyond it, so a router with no internet leaves it working and this scenario never fires. What does fire is the link disappearing entirely — no sender can reach the unit, and "Ready to connect" would be an invitation to nothing.'
+      ),
       errored(
         'airplay',
         'shairport-sync failing to start is the common case — the port is taken, or the ALSA device is busy. The sender name goes with it, so the source that most depends on naming its sender falls back to naming itself: "AirPlay / Error", with the retry.',
@@ -653,6 +696,11 @@ export const SOURCE_PAGES = [
         position: 88000,
         duration: 331000
       }),
+      offline(
+        'dlna',
+        'no_network',
+        'Same LAN requirement as AirPlay, same single case. A controller that cannot see the renderer is indistinguishable from a renderer that never advertised, which is why the card names the link rather than the source.'
+      ),
       errored(
         'dlna',
         'The renderer failing to advertise. DLNA has no device name to lose, so the error screen is the same two-line shape as its idle one — the source, then the phrase — and the phrase is the whole difference, which is the point of dropping the fallback.',
@@ -669,13 +717,13 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (+ both slots)',
     via: 'dispatcher',
     summary:
-      'The widest state matrix of the ten, and the one source whose rich-display rule ignores source_state entirely: a disc that is loaded and ready shows the player whether it is playing or idle. Three of the screens below exist nowhere in the backend enum — useSourceStatusDisplay derives no_drive, loading_disc and ejecting from the metadata of a READY record — which is exactly why those scenarios are named by the fields they set rather than by a state. They are the whole of the card\'s second vocabulary: four backend members plus these three, declared together as DISPLAY_STATES.',
+      'The widest state matrix of the ten, and the one source whose rich-display rule ignores source_state entirely: a disc that is loaded and ready shows the player whether it is playing or idle. Three of the screens below exist nowhere in the backend enum, all derived by useSourceStatusDisplay from the metadata of a READY record — which is exactly why those scenarios are named by the fields they set rather than by a state. Two of them are operations under way, loading_disc and ejecting, and they join the four backend members in DISPLAY_STATES. The third, an empty drive bay, is not a state at all but a missing prerequisite, and it sits with no_network / no_internet / no_account in UNAVAILABLE_REASONS — the one of the four with no CTA, since plugging a drive in is not something the UI can offer.',
     scenarios: [
       starting('cd'),
       ready(
         'cd',
         'No drive',
-        'drive_connected false — the source is active but the hardware is missing. useSourceStatusDisplay derives the pseudo-state "no_drive" from this one field.',
+        'drive_connected false — the source is up but the hardware is missing. useSourceStatusDisplay reads this one field into the reason "no_drive", which replaces whatever the state would otherwise have said.',
         { drive_connected: false }
       ),
       ready(
@@ -772,6 +820,11 @@ export const SOURCE_PAGES = [
       active('mac', 'Two Macs streaming', 'The case the array exists for — formatDeviceNames breaks the second line, which is why status-line-2 carries white-space: pre-line.', {
         client_names: ['Leo’s MacBook', 'Studio iMac']
       }),
+      offline(
+        'mac',
+        'no_network',
+        'ROC is a LAN stream, so only a dead link blocks it. The sender list is empty by construction here — with no network there is nothing to receive from — and the "audio received from" wording has no name to complete.'
+      ),
       errored(
         'mac',
         'roc-recv failing to bind its port. The sender list empties, so the "audio received from" line — the one wording the card still chooses per source, because a ROC stream is not a connection to one device — gives way to the same two-line error screen every other source gets.',
@@ -872,9 +925,14 @@ export const SOURCE_PAGES = [
           controls: { favorite: false }
         }
       }),
+      offline(
+        'radio',
+        'no_internet',
+        'The decision this source forced: the favourites grid is local data, so it stays browsable while every station it lists is unreachable. Documented here as the card instead — a tap that fails silently is worse than a screen that says why — and the grid returns the moment the link does.'
+      ),
       errored(
         'radio',
-        'mpv not coming up. The one state where a browser source reaches the status card with no transition under way, and the only scenario of the three that needs no stand-in: the app leaves the browser by itself, rather than drawing a favourites grid whose every tap would fail. The favourites are still there — the retry CTA is what brings them back.',
+        'mpv not coming up. Like the offline case above, the app leaves the browser by itself rather than drawing a favourites grid whose every tap would fail — so this is one of the two scenarios here that needs no stand-in. The favourites are still there; the retry CTA is what brings them back.',
         'mpv failed to start'
       )
     ]
@@ -936,6 +994,11 @@ export const SOURCE_PAGES = [
           progress: { currentPosition: 812000, duration: 2940000, progressPercentage: 27.6 }
         }
       }),
+      offline(
+        'podcast',
+        'no_internet',
+        'Distinct from network_error, which stays: that one says a Podcast Index call failed and is perfectly reachable while online. This one says the link itself has no route out, so the catalogue, the feeds and the audio are all gone at once.'
+      ),
       errored(
         'podcast',
         'mpv not coming up, which is a different failure from the unreachable chart above: that one answers network_error and leaves the browser working, this one takes the source down and hands the screen to the status card.',

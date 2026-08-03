@@ -49,7 +49,7 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { useI18n } from '@/services/i18n';
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal';
 import { formatDeviceNames } from '@/utils/deviceName';
-import { DISPLAY_STATES } from '@/composables/useSourceStatusDisplay';
+import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
 
 const { t } = useI18n();
 
@@ -71,6 +71,14 @@ const props = defineProps({
     required: true,
     validator: (value) => DISPLAY_STATES.includes(value)
   },
+  // What stops the source from working, or null when nothing does. Set, it
+  // replaces the state's phrase: there is no point saying "Ready to play" on a
+  // source whose every command will fail. Derived in useSourceStatusDisplay.
+  unavailableReason: {
+    type: String,
+    default: null,
+    validator: (value) => value === null || UNAVAILABLE_REASONS.includes(value)
+  },
   deviceName: {
     type: [String, Array],  // Support string or array for ROC multi-clients
     default: ''
@@ -78,18 +86,11 @@ const props = defineProps({
   isDisconnecting: {
     type: Boolean,
     default: false
-  },
-  // False only when the source needs an account and none is connected (Qobuz):
-  // swaps the idle line to "account not connected" and arms the connect CTA.
-  // Default true so sources without a login requirement are unaffected.
-  accountConnected: {
-    type: Boolean,
-    default: true
   }
 });
 
 // Emits
-const emit = defineEmits(['disconnect', 'connect', 'retry']);
+const emit = defineEmits(['disconnect', 'connect', 'retry', 'open-network-settings']);
 
 // The three states whose icon slot is a spinner instead of the source glyph:
 // something is under way that the card is waiting on.
@@ -107,9 +108,23 @@ const PHRASE_KEYS = {
   starting: 'status.loading',   // only reached with no source name to append
   active: 'status.playing',
   error: 'status.error',
-  no_drive: 'audioSources.cdSource.noDriveConnected',
   loading_disc: 'status.loadingAlbum',
   ejecting: 'status.ejecting'
+};
+
+/**
+ * The phrase for a missing prerequisite, which outranks the state's own.
+ *
+ * `no_network` and `no_internet` are two lines rather than one because the
+ * actions differ: nothing is reachable at all, versus a router that is up but
+ * has no route out. Milō cannot answer a captive portal (no browser), so the
+ * backend already folded PORTAL into `no_internet`.
+ */
+const UNAVAILABLE_PHRASE_KEYS = {
+  no_network: 'status.noNetwork',
+  no_internet: 'status.noInternet',
+  no_account: 'status.accountNotConnected',
+  no_drive: 'audioSources.cdSource.noDriveConnected'
 };
 
 /**
@@ -148,11 +163,11 @@ const sourceName = computed(() => {
 });
 
 const phrase = computed(() => {
-  if (props.displayState !== 'ready') return t(PHRASE_KEYS[props.displayState]);
+  // A missing prerequisite outranks every state: with no link, no account or no
+  // drive, neither "Ready" nor "Playing" is true any more.
+  if (props.unavailableReason) return t(UNAVAILABLE_PHRASE_KEYS[props.unavailableReason]);
 
-  // Qobuz is the only source with a login, and with no account there is nothing
-  // to be ready for — the line says so, and the CTA below offers the fix.
-  if (props.sourceType === 'qobuz' && !props.accountConnected) return t('status.accountNotConnected');
+  if (props.displayState !== 'ready') return t(PHRASE_KEYS[props.displayState]);
 
   return SENDER_DRIVEN_SOURCES.includes(props.sourceType)
     ? t('status.ready')
@@ -166,13 +181,18 @@ const phrase = computed(() => {
  * Line 1 is the source and line 2 the phrase, except in the two cases where the
  * phrase is the start of a sentence the name completes: "Démarrage de <source>"
  * and "Connecté à <sender>". There the phrase leads and the name takes line 2.
+ *
+ * `starting` outranks a missing prerequisite — a start genuinely under way is
+ * worth showing, and it settles on its own within seconds. Everything else
+ * yields to it: "Connecté à <sender>" over a dead link is exactly the kind of
+ * stale sentence the two-line builder exists to prevent.
  */
 const status = computed(() => {
   if (props.displayState === 'starting' && sourceName.value) {
     return { lines: [t(STARTING_PHRASE_KEYS[props.sourceType]), sourceName.value], nameLine: 2 };
   }
 
-  if (props.displayState === 'active' && props.deviceName) {
+  if (!props.unavailableReason && props.displayState === 'active' && props.deviceName) {
     // ROC is a one-way stream from N senders rather than a link to one device,
     // which is a different sentence, not a different layout.
     const lead = props.sourceType === 'mac' ? t('status.audioReceivedFrom') : t('status.connectedTo');
@@ -185,11 +205,30 @@ const status = computed(() => {
     : { lines: [phrase.value], nameLine: 1 };
 });
 
-// Single bottom action button on the card, or null to hide it. The three cases
-// are mutually exclusive: retry (error, any source — re-selecting the source is
-// what re-runs the failed transition), Bluetooth's disconnect (active) and
-// Qobuz's connect-account CTA (ready with no account). 'starting' never shows one.
+// Single bottom action button on the card, or null to hide it. Mutually
+// exclusive by construction: a missing prerequisite is answered first, since
+// its fix is what unblocks everything downstream — retrying a start that has no
+// network cannot succeed. `no_drive` is the one reason with no button: plugging
+// a drive in is not something the UI can offer.
+//
+// `starting` shows none of them, prerequisites included: the card reads
+// "Démarrage de <source>" while the start is under way, and a button offering
+// to fix something the start has not yet failed on is an answer to a question
+// nobody asked. It appears when the state settles, a few hundred ms later.
 const actionButton = computed(() => {
+  if (props.displayState === 'starting') return null;
+
+  if (props.unavailableReason) {
+    if (props.unavailableReason === 'no_account') {
+      return { label: t('status.connect'), disabled: false, onClick: () => emit('connect') };
+    }
+    if (props.unavailableReason === 'no_drive') return null;
+    return {
+      label: t('status.networkSettings'),
+      disabled: false,
+      onClick: () => emit('open-network-settings'),
+    };
+  }
   if (props.displayState === 'error') {
     return {
       label: t('status.retry'),
@@ -202,13 +241,6 @@ const actionButton = computed(() => {
       label: props.isDisconnecting ? t('status.disconnecting') : t('status.disconnect'),
       disabled: props.isDisconnecting,
       onClick: () => emit('disconnect'),
-    };
-  }
-  if (props.sourceType === 'qobuz' && props.displayState === 'ready' && !props.accountConnected) {
-    return {
-      label: t('status.connect'),
-      disabled: false,
-      onClick: () => emit('connect'),
     };
   }
   return null;

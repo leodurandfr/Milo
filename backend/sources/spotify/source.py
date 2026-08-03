@@ -26,6 +26,7 @@ import aiohttp
 from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.spotify.models import SeekParams, NextPrevParams
 from backend.sources.spotify.websocket import LibrespotWebSocket
@@ -41,6 +42,8 @@ class SpotifySource(BaseAudioSource):
     WebSocket. No dedicated routes.py — commands flow through the generic
     `/api/audio/control/spotify` endpoint. Extends BaseAudioSource.
     """
+
+    NETWORK_REQUIREMENT = NetworkRequirement.INTERNET
 
     # The one go-librespot config key Milō owns. Every other key in config.yml
     # (device_name, zeroconf_backend, server, external_volume) is written once
@@ -305,6 +308,7 @@ class SpotifySource(BaseAudioSource):
             await asyncio.sleep(interval)
 
         return False
+
 
     COMMANDS = {
         "pause": None,

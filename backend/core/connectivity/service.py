@@ -15,18 +15,22 @@ NM Connectivity enum (from nm-dbus-interface.h):
     3 = LIMITED    (LAN reachable but no internet)
     4 = FULL       (internet reachable)
 
-Only FULL is treated as online. Fails open: if D-Bus or NetworkManager is
-unavailable (e.g. dev environment, NM down), the service stays at
-online=True so the UI never shows a false offline banner.
+The level is published whole rather than flattened to a boolean: LIMITED is
+literally "LAN up, no internet", which is the difference between a broken
+AirPlay and a working one, and collapsing it is what made the old offline
+banner fire while listening over Bluetooth. Fails open: if D-Bus or
+NetworkManager is unavailable (e.g. dev environment, NM down), the service
+stays at UNKNOWN, which every consumer treats as FULL — never report a
+problem we have not observed.
 
 The initial read is the cached property (kept fast and non-blocking, since
 this runs inside the backend's startup gather), but the cached value can
 still be UNKNOWN right after boot if NM's own periodic/interface-triggered
 check hasn't run yet — reading it as-is produced a false "offline" banner on
 every reboot. A background task forces one fresh NM probe (CheckConnectivity)
-shortly after startup and broadcasts a correction if it disagrees, so the
-banner self-corrects within seconds instead of waiting up to NM's 5-minute
-recheck interval.
+shortly after startup and broadcasts a correction if it disagrees, so the UI
+self-corrects within seconds instead of waiting up to NM's 5-minute recheck
+interval.
 """
 import asyncio
 import logging
@@ -36,6 +40,7 @@ from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 from dbus_next.signature import Variant
 
+from backend.core.models.audio_state import ConnectivityLevel
 from backend.core.models.ws_events import SystemConnectivityChanged
 from backend.shared.background import BackgroundTaskSet
 
@@ -46,7 +51,14 @@ NM_PATH = "/org/freedesktop/NetworkManager"
 NM_IFACE = "org.freedesktop.NetworkManager"
 DBUS_PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
 
-NM_CONNECTIVITY_FULL = 4
+# NM's integer property → our level. Anything outside the enum (a value NM
+# gained after this was written) reads as UNKNOWN, i.e. fail open.
+NM_LEVELS = {
+    1: ConnectivityLevel.NONE,
+    2: ConnectivityLevel.PORTAL,
+    3: ConnectivityLevel.LIMITED,
+    4: ConnectivityLevel.FULL,
+}
 
 NM_CHECK_CONNECTIVITY_TIMEOUT = 15  # seconds; bounds the background forced probe
 
@@ -58,7 +70,7 @@ class ConnectivityService:
         self._state_machine = None
         self._bus: Optional[MessageBus] = None
         self._properties_iface = None
-        self._online: bool = True  # Fail-open default
+        self._level: ConnectivityLevel = ConnectivityLevel.UNKNOWN  # Fail-open default
         self._listener_attached: bool = False
         self._bg = BackgroundTaskSet(logger, "connectivity")
 
@@ -66,11 +78,11 @@ class ConnectivityService:
         self._state_machine = state_machine
 
     def get_state(self) -> dict:
-        return {"online": self._online}
+        return {"connectivity": self._level.value}
 
     @property
-    def online(self) -> bool:
-        return self._online
+    def level(self) -> ConnectivityLevel:
+        return self._level
 
     async def initialize(self) -> bool:
         """Connect to system bus, read initial (cached) state, subscribe to
@@ -85,24 +97,25 @@ class ConnectivityService:
             self._properties_iface = proxy.get_interface(DBUS_PROPERTIES_IFACE)
 
             connectivity = await nm_iface.get_connectivity()
-            self._online = connectivity == NM_CONNECTIVITY_FULL
+            self._level = NM_LEVELS.get(connectivity, ConnectivityLevel.UNKNOWN)
 
             self._properties_iface.on_properties_changed(self._on_properties_changed)
             self._listener_attached = True
 
             logger.info(
                 "Connectivity service ready (initial=%s, NM=%s)",
-                "online" if self._online else "offline",
+                self._level.value,
                 connectivity,
             )
             self._bg.spawn(self._recheck_fresh(nm_iface), label="initial_recheck")
             return True
         except Exception as exc:
             logger.warning(
-                "NetworkManager D-Bus unavailable, connectivity defaults to online: %s",
+                "NetworkManager D-Bus unavailable, connectivity stays unknown "
+                "(treated as reachable): %s",
                 exc,
             )
-            self._online = True
+            self._level = ConnectivityLevel.UNKNOWN
             return False
 
     async def _recheck_fresh(self, nm_iface) -> None:
@@ -118,16 +131,16 @@ class ConnectivityService:
             logger.warning("NM forced connectivity re-check failed: %s", exc)
             return
 
-        new_online = connectivity == NM_CONNECTIVITY_FULL
-        if new_online == self._online:
+        new_level = NM_LEVELS.get(connectivity, ConnectivityLevel.UNKNOWN)
+        if new_level == self._level:
             return
 
-        previous = self._online
-        self._online = new_online
+        previous = self._level
+        self._level = new_level
         logger.info(
             "Connectivity (forced re-check): %s → %s (NM=%s)",
-            "online" if previous else "offline",
-            "online" if new_online else "offline",
+            previous.value,
+            new_level.value,
             connectivity,
         )
         await self._broadcast()
@@ -139,26 +152,29 @@ class ConnectivityService:
 
         value = changed["Connectivity"]
         connectivity = value.value if isinstance(value, Variant) else value
-        new_online = connectivity == NM_CONNECTIVITY_FULL
+        new_level = NM_LEVELS.get(connectivity, ConnectivityLevel.UNKNOWN)
 
-        if new_online == self._online:
+        if new_level == self._level:
             return
 
-        previous = self._online
-        self._online = new_online
+        previous = self._level
+        self._level = new_level
         logger.info(
             "Connectivity changed: %s → %s (NM=%s)",
-            "online" if previous else "offline",
-            "online" if new_online else "offline",
+            previous.value,
+            new_level.value,
             connectivity,
         )
         self._bg.spawn(self._broadcast(), label="nm_props_changed")
 
     async def _broadcast(self) -> None:
+        """The level rides its own event *and* full_state, since a level change
+        can flip the active source's `network_unavailable` without anything
+        about the source itself changing."""
         if self._state_machine is None:
             return
         await self._state_machine.broadcast(
-            SystemConnectivityChanged(online=self._online)
+            SystemConnectivityChanged(connectivity=self._level.value)
         )
 
     async def cleanup(self) -> None:

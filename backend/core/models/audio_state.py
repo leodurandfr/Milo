@@ -36,6 +36,44 @@ class SourceState(Enum):
     ERROR = "error"            # Not operational (a failed transition)
 
 
+class NetworkRequirement(Enum):
+    """What a source needs from the network to be usable at all.
+
+    Declared per source as `BaseAudioSource.NETWORK_REQUIREMENT` and crossed
+    with NetworkManager's connectivity level to produce `network_unavailable`
+    in full_state — so "no internet" is only ever reported to the user when it
+    actually blocks the source they selected.
+    """
+    NONE = "none"          # Works with the network unplugged (Bluetooth, CD, Music Library)
+    LAN = "lan"            # Needs the local network only (AirPlay, DLNA, Mac/ROC)
+    INTERNET = "internet"  # Needs a route out (Spotify, Qobuz, Radio, Podcast)
+
+
+class ConnectivityLevel(Enum):
+    """NetworkManager's Connectivity property, kept whole.
+
+    UNKNOWN is the fail-open value: NM down, D-Bus unavailable, or the cached
+    property read before NM's first probe. It is treated exactly like FULL —
+    never report a problem we have not observed.
+    """
+    UNKNOWN = "unknown"    # NM 0
+    NONE = "none"          # NM 1 — no network at all
+    PORTAL = "portal"      # NM 2 — captive portal; Milō has no browser to log in with
+    LIMITED = "limited"    # NM 3 — LAN reachable, no internet
+    FULL = "full"          # NM 4
+
+
+class NetworkUnavailable(Enum):
+    """Why the *active* source cannot work right now, or absent when it can.
+
+    PORTAL collapses into NO_INTERNET on purpose: an appliance with no browser
+    cannot accept a captive portal's terms, so the user-facing answer — and the
+    action it points to — is identical to a LAN-only link.
+    """
+    NO_NETWORK = "no_network"    # Nothing is reachable
+    NO_INTERNET = "no_internet"  # LAN is up, the internet is not
+
+
 @dataclass
 class SystemAudioState:
     """

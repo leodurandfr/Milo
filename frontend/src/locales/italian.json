@@ -15,8 +15,6 @@
   "notification": {
     "connectionLostTitle": "Connessione persa",
     "connectionLostDescription": "Riconnessione automatica quando disponibile",
-    "offlineTitle": "Nessuna connessione Internet",
-    "offlineDescription": "Spotify, AirPlay, Radio e Podcast non funzioneranno finché la connessione non sarà ripristinata.",
     "backendErrorTitle": "Errore di sistema",
     "sourceErrorTitle": "Errore {source}",
     "commandFailed": "Comando fallito"
@@ -231,6 +229,9 @@
     "accountNotConnected": "Account non connesso",
     "connect": "Connetti",
     "error": "Errore",
+    "noNetwork": "Nessuna rete",
+    "noInternet": "Nessun accesso a Internet",
+    "networkSettings": "Impostazioni di rete",
     "retry": "Riprova",
     "playing": "In riproduzione",
     "connectedTo": "Connesso a",

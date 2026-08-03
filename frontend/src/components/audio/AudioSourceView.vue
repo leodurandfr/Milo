@@ -39,9 +39,9 @@
 
       <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="audio-source-slot source-status-container">
         <AudioSourceStatus :source-type="currentSourceType" :display-state="displayState"
-          :device-name="currentDeviceName" :is-disconnecting="isDisconnecting"
-          :account-connected="qobuzAccountConnected" @disconnect="handleDisconnect" @connect="handleConnect"
-          @retry="handleRetry" />
+          :unavailable-reason="unavailableReason" :device-name="currentDeviceName"
+          :is-disconnecting="isDisconnecting" @disconnect="handleDisconnect" @connect="handleConnect"
+          @retry="handleRetry" @open-network-settings="handleOpenNetworkSettings" />
       </div>
 
     </Transition>
@@ -105,19 +105,14 @@ function handleRetry() {
   unifiedStore.changeSource(activeSource.value);
 }
 
-// Qobuz login state rides the broadcast metadata (account_authenticated). Only an
-// explicit false — the proxy confirming no account — arms the "connect account"
-// CTA; an absent field (pre-first-poll, or any non-Qobuz source) reads as
-// connected so the card never flashes the CTA before status arrives.
-const qobuzAccountConnected = computed(() => {
-  if (activeSource.value !== 'qobuz') return true;
-  return metadata.value?.account_authenticated !== false;
-});
-
-// The CTA opens the Qobuz account settings screen for the one-time login.
+// The two CTAs a missing prerequisite offers, both of them a settings screen:
+// the one-time Qobuz login, and the Wi-Fi/Ethernet setup.
 const openSettings = inject('openSettings');
 function handleConnect() {
   openSettings?.('qobuz');
+}
+function handleOpenNetworkSettings() {
+  openSettings?.('network');
 }
 
 // === DISPLAY DECISION ===
@@ -145,10 +140,11 @@ const shouldShowSourceStatus = computed(() => {
 // === PROPERTIES FOR SOURCE STATUS ===
 const currentSourceType = computed(() => activeSource.value);
 
-// The card's vocabulary — the backend enum plus CD's three metadata-derived
-// screens, through the anti-flash floor. Derived in one place so the gallery's
-// source pages document the same derivation the app performs.
-const { displayState } = useSourceStatusDisplay();
+// The card's vocabulary — the backend enum plus CD's two transient screens,
+// through the anti-flash floor — and what stops the source working, if
+// anything. Derived in one place so the gallery's source pages document the
+// same derivation the app performs.
+const { displayState, unavailableReason } = useSourceStatusDisplay();
 
 const currentDeviceName = computed(() => {
   const meta = metadata.value || {};

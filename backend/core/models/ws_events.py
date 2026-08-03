@@ -115,11 +115,19 @@ class SystemStateChanged(WsEvent):
 
 
 class SystemConnectivityChanged(WsEvent):
-    """App.vue offline banner — NetworkManager connectivity flips."""
+    """NetworkManager connectivity level changed.
+
+    App.vue → systemStore (Settings › Network reads the level) *and*
+    → unifiedAudioStore, because the injected full_state is what carries the
+    recomputed `network_unavailable`: losing internet blocks the active source
+    without anything about the source itself changing, so this event is the
+    only thing that can tell the card to say so.
+    """
     CATEGORY = "system"
     TYPE = "connectivity_changed"
+    INCLUDE_FULL_STATE = True
     source: Literal["system"] = "system"
-    online: bool
+    connectivity: Literal["unknown", "none", "portal", "limited", "full"]
 
 
 class SystemHostnameConflictChanged(WsEvent):
