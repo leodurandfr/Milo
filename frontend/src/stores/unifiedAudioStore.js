@@ -16,7 +16,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     metadata: {},
     error: null,
     multiroom_enabled: false,
-    equalizer_effects_enabled: false
+    equalizer_effects_enabled: false,
+    network_unavailable: null
   });
 
   // === VOLUME STATE (unified structure) ===
@@ -169,7 +170,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         metadata: newMetadata,
         error: result.data.error || null,
         multiroom_enabled: result.data.multiroom_enabled,
-        equalizer_effects_enabled: result.data.equalizer_effects_enabled
+        equalizer_effects_enabled: result.data.equalizer_effects_enabled,
+        network_unavailable: result.data.network_unavailable ?? null
       };
     }
   }

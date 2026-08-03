@@ -100,16 +100,25 @@
     <GalleryVariant label=":display-state=&quot;active&quot; with no sender to name — the generic playing line">
       <AudioSourceStatus source-type="dlna" display-state="active" />
     </GalleryVariant>
-    <GalleryVariant label="the three CTAs — retry on error, Bluetooth disconnect, Qobuz connect">
+    <GalleryVariant label="the four CTAs — retry, Bluetooth disconnect, Qobuz connect, network settings">
       <AudioSourceStatus source-type="spotify" display-state="error" @retry="log = 'retry'" />
       <AudioSourceStatus source-type="bluetooth" display-state="active" device-name="Leo’s iPhone"
         @disconnect="log = 'disconnect'" />
-      <AudioSourceStatus source-type="qobuz" display-state="ready" :account-connected="false"
+      <AudioSourceStatus source-type="qobuz" display-state="ready" unavailable-reason="no_account"
         @connect="log = 'connect'" />
+      <AudioSourceStatus source-type="radio" display-state="ready" unavailable-reason="no_internet"
+        @open-network-settings="log = 'network-settings'" />
     </GalleryVariant>
-    <GalleryVariant label="the CD states — ejecting / loading_disc / no_drive">
+    <GalleryVariant label=":unavailable-reason — the prerequisite outranks the state it replaces">
+      <AudioSourceStatus source-type="airplay" display-state="ready" unavailable-reason="no_network"
+        @open-network-settings="log = 'network-settings'" />
+      <AudioSourceStatus source-type="dlna" display-state="active" device-name="Leo’s iPhone"
+        unavailable-reason="no_network" @open-network-settings="log = 'network-settings'" />
+      <AudioSourceStatus source-type="cd" display-state="ready" unavailable-reason="no_drive" />
+    </GalleryVariant>
+    <GalleryVariant label="the CD operations — loading_disc / ejecting">
       <AudioSourceStatus source-type="cd" display-state="loading_disc" />
-      <AudioSourceStatus source-type="cd" display-state="no_drive" />
+      <AudioSourceStatus source-type="cd" display-state="ejecting" />
     </GalleryVariant>
     <GalleryVariant :label="`last event: ${log || 'none'}`" />
   </GalleryItem>

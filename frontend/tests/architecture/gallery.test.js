@@ -84,6 +84,23 @@ const SOURCE_STATES = [
     .matchAll(/^\s+[A-Z_]+\s*=\s*"([a-z_]+)"/gm)
 ].map(match => match[1]);
 
+/**
+ * Each source's `NETWORK_REQUIREMENT`, read from its own `source.py`. Declared
+ * on the backend class and nowhere else, so the page cannot document a source
+ * as network-dependent that the state machine will never report on — or, worse,
+ * stay silent about one it will.
+ */
+const NETWORK_REQUIREMENTS = Object.fromEntries(
+  ALL_AUDIO_SOURCES.map(source => {
+    const path = join(BACKEND_DIR, `sources/${source}/source.py`);
+    const declared = existsSync(path)
+      ? readFileSync(path, 'utf8').match(/NETWORK_REQUIREMENT\s*=\s*NetworkRequirement\.([A-Z]+)/)
+      : null;
+    // No declaration means the class inherits BaseAudioSource's default.
+    return [source, (declared?.[1] ?? 'NONE').toLowerCase()];
+  })
+);
+
 /** Every `.vue` directly inside a scoped directory, screens included. */
 const SCANNED_FILES = SCOPE
   .flatMap(dir =>
@@ -696,7 +713,9 @@ describe('component gallery source pages', () => {
     const declared = [...toDict.matchAll(/"([a-z_]+)":/g)].map(match => match[1]);
     expect(declared).toContain('active_source');
 
-    const expected = [...declared, 'multiroom_enabled', 'equalizer_effects_enabled'].sort();
+    const expected = [
+      ...declared, 'multiroom_enabled', 'equalizer_effects_enabled', 'network_unavailable'
+    ].sort();
 
     const problems = [];
     for (const event of EVENTS) {
@@ -752,6 +771,36 @@ describe('component gallery source pages', () => {
     expect(missing).toEqual([]);
   });
 
+  it('shows every network-dependent source what a broken link looks like', () => {
+    // The same completeness argument as the errored screen, one axis over: a
+    // page that never draws its offline screen documents a source that cannot
+    // be cut off, and seven of the ten can. Which reason is right is not a
+    // judgement made here either — LAN sources only break when the link is
+    // gone, internet sources break on a router with no route out — so the
+    // requirement is read from the backend class that decides it.
+    expect(Object.values(NETWORK_REQUIREMENTS)).toContain('internet');
+    expect(Object.values(NETWORK_REQUIREMENTS)).toContain('lan');
+
+    const EXPECTED = { internet: 'no_internet', lan: 'no_network' };
+    const problems = [];
+
+    for (const page of SOURCE_PAGES) {
+      const expected = EXPECTED[NETWORK_REQUIREMENTS[page.source]];
+      const reached = new Set(
+        page.scenarios.map(scenario => settledState(scenario).network_unavailable).filter(Boolean)
+      );
+      if (!expected) {
+        // A source needing nothing must not claim to be blocked by the link:
+        // the backend would never send it, so the scenario would be fiction.
+        if (reached.size) problems.push(`${page.id} (needs no network, documents ${[...reached]})`);
+        continue;
+      }
+      if (!reached.has(expected)) problems.push(`${page.id} (never reaches "${expected}")`);
+    }
+
+    expect(problems).toEqual([]);
+  });
+
   it('invents no metadata field the app does not read', () => {
     // Same check the REGISTRY records get, applied to the half that actually
     // drifts. Rename `album_art_width` in useRichDisplay and the AirPlay gate
@@ -790,13 +839,18 @@ describe('component gallery source pages', () => {
     expect(unread).toEqual([]);
 
     // And every fact a name spells has to come from that list — the ids are
-    // derived, so this fails only if `scenarioId` grew a second source of
-    // tokens, which is the drift that would let prose back in.
+    // derived, so this fails only if `scenarioId` grew a *third* source of
+    // tokens, which is the drift that would let prose back in. The second is
+    // `network_unavailable`, admitted because it replaces the state on screen
+    // rather than describing the record; it is dropped here so what remains to
+    // check is metadata alone.
     const strays = [];
     for (const page of SOURCE_PAGES) {
       for (const scenario of page.scenarios) {
         const conditions = scenario.browser?.condition ?? [];
-        const facts = scenario.id.split(' ').slice(1).filter(token => !conditions.includes(token));
+        const reason = settledState(scenario).network_unavailable;
+        const facts = scenario.id.split(' ').slice(1)
+          .filter(token => token !== reason && !conditions.includes(token));
         for (const fact of facts) {
           if (!BEHAVIOURAL_FIELDS.includes(fact.split('=')[0])) strays.push(`${page.id}.${scenario.id} (${fact})`);
         }
@@ -883,7 +937,12 @@ describe('component gallery source pages', () => {
     for (const page of SOURCE_PAGES.filter(entry => entry.via === 'browser')) {
       for (const scenario of page.scenarios) {
         const settled = settledState(scenario);
-        const dropsToCard = settled.transitioning || settled.source_state === 'error';
+        // A third record now short-circuits useRichDisplay before it names the
+        // source: a missing prerequisite. Same reason as `error` — a browser
+        // that cannot reach anything is not the screen to draw.
+        const dropsToCard = settled.transitioning
+          || settled.source_state === 'error'
+          || !!settled.network_unavailable;
         if (!scenario.browser && !dropsToCard) {
           unsafe.push(`${page.id}.${scenario.id} (would mount the real ${page.source} browser)`);
         }

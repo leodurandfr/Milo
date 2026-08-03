@@ -335,7 +335,11 @@ def initialize_services() -> None:
 
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
+    # Cycle: state_machine ↔ connectivity_service
+    #   state_machine reads the NM level to derive full_state.network_unavailable;
+    #   connectivity broadcasts its own event through the state machine.
     connectivity_service.set_state_machine(state_machine)
+    state_machine.connectivity_service = connectivity_service
 
     # =========================================================================
     # STEP 2: Wire the dependencies that CANNOT be constructor-injected.
@@ -380,11 +384,12 @@ def initialize_services() -> None:
     routing_service.set_volume_service(volume_service)
 
     # Fail loud on a missing full_state back-reference. get_current_state() reads
-    # multiroom_enabled / equalizer_effects_enabled through these two and falls
-    # back to False when either is unset — indistinguishable on the wire from
-    # "multiroom off, effects off", so a wiring regression would ship as a silent
-    # UI lie rather than a crash.
-    for attr in ("routing_service", "camilladsp_service"):
+    # multiroom_enabled / equalizer_effects_enabled / network_unavailable through
+    # these three and falls back to the benign value when one is unset —
+    # indistinguishable on the wire from "multiroom off, effects off, network
+    # fine", so a wiring regression would ship as a silent UI lie rather than a
+    # crash.
+    for attr in ("routing_service", "camilladsp_service", "connectivity_service"):
         if getattr(state_machine, attr) is None:
             raise RuntimeError(
                 f"state_machine.{attr} not wired — full_state would report its "

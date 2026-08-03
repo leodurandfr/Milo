@@ -11,13 +11,19 @@ Tests cover:
   and the inactivity sweep that eventually clears it
 - The transition lock
 - WebSocket broadcasting, and which categories carry full_state
+- `network_unavailable`: the NM level crossed with the source's own requirement
 """
 import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock
 
 from backend.core.state import AudioStateMachine
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import (
+    AudioSource,
+    ConnectivityLevel,
+    NetworkRequirement,
+    SourceState,
+)
 from backend.core.models.ws_events import SourceStateChanged, SystemErrorEvent, VolumeChanged
 
 
@@ -509,3 +515,111 @@ class TestGetCurrentState:
         assert "active_source" in state
         assert "source_state" in state
         assert "transitioning" in state
+
+
+class TestNetworkUnavailable:
+    """`full_state.network_unavailable` — the two-axis rule the card renders.
+
+    Reporting on NetworkManager's level alone is what made the old offline
+    banner fire while playing a CD; reporting on the source alone cannot tell a
+    LAN-only link from a dead one. Both axes, or the answer is wrong.
+    """
+
+    @staticmethod
+    def _wire(state_machine, level, source, requirement):
+        state_machine.connectivity_service = Mock(level=level)
+        instance = Mock()
+        instance.NETWORK_REQUIREMENT = requirement
+        state_machine.register_source(source, instance)
+        state_machine.system_state.active_source = source
+
+    @pytest.mark.parametrize(
+        "level,requirement,expected",
+        [
+            # A dead link blocks everything that needs any network at all.
+            (ConnectivityLevel.NONE, NetworkRequirement.INTERNET, "no_network"),
+            (ConnectivityLevel.NONE, NetworkRequirement.LAN, "no_network"),
+            (ConnectivityLevel.NONE, NetworkRequirement.NONE, None),
+            # LAN up, no route out: internet sources only. This is the row that
+            # a boolean `online` could not express.
+            (ConnectivityLevel.LIMITED, NetworkRequirement.INTERNET, "no_internet"),
+            (ConnectivityLevel.LIMITED, NetworkRequirement.LAN, None),
+            (ConnectivityLevel.LIMITED, NetworkRequirement.NONE, None),
+            # A captive portal Milō has no browser to answer reads as the same.
+            (ConnectivityLevel.PORTAL, NetworkRequirement.INTERNET, "no_internet"),
+            (ConnectivityLevel.PORTAL, NetworkRequirement.LAN, None),
+            # Fail open: never report a problem we have not observed.
+            (ConnectivityLevel.FULL, NetworkRequirement.INTERNET, None),
+            (ConnectivityLevel.UNKNOWN, NetworkRequirement.INTERNET, None),
+        ],
+    )
+    def test_level_crossed_with_requirement(
+        self, state_machine, level, requirement, expected
+    ):
+        self._wire(state_machine, level, AudioSource.SPOTIFY, requirement)
+        assert state_machine.get_current_state()["network_unavailable"] == expected
+
+    def test_no_source_selected_reports_nothing(self, state_machine):
+        """AudioSource.NONE needs nothing, so a dead link is not its problem —
+        this is what keeps the home screen quiet instead of raising the banner
+        the old boolean raised on every `!online`."""
+        state_machine.connectivity_service = Mock(level=ConnectivityLevel.NONE)
+        assert state_machine.get_current_state()["network_unavailable"] is None
+
+    def test_unwired_service_reports_nothing(self, state_machine):
+        """No connectivity service (a dev host without NM) must not paint every
+        source as blocked."""
+        self._wire(state_machine, ConnectivityLevel.NONE, AudioSource.RADIO,
+                   NetworkRequirement.INTERNET)
+        state_machine.connectivity_service = None
+        assert state_machine.get_current_state()["network_unavailable"] is None
+
+
+class TestBlockedTransitionBanner:
+    """A failed start the link already explains must not also raise a banner.
+
+    Two notifications for one cause is what made the offline behaviour read as
+    broken on the unit: the status card said "no internet" with the network
+    settings one tap away, and a raw "Network is unreachable" sat on top of it.
+    """
+
+    async def _fail_to_start(self, state_machine, requirement, level):
+        source = Mock()
+        source.initialize = AsyncMock(return_value=True)
+        source.start = AsyncMock(return_value=False)   # the daemon refuses
+        source.stop = AsyncMock(return_value=True)
+        source.is_initialized = True
+        source.state = SourceState.ERROR
+        source.metadata = {}
+        source.NETWORK_REQUIREMENT = requirement
+        state_machine.register_source(AudioSource.DLNA, source)
+        state_machine.connectivity_service = Mock(level=level)
+        state_machine.ws_manager = Mock(broadcast_dict=AsyncMock())
+
+        events = []
+        original = state_machine.broadcast
+
+        async def capture(event):
+            events.append(event)
+            await original(event)
+
+        state_machine.broadcast = capture
+        await state_machine.transition_to_source(AudioSource.DLNA)
+        return events
+
+    async def test_no_banner_when_the_link_explains_it(self, state_machine):
+        events = await self._fail_to_start(
+            state_machine, NetworkRequirement.LAN, ConnectivityLevel.NONE
+        )
+        assert not any(isinstance(e, SystemErrorEvent) for e in events)
+        # The state still settles in ERROR — only the banner is withheld.
+        assert state_machine.system_state.source_state == SourceState.ERROR
+        assert state_machine.get_current_state()["network_unavailable"] == "no_network"
+
+    async def test_banner_still_raised_when_the_link_is_fine(self, state_machine):
+        """The regression guard on the suppression: a daemon that dies with the
+        network up has nothing else to tell the user, so the banner must fire."""
+        events = await self._fail_to_start(
+            state_machine, NetworkRequirement.LAN, ConnectivityLevel.FULL
+        )
+        assert any(isinstance(e, SystemErrorEvent) for e in events)

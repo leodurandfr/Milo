@@ -15,8 +15,6 @@
   "notification": {
     "connectionLostTitle": "Connection lost",
     "connectionLostDescription": "Reconnecting automatically when available",
-    "offlineTitle": "No internet connection",
-    "offlineDescription": "Spotify, AirPlay, Radio and Podcasts won't work until the connection is restored.",
     "backendErrorTitle": "System Error",
     "sourceErrorTitle": "{source} error",
     "commandFailed": "Command failed"
@@ -231,6 +229,9 @@
     "accountNotConnected": "Account not connected",
     "connect": "Connect",
     "error": "Error",
+    "noNetwork": "No network",
+    "noInternet": "No internet access",
+    "networkSettings": "Network settings",
     "retry": "Retry",
     "readyToPlay": "Ready to play",
     "loadingAlbum": "Loading album",

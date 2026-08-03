@@ -105,10 +105,47 @@ claim to be down.
 Today the state machine's failed-transition path is the only writer of `ERROR`;
 `broadcast_error()` carries the other kind and never touches the state. The
 frontend adds no fifth member: `useSourceStatusDisplay` derives a *display*
-state — the
-four above plus CD's three hardware screens (`no_drive`, `loading_disc`,
-`ejecting`, all `READY` records about the drive) — and that list, `DISPLAY_STATES`,
-is what `AudioSourceStatus` validates against.
+state — the four above plus CD's two transient drive operations (`loading_disc`,
+`ejecting`, both `READY` records) — and that list, `DISPLAY_STATES`, is what
+`AudioSourceStatus` validates against.
+
+### Unavailable, which is not a state
+
+A source can be perfectly operational and still unable to do anything, because a
+prerequisite outside it is missing. That is a second axis, not a fifth state,
+and it has **one** name on both sides: `unavailableReason`, with four values.
+When it is set the card renders it in place of the state's own phrase, and
+`useRichDisplay` drops to the card — a Radio favourites grid whose every tap
+fails is a worse screen than one saying why.
+
+| Reason | Source of truth | CTA |
+|---|---|---|
+| `no_network` | `full_state.network_unavailable` | Network settings |
+| `no_internet` | `full_state.network_unavailable` | Network settings |
+| `no_account` | metadata `account_authenticated === false` (Qobuz) | Qobuz login |
+| `no_drive` | metadata `drive_connected === false` (CD) | none — the UI cannot plug a drive in |
+
+The two network values are computed by the **backend**, in
+`AudioStateMachine._network_unavailable()`, by crossing two axes:
+
+- **NetworkManager's `Connectivity` property**, kept whole as `ConnectivityLevel`
+  (`unknown` / `none` / `portal` / `limited` / `full`). `limited` is literally
+  "LAN reachable, no internet"; `portal` is a captive portal, folded into the
+  same answer because Milō has no browser to accept one with. `unknown` is the
+  fail-open value and reads as `full`.
+- **The active source's `NETWORK_REQUIREMENT`** (`none` / `lan` / `internet`),
+  a class attribute on `BaseAudioSource`: `internet` for Spotify, Qobuz, Radio
+  and Podcast; `lan` for AirPlay, DLNA and Mac (ROC); `none` for Bluetooth, CD
+  and the Music Library.
+
+So a router with no route out blocks Spotify and leaves AirPlay alone, and
+nothing at all blocks a CD. Neither axis alone can say that, which is why the
+level is published whole rather than flattened to an `online` boolean — and why
+there is no global offline banner any more: it fired on every `!online`,
+including while listening over Bluetooth.
+
+Podcast's own `network_error` flag is unrelated and stays: it answers "the
+Podcast Index call failed", which happens while perfectly online.
 
 ### 1. Spotify Connect (go-librespot)
 

@@ -43,7 +43,7 @@ def create_system_router(
     @router.get("/status")
     async def get_system_status():
         """Return system-level status (hostname conflict + internet connectivity)."""
-        data = {"hostname_conflict": False, "online": True}
+        data = {"hostname_conflict": False, "connectivity": "unknown"}
         if hostname_conflict_service is not None:
             data.update(hostname_conflict_service.get_state())
         if connectivity_service is not None:

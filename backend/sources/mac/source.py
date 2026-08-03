@@ -20,6 +20,7 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import NetworkRequirement
 from backend.shared.decorators import handle_errors
 from backend.shared.journalctl import follow_unit, read_unit
 from backend.sources.mac.log_patterns import classify_line, normalize_ip
@@ -33,6 +34,8 @@ class MacSource(BaseAudioSource):
     commands routed through `/api/audio/control/mac` reach `_handle_command`.
     Extends BaseAudioSource — implements `_do_start / _do_stop / _handle_command`.
     """
+
+    NETWORK_REQUIREMENT = NetworkRequirement.LAN
 
     def __init__(
         self,
@@ -106,6 +109,7 @@ class MacSource(BaseAudioSource):
         self._reset_playback_state()
 
         return await self._stop_service()
+
 
     COMMANDS = {"get_connections": None}
 

@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional
 
 from backend.config.constants import MILO_DATA_DIR
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.qobuz.monitor import QobuzMonitor
 
@@ -54,6 +55,8 @@ _TRACKLESS_GRACE_TICKS = 3
 
 class QobuzSource(BaseAudioSource):
     """Qobuz Connect source (Family B — passive player): external control, rich metadata."""
+
+    NETWORK_REQUIREMENT = NetworkRequirement.INTERNET
 
     def __init__(
         self,
@@ -122,6 +125,7 @@ class QobuzSource(BaseAudioSource):
 
     # Family B: playback is controlled from the Qobuz app; qobuz-proxy exposes no
     # local control channel — command() rejects every command as unknown.
+
     COMMANDS = {}
 
     # ------------------------------------------------------------------

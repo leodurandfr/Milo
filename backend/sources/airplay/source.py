@@ -13,6 +13,7 @@ import os
 from typing import Dict, Any, Optional, Tuple
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.airplay.metadata_reader import MetadataReader
 from backend.shared.artwork import decode_artwork_dimensions
@@ -37,6 +38,8 @@ POSITION_JUMP_TOLERANCE_MS = 2000
 
 class AirPlaySource(BaseAudioSource):
     """AirPlay 2 source (Family B — passive player): external control, rich metadata."""
+
+    NETWORK_REQUIREMENT = NetworkRequirement.LAN
 
     def __init__(
         self,
@@ -159,6 +162,7 @@ class AirPlaySource(BaseAudioSource):
     # AirPlay 2 does not support remote playback control
     # (shairport-sync AIRPLAY2.md: "Remote control facilities are not implemented"),
     # so no commands are registered — command() rejects every command as unknown.
+
     COMMANDS = {}
 
     # === Metadata Callbacks ===

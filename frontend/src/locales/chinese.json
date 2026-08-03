@@ -15,8 +15,6 @@
   "notification": {
     "connectionLostTitle": "连接丢失",
     "connectionLostDescription": "可用时自动重新连接",
-    "offlineTitle": "无网络连接",
-    "offlineDescription": "在连接恢复之前，Spotify、AirPlay、广播和播客将无法使用。",
     "backendErrorTitle": "系统错误",
     "sourceErrorTitle": "{source} 错误",
     "commandFailed": "命令失败"
@@ -231,6 +229,9 @@
     "accountNotConnected": "账户未连接",
     "connect": "连接",
     "error": "错误",
+    "noNetwork": "无网络",
+    "noInternet": "无法访问互联网",
+    "networkSettings": "网络设置",
     "retry": "重试",
     "playing": "播放中",
     "connectedTo": "已连接到",
