@@ -3,7 +3,7 @@
 
 Covers the behaviors whose regression would be silent: disc insertion/
 ejection detection via the permanent watcher, TOC -> sector-offset math,
-state transitions (WAITING/ACTIVE + idle vs playing metadata projection),
+state transitions (READY/ACTIVE + idle vs playing metadata projection),
 command dispatch (play/pause/resume/next/prev/seek/eject), the monitor
 tick's auto-advance/album-end detection, and the MusicBrainz-unreachable
 offline fallback. The ioctl reader thread and mpv IPC are mocked — no real
@@ -137,7 +137,7 @@ class TestDiscWatcher:
 
         assert source._disc_present is True
         assert source._disc_ready is False
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
         source.state_machine.broadcast.assert_awaited()
 
     @pytest.mark.asyncio
@@ -482,12 +482,12 @@ class TestMetadataAndState:
         assert meta["position"] == 42500
         assert meta["duration"] == 150000
 
-    def test_update_connection_state_waiting_when_idle(self, source):
+    def test_update_connection_state_ready_when_idle(self, source):
         source._is_playing = False
         source._is_paused = False
         source._is_buffering = False
         source._update_connection_state()
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
 
     def test_update_connection_state_active_when_playing(self, source):
         source._is_playing = True
@@ -895,7 +895,7 @@ class TestMonitorTick:
         assert source._is_playing is False
         assert source._current_track == 1
         assert source._track_position == 0
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
 
     @pytest.mark.asyncio
     async def test_auto_advances_on_mid_album_reader_eof(self, source):

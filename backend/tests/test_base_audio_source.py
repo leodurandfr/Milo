@@ -89,7 +89,7 @@ class TestBaseAudioSourceLifecycle:
 
         assert result is True
         assert source.stop_called
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
 
     @pytest.mark.asyncio
     async def test_stop_failure(self):
@@ -274,7 +274,7 @@ class TestSetStateMetadataSemantics:
             {"title": "Track", "artist": "Artist", "is_playing": True},
         )
         await self._publish(
-            source, SourceState.WAITING, {"is_playing": False},
+            source, SourceState.READY, {"is_playing": False},
         )
 
         assert source.metadata == state_machine.system_state.metadata
@@ -294,13 +294,57 @@ class TestSetStateMetadataSemantics:
         assert source.metadata == state_machine.system_state.metadata == published
 
 
+class TestErrorMechanismsStaySeparate:
+    """A failed *operation* is a banner; a source that is *down* is a state.
+
+    Both used to ride on `source/state_changed` with new_state "error", which
+    made a station that would not tune indistinguishable on the wire from a
+    dead daemon — and left the real state unreachable, since the injected
+    full_state carried the previous one anyway.
+    """
+
+    @pytest.fixture
+    def wired(self):
+        """A real state machine with the source registered and active."""
+        state_machine = AudioStateMachine()
+        state_machine.ws_manager = Mock()
+        state_machine.ws_manager.broadcast_dict = AsyncMock()
+        source = ConcreteAudioSource()
+        source.source_id = AudioSource.RADIO.value
+        source.state_machine = state_machine
+        state_machine.register_source(AudioSource.RADIO, source)
+        state_machine.system_state.active_source = AudioSource.RADIO
+        return source, state_machine
+
+    @pytest.mark.asyncio
+    async def test_broadcast_error_sends_the_banner_and_no_state(self, wired):
+        """broadcast_error() emits source/error and touches no state."""
+        source, state_machine = wired
+        spawned = []
+        source._bg.spawn = Mock(
+            side_effect=lambda coro, **kw: spawned.append(asyncio.ensure_future(coro))
+        )
+
+        source.broadcast_error("Unable to load stream: FIP")
+        await asyncio.gather(*spawned)
+
+        envelope = state_machine.ws_manager.broadcast_dict.call_args[0][0]
+        assert (envelope["category"], envelope["type"]) == ("source", "error")
+        assert envelope["data"]["message"] == "Unable to load stream: FIP"
+
+        # The source is still perfectly usable — its browser, its commands.
+        assert source.state != SourceState.ERROR
+        assert state_machine.system_state.source_state != SourceState.ERROR
+        assert state_machine.system_state.error is None
+
+
 class TestSourceStateValues:
     """Test SourceState enum values."""
 
     def test_state_values(self):
         """Test state values match expected strings."""
         assert SourceState.STARTING.value == "starting"
-        assert SourceState.WAITING.value == "waiting"
+        assert SourceState.READY.value == "ready"
         assert SourceState.ACTIVE.value == "active"
         assert SourceState.ERROR.value == "error"
 
@@ -351,7 +395,7 @@ class TestBaseAudioSourceProperties:
         """Test state property."""
         source = ConcreteAudioSource()
 
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
 
         source._state = SourceState.ACTIVE
         assert source.state == SourceState.ACTIVE

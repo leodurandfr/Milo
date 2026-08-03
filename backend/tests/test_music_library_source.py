@@ -153,12 +153,12 @@ class TestPlayContext:
         assert result["success"] is False
 
     @pytest.mark.asyncio
-    async def test_load_failure_resets_to_waiting(self, source):
+    async def test_load_failure_resets_to_ready(self, source):
         source._mpv = _mpv(load_playlist=AsyncMock(return_value=False))
         result = await source.command("play_context", {"tracks": TRACKS})
         assert result["success"] is False
         assert source._queue == []
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
 
 
 class TestTransport:
@@ -252,7 +252,7 @@ class TestTransport:
         assert result["success"] is True
         assert source._queue == []
         assert source._is_playing is False
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
         source._mpv.stop.assert_awaited_once()
 
 
@@ -288,10 +288,10 @@ class TestMetadata:
         assert source._cover_url({"albumId": "ab9"}) == "/api/music-library/cover/ab9"
         assert source._cover_url({}) is None
 
-    def test_state_waiting_without_queue(self, source):
+    def test_state_ready_without_queue(self, source):
         source._queue = []
         source._update_connection_state()
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
 
     def test_state_active_with_queue(self, source):
         source._queue = TRACKS
@@ -311,7 +311,7 @@ class TestMonitor:
         await source._on_monitor_tick()
 
         assert source._queue == []
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
 
     @pytest.mark.asyncio
     async def test_gapless_auto_advance(self, source):
@@ -334,7 +334,7 @@ class TestMonitor:
         source._mpv = _mpv_with_props({"idle-active": True})
         # No queue → guarded out before any end-of-queue handling.
         await source._on_monitor_tick()
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
 
     @pytest.mark.asyncio
     async def test_buffering_clears_when_playhead_moves(self, source):
@@ -475,7 +475,7 @@ class TestResume:
 
         await source._auto_stop_action()
 
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
         assert source._resume is not None
         assert source._resume["queue_index"] == 2
 
@@ -487,7 +487,7 @@ class TestResume:
 
         await source.command("stop", {})
 
-        assert source.state == SourceState.WAITING
+        assert source.state == SourceState.READY
         assert source._resume is None
 
     @pytest.mark.asyncio

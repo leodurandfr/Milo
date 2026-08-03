@@ -88,7 +88,7 @@ class TestTransitionSequence:
         # Verify state consistency
         assert sm.system_state.active_source == AudioSource.RADIO
         assert sm.system_state.transitioning is False
-        assert sm.system_state.source_state in (SourceState.STARTING, SourceState.WAITING)
+        assert sm.system_state.source_state in (SourceState.STARTING, SourceState.READY)
         assert sm.system_state.error is None
 
     @pytest.mark.asyncio
@@ -332,7 +332,7 @@ class TestErrorHandling:
         result = await sm.transition_to_source(AudioSource.RADIO)
 
         assert result is False, "Should fail for unregistered source"
-        assert sm.system_state.active_source == AudioSource.NONE
+        assert sm.system_state.source_state == SourceState.ERROR
 
     @pytest.mark.asyncio
     async def test_transition_with_source_start_failure(
@@ -341,9 +341,10 @@ class TestErrorHandling:
         websocket_collector: WebSocketEventCollector
     ):
         """
-        When source.start fails, should rollback to NONE and broadcast error.
+        When source.start fails, the source settles in ERROR and the banner event
+        is broadcast.
 
-        Validates: - source.start fails -> rollback to NONE
+        Validates: - source.start fails -> the source stays selected, in ERROR
         - Error event broadcast
         """
         sm = integration_state_machine
@@ -359,8 +360,10 @@ class TestErrorHandling:
 
         assert result is False, "Should fail when source.start() fails"
 
-        # Should rollback to NONE after emergency stop
-        assert sm.system_state.active_source == AudioSource.NONE
+        # The source stays selected so the failure is visible — and retryable
+        assert sm.system_state.active_source == AudioSource.RADIO
+        assert sm.system_state.source_state == SourceState.ERROR
+        assert sm.system_state.error
 
         # Should broadcast error event
         error_events = websocket_collector.get_events_by_type("error")
@@ -378,8 +381,9 @@ class TestErrorHandling:
         Validates: - Timeout triggers emergency_stop
         - Error event with timeout message
 
-        Note: After emergency_stop, the error field is cleared to None,
-        but the error event should have been broadcast before that.
+        Note: the timeout settles exactly like a failed start — same handler,
+        one message apart — so the source stays selected in ERROR and keeps
+        the message that was broadcast.
         """
         sm = integration_state_machine
 
@@ -400,9 +404,10 @@ class TestErrorHandling:
 
         assert result is False, "Should fail on timeout"
 
-        # State should be reset after emergency_stop
+        # Settled, not reset: the transition is over and the source is in error
         assert sm.system_state.transitioning is False
-        assert sm.system_state.active_source == AudioSource.NONE
+        assert sm.system_state.active_source == AudioSource.RADIO
+        assert sm.system_state.source_state == SourceState.ERROR
 
         # Should broadcast error event (before emergency_stop clears error)
         error_events = websocket_collector.get_events_by_type("error")
@@ -440,9 +445,9 @@ class TestErrorHandling:
         state_machine_with_sources: AudioStateMachine,
         mock_sources
     ):
-        """A failed start resets to idle and stops ONLY the source that failed.
+        """A failed start stops ONLY the source that failed.
 
-        Regression guard: the reset used to stop every registered source, which
+        Regression guard: the unwind used to stop every registered source, which
         ran Bluetooth's unconditional teardown (bluetoothctl + bluealsa/
         bluetooth.service) on a source the transition never touched. The
         previous source is stopped by the transition itself, before the start
@@ -461,8 +466,8 @@ class TestErrorHandling:
         result = await sm.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
-        assert sm.system_state.active_source == AudioSource.NONE
-        assert sm.system_state.source_state == SourceState.WAITING
+        assert sm.system_state.active_source == AudioSource.SPOTIFY
+        assert sm.system_state.source_state == SourceState.ERROR
 
         target.stop.assert_awaited()
         uninvolved.stop.assert_not_awaited()

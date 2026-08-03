@@ -38,9 +38,10 @@
       </div>
 
       <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="audio-source-slot source-status-container">
-        <AudioSourceStatus :source-type="currentSourceType" :source-state="currentSourceState"
+        <AudioSourceStatus :source-type="currentSourceType" :display-state="displayState"
           :device-name="currentDeviceName" :is-disconnecting="isDisconnecting"
-          :account-connected="qobuzAccountConnected" @disconnect="handleDisconnect" @connect="handleConnect" />
+          :account-connected="qobuzAccountConnected" @disconnect="handleDisconnect" @connect="handleConnect"
+          @retry="handleRetry" />
       </div>
 
     </Transition>
@@ -48,11 +49,11 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, inject, defineAsyncComponent } from 'vue';
-import { useTimer } from '@/composables/useTimer';
+import { computed, inject, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
 import { useRichDisplay } from '@/composables/useRichDisplay';
+import { useSourceStatusDisplay } from '@/composables/useSourceStatusDisplay';
 
 const LyricsView = defineAsyncComponent(() =>
   import('../lyrics/LyricsView.vue')
@@ -87,7 +88,6 @@ const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
 
 const activeSource = computed(() => unifiedStore.systemState.active_source);
-const sourceState = computed(() => unifiedStore.systemState.source_state);
 const transitioning = computed(() => unifiedStore.systemState.transitioning);
 const metadata = computed(() => unifiedStore.systemState.metadata);
 
@@ -96,6 +96,13 @@ const isDisconnecting = computed(() => unifiedStore.isDisconnecting(activeSource
 
 function handleDisconnect() {
   unifiedStore.disconnectSource(activeSource.value);
+}
+
+// The retry a failed transition leaves available: the source stays selected in
+// ERROR, so re-selecting it is what re-runs the start the state machine gave up
+// on (the guard in state.py lets the same source through when it is errored).
+function handleRetry() {
+  unifiedStore.changeSource(activeSource.value);
 }
 
 // Qobuz login state rides the broadcast metadata (account_authenticated). Only an
@@ -138,66 +145,10 @@ const shouldShowSourceStatus = computed(() => {
 // === PROPERTIES FOR SOURCE STATUS ===
 const currentSourceType = computed(() => activeSource.value);
 
-const rawSourceState = computed(() => {
-  if (transitioning.value) return 'starting';
-  // CD: ejecting disc
-  if (activeSource.value === 'cd' && sourceState.value === 'waiting' &&
-      metadata.value?.ejecting) {
-    return 'ejecting';
-  }
-  // CD: disc present but TOC or metadata not yet attached.
-  // disc_id is emitted by _build_metadata only once `_current_disc` is set
-  // — true on either MusicBrainz success OR fallback. Its absence covers
-  // the activation window where the TOC has been read but the lookup
-  // hasn't completed; once `_current_disc` is populated has_disc flips
-  // the source state to ACTIVE and we leave 'loading_disc' anyway.
-  if (activeSource.value === 'cd' && sourceState.value === 'waiting' &&
-      metadata.value?.disc_present &&
-      (!metadata.value?.cache_ready || !metadata.value?.disc_id)) {
-    return 'loading_disc';
-  }
-  // CD: no drive connected (active source but hardware missing)
-  if (activeSource.value === 'cd' && sourceState.value === 'waiting' &&
-      metadata.value?.drive_connected === false) {
-    return 'no_drive';
-  }
-  return sourceState.value;
-});
-
-// Minimum display time for "starting" state: a short anti-flash buffer so a
-// fast backend transition (e.g. CD's quick starting -> loading_disc) doesn't
-// flicker the card. Kept just above the flash-perception threshold so fast
-// sources feel near-instant instead of being padded to a uniform delay.
-const STARTING_MIN_MS = 500;
-const currentSourceState = ref(rawSourceState.value);
-const timer = useTimer();
-let startingEnteredAt = null;
-let startingTimer = null;
-
-watch(rawSourceState, (newState, oldState) => {
-  timer.clear(startingTimer);
-
-  if (newState === 'starting') {
-    startingEnteredAt = Date.now();
-    currentSourceState.value = 'starting';
-    return;
-  }
-
-  // Leaving "starting" — enforce minimum display time
-  if (oldState === 'starting' && startingEnteredAt) {
-    const remaining = STARTING_MIN_MS - (Date.now() - startingEnteredAt);
-    if (remaining > 0) {
-      startingTimer = timer.setTimeout(() => {
-        currentSourceState.value = rawSourceState.value;
-        startingEnteredAt = null;
-      }, remaining);
-      return;
-    }
-  }
-
-  startingEnteredAt = null;
-  currentSourceState.value = newState;
-});
+// The card's vocabulary — the backend enum plus CD's three metadata-derived
+// screens, through the anti-flash floor. Derived in one place so the gallery's
+// source pages document the same derivation the app performs.
+const { displayState } = useSourceStatusDisplay();
 
 const currentDeviceName = computed(() => {
   const meta = metadata.value || {};
@@ -226,7 +177,7 @@ const currentDeviceName = computed(() => {
 // Key for transitions - includes state for source status to animate between states
 const contentKey = computed(() => {
   if (shouldShowSourceStatus.value) {
-    return `${activeSource.value}-${currentSourceState.value}-${!!currentDeviceName.value}`;
+    return `${activeSource.value}-${displayState.value}-${!!currentDeviceName.value}`;
   }
   return activeSource.value;
 });

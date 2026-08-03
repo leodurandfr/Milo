@@ -85,27 +85,31 @@
   </GalleryItem>
 
   <GalleryItem id="AudioSourceStatus">
-    <GalleryVariant label=":source-state=&quot;starting&quot; — a spinner replaces the source icon">
-      <AudioSourceStatus source-type="spotify" source-state="starting" />
+    <GalleryVariant label=":display-state=&quot;starting&quot; — a spinner replaces the source icon">
+      <AudioSourceStatus source-type="spotify" display-state="starting" />
     </GalleryVariant>
-    <GalleryVariant label=":source-state=&quot;waiting&quot; — the idle line, per source">
-      <AudioSourceStatus source-type="bluetooth" source-state="waiting" />
-      <AudioSourceStatus source-type="mac" source-state="waiting" />
+    <GalleryVariant label=":display-state=&quot;ready&quot; — one of two phrases, by who opens the session">
+      <AudioSourceStatus source-type="bluetooth" display-state="ready" />
+      <AudioSourceStatus source-type="cd" display-state="ready" />
     </GalleryVariant>
-    <GalleryVariant label=":source-state=&quot;active&quot; + :device-name — a string, or an array for ROC">
-      <AudioSourceStatus source-type="bluetooth" source-state="active" device-name="Leo’s iPhone" />
-      <AudioSourceStatus source-type="mac" source-state="active"
+    <GalleryVariant label=":display-state=&quot;active&quot; + :device-name — a string, or an array for ROC">
+      <AudioSourceStatus source-type="bluetooth" display-state="active" device-name="Leo’s iPhone" />
+      <AudioSourceStatus source-type="mac" display-state="active"
         :device-name="['Leo’s MacBook', 'Studio iMac']" />
     </GalleryVariant>
-    <GalleryVariant label="the two CTAs — Bluetooth disconnect, Qobuz connect">
-      <AudioSourceStatus source-type="bluetooth" source-state="active" device-name="Leo’s iPhone"
+    <GalleryVariant label=":display-state=&quot;active&quot; with no sender to name — the generic playing line">
+      <AudioSourceStatus source-type="dlna" display-state="active" />
+    </GalleryVariant>
+    <GalleryVariant label="the three CTAs — retry on error, Bluetooth disconnect, Qobuz connect">
+      <AudioSourceStatus source-type="spotify" display-state="error" @retry="log = 'retry'" />
+      <AudioSourceStatus source-type="bluetooth" display-state="active" device-name="Leo’s iPhone"
         @disconnect="log = 'disconnect'" />
-      <AudioSourceStatus source-type="qobuz" source-state="waiting" :account-connected="false"
+      <AudioSourceStatus source-type="qobuz" display-state="ready" :account-connected="false"
         @connect="log = 'connect'" />
     </GalleryVariant>
     <GalleryVariant label="the CD states — ejecting / loading_disc / no_drive">
-      <AudioSourceStatus source-type="cd" source-state="loading_disc" />
-      <AudioSourceStatus source-type="cd" source-state="no_drive" />
+      <AudioSourceStatus source-type="cd" display-state="loading_disc" />
+      <AudioSourceStatus source-type="cd" display-state="no_drive" />
     </GalleryVariant>
     <GalleryVariant :label="`last event: ${log || 'none'}`" />
   </GalleryItem>

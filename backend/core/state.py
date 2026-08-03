@@ -51,6 +51,12 @@ class AudioStateMachine:
     TRANSITION_TIMEOUT = 10.0
     INACTIVITY_TIMEOUT = 43200  # 12 hours in seconds
 
+    # States a source can sit in without ever producing audio, so the ones the
+    # inactivity sweep deactivates. ERROR is one of them because a failed
+    # transition leaves its source selected: without it, an errored source would
+    # stay selected forever — the one outcome the 12 h sweep exists to prevent.
+    IDLE_STATES = (SourceState.READY, SourceState.ERROR)
+
     def __init__(self):
         self.system_state = SystemAudioState()
         self.sources: Dict[AudioSource, Optional[BaseAudioSource]] = {
@@ -141,6 +147,9 @@ class AudioStateMachine:
                 )
                 return False
 
+            # Re-selecting the active source is a no-op — unless it is the one
+            # in ERROR, where the same gesture is the retry: a failed transition
+            # leaves its source selected, so this is the path back.
             if self.system_state.active_source == target_source and \
                self.system_state.source_state != SourceState.ERROR:
                 logger.info(f"Already on source {target_source.value}")
@@ -158,9 +167,13 @@ class AudioStateMachine:
                         self.system_state.active_source = target_source
                         self.system_state.source_state = (
                             SourceState.STARTING if target_source != AudioSource.NONE
-                            else SourceState.WAITING
+                            else SourceState.READY
                         )
                         self.system_state.metadata = {}
+                        # A retry of an errored source starts from a clean slate:
+                        # the message settled by the previous attempt must not
+                        # ride along in full_state while this one is STARTING.
+                        self.system_state.error = None
 
                     await self.broadcast(SystemTransitionStart())
 
@@ -186,7 +199,7 @@ class AudioStateMachine:
                                 self.system_state.source_state = source.state
                                 self.system_state.metadata = source.metadata
                             else:
-                                self.system_state.source_state = SourceState.WAITING
+                                self.system_state.source_state = SourceState.READY
 
                     await self.broadcast(SystemTransitionComplete())
 
@@ -210,14 +223,13 @@ class AudioStateMachine:
                     self.system_state.transitioning = False
                     self.system_state.error = error
 
-                # Broadcast the error before the reset clears state
                 await self.broadcast(SystemErrorEvent(
                     source=target_source.value,
                     error=error,
                     message=message
                 ))
 
-                await self._reset_after_failed_transition(target_source)
+                await self._settle_failed_transition(target_source, error)
                 return False
 
     async def update_source_state(
@@ -242,7 +254,7 @@ class AudioStateMachine:
 
             # Replace, don't merge: a state transition supplies the authoritative
             # metadata for the new state, so stale fields from the previous track
-            # (title/artist/uri…) must not survive a partial WAITING payload.
+            # (title/artist/uri…) must not survive a partial READY payload.
             # metadata=None means a state-only change — leave metadata untouched
             # (e.g. AudioRoutingService flipping to STARTING during a reroute,
             # which keeps the current track visible). Live position/duration are
@@ -313,8 +325,17 @@ class AudioStateMachine:
 
         return await instance.start()
 
-    async def _reset_after_failed_transition(self, target_source: AudioSource) -> None:
-        """Stop the source whose start failed, then reset to idle and broadcast.
+    async def _settle_failed_transition(
+        self, target_source: AudioSource, error: str
+    ) -> None:
+        """Stop the source whose start failed, then settle it in ERROR.
+
+        The source stays *selected*: "this source is in error" is exactly what
+        happened, and dropping back to "no source" would throw that away — plus
+        it is what makes the retry above reachable, since re-selecting a source
+        only restarts it while its state is ERROR. `error` is kept in
+        system_state so full_state carries the message the card reads; the
+        banner rides on the SystemErrorEvent emitted just before.
 
         Only the target is stopped: the previous source was already stopped
         above, and the one-active-source invariant means nothing else is
@@ -328,12 +349,16 @@ class AudioStateMachine:
             await self._stop_source(target_source)
 
         async with self._state_lock:
-            self.system_state.active_source = AudioSource.NONE
-            self.system_state.source_state = SourceState.WAITING
+            self.system_state.active_source = target_source
+            self.system_state.source_state = (
+                SourceState.ERROR if target_source != AudioSource.NONE
+                else SourceState.READY
+            )
             self.system_state.metadata = {}
-            self.system_state.error = None
+            self.system_state.error = error
 
-        # Broadcast the reset state so frontend knows system is stable again.
+        # Broadcast the settled state so the frontend knows the system is
+        # stable again — and which source it is stable on.
         await self.broadcast(SystemStateChanged(source="system"))
 
     # === Inactivity Monitor ===
@@ -391,7 +416,7 @@ class AudioStateMachine:
 
         if (
             source != AudioSource.NONE
-            and source_state == SourceState.WAITING
+            and source_state in self.IDLE_STATES
             and not transitioning
             and (monotonic() - self._last_activity_time) >= self.INACTIVITY_TIMEOUT
         ):

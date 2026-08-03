@@ -7,9 +7,9 @@
   snapshot into the canvas's own `unifiedAudioStore`, and then it gets out of
   the way: for seven of the ten sources it mounts the real `AudioSourceView`,
   the app's own dispatcher, and whatever appears is whatever `useRichDisplay()`,
-  `rawSourceState` and `currentDeviceName` decide from that record. Nothing here
-  chooses a player or draws a card, which is why a scenario cannot disagree with
-  the app — see sources.js.
+  `useSourceStatusDisplay()` and `currentDeviceName` decide from that record.
+  Nothing here chooses a player or draws a card, which is why a scenario cannot
+  disagree with the app — see sources.js.
 
   The exception is `via: 'browser'`. Radio, Podcasts and Music Library dispatch
   to `*Source.vue` files that own feature stores and fetch on mount, so mounting
@@ -21,9 +21,9 @@
   code path — so "radio with no favourites" is the empty state the app draws,
   not a picture of one.
 
-  Their `starting` scenario still goes through the dispatcher: `transitioning`
-  short-circuits `useRichDisplay()` before it can reach a `*Source.vue`, so the
-  status card is reached honestly there too.
+  Two of their scenarios still go through the dispatcher: `starting` and
+  `error`, both of which `useRichDisplay()` short-circuits before it can reach a
+  `*Source.vue`, so the status card is reached honestly there too.
 -->
 <template>
   <div class="source-stage">
@@ -31,7 +31,7 @@
       The same `audio-content` swap AudioSourceView uses between its own slots
       (design-system.css), for the same reason: going from the status card to a
       browser is a source view giving way to another, and in the app it
-      cross-fades rather than cutting. Keyed on the *kind* of slot, so waiting →
+      cross-fades rather than cutting. Keyed on the *kind* of slot, so the card →
       browsing animates while one browsing view → the next does not — that one
       is AudioSourceLayout's own contentKey cross-fade, exactly as in prod.
     -->
@@ -397,6 +397,7 @@ const speedValue = computed(() => String(stores.podcast.playbackSpeed || 1));
 const DISPATCH = {
   'system.transition_start': unifiedStore.updateState,
   'system.transition_complete': unifiedStore.updateState,
+  'system.state_changed': unifiedStore.updateState,
   'source.state_changed': unifiedStore.updateState
 };
 

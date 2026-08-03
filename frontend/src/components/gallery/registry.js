@@ -105,6 +105,7 @@ import SettingsSample from './samples/SettingsSample.vue';
 import SourceStage from './SourceStage.vue';
 import { SOURCE_PAGES } from './sources';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { DISPLAY_STATES } from '@/composables/useSourceStatusDisplay';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import stationImageTurntable from './samples/station-image-turntable.webp';
 
@@ -674,17 +675,15 @@ export const REGISTRY = {
 
   AudioSourceStatus: {
     component: AudioSourceStatus,
-    args: { sourceType: 'bluetooth', sourceState: 'active' },
+    args: { sourceType: 'bluetooth', displayState: 'active' },
     overrides: {
       // The validator is `value === 'none' || ALL_AUDIO_SOURCES.includes(value)`
       // — not a literal-array test, so there is nothing for the parser to read.
       sourceType: { kind: 'enum', options: ['none', ...ALL_AUDIO_SOURCES] },
-      // No validator at all. These are the six states the component branches on;
-      // anything else falls through to the "waiting" line.
-      sourceState: {
-        kind: 'enum',
-        options: ['waiting', 'starting', 'active', 'ejecting', 'loading_disc', 'no_drive']
-      }
+      // Same: the validator defers to DISPLAY_STATES, so the list is borrowed
+      // from the composable that derives it rather than restated here — which
+      // is what stops the select outliving a state the app stopped producing.
+      displayState: { kind: 'enum', options: [...DISPLAY_STATES] }
     },
     // Only read in the `active` branch, and the array is the ROC case: several
     // Macs streaming at once, which formatDeviceNames joins across two lines.

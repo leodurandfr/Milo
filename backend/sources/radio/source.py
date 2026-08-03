@@ -407,7 +407,7 @@ class RadioSource(MpvAudioSource):
             self._last_station = self._current_station
             self._current_station = None
             self._metadata = {"is_playing": False, "is_buffering": False, "ready": True}
-            self.set_state(SourceState.WAITING, self._metadata)
+            self.set_state(SourceState.READY, self._metadata)
 
             return self.success_response("Playback stopped")
 

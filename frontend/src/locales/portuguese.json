@@ -18,6 +18,7 @@
     "offlineTitle": "Sem conexão com a Internet",
     "offlineDescription": "Spotify, AirPlay, Rádio e Podcasts não funcionarão até que a conexão seja restabelecida.",
     "backendErrorTitle": "Erro do sistema",
+    "sourceErrorTitle": "Erro de {source}",
     "commandFailed": "Comando falhou"
   },
   "settings": {
@@ -227,10 +228,10 @@
     "loadingOfMasculine": "A iniciar",
     "loadingOfFeminine": "A iniciar",
     "ready": "Pronto para conectar",
-    "readyToStream": "Pronto para transmitir",
     "accountNotConnected": "Conta não conectada",
     "connect": "Conectar",
-    "waiting": "A aguardar...",
+    "error": "Erro",
+    "retry": "Tentar novamente",
     "playing": "A reproduzir",
     "connectedTo": "Conectado a",
     "audioReceivedFrom": "Áudio recebido de",

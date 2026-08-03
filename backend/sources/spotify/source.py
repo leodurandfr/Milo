@@ -189,7 +189,7 @@ class SpotifySource(BaseAudioSource):
         End the idle Connect session via POST /player/stop instead of bouncing
         the process: the daemon stays alive and advertised for an instant
         reconnect, while the resulting `inactive` WS event drives Spotify back
-        to WAITING — behaviorally equal to the old post-restart state, minus the
+        to READY — behaviorally equal to the old post-restart state, minus the
         SIGTERM bounce.
         """
         result = await self._send_api_command("stop")
@@ -502,7 +502,7 @@ class SpotifySource(BaseAudioSource):
         refresh (daemon unreachable, non-200) means we learned nothing:
         publishing anyway announces ACTIVE carrying whatever stale — or empty —
         metadata we happen to hold, which is how the screen ends up claiming
-        "waiting" over audible playback. So on failure, keep the last published
+        "ready" over audible playback. So on failure, keep the last published
         state, broadcast nothing, and re-read once shortly after.
 
         `overrides` are the fields the event carries and /status does not (the
@@ -522,7 +522,7 @@ class SpotifySource(BaseAudioSource):
         if self._device_connected and not self._metadata.get("title"):
             self._logger.warning(
                 f"{context}: go-librespot reports a session with no track title — "
-                f"publishing WAITING"
+                f"publishing READY"
             )
             self._device_connected = False
 
@@ -619,7 +619,7 @@ class SpotifySource(BaseAudioSource):
         ground truth from GET /status: a live session refreshes metadata (also
         heals any events missed during the gap); an idle daemon — or an
         unreachable one (API not yet up after a restart, so state is unknown) —
-        resets the source to WAITING rather than re-affirming a stale track. The
+        resets the source to READY rather than re-affirming a stale track. The
         WS loop retries every 2s, so a too-early reconcile self-corrects. The
         normal source-switch / auto-stop paths already manage state — this only
         catches the un-commanded case.

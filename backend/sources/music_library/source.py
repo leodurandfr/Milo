@@ -396,7 +396,7 @@ class MusicLibrarySource(MpvAudioSource):
         self._loading = False
 
     async def _do_start(self) -> bool:
-        """Start the mpv service, connect IPC, and idle on the WAITING placeholder
+        """Start the mpv service, connect IPC, and idle on the READY placeholder
         until the user plays a context."""
         try:
             if not await self._start_service_and_wait():
@@ -413,7 +413,7 @@ class MusicLibrarySource(MpvAudioSource):
 
             # Resume the previous session (paused) if one was saved when the
             # source was switched away or idle-stopped; otherwise idle on the
-            # WAITING placeholder until the user plays a context.
+            # READY placeholder until the user plays a context.
             if self._resume and await self._restore_resume_session():
                 return True
             self.emit_connection_state(False)
@@ -690,12 +690,12 @@ class MusicLibrarySource(MpvAudioSource):
 
     async def _auto_stop_action(self) -> None:
         """Stop playback after the idle pause timeout (releases the device; the
-        screen can sleep). The source drops to WAITING but the session is saved so
+        screen can sleep). The source drops to READY but the session is saved so
         returning to the source resumes where it left off."""
         await self._stop_playback(save_resume=True)
 
     async def _stop_playback(self, save_resume: bool = False) -> None:
-        """Stop mpv, clear the queue, and drop to WAITING.
+        """Stop mpv, clear the queue, and drop to READY.
 
         ``save_resume`` snapshots the live session first (idle auto-stop); an
         explicit Stop passes False and forgets any previously-saved session."""
@@ -710,7 +710,7 @@ class MusicLibrarySource(MpvAudioSource):
         if self._mpv:
             await self._mpv.stop()
         self._reset_playback_state()
-        self.set_state(SourceState.WAITING, {"is_playing": False, "is_buffering": False})
+        self.set_state(SourceState.READY, {"is_playing": False, "is_buffering": False})
 
     # =========================================================================
     # MONITOR
@@ -777,13 +777,13 @@ class MusicLibrarySource(MpvAudioSource):
             self._handle_pause_change(bool(pause_state))
 
     async def _handle_queue_finished(self) -> None:
-        """The whole queue played out — drop to WAITING (the shared player hides)."""
+        """The whole queue played out — drop to READY (the shared player hides)."""
         self._logger.info("Queue finished")
         # Nothing to resume once the queue has played out.
         self._resume = None
         self._reset_playback_state()
         self.set_state(
-            SourceState.WAITING,
+            SourceState.READY,
             {"is_playing": False, "is_buffering": False, "queue_ended": True},
         )
 
@@ -830,7 +830,7 @@ class MusicLibrarySource(MpvAudioSource):
 
         Consumes ``self._resume`` (cleared regardless of outcome). Returns False
         when the catalog isn't ready or the load fails, so _do_start falls back to
-        the WAITING placeholder.
+        the READY placeholder.
         """
         session = self._resume
         self._resume = None
@@ -937,7 +937,7 @@ class MusicLibrarySource(MpvAudioSource):
 
     def _update_connection_state(self) -> None:
         """Publish the current playback state. ACTIVE while a queue is loaded
-        (playing OR paused), WAITING once it's cleared."""
+        (playing OR paused), READY once it's cleared."""
         core, extras = PlaybackMetadata.split(self._build_playback_metadata())
         self.emit_connection_state(bool(self._queue), core, extras)
 

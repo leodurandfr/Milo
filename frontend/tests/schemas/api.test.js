@@ -68,11 +68,11 @@ describe('SystemStateSchema', () => {
     expect(result.data.source_state).toBe('active');
   });
 
-  it('coerces an unknown source_state to waiting', () => {
+  it('coerces an unknown source_state to ready', () => {
     const result = SystemStateSchema.safeParse({ ...VALID_SYSTEM_STATE, source_state: 'levitating' });
 
     expect(result.success).toBe(true);
-    expect(result.data.source_state).toBe('waiting');
+    expect(result.data.source_state).toBe('ready');
   });
 
   it('coerces non-boolean flags to false', () => {

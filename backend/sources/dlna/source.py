@@ -131,7 +131,7 @@ class DlnaSource(BaseAudioSource):
 
         'stop' only starts the idle timer once a controller has actually been
         using us (device_connected): at subscribe time an idle renderer reports
-        STOPPED and must stay quietly WAITING, not arm an auto-stop restart.
+        STOPPED and must stay quietly READY, not arm an auto-stop restart.
         """
         if state == "play":
             self._is_playing = True
@@ -149,11 +149,11 @@ class DlnaSource(BaseAudioSource):
         self._update_connection_state()
 
     async def _on_auto_stop(self) -> None:
-        """Idle timeout: return to WAITING without bouncing gmediarender.
+        """Idle timeout: return to READY without bouncing gmediarender.
 
         Unlike AirPlay (which restarts shairport to release the AirPlay session),
         gmediarender holds no session — after STOPPED it is immediately ready for
-        the next push, so we just reset to WAITING and keep the renderer and its
+        the next push, so we just reset to READY and keep the renderer and its
         GENA subscription alive.
         """
         self._reset_playback_state()
@@ -222,8 +222,8 @@ class DlnaSource(BaseAudioSource):
         """Handle bridge connect/disconnect.
 
         'connected' only means the renderer is reachable and subscribed — the
-        baseline WAITING state, not an active push. 'disconnected' means the
-        renderer went away (e.g. restart): reset to WAITING.
+        baseline READY state, not an active push. 'disconnected' means the
+        renderer went away (e.g. restart): reset to READY.
         """
         if state == "connected":
             self._logger.info("DLNA renderer bridge connected")

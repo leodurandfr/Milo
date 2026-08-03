@@ -136,7 +136,7 @@ const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null);
 const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef });
 
-// Player visibility follows backend source_state (active → shown, waiting →
+// Player visibility follows backend source_state (active → shown, ready →
 // hidden). Clear the sticky display track only after the fade-out completes so
 // the artwork/title survive the animation.
 const { isPlaying, isBuffering, shouldShowPlayer } =

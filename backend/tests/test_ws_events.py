@@ -38,6 +38,7 @@ from backend.core.models.ws_events import (
     RoutingMultiroomError,
     SatelliteUpdateProgress,
     ScreenSleepChanged,
+    SourceError,
     SourceErrorCleared,
     SourcePositionUpdate,
     SourceStateChanged,
@@ -91,6 +92,14 @@ CASES = [
         SourceStateChanged(source="radio", new_state="ready", metadata=None),
         {"category": "source", "type": "state_changed", "origin": "radio",
          "data": {"source": "radio", "new_state": "ready", "metadata": None}},
+        True,
+    ),
+    (
+        # The banner half of the two error mechanisms: no state on the wire,
+        # so a consumer cannot mistake a failed operation for a dead source.
+        SourceError(source="radio", message="Unable to load stream: FIP"),
+        {"category": "source", "type": "error", "origin": "radio",
+         "data": {"source": "radio", "message": "Unable to load stream: FIP"}},
         True,
     ),
     (

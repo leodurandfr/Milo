@@ -42,7 +42,7 @@ class ScreenController:
         self.boot_grace_period = 30  # Will be calculated as max(30, timeout_seconds) during initialize()
         self.screen_on = True
         self.running = False
-        self.current_source_state = "waiting"
+        self.current_source_state = "ready"
 
     def _detect_backlight_path(self):
         """Detect the sysfs backlight brightness path for DSI screens."""
@@ -200,7 +200,7 @@ class ScreenController:
         while self.running:
             try:
                 system_state = self.state_machine.get_current_state()
-                new_state = system_state.get("source_state", "waiting")
+                new_state = system_state.get("source_state", "ready")
 
                 if self.current_source_state != "active" and new_state == "active":
                     was_sleeping = not self.screen_on
@@ -208,7 +208,7 @@ class ScreenController:
                     self.last_activity_time = monotonic()
                     if was_sleeping:
                         await self._broadcast_sleep_state(False)
-                elif self.current_source_state == "active" and new_state == "waiting":
+                elif self.current_source_state == "active" and new_state == "ready":
                     self.last_activity_time = monotonic()
 
                 self.current_source_state = new_state

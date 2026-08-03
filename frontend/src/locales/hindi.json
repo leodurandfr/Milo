@@ -18,6 +18,7 @@
     "offlineTitle": "इंटरनेट कनेक्शन नहीं है",
     "offlineDescription": "कनेक्शन बहाल होने तक Spotify, AirPlay, रेडियो और पॉडकास्ट काम नहीं करेंगे।",
     "backendErrorTitle": "सिस्टम त्रुटि",
+    "sourceErrorTitle": "{source} त्रुटि",
     "commandFailed": "कमांड विफल"
   },
   "settings": {
@@ -227,10 +228,10 @@
     "loadingOfMasculine": "शुरू हो रहा है",
     "loadingOfFeminine": "शुरू हो रहा है",
     "ready": "कनेक्ट करने के लिए तैयार",
-    "readyToStream": "स्ट्रीम करने के लिए तैयार",
     "accountNotConnected": "खाता कनेक्ट नहीं है",
     "connect": "कनेक्ट करें",
-    "waiting": "प्रतीक्षा...",
+    "error": "त्रुटि",
+    "retry": "पुनः प्रयास करें",
     "playing": "चल रहा है",
     "connectedTo": "से जुड़ा हुआ",
     "audioReceivedFrom": "से ऑडियो प्राप्त",

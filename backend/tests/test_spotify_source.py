@@ -376,7 +376,7 @@ class TestProducerTruth:
         assert metadata["title"] == TRACK_STATUS["track"]["name"]
 
     @pytest.mark.asyncio
-    async def test_session_without_a_track_title_publishes_waiting(
+    async def test_session_without_a_track_title_publishes_ready(
         self, spotify_source, wired
     ):
         """A readable status whose track carries no name is a session with
@@ -387,17 +387,17 @@ class TestProducerTruth:
 
         await spotify_source._on_device_active()
 
-        assert published_state(publish)[0] == SourceState.WAITING
+        assert published_state(publish)[0] == SourceState.READY
 
 
 class TestReconcileOnConnect:
     """Reconciliation against the daemon after an un-commanded WS drop."""
 
     @pytest.mark.asyncio
-    async def test_reconcile_on_connect_idle_daemon_resets_to_waiting(self, spotify_source):
+    async def test_reconcile_on_connect_idle_daemon_resets_to_ready(self, spotify_source):
         """On (re)connect to an idle daemon (crash + systemd restart), reconcile
         pulls GET /status, finds no session, and resets the stale 'now playing'
-        state to WAITING (also dropping any leftover pause timer)."""
+        state to READY (also dropping any leftover pause timer)."""
         # Stale 'playing' snapshot left over from before the daemon died
         spotify_source._device_connected = True
         spotify_source._is_playing = True
@@ -416,7 +416,7 @@ class TestReconcileOnConnect:
             await spotify_source._reconcile_on_connect()
 
         assert spotify_source._device_connected is False
-        assert spotify_source.state == SourceState.WAITING
+        assert spotify_source.state == SourceState.READY
         mock_cancel.assert_called_once()
 
     @pytest.mark.asyncio
@@ -438,7 +438,7 @@ class TestReconcileOnConnect:
     async def test_reconcile_on_connect_unreachable_resets_defensively(self, spotify_source):
         """If GET /status is unreachable on reconnect (daemon API not up yet after
         a crash+restart), refresh_metadata returns False without clearing the
-        flags. Reconcile must still reset defensively to WAITING rather than
+        flags. Reconcile must still reset defensively to READY rather than
         re-affirm the stale 'now playing' (the WS loop retries in 2s)."""
         spotify_source._device_connected = True
         spotify_source._metadata = {"title": "Breathe", "is_playing": True}
@@ -449,7 +449,7 @@ class TestReconcileOnConnect:
 
         assert spotify_source._device_connected is False
         assert "title" not in spotify_source._metadata  # ghost track cleared
-        assert spotify_source.state == SourceState.WAITING
+        assert spotify_source.state == SourceState.READY
         mock_cancel.assert_called_once()
 
 
@@ -521,11 +521,11 @@ class TestConnectionState:
     """Test connection state management."""
 
     def test_update_state_no_device(self, spotify_source):
-        """Test state is WAITING with no device."""
+        """Test state is READY with no device."""
         spotify_source._device_connected = False
         spotify_source._update_connection_state()
 
-        assert spotify_source.state == SourceState.WAITING
+        assert spotify_source.state == SourceState.READY
 
     def test_update_state_with_device(self, spotify_source):
         """Test state is ACTIVE with device."""

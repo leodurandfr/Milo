@@ -10,9 +10,9 @@ from pydantic import BaseModel, ValidationError
 from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.core.models.ws_events import (
+    SourceError,
     SourceErrorCleared,
     SourcePositionUpdate,
-    SourceStateChanged,
 )
 from backend.shared.background import BackgroundTaskSet
 
@@ -104,7 +104,7 @@ class BaseAudioSource(ABC):
         self.service_name = service_name
         self.state_machine = state_machine
 
-        self._state = SourceState.WAITING
+        self._state = SourceState.READY
         self._metadata: Dict[str, Any] = {}
         self._is_playing = False
         self._error: Optional[str] = None
@@ -165,9 +165,9 @@ class BaseAudioSource(ABC):
             success = await self._do_start()
 
             if success:
-                # State should be set by _do_start (WAITING or ACTIVE)
+                # State should be set by _do_start (READY or ACTIVE)
                 if self._state == SourceState.STARTING:
-                    self._state = SourceState.WAITING
+                    self._state = SourceState.READY
 
                 self._logger.info(f"{self.source_id} started successfully")
             else:
@@ -194,7 +194,7 @@ class BaseAudioSource(ABC):
         self._logger.info(f"Stopping {self.source_id}")
         self._cancel_pause_timer()
         # Drain any stale in-flight broadcasts from the previous state.
-        # Done before _do_stop so the broadcasts it emits (e.g. set_state(WAITING))
+        # Done before _do_stop so the broadcasts it emits (e.g. set_state(READY))
         # run to completion after stop() returns.
         await self._bg.cancel_all()
 
@@ -202,7 +202,7 @@ class BaseAudioSource(ABC):
             success = await self._do_stop()
 
             if success:
-                self._state = SourceState.WAITING
+                self._state = SourceState.READY
                 self._metadata = {}
                 self._error = None
 
@@ -283,7 +283,7 @@ class BaseAudioSource(ABC):
         Should:
         - Start systemd service if needed
         - Establish connections
-        - Set self._state to WAITING or ACTIVE
+        - Set self._state to READY or ACTIVE
         - Update self._metadata with initial data
 
         Returns:
@@ -574,12 +574,12 @@ class BaseAudioSource(ABC):
         extras: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Publish the source's connection/playback state — the single path
-        that replaces per-source active/waiting metadata dicts.
+        that replaces per-source active/idle metadata dicts.
 
-        - ``connected`` selects ACTIVE vs WAITING.
+        - ``connected`` selects ACTIVE vs READY.
         - ``playback`` is the typed projection consumed by the shared player
           (None for mute receivers). Its is_playing/is_buffering always emit;
-          on WAITING they are forced off and the media fields (title/artist/
+          on READY they are forced off and the media fields (title/artist/
           album/album_art_url/position/duration) are dropped so a stale track
           can't linger.
         - ``extras`` are source-specific fields (station/episode/disc/device);
@@ -594,7 +594,7 @@ class BaseAudioSource(ABC):
             meta = {"is_playing": False, "is_buffering": False} if playback is not None else {}
         if extras:
             meta.update(extras)
-        self.set_state(SourceState.ACTIVE if connected else SourceState.WAITING, meta)
+        self.set_state(SourceState.ACTIVE if connected else SourceState.READY, meta)
 
     def broadcast_position_update(self, position: int, duration: int) -> None:
         """Broadcast a lightweight position update without full_state.
@@ -630,20 +630,24 @@ class BaseAudioSource(ABC):
 
     def broadcast_error(self, error_message: str) -> None:
         """
-        Broadcast an error to the UI notification banner.
+        Broadcast a failed *operation* to the UI notification banner.
 
         Bypasses the active-source filter so errors are always shown
         regardless of which source is currently active.
+
+        The source itself stays operational — a station that will not tune
+        leaves the browser perfectly usable. A source that is genuinely down
+        publishes SourceState.ERROR instead (the state machine does it for a
+        failed transition); the two never ride on the same event.
         """
         if not self.state_machine:
             return
 
         self._error_active = True
         self._bg.spawn(
-            self.state_machine.broadcast(SourceStateChanged(
+            self.state_machine.broadcast(SourceError(
                 source=self.source.value,
-                new_state=SourceState.ERROR.value,
-                metadata={"error": error_message}
+                message=error_message,
             )),
             label="broadcast_error",
         )
