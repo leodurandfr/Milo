@@ -126,7 +126,6 @@ function handleBack() {
   min-width: 0;
   display: grid;
   align-items: center;
-  padding-right: 56px;
 }
 
 .header-content > * {
@@ -158,14 +157,22 @@ function handleBack() {
 }
 
 /* Actions container - absolute right so it never shifts during cross-fade */
+/* In the flex row rather than over it, so the actions reserve exactly their own
+   width and the title ellipsizes against them instead of sliding underneath.
+   The gutter used to be a flat 56px — one button — while Music Library ships
+   two and Podcasts three, so a long enough title ran under the extra ones; a
+   Toggle in here (settings) has no fixed width at all, which is why the
+   reservation has to be measured by layout rather than declared.
+
+   Being absolute was what kept the actions from shifting mid-cross-fade, and
+   the grid stacking below is what actually does that — outgoing and incoming
+   share one cell, so the container is as wide as the wider of the two
+   throughout. */
 .actions-container {
-  position: absolute;
-  right: var(--space-03);
-  top: 0;
-  bottom: 0;
   display: grid;
   align-items: center;
   justify-items: end;
+  flex-shrink: 0;
 }
 
 .actions-container > * {
