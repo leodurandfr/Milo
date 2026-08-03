@@ -43,14 +43,14 @@
           ☰ Components
         </button>
         <div class="gallery__title">
-          <h2 class="heading-4">{{ selected }}</h2>
-          <span v-if="entry?.coupling" class="gallery__badge text-mono-small">{{ entry.coupling }}</span>
-          <code class="gallery__path text-mono-small">{{ entry?.file }}</code>
+          <h2 class="heading-4">{{ header.title }}</h2>
+          <span v-if="header.badge" class="gallery__badge text-mono-small">{{ header.badge }}</span>
+          <code class="gallery__path text-mono-small">{{ header.path }}</code>
         </div>
-        <p class="gallery__summary text-mono-small">{{ entry?.summary }}</p>
+        <p class="gallery__summary text-mono-small">{{ header.summary }}</p>
         <div class="gallery__tabs">
           <button
-            v-for="option in TAB_OPTIONS"
+            v-for="option in tabOptions"
             :key="option.value"
             v-press
             type="button"
@@ -75,6 +75,7 @@
           :slots="slotChoices"
           :presets="presetChoices"
           :state="stateValues"
+          :default-viewport="sourcePage ? 'kiosk' : 'fill'"
           class="gallery__canvas"
           @event="pushEvent"
           @args="mergeArgs"
@@ -82,7 +83,7 @@
       </template>
 
       <div v-else class="gallery__variants">
-        <component :is="DEMOS[entry.group]" v-if="entry" />
+        <component :is="DEMOS[catalogEntry.group]" v-if="catalogEntry" />
       </div>
     </main>
 
@@ -113,7 +114,8 @@
 import { ref, computed, watch, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ENTRIES, entryById } from '@/components/gallery/catalog';
-import { entryFor } from '@/components/gallery/registry';
+import { sourcePageById } from '@/components/gallery/sources';
+import { entryFor, overridesFor, AUDIO_SOURCES_ID } from '@/components/gallery/registry';
 import { describeProps, describeEvents } from '@/components/gallery/controls';
 import GallerySidebar from '@/components/gallery/GallerySidebar.vue';
 import GalleryCanvas from '@/components/gallery/GalleryCanvas.vue';
@@ -167,14 +169,53 @@ const canvas = ref(null);
 
 const selected = computed(() => {
   const wanted = route.query.c;
-  return entryById(wanted) ? wanted : ENTRIES[0].id;
+  return entryById(wanted) || wanted === AUDIO_SOURCES_ID ? wanted : ENTRIES[0].id;
 });
 
-const entry = computed(() => entryById(selected.value));
+const catalogEntry = computed(() => entryById(selected.value));
 const playground = computed(() => entryFor(selected.value));
 
+/**
+ * Which source is on the stage — read from the args rather than the selection,
+ * because the ten share one entry and the `page` select is what moves between
+ * them. Everything the header shows follows from it.
+ */
+const sourcePage = computed(() =>
+  selected.value === AUDIO_SOURCES_ID ? sourcePageById(args.value.page) : undefined
+);
+
+/**
+ * The four header fields, from whichever of the two catalogues answers. A
+ * source page has no single file to name, so the `<code>` slot carries the
+ * components it is made of instead — which is the same question the path
+ * answers for a primitive: where does what I am looking at come from.
+ */
+const header = computed(() => {
+  const page = sourcePage.value;
+  if (page) {
+    return { title: page.title, badge: page.family, path: page.uses, summary: page.summary };
+  }
+
+  const entry = catalogEntry.value;
+  return {
+    title: selected.value,
+    badge: entry?.coupling,
+    path: entry?.file,
+    summary: entry?.summary
+  };
+});
+
+/**
+ * A source page has no Variants demo: the demos are one file per catalogue
+ * group, and a source belongs to none. Its states are the playground's own
+ * `scenario` control, which is the tab it would have pointed at anyway.
+ */
+const tabOptions = computed(() =>
+  sourcePage.value ? TAB_OPTIONS.filter(option => option.value === 'playground') : TAB_OPTIONS
+);
+
 const descriptors = computed(() =>
-  playground.value ? describeProps(playground.value.component, playground.value.overrides || {}) : []
+  playground.value ? describeProps(playground.value.component, overridesFor(playground.value, args.value)) : []
 );
 
 const events = computed(() =>
@@ -220,7 +261,7 @@ function initialArgs(id) {
   if (!descriptor) return {};
 
   const values = {};
-  for (const prop of describeProps(descriptor.component, descriptor.overrides || {})) {
+  for (const prop of describeProps(descriptor.component, overridesFor(descriptor, descriptor.args || {}))) {
     if (prop.default !== undefined) values[prop.name] = prop.default;
   }
   return { ...values, ...(descriptor.args || {}) };
@@ -231,8 +272,28 @@ function select(id) {
   navOpen.value = false;
 }
 
+/**
+ * One select can narrow another (the sources page: `page` decides which
+ * `scenario`s exist), so after every write the enum args are checked against
+ * the options they would now be offered, and a value that is no longer one of
+ * them falls back to the first. Only a value that is actually set is touched —
+ * an unset enum stays unset, which is how a primitive's optional icon keeps
+ * rendering as "—" rather than silently acquiring the first glyph.
+ */
 function mergeArgs(patch) {
-  args.value = { ...args.value, ...patch };
+  const next = { ...args.value, ...patch };
+  const descriptor = playground.value;
+  if (!descriptor) {
+    args.value = next;
+    return;
+  }
+
+  for (const prop of describeProps(descriptor.component, overridesFor(descriptor, next))) {
+    if (prop.kind !== 'enum' || !prop.options?.length) continue;
+    if (next[prop.name] === undefined) continue;
+    if (!prop.options.includes(next[prop.name])) next[prop.name] = prop.options[0];
+  }
+  args.value = next;
 }
 
 function mergeSlots(patch) {
@@ -286,6 +347,10 @@ function initialPresets(id) {
 }
 
 watch(selected, (id) => {
+  // The sources page offers no Variants tab, so arriving on it from that tab
+  // would leave the pane blank and the button that got you there gone. Keyed on
+  // the id rather than sourcePage, which reads args this watcher has yet to set.
+  if (id === AUDIO_SOURCES_ID) tab.value = 'playground';
   args.value = initialArgs(id);
   slotChoices.value = initialSlots(id);
   presetChoices.value = initialPresets(id);

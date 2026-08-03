@@ -102,6 +102,8 @@ import SectionHeader from '@/components/settings/SectionHeader.vue';
 import FillerBlock from './samples/FillerBlock.vue';
 import ControlSample from './samples/ControlSample.vue';
 import SettingsSample from './samples/SettingsSample.vue';
+import SourceStage from './SourceStage.vue';
+import { SOURCE_PAGES } from './sources';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
@@ -889,7 +891,56 @@ export const REGISTRY = {
   }
 };
 
-/** The playground descriptor for one primitive, or undefined if it has none. */
+/**
+ * The sources axis: one descriptor, two selects.
+ *
+ * Kept out of REGISTRY, which is checked one-for-one against the catalogue —
+ * this names no single file and would read there as a descriptor for a
+ * component that does not exist. Everything downstream is unchanged: the canvas
+ * mounts `component`, the panel derives its controls from the same
+ * `describeProps`, and `entryFor` looks in both.
+ *
+ * `overrides` is a *function* here, which is the one thing the primitives never
+ * needed: `scenario`'s options depend on which `page` is selected, and a static
+ * map cannot express that. `describeProps` is handed the resolved map, so the
+ * panel renders two ordinary selects and nothing else in the pipeline knows the
+ * difference. ComponentsView clamps an enum arg that falls out of range, which
+ * is what moves `scenario` to the new source's first state when `page` changes.
+ */
+export const AUDIO_SOURCES_ID = 'AudioSources';
+
+export const SOURCE_REGISTRY = {
+  [AUDIO_SOURCES_ID]: {
+    component: SourceStage,
+    args: {
+      page: SOURCE_PAGES[0].id,
+      scenario: SOURCE_PAGES[0].scenarios[0].id,
+      class: 'canvas-fill'
+    },
+    overrides: (args) => {
+      const page = SOURCE_PAGES.find(entry => entry.id === args.page) ?? SOURCE_PAGES[0];
+      return {
+        page: { kind: 'enum', options: SOURCE_PAGES.map(entry => entry.id) },
+        scenario: { kind: 'enum', options: page.scenarios.map(scenario => scenario.id) }
+      };
+    }
+  }
+};
+
+/**
+ * A descriptor's per-prop control shapes, resolved against the current args.
+ *
+ * Static for every primitive; a function for the sources page, where one select
+ * narrows the other. Callers hand in whatever args they hold — the panel its
+ * live ones, the guardrail the descriptor's own starting values.
+ */
+export function overridesFor(descriptor, args = {}) {
+  const overrides = descriptor?.overrides;
+  if (typeof overrides === 'function') return overrides(args);
+  return overrides || {};
+}
+
+/** The playground descriptor for one primitive or the sources page. */
 export function entryFor(id) {
-  return REGISTRY[id];
+  return REGISTRY[id] ?? SOURCE_REGISTRY[id];
 }

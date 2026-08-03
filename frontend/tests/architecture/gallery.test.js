@@ -32,12 +32,18 @@
  * cover a page whose whole purpose is to be looked at.
  */
 import { describe, it, expect } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { GROUPS, ENTRIES, SCOPE, EXCLUDED, isScreen, entriesOf } from '../../src/components/gallery/catalog.js';
-import { REGISTRY } from '../../src/components/gallery/registry.js';
+import { REGISTRY, SOURCE_REGISTRY, entryFor, overridesFor, AUDIO_SOURCES_ID } from '../../src/components/gallery/registry.js';
 import { describeProps } from '../../src/components/gallery/controls.js';
+import { SOURCE_PAGES, SNAPSHOT_READERS, allRecords, sourcePageById } from '../../src/components/gallery/sources.js';
+import { ALL_AUDIO_SOURCES } from '../../src/constants/audioSources.js';
+import { useRadioStore } from '../../src/stores/radioStore.js';
+import { useMusicLibraryStore } from '../../src/stores/musicLibraryStore.js';
+import { usePodcastStore } from '../../src/stores/podcastStore.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
@@ -449,6 +455,48 @@ describe('component gallery playground', () => {
     expect(blank).toEqual([]);
   });
 
+  it('drives all ten sources from one descriptor, with narrowing selects', () => {
+    // The ten share a single entry, so `scenario`'s options depend on `page` —
+    // the one place a descriptor's overrides are a function. The check that
+    // matters is that the narrowing actually tracks sources.js: a scenario
+    // added there has to reach the select without a second edit, and the
+    // descriptor must never offer a scenario the selected page does not have
+    // (which SourceStage would silently swallow by falling back to the first).
+    const descriptor = SOURCE_REGISTRY[AUDIO_SOURCES_ID];
+    expect(descriptor).toBeDefined();
+    expect(entryFor(AUDIO_SOURCES_ID)).toBe(descriptor);
+
+    const broken = [];
+    const pageOptions = overridesFor(descriptor, descriptor.args).page.options;
+    if (pageOptions.join('|') !== SOURCE_PAGES.map(page => page.id).join('|')) {
+      broken.push('page select does not list the ten pages');
+    }
+
+    for (const page of SOURCE_PAGES) {
+      const resolved = overridesFor(descriptor, { ...descriptor.args, page: page.id });
+      const declared = page.scenarios.map(scenario => scenario.id);
+      if (resolved.scenario.options.join('|') !== declared.join('|')) {
+        broken.push(`${page.id} (scenario select out of step)`);
+      }
+
+      // Same rule as a primitive: a required prop with no value renders a
+      // broken instance and Vue only warns.
+      for (const prop of describeProps(descriptor.component, resolved)) {
+        if (prop.required && (descriptor.args || {})[prop.name] === undefined) {
+          broken.push(`${page.id}.${prop.name} (required, unset)`);
+        }
+      }
+    }
+
+    // And it has to open on a real one.
+    const first = SOURCE_PAGES.find(page => page.id === descriptor.args.page);
+    if (!first?.scenarios.some(scenario => scenario.id === descriptor.args.scenario)) {
+      broken.push('opens on no scenario');
+    }
+
+    expect(broken).toEqual([]);
+  });
+
   it('overrides nothing that does not exist', () => {
     const stale = [];
 
@@ -466,5 +514,322 @@ describe('component gallery playground', () => {
 
     // A renamed prop leaves an override behind that quietly does nothing.
     expect(stale).toEqual([]);
+  });
+});
+
+/**
+ * The second axis: ten source pages, each a list of `systemState` snapshots the
+ * canvas writes before mounting the app's own dispatcher.
+ *
+ * Two things can rot here and neither shows on screen. A fabricated metadata
+ * key can outlive the field it stands for — the player keeps rendering
+ * beautifully from a record nothing consumes — which is the same failure the
+ * REGISTRY records are checked for, extended to the nested metadata. And a
+ * scenario can quietly become *unsafe*: the three browser sources dispatch to
+ * components that fetch on mount and POST outside `sendCommand`, so the two
+ * properties that keep this page from driving the appliance are pinned here
+ * rather than left to the comments that explain them.
+ */
+describe('component gallery source pages', () => {
+  const RECORDS = allRecords();
+
+  it('read a plausible surface', () => {
+    // A page list that collapsed to nothing would make every check below pass.
+    expect(SOURCE_PAGES.length).toBe(ALL_AUDIO_SOURCES.length);
+    expect(RECORDS.length).toBeGreaterThan(30);
+    expect(Object.keys(SOURCE_REGISTRY)).toHaveLength(1);
+  });
+
+  it('covers exactly the sources the app ships', () => {
+    // Derived from the shared constant, which is itself pinned to the backend
+    // enum — a source added there arrives here as a missing page, not as a gap
+    // a reader would have to notice.
+    const covered = SOURCE_PAGES.map(page => page.source).sort();
+
+    expect(covered).toEqual([...ALL_AUDIO_SOURCES].sort());
+  });
+
+  it('gives every scenario an id, a distinct one, and something to read', () => {
+    const problems = [];
+
+    for (const page of SOURCE_PAGES) {
+      if (sourcePageById(page.id) !== page) problems.push(`${page.id} (not findable by id)`);
+      if ((page.summary || '').length < 40) problems.push(`${page.id} (thin summary)`);
+      if (!['dispatcher', 'browser'].includes(page.via)) problems.push(`${page.id} (unknown via: ${page.via})`);
+      if (!page.scenarios?.length) problems.push(`${page.id} (no scenarios)`);
+
+      const seen = new Set();
+      for (const scenario of page.scenarios || []) {
+        if (seen.has(scenario.id)) problems.push(`${page.id}.${scenario.id} (duplicate id)`);
+        seen.add(scenario.id);
+        // The note is the only prose a scenario gets, and it is where the gate
+        // that produced this screen is named.
+        if ((scenario.note || '').length < 40) problems.push(`${page.id}.${scenario.id} (thin note)`);
+        if (!scenario.label) problems.push(`${page.id}.${scenario.id} (no label)`);
+
+        const snapshot = scenario.systemState;
+        if (!snapshot || typeof snapshot.metadata !== 'object') {
+          problems.push(`${page.id}.${scenario.id} (no snapshot)`);
+          continue;
+        }
+        // A snapshot naming another source would render the wrong page's view
+        // and look like a bug in the dispatcher.
+        if (snapshot.active_source !== page.source) {
+          problems.push(`${page.id}.${scenario.id} (snapshot names ${snapshot.active_source})`);
+        }
+      }
+    }
+
+    expect(problems).toEqual([]);
+  });
+
+  it('invents no field the app does not read', () => {
+    // Same check the REGISTRY records get, at both levels: a snapshot's own
+    // keys and the metadata nested inside it. Rename `album_art_width` in
+    // useRichDisplay and the AirPlay gate scenarios stop meaning anything —
+    // they would keep rendering a status card, for the wrong reason.
+    const missing = SNAPSHOT_READERS.filter(file => !existsSync(join(SRC_DIR, file)));
+    expect(missing).toEqual([]);
+
+    const consumers = SNAPSHOT_READERS.map(file => readFileSync(join(SRC_DIR, file), 'utf8')).join('\n');
+    const orphans = [];
+    let checked = 0;
+
+    for (const record of RECORDS) {
+      for (const key of Object.keys(record)) {
+        checked += 1;
+        // Property access, not a bare word: a key named in a comment is not a
+        // key anything reads.
+        if (!new RegExp(`\\.${key}\\b`).test(consumers)) orphans.push(key);
+      }
+    }
+
+    expect(checked).toBeGreaterThan(0);
+    expect([...new Set(orphans)]).toEqual([]);
+  });
+
+  it('keeps the browser sources away from their own components', () => {
+    // The load-bearing safety rule. Radio, Podcasts and Music Library dispatch
+    // to *Source.vue files that fetch on mount and whose play paths POST
+    // straight through apiCall — outside the one call CanvasApp neuters. A
+    // scenario of theirs reaches AudioSourceView only while `transitioning`,
+    // which short-circuits useRichDisplay before it can name the source; every
+    // other one must carry its own stand-in.
+    const unsafe = [];
+
+    for (const page of SOURCE_PAGES.filter(entry => entry.via === 'browser')) {
+      for (const scenario of page.scenarios) {
+        if (!scenario.browser && !scenario.systemState.transitioning) {
+          unsafe.push(`${page.id}.${scenario.id} (would mount the real ${page.source} browser)`);
+        }
+        if (!scenario.browser) continue;
+        if (!scenario.browser.view) unsafe.push(`${page.id}.${scenario.id} (no view)`);
+        // Each source's info block reads different fields — radio a station and
+        // maybe a track, podcasts an episode and its show, music library a
+        // title and artist — so a player is checked against its own source's
+        // shape. A missing one renders a blank line rather than failing.
+        const player = scenario.browser.player;
+        if (!player) continue;
+        const REQUIRED = {
+          radio: () => !!player.station?.name && (!player.track || (!!player.track.title && !!player.track.artist)),
+          podcast: () => !!player.episodeName,
+          music_library: () => !!player.title && !!player.artist
+        };
+        if (!REQUIRED[page.source]?.()) unsafe.push(`${page.id}.${scenario.id} (player shape)`);
+      }
+    }
+
+    // And a dispatcher page may not grow a stand-in: it would stop exercising
+    // the rule the page exists to document.
+    for (const page of SOURCE_PAGES.filter(entry => entry.via === 'dispatcher')) {
+      for (const scenario of page.scenarios) {
+        if (scenario.browser) unsafe.push(`${page.id}.${scenario.id} (stand-in on a dispatcher page)`);
+      }
+    }
+
+    expect(unsafe).toEqual([]);
+  });
+
+  it('seeds only store fields that exist and can be written', () => {
+    // The failure this catches has no symptom on screen. `storagesLoaded`,
+    // `artistIndex` and `scanning` are private to musicLibraryStore, and
+    // `likedSongsCount` is a computed — assigning any of them lands a property
+    // nothing reads, so the view renders its empty state and the scenario looks
+    // like a deliberate choice rather than a seed that missed. Writing a
+    // sentinel and reading it back is the only check that catches both halves
+    // (absent, and present but derived).
+    setActivePinia(createPinia());
+    const stores = {
+      radio: useRadioStore(),
+      musicLibrary: useMusicLibraryStore(),
+      podcast: usePodcastStore()
+    };
+
+    const orphans = [];
+    let checked = 0;
+
+    for (const page of SOURCE_PAGES) {
+      for (const scenario of page.scenarios) {
+        for (const [name, fields] of Object.entries(scenario.browser?.seed ?? {})) {
+          const store = stores[name];
+          if (!store) {
+            orphans.push(`${page.id}.${scenario.id} (no store "${name}")`);
+            continue;
+          }
+          for (const key of Object.keys(fields)) {
+            checked += 1;
+            if (!(key in store)) {
+              orphans.push(`${page.id}.${scenario.id}.${name}.${key} (not exported)`);
+              continue;
+            }
+            // A string, not a Symbol: Vue's reactive set trap rejects a Symbol
+            // outright, which would fail every key rather than the derived ones.
+            // A computed shows up either way — Vue throws on the write in dev,
+            // and returns the derived value if it does not, so both are caught.
+            const sentinel = `__probe_${key}__`;
+            const before = store[key];
+            try {
+              store[key] = sentinel;
+              if (store[key] !== sentinel) orphans.push(`${page.id}.${scenario.id}.${name}.${key} (read-only)`);
+              store[key] = before;
+            } catch {
+              orphans.push(`${page.id}.${scenario.id}.${name}.${key} (read-only)`);
+            }
+          }
+        }
+      }
+    }
+
+    // A prime names an action by string, so the same question applies to it:
+    // `loadStations` taking a `favoritesOnly` argument is why radio's grid was
+    // empty the first time, and a renamed action would be a silent no-op.
+    for (const page of SOURCE_PAGES) {
+      for (const scenario of page.scenarios) {
+        for (const [name, action] of scenario.browser?.prime ?? []) {
+          checked += 1;
+          if (typeof stores[name]?.[action] !== 'function') {
+            orphans.push(`${page.id}.${scenario.id}.${name}.${action} (not an action)`);
+          }
+        }
+      }
+    }
+
+    expect(checked).toBeGreaterThan(0);
+    expect([...new Set(orphans)]).toEqual([]);
+  });
+
+  it('names a view it can mount and a header key that is translated', () => {
+    // A `view` the stage has no entry for renders nothing at all, and a
+    // titleKey with no string behind it renders the key — both of which read as
+    // "the browser is broken" rather than "the fixture is wrong".
+    const stage = readFileSync(join(SRC_DIR, 'components/gallery/SourceStage.vue'), 'utf8');
+    const english = JSON.parse(readFileSync(join(SRC_DIR, 'locales/english.json'), 'utf8'));
+    const lookup = path => path.split('.').reduce((node, key) => (node ?? {})[key], english);
+
+    const problems = [];
+    let checked = 0;
+
+    for (const page of SOURCE_PAGES) {
+      for (const scenario of page.scenarios) {
+        const browser = scenario.browser;
+        if (!browser) continue;
+        checked += 1;
+
+        // The stage's VIEWS map is the closed list; a name missing from it is
+        // an `<component :is="undefined">`, which Vue renders as nothing.
+        if (!new RegExp(`'${browser.view}':`).test(stage)) {
+          problems.push(`${page.id}.${scenario.id} (view "${browser.view}" not in VIEWS)`);
+        }
+        if (typeof lookup(browser.layout?.titleKey) !== 'string') {
+          problems.push(`${page.id}.${scenario.id} (titleKey "${browser.layout?.titleKey}")`);
+        }
+      }
+    }
+
+    expect(checked).toBeGreaterThan(0);
+    expect(problems).toEqual([]);
+  });
+
+  it('reproduces each browser source’s own transport, by its own class names', () => {
+    // The #controls slot has a default — a lone play/pause — and all three
+    // browser sources replace it: radio with a text Button and a favourite,
+    // podcasts with a seek pair and a speed dropdown, music library with a
+    // five-button row. Falling back to the default is silent, and it is what
+    // the gallery did until someone noticed the wrong button on screen.
+    //
+    // Checked by class name because the class *is* the contract: AudioPlayer's
+    // CSS sizes and hides these by name (.ml-transport-extra is display:none on
+    // mobile, .desktop-only likewise), so a rename in the source leaves the
+    // gallery rendering an unstyled row that still looks plausible.
+    const stage = readFileSync(join(SRC_DIR, 'components/gallery/SourceStage.vue'), 'utf8');
+    const player = readFileSync(join(SRC_DIR, 'components/audio/AudioPlayer.vue'), 'utf8');
+
+    // `styledByPlayer` is the half the gallery renders faithfully: AudioPlayer
+    // styles those by name through :deep(), so the stage's copy of the markup
+    // gets them. The rest are styled in the *source's own scoped* CSS, which by
+    // definition cannot reach the stage — those classes are still checked for
+    // existence, but their layout is a known gap, not a promise.
+    const CONTRACTS = [
+      {
+        owner: 'components/radio/RadioSource.vue',
+        classes: ['radio-controls', 'horizontal-layout'],
+        styledByPlayer: ['horizontal-layout']
+      },
+      {
+        owner: 'components/podcasts/PodcastSource.vue',
+        classes: ['speed-selector', 'desktop-only'],
+        styledByPlayer: ['desktop-only']
+      },
+      {
+        owner: 'components/music-library/MusicLibrarySource.vue',
+        classes: ['ml-controls', 'ml-transport-main', 'ml-transport-extra'],
+        styledByPlayer: ['ml-controls', 'ml-transport-main', 'ml-transport-extra']
+      }
+    ];
+
+    const broken = [];
+    for (const { owner, classes, styledByPlayer } of CONTRACTS) {
+      const source = readFileSync(join(SRC_DIR, owner), 'utf8');
+      for (const name of classes) {
+        if (!stage.includes(name)) broken.push(`${name} (missing from SourceStage)`);
+        if (!source.includes(name)) broken.push(`${name} (gone from ${owner})`);
+        if (styledByPlayer.includes(name) && !player.includes(name)) {
+          broken.push(`${name} (AudioPlayer styles it no more)`);
+        }
+      }
+    }
+
+    expect(broken).toEqual([]);
+  });
+
+  it('blocks every write the canvas could make', () => {
+    // The browsing views act through apiCall rather than sendCommand — radio's
+    // playStation POSTs, a playlist is created, a share is mounted. If the
+    // harness stops covering a verb, the gallery starts driving the appliance
+    // and nothing says so.
+    const http = readFileSync(join(SRC_DIR, 'components/gallery/canvasHttp.js'), 'utf8');
+    const verbs = http.match(/const WRITE_VERBS = \[([^\]]+)\]/)?.[1] ?? '';
+
+    for (const verb of ['post', 'put', 'patch', 'delete']) {
+      expect(verbs).toContain(verb);
+    }
+    // And it has to actually be installed, or the list above is decoration.
+    expect(CANVAS).toMatch(/installApiHarness\(/);
+  });
+
+  it('rests on two guards that are still there', () => {
+    // The rule above is only safe because of these two, and both live in files
+    // this suite would otherwise never look at. Asserted as text because that
+    // is what they are — one line each, and deleting either is silent.
+    const richDisplay = readFileSync(join(SRC_DIR, 'composables/useRichDisplay.js'), 'utf8');
+
+    // `transitioning` short-circuiting is what makes a browser source's
+    // `starting` scenario reach the status card instead of its own component.
+    expect(richDisplay).toMatch(/!transitioning\s*&&/);
+
+    // And every action the seven dispatcher sources offer — the Bluetooth
+    // disconnect, cdStore's eject and playTrack, AudioPlayerFull's transport —
+    // goes through sendCommand, which the canvas replaces with a reporter.
+    expect(CANVAS).toMatch(/context\.unified\.sendCommand\s*=/);
   });
 });

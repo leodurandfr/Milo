@@ -37,7 +37,7 @@
             :class="{ 'sidebar__item--active': entry.id === selected }"
             @click="$emit('select', entry.id)"
           >
-            {{ entry.id }}
+            {{ entry.label ?? entry.id }}
           </button>
         </li>
       </ul>
@@ -48,6 +48,28 @@
 <script setup>
 import { computed } from 'vue';
 import { GROUPS, entriesOf } from './catalog';
+import { AUDIO_SOURCES_ID } from './registry';
+import { SOURCE_PAGES } from './sources';
+
+/**
+ * The second axis, first in the list, and one row rather than ten: the source
+ * is a select on the page itself, so the list stays a list of *things to open*
+ * instead of gaining a second, longer section that says the same word ten
+ * times. It sits at the top because it is the coarser question — "what does
+ * Spotify look like" is where a reader starts, and "what does AudioPlayerFull
+ * take" is where they end up.
+ *
+ * Filtering matches the source names too, so typing "spot" still finds it —
+ * the row is the way in, and a reader searching for a source should not have
+ * to know that.
+ */
+const SOURCE_NAMES = SOURCE_PAGES.map(page => page.title.toLowerCase());
+
+const SOURCE_GROUP = {
+  id: 'sources',
+  title: 'Audio sources',
+  pages: [{ id: AUDIO_SOURCES_ID, label: 'Audio sources' }]
+};
 
 const props = defineProps({
   /** Catalogue id currently open in the canvas. */
@@ -67,12 +89,23 @@ defineEmits(['select', 'update:query']);
 const visibleGroups = computed(() => {
   const needle = props.query.trim().toLowerCase();
 
-  return GROUPS
+  const matchesSources = !needle
+    || SOURCE_GROUP.pages.some(page => page.label.toLowerCase().includes(needle))
+    || SOURCE_NAMES.some(name => name.includes(needle));
+
+  const sources = {
+    id: SOURCE_GROUP.id,
+    title: SOURCE_GROUP.title,
+    entries: matchesSources ? SOURCE_GROUP.pages : []
+  };
+
+  const components = GROUPS
     .map(group => ({
       ...group,
       entries: entriesOf(group.id).filter(entry => !needle || entry.id.toLowerCase().includes(needle))
-    }))
-    .filter(group => group.entries.length);
+    }));
+
+  return [sources, ...components].filter(group => group.entries.length);
 });
 </script>
 
