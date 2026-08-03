@@ -74,6 +74,17 @@ const props = defineProps({
   state: {
     type: Object,
     default: () => ({})
+  },
+  /**
+   * Which preset to open on. `fill` is right for a primitive — a button owes
+   * nothing to a viewport — but a full-surface view read at whatever width the
+   * pane happens to be is a layout nobody ships: the source pages open on
+   * `kiosk` instead, which is a size the app is actually drawn for.
+   */
+  defaultViewport: {
+    type: String,
+    default: 'fill',
+    validator: value => ['fill', 'kiosk', 'phone'].includes(value)
   }
 });
 
@@ -103,7 +114,11 @@ const VIEWPORTS = [
   { value: 'phone', name: 'Phone', label: '390 × 844 — below 4:3', width: 390, height: 844 }
 ];
 
-const viewport = ref('fill');
+// Follows the default only when the default itself changes — i.e. on crossing
+// between a primitive and a source page. A preset the reader picked by hand
+// survives every other selection, which is what a switcher is for.
+const viewport = ref(props.defaultViewport);
+watch(() => props.defaultViewport, (preset) => { viewport.value = preset; });
 const frame = ref(null);
 const fit = ref(null);
 const frameReady = ref(false);

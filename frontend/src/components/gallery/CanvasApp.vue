@@ -51,6 +51,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { REGISTRY, entryFor } from './registry';
+import { installApiHarness } from './canvasHttp';
 import { describeEvents, callbackProps } from './controls';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -96,6 +97,17 @@ context.unified.sendCommand = (source, command, data) => {
   post({ type: 'event', name: `sendCommand(${source}, ${command})`, arg: data && JSON.stringify(data) });
   return Promise.resolve(true);
 };
+
+/**
+ * The same rule one layer down, for the same reason.
+ *
+ * The source pages mount real browsing views, which run real stores, which
+ * fetch and POST through `apiCall` rather than through the store method above —
+ * radio's playStation, a playlist being created, a share being mounted. So the
+ * writes are blocked and the reads are served from the scenario's own fixtures.
+ * See canvasHttp.js for why a read is not simply passed through.
+ */
+installApiHarness((name, detail) => post({ type: 'event', name, arg: detail }));
 
 const entry = computed(() => (id.value ? entryFor(id.value) : undefined));
 
