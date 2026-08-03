@@ -385,25 +385,39 @@ const speedOptions = computed(() =>
 const speedValue = computed(() => String(stores.podcast.playbackSpeed || 1));
 
 /**
- * The write, and the only one. Runs during setup — before AudioSourceView
- * mounts — so the dispatcher never sees a stale record and animates a
- * transition nobody asked for. Replaced wholesale rather than merged: a
- * scenario is a snapshot, and merging would leave the previous one's
- * `client_name` or `disc_id` behind, which is exactly the drift this page
- * exists to make visible.
+ * Where a scenario's events go — the same rows App.vue's RAW_EVENTS declares
+ * for these pairs, and the reason the page can claim the app decided what it
+ * shows: the payload is validated and applied by the app's own handler, not
+ * written into the store from the side.
+ *
+ * A map rather than one blind call, so a scenario that grows a pair nothing
+ * routes fails loudly here (and in the guardrail, which checks the two lists
+ * against each other) instead of being swallowed.
+ */
+const DISPATCH = {
+  'system.transition_start': unifiedStore.updateState,
+  'system.transition_complete': unifiedStore.updateState,
+  'source.state_changed': unifiedStore.updateState
+};
+
+/**
+ * The whole write, and the only one. Runs during setup — before
+ * AudioSourceView mounts — so the dispatcher never sees a stale record and
+ * animates a transition nobody asked for.
+ *
+ * No socket is involved: the envelopes are built in sources.js and handed
+ * straight to the handler, so this replays a broadcast without there being one
+ * to listen to. `updateState` replaces the record wholesale, which is what
+ * keeps the previous scenario's `client_name` or `disc_id` from surviving into
+ * the next — the drift this page exists to make visible.
  */
 watchEffect(() => {
   const scenario = current.value;
   if (!scenario) return;
 
-  const snapshot = scenario.systemState;
-  unifiedStore.systemState = {
-    ...unifiedStore.systemState,
-    active_source: snapshot.active_source,
-    source_state: snapshot.source_state,
-    transitioning: snapshot.transitioning,
-    metadata: { ...snapshot.metadata }
-  };
+  for (const event of scenario.events) {
+    DISPATCH[`${event.category}.${event.type}`]?.(event);
+  }
 
   // Ordered: the fixtures have to be in place before the view mounts and
   // fetches, and the seed before it reads. Both are set even when the scenario
