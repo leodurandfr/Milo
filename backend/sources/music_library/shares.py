@@ -260,6 +260,15 @@ class NetworkShareService:
         """Whether a Navidrome scan is running right now, as last polled."""
         return dict(self._scan)
 
+    async def request_scan(self) -> None:
+        """Ask for an incremental rescan, deferring if one is already running.
+
+        The same primitive the mount paths use, so a caller with no storage event
+        to report (the source opening) gets the busy-scanner handling for free
+        rather than a second, thinner implementation of it.
+        """
+        await self._storage.request_scan()
+
     async def note_scan_started(self) -> None:
         """Navidrome has just accepted a scan — push it and watch it closely.
 

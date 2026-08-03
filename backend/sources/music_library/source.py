@@ -411,6 +411,15 @@ class MusicLibrarySource(MpvAudioSource):
             await self._load_auto_stop_config()
             self._start_monitor()
 
+            # Opening the library is the moment its freshness matters, and the
+            # only moment Milō can infer it: music copied straight onto a NAS
+            # raises no event anyone here can see (inotify crosses neither a
+            # network mount nor a mount itself), so without this the catalog only
+            # moves on the scheduled pass. Spawned rather than awaited — the scan
+            # is incremental and asynchronous on Navidrome's side, and a wedged
+            # daemon must delay the source by nothing.
+            self._bg.spawn(self._shares.request_scan(), label="open-rescan")
+
             # Resume the previous session (paused) if one was saved when the
             # source was switched away or idle-stopped; otherwise idle on the
             # READY placeholder until the user plays a context.

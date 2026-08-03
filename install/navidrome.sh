@@ -150,17 +150,25 @@ LogLevel = "info"
 # storage is ready, which is the backend, not Navidrome.
 ScanOnStartup = false
 
-# Periodic incremental rescan — the catch-all, and the reason ScanOnStartup can
-# be turned off safely. It is the only mechanism that ever notices (a) music
-# added straight onto a NAS, which no inotify event reports, and (b) a mount the
-# backend's trigger missed, whatever the reason. mtime-based: measured at 7s over
-# 2419 tracks on a CIFS share with nothing changed. An unmounted storage space
-# has no directory at all (milo-umount rmdir's the mountpoint), and Navidrome
-# skips a library whose path does not exist without touching its tracks — so an
-# hourly pass over a sleeping NAS is harmless. That asymmetry between "directory
-# empty" and "directory absent" is what makes this safe; do not paper a
-# mountpoint over with a placeholder file.
-Schedule = "1h"
+# Periodic incremental rescan — the backstop, and the reason ScanOnStartup can be
+# turned off safely. It catches a mount whose own trigger was lost, whatever the
+# reason, so no failure of the paths above can outlive it.
+#
+# Deliberately NOT the freshness mechanism: the source asks for a scan when the
+# user opens the library (source.py::_do_start), which is both the moment
+# freshness matters and a moment the NAS is about to be woken by playback anyway.
+# That is what lets this run every 6h instead of hourly — a scan over a sleeping
+# NAS spins its disks up for nothing, and doing that 24 times a day to catch
+# music the user is not currently looking for is a poor trade.
+#
+# mtime-based: measured at 7s over 2419 tracks on a CIFS share with nothing
+# changed. An unmounted storage space has no directory at all (milo-umount
+# rmdir's the mountpoint), and Navidrome skips a library whose path does not
+# exist without touching its tracks — so a pass over a sleeping NAS is harmless
+# beyond the spin-up. That asymmetry between "directory empty" and "directory
+# absent" is what makes this safe; do not paper a mountpoint over with a
+# placeholder file.
+Schedule = "6h"
 
 # Purge files that disappeared (an unplugged USB drive, a removed share) so they
 # don't linger as empty "ghost" albums in the catalog. "full" purges only on an
