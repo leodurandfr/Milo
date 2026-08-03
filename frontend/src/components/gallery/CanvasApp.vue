@@ -19,7 +19,7 @@
                      { type: 'args', args }                a v-model wrote back
 -->
 <template>
-  <div class="canvas" :class="surfaceClass">
+  <div class="canvas" :class="[surfaceClass, { 'canvas--bleed': bleed }]">
     <p v-if="!entry" class="canvas__empty text-mono-small">
       {{ id ? `No playground descriptor for "${id}".` : 'Waiting for the gallery…' }}
     </p>
@@ -50,7 +50,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { REGISTRY, entryFor } from './registry';
+import { REGISTRY, entryFor, AUDIO_SOURCES_ID } from './registry';
 import { installApiHarness } from './canvasHttp';
 import { describeEvents, callbackProps } from './controls';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
@@ -121,6 +121,18 @@ const surfaceClass = computed(() => {
   const tone = entry.value?.surface?.(args.value);
   return tone ? `canvas--${tone}` : null;
 });
+
+/**
+ * The stage's inset, dropped for the one selection that is a whole screen.
+ *
+ * A primitive is an object on a stage and reads better with air around it; a
+ * source is what the unit shows edge to edge, and the viewport presets name a
+ * real panel ("1280 × 800 — the unit"). Padding the stage there hands the source
+ * 1232 × 752 instead — a different aspect ratio, a different column count in
+ * every grid, and a player pane taking a different share of the row. So the
+ * source page gets the viewport it is labelled with.
+ */
+const bleed = computed(() => id.value === AUDIO_SOURCES_ID);
 
 function post(message) {
   window.parent?.postMessage({ source: 'milo-canvas', ...message }, window.location.origin);
@@ -287,6 +299,13 @@ onUnmounted(() => {
   min-height: 100vh;
   padding: var(--canvas-pad);
   background: var(--color-background);
+}
+
+/* Zeroes the pad rather than the padding, so the `100vh - 2 * pad` height below
+   follows it — one value, and the stage cannot end up taller than it is wide.
+   Two classes deep so it outranks `.canvas` whatever the stylesheet order. */
+.canvas.canvas--bleed {
+  --canvas-pad: 0px;
 }
 
 /* The height a component that fills its host gets here. Definite on purpose,

@@ -852,4 +852,21 @@ describe('component gallery source pages', () => {
     // goes through sendCommand, which the canvas replaces with a reporter.
     expect(CANVAS).toMatch(/context\.unified\.sendCommand\s*=/);
   });
+  it('hands the source stage the viewport its preset is named after', () => {
+    // The stage pads itself, which is right for a primitive sitting on it and
+    // wrong for a source: the presets are labelled "1280 × 800 — the unit", and
+    // an inset stage hands the source 1232 × 752 instead — a different aspect
+    // ratio (which is what every mobile branch in the app switches on), a
+    // different column count in every grid, and a different share of the row for
+    // the 340 px player pane. So the padding is zeroed for this one selection.
+    // Both halves are asserted because either alone is silently a no-op: the
+    // class with no rule pads anyway, the rule with no binding never applies.
+    expect(CANVAS).toMatch(/'canvas--bleed':\s*bleed/);
+    expect(CANVAS).toMatch(/bleed\s*=\s*computed\(\(\)\s*=>\s*id\.value === AUDIO_SOURCES_ID\)/);
+
+    // Zeroing the pad rather than the padding is load-bearing: the stage's
+    // height is `100vh - 2 * var(--canvas-pad)`, so a rule that set `padding: 0`
+    // alone would leave the source 48 px taller than its own viewport.
+    expect(CANVAS).toMatch(/\.canvas\.canvas--bleed\s*\{\s*--canvas-pad:\s*0/);
+  });
 });
