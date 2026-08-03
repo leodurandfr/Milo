@@ -14,6 +14,14 @@ Podcast Index's own /search/byterm can't match titles with glued punctuation
 (e.g. "Underscore_" tokenizes whole and is unreachable from "underscore"), so
 search is backed by Apple's better-tokenized index and resolved to a Podcast
 Index feedId lazily on open (same path the charts already use).
+
+Two names for two different facts, deliberately: `_make_request` returns the
+internal `{"_network_error": True}` sentinel, which is transport-level — this
+one HTTP call failed. What the discovery methods put on the wire is
+`api_error`, which is what the UI reads: the catalogue did not answer. They are
+not the same claim, since the link is reported separately (and at the source
+level) by full_state.network_unavailable — a set `api_error` normally means
+NetworkManager says FULL and api.podcastindex.org is what is down.
 """
 import asyncio
 import hashlib
@@ -294,7 +302,7 @@ class PodcastIndexAPI:
         except Exception as e:
             if is_network_error(e):
                 self.logger.error(f"Network error fetching iTunes top podcasts: {e}")
-                return {"results": [], "total": 0, "network_error": True}
+                return {"results": [], "total": 0, "api_error": True}
             self.logger.error(f"Error fetching iTunes top podcasts: {e}")
             return {"results": [], "total": 0}
 
@@ -358,7 +366,7 @@ class PodcastIndexAPI:
                 return {
                     "podcasts": [],
                     "pagination": {"podcasts": {"total": 0, "pages": 0}},
-                    "network_error": True,
+                    "api_error": True,
                 }
             if not data:
                 return {"podcasts": [], "pagination": {"podcasts": {"total": 0, "pages": 0}}}
@@ -591,7 +599,7 @@ class PodcastIndexAPI:
                 )
 
         if network_error and not episodes:
-            return {"results": [], "total": 0, "network_error": True}
+            return {"results": [], "total": 0, "api_error": True}
 
         episodes.sort(key=lambda e: e.get("date_published") or 0, reverse=True)
         start = (page - 1) * limit

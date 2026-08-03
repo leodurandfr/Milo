@@ -207,13 +207,16 @@ class TestSearchPodcasts:
         assert page1["pagination"]["podcasts"] == {"total": 60, "pages": 3}
 
     @pytest.mark.asyncio
-    async def test_network_error_sentinel_propagates(self, api):
+    async def test_network_error_sentinel_becomes_api_error(self, api):
+        """The transport sentinel is internal; what reaches the wire is
+        `api_error` — the catalogue did not answer, which is not a claim about
+        the link (full_state.network_unavailable owns that one)."""
         with patch.object(
             api, "_search_itunes", new=AsyncMock(return_value={"_network_error": True})
         ):
             result = await api.search_podcasts("radiolab")
 
-        assert result["network_error"] is True
+        assert result["api_error"] is True
         assert result["podcasts"] == []
 
     def test_normalizes_itunes_search_result(self, api):

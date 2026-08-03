@@ -41,14 +41,14 @@
           </div>
         </transition>
 
-        <!-- Network error state -->
+        <!-- Podcast Index did not answer — the subscriptions block above is unaffected -->
         <transition name="content-fade">
           <MessageContent
-            v-if="!loadingTopCharts && topChartsNetworkError"
-            key="network-error-podcasts"
+            v-if="!loadingTopCharts && topChartsApiError"
+            key="api-error-podcasts"
             icon="network"
-            :title="t('podcasts.noInternet')"
-            :subtitle="t('podcasts.noInternetHint')"
+            :title="t('podcasts.catalogUnavailable')"
+            :subtitle="t('podcasts.catalogUnavailableHint')"
             :cta-label="t('podcasts.retry')"
             cta-variant="background-strong"
             :cta-click="loadData"
@@ -56,7 +56,7 @@
         </transition>
 
         <transition name="content-fade">
-          <div v-if="!loadingTopCharts && !topChartsNetworkError" key="loaded-podcasts" class="podcasts-grid">
+          <div v-if="!loadingTopCharts && !topChartsApiError" key="loaded-podcasts" class="podcasts-grid">
             <PodcastCard
               v-for="(podcast, index) in topCharts.slice(0, 6)"
               :key="podcast.itunes_id || podcast.uuid"
@@ -116,7 +116,7 @@ const podcastStore = usePodcastStore()
 const loadingTopCharts = ref(true)
 const loadingSubscriptions = ref(true)
 const topCharts = ref([])
-const topChartsNetworkError = ref(false)
+const topChartsApiError = ref(false)
 
 // True while the tapped iTunes chart entry is being resolved to a feedId.
 function isPodcastLoading(podcast) {
@@ -172,11 +172,11 @@ async function loadData() {
   })
   if (podcastsResult.ok) {
     const data = podcastsResult.data
-    if (data.network_error) {
-      topChartsNetworkError.value = true
+    if (data.api_error) {
+      topChartsApiError.value = true
       topCharts.value = []
     } else {
-      topChartsNetworkError.value = false
+      topChartsApiError.value = false
       topCharts.value = data.results || []
     }
   }

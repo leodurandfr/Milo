@@ -144,8 +144,14 @@ level is published whole rather than flattened to an `online` boolean — and wh
 there is no global offline banner any more: it fired on every `!online`,
 including while listening over Bluetooth.
 
-Podcast's own `network_error` flag is unrelated and stays: it answers "the
-Podcast Index call failed", which happens while perfectly online.
+The catalogue flag `api_error` is a different layer and stays: Podcast's
+discovery routes and Radio's station search set it when the third-party
+directory (api.podcastindex.org, radio-browser.info) does not answer, which
+happens while perfectly online. It is deliberately *not* a source-level fact
+and never reaches the status card — the loss is partial and per-view, so it is
+answered in the block that failed, with a retry: Radio's favourites and its
+streams keep working with radio-browser.info down, and a subscribed podcast
+still plays with Podcast Index down.
 
 ### 1. Spotify Connect (go-librespot)
 

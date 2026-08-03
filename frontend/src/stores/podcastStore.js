@@ -58,8 +58,11 @@ export const usePodcastStore = defineStore('podcast', () => {
     podcasts: false
   });
 
-  // === NETWORK STATE ===
-  const networkError = ref(false);
+  // === CATALOGUE STATE ===
+  // The `api_error` key a discovery route returns: Podcast Index did not
+  // answer. Not a claim about the link — subscriptions are local and an
+  // episode still plays from its own host while this is set.
+  const apiError = ref(false);
 
   // === SETTINGS ===
   // Note: Language/country are centralized in /var/lib/milo/settings.json (via settingsStore)
@@ -438,8 +441,8 @@ export const usePodcastStore = defineStore('podcast', () => {
     latestSubscriptionEpisodes,
     subscriptionsLoaded,
 
-    // Network state
-    networkError,
+    // Catalogue state
+    apiError,
 
     // Search state
     searchTerm,

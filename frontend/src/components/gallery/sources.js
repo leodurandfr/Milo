@@ -961,12 +961,12 @@ export const SOURCE_PAGES = [
         prime: [['podcast', 'loadPlaybackSpeeds']],
         player: null
       }),
-      browsing('podcast', 'Charts unreachable', 'The Podcast Index is the one source that depends on the internet rather than the LAN, so the backend answers `network_error` instead of failing — a distinct branch from "no results", and the only one that tells the user why the chart is empty.', {
-        condition: ['network_error'],
+      browsing('podcast', 'Catalogue unavailable', 'Podcast Index did not answer, so the backend sets `api_error` instead of failing — a distinct branch from "no results", and the only one that says why the chart is empty. Deliberately not the status card: the loss is one block. The subscriptions above it are local data and still play, which is the whole reason this stays a per-view message with a retry.', {
+        condition: ['api_error'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
         api: {
-          '/api/podcast/discover/top-charts': { network_error: true },
+          '/api/podcast/discover/top-charts': { api_error: true },
           '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
           '/api/podcast/playback-speeds': { speeds: PODCAST_SPEEDS }
         },
@@ -997,11 +997,11 @@ export const SOURCE_PAGES = [
       offline(
         'podcast',
         'no_internet',
-        'Distinct from network_error, which stays: that one says a Podcast Index call failed and is perfectly reachable while online. This one says the link itself has no route out, so the catalogue, the feeds and the audio are all gone at once.'
+        'Distinct from api_error, which stays: that one says Podcast Index did not answer and is perfectly reachable while online. This one says the link itself has no route out, so the catalogue, the feeds and the audio are all gone at once.'
       ),
       errored(
         'podcast',
-        'mpv not coming up, which is a different failure from the unreachable chart above: that one answers network_error and leaves the browser working, this one takes the source down and hands the screen to the status card.',
+        'mpv not coming up, which is a different failure from the unreachable chart above: that one answers api_error and leaves the browser working, this one takes the source down and hands the screen to the status card.',
         'mpv failed to start'
       )
     ]

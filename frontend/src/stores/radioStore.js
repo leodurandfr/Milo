@@ -23,7 +23,13 @@ export const useRadioStore = defineStore('radio', () => {
   // UI state
   const loading = ref(false);
   const hasError = ref(false);
-  const networkError = ref(false);
+  // Named after the outcome rather than a cause, because it has two: the
+  // directory (radio-browser.info) answering `api_error`, and the backend
+  // itself being unreachable. Either way the *search* is what stops working —
+  // favourites are local and a tuned stream comes from the station's own host,
+  // so neither is affected. A dead link is a different fact again, reported at
+  // the source level by full_state.network_unavailable.
+  const searchUnavailable = ref(false);
   const favoritesInitialized = ref(false);
 
   // Auto-retry timer for network errors — bounded: it gives up after
@@ -288,14 +294,14 @@ export const useRadioStore = defineStore('radio', () => {
     currentAbortController = null;
 
     if (result.ok) {
-      if (result.data.network_error) {
-        networkError.value = true;
+      if (result.data.api_error) {
+        searchUnavailable.value = true;
         hasError.value = true;
         startRetry();
         return false;
       }
 
-      networkError.value = false;
+      searchUnavailable.value = false;
       stopRetry();
       searchResults.value = result.data.stations;
       totalResults.value = result.data.total;
@@ -323,7 +329,7 @@ export const useRadioStore = defineStore('radio', () => {
 
     // status === null indicates a TCP-level failure (backend unreachable) → keep retrying
     if (result.error.status === null) {
-      networkError.value = true;
+      searchUnavailable.value = true;
       startRetry();
     } else {
       stopRetry();
@@ -544,7 +550,7 @@ export const useRadioStore = defineStore('radio', () => {
     trackInfo,
     loading,
     hasError,
-    networkError,
+    searchUnavailable,
     favoritesInitialized,
     searchQuery,
     countryFilter,
