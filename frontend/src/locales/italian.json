@@ -407,7 +407,8 @@
   "common": {
     "settings": "Impostazioni",
     "deleting": "Eliminazione in corso...",
-    "close": "Chiudi"
+    "close": "Chiudi",
+    "backToTop": "Torna su"
   },
   "radio": {
     "country": "Paese",

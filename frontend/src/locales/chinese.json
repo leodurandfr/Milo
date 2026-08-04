@@ -407,7 +407,8 @@
   "common": {
     "settings": "设置",
     "deleting": "删除中...",
-    "close": "关闭"
+    "close": "关闭",
+    "backToTop": "返回顶部"
   },
   "radio": {
     "country": "国家",
