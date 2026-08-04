@@ -15,13 +15,18 @@ Podcast Index's own /search/byterm can't match titles with glued punctuation
 search is backed by Apple's better-tokenized index and resolved to a Podcast
 Index feedId lazily on open (same path the charts already use).
 
-Two names for two different facts, deliberately: `_make_request` returns the
-internal `{"_network_error": True}` sentinel, which is transport-level — this
-one HTTP call failed. What the discovery methods put on the wire is
-`api_error`, which is what the UI reads: the catalogue did not answer. They are
-not the same claim, since the link is reported separately (and at the source
-level) by full_state.network_unavailable — a set `api_error` normally means
-NetworkManager says FULL and api.podcastindex.org is what is down.
+Failures are one fact here, internally and outward. `_make_request` and
+`_search_itunes` return the `_upstream_error` sentinel whenever a call did not
+usefully answer — a network failure, an HTTP status that is not 200, or an
+envelope carrying `status: "false"` — and the discovery methods turn that into
+the outward `api_error` key the UI reads. Three failure modes, one answer,
+because the user's screen has one thing to say either way: the catalogue is
+down. Splitting them is what once let an HTTP 503 read as "no results".
+
+`api_error` is deliberately not a claim about the link — that one is reported
+at the source level by full_state.network_unavailable. A set `api_error`
+normally means NetworkManager says FULL and api.podcastindex.org is what is
+down, which is why it never reaches the status card.
 """
 import asyncio
 import hashlib
@@ -84,6 +89,24 @@ def map_milo_language_to_itunes_country(milo_language: str) -> str:
     return MILO_LANGUAGE_TO_ITUNES_COUNTRY.get(milo_language.lower(), 'us')
 
 
+# The one thing a failed upstream call returns. One value rather than two,
+# because the callers below all treat "no usable answer" the same way and the
+# single place that used to tell them apart — the outward `api_error` flag —
+# is exactly where the distinction was wrong: an HTTP 503 from the catalogue
+# left the UI saying "no results" instead of "catalogue unavailable".
+UPSTREAM_ERROR_KEY = "_upstream_error"
+
+
+def _upstream_error() -> Dict[str, Any]:
+    """A fresh sentinel per call — never a shared dict, callers enrich theirs."""
+    return {UPSTREAM_ERROR_KEY: True}
+
+
+def _failed(data: Optional[Dict[str, Any]]) -> bool:
+    """Whether an upstream call produced nothing usable."""
+    return not data or bool(data.get(UPSTREAM_ERROR_KEY))
+
+
 class PodcastIndexAPI:
     """
     Async client for the Podcast Index REST API.
@@ -139,9 +162,10 @@ class PodcastIndexAPI:
 
     async def _make_request(
         self, path: str, params: Optional[Dict[str, Any]] = None
-    ) -> Optional[Dict[str, Any]]:
-        """GET a Podcast Index endpoint. Returns the JSON envelope, the
-        `{"_network_error": True}` sentinel, or None on API errors."""
+    ) -> Dict[str, Any]:
+        """GET a Podcast Index endpoint. Returns the JSON envelope, or the
+        `_upstream_error` sentinel — a call that answered 503 and one that never
+        connected are the same news to a caller (and to the screen)."""
         await self._ensure_session()
 
         try:
@@ -156,7 +180,7 @@ class PodcastIndexAPI:
                     self.logger.error(
                         f"Podcast Index error: HTTP {resp.status} on {path} - {error_text[:300]}"
                     )
-                    return None
+                    return _upstream_error()
 
                 data = await resp.json()
 
@@ -165,16 +189,16 @@ class PodcastIndexAPI:
                     self.logger.error(
                         f"Podcast Index error on {path}: {data.get('description', 'unknown')}"
                     )
-                    return None
+                    return _upstream_error()
 
                 return data
 
         except Exception as e:
             if is_network_error(e):
                 self.logger.info(f"Podcast Index network error: {e}")
-                return {"_network_error": True}
-            self.logger.error(f"Podcast Index unexpected error: {e}")
-            return None
+            else:
+                self.logger.error(f"Podcast Index unexpected error: {e}")
+            return _upstream_error()
 
     def _check_cache(self, cache: Dict, key: str) -> Optional[Any]:
         """Check if cached data is still valid"""
@@ -257,7 +281,7 @@ class PodcastIndexAPI:
             async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:
                     self.logger.error(f"iTunes RSS error: HTTP {resp.status}")
-                    return {"results": [], "total": 0}
+                    return {"results": [], "total": 0, "api_error": True}
 
                 # iTunes returns text/javascript instead of application/json
                 text = await resp.text()
@@ -302,9 +326,9 @@ class PodcastIndexAPI:
         except Exception as e:
             if is_network_error(e):
                 self.logger.error(f"Network error fetching iTunes top podcasts: {e}")
-                return {"results": [], "total": 0, "api_error": True}
-            self.logger.error(f"Error fetching iTunes top podcasts: {e}")
-            return {"results": [], "total": 0}
+            else:
+                self.logger.error(f"Error fetching iTunes top podcasts: {e}")
+            return {"results": [], "total": 0, "api_error": True}
 
     @handle_errors(default=None)
     async def lookup_by_itunes_id(self, itunes_id: str) -> Optional[str]:
@@ -323,7 +347,7 @@ class PodcastIndexAPI:
             return None
 
         data = await self._make_request("/podcasts/byitunesid", {"id": itunes_id_int})
-        if not data or data.get("_network_error"):
+        if _failed(data):
             return None
 
         feed = data.get("feed")
@@ -362,14 +386,12 @@ class PodcastIndexAPI:
         data = self._check_cache(self._search_cache, cache_key)
         if data is None:
             data = await self._search_itunes(term, country)
-            if data and data.get("_network_error"):
+            if _failed(data):
                 return {
                     "podcasts": [],
                     "pagination": {"podcasts": {"total": 0, "pages": 0}},
                     "api_error": True,
                 }
-            if not data:
-                return {"podcasts": [], "pagination": {"podcasts": {"total": 0, "pages": 0}}}
             self._set_cache(self._search_cache, cache_key, data)
 
         results = data.get("results") or []
@@ -385,13 +407,13 @@ class PodcastIndexAPI:
 
     async def _search_itunes(
         self, term: str, country: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Query the Apple iTunes Search API for podcasts matching `term`.
 
-        Returns {"results": [...normalized...]} on success (possibly empty),
-        {"_network_error": True} on a network failure, or None on any other
-        error — mirroring the sentinels search_podcasts already handles.
+        Returns {"results": [...normalized...]} on success (possibly empty), or
+        the `_upstream_error` sentinel on any failure — Apple answering 503 and
+        Apple being unreachable both mean the same to the search screen.
         """
         await self._ensure_session()
         url = "https://itunes.apple.com/search?" + urlencode({
@@ -407,7 +429,7 @@ class PodcastIndexAPI:
             ) as resp:
                 if resp.status != 200:
                     self.logger.error(f"iTunes Search error: HTTP {resp.status}")
-                    return None
+                    return _upstream_error()
 
                 # iTunes returns text/javascript instead of application/json
                 text = await resp.text()
@@ -423,9 +445,9 @@ class PodcastIndexAPI:
         except Exception as e:
             if is_network_error(e):
                 self.logger.error(f"Network error searching iTunes: {e}")
-                return {"_network_error": True}
-            self.logger.error(f"Error searching iTunes: {e}")
-            return None
+            else:
+                self.logger.error(f"Error searching iTunes: {e}")
+            return _upstream_error()
 
     def _normalize_itunes_search(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -481,10 +503,7 @@ class PodcastIndexAPI:
                     "/episodes/byfeedid", {"id": feed_id, "max": self.EPISODES_FETCH_MAX}
                 ),
             )
-            if (
-                not feed_data or feed_data.get("_network_error")
-                or not episodes_data or episodes_data.get("_network_error")
-            ):
+            if _failed(feed_data) or _failed(episodes_data):
                 return None
             self._set_cache(self._series_cache, str(feed_id), (feed_data, episodes_data))
 
@@ -531,7 +550,7 @@ class PodcastIndexAPI:
             return dict(cached)
 
         data = await self._make_request("/episodes/byid", {"id": episode_id})
-        if not data or data.get("_network_error"):
+        if _failed(data):
             return None
 
         episode = data.get("episode")
@@ -580,12 +599,10 @@ class PodcastIndexAPI:
         )
 
         episodes = []
-        network_error = False
+        any_failed = False
         for fid, data in zip(feed_ids, responses):
-            if not data:
-                continue
-            if data.get("_network_error"):
-                network_error = True
+            if _failed(data):
+                any_failed = True
                 continue
             meta = (feed_meta or {}).get(str(fid), {})
             for item in data.get("items") or []:
@@ -598,7 +615,9 @@ class PodcastIndexAPI:
                     )
                 )
 
-        if network_error and not episodes:
+        # Only when nothing came back at all: one dead feed among several is not
+        # worth telling the user the catalogue is down.
+        if any_failed and not episodes:
             return {"results": [], "total": 0, "api_error": True}
 
         episodes.sort(key=lambda e: e.get("date_published") or 0, reverse=True)

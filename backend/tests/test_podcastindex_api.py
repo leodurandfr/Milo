@@ -10,7 +10,9 @@ item_podcast_byid), including the shape quirks the normalization must absorb:
 - `categories` is a {id: name} object, not a list
 - IDs are ints on the wire but opaque strings in Milō's normalized schema
 """
-from unittest.mock import AsyncMock, patch
+import asyncio
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -206,19 +208,6 @@ class TestSearchPodcasts:
         assert len(page3["podcasts"]) == 10  # 60 hits -> 25+25+10
         assert page1["pagination"]["podcasts"] == {"total": 60, "pages": 3}
 
-    @pytest.mark.asyncio
-    async def test_network_error_sentinel_becomes_api_error(self, api):
-        """The transport sentinel is internal; what reaches the wire is
-        `api_error` — the catalogue did not answer, which is not a claim about
-        the link (full_state.network_unavailable owns that one)."""
-        with patch.object(
-            api, "_search_itunes", new=AsyncMock(return_value={"_network_error": True})
-        ):
-            result = await api.search_podcasts("radiolab")
-
-        assert result["api_error"] is True
-        assert result["podcasts"] == []
-
     def test_normalizes_itunes_search_result(self, api):
         """iTunes hit → Milō keys: itunes_id string, no uuid, artwork upscaled."""
         out = api._normalize_itunes_search({
@@ -357,6 +346,127 @@ class TestGetLatestEpisodes:
     @pytest.mark.asyncio
     async def test_empty_feed_list_short_circuits(self, api):
         assert await api.get_latest_episodes([]) == {"results": [], "total": 0}
+
+
+class _FakeResponse:
+    """One upstream answer, usable as the async context manager the client
+    opens around `session.get(...)`. iTunes serves its JSON as text/javascript,
+    which is why the client reads `text()` there and `json()` on Podcast Index.
+    """
+
+    def __init__(self, status, payload=None, text=""):
+        self.status = status
+        self._payload = payload
+        self._text = text
+
+    async def json(self):
+        return self._payload
+
+    async def text(self):
+        return self._text
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+
+def _answers_with(api, *responses):
+    """Point the client at a canned upstream: every GET yields the next
+    response (the last one repeats).
+
+    Assigning an open session is enough — `_ensure_session` only builds one
+    when there is none — so the outside world is what is faked here, never a
+    method of the unit under test.
+    """
+    queued = list(responses)
+    session = MagicMock()
+    session.closed = False
+    session.get = MagicMock(side_effect=lambda *a, **kw: queued.pop(0) if len(queued) > 1 else queued[0])
+    api.session = session
+    return session
+
+
+def _itunes_chart(name="Radiolab"):
+    """An iTunes RSS top-charts body, as _fetch_itunes_top parses it."""
+    return json.dumps({
+        "feed": {
+            "entry": [{
+                "id": {"attributes": {"im:id": "152249110"}},
+                "im:name": {"label": name},
+                "im:artist": {"label": "WNYC Studios"},
+                "im:image": [{"label": "https://is1.mzstatic.com/170x170bb.jpg"}],
+            }]
+        }
+    })
+
+
+class TestUpstreamFailureBecomesApiError:
+    """Every way an upstream can fail to answer must reach the wire as
+    `api_error`, so the screen says "catalogue unavailable" instead of "no
+    results" about a service that is down.
+
+    The two that matter here are the ones that *answer* — an HTTP status that
+    is not 200, and a Podcast Index envelope carrying `status: "false"` — since
+    neither raises, and both used to fall through to an empty list.
+    """
+
+    @pytest.mark.asyncio
+    async def test_podcast_index_http_error(self, api):
+        _answers_with(api, _FakeResponse(503, text="Service Unavailable"))
+
+        result = await api.get_latest_episodes(["920666"])
+
+        assert result == {"results": [], "total": 0, "api_error": True}
+
+    @pytest.mark.asyncio
+    async def test_podcast_index_envelope_false(self, api):
+        _answers_with(api, _FakeResponse(
+            200, payload={"status": "false", "description": "invalid authorization"}
+        ))
+
+        result = await api.get_latest_episodes(["920666"])
+
+        assert result == {"results": [], "total": 0, "api_error": True}
+
+    @pytest.mark.asyncio
+    async def test_podcast_index_unreachable(self, api):
+        session = MagicMock()
+        session.closed = False
+        session.get = MagicMock(side_effect=asyncio.TimeoutError())
+        api.session = session
+
+        result = await api.get_latest_episodes(["920666"])
+
+        assert result == {"results": [], "total": 0, "api_error": True}
+
+    @pytest.mark.asyncio
+    async def test_itunes_charts_http_error_is_not_cached(self, api):
+        # Failure first, then a healthy chart: the client must ask again rather
+        # than serve the failure back, or one 503 would blank the charts for
+        # the whole cache window.
+        _answers_with(
+            api,
+            _FakeResponse(503),
+            _FakeResponse(200, text=_itunes_chart()),
+        )
+
+        failed = await api.get_itunes_top_podcasts(country_code="fr")
+        recovered = await api.get_itunes_top_podcasts(country_code="fr")
+
+        assert failed == {"results": [], "total": 0, "api_error": True}
+        assert "api_error" not in recovered
+        assert [p["name"] for p in recovered["results"]] == ["Radiolab"]
+
+    @pytest.mark.asyncio
+    async def test_itunes_search_http_error(self, api):
+        _answers_with(api, _FakeResponse(503))
+
+        result = await api.search_podcasts("radiolab")
+
+        assert result["api_error"] is True
+        assert result["podcasts"] == []
 
 
 def test_map_milo_language_to_itunes_country():
