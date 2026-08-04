@@ -407,7 +407,8 @@
   "common": {
     "settings": "Einstellungen",
     "deleting": "Wird gelöscht...",
-    "close": "Schließen"
+    "close": "Schließen",
+    "backToTop": "Nach oben"
   },
   "radio": {
     "country": "Land",

@@ -407,7 +407,8 @@
   "common": {
     "settings": "Paramètres",
     "deleting": "Suppression en cours...",
-    "close": "Fermer"
+    "close": "Fermer",
+    "backToTop": "Retour en haut"
   },
   "radio": {
     "country": "Pays",

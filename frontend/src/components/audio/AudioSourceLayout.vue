@@ -12,6 +12,11 @@
       class="content-container"
       :class="{ 'has-player': showPlayer, 'screensaver-revealing': revealing }"
     >
+      <!-- Back-to-top threshold marker. Absolute so it takes no row in the flex
+           column (a zero-height item would still claim the container's gap), and
+           outside .transition-wrapper so a view swap never re-creates it. -->
+      <div ref="scrollSentinel" class="scroll-top-sentinel"></div>
+
       <NavigationHeader
         ref="headerRef"
         :title="headerTitle"
@@ -44,15 +49,36 @@
     >
       <slot name="player" :is-mobile="isMobile"></slot>
     </div>
+
+    <!-- Back to top. The anchor owns the horizontal position (it tracks the
+         content column as the player opens); the button owns the entrance. -->
+    <div :class="['scroll-top-anchor', { 'has-player': showPlayer }]">
+      <Transition name="scroll-top">
+        <IconButton
+          v-if="scrollTopVisible"
+          class="scroll-top-button"
+          icon="caretUp"
+          variant="rounded"
+          size="large"
+          :aria-label="t('common.backToTop')"
+          @click="scrollToTop"
+        />
+      </Transition>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onBeforeUpdate } from 'vue'
 import NavigationHeader from '@/components/ui/NavigationHeader.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useViewTransition } from '@/composables/useViewTransition'
+import { useScrollToTop } from '@/composables/useScrollToTop'
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
+import { useI18n } from '@/services/i18n'
+
+const { t } = useI18n()
 
 const layoutRef = ref(null)
 const headerRef = ref(null)
@@ -227,6 +253,11 @@ onBeforeUpdate(() => {
   }
 })
 
+// Back to top: shown once two screenfuls have been scrolled past, which is
+// exactly the point where flicking back up stops being reasonable. Every view
+// hosted here gets it, so no source view opts in.
+const { sentinelRef: scrollSentinel, isVisible: scrollTopVisible, scrollToTop } = useScrollToTop(layoutRef)
+
 // Mobile detection for padding-bottom
 const { isMobile } = useIsMobile()
 
@@ -377,6 +408,62 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   pointer-events: all;
 }
 
+/* Back-to-top threshold marker — geometry only, never painted. */
+.scroll-top-sentinel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+/* Anchor: fixed, so it neither scrolls nor takes a slot in the layout's flex
+   row. It sits where the NavigationHeader rests, which is what the button
+   stands in for once the header has scrolled away. The X offset tracks the
+   content column on the same two curves .content-container uses for its width,
+   so pill and content move together when the player opens or closes. */
+.scroll-top-anchor {
+  position: fixed;
+  top: var(--space-07);
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  transition: transform 0.6s cubic-bezier(0.5, 0, 0, 1);
+  pointer-events: none;
+}
+
+.scroll-top-anchor.has-player {
+  transform: translateX(calc(-50% - var(--audio-player-wrapper-width) / 2));
+  transition: transform var(--transition-spring);
+}
+
+.scroll-top-button {
+  pointer-events: auto;
+}
+
+/* Same entrance as Modal's close button: a snappy spring down from -24px with
+   the opacity fading in on its own ease-out curve. The exit is that entrance
+   reversed on the standard leave timing — Modal has no exit of its own there,
+   its overlay takes the button with it. */
+.scroll-top-enter-active {
+  transition:
+    transform var(--transition-spring-snappy),
+    opacity 350ms var(--easeOutCubic);
+}
+
+.scroll-top-leave-active {
+  transition:
+    transform var(--transition-fast-leave),
+    opacity var(--transition-fast-leave);
+}
+
+.scroll-top-enter-from,
+.scroll-top-leave-to {
+  opacity: 0;
+  transform: translateY(-24px);
+}
+
 /* Mobile: full width content + fixed player (wrapper transparent) */
 @media (max-aspect-ratio: 4/3) {
   .audio-source-layout {
@@ -405,6 +492,14 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   .player-wrapper.has-player {
     width: auto;
     opacity: 1;
+  }
+
+  /* The content is full width here (the player is a fixed bottom bar), so there
+     is no column to offset against — the pill stays centred in both states. */
+  .scroll-top-anchor,
+  .scroll-top-anchor.has-player {
+    top: calc(max(24px, env(safe-area-inset-top, 0px)) + 8px);
+    transform: translateX(-50%);
   }
 }
 

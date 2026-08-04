@@ -407,7 +407,8 @@
   "common": {
     "settings": "सेटिंग्स",
     "deleting": "हटाया जा रहा है...",
-    "close": "बंद करें"
+    "close": "बंद करें",
+    "backToTop": "ऊपर जाएँ"
   },
   "radio": {
     "country": "देश",
