@@ -252,8 +252,9 @@ const emit = defineEmits([
 ]);
 
 // Modal height coordination (null outside a Modal). Both directions run the SAME
-// mechanism: the wrapper springs its own height 0 ↔ full while the modal clip springs
-// by the same delta on the same curve, so frame and content are equal at every frame.
+// mechanism: the wrapper animates its own height 0 ↔ full while the modal clip moves by
+// the same delta on the same curve, so frame and content are equal at every frame. The
+// curve itself is per-direction — see COLLAPSE_TRANSITION.
 const springHeightDelta = inject('modalSpringHeightDelta', null);
 
 // === LOCAL STATE ===
@@ -361,6 +362,17 @@ function getClientDisplayVolume(macId, serverVolume) {
 }
 
 // === ZONE HEADER HANDLERS ===
+// A height that LANDS on 0 cannot render an overshooting spring: CSS clamps the negative
+// lobe away, so the rows are already gone ~170ms in while the curve still has 650ms to
+// run — and the modal clip, whose own height stays positive, plays that lobe for real
+// (it dips ~7% of the rows' height below its target, holds, then springs back up). Hence
+// a monotone curve for the collapse, written identically on the wrapper (CSS below) and
+// on the clip; only the expand, where both sides can overshoot, keeps the bounce.
+const COLLAPSE_TRANSITION = 'height var(--transition-medium)';
+// Follow window: the 300ms collapse plus a margin. Nothing wobbles afterwards, so there
+// is no reason to hold the clip away from the observer for the spring's full 900ms.
+const COLLAPSE_FOLLOW_MS = 450;
+
 function toggleExpand() {
   if (!canExpand.value || !expandedContentRef.value) return;
 
@@ -371,7 +383,10 @@ function toggleExpand() {
   const fullHeight = expandedContentRef.value.offsetHeight;
   const opening = !isExpanded.value;
 
-  springHeightDelta?.(opening ? fullHeight : -fullHeight);
+  springHeightDelta?.(
+    opening ? fullHeight : -fullHeight,
+    opening ? {} : { transition: COLLAPSE_TRANSITION, durationMs: COLLAPSE_FOLLOW_MS }
+  );
   isExpanded.value = opening;
   expandedWrapperHeight.value = opening ? `${fullHeight}px` : '0px';
 }
@@ -659,14 +674,20 @@ function handleClientMuteToggle(clientMacId, muted) {
 }
 
 /* === EXPANDED CLIENTS SECTION === */
-/* Symmetric height animation, both directions on --transition-spring-light — the SAME
-   curve the Modal clip springs on (see toggleExpand). Content and frame are therefore
-   equal at every frame: one visible bounce, no gap, and collapse is the expansion
-   played backwards. overflow:hidden is what hides the rows at height 0. */
+/* Both directions ride the SAME curve as the Modal clip (see toggleExpand), so content
+   and frame are equal at every frame: no gap, nothing cut early. overflow:hidden is what
+   hides the rows at height 0.
+   Expand springs — the overshoot is above the target, renderable on both sides.
+   Collapse does NOT: its target IS 0, where the spring's negative lobe is clamped away
+   on this wrapper but not on the clip. Kept in sync with COLLAPSE_TRANSITION. */
 .expanded-wrapper {
   height: 0;
   overflow: hidden;
   transition: height var(--transition-spring-light);
+}
+
+.multiroom-item:not(.is-expanded) .expanded-wrapper {
+  transition: height var(--transition-medium);
 }
 
 .expanded-clients {
