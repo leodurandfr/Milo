@@ -748,14 +748,21 @@ onMounted(async () => {
   gap: 0;
 }
 
-/* Power toggle button */
+/* Power toggle button.
+   The box is pinned rather than derived from padding + glyph: NavigationHeader
+   budgets exactly one IconButton for this slot (48px, 40 on mobile) and grows
+   past its min-height for anything taller. Padding around a `large` glyph lands
+   on 48 on desktop but on 44 on mobile — SvgIcon steps large 32→28 while
+   IconButton steps both its padding and its icon — which made the whole bar 4px
+   taller on the one view that shows this button. */
 .power-toggle {
   display: grid;
   place-items: center;
+  width: 48px;
+  height: 48px;
   background: var(--color-background-neutral-12);
   border: none;
   border-radius: var(--radius-04);
-  padding: var(--space-02);
   cursor: pointer;
   transition: var(--transition-press);
 }
@@ -846,6 +853,11 @@ onMounted(async () => {
 @media (max-aspect-ratio: 4/3) {
   .settings-nav-grid {
     grid-template-columns: 1fr;
+  }
+
+  .power-toggle {
+    width: 40px;
+    height: 40px;
   }
 
   .power-menu-region--open {
