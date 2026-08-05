@@ -135,7 +135,7 @@ const UNAVAILABLE_PHRASE_KEYS = {
  * are ready to play. Two phrases derived from who starts a session, instead of
  * one written per source.
  */
-const SENDER_DRIVEN_SOURCES = ['spotify', 'qobuz', 'airplay', 'dlna', 'bluetooth', 'mac'];
+const SENDER_DRIVEN_SOURCES = ['spotify', 'qobuz', 'tidal', 'airplay', 'dlna', 'bluetooth', 'mac'];
 
 /**
  * "Démarrage de <source>" reads as one sentence broken over two lines, and
@@ -154,6 +154,7 @@ const STARTING_PHRASE_KEYS = {
   airplay: 'status.loadingOf',
   dlna: 'status.loadingOf',
   qobuz: 'status.loadingOf',
+  tidal: 'status.loadingOf',
   music_library: 'status.loadingOf'
 };
 

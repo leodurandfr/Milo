@@ -63,11 +63,13 @@ function hasRichDisplay(source, state, meta, unavailableReason) {
       return state === 'active' && !!m.is_playing && !!m.title && !!m.artist &&
         (m.album_art_width || 0) > UNTRUSTED_SENDER_MIN_ARTWORK_PX;
     case 'qobuz':
-      // Trusted metadata provider (Qobuz CDN cover, always full-size — no
-      // album_art_width is emitted). Unlike AirPlay/DLNA the proxy reports idle
-      // explicitly (→ READY) instead of leaving stale metadata, so no
-      // is_playing gate is needed: title + artist is enough (like Spotify), and
-      // a paused track keeps its cover on screen.
+    case 'tidal':
+      // Trusted metadata providers (Qobuz/Tidal CDN cover, always full-size —
+      // no album_art_width is emitted). Unlike AirPlay/DLNA both report the end
+      // of a session explicitly (the proxy goes idle, the tisoc daemon sends
+      // releaseResources → READY) instead of leaving stale metadata behind, so
+      // no is_playing gate is needed: title + artist is enough, like Spotify,
+      // and a paused track keeps its cover on screen.
       return state === 'active' && !!m.title && !!m.artist;
     case 'music_library':
       // Own component (AudioSourceLayout) handles its internal empty/loading/

@@ -1,0 +1,55 @@
+[Unit]
+Description=Milo Tidal Connect
+After=network-online.target sound.target milo-backend.service milo-camilladsp.service
+Wants=network-online.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+# milo, like every other unit sharing the RuntimeDirectory below: systemd
+# applies the declaring unit's group to /run/milo on each start, so a different
+# one here would flip the group of a directory five units depend on, back and
+# forth, by start order. Card access needs no Group= — milo is in `audio`
+# through the user database, which is where the mpv sources get it too.
+Group=milo
+
+# Create /run/milo/ automatically for the tisoc controller socket
+RuntimeDirectory=milo
+RuntimeDirectoryMode=0755
+# Preserve the shared /run/milo on stop — see milo-camilladsp.service
+RuntimeDirectoryPreserve=yes
+
+# alsa-lib dlopens a rate converter from a directory baked in at build time,
+# and the runtime's 1.1.3 offers no environment override: the 32-bit
+# /usr/lib/arm-linux-gnueabihf/alsa-lib an arm64 host has no reason to own.
+# Without it there is no 44.1 -> 48 kHz conversion and PortAudio never opens
+# the stream — the phone shows a track playing, the speakers stay silent. The
+# module ships inside the runtime tree; this maps it where alsa-lib looks, in
+# this unit's mount namespace. systemd creates the destination on the host, so
+# an empty /usr/lib/arm-linux-gnueabihf/alsa-lib appears there — the modules
+# themselves stay in /opt/milo/tidal-connect and are visible to this unit only.
+BindReadOnlyPaths=/opt/milo/tidal-connect/usr/lib/arm-linux-gnueabihf/alsa-lib:/usr/lib/arm-linux-gnueabihf/alsa-lib
+
+ExecStart=/usr/local/bin/milo-tidal-connect
+Environment=HOME=/home/milo
+# routing.env supplies MILO_MODE (direct|multiroom); the milo_tidal ALSA PCM
+# switches its backing device on it, same wiring as every other source.
+EnvironmentFile=/var/lib/milo/routing.env
+WorkingDirectory=/var/lib/milo
+Restart=always
+RestartSec=5
+
+# The daemon holds a TLS session to Tidal's servers and an mDNS registration;
+# it exits on SIGTERM without a graceful-shutdown protocol of its own, and
+# TidalSource sends `stopService` over the controller socket first so the phone
+# sees the speaker withdraw rather than time out on it.
+TimeoutStopSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-tidal
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

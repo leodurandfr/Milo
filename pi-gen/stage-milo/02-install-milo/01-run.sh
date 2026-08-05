@@ -94,6 +94,20 @@ source install/qobuz-proxy.sh
 install_qobuz_proxy
 CHROOT
 
+# ── Tidal Connect ────────────────────────────────────────────────────────────
+# Reuse install/tidal-connect.sh::install_tidal_connect so pi-gen and the bash
+# installer materialise an identical runtime tree under /opt/milo/tidal-connect
+# — single source of truth. Nothing user-specific is baked: the daemon carries
+# the SDK's own device certificate and holds no account state, so the Tidal
+# login lives entirely in the phone app.
+
+on_chroot << 'CHROOT'
+cd /home/milo/milo
+source install/common.sh
+source install/tidal-connect.sh
+install_tidal_connect
+CHROOT
+
 # ── Navidrome (Music Library catalog engine) ─────────────────────────────────
 # The binary is downloaded in the audio stage (01-install-audio); here we only
 # write its config + prepare dirs, reusing install/navidrome.sh::configure_navidrome

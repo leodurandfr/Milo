@@ -25,7 +25,7 @@ const ACTIVITY_THROTTLE_MS = 500;
 // pausing closes it (the backend otherwise keeps the last track's metadata
 // stale). The two passive receivers below have no play/pause concept — their
 // screensaver stays up while the sender is connected (source_state 'active').
-const PLAYBACK_GATED_SOURCES = ['radio', 'podcast', 'airplay', 'dlna', 'qobuz', 'music_library', 'spotify', 'cd'];
+const PLAYBACK_GATED_SOURCES = ['radio', 'podcast', 'airplay', 'dlna', 'qobuz', 'music_library', 'spotify', 'cd', 'tidal'];
 const PASSIVE_SOURCES = ['bluetooth', 'mac'];
 
 /**
@@ -224,12 +224,12 @@ export function useScreensaver() {
       };
     }
 
-    // Spotify + CD: active players with rich metadata, rendered exactly like
-    // music_library (cover + title/artist + progress bar, no bottom bar), read
-    // straight from the shared metadata mirror. CD often ships no cover art —
-    // fall back to the same disc placeholder AudioPlayerFull uses rather than a
-    // generated text avatar.
-    if (source === 'spotify') {
+    // Spotify + Tidal + CD: active players with rich metadata, rendered exactly
+    // like music_library (cover + title/artist + progress bar, no bottom bar),
+    // read straight from the shared metadata mirror. CD often ships no cover art
+    // — fall back to the same disc placeholder AudioPlayerFull uses rather than
+    // a generated text avatar.
+    if (source === 'spotify' || source === 'tidal') {
       const metadata = unifiedStore.systemState.metadata || {};
       return {
         mode: 'media',

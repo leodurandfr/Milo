@@ -59,6 +59,7 @@
     "cd": "CD播放器",
     "dlna": "DLNA/UPnP",
     "qobuz": "Qobuz",
+    "tidal": "TIDAL",
     "musicLibrary": "音乐库",
     "cdSource": {
       "unknownAlbum": "未知专辑",

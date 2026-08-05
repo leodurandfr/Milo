@@ -24,6 +24,7 @@ from backend.sources.airplay.source import AirPlaySource
 from backend.sources.dlna.source import DlnaSource
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.sources.qobuz.source import QobuzSource
+from backend.sources.tidal.source import TidalSource
 
 # QobuzSource is listed with an empty COMMANDS registry (Family B: playback is
 # driven by the Qobuz sender, not by us) — the per-command loops below are then
@@ -31,8 +32,16 @@ from backend.sources.qobuz.source import QobuzSource
 ALL_SOURCES = [
     SpotifySource, RadioSource, PodcastSource, CdSource,
     MacSource, BluetoothSource, AirPlaySource, DlnaSource,
-    MusicLibrarySource, QobuzSource,
+    MusicLibrarySource, QobuzSource, TidalSource,
 ]
+
+# TidalSource translates each command into the daemon's own spelling through
+# COMMAND_MAP instead of branching on the name, so the two AST guards below have
+# no `cmd == "..."` to read. Its equivalent invariant — the registry and the map
+# name the same commands — is asserted directly in
+# test_map_dispatch_matches_registry.
+MAP_DISPATCH_SOURCES = [TidalSource]
+IF_CHAIN_SOURCES = [cls for cls in ALL_SOURCES if cls not in MAP_DISPATCH_SOURCES]
 
 # Commands the hardware encoder/IR/BT-remote dispatcher sends per active source
 # (backend/hardware/playback_dispatch.py). These MUST stay registered or the
@@ -43,6 +52,7 @@ HARDWARE_COMMANDS = {
     PodcastSource: ["pause", "resume"],
     CdSource: ["pause", "resume", "next", "prev"],
     MusicLibrarySource: ["pause", "resume", "next", "prev"],
+    TidalSource: ["pause", "resume", "next", "prev"],
 }
 
 
@@ -55,7 +65,7 @@ def test_command_models_are_basemodel_or_none(cls):
         )
 
 
-@pytest.mark.parametrize("cls", ALL_SOURCES)
+@pytest.mark.parametrize("cls", IF_CHAIN_SOURCES)
 def test_every_registered_command_has_dispatch_arm(cls):
     """No orphan registry entry: each COMMANDS key is referenced in _handle_command."""
     src = inspect.getsource(cls._handle_command)
@@ -85,7 +95,7 @@ def _dispatched_commands(cls):
     return found
 
 
-@pytest.mark.parametrize("cls", ALL_SOURCES)
+@pytest.mark.parametrize("cls", IF_CHAIN_SOURCES)
 def test_every_dispatch_arm_is_registered(cls):
     """The reverse of the check above: no arm for an unregistered command.
 
@@ -109,6 +119,23 @@ def test_every_dispatch_arm_is_registered(cls):
     assert not orphans, (
         f"{cls.__name__}._handle_command branches on {sorted(orphans)}, which is "
         f"not in COMMANDS — unreachable, command() rejects the name first"
+    )
+
+
+@pytest.mark.parametrize("cls", MAP_DISPATCH_SOURCES)
+def test_map_dispatch_matches_registry(cls):
+    """A map-dispatching source translates exactly the commands it registers.
+
+    Same guarantee the if-chain guards give the others, in the shape this
+    dispatch takes: a COMMANDS key absent from the map raises KeyError on the
+    first press (the hardware dispatcher swallows it, so the encoder button
+    would simply do nothing), and a map entry absent from COMMANDS is dead —
+    `command()` rejects the name before dispatch.
+    """
+    assert set(cls.COMMANDS) == set(cls.COMMAND_MAP), (
+        f"{cls.__name__}.COMMANDS and COMMAND_MAP disagree: "
+        f"registry-only={sorted(set(cls.COMMANDS) - set(cls.COMMAND_MAP))}, "
+        f"map-only={sorted(set(cls.COMMAND_MAP) - set(cls.COMMANDS))}"
     )
 
 

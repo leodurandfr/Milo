@@ -59,6 +59,7 @@
     "cd": "CD Player",
     "dlna": "DLNA/UPnP",
     "qobuz": "Qobuz",
+    "tidal": "TIDAL",
     "musicLibrary": "Music Library",
     "cdSource": {
       "unknownAlbum": "Unknown Album",
