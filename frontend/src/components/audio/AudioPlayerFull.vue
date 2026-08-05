@@ -38,7 +38,7 @@
                 <div class="progress-wrapper">
                   <ProgressBar :currentPosition="currentPosition" :duration="duration"
                     :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-                    :interactive="true" animateIn @seek="seekTo" />
+                    :interactive="seekable" animateIn @seek="seekTo" />
                 </div>
                 <div class="controls-wrapper">
                   <PlaybackControls :isPlaying="isPlaying" :isBuffering="isBuffering" :hasNext="hasNext"
@@ -102,6 +102,16 @@ const props = defineProps({
   showProgress: {
     type: Boolean,
     default: false
+  },
+  // Whether the bar drawn next to the transport accepts a scrub. Default true:
+  // every controlled source but one can seek. Tidal cannot — its controller
+  // protocol has no seek command at all (the daemon seeks internally, but
+  // exposes nothing for it), so offering the gesture would just drop taps.
+  // Only consulted when showControls is set; the read-only bar the receiver
+  // sources draw is never interactive.
+  seekable: {
+    type: Boolean,
+    default: true
   },
   hideContent: {
     type: Boolean,

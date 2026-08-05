@@ -259,6 +259,12 @@ def _create_service(name: str) -> Any:
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
         ),
+        "tidal_source": lambda: _import("backend.sources.tidal", "TidalSource")(
+            config={"socket_path": "/run/milo/tidal-controller.sock"},
+            state_machine=get_service("audio_state_machine"),
+            settings_service=get_service("settings_service"),
+            systemd_manager=get_service("systemd_manager")
+        ),
         "music_library_source": lambda: _import("backend.sources.music_library", "MusicLibrarySource")(
             config={"mpv_socket": "/run/milo/music_library-ipc.sock"},
             state_machine=get_service("audio_state_machine"),
@@ -416,6 +422,7 @@ def initialize_services() -> None:
     state_machine.register_source(AudioSource.CD, get_service("cd_source"))
     state_machine.register_source(AudioSource.DLNA, get_service("dlna_source"))
     state_machine.register_source(AudioSource.QOBUZ, get_service("qobuz_source"))
+    state_machine.register_source(AudioSource.TIDAL, get_service("tidal_source"))
     state_machine.register_source(AudioSource.MUSIC_LIBRARY, get_service("music_library_source"))
 
     # =========================================================================

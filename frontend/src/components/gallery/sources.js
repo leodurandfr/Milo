@@ -608,6 +608,56 @@ export const SOURCE_PAGES = [
   },
 
   {
+    id: `${SOURCE_PAGE_PREFIX}tidal`,
+    source: 'tidal',
+    title: 'TIDAL',
+    family: 'C — active player',
+    uses: 'AudioSourceStatus · AudioPlayerFull (showControls, seekable false)',
+    via: 'dispatcher',
+    summary:
+      'Spotify\'s shape reached through a Unix socket instead of a WebSocket: the phone hands over a queue and Milō drives it back. One difference is visible on screen — the tisoc protocol has no seek command at all, so this is the only controlled source whose progress bar is inert (seekable false). Trusted CDN cover, so the rich display is gated on title + artist alone, like Spotify and unlike the two untrusted senders below.',
+    scenarios: [
+      starting('tidal'),
+      ready('tidal', 'Ready', 'The daemon acknowledged startService and is advertising over mDNS; no phone has picked the speaker yet. Reaching this state is the proof the source is usable — a daemon that never answers would reject every session.'),
+      active('tidal', 'Playing', 'Rich display earned: transport plus a bar that draws position but refuses a scrub. The buttons report to the event log instead of reaching the unit.', {
+        title: 'Says',
+        artist: 'Nils Frahm',
+        album_art_url: albumPlaceholder,
+        is_playing: true,
+        position: 192000,
+        duration: 511000
+      }),
+      active('tidal', 'Paused', 'Same record, is_playing false. A paused track keeps its session and its cover — the daemon reports the end of one explicitly, so nothing here is a stale leftover.', {
+        title: 'Says',
+        artist: 'Nils Frahm',
+        album_art_url: albumPlaceholder,
+        is_playing: false,
+        position: 192000,
+        duration: 511000
+      }),
+      active('tidal', 'Buffering', 'The daemon passes through BUFFERING on every track change, so this is a normal step rather than a stall: the spinner replaces the glyph and the bar holds its last position.', {
+        title: 'Says',
+        artist: 'Nils Frahm',
+        album_art_url: albumPlaceholder,
+        is_playing: true,
+        is_buffering: true,
+        position: 0,
+        duration: 511000
+      }),
+      offline(
+        'tidal',
+        'no_internet',
+        'The daemon streams from Tidal\'s CDN and authenticates over TLS, so no route out means nothing it can do — the card takes over rather than leaving a transport pointing at a dead session.'
+      ),
+      errored(
+        'tidal',
+        'The daemon did not come up, or came up and never acknowledged startService — the source treats both as a failed start, because a daemon stuck before that acknowledgement would advertise a speaker that silently refuses every phone. Retry re-posts the source selection.',
+        'Tidal Connect failed to start'
+      )
+    ]
+  },
+
+  {
     id: `${SOURCE_PAGE_PREFIX}airplay`,
     source: 'airplay',
     title: 'AirPlay',

@@ -1,0 +1,51 @@
+#!/bin/bash
+# Launcher for the Tidal Connect daemon.
+#
+# The daemon is a 32-bit armhf binary from Tidal's Connect Device SDK, built
+# against Debian-stretch-era libraries. It is NOT run through Docker (nothing
+# in Milō is): install/tidal-connect.sh materialises a private runtime tree
+# under $TIDAL_ROOT, and this script invokes the binary through that tree's own
+# dynamic loader. No system-wide armhf packages, no chroot, no container —
+# uninstalling is `rm -rf` on one directory.
+#
+# ALSA_CONFIG_PATH points at the runtime's own alsa.conf on purpose: the 2017
+# ALSA library in the tree cannot parse the host's modern configuration and
+# fails to enumerate any device at all if pointed at it.
+#
+# Started by milo-tidal.service as the milo user. Needs no sudoers entry.
+set -e
+
+TIDAL_ROOT="${TIDAL_ROOT:-/opt/milo/tidal-connect}"
+APP="$TIDAL_ROOT/app/ifi-tidal-release"
+
+LOADER="$TIDAL_ROOT/lib/ld-linux-armhf.so.3"
+LIB_PATH="$TIDAL_ROOT/lib/arm-linux-gnueabihf:$TIDAL_ROOT/usr/lib/arm-linux-gnueabihf:$TIDAL_ROOT/lib:$TIDAL_ROOT/usr/lib"
+
+if [[ ! -x "$LOADER" ]]; then
+    echo "Tidal Connect runtime missing at $TIDAL_ROOT — run install/tidal-connect.sh" >&2
+    exit 1
+fi
+
+# MILO_MODE comes from routing.env; the milo_tidal ALSA PCM resolves it to the
+# CamillaDSP path (direct) or the snapcast loopback (multiroom), same wiring as
+# every other source.
+PLAYBACK_DEVICE="${PLAYBACK_DEVICE:-milo_tidal}"
+
+# The name the Tidal apps show in their speaker picker. Non-ASCII is fine here
+# — the macron survives the mDNS TXT record (fn=Milō) and the app renders it,
+# verified on the unit. That is NOT true of every Connect implementation: the
+# Qobuz iOS app aborts its handshake on the same string, which is why
+# install/qobuz-proxy.sh pins an ASCII name.
+FRIENDLY_NAME="${FRIENDLY_NAME:-Milō}"
+MODEL_NAME="${MODEL_NAME:-Milo}"
+
+export ALSA_CONFIG_PATH="$TIDAL_ROOT/usr/share/alsa/alsa.conf"
+
+exec "$LOADER" --library-path "$LIB_PATH" \
+    "$APP/bin/tidal_connect_application" \
+    --friendly-name "$FRIENDLY_NAME" \
+    --model-name "$MODEL_NAME" \
+    --tc-certificate-path "$APP/id_certificate/IfiAudio_ZenStream.dat" \
+    --playback-device "$PLAYBACK_DEVICE" \
+    --controller-unix-socket-path "${TIDAL_CONTROLLER_SOCKET:-/run/milo/tidal-controller.sock}" \
+    --log-level "${TIDAL_LOG_LEVEL:-3}"

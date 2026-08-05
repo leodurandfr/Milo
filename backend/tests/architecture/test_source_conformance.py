@@ -44,6 +44,10 @@ FAMILIES = {
     "qobuz": ("B", {"source.py", "monitor.py"}, {"routes.py"}),
     # C — active player: controlled from Milō's UI, rich metadata.
     "spotify": ("C", {"source.py", "websocket.py", "models.py"}, {"routes.py"}),
+    # Tidal is Spotify's shape with a Unix socket where the WebSocket is. No
+    # models.py because every command it accepts is param-less: the tisoc
+    # protocol has no seek, so nothing carries a payload.
+    "tidal": ("C", {"source.py", "controller_socket.py"}, {"routes.py", "data.py"}),
     "radio": ("C", {"source.py", "routes.py", "data.py", "models.py"}, set()),
     "podcast": ("C", {"source.py", "routes.py", "data.py", "models.py"}, set()),
     "cd": ("C", {"source.py", "routes.py", "data.py", "models.py"}, set()),

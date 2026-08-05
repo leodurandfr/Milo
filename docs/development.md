@@ -79,6 +79,7 @@ backend/
 │   ├── cd/                   # CDSource + routes
 │   ├── dlna/                 # DlnaSource + metadata_reader (UPnP bridge) + routes
 │   ├── qobuz/                # QobuzSource + monitor (qobuz-proxy /api/status poll)
+│   ├── tidal/                # TidalSource + controller_socket (tisoc Unix-socket client)
 │   └── music_library/        # MusicLibrarySource + navidrome_client + storage + data + routes
 ├── api/                       # REST API routes
 ├── hardware/                  # Hardware controllers (rotary, IR remote, BT remote, screen)
@@ -116,6 +117,7 @@ frontend/src/
 │   ├── setup/                # First-boot setup wizard
 │   ├── spotify/              # Spotify source UI
 │   ├── system/               # System-level UI (info, update)
+│   ├── tidal/                # Tidal source UI
 │   └── ui/                   # Reusable UI primitives
 ├── stores/                   # Pinia stores
 │   ├── unifiedAudioStore.js  # Central audio state (WebSocket-synced)
@@ -211,6 +213,7 @@ class AudioSource(Enum):
     CD = "cd"
     DLNA = "dlna"
     QOBUZ = "qobuz"
+    TIDAL = "tidal"
     MUSIC_LIBRARY = "music_library"
     MY_SOURCE = "my_source"  # ← Add here
 ```

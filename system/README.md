@@ -107,6 +107,14 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **Managed By**: QobuzSource
 - **Notes**: `QOBUZPROXY_DATA_DIR=/var/lib/milo/qobuz` holds the venv, `config.yaml`, and the OAuth `credentials.json` written on first login (per-user, not baked into the image)
 
+#### milo-tidal.service
+- **Role**: Tidal Connect via Tidal's Connect Device SDK daemon
+- **Controller Socket**: /run/milo/tidal-controller.sock
+- **Dependencies**: milo-backend.service, network-online.target, sound.target, milo-camilladsp.service
+- **ALSA Device**: milo_tidal (dynamic routing via routing.env)
+- **Managed By**: TidalSource
+- **Notes**: 32-bit armhf binary run through its own loader out of `/opt/milo/tidal-connect`; no containers. `BindReadOnlyPaths=` maps the armhf ALSA rate converter onto the path `libasound` has baked in, without which nothing is resampled and no stream opens at all. `Group=milo` like every unit sharing `/run/milo` — systemd applies the declaring unit's group to that directory on each start.
+
 ### Multiroom Services (Managed Dynamically)
 
 #### milo-snapserver-multiroom.service
@@ -211,6 +219,7 @@ multi-user.target
        ├─ milo-dlna.service
        ├─ milo-music-library.service
        ├─ milo-qobuz.service
+       ├─ milo-tidal.service
        └─ (multiroom mode only)
             ├─ milo-snapserver-multiroom.service
             └─ milo-snapclient-multiroom.service

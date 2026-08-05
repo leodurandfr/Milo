@@ -1,9 +1,11 @@
 <!-- LyricsPlaybackBar.vue — full-width playback bar pinned to the bottom of
      LyricsView. Its control surface scales with what the active source can
      actually do on the wire:
-       - "full"     (spotify, cd, music_library): name/artist + interactive
-                     progress bar + play/pause/prev/next, same generic
-                     pause/resume/next/prev commands AudioPlayerFull uses.
+       - "full"     (spotify, cd, music_library, tidal): name/artist + progress
+                     bar + play/pause/prev/next, same generic
+                     pause/resume/next/prev commands AudioPlayerFull uses. The
+                     bar is interactive wherever the source can seek — Tidal
+                     cannot, so it gets the buttons and a read-only bar.
        - "metadata" (airplay, dlna, qobuz): name/artist + a read-only progress
                      bar (these are receiver-controlled — no transport surface
                      on the wire; ProgressBar already self-hides when a source
@@ -55,7 +57,7 @@
         <div v-if="tier !== 'name-only'" class="lyrics-bar-progress">
           <ProgressBar :currentPosition="currentPosition" :duration="duration"
             :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
-            :interactive="tier === 'full'" variant="dark" animateIn @seek="seekTo" />
+            :interactive="canSeek" variant="dark" animateIn @seek="seekTo" />
         </div>
 
         <!-- Right column: the transport when the source has one — same as
@@ -101,14 +103,22 @@ const unifiedStore = useUnifiedAudioStore();
 const cdStore = useCdStore();
 const musicLibraryStore = useMusicLibraryStore();
 
-const FULL_CONTROL_SOURCES = new Set(['spotify', 'cd', 'music_library']);
+const FULL_CONTROL_SOURCES = new Set(['spotify', 'cd', 'music_library', 'tidal']);
 const NAME_ONLY_SOURCES = new Set(['radio']);
+
+// Transport and seek are separate capabilities. Tidal's controller protocol
+// carries pause/resume/next/prev but exposes no seek at all, so it earns the
+// full tier's buttons with a read-only bar — the same split TidalSource.vue
+// makes on AudioPlayerFull with :seekable="false".
+const NO_SEEK_SOURCES = new Set(['tidal']);
 
 const tier = computed(() => {
   if (FULL_CONTROL_SOURCES.has(props.source)) return 'full';
   if (NAME_ONLY_SOURCES.has(props.source)) return 'name-only';
   return 'metadata';
 });
+
+const canSeek = computed(() => tier.value === 'full' && !NO_SEEK_SOURCES.has(props.source));
 
 const identity = computed(() => getTrackIdentity(props.source, unifiedStore.systemState.metadata));
 

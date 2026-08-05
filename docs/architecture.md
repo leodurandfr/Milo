@@ -22,8 +22,8 @@ Milō is built around a client-server architecture with real-time synchronizatio
  │Spo-│ │Qobuz │ │Air- │ │DLNA│ │Blue-│ │Music │ │Ra-│ │Pod-│ │Mac (roc│
  │tify│ │(qobu-│ │Play │ │(gme│ │tooth│ │Libra-│ │dio│ │cast│ │) + CD  │
  │(li-│ │z-pro-│ │(sha-│ │dia-│ │(blu-│ │ry    │ │(mp│ │(mpv│ │        │
- │bre-│ │xy)   │ │irpo-│ │rend│ │ez)  │ │(navi-│ │v) │ │)   │ │        │
- │spot│ │      │ │rt)  │ │er) │ │     │ │drome)│ │   │ │    │ │        │
+ │bre-│ │xy) + │ │irpo-│ │rend│ │ez)  │ │(navi-│ │v) │ │)   │ │        │
+ │spot│ │Tidal │ │rt)  │ │er) │ │     │ │drome)│ │   │ │    │ │        │
  └─┬──┘ └──┬───┘ └──┬──┘ └─┬──┘ └──┬──┘ └──┬───┘ └─┬─┘ └─┬──┘ └───┬────┘
    └───────┴────────┴──────┴───────┴───────┴───────┴─────┴────────┘
                               │
@@ -134,9 +134,9 @@ The two network values are computed by the **backend**, in
   same answer because Milō has no browser to accept one with. `unknown` is the
   fail-open value and reads as `full`.
 - **The active source's `NETWORK_REQUIREMENT`** (`none` / `lan` / `internet`),
-  a class attribute on `BaseAudioSource`: `internet` for Spotify, Qobuz, Radio
-  and Podcast; `lan` for AirPlay, DLNA and Mac (ROC); `none` for Bluetooth, CD
-  and the Music Library.
+  a class attribute on `BaseAudioSource`: `internet` for Spotify, Qobuz, Tidal,
+  Radio and Podcast; `lan` for AirPlay, DLNA and Mac (ROC); `none` for
+  Bluetooth, CD and the Music Library.
 
 So a router with no route out blocks Spotify and leaves AirPlay alone, and
 nothing at all blocks a CD. Neither axis alone can say that, which is why the
@@ -454,6 +454,49 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - Data: `/var/lib/milo/navidrome/` (DB + cache + service-account cred), `music_library_data.json`
   (network-share config, non-secret); share passwords live in root-only cred files, never here
 
+### 11. Tidal Connect (Tidal Connect Device SDK)
+
+**What is it?**
+- Tidal Connect receiver — any Tidal app (mobile/desktop) casts to Milō and keeps
+  full control, while Milō also drives transport and draws the track (Family C,
+  like Spotify)
+
+**How it works:**
+- The daemon is a **32-bit armhf binary from Tidal's proprietary Connect Device
+  SDK, frozen since 2020**. There is no source, no rebuild, and no upstream to
+  follow — which is why it is deliberately absent from
+  `backend/core/updates/catalog.py`: there is no version to read and no release
+  to compare against
+- It is distributed only as a container image, and Milō runs no containers:
+  `install/tidal_connect_runtime.py` pulls the pinned image's layers straight
+  from the registry and unpacks them into `/opt/milo/tidal-connect`, then runs
+  the binary through **that tree's own dynamic loader**. Uninstalling is
+  `rm -rf` on one directory. Three corrections are applied on top of the image,
+  each documented in that script's docstring: 16K-page-mappable replacements for
+  `libsystemd`/`libudev` (from **bullseye** — bookworm is the one that breaks
+  it), removal of the image's shadowing copies, and the ALSA rate converter
+  below
+- Control is a **length-framed JSON protocol on a Unix socket** (`tisoc`,
+  undocumented, read off a live session): `FF 02 | uint16 length | JSON | FF 03`.
+  Two answers are mandatory — `startService` on connect (without it the daemon's
+  SessionManager rejects every phone session **and stays wedged until a
+  restart**) and `grantResources` in reply to `requestResources` (without it the
+  session opens and stalls before a sample is decoded)
+- **No seek**: the controller protocol exposes none, so the progress bar is
+  read-only (`:seekable="false"`) in both the full player and the Lyrics bar
+- **No status query**: the daemon pushes and never answers, so a controller
+  reconnect resets the session rather than re-affirming a track that may be gone
+- Artwork is a plain Tidal CDN URL loaded directly by the kiosk — no binary
+  artwork route, same as Qobuz
+
+**Configuration:**
+- Service: milo-tidal.service (backend-managed, started with the source)
+- Runtime tree: `/opt/milo/tidal-connect` (root-owned, read-only at runtime)
+- Controller socket: `/run/milo/tidal-controller.sock`
+- Audio output: ALSA (milo_tidal)
+- Visible name: "Milō" — the macron survives the mDNS TXT record and the apps
+  render it (unlike Qobuz, which needs ASCII)
+
 ## Lyrics (LRCLIB)
 
 **What is it?**
@@ -592,6 +635,7 @@ options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8
 - **card 2 `LoopbackDLNA`**, subdevice 0: DLNA (multiroom) — gmediarender writes `hw:2,0,0`, Snapserver reads `hw:2,1,0`.
 - **card 2 `LoopbackDLNA`**, subdevice 1: Qobuz (multiroom) — qobuz-proxy writes `hw:LoopbackDLNA,0,1`, Snapserver reads `hw:2,1,1`.
 - **card 2 `LoopbackDLNA`**, subdevice 2: Music Library (multiroom) — mpv writes `hw:LoopbackDLNA,0,2`, Snapserver reads `hw:2,1,2`. Direct mode routes `pcm.milo_music_library` → `camilladsp`, the same trio pattern as `milo_cd`/`milo_qobuz`.
+- **card 2 `LoopbackDLNA`**, subdevice 3: Tidal (multiroom) — the Tidal Connect daemon writes `hw:LoopbackDLNA,0,3`, Snapserver reads `hw:2,1,3`.
 
 Any further source needs another loopback card (bump `index`/`enable`/`id`/`pcm_substreams` in the module options at **both** install paths — `install/alsa.sh` and `pi-gen/stage-milo/02-install-milo/01-run.sh`).
 
@@ -604,6 +648,8 @@ defaults.pcm.rate_converter "speexrate_medium"
 ```
 
 This replaces ALSA's default low-quality linear-interpolation converter with a **sinc/polyphase resampler** (`speexrate_medium`, from `libasound2-plugins`) for every `type plug` — a good CPU/quality balance on the Pi. The resampling runs **in the address space of the client that opens the PCM** (e.g. inside `go-librespot` for Spotify), not in CamillaDSP; the measured cost is ~+0.6 pt of one core for a 44.1 kHz source. The gain is measurable but inaudible — this is polishing, not a transformation; source quality (lossless vs lossy) remains the real lever.
+
+**Tidal is the one source that cannot inherit this by itself.** `libasound` resolves a rate converter by `dlopen`ing a path baked in at build time — `/usr/lib/arm-linux-gnueabihf/alsa-lib`, which an arm64 host does not have — and the 1.1.3 in the Tidal runtime tree offers no environment override. With no converter, `plug` cannot resample and **PortAudio never opens the stream at all**: the app shows a track playing and the speakers stay silent. So `install/tidal_connect_runtime.py` installs the armhf `speexrate` modules into the runtime tree and `milo-tidal.service` bind-mounts them onto that path *for itself only*. Every other source is a 64-bit process and finds the module on the host without help.
 
 **Multiroom:** the 44.1→48 conversion still happens at the source's `type plug` (`milo_<src>_multiroom`), *before* the loopback, so it is covered by the same `rate_converter`. Snapserver opens every loopback capture at `48000:32:2` and therefore only ever sees already-48 kHz audio — it is pass-through and does **not** resample (its bundled soxr is present but not exercised on this path).
 

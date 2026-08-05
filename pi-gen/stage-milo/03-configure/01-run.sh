@@ -34,7 +34,7 @@ CHROOT
 
 on_chroot << 'CHROOT'
 # These services are managed dynamically by the Milo backend, not at boot
-# milo-spotify, milo-qobuz, milo-mac, milo-radio, milo-airplay,
+# milo-spotify, milo-qobuz, milo-tidal, milo-mac, milo-radio, milo-airplay,
 # milo-snapserver-multiroom, milo-snapclient-multiroom
 
 # Default Snapcast services conflict with Milo-managed ones

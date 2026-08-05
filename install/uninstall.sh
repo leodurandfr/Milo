@@ -110,7 +110,10 @@ uninstall_milo() {
     sudo rm -f /usr/local/bin/milo-apply-avahi-iface
     sudo rm -f /usr/local/bin/milo-apply-ir-keymap
     sudo rm -f /usr/local/bin/milo-ir-keytable-setup
+    sudo rm -f /usr/local/bin/milo-tidal-connect
     sudo rm -rf /usr/local/lib/milo
+    # Whole Tidal Connect runtime tree — it is self-contained by design.
+    sudo rm -rf /opt/milo/tidal-connect
 
     log_info "Cleaning up packages..."
     sudo apt purge -y snapserver snapclient gmediarender 2>/dev/null || true

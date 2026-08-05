@@ -19,6 +19,7 @@ class AudioSource(Enum):
     CD = "cd"
     DLNA = "dlna"
     QOBUZ = "qobuz"
+    TIDAL = "tidal"
     MUSIC_LIBRARY = "music_library"
 
 
