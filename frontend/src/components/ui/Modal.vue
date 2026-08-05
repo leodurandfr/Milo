@@ -81,10 +81,11 @@ provide('modalContentRef', modalScroller);
 // intra-view height changes through this so the clip springs in lock-step.
 provide('modalRequestHeightDelta', requestHeightDelta);
 
-// Multiroom zone expand AND collapse: the item springs its own height 0 ↔ full on the
+// Multiroom zone expand AND collapse: the item animates its own height 0 ↔ full on the
 // same curve as the clip, so both stay equal at every frame while this keeps the
-// scroller matched to the live reflow. One mechanism for both directions — that
-// symmetry is what makes the two look like the same animation played backwards.
+// scroller matched to the live reflow. One mechanism for both directions; the curve is
+// the caller's (it springs on expand, and passes a monotone one for the collapse, which
+// lands on 0 where a spring's overshoot cannot exist — see MultiroomItem).
 provide('modalSpringHeightDelta', springClipDelta);
 
 // contentInner ref so children can measure exact height deltas.

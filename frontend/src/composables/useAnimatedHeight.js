@@ -1,5 +1,6 @@
 // frontend/src/composables/useAnimatedHeight.js
 import { onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { useTimer } from './useTimer';
 
 /**
  * Drives the modal's morphing height through a SINGLE writer, setTargetHeight().
@@ -36,6 +37,8 @@ export function useAnimatedHeight(contentRef, options = {}) {
     getMaxHeight = null,
   } = options;
 
+  const timer = useTimer();
+
   let resizeObserver = null;
   let isFirstResize = skipFirstResize;
   // Last target written to the CLIP (the animated anchor). The scroller is always
@@ -46,6 +49,8 @@ export function useAnimatedHeight(contentRef, options = {}) {
   // pre-set target and must finish its curve (incl. bounce) uninterrupted. See
   // springClipDelta().
   let scrollerFollowsUntil = 0;
+  // Pending restore of the clip's CSS transition after a per-direction override.
+  let clipTransitionRestore = null;
 
   function clampPx(px) {
     let v = px;
@@ -146,27 +151,50 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
   /**
    * Companion to requestHeightDelta for when the CHILD animates its OWN height on the
-   * SAME spring curve as the clip (e.g. a multiroom zone whose wrapper springs 0 ↔ full
-   * over --transition-spring-light). Springs ONLY the clip to the target — a native CSS
-   * spring, so it keeps the bounce — and, for `durationMs`, has the observer keep the
-   * SCROLLER matched to the live content instead of writing the clip (which must finish
-   * its curve uninterrupted). Symmetric: expand and collapse both go through here.
+   * SAME curve as the clip (e.g. a multiroom zone whose wrapper springs 0 ↔ full over
+   * --transition-spring-light). Moves ONLY the clip to the target — a native CSS
+   * transition, so an overshooting curve keeps its bounce — and, for `durationMs`, has
+   * the observer keep the SCROLLER matched to the live content instead of writing the
+   * clip (which must finish its curve uninterrupted).
    *
    * Because the child rides the same curve, clip and content are equal at every frame
    * (no gap, nothing cut to the target early — the scroller tracks the live reflow).
    * Unlike requestHeightDelta, the scroller is NOT set to the target up front: that
    * would clip the still-reflowing content on collapse, and reveal empty space on expand.
    *
+   * `transition` exists because that equality is what breaks when the CHILD's own height
+   * lands on 0: CSS clamps a negative height away, so the child cannot render a spring's
+   * overshoot lobe while the clip — whose height stays positive — renders it in full. A
+   * child in that case passes the monotone curve it actually rides; the override is
+   * dropped when the follow window ends, so the CSS spring owns every other write.
+   *
    * @param {number} delta - px change (positive expand, negative collapse).
-   * @param {number} [durationMs=900] - how long the scroller follows the reflow. Must
-   *   outlast the child's own spring (820ms): on expand the content overshoots ABOVE the
-   *   target and its residual wobble exceeds `threshold` on tall children, which would
-   *   re-spring the clip mid-curve. On collapse the height clamps at 0 much earlier.
+   * @param {Object} [opts]
+   * @param {number} [opts.durationMs=900] - how long the scroller follows the reflow, and
+   *   how long a `transition` override lives. Must outlast the child's own curve: on a
+   *   spring expand the content overshoots ABOVE the target and its residual wobble
+   *   exceeds `threshold` on tall children, which would re-spring the clip mid-curve.
+   * @param {string|null} [opts.transition=null] - full `transition` shorthand to write on
+   *   the clip for this move (must be the child's own curve), instead of the CSS spring.
    */
-  function springClipDelta(delta, durationMs = 900) {
+  function springClipDelta(delta, { durationMs = 900, transition = null } = {}) {
     isFirstResize = false;
     const clip = clipRef?.value;
     if (!clip) return;
+
+    if (clipTransitionRestore) {
+      timer.clear(clipTransitionRestore);
+      clipTransitionRestore = null;
+    }
+    // Written BEFORE the height so the new curve is the one this transition starts on.
+    clip.style.transition = transition ?? '';
+    if (transition) {
+      clipTransitionRestore = timer.setTimeout(() => {
+        clipTransitionRestore = null;
+        if (clipRef?.value) clipRef.value.style.transition = '';
+      }, durationMs);
+    }
+
     const target = clampPx(measureContentPx() + delta);
     clip.style.height = `${target}px`;
     currentTargetPx = target;
