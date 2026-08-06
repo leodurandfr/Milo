@@ -45,6 +45,8 @@ import {
   DECIDERS,
   BEHAVIOURAL_FIELDS,
   SOURCE_PAGE_PREFIX,
+  MEDIA_APP_COVER_PX,
+  FAVICON_COVER_PX,
   allEvents,
   allMetadata,
   settledState,
@@ -61,6 +63,7 @@ import {
   foundationPageById
 } from '../../src/components/gallery/foundations.js';
 import { ALL_AUDIO_SOURCES } from '../../src/constants/audioSources.js';
+import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '../../src/constants/imageQuality.js';
 import { useRadioStore } from '../../src/stores/radioStore.js';
 import { useMusicLibraryStore } from '../../src/stores/musicLibraryStore.js';
 import { usePodcastStore } from '../../src/stores/podcastStore.js';
@@ -756,6 +759,26 @@ describe('component gallery source pages', () => {
     expect(gaps).toEqual([]);
   });
 
+  it('samples a cover width either side of the gate, not the gate itself', () => {
+    // The AirPlay tabs are the page's one worked example of a threshold, and
+    // they document it with two sample widths a real sender would push rather
+    // than with the threshold ± 1. That only stays honest while the samples
+    // straddle it — move UNTRUSTED_SENDER_MIN_ARTWORK_PX to 100 and the favicon
+    // scenario starts rendering the player under a note that says it is
+    // declined, which is a page teaching the opposite of the code. Both sides
+    // are read from their own module, so this is a relationship, not a value
+    // restated in a test.
+    expect(FAVICON_COVER_PX).toBeLessThanOrEqual(UNTRUSTED_SENDER_MIN_ARTWORK_PX);
+    expect(MEDIA_APP_COVER_PX).toBeGreaterThan(UNTRUSTED_SENDER_MIN_ARTWORK_PX);
+
+    // And the samples have to be the widths the scenarios actually carry: a
+    // scenario that inlined a literal would sit outside this check entirely.
+    const widths = new Set(
+      METADATA.map(record => record.album_art_width).filter(width => width !== undefined)
+    );
+    expect([...widths].sort((a, b) => a - b)).toEqual([FAVICON_COVER_PX, MEDIA_APP_COVER_PX]);
+  });
+
   it('gives all ten sources their errored screen', () => {
     // ERROR is the state every source can reach and the only one `hasRichDisplay`
     // answers before looking at the source at all — so it is where the three
@@ -861,8 +884,9 @@ describe('component gallery source pages', () => {
   });
 
   it('spells a browser condition with fields its own fixture carries', () => {
-    // The three browsers are always `active`, so their names need a second axis
-    // — the catalogue condition, which arrives over HTTP. Same rule as the
+    // The three browsers carry almost nothing on the socket — READY or ACTIVE
+    // and no behavioural metadata at all — so their names need a second axis:
+    // the catalogue condition, which arrives over HTTP. Same rule as the
     // events axis, enforced the same way: a token has to name something the
     // scenario itself supplies, or it is prose again. `stations=0` passes
     // because the fixture answers `{ stations: [] }`; `no-favourites` would not.

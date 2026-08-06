@@ -2,9 +2,12 @@
 <template>
   <!-- Transport controls, like Tidal: the phone hands over a track and BlueZ's
        AVRCP controller accepts Play/Pause/Next/Previous. The progress bar is
-       read-only — AVRCP has no seek, only hold-style fast-forward. There is
-       never any cover art either (AVRCP carries it over a separate OBEX channel
-       BlueZ gives no client for), so the artwork slot stays empty. -->
+       read-only — AVRCP has no seek, only hold-style fast-forward. No cover
+       comes over the link either (AVRCP carries it on a separate OBEX channel
+       BlueZ gives no client for), so the one in the artwork slot was resolved
+       from the track text by shared/artwork_resolver.py and arrives in the same
+       album_art_url field a source with real artwork fills — asynchronously,
+       and a miss leaves the slot on its source glyph. -->
   <AudioPlayerFull source="bluetooth" :seekable="false">
     <!-- The disconnect CTA lives on the status card, which this player replaces
          the moment the sender publishes a track — i.e. exactly when a user

@@ -40,11 +40,19 @@ function hasRichDisplay(source, state, meta, unavailableReason) {
     case 'airplay':
       // Untrusted sender: require title, artist AND a real cover (>300px).
       // A small/absent image means browser audio → status card.
-      // Passive source (no Milō controls), so also require audio to be flowing:
-      // when the sender stops/quits, the route stays connected and the backend
-      // keeps the stale cover but flips is_playing=false → drop to the status
-      // card rather than freeze on a cover for audio that no longer plays.
-      return state === 'active' && !!m.is_playing && !!m.title && !!m.artist &&
+      //
+      // No is_playing clause, and it is not an omission: ACTIVE means a session
+      // exists, not that audio is coming out. A sender that actually quits does
+      // not flip the flag, it ends the session — shairport's 'disc' clears the
+      // track, the cover and the client name and the source publishes READY, so
+      // the card is already what comes back. What is left carrying
+      // is_playing=false is a *pause*, and dropping to the card there deleted
+      // the cover and the sender name mid-session, then restored them on
+      // resume. Same reason Bluetooth has none (see below): the screen a user
+      // is looking at should not disappear because they pressed pause on their
+      // phone. The stale-cover window a paused session can leave is bounded by
+      // the source's own auto-stop, which restarts shairport back to READY.
+      return state === 'active' && !!m.title && !!m.artist &&
         (m.album_art_width || 0) > UNTRUSTED_SENDER_MIN_ARTWORK_PX;
     case 'radio':
     case 'podcast':
@@ -57,10 +65,12 @@ function hasRichDisplay(source, state, meta, unavailableReason) {
       // AudioSourceStatus card.
       return !!m.disc_present && !!m.cache_ready && !m.ejecting;
     case 'dlna':
-      // Same gate as AirPlay: untrusted external sender, require title, artist,
-      // a real cover (>300px) AND audio flowing (drop the stale cover when the
-      // controller stops).
-      return state === 'active' && !!m.is_playing && !!m.title && !!m.artist &&
+      // Same gate as AirPlay, for the same reasons: untrusted external sender,
+      // so title, artist and a real cover (>300px) — and no is_playing clause,
+      // since a controller that pauses or stops keeps the renderer connected
+      // (gmediarender holds no session) while only a real disconnect publishes
+      // READY.
+      return state === 'active' && !!m.title && !!m.artist &&
         (m.album_art_width || 0) > UNTRUSTED_SENDER_MIN_ARTWORK_PX;
     case 'qobuz':
     case 'tidal':
