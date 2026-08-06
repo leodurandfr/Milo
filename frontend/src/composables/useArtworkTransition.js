@@ -14,6 +14,7 @@
 // the moment the two are superimposed.
 import { ref, watch } from 'vue';
 import { useTimer } from '@/composables/useTimer';
+import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
 
 // The only signal that a cover is never coming: the backend has no "no cover for
 // this track" event, and an image that will not decode fires no `load` either.
@@ -27,12 +28,12 @@ export const ARTWORK_WAIT_MS = 4000;
  *   shownArtwork: import('vue').Ref<string>,
  *   preloadArtwork: import('vue').Ref<string>,
  *   artworkPending: import('vue').Ref<boolean>,
- *   settleArtwork: (url: string) => void
+ *   settleFromLoad: (event: Event) => void,
+ *   settleFromError: () => void
  * }}
- *   The consumer renders `preloadArtwork` in an off-screen <img> and calls
- *   `settleArtwork` from its load/error handlers — which is also where a
- *   consumer with its own validation (the screensaver rejects tiny images) gets
- *   to reject the cover and settle on '' instead.
+ *   The consumer renders `preloadArtwork` in an off-screen <img> and wires these
+ *   two straight to its load/error. It does not get to decide what counts as a
+ *   cover — see the size rule below.
  */
 export function useArtworkTransition(target, trackKey) {
   const timer = useTimer();
@@ -47,6 +48,23 @@ export function useArtworkTransition(target, trackKey) {
     shownArtwork.value = url;
     preloadArtwork.value = '';
     artworkPending.value = false;
+  }
+
+  // What counts as a cover, decided once for both views. A tracking pixel or a
+  // broken favicon decodes perfectly well and is not a cover, so the verdict has
+  // to be shared: the screensaver is superimposed on the player during its leave
+  // crossfade, and the two cannot disagree there. Leaving the call to the
+  // consumer is exactly how the player came to paint a 1×1 image as a cover
+  // while the screensaver replaced it with a generated avatar for the same
+  // track — same URL, opposite verdicts, invisible to a parity check on the URL.
+  function settleFromLoad(event) {
+    const img = event.target;
+    const tooSmall = img.naturalWidth < MIN_IMAGE_SIZE || img.naturalHeight < MIN_IMAGE_SIZE;
+    settleArtwork(tooSmall ? '' : preloadArtwork.value);
+  }
+
+  function settleFromError() {
+    settleArtwork('');
   }
 
   function waitFor(fallbackUrl) {
@@ -66,5 +84,5 @@ export function useArtworkTransition(target, trackKey) {
     waitFor(url); // decode too slow, or no load event at all → paint it anyway
   }, { immediate: true });
 
-  return { shownArtwork, preloadArtwork, artworkPending, settleArtwork };
+  return { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError };
 }

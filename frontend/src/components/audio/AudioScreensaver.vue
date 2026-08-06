@@ -35,10 +35,11 @@
               </Transition>
             </div>
 
-            <!-- Decodes the incoming cover off-screen; its load is what
-                 promotes it, and where the too-small check now happens. -->
+            <!-- Decodes the incoming cover off-screen; its load is what promotes
+                 it, or rejects it — the too-small check lives in the composable
+                 so this view and the player cannot reach opposite verdicts. -->
             <img v-if="preloadArtwork" :src="preloadArtwork" alt="" class="artwork-preload"
-              @load="handlePreloadLoad" @error="settleArtwork('')" />
+              @load="settleFromLoad" @error="settleFromError" />
           </div>
         </div>
 
@@ -89,7 +90,6 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import ProgressBar from './ProgressBar.vue';
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
-import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
 const props = defineProps({
@@ -161,18 +161,9 @@ const emit = defineEmits(['close']);
 // differently here would show up exactly when the two are superimposed.
 const artworkTarget = computed(() => props.artwork || '');
 const trackKey = computed(() => `${props.title}|${props.subtitle}`);
-const { shownArtwork, preloadArtwork, artworkPending, settleArtwork } =
+const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
   useArtworkTransition(artworkTarget, trackKey);
 
-// Artwork validation moved onto the preloader: a tiny image is a tracking pixel
-// or a broken favicon, not a cover, so it settles to '' and the generated avatar
-// takes over — the same outcome the old artworkError flag produced, minus the
-// frame where the bad image was already on screen.
-function handlePreloadLoad(e) {
-  const tooSmall = e.target.naturalWidth < MIN_IMAGE_SIZE
-    || e.target.naturalHeight < MIN_IMAGE_SIZE;
-  settleArtwork(tooSmall ? '' : preloadArtwork.value);
-}
 const fallbackSvg = computed(() => {
   const name = props.stationName || props.title;
   return name ? generateStationAvatarSvg(name) : '';
