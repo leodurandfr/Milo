@@ -833,16 +833,32 @@ export const SOURCE_PAGES = [
     id: `${SOURCE_PAGE_PREFIX}bluetooth`,
     source: 'bluetooth',
     title: 'Bluetooth',
-    family: 'A — mute receiver',
-    uses: 'AudioSourceStatus only',
+    family: 'C — active player',
+    uses: 'AudioSourceStatus · AudioPlayerFull (showControls, seekable false)',
     via: 'dispatcher',
     summary:
-      'A mute receiver: no rich metadata, so hasRichDisplay returns false for every record and the status card is the whole UI. It owns one of the card’s two CTAs — disconnect, armed only while active — and it is one of the three sources that put a real name on the second line, from metadata.device_name.',
+      'The one source whose two feeds answer different questions: BlueALSA says who is connected, BlueZ AVRCP says what is playing — and the second is optional. So this is also the only source that moves between the card and the player on metadata alone, which is what the first two active records below show. AVRCP has no seek (inert bar, like TIDAL) and carries no cover art at all, so the player runs with an empty artwork slot. The disconnect CTA appears twice for that reason: on the card, and again as the player’s action button, since the card is gone exactly when a user wants to kick the phone off.',
     scenarios: [
       starting('bluetooth'),
       ready('bluetooth', 'Ready', 'Discoverable, nothing paired-and-connected. No CTA in this state.'),
-      active('bluetooth', 'Connected', 'device_name fills the second line and the disconnect CTA appears. It routes through sendCommand, so here it reports to the event log.', {
+      active('bluetooth', 'Connected, no AVRCP', 'A sender that publishes no player — or publishes an empty track — stays on the card: device_name fills the second line and the disconnect CTA appears. It routes through sendCommand, so here it reports to the event log.', {
         device_name: 'Leo’s iPhone'
+      }),
+      active('bluetooth', 'Playing', 'Title + artist is the whole gate — requiring the artist is what does the work AirPlay gets from its cover-size check, since a web video publishes a title and rarely an artist. Transport plus a bar that draws position and refuses a scrub, over an empty artwork slot.', {
+        device_name: 'Leo’s iPhone',
+        title: 'Says',
+        artist: 'Nils Frahm',
+        is_playing: true,
+        position: 192000,
+        duration: 511000
+      }),
+      active('bluetooth', 'Paused', 'Same record, is_playing false. Unlike the two untrusted senders there is no is_playing clause in the gate, and there cannot be: this player draws a pause button, and dropping to the card on pause would delete the button that was just pressed.', {
+        device_name: 'Leo’s iPhone',
+        title: 'Says',
+        artist: 'Nils Frahm',
+        is_playing: false,
+        position: 192000,
+        duration: 511000
       }),
       errored(
         'bluetooth',

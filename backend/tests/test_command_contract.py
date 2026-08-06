@@ -35,12 +35,16 @@ ALL_SOURCES = [
     MusicLibrarySource, QobuzSource, TidalSource,
 ]
 
-# TidalSource translates each command into the daemon's own spelling through
-# COMMAND_MAP instead of branching on the name, so the two AST guards below have
-# no `cmd == "..."` to read. Its equivalent invariant — the registry and the map
-# name the same commands — is asserted directly in
-# test_map_dispatch_matches_registry.
-MAP_DISPATCH_SOURCES = [TidalSource]
+# Two sources translate each command into a foreign spelling through a table
+# instead of branching on the name — Tidal into the daemon's, Bluetooth into
+# AVRCP's — so the two AST guards below have little or no `cmd == "..."` to
+# read for them. Their equivalent invariant is asserted directly in
+# test_map_dispatch_matches_registry. Bluetooth is a hybrid: `disconnect` stays
+# an if-arm because it acts on the link, not on the player.
+MAP_DISPATCH_SOURCES = {
+    TidalSource: "COMMAND_MAP",
+    BluetoothSource: "AVRCP_COMMANDS",
+}
 IF_CHAIN_SOURCES = [cls for cls in ALL_SOURCES if cls not in MAP_DISPATCH_SOURCES]
 
 # Commands the hardware encoder/IR/BT-remote dispatcher sends per active source
@@ -53,6 +57,7 @@ HARDWARE_COMMANDS = {
     CdSource: ["pause", "resume", "next", "prev"],
     MusicLibrarySource: ["pause", "resume", "next", "prev"],
     TidalSource: ["pause", "resume", "next", "prev"],
+    BluetoothSource: ["pause", "resume", "next", "prev"],
 }
 
 
@@ -122,20 +127,24 @@ def test_every_dispatch_arm_is_registered(cls):
     )
 
 
-@pytest.mark.parametrize("cls", MAP_DISPATCH_SOURCES)
-def test_map_dispatch_matches_registry(cls):
-    """A map-dispatching source translates exactly the commands it registers.
+@pytest.mark.parametrize("cls,map_attr", MAP_DISPATCH_SOURCES.items())
+def test_map_dispatch_matches_registry(cls, map_attr):
+    """A map-dispatching source dispatches exactly the commands it registers.
 
     Same guarantee the if-chain guards give the others, in the shape this
-    dispatch takes: a COMMANDS key absent from the map raises KeyError on the
-    first press (the hardware dispatcher swallows it, so the encoder button
-    would simply do nothing), and a map entry absent from COMMANDS is dead —
-    `command()` rejects the name before dispatch.
+    dispatch takes: a COMMANDS key reaching neither the map nor an if-arm
+    raises KeyError on the first press (the hardware dispatcher swallows it, so
+    the encoder button would simply do nothing), and a translated name absent
+    from COMMANDS is dead — `command()` rejects it before dispatch.
+
+    The union is what covers the hybrid: Bluetooth answers `disconnect` from an
+    if-arm and its four transport commands from the AVRCP table.
     """
-    assert set(cls.COMMANDS) == set(cls.COMMAND_MAP), (
-        f"{cls.__name__}.COMMANDS and COMMAND_MAP disagree: "
-        f"registry-only={sorted(set(cls.COMMANDS) - set(cls.COMMAND_MAP))}, "
-        f"map-only={sorted(set(cls.COMMAND_MAP) - set(cls.COMMANDS))}"
+    covered = set(getattr(cls, map_attr)) | _dispatched_commands(cls)
+    assert covered == set(cls.COMMANDS), (
+        f"{cls.__name__}.COMMANDS and its dispatch disagree: "
+        f"registry-only={sorted(set(cls.COMMANDS) - covered)}, "
+        f"dispatch-only={sorted(covered - set(cls.COMMANDS))}"
     )
 
 

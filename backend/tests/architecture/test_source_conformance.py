@@ -35,7 +35,6 @@ SOURCES_ROOT = Path(__file__).resolve().parents[2] / "sources"
 FAMILIES = {
     # A — mute receiver: external control, no rich metadata. Commands ride the
     # generic /api/audio/control/{source} endpoint, so no dedicated router.
-    "bluetooth": ("A", {"source.py"}, {"routes.py", "data.py", "models.py"}),
     "mac": ("A", {"source.py"}, {"routes.py", "data.py", "models.py"}),
     # B — passive player: external control, rich metadata. routes.py exists only
     # for what the sender can't deliver (binary artwork); Qobuz needs none.
@@ -48,6 +47,12 @@ FAMILIES = {
     # models.py because every command it accepts is param-less: the tisoc
     # protocol has no seek, so nothing carries a payload.
     "tidal": ("C", {"source.py", "controller_socket.py"}, {"routes.py", "data.py"}),
+    # Bluetooth is family C on the same terms as Tidal — Milō draws the track
+    # and drives the transport — but with the feed split in two: BlueALSA
+    # (monitor.py) answers "who is connected", BlueZ AVRCP (avrcp.py) answers
+    # "what is playing". No models.py, every command is param-less: AVRCP has
+    # no seek. No routes.py either — AVRCP carries no cover art to serve.
+    "bluetooth": ("C", {"source.py", "avrcp.py"}, {"routes.py", "data.py", "models.py"}),
     "radio": ("C", {"source.py", "routes.py", "data.py", "models.py"}, set()),
     "podcast": ("C", {"source.py", "routes.py", "data.py", "models.py"}, set()),
     "cd": ("C", {"source.py", "routes.py", "data.py", "models.py"}, set()),

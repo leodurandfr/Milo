@@ -24,6 +24,8 @@ install_bluez_alsa() {
       libdbus-1-dev \
       libglib2.0-dev \
       libsbc-dev \
+      libfdk-aac-dev \
+      libfreeaptx-dev \
       bluez \
       bluez-tools \
       pkg-config \
@@ -44,12 +46,17 @@ install_bluez_alsa() {
     autoreconf --install
     mkdir build && cd build
 
-    # Use --disable-systemd because we manage our own systemd services
-    # SBC codec is built-in and sufficient for Bluetooth audio
+    # Use --disable-systemd because we manage our own systemd services.
+    # Codecs are sink-side decoders: an Apple sender picks AAC whenever the sink
+    # offers it and silently falls back to SBC otherwise, aptX/aptX HD cover the
+    # Android side and both come out of the single libfreeaptx. LDAC is left out
+    # on purpose — decoding needs ldacBT-dec, which Debian does not package, so
+    # --enable-ldac would only advertise LDAC in the source role we never use.
     ../configure --prefix=/usr --disable-systemd \
       --with-alsaplugindir=/usr/lib/aarch64-linux-gnu/alsa-lib \
       --with-bluealsauser="$MILO_USER" --with-bluealsaaplayuser="$MILO_USER" \
-      --enable-cli
+      --enable-cli \
+      --enable-aac --enable-aptx --enable-aptx-hd --with-libfreeaptx
 
     make -j$(nproc)
     sudo make install

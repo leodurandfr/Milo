@@ -10,8 +10,10 @@ import { computed, ref } from 'vue';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
 
-// Sources that can never carry a song title/artist: mute receivers (no metadata
-// at all) and podcasts (spoken-word episodes, not songs).
+// Mac carries no title/artist at all and a podcast is spoken word, not a song.
+// Bluetooth is the deliberate one: AVRCP does give a title and artist, but the
+// playhead behind them is a notification the sender may push coarsely or not at
+// all, and synced lyrics against a playhead that freezes is worse than none.
 const LYRICS_INCOMPATIBLE_SOURCES = new Set(['bluetooth', 'mac', 'podcast']);
 
 export function isLyricsCompatible(activeSource) {

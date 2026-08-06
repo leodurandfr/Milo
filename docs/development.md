@@ -72,7 +72,7 @@ backend/
 ├── sources/                   # Audio source implementations
 │   ├── spotify/              # SpotifySource + routes
 │   ├── airplay/              # AirPlaySource + metadata_reader + routes
-│   ├── bluetooth/            # BluetoothSource + routes
+│   ├── bluetooth/            # BluetoothSource + agent + monitor (BlueALSA) + avrcp (BlueZ)
 │   ├── mac/                  # MacSource + routes
 │   ├── radio/                # RadioSource + routes + browser_api
 │   ├── podcast/              # PodcastSource + routes + podcastindex_api

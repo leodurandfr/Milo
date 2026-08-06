@@ -8,7 +8,7 @@ caches results on disk under /var/lib/milo/lyrics/ (negatives included, so a
 track with no lyrics is not re-queried), and returns a normalized shape the
 frontend Lyrics app renders directly.
 
-Fully async (aiohttp, per-lookup session like radio/artwork.py). A genuine
+Fully async (aiohttp, per-lookup session like shared/artwork_resolver.py). A genuine
 no-match returns found=False and is cached as a negative, so it is not
 re-queried. An unreachable LRCLIB is different: it raises LyricsUnavailable and
 caches nothing, so a brief outage isn't frozen into "no lyrics" for the track

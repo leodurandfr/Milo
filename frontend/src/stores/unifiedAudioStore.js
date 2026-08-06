@@ -91,8 +91,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
     let success = false;
     if (source === 'bluetooth') {
-      // Family A source: disconnect flows through the generic control endpoint
-      // (the dedicated /api/bluetooth router was retired).
+      // Disconnect flows through the generic control endpoint (the dedicated
+      // /api/bluetooth router was retired). Two callers: the status card's CTA
+      // and BluetoothSource's action button, since the card gives way to the
+      // player as soon as the sender publishes a track.
       success = await sendCommand('bluetooth', 'disconnect');
     } else if (source === 'mac') {
       success = true;

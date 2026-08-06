@@ -1,21 +1,21 @@
-# backend/sources/radio/artwork.py
-"""Cover-art resolution for radio in-band metadata.
+# backend/shared/artwork_resolver.py
+"""Cover-art resolution from text metadata, via the iTunes Search API.
 
-In-band ICY metadata carries only artist/title text (no artwork), unlike Shazam
-which returns an image URL. This resolver fills that gap: it looks the track up
-on the iTunes Search API and returns the release's cover-art URL, so in-band
-stations (walmradio, stereoscenic, …) show a cover just like Shazam-recognised
-tracks do — the URL lands in the same `metadata.track_artwork` field, and Apple
-Music is the same art source Shazam draws from, so the look is consistent.
+For the sources whose feed carries artist/title text but no image: radio's
+in-band ICY metadata, and Bluetooth AVRCP (whose 1.6 cover-art feature rides an
+OBEX channel BlueZ gives no client for). The resolved URL lands in the same
+field a source with real artwork would fill, so the player looks the same
+either way.
 
 iTunes was chosen over MusicBrainz/Cover Art Archive after live measurement: on
-the deep-catalogue vinyl/jazz/ambient these in-band stations play, CAA indexed
-almost none of the tracks while iTunes matched them correctly.
+the deep-catalogue vinyl/jazz/ambient the in-band stations play, CAA indexed
+almost none of the tracks while iTunes matched them correctly. It is also the
+same art source Shazam draws from, which keeps radio's two paths consistent.
 
-Fully async (aiohttp, like shazam.py). Results are cached per (artist, title),
-misses included, and calls are serialised + lightly throttled. A plausibility
-gate (returned artist AND title must overlap the query) keeps a fuzzy search
-from pinning a wrong cover — a wrong cover is worse than none.
+Fully async (aiohttp). Results are cached per query, misses included, and calls
+are serialised + lightly throttled. A plausibility gate (the returned artist
+AND name must overlap the query) keeps a fuzzy search from pinning a wrong
+cover — a wrong cover is worse than none.
 """
 import asyncio
 import logging
@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 
-logger = logging.getLogger("source.radio.artwork")
+logger = logging.getLogger(__name__)
 
 _ITUNES_URL = "https://itunes.apple.com/search"
 _HTTP_TIMEOUT = 8
@@ -34,7 +34,7 @@ _ITUNES_MIN_INTERVAL = 0.5  # polite spacing between calls (serialised by lock)
 _CACHE_MAX = 500
 
 # Fraction of query tokens that must appear in the matched field for it to count
-# as the same artist / title. 0.6 tolerates extra credits ("A & B", remaster
+# as the same artist / name. 0.6 tolerates extra credits ("A & B", remaster
 # tags) and one missing word in a long title, while still requiring a 2-token
 # field to match fully — so "Buddy Greco" ≠ "Buddy Holly" (shared first name
 # only = 0.5) is rejected.
@@ -44,41 +44,49 @@ _MATCH_RATIO = 0.6
 _PARENS_RE = re.compile(r"\s*\([^)]*\)")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
+# The two searches, in the order they are tried when an album is known. iTunes
+# names the matched field differently per entity, hence the pairing.
+_ALBUM_ENTITY = ("album", "collectionName")
+_SONG_ENTITY = ("song", "trackName")
+
 
 def _tokens(text: str) -> List[str]:
     """Lowercase alphanumeric tokens of a string (for loose matching)."""
     return [t for t in _NON_ALNUM_RE.sub(" ", (text or "").lower()).split() if t]
 
 
-class RadioArtworkResolver:
-    """Resolve a cover-art URL from an in-band artist/title via iTunes Search."""
+class ArtworkResolver:
+    """Resolve a cover-art URL from artist/title (and album when known)."""
 
     def __init__(self) -> None:
-        # (artist|title) → URL or None (misses cached to avoid re-querying).
+        # (artist|title|album) → URL or None (misses cached to avoid re-querying).
         self._cache: "OrderedDict[str, Optional[str]]" = OrderedDict()
         self._lock = asyncio.Lock()
         self._last_call = 0.0
 
     @staticmethod
-    def _cache_key(artist: str, title: str) -> str:
-        return f"{artist.strip().lower()}|{title.strip().lower()}"
+    def _cache_key(artist: str, title: str, album: str) -> str:
+        return "|".join((part or "").strip().lower() for part in (artist, title, album))
 
     @staticmethod
     def _clean_query_field(text: str) -> str:
         """Strip parenthetical annotations for matching (display keeps them)."""
         return _PARENS_RE.sub("", text or "").strip()
 
-    async def resolve(self, artist: str, title: str) -> Optional[str]:
-        """Return a cover-art URL for (artist, title), or None.
+    async def resolve(
+        self, artist: str, title: str, album: str = ""
+    ) -> Optional[str]:
+        """Return a cover-art URL for the track, or None.
 
-        Cached per (artist, title); misses are cached too so an unmatched
-        title is not re-queried on every poll.
+        Cached per query; misses are cached too so an unmatched title is not
+        re-queried on every poll.
         """
         title = (title or "").strip()
-        if not title:
+        album = (album or "").strip()
+        if not title and not album:
             return None
 
-        key = self._cache_key(artist, title)
+        key = self._cache_key(artist, title, album)
         if key in self._cache:
             self._cache.move_to_end(key)
             return self._cache[key]
@@ -88,7 +96,7 @@ class RadioArtworkResolver:
             if key in self._cache:
                 self._cache.move_to_end(key)
                 return self._cache[key]
-            url = await self._lookup(artist, title)
+            url = await self._lookup(artist, title, album)
             self._store(key, url)
             return url
 
@@ -98,14 +106,34 @@ class RadioArtworkResolver:
         while len(self._cache) > _CACHE_MAX:
             self._cache.popitem(last=False)
 
-    async def _lookup(self, artist: str, title: str) -> Optional[str]:
-        q_title = self._clean_query_field(title)
+    async def _lookup(self, artist: str, title: str, album: str) -> Optional[str]:
+        """Album search first when an album is known, then the track search.
+
+        An album has one cover; a track can appear on a dozen compilations with
+        a dozen different ones, so the album query is both more accurate and
+        more stable across the tracks of one record. Sources that know no album
+        (radio's in-band ICY) skip straight to the track search, which is what
+        they did before this resolver was shared.
+        """
         q_artist = self._clean_query_field(artist)
+
+        if album:
+            url = await self._search(_ALBUM_ENTITY, q_artist, self._clean_query_field(album))
+            if url:
+                return url
+
+        q_title = self._clean_query_field(title)
         if not q_title:
             return None
+        return await self._search(_SONG_ENTITY, q_artist, q_title)
 
-        term = f"{q_artist} {q_title}".strip()
-        params = {"term": term, "entity": "song", "limit": "5"}
+    async def _search(
+        self, entity: tuple, q_artist: str, q_name: str
+    ) -> Optional[str]:
+        """One iTunes query for one entity kind; None when nothing is plausible."""
+        entity_name, result_key = entity
+        term = f"{q_artist} {q_name}".strip()
+        params = {"term": term, "entity": entity_name, "limit": "5"}
         try:
             timeout = aiohttp.ClientTimeout(total=_HTTP_TIMEOUT)
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -117,12 +145,12 @@ class RadioArtworkResolver:
                     # iTunes returns text/javascript; parse leniently.
                     data = await resp.json(content_type=None)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
-            logger.info(f"Artwork lookup failed for {artist} - {title}: {e}")
+            logger.info(f"Artwork lookup failed for {term}: {e}")
             return None
 
-        url = self._pick_artwork(data, q_artist, q_title)
+        url = self._pick_artwork(data, q_artist, q_name, result_key)
         if url:
-            logger.info(f"Cover found for {artist} - {title}")
+            logger.info(f"Cover found for {term} ({entity_name})")
         return url
 
     async def _throttle(self) -> None:
@@ -133,22 +161,25 @@ class RadioArtworkResolver:
 
     @classmethod
     def _pick_artwork(
-        cls, data: Dict[str, Any], q_artist: str, q_title: str
+        cls, data: Dict[str, Any], q_artist: str, q_name: str, result_key: str
     ) -> Optional[str]:
         """First plausible result's cover URL, upscaled. None if none plausible."""
         for res in data.get("results", []):
-            if cls._is_plausible(q_artist, q_title, res):
+            if cls._is_plausible(q_artist, q_name, res, result_key):
                 art = res.get("artworkUrl100") or res.get("artworkUrl60")
                 if art:
                     return cls._upscale(art)
         return None
 
     @staticmethod
-    def _is_plausible(q_artist: str, q_title: str, res: Dict[str, Any]) -> bool:
-        """Returned artist AND title must overlap the query (guards wrong covers).
+    def _is_plausible(
+        q_artist: str, q_name: str, res: Dict[str, Any], result_key: str
+    ) -> bool:
+        """Returned artist AND name must overlap the query (guards wrong covers).
 
-        The title always matters; the artist is checked only when the query
-        carried one (in-band "Title by Artist" / "Artist - Title" splits do).
+        The name always matters; the artist is checked only when the query
+        carried one (in-band "Title by Artist" / "Artist - Title" splits do,
+        and AVRCP always does).
         """
         def covered(query: str, candidate: str) -> bool:
             q = _tokens(query)
@@ -158,9 +189,9 @@ class RadioArtworkResolver:
             hits = sum(1 for t in q if t in c)
             return hits / len(q) >= _MATCH_RATIO
 
-        title_ok = covered(q_title, res.get("trackName", ""))
+        name_ok = covered(q_name, res.get(result_key, ""))
         artist_ok = covered(q_artist, res.get("artistName", ""))
-        return title_ok and artist_ok
+        return name_ok and artist_ok
 
     @staticmethod
     def _upscale(url: str) -> str:
