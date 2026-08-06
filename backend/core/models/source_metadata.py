@@ -15,8 +15,8 @@ from pydantic import BaseModel, ConfigDict, field_validator
 class PlaybackMetadata(BaseModel):
     """Typed projection of playback status common to media sources.
 
-    Mute receivers without a playback concept (Bluetooth, Mac) don't use this
-    — they pass playback=None to emit_connection_state and carry only extras.
+    Mute receivers without a playback concept (Mac) don't use this — they pass
+    playback=None to emit_connection_state and carry only extras.
     is_playing/is_buffering always serialize (so every media source emits them
     consistently); position/duration are milliseconds.
     """

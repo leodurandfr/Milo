@@ -24,6 +24,7 @@ _PLAY_PAUSE_SOURCES = {
     AudioSource.CD,
     AudioSource.MUSIC_LIBRARY,
     AudioSource.TIDAL,
+    AudioSource.BLUETOOTH,
 }
 
 # Sources that support next/prev track navigation
@@ -32,6 +33,7 @@ _TRACK_NAV_SOURCES = {
     AudioSource.CD,
     AudioSource.MUSIC_LIBRARY,
     AudioSource.TIDAL,
+    AudioSource.BLUETOOTH,
 }
 
 
@@ -113,6 +115,8 @@ class PlaybackDispatcher:
                 # Tidal joins this branch rather than Spotify's: the tisoc
                 # protocol has separate play/pause commands and no toggle.
                 AudioSource.TIDAL,
+                # Bluetooth likewise: AVRCP has Play and Pause, no toggle.
+                AudioSource.BLUETOOTH,
             ):
                 if source_instance.is_playing:
                     await source_instance.command("pause", {})

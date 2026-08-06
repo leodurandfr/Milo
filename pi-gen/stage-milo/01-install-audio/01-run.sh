@@ -55,7 +55,8 @@ mkdir build && cd build
 ../configure --prefix=/usr --disable-systemd \
     --with-alsaplugindir=/usr/lib/aarch64-linux-gnu/alsa-lib \
     --with-bluealsauser=milo --with-bluealsaaplayuser=milo \
-    --enable-cli
+    --enable-cli \
+    --enable-aac --enable-aptx --enable-aptx-hd --with-libfreeaptx
 make -j\$(nproc)
 make install
 ldconfig

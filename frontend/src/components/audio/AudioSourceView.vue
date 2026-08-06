@@ -41,6 +41,10 @@
         <TidalSource />
       </div>
 
+      <div v-else-if="shouldShowBluetooth" :key="contentKey" class="audio-source-slot">
+        <BluetoothSource />
+      </div>
+
       <div v-else-if="shouldShowSourceStatus" :key="contentKey" class="audio-source-slot source-status-container">
         <AudioSourceStatus :source-type="currentSourceType" :display-state="displayState"
           :unavailable-reason="unavailableReason" :device-name="currentDeviceName"
@@ -88,6 +92,9 @@ const QobuzSource = defineAsyncComponent(() =>
 );
 const TidalSource = defineAsyncComponent(() =>
   import('../tidal/TidalSource.vue')
+);
+const BluetoothSource = defineAsyncComponent(() =>
+  import('../bluetooth/BluetoothSource.vue')
 );
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
@@ -138,6 +145,7 @@ const shouldShowAirPlay = computed(() => richSource.value === 'airplay');
 const shouldShowDLNA = computed(() => richSource.value === 'dlna');
 const shouldShowQobuz = computed(() => richSource.value === 'qobuz');
 const shouldShowTidal = computed(() => richSource.value === 'tidal');
+const shouldShowBluetooth = computed(() => richSource.value === 'bluetooth');
 
 const shouldShowSourceStatus = computed(() => {
   if (activeSource.value === 'none') return false;  // nothing active (incl. deactivation)

@@ -71,13 +71,23 @@ function hasRichDisplay(source, state, meta, unavailableReason) {
       // no is_playing gate is needed: title + artist is enough, like Spotify,
       // and a paused track keeps its cover on screen.
       return state === 'active' && !!m.title && !!m.artist;
+    case 'bluetooth':
+      // Whatever AVRCP the sender published, if any: title + artist is the
+      // whole gate. Requiring the artist is what AirPlay/DLNA get from their
+      // cover-size gate — a browser tab or a video publishes a title and
+      // rarely an artist, so it stays on the status card. No is_playing clause
+      // on purpose, unlike those two: this player draws transport controls,
+      // and dropping to the card on pause would delete the button that was
+      // just pressed. The link ending is what brings the card back (READY
+      // clears the media fields).
+      return state === 'active' && !!m.title && !!m.artist;
     case 'music_library':
       // Own component (AudioSourceLayout) handles its internal empty/loading/
       // browsing states, like radio/podcast — the library UI is shown whenever
       // the source is active, docked player appears once a queue plays.
       return true;
     default:
-      // bluetooth, mac, none → no rich view, always the status card.
+      // mac, none → no rich view, always the status card.
       return false;
   }
 }

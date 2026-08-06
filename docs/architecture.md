@@ -171,7 +171,7 @@ still plays with Podcast Index down.
 - API: http://localhost:3678
 - Audio output: ALSA (milo_spotify)
 
-### 2. Bluetooth (bluez-alsa)
+### 2. Bluetooth (bluez-alsa + BlueZ AVRCP)
 
 **What is it?**
 - Linux Bluetooth stack + ALSA plugin
@@ -181,6 +181,47 @@ still plays with Podcast Index down.
 - `bluealsa`: daemon that manages Bluetooth connections
 - `bluealsa-aplay`: reads Bluetooth audio and sends to ALSA
 - Milō backend automatically detects connections/disconnections
+- **Two independent feeds.** BlueALSA carries the audio and the connection
+  (`sources/bluetooth/monitor.py` scrapes `bluealsa-cli monitor`); track
+  metadata and the transport ride AVRCP, which `bluetoothd` terminates itself
+  and publishes as `org.bluez.MediaPlayer1` (`sources/bluetooth/avrcp.py`).
+  BlueALSA never sees a title — asking it for one is a category error
+
+**Codecs (sink side):**
+- Built with `--enable-aac --enable-aptx --enable-aptx-hd --with-libfreeaptx`.
+  The decoder set is what the *sender* picks from: an Apple device chooses AAC
+  whenever the sink offers it and silently falls back to SBC otherwise, which is
+  the single biggest audio-quality lever on this path
+- LDAC is deliberately absent: decoding needs `ldacBT-dec`, which Debian does
+  not package (only the encoder), so enabling it would advertise LDAC in the
+  source role Milō never uses
+- Check what a live session actually negotiated with `bluealsa-cli info <pcm-path>`
+
+**Metadata and transport (AVRCP):**
+- `Track` gives title/artist/album/duration and `Status` gives play/pause, both
+  pushed as `PropertiesChanged`; `Play`/`Pause`/`Next`/`Previous` go back the
+  other way, wired to `COMMANDS` and to the hardware dispatcher
+- **`Position` is polled, not pushed** — the one non-event-driven thing in the
+  source, and it is forced. BlueZ advertises the property as `emits-change`,
+  but it only moves when the sender sends an AVRCP PLAYBACK_POS_CHANGED
+  notification and iOS never does: measured live, a Get returned a correctly
+  advancing playhead while no signal for it was ever delivered. So every
+  publish re-reads it, `refresh_metadata()` re-reads it for `GET
+  /api/audio/state` + the WS handshake, and a 5 s poll runs while playing —
+  which is also the only thing that catches a scrub done on the phone
+- **No seek** — AVRCP has only hold-style FastForward/Rewind, so the progress
+  bar is read-only (`:seekable="false"`)
+- **No cover art over the link** — AVRCP 1.6 puts images behind a separate OBEX
+  BIP connection that BlueZ exposes only as the experimental `ImgHandle`, and a
+  live iPhone's Track dict was measured to carry no image field at all. The
+  cover is instead resolved from the track text by the shared
+  [artwork_resolver.py](../backend/shared/artwork_resolver.py) (iTunes Search),
+  the same one radio uses — by **album** first, since one album has one cover
+  while a track can sit on a dozen compilations. Best-effort and async; a miss
+  leaves `AudioPlayerFull` drawing the source glyph
+- All of it is optional: an AVRCP target is not mandatory and senders publish
+  empty tracks, so the source stays fully usable with no metadata — the UI falls
+  back to the device-name status card
 
 **Configuration:**
 - Profile: A2DP Sink (Milō receives audio)
@@ -219,6 +260,25 @@ still plays with Podcast Index down.
 - mpv plays HLS/MP3/AAC streams with automatic codec detection
 - Backend manages favorites, custom stations, and metadata caching
 - Image upload support for custom station branding
+
+**Now playing — three tiers, arbitrated:**
+- **In-band ICY metadata is the primary source.** mpv's `icy-title`, polled
+  every ~4 s and parsed for two conventions (`Artist - Title` and
+  `Title by Artist`), minus station-promo suffixes and `(Vinyl)/(Mono)` noise.
+  `icy-name` is deliberately never used as a track title — that would show the
+  station as the song. Instant and exact, but text only: no artwork
+- **Shazam is the fallback, not the default.** `ShazamRecognitionService` starts
+  only once in-band has stayed empty past a grace period (metadata-less streams
+  like Radio France), fingerprinting a 12 s ffmpeg capture of the stream every
+  20 s. The first in-band title shuts it back down. It *does* return an artwork
+  URL
+- **Cover art for in-band tracks** is resolved from the artist/title by
+  [shared/artwork_resolver.py](../backend/shared/artwork_resolver.py) (iTunes
+  Search) and patched into the same `track_artwork` field Shazam fills, so both
+  paths look identical on screen. The same resolver serves Bluetooth
+- Both tiers expire a stale title after sustained empty metadata (~16 s in-band,
+  2 rounds for Shazam) so a phantom track cannot stay pinned over ads or talk,
+  and a per-station toggle suppresses **both**, not just Shazam
 
 **Features:**
 - Search by station name, country, or genre
@@ -507,9 +567,11 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 **How does it work?**
 - A **transverse** feature: `core/lyrics/LyricsService` is keyed off the
   now-playing `(artist, title, album, duration)` of whichever source is active,
-  so it works for any rich-metadata source. Mute receivers (Bluetooth, Mac) and
-  Podcasts are excluded client-side; Radio reads its Shazam-recognized
-  `track_artist`/`track_title` instead of the station name
+  so it works for any rich-metadata source. Mac, Podcasts and Bluetooth are
+  excluded client-side — the first two have no `(artist, title)` to key off, and
+  Bluetooth has one but no playhead worth syncing to: AVRCP position updates are
+  a notification the sender may send coarsely or not at all. Radio reads its
+  Shazam-recognized `track_artist`/`track_title` instead of the station name
 - One route, `GET /api/lyrics?artist=&title=&album=&duration=`; the frontend
   fetches on modal open (and on track change while open), never over WebSocket
 - LRCLIB needs no API key and returns both an LRC (synced) and a plain body.

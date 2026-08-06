@@ -1,16 +1,42 @@
 # backend/sources/bluetooth/source.py
 """
-Bluetooth audio source using BlueALSA.
+Bluetooth audio source using BlueALSA for audio and BlueZ AVRCP for control.
 
-This source handles streaming audio from Bluetooth devices via BlueALSA.
-It manages multiple systemd services, D-Bus agent for auto-pairing, and
-monitors BlueALSA PCM events for connection detection.
+Family C (active player): UI control, rich metadata. Two independent feeds
+answer two different questions, and neither can answer the other's:
+
+  - `monitor.py` watches BlueALSA PCM add/remove — is a sender *connected*,
+    and what is it called. This is the one that decides ACTIVE vs READY.
+  - `avrcp.py` watches BlueZ's org.bluez.MediaPlayer1 — what is *playing*, and
+    it is also how Milō drives the sender's transport.
+
+They arrive in either order and the AVRCP one is optional: an AVRCP target is
+not mandatory and plenty of senders publish an empty track, so the source stays
+perfectly usable with no metadata at all. That is exactly what the frontend's
+rich-display gate keys on — no title/artist means the device-name status card,
+a title means the shared player.
+
+There is no seek. AVRCP offers only hold-style FastForward/Rewind, not a
+position command, so the progress bar is read-only (`:seekable="false"` on the
+player) and `seek` is deliberately absent from COMMANDS — the same shape Tidal
+lands on for its own protocol's reasons.
+
+No album art comes over the link either (see avrcp.py), so the only image the
+player can show is one resolved from the track text — the shared
+`ArtworkResolver`, the same one radio uses for its in-band stations. It is
+best-effort and asynchronous: a miss leaves the player's source glyph.
+
+The playhead is the one thing nothing notifies (again, see avrcp.py), which is
+why this is also the one source whose `refresh_metadata()` does real work:
+without it a client reloading mid-track is handed the position captured at the
+last track change.
 
 Features:
 - Multi-service management: bluetooth, bluealsa, bluealsa-aplay
 - D-Bus agent for automatic pairing (NoInputNoOutput mode)
 - Single device connection enforcement (via BlueALSA monitor callbacks)
 - BlueALSA PCM monitoring for real-time connection events
+- AVRCP metadata + transport via BlueZ
 """
 import asyncio
 from typing import Dict, Any, Optional
@@ -18,19 +44,29 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.bluetooth.agent import BluetoothAgent
+from backend.sources.bluetooth.avrcp import AvrcpController
 from backend.sources.bluetooth.monitor import BlueAlsaMonitor
+from backend.shared.artwork_resolver import ArtworkResolver
 from backend.shared.decorators import handle_errors
+
+# A floor on position-only broadcasts, not the cadence: the cadence belongs to
+# avrcp's POSITION_POLL_INTERVAL, since no sender observed here pushes a moved
+# playhead at all. This only stops a sender that *does* notify one — the
+# protocol allows it — from broadcasting at whatever rate it chooses, and is
+# therefore kept below the poll so our own ticks always get through.
+POSITION_BROADCAST_MIN_INTERVAL = 2.0
 
 
 class BluetoothSource(BaseAudioSource):
     """
     Bluetooth audio source using BlueALSA.
 
-    Family A (mute receiver): control flows from the Bluetooth sender;
-    commands routed through `/api/audio/control/bluetooth` reach
-    `_handle_command` (e.g. `disconnect`). Extends BaseAudioSource —
-    implements `_do_start / _do_stop / _handle_command`.
+    Family C (active player): the sender starts playback, Milō displays it and
+    drives its transport back over AVRCP. Commands route through
+    `/api/audio/control/bluetooth` to `_handle_command`. Extends
+    BaseAudioSource — implements `_do_start / _do_stop / _handle_command`.
     """
 
     def __init__(
@@ -62,6 +98,23 @@ class BluetoothSource(BaseAudioSource):
 
         self.agent = BluetoothAgent()
         self.monitor = BlueAlsaMonitor()
+        self.avrcp = AvrcpController()
+
+        # Last AVRCP snapshot, keyed like PlaybackMetadata. Kept even while no
+        # PCM is up: the player object and the PCM appear in either order, and
+        # _update_connection_state reads this whichever arrives second.
+        self._playback: Dict[str, Any] = {}
+        self._last_progress_broadcast = 0.0
+
+        # Cover art resolved from the track text, and the track it belongs to.
+        # Held apart from _playback rather than written into it: the position
+        # poll replaces that dict wholesale every few seconds with a fresh AVRCP
+        # snapshot, which carries no artwork and would wipe it. Keeping the key
+        # alongside is also what expires it — a new track cannot inherit the
+        # previous one's cover.
+        self._artwork = ArtworkResolver()
+        self._artwork_url: Optional[str] = None
+        self._artwork_key: tuple = ()
 
         # No per-source auto-stop: BT carries no out-of-band pause signal
         # and senders re-connect instantly when the user resumes. The 12h
@@ -74,6 +127,9 @@ class BluetoothSource(BaseAudioSource):
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()
         self.connected_device = None
+        self._playback = {}
+        self._artwork_url = None
+        self._artwork_key = ()
 
     async def _do_start(self) -> bool:
         """Start Bluetooth services and monitoring."""
@@ -104,10 +160,18 @@ class BluetoothSource(BaseAudioSource):
             if not await self.monitor.start():
                 raise RuntimeError("BlueALSA monitor failed to start")
 
-            # 6. Detect already-connected device (e.g. backend restart during active stream)
+            # 6. Start the AVRCP player feed (metadata + transport). Best-effort:
+            # a sender that exposes no AVRCP target, or a BlueZ that will not
+            # answer, costs the metadata and nothing else — the audio path and
+            # the connection state come from BlueALSA, not from here.
+            self.avrcp.set_callback(self._on_avrcp_update)
+            if not await self.avrcp.start():
+                self._logger.warning("AVRCP feed unavailable — no track metadata")
+
+            # 7. Detect already-connected device (e.g. backend restart during active stream)
             await self._detect_connected_device()
 
-            # 7. Update state
+            # 8. Update state
             self._update_connection_state()
 
             return True
@@ -164,14 +228,40 @@ class BluetoothSource(BaseAudioSource):
         self._update_connection_state()
         return True
 
-    COMMANDS = {"disconnect": None}
+    COMMANDS = {
+        "disconnect": None,
+        "pause": None,
+        "resume": None,
+        "next": None,
+        "prev": None,
+    }
+
+    # Milō command -> AVRCP method on org.bluez.MediaPlayer1. The two spellings
+    # differ on purpose, same split as Tidal: Milō's vocabulary is canonical
+    # across sources (`resume`, `prev`), AVRCP's is its own (`Play`,
+    # `Previous`), and mapping here is what keeps the difference out of the API.
+    AVRCP_COMMANDS = {
+        "pause": "Pause",
+        "resume": "Play",
+        "next": "Next",
+        "prev": "Previous",
+    }
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Bluetooth-specific commands."""
         if cmd == "disconnect":
             return await self._cmd_disconnect()
 
-        return self.error_response(f"Unhandled command: {cmd}")
+        if not self.avrcp.has_player:
+            return self.error_response("Connected device exposes no AVRCP player")
+
+        # An AVRCP target answers NotSupported per method — a sender may take
+        # Play/Pause and refuse Next — so a refusal is this command's failure,
+        # not the source's.
+        if not await self.avrcp.send(self.AVRCP_COMMANDS[cmd]):
+            return self.error_response(f"'{cmd}' was refused by the device")
+
+        return self.success_response()
 
     async def _cmd_disconnect(self) -> Dict[str, Any]:
         """Disconnect current device."""
@@ -244,8 +334,95 @@ class BluetoothSource(BaseAudioSource):
             return
 
         self.connected_device = None
+        # Drop the track with the link. emit_connection_state already withholds
+        # media fields on READY, but a device reconnecting before its AVRCP
+        # player is back would otherwise re-publish the previous track.
+        self._playback = {}
         self._logger.info(f"Device disconnected: {name} ({address})")
         self._update_connection_state()
+
+    # === AVRCP Callbacks ===
+
+    # What the frontend cannot interpolate: any change here owes a full
+    # broadcast, a moved position alone owes only a drift correction.
+    SUBSTANTIVE_FIELDS = ("title", "artist", "album", "duration", "is_playing")
+
+    async def _on_avrcp_update(self, address: str, snapshot: Dict[str, Any]) -> None:
+        """Apply one coalesced AVRCP player change.
+
+        The snapshot is stored even when no PCM is up yet — the player object
+        and the BlueALSA PCM race, and whichever lands second publishes both.
+        """
+        connected = (self.connected_device or {}).get("address")
+        if connected and connected.upper() != address.upper():
+            return
+
+        before = tuple(self._playback.get(k) for k in self.SUBSTANTIVE_FIELDS)
+        before_track = self._track_key(self._playback)
+        self._playback = snapshot
+        self._is_playing = bool(snapshot.get("is_playing"))
+
+        track = self._track_key(snapshot)
+        if track != before_track and any(track):
+            self._bg.spawn(self._resolve_artwork(track), label="avrcp_artwork")
+
+        if before != tuple(snapshot.get(k) for k in self.SUBSTANTIVE_FIELDS):
+            self._update_connection_state()
+        else:
+            self._broadcast_progress()
+
+    @staticmethod
+    def _track_key(playback: Dict[str, Any]) -> tuple:
+        """What identifies a track for artwork purposes."""
+        return (playback.get("title"), playback.get("artist"), playback.get("album"))
+
+    async def _resolve_artwork(self, track: tuple) -> None:
+        """Look a cover up from the track text and publish it if still current.
+
+        AVRCP carries no image (see avrcp.py), so the only thing left is the
+        text it does carry. Runs off the AVRCP feed via `_bg`; a newer track
+        that arrived during the lookup must not be given the old one's cover,
+        hence the re-check. A miss is silent — the player draws its glyph.
+        """
+        title, artist, album = track
+        url = await self._artwork.resolve(artist or "", title or "", album or "")
+        if not url or track != self._track_key(self._playback):
+            return
+
+        self._artwork_url = url
+        self._artwork_key = track
+        self._update_connection_state()
+
+    async def refresh_metadata(self) -> bool:
+        """Re-read the playhead for `GET /api/audio/state` and the WS handshake.
+
+        The one source that needs this hook to do real work. Nothing notifies a
+        moved playhead over AVRCP, so the stored position is the one captured at
+        the last track change — near zero for the whole song. A client arriving
+        or reloading mid-track would be handed that and interpolate from it,
+        which is a progress bar that restarts at 0:00 on every refresh.
+        """
+        if not self.avrcp.has_player:
+            return False
+
+        await self.avrcp.read_position()
+        self._playback = self.avrcp.snapshot()
+        self._update_connection_state()
+        return True
+
+    def _broadcast_progress(self) -> None:
+        """Drift-correct the playhead, at most every POSITION_BROADCAST_INTERVAL."""
+        position = self._playback.get("position")
+        duration = self._playback.get("duration")
+        if position is None or not duration:
+            return
+
+        now = asyncio.get_running_loop().time()
+        if now - self._last_progress_broadcast < POSITION_BROADCAST_MIN_INTERVAL:
+            return
+
+        self._last_progress_broadcast = now
+        self.broadcast_position_update(position, duration)
 
     # === Helper Methods ===
 
@@ -314,15 +491,32 @@ class BluetoothSource(BaseAudioSource):
         # Stop BlueALSA monitor
         await self.monitor.stop()
 
+        # Stop the AVRCP feed
+        await self.avrcp.stop()
+
         # Unregister agent
         if self.auto_agent:
             await self.agent.unregister()
 
     def _update_connection_state(self) -> None:
-        """Update state based on connected device."""
+        """Publish connection + playback state.
+
+        Broadcast metadata (WS source/state_changed → system_state.metadata):
+        device_name — the extra the status card draws when the sender publishes
+        no track — plus whatever AVRCP supplied of title, artist, album,
+        position, duration, is_playing, plus album_art_url when a cover was
+        resolved from the track text. AVRCP itself never carries one (see
+        avrcp.py); the resolver is the only reason that field is ever set, and
+        the player draws its source glyph when the lookup found nothing.
+        """
         device = self.connected_device or {}
+        playback = dict(self._playback)
+        if self._artwork_url and self._artwork_key == self._track_key(playback):
+            playback["album_art_url"] = self._artwork_url
+
         self.emit_connection_state(
             self.connected_device is not None,
+            PlaybackMetadata.model_validate(playback),
             extras={"device_name": device.get("name")},
         )
 

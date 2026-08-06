@@ -15,8 +15,8 @@ import { useI18n } from '@/services/i18n';
 import { isKiosk } from '@/utils/kiosk';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
+import { nowPlayingArtwork } from '@/utils/nowPlayingArtwork';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
-import cdPlaceholder from '@/assets/cd/cd-placeholder.jpg';
 
 /** Minimum ms between activity event processing. */
 const ACTIVITY_THROTTLE_MS = 500;
@@ -226,14 +226,14 @@ export function useScreensaver() {
 
     // Spotify + Tidal + CD: active players with rich metadata, rendered exactly
     // like music_library (cover + title/artist + progress bar, no bottom bar),
-    // read straight from the shared metadata mirror. CD often ships no cover art
-    // — fall back to the same disc placeholder AudioPlayerFull uses rather than
-    // a generated text avatar.
+    // read straight from the shared metadata mirror. Every cover below comes
+    // from nowPlayingArtwork, which is also what AudioPlayerFull paints — the
+    // screensaver crossfades into that view, so anything else reads as a glitch.
     if (source === 'spotify' || source === 'tidal') {
       const metadata = unifiedStore.systemState.metadata || {};
       return {
         mode: 'media',
-        artwork: metadata.album_art_url || null,
+        artwork: nowPlayingArtwork(source, metadata),
         title: metadata.title || '',
         subtitle: metadata.artist || null,
       };
@@ -243,7 +243,7 @@ export function useScreensaver() {
       const metadata = unifiedStore.systemState.metadata || {};
       return {
         mode: 'media',
-        artwork: metadata.album_art_url || cdPlaceholder,
+        artwork: nowPlayingArtwork(source, metadata),
         title: metadata.title || '',
         subtitle: metadata.artist || null,
       };
@@ -259,7 +259,7 @@ export function useScreensaver() {
       const metadata = unifiedStore.systemState.metadata || {};
       return {
         mode: 'media',
-        artwork: metadata.album_art_url || null,
+        artwork: nowPlayingArtwork(source, metadata),
         title: metadata.title || '',
         subtitle: metadata.artist || null,
         stationIcon: source,
@@ -282,7 +282,7 @@ export function useScreensaver() {
       if (showRichMedia) {
         return {
           mode: 'media',
-          artwork: metadata.album_art_url || null,
+          artwork: nowPlayingArtwork(source, metadata),
           title: metadata.title,
           subtitle: metadata.artist || null,
           // Bottom bar shows the AirPlay glyph + sender name, in the same slot
@@ -302,11 +302,32 @@ export function useScreensaver() {
 
     if (source === 'bluetooth') {
       const metadata = unifiedStore.systemState.metadata || {};
+      const deviceName = formatDeviceNames(metadata.device_name);
+
+      // Same hybrid as AirPlay, on the gate Bluetooth can actually satisfy:
+      // title + artist, since AVRCP carries no cover of its own. The artwork is
+      // whatever the backend resolved from the track text — through the shared
+      // helper like every other branch, so it is by construction the cover
+      // AudioPlayerFull is showing behind this screensaver. It stays a
+      // PASSIVE_SOURCE for *visibility* though: a sender exposing no AVRCP
+      // player never sets is_playing, and gating on it would mean a connected
+      // phone that simply never gets a screensaver.
+      if (metadata.title && metadata.artist) {
+        return {
+          mode: 'media',
+          artwork: nowPlayingArtwork(source, metadata),
+          title: metadata.title,
+          subtitle: metadata.artist,
+          stationIcon: 'bluetooth',
+          stationName: deviceName,
+        };
+      }
+
       return {
         mode: 'simple',
         sourceType: 'bluetooth',
         title: t('status.connectedTo'),
-        subtitle: formatDeviceNames(metadata.device_name),
+        subtitle: deviceName,
       };
     }
 
@@ -320,10 +341,12 @@ export function useScreensaver() {
       };
     }
 
-    // Fallback (unreachable: shouldMonitorInactivity gates the screensaver)
+    // Fallback (unreachable: shouldMonitorInactivity gates the screensaver).
+    // Carries no `artwork` key on purpose — the prop defaults to null, and a
+    // literal here would be the one thing the parity guard cannot tell apart
+    // from a source that forgot to derive its cover.
     return {
       mode: 'media',
-      artwork: null,
       title: '',
       subtitle: null,
       stationFavicon: null,

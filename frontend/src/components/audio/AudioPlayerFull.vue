@@ -7,14 +7,34 @@
         <div class="artwork-container">
           <!-- Background blur -->
           <div class="artwork-blur"
-            :style="{ backgroundImage: artworkUrl ? `url(${artworkUrl})` : 'none' }">
+            :style="{ backgroundImage: shownArtwork ? `url(${shownArtwork})` : 'none' }">
           </div>
 
-          <!-- Main cover art -->
-          <div class="artwork">
-            <img v-if="artworkUrl" :src="artworkUrl"
+          <!-- Main cover art. The fallback is not decoration: Bluetooth can
+               never carry a cover over the link (AVRCP puts images behind an
+               OBEX channel BlueZ gives no client for), so when the lookup that
+               replaces it finds nothing, this is what the slot shows instead of
+               a blank square reading as a failed image. -->
+          <div class="artwork" :class="{ 'artwork-pending': artworkPending }">
+            <img v-if="shownArtwork" :src="shownArtwork"
               alt="Artwork" />
+            <div v-else class="artwork-fallback">
+              <AppIcon :name="source" :size="112" />
+            </div>
+
+            <!-- Held over the outgoing cover until the incoming one is decoded,
+                 so a track change never flashes the fallback glyph between two
+                 covers. -->
+            <Transition name="artwork-veil">
+              <div v-if="artworkPending" class="artwork-veil">
+                <LoadingSpinner :size="48" />
+              </div>
+            </Transition>
           </div>
+
+          <!-- Decodes the incoming cover off-screen; @load is what promotes it. -->
+          <img v-if="preloadArtwork" :src="preloadArtwork" alt="" class="artwork-preload"
+            @load="settleArtwork(preloadArtwork)" @error="settleArtwork('')" />
         </div>
       </div>
 
@@ -79,10 +99,13 @@ import { useScreensaverRevealNonce } from '@/composables/useScreensaverReveal';
 import { isSourceBuffering } from '@/utils/playbackBuffering';
 import { useI18n } from '@/services/i18n';
 
+import { useArtworkTransition } from '@/composables/useArtworkTransition';
+import { nowPlayingArtwork } from '@/utils/nowPlayingArtwork';
+
 import PlaybackControls from './PlaybackControls.vue';
 import ProgressBar from './ProgressBar.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
-import cdPlaceholder from '@/assets/cd/cd-placeholder.jpg';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const props = defineProps({
   source: {
@@ -185,9 +208,19 @@ const isBuffering = computed(() =>
 // Client/device name (for source bar when controls are hidden)
 const clientName = computed(() => unifiedStore.systemState.metadata?.client_name || '');
 
-// Artwork URL with source-specific placeholder fallback
-const placeholders = { cd: cdPlaceholder };
-const artworkUrl = computed(() => persistentMetadata.value.album_art_url || placeholders[props.source] || '');
+// === ARTWORK TRANSITION ===
+// Which cover this source shows is decided in one place, shared with
+// useScreensaver so the two views can never disagree — see the util.
+const targetArtwork = computed(() => nowPlayingArtwork(props.source, persistentMetadata.value));
+
+// Holding the outgoing cover under a veil while the next one decodes is shared
+// with the screensaver — the two are superimposed during its leave crossfade,
+// so the transition has to behave identically in both.
+const trackKey = computed(
+  () => `${persistentMetadata.value.title}|${persistentMetadata.value.artist}`
+);
+const { shownArtwork, preloadArtwork, artworkPending, settleArtwork } =
+  useArtworkTransition(targetArtwork, trackKey);
 
 
 
@@ -350,6 +383,69 @@ const artworkUrl = computed(() => persistentMetadata.value.album_art_url || plac
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.artwork-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-background-strong);
+  color: var(--color-text-light);
+}
+
+/* Held cover while the next one decodes. The scale is not decoration: a blur
+   samples past the element's edge, and without it the rounded corners show a
+   translucent halo against the player background. */
+.artwork > img,
+.artwork > .artwork-fallback {
+  transition:
+    filter var(--transition-medium),
+    transform var(--transition-medium);
+}
+
+.artwork-pending > img,
+.artwork-pending > .artwork-fallback {
+  filter: blur(var(--blur-02));
+  transform: scale(1.06);
+}
+
+.artwork-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-background-contrast-32);
+  /* The spinner's SVG paints with currentColor, and it sits on a darkened cover
+     — not on the player background — so it takes the contrast token rather than
+     inheriting the page text colour. Full contrast, not -50: the blades already
+     animate down to 0.16 opacity, and halving that again loses them over a
+     bright cover. */
+  color: var(--color-text-contrast);
+}
+
+.artwork-veil-enter-active,
+.artwork-veil-leave-active {
+  transition: opacity var(--transition-medium);
+}
+
+.artwork-veil-enter-from,
+.artwork-veil-leave-to {
+  opacity: 0;
+}
+
+/* Decodes the incoming cover out of sight. Deliberately not `display: none`,
+   which lets a browser skip the fetch — and the load event it fires is the
+   whole mechanism. */
+.artwork-preload {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .track-info {

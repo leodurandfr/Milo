@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from backend.core.models.audio_state import NetworkRequirement, SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.radio.models import PlayStationParams, RemoveFavoriteParams
-from backend.sources.radio.artwork import RadioArtworkResolver
+from backend.shared.artwork_resolver import ArtworkResolver
 from backend.sources.radio.data import StationDataService
 from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
@@ -142,7 +142,7 @@ class RadioSource(MpvAudioSource):
 
         # Resolves cover art for in-band tracks (which carry no artwork) from
         # their artist/title via the iTunes Search API.
-        self._artwork = RadioArtworkResolver()
+        self._artwork = ArtworkResolver()
 
         # State
         self._metadata: Dict[str, Any] = {}

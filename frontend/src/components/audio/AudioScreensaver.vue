@@ -5,7 +5,7 @@
     <template v-if="mode === 'media'">
       <!-- Full-screen blurred background -->
       <div class="artwork-background">
-        <img v-if="displayArtwork" :src="displayArtwork" alt="" class="background-image" />
+        <img v-if="shownArtwork" :src="shownArtwork" alt="" class="background-image" />
         <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
       </div>
 
@@ -21,11 +21,24 @@
         <!-- Left: Artwork -->
         <div class="artwork-section stagger-1" :class="{ 'artwork-leave-rise': artworkRises }">
           <div class="artwork-container">
-            <div class="artwork">
-              <img v-if="displayArtwork" :src="displayArtwork" :alt="title"
-                @load="handleArtworkLoad" @error="artworkError = true" />
+            <div class="artwork" :class="{ 'artwork-pending': artworkPending }">
+              <img v-if="shownArtwork" :src="shownArtwork" :alt="title" />
               <div v-else-if="fallbackSvg" v-html="fallbackSvg" :aria-label="title" class="artwork-fallback" />
+
+              <!-- Held over the outgoing cover until the incoming one decodes,
+                   so a track change never flashes the generated avatar between
+                   two covers. Same veil as AudioPlayerFull. -->
+              <Transition name="artwork-veil">
+                <div v-if="artworkPending" class="artwork-veil">
+                  <LoadingSpinner :size="48" />
+                </div>
+              </Transition>
             </div>
+
+            <!-- Decodes the incoming cover off-screen; its load is what
+                 promotes it, and where the too-small check now happens. -->
+            <img v-if="preloadArtwork" :src="preloadArtwork" alt="" class="artwork-preload"
+              @load="handlePreloadLoad" @error="settleArtwork('')" />
           </div>
         </div>
 
@@ -70,9 +83,11 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { computed } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import ProgressBar from './ProgressBar.vue';
+import { useArtworkTransition } from '@/composables/useArtworkTransition';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
@@ -141,19 +156,23 @@ const props = defineProps({
 
 const emit = defineEmits(['close']);
 
-// Artwork validation — falls back to generated avatar on error or tiny image
-const artworkError = ref(false);
-watch(() => props.artwork, () => { artworkError.value = false; });
+// The same held-cover transition AudioPlayerFull runs, from the same composable:
+// this view crossfades into that one on dismiss, so a transition that behaved
+// differently here would show up exactly when the two are superimposed.
+const artworkTarget = computed(() => props.artwork || '');
+const trackKey = computed(() => `${props.title}|${props.subtitle}`);
+const { shownArtwork, preloadArtwork, artworkPending, settleArtwork } =
+  useArtworkTransition(artworkTarget, trackKey);
 
-function handleArtworkLoad(e) {
-  if (e.target.naturalWidth < MIN_IMAGE_SIZE || e.target.naturalHeight < MIN_IMAGE_SIZE) {
-    artworkError.value = true;
-  }
+// Artwork validation moved onto the preloader: a tiny image is a tracking pixel
+// or a broken favicon, not a cover, so it settles to '' and the generated avatar
+// takes over — the same outcome the old artworkError flag produced, minus the
+// frame where the bad image was already on screen.
+function handlePreloadLoad(e) {
+  const tooSmall = e.target.naturalWidth < MIN_IMAGE_SIZE
+    || e.target.naturalHeight < MIN_IMAGE_SIZE;
+  settleArtwork(tooSmall ? '' : preloadArtwork.value);
 }
-
-const displayArtwork = computed(() =>
-  props.artwork && !artworkError.value ? props.artwork : null
-);
 const fallbackSvg = computed(() => {
   const name = props.stationName || props.title;
   return name ? generateStationAvatarSvg(name) : '';
@@ -162,7 +181,7 @@ const fallbackSvg = computed(() => {
 // just for the halo. Safe here because the heavy blur + low opacity hide any
 // font-cascade difference.
 const haloUrl = computed(() => {
-  if (displayArtwork.value) return displayArtwork.value;
+  if (shownArtwork.value) return shownArtwork.value;
   if (fallbackSvg.value) return `data:image/svg+xml;utf8,${encodeURIComponent(fallbackSvg.value)}`;
   return null;
 });
@@ -414,6 +433,56 @@ function handleClose() {
 /* Inline-SVG fallback fills its wrapper like the real artwork. */
 .artwork-fallback {
   display: block;
+}
+
+/* Held cover while the next one decodes — the same veil AudioPlayerFull draws,
+   because this view crossfades into it. The scale is not decoration: a blur
+   samples past the element's edge, and without it the rounded corners show a
+   translucent halo. */
+.artwork > img,
+.artwork > .artwork-fallback {
+  transition:
+    filter var(--transition-medium),
+    transform var(--transition-medium);
+}
+
+.artwork-pending > img,
+.artwork-pending > .artwork-fallback {
+  filter: blur(var(--blur-02));
+  transform: scale(1.06);
+}
+
+.artwork-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-background-contrast-32);
+  /* The spinner paints with currentColor and sits on a darkened cover. */
+  color: var(--color-text-contrast);
+}
+
+.artwork-veil-enter-active,
+.artwork-veil-leave-active {
+  transition: opacity var(--transition-medium);
+}
+
+.artwork-veil-enter-from,
+.artwork-veil-leave-to {
+  opacity: 0;
+}
+
+/* Decodes the incoming cover out of sight. Deliberately not `display: none`,
+   which lets a browser skip the fetch — and the load event it fires is the
+   whole mechanism. */
+.artwork-preload {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Content Section */
