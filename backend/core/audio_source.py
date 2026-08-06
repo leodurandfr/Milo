@@ -592,6 +592,15 @@ class BaseAudioSource(ABC):
         - ``extras`` are source-specific fields (station/episode/disc/device);
           they pass through in both states, so a source that wants device or
           disc status visible while idle includes it (e.g. CD drive state).
+          ``None`` values are dropped, the same rule ``exclude_none`` applies to
+          the typed half — one record, one convention. Nothing can read the
+          difference anyway: every consumer tests the field for truthiness, so a
+          key present-and-null says exactly what an absent key says while
+          costing a line on the wire. Dropping it here rather than per source is
+          what stops the next `extras["x"] = self._maybe_none` from putting one
+          back. Safe because metadata is *replaced* on every state update
+          (`update_source_state`), never merged — an absent key cannot leave a
+          stale value behind.
         """
         if connected:
             meta: Dict[str, Any] = (
@@ -600,7 +609,7 @@ class BaseAudioSource(ABC):
         else:
             meta = {"is_playing": False, "is_buffering": False} if playback is not None else {}
         if extras:
-            meta.update(extras)
+            meta.update({k: v for k, v in extras.items() if v is not None})
         self.set_state(SourceState.ACTIVE if connected else SourceState.READY, meta)
 
     def broadcast_position_update(self, position: int, duration: int) -> None:

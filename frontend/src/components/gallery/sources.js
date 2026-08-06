@@ -34,9 +34,31 @@
  * `scenarioId()` derives the id from the final event's `source_state` plus the
  * metadata fields the app's deciders branch on: `active is_playing
  * album_art_width=128` names a stimulus, and every token in it is a real field
- * on the wire. Two scenarios that produce the same screen therefore keep two
- * names — and the collision becomes a finding about the app, which is what the
- * page is for, instead of a naming problem to sweep up.
+ * on the wire.
+ *
+ * Two scenarios that produce the same screen therefore keep two *names*, and the
+ * collision surfaces instead of being swept under one — but surfacing it is
+ * all the derivation does. What to do about it is a judgement, made once and
+ * written down: either the app is wrong, which is the finding the page exists
+ * for, or the screen is genuinely already documented and the second tab goes.
+ * AirPlay has had one of each. Its cover gate once had three inputs and one
+ * outcome, which was a finding; its pre-metadata window draws the same card as
+ * its declined-cover one for a reason the card is right about, so it is stated
+ * in the page summary and has no tab. A tab that repeats a screen costs more
+ * than the state it documents — it teaches a reader that a new tab need not
+ * mean a new screen, and after that none of them is worth opening.
+ *
+ * What is exact here is the *shape*: the envelope, `full_state`, and every field
+ * name inside them. A metadata record is not a packet capture, and one thing it
+ * leaves out on purpose — `emit_connection_state` puts `is_playing` and
+ * `is_buffering` in every record of every media source, READY included (forced
+ * off there, along with the media fields it drops). Restating both on all forty
+ * scenarios would put three tokens no decider can branch on into every name in
+ * the select, which is the list a reader actually reads. They are stated here
+ * once instead. A field that *does* discriminate is carried even when it never
+ * changes — Qobuz's `client_name`, Mac's empty `client_names` — because a
+ * reader who only ever sees the field on the interesting scenario concludes it
+ * only exists there.
  *
  * ## Nothing here reaches the appliance
  *
@@ -56,10 +78,11 @@
  * AudioSourceLayout the header its source passes, and mounts the source's real
  * browsing view inside it. Everything below the wrapper is the app's.
  *
- * Their audio state barely varies — `active`, and `hasRichDisplay` returns true
- * for them whatever the record carries, ERROR excepted — so outside that one
- * scenario the event alone cannot tell two of theirs apart. What does is the
- * *catalogue* condition, and that arrives over HTTP rather than the socket.
+ * Their audio state barely varies — READY until something is in session, and
+ * `hasRichDisplay` returns true for them whatever the record carries, ERROR
+ * excepted — so outside that one scenario the event alone cannot tell two of
+ * theirs apart. What does is the *catalogue* condition, and that arrives over
+ * HTTP rather than the socket.
  * Those scenarios therefore carry a `condition`, spelled with the real field
  * names of the fixture that produces it (`stations=0`, `scanning`), each token
  * checked by the guardrail against the scenario's own browser block. Two axes,
@@ -93,9 +116,24 @@ import stationImageCapsule from './samples/station-image-capsule.webp';
 /** Prefix that tells a source page apart from a catalogue entry in `?c=`. */
 export const SOURCE_PAGE_PREFIX = 'source:';
 
-/** A cover big enough to clear the untrusted-sender gate, and one that is not. */
-const TRUSTED_COVER_PX = 600;
-const FAVICON_COVER_PX = 128;
+/**
+ * Two *sample* cover widths — not two thresholds.
+ *
+ * There is exactly one threshold and it is not here: it is
+ * `UNTRUSTED_SENDER_MIN_ARTWORK_PX` (300 px) in `constants/imageQuality.js`,
+ * which is what `useRichDisplay` compares against. These two are what real
+ * senders push on either side of it — a media app's artwork, and the favicon of
+ * whatever page a browser tab is playing from — so a reader of the AirPlay tabs
+ * sees the two things that actually happen rather than 299 and 301.
+ *
+ * Which is also why they are literals rather than `THRESHOLD ± 1`: derived
+ * values would follow the gate wherever it moved and stop being sizes anyone has
+ * ever seen. The guardrail keeps them straddling the real constant instead, so
+ * moving the gate past one of them fails a test rather than quietly flipping a
+ * scenario's outcome while its note still describes the old one.
+ */
+export const MEDIA_APP_COVER_PX = 600;
+export const FAVICON_COVER_PX = 128;
 
 /**
  * The files that read what these events carry. Checked key by key by the
@@ -116,12 +154,21 @@ export const METADATA_READERS = [
  * The files that turn a record into a screen — the app's deciders. Every field
  * in BEHAVIOURAL_FIELDS must be read by one of them, or it is not behavioural
  * and has no business in a scenario's name.
+ *
+ * "Which screen" is the first two; the rest decide which *face* of it, which is
+ * the same kind of difference and worth the same tab. playbackBuffering answers
+ * the spinner, useSourceProgress answers whether the playhead advances or is
+ * frozen. That last one is the whole reason `is_playing` is still here: it used
+ * to gate AirPlay's and DLNA's rich display, and when those clauses went it
+ * stopped choosing a component — this list going red is how that was noticed —
+ * but it still separates a paused player from a playing one.
  */
 export const DECIDERS = [
   'composables/useRichDisplay.js',
   'composables/useSourceStatusDisplay.js',
   'components/audio/AudioSourceView.vue',
-  'utils/playbackBuffering.js'
+  'utils/playbackBuffering.js',
+  'composables/useSourceProgress.js'
 ];
 
 /**
@@ -314,17 +361,31 @@ function errored(source, note, message) {
  * status card, browser sources included: a favourites grid whose every tap
  * fails is a worse screen than one naming the reason.
  */
-function offline(source, reason, note) {
+function offline(source, reason, note, metadata = {}) {
   return scenario(
-    [systemStateChanged(source, 'ready', {}, { networkUnavailable: reason })],
+    [systemStateChanged(source, 'ready', metadata, { networkUnavailable: reason })],
     reason === 'no_network' ? 'No network' : 'No internet',
     note
   );
 }
 
-/** A browser source's scenario: an active record plus the browser's setup. */
+/**
+ * A browser source's scenario: the record, plus the browser's own setup.
+ *
+ * READY or ACTIVE follows the stand-in, because that is what the backend does:
+ * all three publish through `emit_connection_state(bool(<the thing in session>))`
+ * — a tuned station, a current episode, a non-empty queue — so a favourites grid
+ * with no player pane is a READY record. Neither state changes the screen here
+ * (`hasRichDisplay` returns true for these three whatever they carry), which is
+ * precisely why every one of them could say `active` and nothing noticed.
+ */
 function browsing(source, label, note, browser) {
-  return scenario([stateChanged(source, 'active', {})], label, note, browser);
+  return scenario(
+    [stateChanged(source, browser.player ? 'active' : 'ready', {})],
+    label,
+    note,
+    browser
+  );
 }
 
 /** Shared by the CD scenarios that have a disc: identity + its tracklist. */
@@ -572,25 +633,31 @@ export const SOURCE_PAGES = [
       'Receiver-driven, so AudioPlayerFull draws a read-only bar and a source bar instead of a transport. The only source with a login state: account_authenticated false swaps the idle line and arms the connect CTA, and only an explicit false does — an absent field reads as connected so the card never flashes the CTA before the proxy has answered.',
     scenarios: [
       starting('qobuz'),
-      ready('qobuz', 'Ready', 'Account connected, waiting for the app to pick the speaker.'),
+      ready(
+        'qobuz',
+        'Ready',
+        'Account connected, waiting for the app to pick the speaker. Both extras ride every record the source publishes, this one included — which is the point of carrying them here: account_authenticated is not a field that appears when something is wrong, it is a field that is always there and is sometimes false.',
+        { client_name: 'Qobuz', account_authenticated: true }
+      ),
       ready(
         'qobuz',
         'Ready, no account',
-        'account_authenticated false — the only path to the second CTA in AudioSourceStatus. Tapping it calls inject("openSettings"), which is absent here, so it no-ops.',
-        { account_authenticated: false }
+        'account_authenticated false — the only path to the second CTA in AudioSourceStatus, and only an explicit false arms it, so the CTA cannot flash before the proxy has answered. Tapping it calls inject("openSettings"), which is absent here, so it no-ops.',
+        { client_name: 'Qobuz', account_authenticated: false }
       ),
       active(
         'qobuz',
         'Active, before now_playing',
-        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in READY. The proxy exposes no controller identity, so currentDeviceName is empty and the generic active line prints "Qobuz / playing" — the same one DLNA lands on, which is why neither needs a branch of its own any more.',
-        { is_playing: true }
+        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in READY. client_name is a static label, not a controller identity — the proxy exposes none — so currentDeviceName is empty and the generic active line prints "Qobuz / playing", the same one DLNA lands on, which is why neither needs a branch of its own any more.',
+        { is_playing: true, client_name: 'Qobuz', account_authenticated: true }
       ),
-      active('qobuz', 'Playing', 'Trusted CDN cover, so no album_art_width gate — title + artist is enough. Read-only bar above the source bar.', {
+      active('qobuz', 'Playing', 'Trusted CDN cover, so no album_art_width gate — title + artist is enough. Read-only bar above the source bar, which carries the static "Qobuz" label rather than a device.', {
         title: 'Ambre',
         artist: 'Nils Frahm',
         album_art_url: albumPlaceholder,
         is_playing: true,
-        client_name: 'Milō',
+        client_name: 'Qobuz',
+        account_authenticated: true,
         position: 64000,
         duration: 264000
       }),
@@ -665,14 +732,14 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (showControls false, showProgress)',
     via: 'dispatcher',
     summary:
-      'The untrusted-sender gate lives here: title, artist, audio actually flowing AND a cover above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). Two scenarios below fail it for different reasons and land on the same screen — the card names the sender and nothing else, because it reads neither a cover width nor a playing flag. That collision is the page saying the gate has one outcome, not three.',
+      'The untrusted-sender gate lives here: title, artist AND a cover above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). The cover size is the whole of it — a sender that publishes a real one is a media app, one that publishes a favicon is a browser tab. What the gate deliberately does *not* read is is_playing: a sender that quits ends the session and the source publishes READY on its own, so the only thing left carrying is_playing=false is a pause, and the card is not the answer to a pause. One state is missing from the tabs on purpose: ACTIVE is reached on shairport\'s `conn`, before any audio flows, carrying nothing but the name off X-Apple-Client-Name — the window Qobuz documents as "Active, before now_playing". It has no tab because it draws the same "Connecté à / Leo’s iPhone" as the declined-cover scenario below, and a tab that repeats a screen teaches a reader to stop trusting that a new tab is a new screen.',
     scenarios: [
       starting('airplay'),
       ready('airplay', 'Ready', 'shairport-sync advertising, nobody streaming.'),
       active(
         'airplay',
         'Active, favicon cover',
-        `album_art_width ${FAVICON_COVER_PX} is below the 300 px floor, so the rich display is declined and the card names the sender instead. Change the constant and this scenario changes with it.`,
+        `album_art_width ${FAVICON_COVER_PX} is under UNTRUSTED_SENDER_MIN_ARTWORK_PX (300, and the only number here that is a rule), so the rich display is declined and the card names the sender instead. This is what browser audio looks like — a page favicon where a media app would push a real cover — and it is the only reason the gate exists. It is also the screen the pre-metadata window lands on, for a different reason the card cannot show: it reads neither the cover width nor the flag, only the sender's name.`,
         {
           title: 'Ainsi parlait Zarathoustra',
           artist: 'Alain Bashung',
@@ -684,24 +751,26 @@ export const SOURCE_PAGES = [
       ),
       active(
         'airplay',
-        'Active, sender stopped',
-        'The route stays connected and the backend keeps the stale cover, but is_playing flips false — the gate drops to the card rather than freezing a cover over audio that no longer plays. Same screen as the scenario above: the card reads neither field, only the sender name.',
+        'Paused',
+        'Same record, is_playing false — and the player stays. The gate has no playing clause: a sender that really quits sends `disc`, which clears the track, the cover and the name and publishes READY, so the card comes back on its own. This is a pause, and taking the cover away here would delete the screen on the gesture that is most likely to be undone next. useSourceProgress stops ticking, nothing else moves.',
         {
           title: 'Ainsi parlait Zarathoustra',
           artist: 'Alain Bashung',
           album_art_url: albumPlaceholder,
           is_playing: false,
           client_name: 'Leo’s iPhone',
-          album_art_width: TRUSTED_COVER_PX
+          album_art_width: MEDIA_APP_COVER_PX,
+          position: 41000,
+          duration: 297000
         }
       ),
-      active('airplay', 'Playing', 'All four conditions met. The source bar carries the sender name; position is corrected only every 30 s, so useSourceProgress interpolates between broadcasts.', {
+      active('airplay', 'Playing', 'All three conditions met. The source bar carries the sender name; position is corrected only every 30 s, so useSourceProgress interpolates between broadcasts.', {
         title: 'Ainsi parlait Zarathoustra',
         artist: 'Alain Bashung',
         album_art_url: albumPlaceholder,
         is_playing: true,
         client_name: 'Leo’s iPhone',
-        album_art_width: TRUSTED_COVER_PX,
+        album_art_width: MEDIA_APP_COVER_PX,
         position: 41000,
         duration: 297000
       }),
@@ -729,7 +798,12 @@ export const SOURCE_PAGES = [
       'Same untrusted-sender gate as AirPlay, and the same player — the difference is identity: UPnP exposes no "who is casting", so currentDeviceName hard-returns empty. That used to need a DLNA-only branch in the card; the generic active line ("DLNA / playing", whenever there is no sender to name) covers it now, and Qobuz’s twin went with it. client_name here is the static "DLNA" label the player’s source bar reads, not a controller name.',
     scenarios: [
       starting('dlna'),
-      ready('dlna', 'Ready', 'The UPnP renderer is advertised, no controller has pushed anything.'),
+      ready(
+        'dlna',
+        'Ready',
+        'The UPnP renderer is advertised, no controller has pushed anything. client_name is on every record the source publishes, idle included — it is a constant, DLNA_CLIENT_NAME, not something a controller supplied.',
+        { client_name: 'DLNA' }
+      ),
       active(
         'dlna',
         'Active, no cover',
@@ -742,7 +816,7 @@ export const SOURCE_PAGES = [
         album_art_url: albumPlaceholder,
         is_playing: true,
         client_name: 'DLNA',
-        album_art_width: TRUSTED_COVER_PX,
+        album_art_width: MEDIA_APP_COVER_PX,
         position: 88000,
         duration: 331000
       }),
@@ -804,6 +878,23 @@ export const SOURCE_PAGES = [
           duration: 0
         }
       ),
+      active(
+        'cd',
+        'Changing track',
+        'The one buffering window worth a tab: a track change republishes the *target* track at position 0 with is_buffering set, on purpose and before the ~1 s reader restart, so the bar snaps to 0:00 and freezes instead of interpolating the outgoing position and then jumping back. The spinner replaces the glyph (isSourceBuffering). The drive’s other buffering window — spinning up on the preload, is_playing still false — reaches the same screen from READY’s side.',
+        {
+          ...CD_DISC,
+          drive_connected: true,
+          title: 'Kind',
+          artist: 'Nils Frahm',
+          album_art_url: albumPlaceholder,
+          is_playing: true,
+          is_buffering: true,
+          current_track: 3,
+          position: 0,
+          duration: 268000
+        }
+      ),
       active('cd', 'Playing', 'AudioPlayerFull with the full transport. hasNext is false on the last track, mirroring the backend’s "next" no-op.', {
         ...CD_DISC,
         drive_connected: true,
@@ -837,25 +928,27 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (showControls, seekable false)',
     via: 'dispatcher',
     summary:
-      'The one source whose two feeds answer different questions: BlueALSA says who is connected, BlueZ AVRCP says what is playing — and the second is optional. So this is also the only source that moves between the card and the player on metadata alone, which is what the first two active records below show. AVRCP has no seek (inert bar, like TIDAL) and carries no cover art at all, so the player runs with an empty artwork slot. The disconnect CTA appears twice for that reason: on the card, and again as the player’s action button, since the card is gone exactly when a user wants to kick the phone off.',
+      'The one source whose two feeds answer different questions: BlueALSA says who is connected, BlueZ AVRCP says what is playing — and the second is optional. So this is also the only source that moves between the card and the player on metadata alone, which is what the first two active records below show. AVRCP has no seek (inert bar, like TIDAL) and carries no cover either, so the one in the artwork slot was looked up from the track text by shared/artwork_resolver.py — album first, iTunes — and merged in at publish time; a miss leaves the slot on the source glyph. The disconnect CTA appears twice: on the card, and again as the player’s action button, since the card is gone exactly when a user wants to kick the phone off.',
     scenarios: [
       starting('bluetooth'),
       ready('bluetooth', 'Ready', 'Discoverable, nothing paired-and-connected. No CTA in this state.'),
       active('bluetooth', 'Connected, no AVRCP', 'A sender that publishes no player — or publishes an empty track — stays on the card: device_name fills the second line and the disconnect CTA appears. It routes through sendCommand, so here it reports to the event log.', {
         device_name: 'Leo’s iPhone'
       }),
-      active('bluetooth', 'Playing', 'Title + artist is the whole gate — requiring the artist is what does the work AirPlay gets from its cover-size check, since a web video publishes a title and rarely an artist. Transport plus a bar that draws position and refuses a scrub, over an empty artwork slot.', {
+      active('bluetooth', 'Playing', 'Title + artist is the whole gate — requiring the artist is what does the work AirPlay gets from its cover-size check, since a web video publishes a title and rarely an artist. Transport plus a bar that draws position and refuses a scrub. The cover is not the sender’s: AVRCP carries none, so it was resolved from this track’s own text and can perfectly well be absent, which leaves the slot on the source glyph.', {
         device_name: 'Leo’s iPhone',
         title: 'Says',
         artist: 'Nils Frahm',
+        album_art_url: albumPlaceholder,
         is_playing: true,
         position: 192000,
         duration: 511000
       }),
-      active('bluetooth', 'Paused', 'Same record, is_playing false. Unlike the two untrusted senders there is no is_playing clause in the gate, and there cannot be: this player draws a pause button, and dropping to the card on pause would delete the button that was just pressed.', {
+      active('bluetooth', 'Paused', 'Same record, is_playing false. Like the two untrusted senders there is no is_playing clause in the gate, and here there could not be one even in principle: this player draws a pause button, and dropping to the card on pause would delete the button that was just pressed.', {
         device_name: 'Leo’s iPhone',
         title: 'Says',
         artist: 'Nils Frahm',
+        album_art_url: albumPlaceholder,
         is_playing: false,
         position: 192000,
         duration: 511000
@@ -879,7 +972,12 @@ export const SOURCE_PAGES = [
       'The other mute receiver, and the only source whose device name is an array: several Macs can stream over ROC at once, and formatDeviceNames joins them across two lines. Its "disconnect" is a no-op in the store, so the card shows no CTA at all — the sender stops from its own side.',
     scenarios: [
       starting('mac'),
-      ready('mac', 'Ready', 'roc-recv is listening; no Mac is sending.'),
+      ready(
+        'mac',
+        'Ready',
+        'roc-recv is listening; no Mac is sending. The array is on the record either way — it is the source\'s one extra and it passes through in both states — so idle is an empty list rather than an absent field, which is what makes "one entry" below a length and not a presence.',
+        { client_names: [] }
+      ),
       active('mac', 'One Mac streaming', 'client_names is an array even with a single entry, which is why the name spells its length rather than its presence.', {
         client_names: ['Leo’s MacBook']
       }),
@@ -889,7 +987,8 @@ export const SOURCE_PAGES = [
       offline(
         'mac',
         'no_network',
-        'ROC is a LAN stream, so only a dead link blocks it. The sender list is empty by construction here — with no network there is nothing to receive from — and the "audio received from" wording has no name to complete.'
+        'ROC is a LAN stream, so only a dead link blocks it. The sender list is empty by construction here — with no network there is nothing to receive from — and the "audio received from" wording has no name to complete.',
+        { client_names: [] }
       ),
       errored(
         'mac',

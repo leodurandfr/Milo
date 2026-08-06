@@ -72,7 +72,32 @@ _SHARE_REMOUNT_RETRY_DELAYS_S = (15, 30, 60)
 
 class MusicLibrarySource(MpvAudioSource):
     """Music Library source (Family C): UI-driven gapless queue playback over a
-    Navidrome-indexed local library, with the USB storage layer (P1-4) live."""
+    Navidrome-indexed local library, with the USB storage layer (P1-4) live.
+
+    **`NETWORK_REQUIREMENT` is left at NONE, and that is a decision.** It reads
+    as an oversight next to Radio's INTERNET and AirPlay's LAN, because half the
+    source does need the LAN: a library on an SMB/NFS share is unreachable
+    without it. The other half is not — a USB key plus a local Navidrome plays
+    with the cable out — and the attribute is per *source* while the question is
+    per *library*. Declaring LAN would take a USB library that works perfectly
+    and replace its browser with "no network"; on the mixed setup (a key and two
+    shares, the common one) it would blank the whole thing to explain half of it.
+    Over-blocking something that works is the worse error, so the flat answer
+    stays NONE. A dynamic one is not available either: `_network_unavailable`
+    reads this synchronously on every `full_state` broadcast, and everything
+    `NetworkShareService` knows is async.
+
+    It costs nothing, because unavailability is already modelled one level down
+    and at the right granularity: each storage space carries `mounted`, which is
+    what `browsableStorages` filters on and what makes `disconnectedStorage` put
+    "storage unplugged" in place of the grid — for that space alone, while the
+    others keep playing. One case escapes it, a link dying with the mount still
+    in /proc/mounts (`list()` reads `mounted` from there, so a stale NFS/SMB
+    mount still reports up until the remount cycle notices). Closing that means
+    teaching the mount layer to flip `mounted`, which makes the message that
+    already exists fire — not a source-wide flag that cannot see which library
+    the user is in.
+    """
 
     def __init__(
         self,
