@@ -32,9 +32,11 @@
             </Transition>
           </div>
 
-          <!-- Decodes the incoming cover off-screen; @load is what promotes it. -->
+          <!-- Decodes the incoming cover off-screen; @load is what promotes it —
+               or rejects it, the size rule living in the composable so this view
+               and the screensaver cannot reach opposite verdicts. -->
           <img v-if="preloadArtwork" :src="preloadArtwork" alt="" class="artwork-preload"
-            @load="settleArtwork(preloadArtwork)" @error="settleArtwork('')" />
+            @load="settleFromLoad" @error="settleFromError" />
         </div>
       </div>
 
@@ -219,7 +221,7 @@ const targetArtwork = computed(() => nowPlayingArtwork(props.source, persistentM
 const trackKey = computed(
   () => `${persistentMetadata.value.title}|${persistentMetadata.value.artist}`
 );
-const { shownArtwork, preloadArtwork, artworkPending, settleArtwork } =
+const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
   useArtworkTransition(targetArtwork, trackKey);
 
 

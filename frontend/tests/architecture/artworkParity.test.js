@@ -29,6 +29,7 @@ const SRC_DIR = resolve(HERE, '../../src');
 const screensaver = readFileSync(join(SRC_DIR, 'composables/useScreensaver.js'), 'utf8');
 const player = readFileSync(join(SRC_DIR, 'components/audio/AudioPlayerFull.vue'), 'utf8');
 const screensaverView = readFileSync(join(SRC_DIR, 'components/audio/AudioScreensaver.vue'), 'utf8');
+const transition = readFileSync(join(SRC_DIR, 'composables/useArtworkTransition.js'), 'utf8');
 
 describe('artwork parity between the player and the screensaver', () => {
   it('extracts a plausible surface first', () => {
@@ -36,6 +37,7 @@ describe('artwork parity between the player and the screensaver', () => {
     // below pass on nothing.
     expect(screensaver).toMatch(/screensaverData\s*=\s*computed/);
     expect(player).toMatch(/artwork-container/);
+    expect(transition).toMatch(/export function useArtworkTransition/);
   });
 
   it('derives the cover from the one shared helper on both sides', () => {
@@ -91,6 +93,31 @@ describe('artwork parity between the player and the screensaver', () => {
     // thing that lifts a veil when a cover never arrives.
     expect(player).not.toMatch(/setTimeout/);
     expect(screensaverView).not.toMatch(/setTimeout/);
+  });
+
+  it('lets neither decide on its own what counts as a cover', () => {
+    // The same cover and the same arrival are not enough — the two views also
+    // have to accept and reject the same images. They did not: the player
+    // promoted anything that decoded while the screensaver rejected anything
+    // under MIN_IMAGE_SIZE, so a 1×1 tracking pixel (DLNA senders push them,
+    // and a broken favicon behaves the same) drew a cover in one view and a
+    // generated avatar in the other. Identical URL, opposite verdicts — which
+    // the URL-parity assertions above cannot see, and which shows up precisely
+    // during the leave crossfade, when the two are superimposed.
+    //
+    // So the size rule lives in the composable, and both sides wire its
+    // handlers straight to the preloader's load/error.
+    //
+    // Asserted on the template attribute, not on the identifier: a file that
+    // destructures `settleFromLoad` and then hands @load its own handler still
+    // mentions the name everywhere, so matching the name alone stays green
+    // through exactly the regression this guards.
+    expect(transition).toMatch(/MIN_IMAGE_SIZE/);
+    for (const view of [player, screensaverView]) {
+      expect(view).toMatch(/@load="settleFromLoad"/);
+      expect(view).toMatch(/@error="settleFromError"/);
+      expect(view).not.toMatch(/MIN_IMAGE_SIZE/);
+    }
   });
 
   it('lets neither own a placeholder image', () => {
