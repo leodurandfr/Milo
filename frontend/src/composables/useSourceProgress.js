@@ -4,6 +4,10 @@ import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useTimer } from '@/composables/useTimer';
 
+// Below this, a broadcast position disagreeing with our own clock is the source
+// correcting drift, not the playhead moving. See isMinorCorrection.
+const CORRECTION_TOLERANCE_MS = 1200;
+
 export function useSourceProgress(source, { compensateStaleness = false } = {}) {
   const unifiedStore = useUnifiedAudioStore();
   const timer = useTimer();
@@ -44,13 +48,37 @@ export function useSourceProgress(source, { compensateStaleness = false } = {}) 
       () => unifiedStore.systemState.metadata?.position,
       () => unifiedStore.systemState.metadata?.duration,
     ],
-    ([newPosition]) => {
-      if (newPosition !== undefined && !isApiSyncing) {
-        localPosition.value = seedFrom(newPosition);
-      }
+    ([newPosition, newDuration], previous) => {
+      if (newPosition === undefined || isApiSyncing) return;
+
+      if (isMinorCorrection(newPosition, newDuration, previous?.[1])) return;
+      localPosition.value = seedFrom(newPosition);
     },
     { immediate: true }
   );
+
+  // Whether a broadcast position is close enough to the clock we are already
+  // running that adopting it would only make the display stutter.
+  //
+  // Sources correct an absolute position periodically while this composable
+  // interpolates in real time, so the two drift by a fraction of a second and
+  // every correction drags the seconds digit backwards. Bluetooth is the loud
+  // case: BlueZ's playhead advances slower than real time for the first seconds
+  // of a track (measured over the WebSocket, 815 ms then 915 ms with 780 ms of
+  // wall clock between them), so the digit flickered 0:00/0:01 on every skip.
+  //
+  // Only ever skips a correction *while playing and on the same track* — a
+  // paused source must land exactly, and a track change reseeds through the
+  // duration check. Everything that genuinely moves a playhead (a seek, a 15 s
+  // skip, a restart) clears the threshold by an order of magnitude. The Lyrics
+  // view opts out via compensateStaleness: it syncs lines, and there a fraction
+  // of a second is the whole point.
+  function isMinorCorrection(newPosition, newDuration, oldDuration) {
+    if (compensateStaleness || localPosition.value === null) return false;
+    if (newDuration !== oldDuration) return false;
+    if (!unifiedStore.systemState.metadata?.is_playing) return false;
+    return Math.abs(newPosition - localPosition.value) < CORRECTION_TOLERANCE_MS;
+  }
 
   // Local animation while playing. Gated on the active source: systemState
   // metadata belongs to the active source, so an instance created for another

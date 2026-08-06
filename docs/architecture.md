@@ -201,14 +201,29 @@ still plays with Podcast Index down.
 - `Track` gives title/artist/album/duration and `Status` gives play/pause, both
   pushed as `PropertiesChanged`; `Play`/`Pause`/`Next`/`Previous` go back the
   other way, wired to `COMMANDS` and to the hardware dispatcher
-- **`Position` is polled, not pushed** — the one non-event-driven thing in the
-  source, and it is forced. BlueZ advertises the property as `emits-change`,
-  but it only moves when the sender sends an AVRCP PLAYBACK_POS_CHANGED
-  notification and iOS never does: measured live, a Get returned a correctly
-  advancing playhead while no signal for it was ever delivered. So every
-  publish re-reads it, `refresh_metadata()` re-reads it for `GET
-  /api/audio/state` + the WS handshake, and a 5 s poll runs while playing —
-  which is also the only thing that catches a scrub done on the phone
+- **The playhead has two sources of unequal trust.** BlueZ does not read
+  `Position` off the link on demand — it extrapolates from the sender's last
+  anchor and re-anchors only when the transport state changes. So a `Get` issued
+  next to a state change reads an anchor not yet corrected (traced: 41552 ms on a
+  track playing at 65 s), while the `PropertiesChanged` arriving ~10 ms later
+  carries the truth. Hence the rule: **a signalled Position is authoritative, a
+  read one is advisory** and is discarded while a state change settles. Between
+  state changes nothing is signalled at all, so a 5 s poll keeps the published
+  value current for a client arriving mid-track
+- **Milō counts the playhead itself wherever BlueZ cannot.** A Previous that
+  restarts a track republishes an identical Track dict — no signal fires, and
+  BlueZ keeps counting from the old anchor *permanently* (traced: 44 s with no
+  discontinuity, 20 s adrift). Same after a track change when no Position
+  follows. In both cases the playhead is counted from the press, and handed back
+  the moment BlueZ signals anything
+- **A seek done on the sender is invisible, and the cause is upstream.** BlueZ
+  subscribes to AVRCP's position-changed event with the largest interval the
+  field can carry — `bt_put_be32(UINT32_MAX / 1000, …)`, commented *"we only use
+  it to resync"* — so a position is reported only at state and track changes,
+  never periodically. Hardcoded, no D-Bus knob; seeing a scrub would take a
+  patched `bluetoothd`. Measured: 94 s of scrubbing produced not one signal and
+  left the bar 14.3 s adrift, and a pause snapped it back in one step. Accepted,
+  not worked around — it recovers on the next pause, skip, or track end
 - **No seek** — AVRCP has only hold-style FastForward/Rewind, so the progress
   bar is read-only (`:seekable="false"`)
 - **No cover art over the link** — AVRCP 1.6 puts images behind a separate OBEX
