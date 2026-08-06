@@ -18,18 +18,52 @@ TrackNumber, NumberOfTracks, Duration, Album, Artist, and nothing else). So
 this module never produces an `album_art_url`; the source resolves one from the
 track text instead, see source.py.
 
-**Position is polled, not pushed** — the one place this module cannot be
-event-driven. BlueZ advertises `Position` as `emits-change`, but the value only
-moves when the sender sends an AVRCP PLAYBACK_POS_CHANGED notification, and iOS
-never does: measured on a live session, the property answered a Get correctly
-(21152 → 27197 → 33244 ms) while no `PropertiesChanged` for it was ever
-delivered, leaving a published playhead frozen at the value captured on the
-track change. So every publish re-reads it, and a poll runs while playing —
-which also catches a scrub done on the phone, invisible from every signal.
+**The playhead has two sources and they are not equally trustworthy.** BlueZ
+does not read Position off the link on demand; it extrapolates from the sender's
+last anchor. Traced on a live iPhone:
+
+  41.181  signal   Status = paused
+  41.182  our Get           41552      <- 24 s wrong
+  41.191  signal   Position = 65294    <- the truth, 10 ms later
+  44.714  signal   Status = playing
+  44.714  our Get           68817      <- 3.1 s ahead
+  44.725  signal   Position = 65681    <- the truth again
+
+So a `Get` issued inside the window around a state change reads an anchor BlueZ
+has not yet corrected, while the `PropertiesChanged` that follows carries the
+corrected value. Hence the rule this module implements: **a signalled Position is
+authoritative and always taken; a Get is advisory**, discarded while a state
+change is still settling (see REANCHOR_SETTLE_S).
+
+Between state changes there are no Position signals at all — the same trace shows
+three seconds of playback carrying none — so the Get is still what moves the bar,
+and a poll runs while playing.
+
+**A seek done on the sender is invisible, and the reason is upstream.** BlueZ
+does subscribe to AVRCP's position-changed event — but with the largest interval
+the field can carry, deliberately:
+
+    if (event == AVRCP_EVENT_PLAYBACK_POS_CHANGED)
+        bt_put_be32(UINT32_MAX / 1000, &pdu->params[1]);
+    /* "Set maximum interval possible for position changed as we only use it to
+       resync." — bluez, profiles/audio/avrcp.c */
+
+So the sender reports a position only at the resync points BlueZ cares about — a
+state change, a track change — and never periodically. A mid-track scrub falls
+between them and is never mentioned. The interval is hardcoded with no D-Bus
+knob, so the only way to see one would be a patched bluetoothd, which is not a
+thing this appliance is going to carry for one source.
+
+Measured here: 94 s of scrubbing produced not one signal and left the playhead
+14.3 s adrift with no sign of converging, and a pause snapped it back in a single
+step. The bar is therefore wrong after a sender-side seek until the next pause,
+skip, or track end. That is accepted, not worked around — and it is the same
+family of limitation as AVRCP having no seek to offer in the first place.
 """
 import asyncio
 import contextlib
 import logging
+import time
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from dbus_next import Message, MessageType
@@ -57,11 +91,46 @@ PLAYING_STATES = frozenset({"playing", "forward-seek", "reverse-seek"})
 # playhead. Read literally it would draw a 49-day progress bar.
 POSITION_ENDED = 0xFFFFFFFF
 
-# How often the playhead is re-read while the sender is playing. This is the
-# ceiling on how long a scrub done on the phone can leave the bar wrong — no
-# signal reports one — so it is deliberately shorter than the drift correction
-# a pushed feed would need. The read is a local D-Bus Get, not a network call.
+# How often the playhead is re-read while the sender is playing, so a client
+# arriving mid-track is handed something current rather than the last signalled
+# value. The read is a local D-Bus Get, not a network call.
+#
+# It does *not* catch a scrub done on the phone. That was the original reason for
+# polling and it was wrong: measured, a seek on the iPhone emitted no signal at
+# all and left BlueZ's Get counting from the pre-seek anchor, 14.3 s adrift and
+# never correcting. Nothing observable reports a sender-side seek — see the
+# module docstring.
 POSITION_POLL_INTERVAL = 5.0
+
+# How long after a state change a *Get* is not to be believed. The trace in the
+# module docstring puts BlueZ's stale window at ~10 ms; this is that, with room.
+#
+# Deliberately a delay and not a magnitude. Sizing it by "how far backwards is
+# too far" cannot work: a Previous restarting a track three seconds in moves the
+# playhead by exactly as much as a bad anchor does, so any threshold wide enough
+# to absorb the noise also freezes the bar on a real restart — which is what
+# happened. When the reading is wrong is knowable; how wrong is not.
+REANCHOR_SETTLE_S = 0.25
+
+# A transport command's effect is not observable when it returns. A Previous that
+# restarts the track republishes an identical Track dict, so no property signal
+# fires at all, and BlueZ keeps extrapolating from the pre-command anchor:
+# measured, the restart stayed invisible for ~3 s. Nothing pushes the new value,
+# so the only way to see it is to look again, a few times, and stop.
+COMMAND_REREAD_DELAYS = (0.7, 1.6, 3.2, 5.5)
+
+# How long a half-updated Track dict is given to complete. Measured gap between
+# the incoming duration and the incoming title: ~600 ms. Past this the sender is
+# assumed not to be mid-skip after all, and the playhead resumes — a frozen bar
+# is worse than a wrong one.
+TRACK_SETTLE_TIMEOUT_S = 2.0
+
+# A track change this soon after a Next or Previous is that press's doing, so the
+# new track started when the button was pressed — not when BlueZ got round to
+# saying so, measured ~900 ms later. Past this window the queue advanced on its
+# own and the only honest origin is the moment we noticed.
+COMMAND_ATTRIBUTION_S = 3.0
+
 
 _MATCH_RULES = (
     f"type='signal',interface='{PROPERTIES_IFACE}',member='PropertiesChanged',"
@@ -102,8 +171,9 @@ class AvrcpController:
     disappearing, mirrors its Track/Status/Position, and sends transport
     commands back. Signal handling is synchronous (a D-Bus message handler
     cannot await), so property updates are applied in the handler and a single
-    coalescing slot wakes the async notifier — a playing sender emits Position
-    roughly once a second and every burst must collapse to one broadcast.
+    coalescing slot wakes the async notifier — a state change arrives as a burst
+    of separate PropertiesChanged messages, and they must collapse to one
+    broadcast rather than paint the UI once per property.
     """
 
     def __init__(self) -> None:
@@ -117,6 +187,11 @@ class AvrcpController:
         self._dirty: asyncio.Queue = asyncio.Queue(maxsize=1)
         self._notify_task: Optional[asyncio.Task] = None
         self._poll_task: Optional[asyncio.Task] = None
+        self._reread_task: Optional[asyncio.Task] = None
+        self._status_changed_at: float = 0.0
+        self._settling_since: float = 0.0
+        self._own_playhead_from: Optional[float] = None
+        self._command_at: float = 0.0
         self._stopped = False
 
     def set_callback(self, on_update: UpdateCallback) -> None:
@@ -170,13 +245,14 @@ class AvrcpController:
         """Drop the listener, the bus and any tracked player."""
         self._stopped = True
 
-        for task in (self._notify_task, self._poll_task):
+        for task in (self._notify_task, self._poll_task, self._reread_task):
             if task and not task.done():
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
         self._notify_task = None
         self._poll_task = None
+        self._reread_task = None
 
         if self._bus:
             with contextlib.suppress(Exception):
@@ -206,6 +282,31 @@ class AvrcpController:
         if reply is None or reply.message_type == MessageType.ERROR:
             self._logger.warning(f"AVRCP {member} refused: {reply.body if reply else 'no reply'}")
             return False
+
+        if member in ("Next", "Previous"):
+            # Whatever this press turns out to have done, the playhead it lands
+            # on starts here — see `_playhead_origin`.
+            self._command_at = time.monotonic()
+
+        if member == "Previous":
+            # Previous puts the playhead at zero whichever thing it does — it
+            # either restarts this track or moves to the one before, and both
+            # start from the top. So there is nothing to wait and see: the
+            # playhead becomes ours from this instant, immediately, and the bar
+            # answers the press rather than three seconds after it.
+            #
+            # The two cases diverge only in *who* re-anchors BlueZ afterwards. A
+            # move fires a Track change, which hands the playhead straight back.
+            # A restart fires nothing at all, ever — BlueZ keeps counting from
+            # the anchor the track had before, permanently adrift (traced on the
+            # unit: 44 s with no discontinuity, a pause finally revealing 20242 ms
+            # of error). There, ours is the only playhead there is.
+            self._own_playhead_from = time.monotonic()
+            self._mark_dirty()
+
+        # Every transport command goes through here, so this is the one place
+        # that can guarantee the playhead is looked at again afterwards.
+        self._schedule_reread()
         return True
 
     async def read_position(self) -> bool:
@@ -229,14 +330,35 @@ class AvrcpController:
         if reply is None or reply.message_type == MessageType.ERROR or not reply.body:
             return False
 
-        self._position = reply.body[0].value
+        self._set_position(reply.body[0].value)
         return True
+
+    def _set_position(self, value: int) -> None:
+        """Adopt a *read* playhead unless BlueZ has not re-anchored yet.
+
+        Only the Get path goes through here. A signalled Position is the value
+        BlueZ corrected itself to and is written straight in — see the module
+        docstring for the trace, and REANCHOR_SETTLE_S for the window.
+        """
+        if time.monotonic() - self._status_changed_at < REANCHOR_SETTLE_S:
+            return
+        if self._settling:
+            # Reads it would answer belong to the incoming track, and we cannot
+            # yet say which track that is (see _is_half_updated).
+            return
+        if self._own_playhead_from is not None:
+            # BlueZ is counting from an anchor a Previous invalidated, and it
+            # will never notice (see `send`).
+            return
+        self._position = value
 
     def snapshot(self) -> Dict[str, Any]:
         """Current player state, keyed like PlaybackMetadata."""
         snap = parse_track(self._track)
         snap["is_playing"] = self._status in PLAYING_STATES
         position = self._position
+        if self._own_playhead_from is not None:
+            position = int((time.monotonic() - self._own_playhead_from) * 1000)
         snap["position"] = None if position is None or position >= POSITION_ENDED else position
         return snap
 
@@ -303,15 +425,84 @@ class AvrcpController:
         self._track = {}
         self._status = ""
         self._position = None
+        self._settling_since = 0.0
+        self._own_playhead_from = None
+        self._command_at = 0.0
 
     def _apply_props(self, props: Dict[str, Any]) -> None:
         """Mirror a Track/Status/Position property batch (values are Variants)."""
         if "Track" in props:
-            self._track = {k: v.value for k, v in props["Track"].value.items()}
+            incoming = {k: v.value for k, v in props["Track"].value.items()}
+            if self._is_half_updated(incoming):
+                self._settling_since = time.monotonic()
+            else:
+                self._settling_since = 0.0
+                self._track = incoming
+                # The outgoing track's playhead is not an anchor for the incoming
+                # one. Dropped before any Position in the same batch lands.
+                self._position = None
+                # A new track starts at zero, and BlueZ may take seconds to say
+                # so — or never, leaving the bar frozen at 0:00 until the poll.
+                # Counting it ourselves from the press keeps it moving; a
+                # signalled Position hands it straight back.
+                self._own_playhead_from = self._playhead_origin()
         if "Status" in props:
+            if props["Status"].value != self._status:
+                # Opens the window in which a Get answers a stale anchor — and
+                # closes the one in which BlueZ's anchor was stale for good,
+                # since a state change is exactly what makes it re-anchor.
+                self._status_changed_at = time.monotonic()
+                self._own_playhead_from = None
             self._status = props["Status"].value
-        if "Position" in props:
+        if "Position" in props and not self._settling:
+            # Authoritative: BlueZ only signals Position when it has re-anchored,
+            # and that value is precisely the correction a Get cannot give us.
             self._position = props["Position"].value
+            self._own_playhead_from = None
+
+    def _playhead_origin(self) -> Optional[float]:
+        """When the track now starting actually started.
+
+        A press is the better origin than the notification that follows it: BlueZ
+        announced the new track ~900 ms after the Next that caused it, and the
+        audio did not wait. With no press to attribute it to, the queue advanced
+        by itself and now is all we know. Paused, nothing is counting.
+        """
+        if self._status not in PLAYING_STATES:
+            return None
+        now = time.monotonic()
+        if now - self._command_at < COMMAND_ATTRIBUTION_S:
+            return self._command_at
+        return now
+
+    def _is_half_updated(self, incoming: Dict[str, Any]) -> bool:
+        """Whether a Track dict describes two tracks at once.
+
+        On a skip, BlueZ carries the incoming track's Duration ~600 ms before its
+        Title — traced on the unit, `dur 215533 → 211426` while the title stayed
+        `Canto De Ossanha`, with the playhead resetting under the old name. A
+        track that keeps its title and artist but changes length is not a
+        different track; it is this one, mid-update. Publishing it resets the bar
+        once for the phantom and again for the real change, which is the
+        0:00 → 0:01 → 0:00 the user sees.
+        """
+        return (
+            bool(self._track)
+            and incoming.get("Title") == self._track.get("Title")
+            and incoming.get("Artist") == self._track.get("Artist")
+            and incoming.get("Duration") != self._track.get("Duration")
+        )
+
+    @property
+    def _settling(self) -> bool:
+        """Whether a half-updated Track is still waiting for its identity.
+
+        Bounded: a sender that never completes the update must not freeze the
+        playhead for the rest of the track.
+        """
+        if not self._settling_since:
+            return False
+        return time.monotonic() - self._settling_since < TRACK_SETTLE_TIMEOUT_S
 
     def _mark_dirty(self) -> None:
         """Wake the notifier, coalescing with any change it has not read yet."""
@@ -328,27 +519,57 @@ class AvrcpController:
                 address = self.device_address
                 if not address:
                     continue
-                # Every publish carries a freshly read playhead, including the
-                # ones a property signal triggered: a pause arrives as Status
-                # alone, and publishing it with the position captured at the
-                # last track change would jump the bar backwards.
-                await self.read_position()
+                # Deliberately does not read the playhead. A signal is what wakes
+                # this loop most often, and a Get issued next to a state change
+                # is exactly the reading BlueZ has not corrected yet — the one
+                # that jumps the bar. Whoever needs a fresh value reads it before
+                # marking dirty; the signal path carries its own.
                 await self._on_update(address, self.snapshot())
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 self._logger.error(f"AVRCP notify failed: {e}")
 
-    async def _poll_loop(self) -> None:
-        """Wake the notifier while playing, so the playhead keeps moving.
+    def _schedule_reread(self) -> None:
+        """Re-read the playhead a few times after a transport command.
 
-        Marks dirty rather than reading here, leaving `_notify_loop` the single
-        place that fetches — otherwise the two would race over `_position`.
+        Replaces any re-read still pending: two commands in a row means the
+        first one's schedule is describing a state that no longer exists.
+        """
+        if self._reread_task and not self._reread_task.done():
+            self._reread_task.cancel()
+        self._reread_task = asyncio.create_task(self._reread_loop())
+
+    async def _reread_loop(self) -> None:
+        """Look again on the COMMAND_REREAD_DELAYS schedule, then stop.
+
+        Bounded on purpose: this covers the window where the sender has not yet
+        told BlueZ what it did, and the poll owns the steady state.
+        """
+        elapsed = 0.0
+        for delay in COMMAND_REREAD_DELAYS:
+            try:
+                await asyncio.sleep(delay - elapsed)
+                elapsed = delay
+                if self._stopped or not self._player_path:
+                    return
+                await self.read_position()
+                self._mark_dirty()
+            except asyncio.CancelledError:
+                raise
+
+    async def _poll_loop(self) -> None:
+        """Advance the playhead while playing — no signal reports it moving.
+
+        Reads before waking the notifier. Steady playback is exactly where a Get
+        is trustworthy: far from any state change, BlueZ's extrapolation tracks
+        real time (measured, to the millisecond over several seconds).
         """
         while not self._stopped:
             try:
                 await asyncio.sleep(POSITION_POLL_INTERVAL)
                 if self._player_path and self._status in PLAYING_STATES:
+                    await self.read_position()
                     self._mark_dirty()
             except asyncio.CancelledError:
                 raise

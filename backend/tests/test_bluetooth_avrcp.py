@@ -17,6 +17,7 @@ Two things are covered, neither reachable from any other guardrail:
     once a second; what is asserted is what reached the state machine, which is
     what the shared player draws.
 """
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -24,6 +25,7 @@ from dbus_next import Variant
 from dbus_next.constants import MessageType
 
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.sources.bluetooth import avrcp as avrcp_module
 from backend.sources.bluetooth.avrcp import (
     MEDIA_PLAYER_IFACE,
     PROPERTIES_IFACE,
@@ -179,12 +181,11 @@ class TestPlayerTracking:
 
         assert avrcp.snapshot()["position"] is None
 
-    async def test_the_playhead_is_fetched_because_nothing_notifies_it(self):
-        """BlueZ advertises Position as `emits-change`, but the value only moves
-        when the sender sends an AVRCP PLAYBACK_POS_CHANGED notification — iOS
-        never does. An explicit Get is the only thing that moves the bar, so the
-        message it builds is the contract with BlueZ, not an implementation
-        detail."""
+    async def test_the_playhead_is_fetched_because_playback_notifies_nothing(self):
+        """BlueZ signals Position when it re-anchors on a state change and at no
+        other time — three seconds of steady playback carry none. So between
+        state changes an explicit Get is the only thing that moves the bar, and
+        the message it builds is the contract with BlueZ."""
         avrcp = AvrcpController()
         avrcp._on_dbus_message(player_added(Position=Variant("u", 60)))
         avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
@@ -210,6 +211,212 @@ class TestPlayerTracking:
 
         assert await avrcp.read_position() is False
         assert avrcp.snapshot()["position"] == 133166
+
+    def test_a_signalled_position_wins_over_a_read_one(self):
+        """The asymmetry the whole playhead rests on. Traced on the unit, a Get
+        issued 1 ms after `Status = playing` answered 68817 while BlueZ signalled
+        65681 ten milliseconds later: the Get read an anchor not yet corrected,
+        the signal *is* the correction. Gate the signal and the bar keeps the
+        wrong value; this test fails the moment a threshold is put in its way."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(Position=Variant("u", 68817)))
+        avrcp._on_dbus_message(player_changed(Position=Variant("u", 65681)))
+
+        assert avrcp.snapshot()["position"] == 65681
+
+    async def test_a_read_taken_while_a_state_change_settles_is_discarded(self):
+        """The other half, and the exact reading that made the bar stutter:
+        traced on the unit, 1 ms after `Status = paused` a Get answered 41552 on
+        a track playing at 65 s."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(Position=Variant("u", 65294)))
+        avrcp._on_dbus_message(player_changed(Status=Variant("s", "paused")))
+        avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
+            message_type=MessageType.METHOD_RETURN, body=[Variant("u", 41552)]
+        )))
+
+        assert await avrcp.read_position() is True
+        assert avrcp.snapshot()["position"] == 65294
+
+    async def test_the_notifier_never_reads_the_playhead_itself(self):
+        """A signal is what wakes the notifier most often, and a Get issued next
+        to a state change is precisely the reading BlueZ has not corrected yet.
+        Reading there is what injected a 24-second-wrong playhead on pause, so
+        the loop publishes what it holds and lets the readers read."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(Position=Variant("u", 65294)))
+        avrcp.set_callback(AsyncMock())
+        avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
+            message_type=MessageType.METHOD_RETURN, body=[Variant("u", 41552)]
+        )))
+        avrcp._notify_task = asyncio.create_task(avrcp._notify_loop())
+
+        avrcp._on_dbus_message(player_changed(Status=Variant("s", "paused")))
+        await asyncio.sleep(0.05)
+
+        assert not [c for c in avrcp._bus.call.call_args_list
+                    if c.args[0].member == "Get"], "the notifier issued a Get"
+        assert avrcp.snapshot()["position"] == 65294
+        await avrcp.stop()
+
+    def test_a_half_updated_track_is_not_published(self):
+        """A skip carries the incoming track's Duration ~600 ms before its Title.
+        Traced on the unit: dur 215533 → 211426 with the title still `Canto De
+        Ossanha` and the playhead resetting to 31 ms under the old name. Applied,
+        the bar resets once for that phantom and again for the real change — the
+        0:00 → 0:01 → 0:00 on every Next."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Canto De Ossanha", Duration=215533),
+            Position=Variant("u", 113492),
+        ))
+        avrcp._on_dbus_message(player_changed(
+            Track=track_variant(Title="Canto De Ossanha", Duration=211426),
+            Position=Variant("u", 31),
+        ))
+
+        held = avrcp.snapshot()
+        assert held["duration"] == 215533, "the outgoing track kept its length"
+        assert held["position"] == 113492, "and its playhead"
+
+        # The identity catches up: now it is a track change like any other.
+        avrcp._on_dbus_message(player_changed(
+            Track=track_variant(Title="Revenants", Duration=211426)
+        ))
+        avrcp._on_dbus_message(player_changed(Position=Variant("u", 257)))
+
+        assert avrcp.snapshot()["title"] == "Revenants"
+        assert avrcp.snapshot()["position"] == 257
+
+    def test_a_new_track_does_not_inherit_the_old_playhead(self):
+        """BlueZ moves Track and Position in separate messages and they do not
+        arrive together, so for a moment the incoming track would be published
+        carrying the outgoing one's offset — a bar that reads 1:33 on a track
+        that just started. No playhead beats the wrong one: the bar waits."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(Position=Variant("u", 93817)))
+        avrcp._on_dbus_message(player_changed(Track=track_variant(Title="Next one")))
+
+        assert avrcp.snapshot()["position"] is None
+
+    async def test_previous_zeroes_the_playhead_without_waiting_for_bluez(self):
+        """The one thing BlueZ will not tell us, at all, ever. A Previous that
+        restarts the track republishes an identical Track dict, so no signal
+        fires — and BlueZ only re-anchors on a state change, so it keeps counting
+        from the old playhead. Traced on the unit: Previous at 20242 ms, then 44 s
+        of smooth counting with no discontinuity, and a pause finally revealing
+        20242 ms of error still there. Nothing observable corrects it, and
+        nothing is worth waiting for: Previous starts from the top whichever
+        thing it does, so the playhead is taken on the press."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Newbutt Lane", Duration=180000),
+            Status=Variant("s", "playing"),
+            Position=Variant("u", 20242),
+        ))
+        avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
+            message_type=MessageType.METHOD_RETURN, body=[]
+        )))
+
+        assert await avrcp.send("Previous") is True
+
+        # No sleep: waiting on a verdict is what left the bar reading 0:03 by
+        # the time it reset.
+        assert avrcp.snapshot()["position"] < 100
+        await avrcp.stop()
+
+    async def test_a_new_track_keeps_counting_when_bluez_says_nothing(self):
+        """A track change clears the playhead, and BlueZ is under no obligation
+        to send a new one — when it does not, the bar sat frozen at 0:00 until
+        the 5 s poll, which is the 0:00-while-the-music-is-at-0:04 on a Next. The
+        new track started at the press, so it is counted from there."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Newbutt Lane", Duration=180000),
+            Status=Variant("s", "playing"),
+            Position=Variant("u", 90000),
+        ))
+        avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
+            message_type=MessageType.METHOD_RETURN, body=[]
+        )))
+
+        assert await avrcp.send("Next") is True
+        avrcp._on_dbus_message(player_changed(
+            Track=track_variant(Title="Water's Path", Duration=241506)
+        ))
+
+        # No Position signal at all, and the bar still has a playhead.
+        assert avrcp.snapshot()["position"] is not None
+        assert avrcp.snapshot()["position"] < 1000
+        await avrcp.stop()
+
+    async def test_a_track_change_hands_the_playhead_back(self):
+        """The other outcome of the same press. When Previous moves to the track
+        before rather than restarting this one, BlueZ *does* re-anchor — so
+        holding our own count past that point would pin the bar to a clock that
+        no longer means anything. The track change gives it back."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Newbutt Lane", Duration=180000),
+            Status=Variant("s", "playing"),
+            Position=Variant("u", 2000),
+        ))
+        avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
+            message_type=MessageType.METHOD_RETURN, body=[]
+        )))
+
+        assert await avrcp.send("Previous") is True
+        avrcp._on_dbus_message(player_changed(
+            Track=track_variant(Title="Water's Path", Duration=241506)
+        ))
+        avrcp._on_dbus_message(player_changed(Position=Variant("u", 292)))
+
+        assert avrcp.snapshot()["title"] == "Water's Path"
+        assert avrcp.snapshot()["position"] == 292
+        await avrcp.stop()
+
+    async def test_a_restart_a_few_seconds_in_still_moves_the_bar(self):
+        """Why the window is a delay and not a magnitude. A Previous restarting a
+        track three seconds in moves the playhead by about as much as a stale
+        anchor does, so a threshold wide enough to absorb the noise froze the bar
+        on exactly the restart the user had just asked for."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(Position=Variant("u", 3200)))
+        avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
+            message_type=MessageType.METHOD_RETURN, body=[Variant("u", 210)]
+        )))
+
+        assert await avrcp.read_position() is True
+        assert avrcp.snapshot()["position"] == 210
+
+    async def test_a_transport_command_looks_at_the_playhead_again(self, monkeypatch):
+        """A sender takes a moment to tell BlueZ what a command did, and BlueZ
+        pushes nothing in the meantime — measured, up to ~3 s — so a command that
+        does not look again leaves the bar wrong. Asserted on the bus traffic,
+        not on the delays: the schedule is tuning, looking again is the contract.
+        Uses Next because Previous takes the playhead outright and would answer
+        from its own clock instead of the read."""
+        monkeypatch.setattr(avrcp_module, "COMMAND_REREAD_DELAYS", (0.0,))
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(Position=Variant("u", 122700)))
+        avrcp.set_callback(AsyncMock())
+        avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
+            message_type=MessageType.METHOD_RETURN, body=[Variant("u", 1904)]
+        )))
+        avrcp._notify_task = asyncio.create_task(avrcp._notify_loop())
+        # Adopting the player wakes the notifier on its own, and that read would
+        # pass this test whether or not the command schedules one. Let it drain,
+        # then count only what the command caused.
+        await asyncio.sleep(0.02)
+        avrcp._bus.call.reset_mock()
+
+        assert await avrcp.send("Next") is True
+        await asyncio.sleep(0.05)
+
+        reads = [c.args[0] for c in avrcp._bus.call.call_args_list if c.args[0].member == "Get"]
+        assert reads, "the command never re-read the playhead"
+        assert avrcp.snapshot()["position"] == 1904
+        await avrcp.stop()
 
     def test_the_snapshot_never_carries_artwork(self):
         """Measured on a live iPhone, the Track dict is exactly Title /

@@ -14,7 +14,7 @@
  * is rendered or asserted on the DOM.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -291,6 +291,57 @@ describe('useSourceProgress', () => {
       expect(progress.currentPosition.value).toBe(120000);
       await vi.advanceTimersByTimeAsync(100);
       await seeking;
+    });
+  });
+
+  describe('sub-second corrections', () => {
+    it('does not drag the bar back for a source whose clock lags ours', async () => {
+      // Measured on Bluetooth over the WebSocket: BlueZ's playhead advances
+      // slower than real time for the first seconds of a track (815 ms, then
+      // 915 ms with 780 ms of wall clock between them). Adopting each correction
+      // pulled the display back across the second boundary, and the digit
+      // flickered 0:00/0:01 on every skip.
+      broadcast(store, { source: 'bluetooth', metadata: { position: 815, duration: 286230, is_playing: true } });
+      const { progress } = mountProgress('bluetooth');
+
+      vi.advanceTimersByTime(800);
+      expect(progress.currentPosition.value).toBe(1615);
+
+      broadcast(store, { source: 'bluetooth', metadata: { position: 915, duration: 286230, is_playing: true } });
+      await nextTick();
+
+      expect(progress.currentPosition.value).toBe(1615);
+    });
+
+    it('still lands exactly on anything that really moved the playhead', async () => {
+      broadcast(store, { source: 'bluetooth', metadata: { position: 45000, duration: 286230, is_playing: true } });
+      const { progress } = mountProgress('bluetooth');
+      vi.advanceTimersByTime(500);
+
+      // A Previous restarting the track.
+      broadcast(store, { source: 'bluetooth', metadata: { position: 0, duration: 286230, is_playing: true } });
+      await nextTick();
+      expect(progress.currentPosition.value).toBe(0);
+
+      // And a track change lands even when the two positions are close, because
+      // the duration moved with it.
+      vi.advanceTimersByTime(500);
+      broadcast(store, { source: 'bluetooth', metadata: { position: 148, duration: 241506, is_playing: true } });
+      await nextTick();
+      expect(progress.currentPosition.value).toBe(148);
+    });
+
+    it('lands exactly while paused, where no local clock is running', async () => {
+      // A pause is where a source re-anchors, and the value it settles on is the
+      // one the user can check against the screen.
+      broadcast(store, { source: 'bluetooth', metadata: { position: 60000, duration: 286230, is_playing: true } });
+      const { progress } = mountProgress('bluetooth');
+      vi.advanceTimersByTime(500);
+
+      broadcast(store, { source: 'bluetooth', metadata: { position: 60200, duration: 286230, is_playing: false } });
+      await nextTick();
+
+      expect(progress.currentPosition.value).toBe(60200);
     });
   });
 });

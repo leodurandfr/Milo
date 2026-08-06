@@ -26,10 +26,11 @@ player can show is one resolved from the track text — the shared
 `ArtworkResolver`, the same one radio uses for its in-band stations. It is
 best-effort and asynchronous: a miss leaves the player's source glyph.
 
-The playhead is the one thing nothing notifies (again, see avrcp.py), which is
-why this is also the one source whose `refresh_metadata()` does real work:
-without it a client reloading mid-track is handed the position captured at the
-last track change.
+The playhead is the one thing no feed reports reliably (again, see avrcp.py:
+BlueZ signals it only when it re-anchors, and between those it extrapolates —
+sometimes from an anchor that is minutes wrong). That is why this is also the one
+source whose `refresh_metadata()` does real work: without it a client reloading
+mid-track is handed the position captured at the last track change.
 
 Features:
 - Multi-service management: bluetooth, bluealsa, bluealsa-aplay
