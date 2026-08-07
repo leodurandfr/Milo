@@ -46,6 +46,7 @@ def _mpv(**overrides):
     mpv = Mock()
     mpv.is_connected = True
     mpv.connect = AsyncMock(return_value=True)
+    mpv.ensure_connected = AsyncMock(return_value=True)
     mpv.load_stream = AsyncMock(return_value=True)
     mpv.set_property = AsyncMock(return_value=True)
     mpv.wait_until_advancing = AsyncMock(return_value=True)
@@ -910,6 +911,48 @@ class TestMonitorTick:
 
         (params,), _ = source._handle_play_track.call_args
         assert params.track_number == 2
+
+    @pytest.mark.asyncio
+    async def test_a_dropped_link_is_not_a_mid_album_track_end(self, source):
+        """CD is the only source whose tick *acts* on a failed read.
+
+        A None time-pos means "the disc ran out" only while mpv is there to say
+        so. When the link died under the read, auto-advancing restarts the drive
+        and mpv against a socket nobody is listening on. The two tests above pin
+        the live-mpv EOF paths; the pair states the discriminator.
+        """
+        source._is_playing = True
+        source._tracks = TRACKS
+        source._current_track = 1
+        source._mpv = _mpv(is_connected=False, get_property=AsyncMock(return_value=None))
+        source._reader = Mock(is_running=False)
+        source._handle_play_track = AsyncMock(return_value={"success": True})
+
+        await source._on_monitor_tick()
+
+        source._handle_play_track.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_dropped_link_is_not_an_album_end(self, source):
+        """...and on the last track it must not settle the source either.
+
+        Settling to READY here is what made CD the one source that never showed
+        "Audio stream disconnected": _monitor_loop gates its fallback on
+        _state == ACTIVE, and the tick had already shut that gate one pass
+        earlier. Consumer: the disconnect banner in the frontend.
+        """
+        source._is_playing = True
+        source._is_paused = False
+        source._state = SourceState.ACTIVE
+        source._tracks = TRACKS
+        source._current_track = 3
+        source._mpv = _mpv(is_connected=False, get_property=AsyncMock(return_value=None))
+        source._reader = Mock(is_running=False)
+
+        await source._on_monitor_tick()
+
+        assert source._is_playing is True
+        assert source.state is SourceState.ACTIVE
 
     @pytest.mark.asyncio
     async def test_buffering_clears_once_time_pos_advances(self, source):
