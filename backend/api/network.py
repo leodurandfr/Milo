@@ -17,6 +17,7 @@ from backend.api.responses import (
     WifiNetworksEnvelope,
     WifiSaveEnvelope,
     WifiSavedEnvelope,
+    WifiSignalEnvelope,
 )
 from backend.core.network.models import WifiConnectRequest, WifiRadioRequest, WifiCountryRequest
 
@@ -36,6 +37,19 @@ def create_network_router(network_service: "NetworkService"):
         async with api_error_handler("Network status", logger):
             status = await network_service.get_network_status()
             return {"status": "success", "data": status.model_dump()}
+
+    @router.get("/wifi/signal", response_model=WifiSignalEnvelope)
+    async def get_wifi_signal():
+        """Live RSSI of the associated AP — polled while the signal arc is shown.
+
+        Deliberately not part of /status: that route forks four nmcli to rebuild
+        the whole picture, which is exactly what a client refreshing one icon
+        must not do. Nothing pushes the RSSI any more, so this is the only
+        reader — and it runs only while something displays it.
+        """
+        async with api_error_handler("WiFi signal", logger):
+            signal = await network_service.get_wifi_signal()
+            return {"status": "success", "data": {"signal": signal}}
 
     @router.get("/wifi/networks", response_model=WifiNetworksEnvelope)
     async def scan_networks():

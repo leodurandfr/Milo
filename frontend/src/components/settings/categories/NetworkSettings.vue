@@ -136,9 +136,10 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { useNetwork } from '@/composables/useNetwork';
+import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
 import { wifiCountryOptions } from '@/constants/wifiCountries';
+import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
@@ -365,6 +366,21 @@ watch(showWifiCard, async (visible) => {
 
 let rafId = null;
 let countryPollIntervalId = null;
+let signalPollId = null;
+
+// The signal arc is the only value on this panel that moves on its own, and the
+// backend broadcasts nothing for it: it lives exactly as long as the card that
+// shows it. Kept out of the height-measuring watcher above, whose early return
+// on `skipNextWatcher` would silently skip a start or a stop.
+watch(showWifiCard, (visible) => {
+  if (visible && signalPollId === null) {
+    refreshWifiSignal();
+    signalPollId = timer.setInterval(refreshWifiSignal, WIFI_SIGNAL_POLL_MS);
+  } else if (!visible && signalPollId !== null) {
+    timer.clear(signalPollId);
+    signalPollId = null;
+  }
+}, { immediate: true });
 
 // Enable transitions only after all API data is loaded
 watch(loading, (isLoading) => {

@@ -213,6 +213,20 @@ class WifiSaveEnvelope(BaseModel):
     data: WifiSsidData
 
 
+class WifiSignalData(BaseModel):
+    signal: Optional[int] = None
+
+
+class WifiSignalEnvelope(BaseModel):
+    """GET /wifi/signal — the live RSSI, polled while the arc is on screen.
+
+    `signal` is null when nothing is associated (or NM D-Bus is unavailable):
+    the arc renders greyed rather than the panel erroring.
+    """
+    status: str
+    data: WifiSignalData
+
+
 class WifiCountryData(BaseModel):
     country_code: str
 
