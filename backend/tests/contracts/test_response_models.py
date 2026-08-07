@@ -14,6 +14,7 @@ dict through the model, then dump in JSON mode with the same `exclude_none`
 flag the route decorator uses.
 """
 from backend.api import responses as R
+from backend.core.state import AudioStateMachine
 
 
 def emit(model, data, *, exclude_none=False):
@@ -21,19 +22,29 @@ def emit(model, data, *, exclude_none=False):
     return model.model_validate(data).model_dump(mode="json", exclude_none=exclude_none)
 
 
-def test_audio_state_preserves_all_seven_keys():
-    # backend/api/audio.py GET /state -> state_machine.get_current_state()
-    data = {
-        "active_source": "spotify",
-        "source_state": "active",
-        "transitioning": False,
-        "metadata": {"title": "x", "artist": None},  # opaque; sub-null kept
-        "error": None,
-        "multiroom_enabled": False,
-        "equalizer_effects_enabled": True,
-    }
+def test_audio_state_preserves_every_key_the_state_machine_emits():
+    """AudioStateResponse must carry the whole of get_current_state().
+
+    Derived from the state machine rather than from a dict written here, which
+    is the difference between a guardrail and a copy of the thing it guards:
+    this test used to hand-type the seven keys it expected, so when
+    `network_unavailable` was added to get_current_state() the model, the test
+    and each other stayed in perfect agreement while the route quietly stopped
+    serving it. The frontend feeds this response through the same
+    `updateSystemState` as a WS full_state, so a filtered key is read as absent
+    — an offline status card reverting to a normal one on every resync.
+
+    A bare machine is enough: with no services wired, get_current_state() still
+    emits every key, which is exactly the set the model has to declare.
+    """
+    produced = AudioStateMachine().get_current_state()
+    # The producer has to have produced something, or the comparison is vacuous.
+    assert "active_source" in produced
+    assert "network_unavailable" in produced
+
+    data = {**produced, "metadata": {"title": "x", "artist": None}}  # opaque; sub-null kept
     out = emit(R.AudioStateResponse, data)
-    assert set(out) == set(data)
+    assert set(out) == set(produced)
     # metadata stays opaque: response_model must not strip its null sub-keys.
     assert out["metadata"] == {"title": "x", "artist": None}
     assert out["error"] is None  # no exclude_none on this route

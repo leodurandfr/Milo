@@ -50,7 +50,16 @@ class StatusResponse(BaseModel):
 
 
 class AudioStateResponse(BaseModel):
-    """GET /api/audio/state — AudioStateMachine.get_current_state()."""
+    """GET /api/audio/state — AudioStateMachine.get_current_state().
+
+    Every key that snapshot carries, because this response *is* that snapshot:
+    the frontend feeds it through the same `updateSystemState` as a WS
+    full_state, so a field declared there and missing here is silently dropped
+    by FastAPI's response_model and read as absent by the store. That is what
+    happened to `network_unavailable` — present in every broadcast, filtered out
+    of the HTTP read, which would have blanked the offline card on every
+    resync.
+    """
     active_source: str
     source_state: str
     transitioning: bool
@@ -58,6 +67,7 @@ class AudioStateResponse(BaseModel):
     error: Optional[str] = None
     multiroom_enabled: bool
     equalizer_effects_enabled: bool
+    network_unavailable: Optional[str] = None
 
 
 class MultiroomSetResponse(BaseModel):

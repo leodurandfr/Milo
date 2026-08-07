@@ -68,8 +68,16 @@ function hasRichDisplay(source, state, meta, unavailableReason) {
       // Same gate as AirPlay, for the same reasons: untrusted external sender,
       // so title, artist and a real cover (>300px) — and no is_playing clause,
       // since a controller that pauses or stops keeps the renderer connected
-      // (gmediarender holds no session) while only a real disconnect publishes
-      // READY.
+      // (gmediarender holds no session), so the flag alone says nothing about
+      // whether there is still a session to draw.
+      //
+      // What ends one is a disconnect *or* the source's own auto-stop, which a
+      // pause and a stop both arm: at T+audio.auto_stop_delay (2 min by
+      // default, not the 10 s placeholder in the constructor) DlnaSource resets
+      // and publishes READY, and the card comes back on its own. That is the
+      // bound on how long a paused controller can leave a stale cover here —
+      // the same bound AirPlay has, reached by resetting rather than by
+      // restarting the daemon.
       return state === 'active' && !!m.title && !!m.artist &&
         (m.album_art_width || 0) > UNTRUSTED_SENDER_MIN_ARTWORK_PX;
     case 'qobuz':

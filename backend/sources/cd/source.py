@@ -137,6 +137,11 @@ class CdSource(MpvAudioSource):
         self._ejecting = False
         self._play_start_lba = 0
 
+    def _idle_metadata(self) -> Dict[str, Any]:
+        """A stopped CD still has a disc to show, so publish the full projection
+        (same reason _update_connection_state sends it in both states)."""
+        return self._build_metadata()
+
     @property
     def _is_active_source(self) -> bool:
         """True when CD is the source the user is on.
@@ -921,6 +926,9 @@ class CdSource(MpvAudioSource):
     # =========================================================================
     # MONITOR
     # =========================================================================
+
+    def _mpv_swap_in_progress(self) -> bool:
+        return self._restarting
 
     async def _on_monitor_tick(self) -> None:
         """Track position via mpv time-pos mapped to disc LBA, detect auto-advance and album end."""

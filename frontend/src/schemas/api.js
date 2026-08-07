@@ -82,8 +82,7 @@ const VolumeZoneSchema = z.object({
   name: z.string(),
   client_ids: z.array(z.string()),
   average_volume_db: z.number().optional(),
-  all_muted: z.boolean().optional(),
-  all_external_volume: z.boolean().optional().default(false)
+  all_muted: z.boolean().optional()
 });
 
 export const VolumeStateSchema = z.object({

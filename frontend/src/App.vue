@@ -190,10 +190,9 @@ function processInitialState(event) {
 
 // Stores whose WS-fed state is delta-based: events missed while disconnected or
 // backgrounded leave them stale until refetched. Each exposes a uniform resync();
-// a new delta-based store MUST implement resync() and be listed here. Stores fed by
-// full_state snapshots (unifiedAudioStore) heal via initial_state instead.
+// a new delta-based store MUST implement resync() and be listed here.
 const deltaStores = [
-  multiroomStore, equalizerStore, systemStore, fanStore,
+  unifiedStore, multiroomStore, equalizerStore, systemStore, fanStore,
   radioStore, podcastStore, updatesStore, settingsStore,
   musicLibraryStore,
 ];
@@ -608,7 +607,7 @@ onMounted(async () => {
     }),
     on('system', 'error', (event) => {
       const source = event.data?.source || 'system';
-      const message = event.data?.message || event.data?.error || 'Unknown error';
+      const message = event.data?.message || 'Unknown error';
       currentError.value = {
         title: t('notification.sourceErrorTitle', { source: capitalize(source) }),
         detail: message,

@@ -169,9 +169,9 @@ CASES = [
     ),
     (
         # EXCLUDE_NONE: the zone_client_removed variant carries mac_id, no zone key
-        MultiroomZoneChanged(zone_id="z1", mac_id="aa:bb:cc:dd:ee:ff"),
+        MultiroomZoneChanged(action="client_removed", zone_id="z1", mac_id="aa:bb:cc:dd:ee:ff"),
         {"category": "multiroom", "type": "zone_changed", "origin": "multiroom",
-         "data": {"zone_id": "z1", "mac_id": "aa:bb:cc:dd:ee:ff"}},
+         "data": {"action": "client_removed", "zone_id": "z1", "mac_id": "aa:bb:cc:dd:ee:ff"}},
         False,
     ),
     (

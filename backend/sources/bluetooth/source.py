@@ -28,9 +28,14 @@ best-effort and asynchronous: a miss leaves the player's source glyph.
 
 The playhead is the one thing no feed reports reliably (again, see avrcp.py:
 BlueZ signals it only when it re-anchors, and between those it extrapolates —
-sometimes from an anchor that is minutes wrong). That is why this is also the one
-source whose `refresh_metadata()` does real work: without it a client reloading
-mid-track is handed the position captured at the last track change.
+sometimes from an anchor that is minutes wrong). Five sources implement
+`refresh_metadata()`; this is the one that would have no playhead at all
+without it. The other four re-read a position they also publish periodically
+(mpv's `time-pos` for CD/Podcast/Music Library, go-librespot's /status for
+Spotify), so their hook sharpens a value a reconnecting client already has —
+here it is the only thing that ever moves it, since nothing notifies a moved
+playhead over AVRCP and the stored one is whatever the last track change
+captured.
 
 Features:
 - Multi-service management: bluetooth, bluealsa, bluealsa-aplay
@@ -69,6 +74,14 @@ class BluetoothSource(BaseAudioSource):
     `/api/audio/control/bluetooth` to `_handle_command`. Extends
     BaseAudioSource — implements `_do_start / _do_stop / _handle_command`.
     """
+
+    # AVRCP does report a pause (BlueZ signals `Status = paused`, which is what
+    # the player's own pause button reads back), so the reason there is no
+    # auto-stop here is not that the signal is missing — it is that acting on it
+    # would be wrong: a paused phone is still connected and resumes instantly,
+    # and tearing the link down would make the player's pause button undo
+    # itself. The 12 h INACTIVITY_TIMEOUT in AudioStateMachine is the backstop.
+    AUTO_STOP_SUPPORTED = False
 
     def __init__(
         self,
@@ -117,12 +130,9 @@ class BluetoothSource(BaseAudioSource):
         self._artwork_url: Optional[str] = None
         self._artwork_key: tuple = ()
 
-        # No per-source auto-stop: BT carries no out-of-band pause signal
-        # and senders re-connect instantly when the user resumes. The 12h
-        # INACTIVITY_TIMEOUT in AudioStateMachine remains as the final
-        # backstop. `camilladsp_service` is kept on the constructor for DI
-        # compatibility with the other Family A sources.
-        self.auto_stop_enabled = False
+        # Auto-stop is declined at class level (AUTO_STOP_SUPPORTED, above).
+        # `camilladsp_service` is kept on the constructor for DI compatibility
+        # with the other Family A sources.
         _ = camilladsp_service  # reserved for future use
 
     def _reset_playback_state(self) -> None:
@@ -397,11 +407,11 @@ class BluetoothSource(BaseAudioSource):
     async def refresh_metadata(self) -> bool:
         """Re-read the playhead for `GET /api/audio/state` and the WS handshake.
 
-        The one source that needs this hook to do real work. Nothing notifies a
-        moved playhead over AVRCP, so the stored position is the one captured at
-        the last track change — near zero for the whole song. A client arriving
-        or reloading mid-track would be handed that and interpolate from it,
-        which is a progress bar that restarts at 0:00 on every refresh.
+        The source this hook matters most to. Nothing notifies a moved playhead
+        over AVRCP, so the stored position is the one captured at the last track
+        change — near zero for the whole song. A client arriving or reloading
+        mid-track would be handed that and interpolate from it, which is a
+        progress bar that restarts at 0:00 on every refresh.
         """
         if not self.avrcp.has_player:
             return False

@@ -216,9 +216,16 @@ export const useUpdatesStore = defineStore('updates', () => {
   // Reconciles in-flight update flags so "updating" survives a reconnect/foreground.
   // Lazily loaded: UpdateManager calls loadLocalPrograms() when it opens, and the
   // call costs an installed-version probe per program — same gate as radioStore.
+  //
+  // Satellites carry the same delta-only in-flight flags and need the same heal,
+  // but they only exist while multiroom is on. `satellites !== null` is that gate:
+  // it means UpdateManager already fetched them, which it only does when multiroom
+  // is enabled — no second copy of the condition to keep in step.
   async function resync() {
     if (!hasEverLoaded.value) return;
-    return loadLocalPrograms();
+    const tasks = [loadLocalPrograms()];
+    if (satellites.value !== null) tasks.push(loadSatellites());
+    return Promise.all(tasks);
   }
 
   return {

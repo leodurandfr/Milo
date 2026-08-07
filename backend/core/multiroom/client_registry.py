@@ -209,11 +209,13 @@ class ClientRegistryService:
         # Emit zone events before client event
         for zone_id, zone_dict in zones_modified:
             await self._emit_event(RegistryEventType.ZONE_UPDATED, {
+                "action": "updated",
                 "zone_id": zone_id,
                 "zone": zone_dict
             })
         for zone_id, zone_dict in zones_deleted:
             await self._emit_event(RegistryEventType.ZONE_DELETED, {
+                "action": "deleted",
                 "zone_id": zone_id,
                 "zone": zone_dict
             })
@@ -307,6 +309,7 @@ class ClientRegistryService:
         # Emit zone update if properties affecting zone state changed
         if zone_to_update:
             await self._emit_event(RegistryEventType.ZONE_UPDATED, {
+                "action": "updated",
                 "zone_id": zone_to_update[0],
                 "zone": zone_to_update[1]
             })
@@ -480,6 +483,7 @@ class ClientRegistryService:
 
         await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_CREATED, {
+            "action": "created",
             "zone_id": zone_id,
             "zone": self.zone_to_enriched_dict(zone)
         })
@@ -522,6 +526,7 @@ class ClientRegistryService:
 
         await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_DELETED, {
+            "action": "deleted",
             "zone_id": zone_id,
             "zone": zone_dict
         })
@@ -564,6 +569,7 @@ class ClientRegistryService:
 
         await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
+            "action": "updated",
             "zone_id": zone_id,
             "zone": zone_dict
         })
@@ -628,12 +634,14 @@ class ClientRegistryService:
 
         if old_zone_deleted:
             await self._emit_event(RegistryEventType.ZONE_DELETED, {
+                "action": "deleted",
                 "zone_id": old_zone_id,
                 "zone": old_zone_dict
             })
             self.logger.info(f"Zone {old_zone_id} deleted (less than 2 clients after move)")
 
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
+            "action": "updated",
             "zone_id": zone_id,
             "zone": self.zone_to_enriched_dict(zone)
         })
@@ -679,18 +687,21 @@ class ClientRegistryService:
 
         # Notify crossover service to disable filters on the removed client
         await self._emit_event(RegistryEventType.ZONE_CLIENT_REMOVED, {
+            "action": "client_removed",
             "zone_id": zone_id,
             "mac_id": mac_id
         })
 
         if zone_deleted:
             await self._emit_event(RegistryEventType.ZONE_DELETED, {
+                "action": "deleted",
                 "zone_id": zone_id,
                 "zone": zone_dict
             })
             self.logger.info(f"Zone {zone_id} deleted (less than 2 clients)")
         else:
             await self._emit_event(RegistryEventType.ZONE_UPDATED, {
+                "action": "updated",
                 "zone_id": zone_id,
                 "zone": self.zone_to_enriched_dict(zone)
             })

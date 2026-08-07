@@ -760,6 +760,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // a store the user never opened costs two requests on every reconnect and
     // tab return, and heals nothing — same gate as radioStore/musicLibraryStore.
     if (!hasEverLoaded.value) return;
+    // Targets first, same order as the modal's own mount: a client forgotten or
+    // a zone dissolved while we were away leaves selectedTarget naming something
+    // that no longer exists, and every read below is addressed through it.
+    await loadTargets();
     return loadStatus();
   }
 

@@ -1,6 +1,5 @@
 // frontend/src/services/websocket.js
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 
 /**
@@ -170,7 +169,7 @@ class WebSocketSingleton {
   setupVisibilityListener() {
     if (this.visibilityHandler) return;
 
-    this.visibilityHandler = async () => {
+    this.visibilityHandler = () => {
       if (!document.hidden) {
         if (this.subscribers.size === 0) return;
 
@@ -185,38 +184,10 @@ class WebSocketSingleton {
         }
 
         if (this.socket?.readyState === WebSocket.OPEN) {
-          // Socket is open and alive - fetch fresh state via HTTP
-          logger.debug('websocket', 'Tab visible - fetching fresh state');
-          const [audioRes, volumeRes] = await Promise.all([
-            apiCall.get('/api/audio/state', {
-              category: 'websocket',
-              message: 'Failed to fetch audio state on visibility change',
-              logLevel: 'warn',
-            }),
-            apiCall.get('/api/volume/state', {
-              category: 'websocket',
-              message: 'Failed to fetch volume state on visibility change',
-              logLevel: 'warn',
-            }),
-          ]);
-
-          if (audioRes.ok) {
-            this.handleMessage({
-              category: 'system',
-              type: 'state_changed',
-              source: 'system',
-              data: { full_state: audioRes.data },
-            });
-          }
-
-          if (volumeRes.ok && volumeRes.data.status === 'success') {
-            this.handleMessage({
-              category: 'volume',
-              type: 'volume_changed',
-              source: 'volume',
-              data: { show_bar: false, state: volumeRes.data.data },
-            });
-          }
+          // Socket is open and alive: the deltas missed while hidden are healed
+          // by App.vue's resyncStores(), the one recipe that describes what the
+          // stores hold. This layer only reports that the tab came back.
+          logger.debug('websocket', 'Tab visible - notifying subscribers');
           this.notifyVisibilityChange();
         } else {
           // Socket is closed - trigger reconnection

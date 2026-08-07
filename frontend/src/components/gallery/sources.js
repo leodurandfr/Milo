@@ -4,10 +4,11 @@
  *
  * The catalogue next door answers "what does this component do"; this file
  * answers "what does a source look like, in every state it can reach". The two
- * are not the same question: AudioPlayerFull serves five sources and none of
- * them shows the same thing, while CD alone reaches eight states across three
- * different components. A reader after either one had to assemble it from four
- * component pages and useRichDisplay's source code.
+ * are not the same question: AudioPlayerFull serves seven sources and none of
+ * them shows the same thing, while CD alone moves between that player and the
+ * status card on metadata the enum has no name for. A reader after either one
+ * had to assemble it from four component pages and useRichDisplay's source
+ * code.
  *
  * ## A scenario is a stimulus, not a state someone named
  *
@@ -52,10 +53,10 @@
  * name inside them. A metadata record is not a packet capture, and one thing it
  * leaves out on purpose — `emit_connection_state` puts `is_playing` and
  * `is_buffering` in every record of every media source, READY included (forced
- * off there, along with the media fields it drops). Restating both on all forty
- * scenarios would put three tokens no decider can branch on into every name in
+ * off there, along with the media fields it drops). Restating both on every
+ * scenario would put two tokens no decider can branch on into every name in
  * the select, which is the list a reader actually reads. They are stated here
- * once instead. A field that *does* discriminate is carried even when it never
+ * once instead, and carried only where one of them is the difference. A field that *does* discriminate is carried even when it never
  * changes — Qobuz's `client_name`, Mac's empty `client_names` — because a
  * reader who only ever sees the field on the interesting scenario concludes it
  * only exists there.
@@ -315,12 +316,30 @@ function scenario(events, label, note, browser) {
   };
 }
 
-/** `transitioning` is what every source's first state actually looks like. */
+/**
+ * `transitioning` is what every source's first state actually looks like — but
+ * it is only *one* of the two ways STARTING reaches the wire, and the tab
+ * documents that one.
+ *
+ * A source switch goes through `transition_to_source`, which sets the flag and
+ * empties the metadata. A multiroom reroute goes through `exclusive_transition`,
+ * which deliberately does neither: the flag stays false so the STARTING push
+ * reaches the UI at all, and `metadata=None` keeps the current track on screen
+ * while the source is released and re-acquired. `useRichDisplay` short-circuits
+ * on the flag, not on the state, so that second form draws the card only for the
+ * six sources whose own gate needs ACTIVE — CD keeps its player (its gate never
+ * looks at the state) and the three browsers keep their layout (theirs returns
+ * true unconditionally). Not a tab, because there is no stimulus a
+ * dispatcher page can send that reaches it: the reroute's record is the *last
+ * source's* metadata under a new state, and reproducing that means replaying
+ * two events to document a window the app crosses in a second. Stated here so
+ * the tab below is not read as the whole of STARTING.
+ */
 function starting(source) {
   return scenario(
     [transitionStart(source)],
     'Starting',
-    'transitioning — the status card takes over whatever the source is, and the spinner replaces its icon. One of the two states that read as a sentence broken over two lines ("Démarrage de" / the source), so the phrase leads and the source name takes the emphasised line — which is also why French needs three keys for it, agreeing the article with the source noun. Held for 500 ms minimum so a fast backend never flashes it.'
+    'transitioning — the status card takes over whatever the source is, and the spinner replaces its icon. One of the two states that read as a sentence broken over two lines ("Démarrage de" / the source), so the phrase leads and the source name takes the emphasised line — which is also why French needs three keys for it, agreeing the article with the source noun. The 500 ms floor holds the *card\'s* phrase, not the card: `shouldShowSourceStatus` reads `transitioning` raw, so a transition that completes into a rich display hands the screen over at once and the floor never applies.'
   );
 }
 
@@ -340,9 +359,13 @@ function active(source, label, note, metadata) {
  * settled snapshot — so this is a `system/state_changed`, not a source event,
  * and the metadata is empty because a source that never started has none.
  *
- * The message the user reads rides on `source/error`, a separate event that
- * raises App.vue's banner over whatever is on screen. Not replayed here: the
- * banner belongs to the app shell, not to the source's own screen.
+ * The message the user reads rides on `system/error` — the state machine's own
+ * event, emitted just before the settled snapshot, which raises App.vue's
+ * banner over whatever is on screen. Not `source/error`: that is the other
+ * channel, for an operation that failed on a source still standing (a station
+ * that will not tune), and `broadcast_error`'s docstring is explicit that the
+ * two never ride together. Neither is replayed here — the banner belongs to
+ * the app shell, not to the source's own screen.
  */
 function errored(source, note, message) {
   return scenario(
@@ -375,13 +398,27 @@ function offline(source, reason, note, metadata = {}) {
  * READY or ACTIVE follows the stand-in, because that is what the backend does:
  * all three publish through `emit_connection_state(bool(<the thing in session>))`
  * — a tuned station, a current episode, a non-empty queue — so a favourites grid
- * with no player pane is a READY record. Neither state changes the screen here
- * (`hasRichDisplay` returns true for these three whatever they carry), which is
- * precisely why every one of them could say `active` and nothing noticed.
+ * with no player pane is a READY record. Neither state changes *which component*
+ * mounts here (`hasRichDisplay` returns true for these three whatever they
+ * carry), which is precisely why every one of them could say `active` and
+ * nothing noticed.
+ *
+ * It does decide something, though, which is why the pane and the state are one
+ * switch rather than two fields: `useSourcePlaybackVisibility` shows the player
+ * pane on ACTIVE and hides it on READY. A scenario that drew a pane while
+ * sending READY — or the reverse — would be documenting a screen the app cannot
+ * produce.
+ *
+ * `browser.metadata` is for the fields that survive `PlaybackMetadata.split`
+ * and reach a decider: radio's `is_buffering` is the only one so far, and it is
+ * what tells "the stream is opening" apart from "it is playing". The rest of
+ * what these three publish (station_id, episode_uuid, the queue) is read by
+ * their own stores, which the stage does not mount — that is what the fixtures
+ * below stand in for.
  */
 function browsing(source, label, note, browser) {
   return scenario(
-    [stateChanged(source, browser.player ? 'active' : 'ready', {})],
+    [stateChanged(source, browser.player ? 'active' : 'ready', browser.metadata ?? {})],
     label,
     note,
     browser
@@ -729,10 +766,10 @@ export const SOURCE_PAGES = [
     source: 'airplay',
     title: 'AirPlay',
     family: 'B — passive player',
-    uses: 'AudioSourceStatus · AudioPlayerFull (showControls false, showProgress)',
+    uses: 'AudioSourceStatus · AudioPlayerFull (showControls false, showProgress FALSE)',
     via: 'dispatcher',
     summary:
-      'The untrusted-sender gate lives here: title, artist AND a cover above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). The cover size is the whole of it — a sender that publishes a real one is a media app, one that publishes a favicon is a browser tab. What the gate deliberately does *not* read is is_playing: a sender that quits ends the session and the source publishes READY on its own, so the only thing left carrying is_playing=false is a pause, and the card is not the answer to a pause. One state is missing from the tabs on purpose: ACTIVE is reached on shairport\'s `conn`, before any audio flows, carrying nothing but the name off X-Apple-Client-Name — the window Qobuz documents as "Active, before now_playing". It has no tab because it draws the same "Connecté à / Leo’s iPhone" as the declined-cover scenario below, and a tab that repeats a screen teaches a reader to stop trusting that a new tab is a new screen.',
+      'The one passive player with no progress bar: an AirPlay sender that pauses announces it on no channel shairport-sync can pass on (measured 2026-08-07 — pfls/pend never fire, core/caps holds 0x01, D-Bus PlayerState still says "Playing" 96 s in, FramePosition keeps counting because shairport writes silence), so is_playing stays true and the bar ran on through a paused track. The sender draws its own position. The untrusted-sender gate lives here too: title, artist AND a cover above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). The cover size is the whole of it — a sender that publishes a real one is a media app, one that publishes a favicon is a browser tab. What the gate deliberately does *not* read is is_playing: a sender that quits ends the session and the source publishes READY on its own, so the only thing left carrying is_playing=false is a pause, and the card is not the answer to a pause. One state is missing from the tabs on purpose: ACTIVE is reached on shairport\'s `conn`, before any audio flows, carrying nothing but the name off X-Apple-Client-Name — the window Qobuz documents as "Active, before now_playing". It has no tab because it draws the same "Connecté à / Leo’s iPhone" as the declined-cover scenario below, and a tab that repeats a screen teaches a reader to stop trusting that a new tab is a new screen.',
     scenarios: [
       starting('airplay'),
       ready('airplay', 'Ready', 'shairport-sync advertising, nobody streaming.'),
@@ -764,7 +801,7 @@ export const SOURCE_PAGES = [
           duration: 297000
         }
       ),
-      active('airplay', 'Playing', 'All three conditions met. The source bar carries the sender name; position is corrected only every 30 s, so useSourceProgress interpolates between broadcasts.', {
+      active('airplay', 'Playing', 'All three conditions met. The source bar carries the sender name. position and duration ride the record — the source ages them for a client connecting mid-track — but no bar is drawn from them, because nothing tells this source when the sender paused.', {
         title: 'Ainsi parlait Zarathoustra',
         artist: 'Alain Bashung',
         album_art_url: albumPlaceholder,
@@ -810,7 +847,7 @@ export const SOURCE_PAGES = [
         'A controller pushing a bare title: no album_art_width, so the gate declines. The generic active line prints "DLNA / playing" — the shape every source without a sender to name lands on, and what used to be a per-source branch dodging an idle fallback.',
         { title: 'Untitled', is_playing: true, client_name: 'DLNA' }
       ),
-      active('dlna', 'Playing', 'A full-fat controller: cover above the floor, audio flowing. Read-only bar plus the static DLNA source bar.', {
+      active('dlna', 'Playing', 'A full-fat controller: cover above the floor, audio flowing. Read-only bar plus the static DLNA source bar. Position is corrected every 30 s — the longest interval of any source that has one — so most of what the bar shows here is useSourceProgress interpolating.', {
         title: 'Hammers',
         artist: 'Nils Frahm',
         album_art_url: albumPlaceholder,
@@ -820,6 +857,21 @@ export const SOURCE_PAGES = [
         position: 88000,
         duration: 331000
       }),
+      active(
+        'dlna',
+        'Paused',
+        'Same record, is_playing false — and the player stays, exactly as AirPlay\'s does: the gate has no playing clause, because a controller that pauses keeps the renderer connected and the flag alone cannot tell that from a session still going. What it *is* is the start of a countdown. A pause arms the source\'s auto-stop, and at T+audio.auto_stop_delay (two minutes by default — the 10 s in the constructor is a placeholder the settings overwrite) DlnaSource resets and publishes READY, which lands the screen on the idle card above with the phone still paused and still connected. AirPlay ends the same way by restarting shairport; the difference is invisible here and is the whole of why neither needs an is_playing clause.',
+        {
+          title: 'Hammers',
+          artist: 'Nils Frahm',
+          album_art_url: albumPlaceholder,
+          is_playing: false,
+          client_name: 'DLNA',
+          album_art_width: MEDIA_APP_COVER_PX,
+          position: 88000,
+          duration: 331000
+        }
+      ),
       offline(
         'dlna',
         'no_network',
@@ -862,6 +914,23 @@ export const SOURCE_PAGES = [
         'disc_present with no cache_ready/disc_id yet — the MusicBrainz lookup is in flight. Pseudo-state "loading_disc", spinner in place of the icon. A fallback DiscInfo always sets disc_id, so this window cannot hang.',
         { drive_connected: true, disc_present: true }
       ),
+      active(
+        'cd',
+        'Spinning up the drive',
+        'The window `_preload_track_1` opens on every start with a disc in: reader and mpv are loaded *paused* so a play tap resumes instantly, and while the drive spins up `_is_buffering` alone carries the record into ACTIVE — `is_playing` and `is_paused` are both still false. So the player is on screen with the spinner over the glyph and no bar at all, since `_build_metadata` only publishes position and duration once a session is live or paused. It settles into the tab below a second later, when the preload parks itself paused.',
+        {
+          ...CD_DISC,
+          drive_connected: true,
+          title: 'Keep',
+          artist: 'Nils Frahm',
+          album_art_url: albumPlaceholder,
+          is_playing: false,
+          is_buffering: true,
+          current_track: 1,
+          position: 0,
+          duration: 0
+        }
+      ),
       ready(
         'cd',
         'Disc ready, not playing',
@@ -881,7 +950,7 @@ export const SOURCE_PAGES = [
       active(
         'cd',
         'Changing track',
-        'The one buffering window worth a tab: a track change republishes the *target* track at position 0 with is_buffering set, on purpose and before the ~1 s reader restart, so the bar snaps to 0:00 and freezes instead of interpolating the outgoing position and then jumping back. The spinner replaces the glyph (isSourceBuffering). The drive’s other buffering window — spinning up on the preload, is_playing still false — reaches the same screen from READY’s side.',
+        'A track change republishes the *target* track at position 0 with is_buffering set, on purpose and before the ~1 s reader restart, so the bar snaps to 0:00 and freezes instead of interpolating the outgoing position and then jumping back. The spinner replaces the glyph (isSourceBuffering). The drive’s other buffering window is the preload above, and it is a different screen rather than the same one from the other side: there the bar is not drawn at all.',
         {
           ...CD_DISC,
           drive_connected: true,
@@ -906,6 +975,22 @@ export const SOURCE_PAGES = [
         position: 74000,
         duration: 268000
       }),
+      active(
+        'cd',
+        'Paused',
+        'ACTIVE with is_playing false, which is a different record from "Disc ready, not playing" above even though both draw the player: a paused session is still a session (`_is_paused` counts towards the ACTIVE gate) so the backend keeps publishing position and duration, and the bar is drawn and frozen rather than hidden. The idle projection zeroes both, which is what hides it. Auto-stop is armed here too and lands on that idle screen: `_auto_stop_action` releases the drive but keeps `_current_track` and the position, so the disc stays visible and a tap on play resumes the same track.',
+        {
+          ...CD_DISC,
+          drive_connected: true,
+          title: 'Kind',
+          artist: 'Nils Frahm',
+          album_art_url: albumPlaceholder,
+          is_playing: false,
+          current_track: 3,
+          position: 74000,
+          duration: 268000
+        }
+      ),
       ready(
         'cd',
         'Ejecting',
@@ -969,7 +1054,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus only',
     via: 'dispatcher',
     summary:
-      'The other mute receiver, and the only source whose device name is an array: several Macs can stream over ROC at once, and formatDeviceNames joins them across two lines. Its "disconnect" is a no-op in the store, so the card shows no CTA at all — the sender stops from its own side.',
+      'The other mute receiver, and the only source whose device name is an array: several Macs can stream over ROC at once, and formatDeviceNames joins them across two lines. The card shows no CTA at all — its disconnect branch is Bluetooth\'s alone, which is also why the store\'s `disconnectSource("mac")` returning true without sending anything is never reached. The sender stops from its own side, and there is nothing for Milō to end: roc-vad streams unbroken 44.1 kHz for as long as Milō is the Mac\'s output, silence included, so "connected" here can never mean "playing" and there is no idle edge an auto-stop could key on either.',
     scenarios: [
       starting('mac'),
       ready(
@@ -1033,14 +1118,27 @@ export const SOURCE_PAGES = [
         prime: [['radio', 'loadStations', true]],
         player: null
       }),
-      browsing('radio', 'Tuning a station', 'bufferingStationId marks one card while the stream opens; the rest of the grid stays live, so a second tap goes somewhere rather than being swallowed by a full-screen loader.', {
+      browsing('radio', 'Tuning a station', 'ACTIVE before a single byte of audio: `_handle_play_station` sets the station and `_is_buffering` and publishes *before* trying the stream, so `emit_connection_state(bool(_current_station))` is already true. The pane is therefore in — the app shows it on ACTIVE, not on is_playing — with the station drawn and the transport spinning, while bufferingStationId marks the same card in the grid and the rest of it stays live, so a second tap goes somewhere rather than being swallowed by a full-screen loader. The one scenario here whose record carries metadata: `is_buffering` is what separates this from the playing tab, and it is read by the same isSourceBuffering the full players use.', {
         condition: ['bufferingStationId'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
-        props: { bufferingStationId: 'st-nova' },
+        metadata: { is_buffering: true },
+        // Both halves of the buffering screen, as the app derives them: the grid
+        // gets the marked card from RadioSource's own computed (isBuffering +
+        // metadata.station_id), which lives in the wrapper the stage replaces —
+        // hence the prop — and the pane gets the station because
+        // radioStore.currentStation is keyed on station_id, which is set the
+        // moment the tune starts.
+        props: { isPlaying: false, bufferingStationId: 'st-nova', currentStation: RADIO_STATION_WITH_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
-        player: null
+        player: {
+          station: { name: RADIO_STATION_WITH_IMAGE.name, artwork: RADIO_STATION_WITH_IMAGE.favicon },
+          track: null,
+          isPlaying: false,
+          isLoading: true,
+          controls: { favorite: true }
+        }
       }),
       browsing('radio', 'Playing a station', 'The pane animates in and the content gives up 340 px; the playing card is marked in the grid. No track recognised yet, so the station is the whole info block and its own image is the artwork. No #progress slot either — a live stream has no duration, so the bar would have nothing to show.', {
         condition: ['currentStation', 'artwork'],

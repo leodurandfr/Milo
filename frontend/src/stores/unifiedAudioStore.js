@@ -39,8 +39,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // performance.now() timestamp of when metadata.position last *changed*. Lets a
   // freshly-created position consumer (e.g. the Lyrics modal opened mid-song)
   // compensate for how stale the last broadcast is — position events are periodic
-  // and source-dependent (AirPlay only every 30s), so the stored value can lag by
-  // seconds. Updated only on a real value change so it tracks the true reading age.
+  // and source-dependent (10s on AirPlay and TIDAL, 30s on DLNA and the four mpv
+  // sources, and Spotify publishes none between events), so the stored value can
+  // lag by seconds. Updated only on a real value change so it tracks the true
+  // reading age.
   const positionTimestamp = ref(0);
 
   // Transient command error (set on sendCommand failure, consumed by App.vue)
@@ -229,6 +231,38 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
+  /**
+   * Refill the whole mirror from its two snapshot endpoints.
+   *
+   * Same uniform recipe as every other delta-fed store: App.vue's resyncStores()
+   * calls it on boot, on reconnect and on tab return. It replaces the hand-written
+   * copy websocket.js used to run on visibility change, which fetched the same two
+   * endpoints and replayed them as synthetic WS envelopes.
+   *
+   * `show_bar: false` — a heal the user did not cause must not flash the overlay.
+   */
+  async function resync() {
+    const [audioRes, volumeRes] = await Promise.all([
+      apiCall.get('/api/audio/state', {
+        category: 'store',
+        message: 'Failed to fetch audio state on resync',
+        logLevel: 'warn',
+      }),
+      apiCall.get('/api/volume/state', {
+        category: 'store',
+        message: 'Failed to fetch volume state on resync',
+        logLevel: 'warn',
+      }),
+    ]);
+
+    if (audioRes.ok) {
+      updateSystemState(audioRes.data, 'resync');
+    }
+    if (volumeRes.ok && volumeRes.data.status === 'success') {
+      handleVolumeEvent({ data: { show_bar: false, state: volumeRes.data.data } });
+    }
+  }
+
   function updateMobileStep(stepDb) {
     if (typeof stepDb === 'number') {
       volumeState.value.step_mobile_db = stepDb;
@@ -357,6 +391,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   return {
+    resync,
     // State
     systemState,
     volumeState,

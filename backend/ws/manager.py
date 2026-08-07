@@ -157,8 +157,6 @@ class WebSocketServer:
             client_msg = json.loads(message)
 
             if client_msg.get("type") == "ready":
-                current_state = self.state_machine.get_current_state()
-
                 setup_completed = False
                 if self.settings_service:
                     setup_completed = bool(
@@ -168,6 +166,10 @@ class WebSocketServer:
                 hotspot_active = (
                     self.network_service.hotspot_active if self.network_service else False
                 )
+
+                # Read the state last: the await above yields, and a transition
+                # landing during it would otherwise be missing from initial_state.
+                current_state = self.state_machine.get_current_state()
 
                 event = SystemInitialState(
                     full_state=current_state,

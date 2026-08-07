@@ -171,6 +171,37 @@ describe('useSourceProgress', () => {
       expect(progress.currentPosition.value).toBe(3000);
     });
 
+    it('advances by wall clock, not by tick count, when the browser throttles', () => {
+      // A backgrounded tab has its 100 ms interval throttled to ~1 Hz. Counting
+      // ticks made the bar advance ten times too slowly, and nothing corrects it
+      // before the next broadcast — never, on Spotify, between two events.
+      broadcast(store, { metadata: { position: 0, duration: 200000, is_playing: true } });
+      const { progress } = mountProgress('spotify');
+
+      // One firing for a second of wall clock: the browser skipped nine.
+      const tickClock = performance.now.bind(performance);
+      vi.spyOn(performance, 'now').mockImplementation(() => tickClock() + 900);
+      vi.advanceTimersByTime(100);
+
+      expect(progress.currentPosition.value).toBe(1000);
+      performance.now.mockRestore();
+    });
+
+    it('does not credit time spent buffering once playback resumes', () => {
+      // The mirror image of the throttling fix: reading a clock must not hand
+      // back the seconds the bar deliberately stood still for.
+      broadcast(store, {
+        metadata: { position: 0, duration: 200000, is_playing: true, is_buffering: true },
+      });
+      const { progress } = mountProgress('spotify');
+      vi.advanceTimersByTime(2000);
+
+      store.systemState.metadata.is_buffering = false;
+      vi.advanceTimersByTime(1000);
+
+      expect(progress.currentPosition.value).toBe(1000);
+    });
+
     it('stops at the duration', () => {
       broadcast(store, { metadata: { position: 9900, duration: 10000, is_playing: true } });
       const { progress } = mountProgress('spotify');
