@@ -6,10 +6,10 @@
       <LoadingSpinner :size="32" />
       <LoadingSpinner :size="48" />
     </GalleryVariant>
-    <GalleryVariant label='variant="background" — for a dark surface'>
-      <div class="dark-strip">
-        <LoadingSpinner :size="32" variant="background" />
-        <LoadingSpinner :size="48" variant="background" />
+    <GalleryVariant label="currentColor — it carries no colour of its own, the host names one">
+      <div class="dark-strip spinner-on-dark">
+        <LoadingSpinner :size="32" />
+        <LoadingSpinner :size="48" />
       </div>
     </GalleryVariant>
   </GalleryItem>
@@ -93,5 +93,11 @@ const ctaHits = ref(0);
   padding: var(--space-04);
   background: var(--color-background-contrast);
   border-radius: var(--radius-03);
+}
+
+/* The spinner draws in currentColor and nothing else, so a dark host has to name
+   a light one — which is the whole of what the variant above shows. */
+.spinner-on-dark {
+  color: var(--color-text-contrast);
 }
 </style>

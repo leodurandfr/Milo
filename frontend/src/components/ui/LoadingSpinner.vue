@@ -13,11 +13,6 @@ const props = defineProps({
   size: {
     type: [String, Number],
     default: 32
-  },
-  variant: {
-    type: String,
-    default: 'default',
-    validator: (value) => ['default', 'background'].includes(value)
   }
 });
 
@@ -48,16 +43,10 @@ const svgContent = computed(() => {
   // Use currentColor to inherit from parent's text color
   const fillColor = 'currentColor';
 
-  // Build the SVG with or without background
-  const backgroundRect = props.variant === 'background'
-    ? '<rect width="24" height="24" rx="6" fill="#F7F7F7"/>'
-    : '';
-
-  // Use cropped viewBox for transparent variant to make spinner appear larger
-  const viewBox = props.variant === 'background' ? '0 0 24 24' : '1.5 1.5 21 21';
-
-  return `<svg viewBox="${viewBox}" fill="none" xmlns="http://www.w3.org/2000/svg">
-${backgroundRect}
+  // The full 24-unit viewBox, blades inset inside it: `size` then means the same
+  // thing here as on SvgIcon and AppIcon, so a spinner standing in for an icon
+  // is drawn at the icon's weight rather than a tenth larger.
+  return `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path fill="${fillColor}" d="M11.241 6.258V3.388c0-.19.076-.373.21-.508a.718.718 0 0 1 1.016 0c.135.135.21.318.21.508v2.87c0 .19-.076.373-.21.508a.718.718 0 0 1-1.016 0 .718.718 0 0 1-.21-.508Z" opacity="0.16">
   <animate attributeName="opacity" values="1;0.64;0.6;0.16;0.16;0.16;0.16;0.16;1" dur="1.4s" repeatCount="indefinite"/>
 </path>

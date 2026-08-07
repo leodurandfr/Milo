@@ -204,7 +204,7 @@ export const ENTRIES = [
     id: 'LoadingSpinner',
     group: 'feedback',
     file: 'components/ui/LoadingSpinner.vue',
-    summary: 'Indeterminate spinner. background is the variant for a light-on-dark surface.',
+    summary: 'Indeterminate spinner, drawn in currentColor at the same optical weight as an icon of the same size — so it can stand in for one. It carries no surface: the light plate it used to offer is AppIcon\'s loading state.',
   },
   {
     id: 'NotificationBanner',
@@ -236,7 +236,7 @@ export const ENTRIES = [
     id: 'AppIcon',
     group: 'media',
     file: 'components/ui/AppIcon.vue',
-    summary: 'The per-source app tile. Rendered as-authored (no recolouring) — these carry brand colour.',
+    summary: 'The per-source app tile. Rendered as-authored (no recolouring) — these carry brand colour. loading swaps the artwork for a spinner and keeps the tile, so a source coming up does not leave a hole where its icon sits.',
   },
   {
     id: 'Logo',

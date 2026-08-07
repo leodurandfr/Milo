@@ -11,7 +11,7 @@
     <GalleryVariant label="the default slot overlays the image">
       <LazyImage class="art" :src="albumPlaceholder" alt="With an overlay">
         <div class="art__overlay">
-          <LoadingSpinner :size="48" variant="background" />
+          <LoadingSpinner :size="48" />
         </div>
       </LazyImage>
     </GalleryVariant>
@@ -64,6 +64,11 @@
       <AppIcon name="spotify" size="medium" />
       <AppIcon name="spotify" size="large" />
     </GalleryVariant>
+    <GalleryVariant label="loading — the artwork gives way to a spinner, the tile stays">
+      <AppIcon name="spotify" :size="32" loading />
+      <AppIcon name="spotify" :size="48" loading />
+      <AppIcon name="spotify" size="medium" loading />
+    </GalleryVariant>
   </GalleryItem>
 
   <GalleryItem id="Logo">
@@ -107,6 +112,8 @@ const UI_ICONS = ICON_NAMES.filter(name => !name.startsWith('keyboard'));
   background: var(--color-background-strong);
 }
 
+/* Same scrim and light currentColor as the design system's .card-loading-overlay,
+   which is what the cards actually put in this slot. */
 .art__overlay {
   position: absolute;
   inset: 0;
@@ -114,6 +121,7 @@ const UI_ICONS = ICON_NAMES.filter(name => !name.startsWith('keyboard'));
   align-items: center;
   justify-content: center;
   background: var(--color-background-contrast-32);
+  color: var(--color-text-contrast);
 }
 
 .icon-grid {

@@ -9,8 +9,7 @@
             <div class="device-info-inner">
               <!-- Source icon -->
               <div class="source-icon">
-                <LoadingSpinner v-if="SPINNING_STATES.includes(displayState)" :size="26" variant="background" />
-                <AppIcon v-else :name="sourceType" :size="32" />
+                <AppIcon :name="sourceType" :size="32" :loading="SPINNING_STATES.includes(displayState)" />
               </div>
 
               <!-- Text status -->
@@ -45,7 +44,6 @@
 import { computed } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { useI18n } from '@/services/i18n';
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal';
 import { formatDeviceNames } from '@/utils/deviceName';
