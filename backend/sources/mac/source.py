@@ -7,15 +7,15 @@ It supports multiple simultaneous Mac connections and provides real-time
 connection monitoring via journalctl logs.
 
 Features:
-- Multi-client support: Track multiple Macs by IP and hostname
-- mDNS resolution: Resolve Mac hostnames via avahi-resolve
+- Multi-client support: Track multiple Macs by IP and name
+- mDNS resolution: Name each sender from its Bonjour advertisement (mdns.py)
 - Connection detection: Monitor journalctl for connect/disconnect events
 - Active detection: Check recent journalctl logs for existing connections on start
 """
 import asyncio
 import contextlib
 import ipaddress
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 from pydantic import BaseModel
 
@@ -24,6 +24,7 @@ from backend.core.models.audio_state import NetworkRequirement
 from backend.shared.decorators import handle_errors
 from backend.shared.journalctl import follow_unit, read_unit
 from backend.sources.mac.log_patterns import classify_line, normalize_ip
+from backend.sources.mac.mdns import is_private_hostname, service_name_for_addresses
 
 
 class MacSource(BaseAudioSource):
@@ -193,26 +194,44 @@ class MacSource(BaseAudioSource):
     async def _resolve_hostname(self, ip: str) -> str:
         """Resolve the connected Mac's display name from its ROC source IP.
 
-        ROC only hands us the sender's IP, so we reverse-resolve it — but the
-        reverse (PTR) answer belongs to whoever owns that address's zone. A
-        router that publishes its own DHCP domain (e.g. Freebox '.home') answers
-        the reverse with a lowercased unicast name like 'mac-mini-de-leo.home'
-        instead of the Mac's mDNS name, and the Mac no longer answers a reverse
-        mDNS query for that IP at all. So we keep only the hostname label and
-        recover the Mac's canonical, correctly-cased name via a *forward* mDNS
-        lookup of '<label>.local' → 'Mac-mini-de-Leo', which the Mac answers
-        regardless of query case. Falls back to the reverse label, then the IP.
+        The Bonjour service instance name is what the user recognises — "Mac
+        mini de Léo" — so it is what we ask for, matched by advertised address.
+        A hostname is only the fallback, and a private one is worth less than
+        the IP: see mdns.py for why neither the reverse nor the forward lookup
+        can be trusted to answer with a name meant to be read.
+
+        Two addresses are offered to the match because they can differ: a Mac
+        streams ROC from one interface while advertising Bonjour on another (a
+        private Wi-Fi address next to the wired one), and the forward lookup is
+        what bridges the two.
         """
         if not ip:
             return "Mac"
 
         reverse = await self._avahi_reverse(ip)
-        if not reverse:
-            return ip
+        label = reverse.split('.', 1)[0] if reverse else None
 
-        label = reverse.split('.', 1)[0]
-        canonical = await self._avahi_forward(f"{label}.local")
-        return canonical.split('.', 1)[0] if canonical else label
+        advertised_ip = None
+        if label:
+            canonical, advertised_ip = await self._avahi_forward(f"{label}.local")
+            if canonical:
+                label = canonical.split('.', 1)[0]
+
+        service_name = await self._bonjour_name((ip, advertised_ip))
+        if service_name:
+            return service_name
+
+        return label if label and not is_private_hostname(label) else ip
+
+    async def _bonjour_name(self, addresses: Tuple[Optional[str], ...]) -> Optional[str]:
+        """Look up the Bonjour instance name advertised at any of `addresses`.
+
+        `-t` stops at the end of the cache dump (~1 s on a home LAN) instead of
+        browsing forever; a Mac that has not been seen yet simply yields no
+        match, and the caller falls back to a hostname.
+        """
+        out = await self._run_avahi(["avahi-browse", "-a", "-r", "-p", "-t"])
+        return service_name_for_addresses(out, addresses) if out else None
 
     async def _avahi_reverse(self, ip: str) -> Optional[str]:
         """avahi-resolve -a <ip> → hostname (mDNS '.local' or a router '.home')."""
@@ -245,21 +264,24 @@ class MacSource(BaseAudioSource):
                 return parts[1].rstrip('.')
         return None
 
-    async def _avahi_forward(self, name: str) -> Optional[str]:
-        """avahi-resolve -n <name> → canonical hostname (original case preserved).
+    async def _avahi_forward(self, name: str) -> Tuple[Optional[str], Optional[str]]:
+        """avahi-resolve -n <name> → (canonical hostname, address it resolves to).
 
         '.local' is mDNS-only, so this can only be answered by the Mac itself —
-        never by the router's '.home' unicast zone.
+        never by the router's '.home' unicast zone — which is what makes the
+        address it answers with the Mac's own, whichever interface it came from.
         """
         out = await self._run_avahi(["avahi-resolve", "-n", name])
         if out:
             parts = out.split()
+            if len(parts) >= 2:
+                return parts[0].rstrip('.'), parts[1]
             if parts:
-                return parts[0].rstrip('.')
-        return None
+                return parts[0].rstrip('.'), None
+        return None, None
 
     async def _run_avahi(self, args: list) -> Optional[str]:
-        """Run an avahi-resolve query; return stripped stdout or None on failure."""
+        """Run an avahi query; return stripped stdout or None on failure."""
         try:
             proc = await asyncio.create_subprocess_exec(
                 *args,
@@ -267,7 +289,7 @@ class MacSource(BaseAudioSource):
                 stderr=asyncio.subprocess.DEVNULL,
             )
         except FileNotFoundError:
-            self._logger.error("mDNS resolution skipped: avahi-resolve not installed")
+            self._logger.error("mDNS resolution skipped: %s not installed", args[0])
             return None
         except OSError as e:
             # Spawn can fail transiently (EMFILE/ENOMEM/…) — fall back so the
