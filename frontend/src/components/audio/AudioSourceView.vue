@@ -186,10 +186,13 @@ const currentDeviceName = computed(() => {
   }
 });
 
-// Key for transitions - includes state for source status to animate between states
+// Key for transitions - includes state for source status to animate between states.
+// The reason is in it because it changes while the state does not: unplugging the
+// CD drive leaves READY on the wire and only rewrites the card's second line, so
+// without it the "no drive" screen cut in instead of crossing over.
 const contentKey = computed(() => {
   if (shouldShowSourceStatus.value) {
-    return `${activeSource.value}-${displayState.value}-${!!currentDeviceName.value}`;
+    return `${activeSource.value}-${displayState.value}-${unavailableReason.value}-${!!currentDeviceName.value}`;
   }
   return activeSource.value;
 });
