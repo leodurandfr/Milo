@@ -24,6 +24,16 @@ PROBE_TIMEOUT = 1.0
 # which _start_service_and_wait already spends its settle delay.
 CONNECT_TIMEOUT = 6.0
 
+# Budget for the deliberate re-attach in ensure_connected(). Distinct from
+# CONNECT_TIMEOUT, which buys patience for a cold start where mpv was forked half
+# a second ago and its socket may not exist yet. A play command has nothing to
+# wait for: either mpv is listening now or systemd has not restarted it yet, and
+# an honest immediate failure beats a frozen button. Equal to PROBE_TIMEOUT,
+# which makes connect()'s can_retry() false on the first pass (retry_delay +
+# PROBE_TIMEOUT is never below PROBE_TIMEOUT): one attempt, whatever those two
+# constants later become.
+RECONNECT_TIMEOUT = PROBE_TIMEOUT
+
 
 class MpvController:
     """
@@ -133,8 +143,36 @@ class MpvController:
 
     @property
     def is_connected(self) -> bool:
-        """Checks if connected to IPC socket"""
-        return self._connected and self.writer is not None and not self.writer.is_closing()
+        """Checks if connected to IPC socket.
+
+        at_eof() is load-bearing, not belt-and-braces: asyncio's eof_received()
+        leaves the transport half-closed, so is_closing() stays False after mpv
+        dies and the link reads as up until some command fails. Three of the four
+        monitor ticks return before issuing any mpv I/O (podcast with no episode,
+        music_library with an empty queue, CD when not playing), so on an active
+        but idle source nothing ever writes to the socket and that stale True can
+        last across mpv's death *and* its restart — leaving ensure_connected()
+        blind on exactly the link it exists to repair. at_eof() is
+        `_eof and not _buffer`, so a True cannot be a false alarm.
+        """
+        return (
+            self._connected
+            and self.writer is not None
+            and not self.writer.is_closing()
+            and self.reader is not None
+            and not self.reader.at_eof()
+        )
+
+    async def ensure_connected(self) -> bool:
+        """Re-open the IPC link before starting a playback session.
+
+        The counterpart to is_connected: reads and transport commands go silent
+        when the link is down (see _send_command), so starting playback is the
+        one act that picks a fresh mpv back up — systemd puts one on the same
+        socket path a few seconds after a crash. connect() is not idempotent (it
+        would open a second socket and leak the first), hence the short-circuit.
+        """
+        return self.is_connected or await self.connect(timeout=RECONNECT_TIMEOUT)
 
     async def _send_command(
         self, command: str, *args, timeout: float = COMMAND_TIMEOUT
@@ -152,13 +190,24 @@ class MpvController:
                 for its liveness probe so a wedged mpv can't eat its budget.
 
         Returns:
-            JSON response from mpv or None if error
+            JSON response from mpv, or None if error — including immediately
+            when the link is down. See ensure_connected() for the re-attach.
         """
         if not self.is_connected:
-            self.logger.debug("Not connected to mpv, attempting reconnect...")
-            if not await self.connect():
-                return None
+            # Deliberately does NOT re-open the link. A read that reconnects can
+            # succeed against the *fresh idle* mpv systemd restarts seconds
+            # later: is_connected then reads True, MpvAudioSource's disconnect
+            # fallback never fires, and the rest of the tick answers from that
+            # idle mpv. That is how podcast's `idle_active is True` branch
+            # persisted a two-minutes-in episode as completed, with no banner and
+            # no trace. Re-attaching belongs to a play command, which has a user
+            # waiting and a way to report failure.
+            self.logger.debug(f"mpv link down, dropping: {command}")
+            return None
 
+        # The check above must stay OUTSIDE this lock: connect()'s liveness probe
+        # goes back through _send_command, which would await the same
+        # non-reentrant lock forever. The ordering is deliberate.
         async with self._command_lock:
             try:
                 self._command_id += 1
@@ -215,22 +264,6 @@ class MpvController:
                 await self.disconnect()
                 return None
 
-    async def command(self, command: str, *args) -> Optional[Dict[str, Any]]:
-        """
-        Sends an arbitrary mpv IPC command.
-
-        This is a public wrapper around _send_command for commands not covered
-        by dedicated methods (e.g., chapter navigation).
-
-        Args:
-            command: mpv command name (e.g., "add", "cycle")
-            *args: Command arguments
-
-        Returns:
-            JSON response from mpv or None if error
-        """
-        return await self._send_command(command, *args)
-
     @staticmethod
     def _is_hls(url: str) -> bool:
         """True if the URL is an HLS playlist (.m3u8), ignoring query/fragment."""
@@ -266,6 +299,11 @@ class MpvController:
         Returns:
             True if command sent successfully
         """
+        # Before _apply_stream_options, which always issues a round-trip: on a
+        # link that dropped since the last command, that round-trip would be the
+        # one to discover the death and every command after it would be dropped.
+        if not await self.ensure_connected():
+            return False
         await self._apply_stream_options(url)
         self.logger.info(f"Loading stream: {url[:100]}...")
         response = await self._send_command("loadfile", url, "replace")
@@ -386,18 +424,6 @@ class MpvController:
             await asyncio.sleep(poll_interval)
         return False
 
-    async def get_status(self) -> Dict[str, Any]:
-        """
-        Gets current mpv state
-
-        Returns:
-            Dict with connection and playback state
-        """
-        return {
-            "connected": self.is_connected,
-            "playing": await self.is_playing() if self.is_connected else False
-        }
-
     async def pause(self) -> bool:
         """
         Pauses playback
@@ -443,6 +469,13 @@ class MpvController:
         failed append is logged but doesn't abort the whole queue.
         """
         if not urls:
+            return False
+
+        # Before the priming pause, not just before the loads: that pause is what
+        # stops entry 0 blipping before the jump to start_index, and a
+        # set_property dropped on a down link would let the queue load unpaused —
+        # audibly, with nothing reporting a failure.
+        if not await self.ensure_connected():
             return False
 
         await self.set_property("pause", True)

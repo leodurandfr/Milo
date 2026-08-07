@@ -133,6 +133,32 @@ class TestMpvDisconnect:
         assert radio_source.state is SourceState.READY
 
     @pytest.mark.asyncio
+    async def test_publishes_when_the_link_drops_without_the_controller_being_nulled(
+        self, radio_source
+    ):
+        """The branch production actually takes — green here by design.
+
+        Every other test in this class simulates the death with `_mpv = None`,
+        which no crash path ever produces: only _cleanup() nulls the controller,
+        and a crash reaches the loop through disconnect() alone. So the half of
+        the condition that carries every real mpv death had no coverage at all,
+        which is exactly the half the link-ownership change makes load-bearing.
+        """
+        order: list[str] = []
+        self._arm(radio_source, order)
+        radio_source._is_playing = True
+        radio_source._on_monitor_tick = AsyncMock()
+
+        def drop_the_link(i):
+            if i == 1:
+                radio_source._mpv.is_connected = False
+
+        await _run_monitor(radio_source, passes=2, before_pass=drop_the_link)
+
+        assert order == ["publish", "error"]
+        assert radio_source.state is SourceState.READY
+
+    @pytest.mark.asyncio
     async def test_no_publish_while_idle(self, radio_source):
         """A disconnected mpv on a source that never went ACTIVE is normal idle."""
         radio_source.state_machine = Mock()

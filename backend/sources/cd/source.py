@@ -328,6 +328,15 @@ class CdSource(MpvAudioSource):
         autostart=False it is left paused and primed (preload): a later resume
         un-pauses it for a fast start.
         """
+        # Before the drive spins and before the priming pause below: a
+        # set_property dropped on a down link would let mpv load UNPAUSED and
+        # emit audio through the loadfile/FIFO handshake, which is exactly what
+        # that pause exists to prevent. Also avoids reader.start() plus a 5 s
+        # synchronous wait_ready for an mpv that is not there to drain the FIFO.
+        if not await self._mpv.ensure_connected():
+            self._logger.error("mpv link down, cannot start playback")
+            return False
+
         self._reader.start(start_lba, self._disc_end_lba)
 
         if not self._reader.wait_ready(timeout=5.0):
@@ -941,6 +950,19 @@ class CdSource(MpvAudioSource):
         # _play_start_lba out from under us); bail so we don't map the old
         # session's time-pos onto the new LBA state.
         if self._restarting or not self._is_playing:
+            return
+
+        # Same for mpv dying under the read: `time_pos is None` below means "the
+        # disc ran out", and a dead link is not that. Continuing auto-advances
+        # into a reader+mpv restart against a socket nobody is listening on, and
+        # — worse — settles the source to READY, which shuts the ACTIVE gate
+        # _monitor_loop's fallback needs, so CD alone never showed the disconnect
+        # banner. Leave it to the loop. is_connected is a sound discriminator
+        # here *because* a read no longer re-attaches: the loop only enters a
+        # tick with the link up, so False at this point can only mean the read
+        # above killed it. A legitimate FIFO EOF cannot look like this — the unit
+        # carries --idle=yes, so mpv survives it and stays connected.
+        if not self._mpv.is_connected:
             return
 
         # Album/track end: reader finished or mpv reached EOF
