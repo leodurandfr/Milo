@@ -347,6 +347,12 @@ class BaseAudioSource(ABC):
 
         Awaited rather than set_state() precisely because of that following
         event: the order between _bg-spawned tasks is guaranteed nowhere.
+
+        Called from those paths and never hoisted into stop(): stop() is also
+        the default release_for_reroute(), which routing.py runs inside
+        exclusive_transition() — no `transitioning` flag set, active_source
+        still the running one — so both guards in update_source_state() would
+        pass and the card would blank on every multiroom toggle.
         """
         self._state = SourceState.READY
         self._metadata = self._idle_metadata()
