@@ -913,6 +913,29 @@ statically verified against the event models on every `pytest` run.
 - Clean client disconnection handling
 - No connection limit (domestic use)
 
+### Delivery guarantee — why there is no gap detection
+
+`WebSocketManager.broadcast_dict()` sends to each connection under a timeout and
+**closes and drops any connection whose send fails**. A broadcast can therefore
+never be lost in silence: either it arrives, or the socket dies and the client
+reconnects into `initial_state`, which carries the aggregated state.
+
+**So "missed delta" is not a bug class on this transport.** Per-domain snapshots,
+sequence numbers, gap detection, epochs and watermarks all detect a failure it
+cannot produce — don't build them. The two classes that are real:
+
+1. **State changes and is never published** — the paths that clear playback
+   themselves and let some *other* event carry the stale `full_state`
+   (`BaseAudioSource._publish_idle()` exists for exactly those).
+2. **State is published in a shape the consumer reads backwards** — why
+   `multiroom/zone_changed` is discriminated by an explicit `action` field
+   rather than by the presence of `zone`.
+
+What the transport does *not* cover is a store fed by deltas alone: a
+reconnecting client is handed `initial_state`, not every store's domain. That
+is `App.vue::resyncStores()`, enforced by
+`tests/architecture/resyncStores.test.js`.
+
 ## Systemd services
 
 All components are managed by systemd:
