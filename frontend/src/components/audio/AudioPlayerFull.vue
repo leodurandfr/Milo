@@ -87,9 +87,10 @@
       </div>
     </div>
 
-    <div v-if="unifiedStore.systemState.error && unifiedStore.systemState.active_source === source" class="error-message">
-      {{ unifiedStore.systemState.error }}
-    </div>
+    <!-- No error branch here on purpose: `full_state.error` is only ever set
+         alongside SourceState.ERROR, and useRichDisplay refuses a rich display
+         in that state before it looks at the source at all — so this player is
+         never mounted with a message to show. The status card draws it. -->
   </div>
 </template>
 
@@ -507,15 +508,6 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.error-message {
-  color: var(--color-error);
-  margin-top: var(--space-03);
-  text-align: center;
-  padding: var(--space-03);
-  background-color: var(--color-background-strong);
-  border-radius: var(--radius-01);
 }
 
 @media (max-aspect-ratio: 4/3) {

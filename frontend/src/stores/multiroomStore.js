@@ -257,7 +257,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    *   - client_state_changed:
    *       Update/offline: { mac_id, client: { complete client object } }
    *       Deletion: { mac_id } (no client object)
-   *   - zone_changed: { zone_id, zone: { enriched zone object } | null }
+   *   - zone_changed: { action, zone_id, zone?: { enriched zone object }, mac_id? }
+   *       discriminated by `action`, never by `zone` presence: the backend
+   *       snapshots the zone before deleting it, so a delete carries one too.
    */
   function handleMultiroomEvent(event) {
     const { type, data } = event;
@@ -277,16 +279,17 @@ export const useMultiroomStore = defineStore('multiroom', () => {
         break;
 
       case 'zone_changed':
-        // Zone create/update/delete - null zone means deleted
         if (data.zone_id) {
-          if (data.zone) {
-            // Zone created or updated (enriched zone with computed fields)
+          if (data.action === 'created' || data.action === 'updated') {
+            // Enriched zone with computed fields
             zones.value.set(data.zone_id, data.zone);
-          } else {
-            // Zone deleted (zone is null)
+            saveCache();
+          } else if (data.action === 'deleted') {
             zones.value.delete(data.zone_id);
+            saveCache();
           }
-          saveCache();
+          // client_removed: nothing to do here — the ZONE_UPDATED or
+          // ZONE_DELETED emitted right after carries the resulting zone.
         }
         break;
 
@@ -320,9 +323,13 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     clearTransitionTimeout();
     transitionTimeoutId = setTimeout(() => {
       if (transitionState.value === 'enabling' || transitionState.value === 'disabling') {
+        // A backend that died mid-transition emits neither multiroom_ready nor
+        // multiroom_error, and resync() does not touch transition state — so the
+        // spinner needs releasing. There is nothing to tell the user about it,
+        // hence 'idle' rather than an error the store cannot localize.
         logger.warn('store', 'Multiroom transition timeout reached');
-        transitionState.value = 'error';
-        transitionError.value = 'Transition timeout';
+        transitionState.value = 'idle';
+        transitionError.value = '';
       }
     }, TRANSITION_TIMEOUT_MS);
   }

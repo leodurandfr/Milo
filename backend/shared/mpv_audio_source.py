@@ -13,6 +13,7 @@ import asyncio
 from typing import Optional
 
 from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import SourceState
 from backend.shared.mpv import MpvController
 
 
@@ -65,23 +66,48 @@ class MpvAudioSource(BaseAudioSource):
 
     async def _monitor_loop(self) -> None:
         """Monitor mpv connection and playback state."""
+        mpv_was_up = False
         try:
             while True:
                 await asyncio.sleep(1.0)
 
                 if not self._mpv or not self._mpv.is_connected:
-                    if self._is_playing or self._is_buffering:
+                    # Latched here rather than read off _is_playing: the tick
+                    # below queries the dying mpv one pass earlier and clears
+                    # that flag itself (radio does `_is_playing = await
+                    # is_playing()`), so by the time is_connected flips, the
+                    # flag the fallback used to gate on is already False and the
+                    # source stays ACTIVE with a frozen card forever.
+                    dropped, mpv_was_up = mpv_was_up, False
+                    if (
+                        dropped
+                        and self._state == SourceState.ACTIVE
+                        and not self._mpv_swap_in_progress()
+                    ):
                         self._logger.error("mpv disconnected unexpectedly during playback")
                         await self._on_mpv_disconnect()
+                        # Before the banner: SourceError carries full_state, and
+                        # the hook above only cleared the source's own fields.
+                        await self._publish_idle()
                         self.broadcast_error("Audio stream disconnected")
                     continue
 
+                mpv_was_up = True
                 await self._on_monitor_tick()
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
             self._logger.error(f"Monitor error: {e}")
+
+    def _mpv_swap_in_progress(self) -> bool:
+        """True while the source is deliberately tearing mpv down to start another.
+
+        Such a window looks exactly like a crash from the loop — mpv gone with
+        the source still ACTIVE — so a source that swaps mpv under itself (CD,
+        on every seek and prev-restart) must say so.
+        """
+        return False
 
     # === Auto-stop on pause ===
 

@@ -46,7 +46,7 @@ function registerClient(multiroomStore, macId, extra = {}) {
 function registerZone(multiroomStore, zoneId, clientIds) {
   multiroomStore.handleMultiroomEvent({
     type: 'zone_changed',
-    data: { zone_id: zoneId, zone: { id: zoneId, name: `Zone ${zoneId}`, client_ids: clientIds } },
+    data: { action: 'created', zone_id: zoneId, zone: { id: zoneId, name: `Zone ${zoneId}`, client_ids: clientIds } },
   });
 }
 
@@ -263,6 +263,73 @@ describe('unifiedAudioStore', () => {
       // The cancelled timer must not fire and re-hide (or flip) the bar later.
       vi.advanceTimersByTime(5000);
       expect(store.showVolumeBar).toBe(false);
+    });
+  });
+
+  describe('resync', () => {
+    // The two snapshot endpoints do NOT share an envelope: /api/audio/state
+    // returns the state at top level, /api/volume/state wraps it in
+    // {status, data}. Reading either the wrong way applies nothing and reports
+    // nothing — the store keeps serving whatever it held before.
+    const VOLUME_SNAPSHOT = {
+      mode: 'direct',
+      global_volume_db: -22,
+      global_mute: false,
+      volume_control: true,
+      any_volume_control: true,
+      clients: {},
+      zones: {},
+    };
+
+    it('applies the audio snapshot unwrapped and the volume snapshot from its envelope', async () => {
+      apiCall.get.mockImplementation(async (url) => (
+        url === '/api/audio/state'
+          ? ok({ ...VALID_FULL_STATE, active_source: 'radio' })
+          : ok({ status: 'success', data: VOLUME_SNAPSHOT })
+      ));
+
+      await store.resync();
+
+      expect(store.systemState.active_source).toBe('radio');
+      expect(store.volumeState.global_volume_db).toBe(-22);
+    });
+
+    it('leaves the volume bar hidden — a heal the user did not cause must not flash it', async () => {
+      apiCall.get.mockImplementation(async (url) => (
+        url === '/api/audio/state'
+          ? ok(VALID_FULL_STATE)
+          : ok({ status: 'success', data: VOLUME_SNAPSHOT })
+      ));
+
+      await store.resync();
+
+      expect(store.showVolumeBar).toBe(false);
+    });
+
+    it('keeps the audio half when the volume request fails', async () => {
+      apiCall.get.mockImplementation(async (url) => (
+        url === '/api/audio/state' ? ok({ ...VALID_FULL_STATE, active_source: 'radio' }) : fail()
+      ));
+
+      await store.resync();
+
+      expect(store.systemState.active_source).toBe('radio');
+      expect(store.volumeState.global_volume_db).toBe(-45);
+    });
+
+    it('ignores a volume envelope reporting an error', async () => {
+      // GET /api/volume/state answers a failure as HTTP 200 + status 'error'
+      // (the resilience pattern), so `ok` alone does not mean there is a state.
+      store.handleVolumeEvent({ data: { show_bar: false, state: VOLUME_SNAPSHOT } });
+      apiCall.get.mockImplementation(async (url) => (
+        url === '/api/audio/state'
+          ? ok(VALID_FULL_STATE)
+          : ok({ status: 'error', message: 'boom' })
+      ));
+
+      await store.resync();
+
+      expect(store.volumeState.global_volume_db).toBe(-22);
     });
   });
 

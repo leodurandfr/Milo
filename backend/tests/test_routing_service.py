@@ -7,7 +7,7 @@ import pytest
 from contextlib import asynccontextmanager
 from unittest.mock import Mock, AsyncMock, patch
 from backend.core.multiroom import AudioRoutingService
-from backend.core.models.audio_state import AudioSource
+from backend.core.models.audio_state import AudioSource, SourceState
 from backend.core.settings import SettingsWriteError
 from backend.tests.conftest import events_of
 
@@ -500,6 +500,32 @@ class TestAudioRoutingService:
         mock_source.acquire_after_reroute.assert_awaited_once()
         mock_source.stop.assert_not_called()
         mock_source.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_apply_transition_releases_the_starting_state_on_failure(
+        self, routing_service, mock_systemd_manager, mock_source
+    ):
+        """A failed reroute must not leave the card on "Starting" forever.
+
+        Step 1 publishes STARTING and the caller only broadcasts multiroom_error
+        afterwards, so nothing else republishes on this path — and STARTING is
+        not in IDLE_STATES, so the 12 h inactivity sweep never clears it either.
+        """
+        mock_systemd_manager.start = AsyncMock(return_value=False)
+        routing_service.set_source_callback(
+            lambda source: mock_source if source == AudioSource.SPOTIFY else None
+        )
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
+            with pytest.raises(RuntimeError):
+                await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+
+        published = [
+            entry.kwargs["new_state"]
+            for entry in routing_service.state_machine.update_source_state.await_args_list
+        ]
+        assert published[0] == SourceState.STARTING
+        assert published[-1] == mock_source.state
 
     @pytest.mark.asyncio
     async def test_apply_transition_source_acquire_failure_is_non_fatal(

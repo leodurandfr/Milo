@@ -377,11 +377,7 @@ class PodcastSource(MpvAudioSource):
             self._is_buffering = False
             self._position = 0
             self._duration = 0
-            self._metadata = {
-                "is_playing": False,
-                "is_buffering": False,
-                "ready": True
-            }
+            self._metadata = {"is_playing": False, "is_buffering": False}
 
             self.set_state(SourceState.READY, self._metadata)
 

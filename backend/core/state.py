@@ -275,12 +275,17 @@ class AudioStateMachine:
                     error = message = str(e)
 
                 blocked = self._network_unavailable(target_source)
-                # WARNING, not ERROR, when the link explains it: WebSocketLogHandler
-                # forwards every ERROR record to the "system error" banner, and a
-                # source that cannot start because there is no network is an
-                # expected outcome the status card already states — the same rule
-                # that keeps an expected 404 on optional artwork off the banner.
-                (logger.warning if blocked else logger.error)(
+                # WARNING, never ERROR — and not only when the link explains it.
+                # This module's logger is under the `backend` hierarchy, which
+                # WebSocketLogHandler forwards to the notification banner
+                # wholesale, so an ERROR here is a *second* user-facing report of
+                # one failure: the raw log line races the SystemErrorEvent below
+                # for App.vue's single-slot banner and, being emitted from a
+                # background task, usually lands last — replacing "Spotify ·
+                # error" with "Backend error". One failure, one notification: the
+                # event when the source is at fault, the status card alone when
+                # the link is. errors.log and the journal keep WARNING and above.
+                logger.warning(
                     "Transition failed: %s%s",
                     message,
                     f" (link is {blocked})" if blocked else "",
@@ -363,7 +368,21 @@ class AudioStateMachine:
 
     @handle_errors(default=False, level='warning')
     async def refresh_active_metadata(self) -> bool:
-        """Refresh metadata from the active source."""
+        """Refresh metadata from the active source (GET /api/audio/state, WS handshake).
+
+        Metadata only — unlike the post-start resync in transition_to_source(),
+        which re-reads `source.state` as well. The difference is deliberate but
+        narrow: a source that changes state re-publishes through
+        update_source_state() on its own, so there is nothing here to copy. Five
+        sources implement the hook (Spotify, CD, Podcast, Music Library,
+        Bluetooth) and four of them cannot move state inside it — their state is
+        derived from a session this call does not touch. Spotify is the one that
+        can: a /status read finding no track clears its metadata without
+        publishing, so a client connecting in that window is handed ACTIVE with
+        an empty record. The window is bounded by _reconcile_on_connect(), which
+        is what actually repairs an ended session; widening this method to paper
+        over it would put a second reconciliation path next to the real one.
+        """
         if self.system_state.active_source == AudioSource.NONE:
             return False
 

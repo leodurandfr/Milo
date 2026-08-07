@@ -18,6 +18,11 @@ possible had happened by the time this test was written:
     `event_cls(**data)`, so a payload key that is not a field of the mapped
     model is a runtime error on a broadcast path, reachable only with a second
     physical unit.
+  * **A hand-built event that skipped the bus.** `CrossoverService` constructs
+    `MultiroomZoneChanged` itself and broadcasts it, deliberately, to avoid
+    re-entering the registry handler. The `_emit_event` walk cannot see that
+    site, so a newly required field would land there as a ValidationError on a
+    broadcast path — again only on a second physical unit.
 
 None of that is visible in CI or in dev without this test: no import error, no
 failing route, just a command that quietly did nothing.
@@ -170,7 +175,44 @@ def _subscribers() -> dict:
     return out
 
 
+REGISTRY_WS_CLASSES = {cls.__name__: cls for cls in REGISTRY_EVENT_CLASSES.values()}
+
+
+def _direct_construction_sites() -> list:
+    """[(class name, site label, keyword names)] — every mapped WS event that a
+    service under core/ builds by hand instead of emitting on the registry bus.
+
+    `_producer_sites()` walks `_emit_event` calls only, so it is structurally
+    blind to these. Keywords only: a pydantic model takes no positional args,
+    and `**unpacking` would make the site unreadable — both fail here rather
+    than passing on a surface the extractor cannot see.
+    """
+    out = []
+    modules = sorted(
+        p for p in (BACKEND_ROOT / "core").rglob("*.py") if "__pycache__" not in p.parts
+    )
+    for path in modules:
+        tree = _tree(path)
+        for call in ast.walk(tree):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                    and call.func.id in REGISTRY_WS_CLASSES):
+                continue
+            site = f"{path.name}:{call.lineno}"
+            assert not call.args, (
+                f"{site}: {call.func.id} built with positional arguments; "
+                "a pydantic model takes keywords only"
+            )
+            names = {kw.arg for kw in call.keywords}
+            assert None not in names, (
+                f"{site}: {call.func.id} built with **unpacking; the extractor "
+                "cannot tell which fields it carries"
+            )
+            out.append((call.func.id, site, names))
+    return out
+
+
 PRODUCER_SITES = _producer_sites()
+DIRECT_SITES = _direct_construction_sites()
 # Union per event: what a subscriber may legitimately see arrive.
 PRODUCERS = {}
 for _event, _site, _keys in PRODUCER_SITES:
@@ -189,6 +231,9 @@ def test_extraction_is_not_trivial():
     assert sum(len(arms) for arms in SUBSCRIBERS.values()) >= 8, SUBSCRIBERS
     # At least one payload key per event, or the payload walk silently missed them.
     assert all(keys for keys in PRODUCERS.values()), PRODUCERS
+    # The hand-built broadcasts the _emit_event walk cannot see.
+    assert len(DIRECT_SITES) >= 2, DIRECT_SITES
+    assert all(names for _, _, names in DIRECT_SITES), DIRECT_SITES
 
 
 @pytest.mark.parametrize("name,value", sorted(DECLARED.items()))
@@ -257,4 +302,29 @@ def test_payload_is_constructible_as_the_mapped_ws_event(event, site, sent):
     assert required <= sent, (
         f"{site} emits {event} without {sorted(required - set(sent))}, "
         f"required by {event_cls.__name__}"
+    )
+
+
+@pytest.mark.parametrize(
+    "cls_name,site,passed",
+    [(c, s, frozenset(k)) for c, s, k in DIRECT_SITES],
+    ids=[f"{c}@{s}" for c, s, _ in DIRECT_SITES],
+)
+def test_hand_built_event_carries_every_required_field(cls_name, site, passed):
+    """A mapped WS event built outside the bus gets none of the checks above.
+    `MultiroomZoneChanged.action` is required precisely so a consumer stops
+    guessing what happened from which optional field is present — a site that
+    omits it raises at broadcast time, on a path only real hardware reaches."""
+    event_cls = REGISTRY_WS_CLASSES[cls_name]
+    fields = set(event_cls.model_fields)
+    assert not passed - fields, (
+        f"{site} passes {sorted(passed - fields)} to {cls_name}, which has no such "
+        f"field ({sorted(fields)})"
+    )
+    required = {
+        name for name, field in event_cls.model_fields.items() if field.is_required()
+    }
+    assert required <= passed, (
+        f"{site} builds {cls_name} without {sorted(required - passed)}, "
+        f"which the model requires"
     )

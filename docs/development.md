@@ -485,8 +485,10 @@ is driven entirely by an external app:
   Artwork is a Qobuz CDN URL loaded straight by the kiosk. Position/duration ride
   the same poll (see the patch below), so the player adds
   `AudioPlayerFull :showProgress="true"` — a **read-only** bar above the source
-  bar (no seek: there is no local control channel). AirPlay/DLNA report position
-  too and can opt in with the same prop; they currently don't.
+  bar (no seek: there is no local control channel). DLNA draws the same bar;
+  **AirPlay is the one passive player that does not**, because nothing tells it
+  when the sender paused and the bar ran on through a paused track (the channels
+  measured before giving up are listed in `AirPlaySource`'s docstring).
 - **Install is from git, not PyPI.** qobuz-proxy has no PyPI release, so
   [install/qobuz-proxy.sh](../install/qobuz-proxy.sh) creates a venv under
   `/var/lib/milo/qobuz/` and `pip install`s the **pinned git tag**

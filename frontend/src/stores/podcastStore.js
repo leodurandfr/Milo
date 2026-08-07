@@ -169,6 +169,13 @@ export const usePodcastStore = defineStore('podcast', () => {
       if (pendingEpisodeUuid.value === metadata.current_episode.uuid) {
         pendingEpisodeUuid.value = null;
       }
+    } else if (!metadata.episode_uuid) {
+      // Idle payload: every stop that is not a natural end — auto-stop after
+      // pause, explicit stop, mpv gone — publishes {is_playing, is_buffering}
+      // alone. episode_ended is the only episode-less payload carrying a uuid,
+      // and it returned above, so an absent uuid means no episode is loaded.
+      // displayEpisode stays: the player owns it until its fade-out ends.
+      currentEpisode.value = null;
     }
     // Backend emits position/duration in milliseconds (wire convention shared
     // with all other audio sources). Live position for the playing episode is

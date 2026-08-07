@@ -30,6 +30,13 @@ export function useSourceProgress(source, { compensateStaleness = false } = {}) 
 
   const localPosition = ref(null);
   let intervalId = null;
+  // Clock reading the last interpolation step was taken at. The bar advances by
+  // elapsed wall clock, never by a fixed step per tick: a backgrounded tab has
+  // its interval throttled to ~1 Hz by the browser, and counting ticks made the
+  // bar crawl ten times too slowly with nothing to correct it until the next
+  // broadcast — 10 to 30 s depending on the source, never on Spotify between
+  // two events.
+  let lastTickAt = 0;
   let isApiSyncing = false;
 
   const duration = computed(() => unifiedStore.systemState.metadata?.duration || 0);
@@ -100,7 +107,15 @@ export function useSourceProgress(source, { compensateStaleness = false } = {}) 
 
   function startProgressTimer() {
     if (!intervalId) {
+      lastTickAt = performance.now();
       intervalId = timer.setInterval(() => {
+        const now = performance.now();
+        const elapsed = now - lastTickAt;
+        // Re-anchored on every tick, including the ones that advance nothing:
+        // time spent buffering is not media time, and crediting it back on
+        // resume is the failure mode a clock reading brings with it.
+        lastTickAt = now;
+
         const meta = unifiedStore.systemState.metadata;
         if (localPosition.value !== null && meta?.is_playing && !meta?.is_buffering && localPosition.value < duration.value) {
           // Scale interpolation by mpv playback_speed so the bar tracks real
@@ -108,7 +123,7 @@ export function useSourceProgress(source, { compensateStaleness = false } = {}) 
           // control (Spotify, AirPlay). Read on every tick so a speed change
           // is reflected immediately via unifiedStore.systemState.metadata.
           const speed = meta?.playback_speed || 1;
-          localPosition.value += 100 * speed;
+          localPosition.value = Math.min(localPosition.value + elapsed * speed, duration.value);
         }
       }, 100);
     }

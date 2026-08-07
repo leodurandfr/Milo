@@ -26,13 +26,6 @@ const APP_VUE = join(SRC_DIR, 'App.vue');
 
 const appSource = readFileSync(APP_VUE, 'utf8');
 
-/**
- * Stores fed by full snapshots rather than deltas: `unifiedAudioStore` is
- * rebuilt wholesale from `full_state` / `initial_state` on every reconnect, so
- * it heals without a resync().
- */
-const SNAPSHOT_FED_STORES = new Set(['unifiedStore']);
-
 /** `const radioStore = useRadioStore()` → radioStore: 'radioStore.js' */
 function storeBindings(source) {
   const bindings = new Map();
@@ -194,7 +187,7 @@ describe('WS subscriptions ↔ deltaStores', () => {
 
     const unhealed = [...mutated]
       .filter(id => bindings.has(id))
-      .filter(id => !declared.includes(id) && !SNAPSHOT_FED_STORES.has(id));
+      .filter(id => !declared.includes(id));
 
     // Receiving WS deltas without being resynced is exactly the stale-state bug
     // the contract exists to prevent.

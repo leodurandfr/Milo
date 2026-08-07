@@ -565,7 +565,9 @@ class AudioRoutingService:
         — a failing source no longer fails the whole transition.
 
         Raises only when snapcast services fail to start (multiroom→enabled)
-        or when the state machine is unavailable.
+        or when the state machine is unavailable — and republishes the source's
+        real state on the way out, so the STARTING posted at step 1 is never the
+        last word.
         """
         if not self.state_machine:
             raise RuntimeError("State machine not available for routing transition")
@@ -587,45 +589,59 @@ class AudioRoutingService:
                     metadata=None
                 )
 
-            # Step 2: Stop source FIRST to release ALSA device before routing change.
-            # Critical: in direct mode the source holds camilladsp; in multiroom mode
-            # snapclient needs the same device.
-            if source_instance:
-                self.logger.info(f"Releasing source {active_source.value} to free ALSA device")
-                await source_instance.release_for_reroute()
-                await asyncio.sleep(0.5)  # Wait for ALSA to release
+            try:
+                # Step 2: Stop source FIRST to release ALSA device before routing change.
+                # Critical: in direct mode the source holds camilladsp; in multiroom mode
+                # snapclient needs the same device.
+                if source_instance:
+                    self.logger.info(f"Releasing source {active_source.value} to free ALSA device")
+                    await source_instance.release_for_reroute()
+                    await asyncio.sleep(0.5)  # Wait for ALSA to release
 
-            # Step 3: Reconcile snapcast services to target (idempotent).
-            # Both branches raise on failure — a silent stop would leave
-            # snapclient holding the ALSA loopback while routing.env flips to
-            # direct, recreating the 2026-05-13 desync.
-            if enabled:
-                self.logger.info("Starting snapcast services")
-                if not await self._start_snapcast():
-                    raise RuntimeError("Failed to start snapcast services")
-            else:
-                self.logger.info("Stopping snapcast services")
-                if not await self._stop_snapcast():
-                    raise RuntimeError("Failed to stop snapcast services")
+                # Step 3: Reconcile snapcast services to target (idempotent).
+                # Both branches raise on failure — a silent stop would leave
+                # snapclient holding the ALSA loopback while routing.env flips to
+                # direct, recreating the 2026-05-13 desync.
+                if enabled:
+                    self.logger.info("Starting snapcast services")
+                    if not await self._start_snapcast():
+                        raise RuntimeError("Failed to start snapcast services")
+                else:
+                    self.logger.info("Stopping snapcast services")
+                    if not await self._stop_snapcast():
+                        raise RuntimeError("Failed to stop snapcast services")
 
-            # Step 4: Regenerate routing.env so source unit picks up new MILO_MODE
-            RoutingEnv.regenerate(enabled)
+                # Step 4: Regenerate routing.env so source unit picks up new MILO_MODE
+                RoutingEnv.regenerate(enabled)
 
-            # Step 5: Restart source with new routing — best-effort.
-            # A source failure here doesn't fail the transition; the multiroom
-            # mode is correctly set and the user can retry source playback.
-            if source_instance:
-                self.logger.info(f"Re-acquiring source {active_source.value} for {target_mode} mode")
-                try:
-                    if not await source_instance.acquire_after_reroute():
+                # Step 5: Restart source with new routing — best-effort.
+                # A source failure here doesn't fail the transition; the multiroom
+                # mode is correctly set and the user can retry source playback.
+                if source_instance:
+                    self.logger.info(f"Re-acquiring source {active_source.value} for {target_mode} mode")
+                    try:
+                        if not await source_instance.acquire_after_reroute():
+                            self.logger.warning(
+                                f"Source {active_source.value} re-acquire returned False after "
+                                f"{target_mode} transition (transition still considered successful)"
+                            )
+                    except Exception as e:
                         self.logger.warning(
-                            f"Source {active_source.value} re-acquire returned False after "
-                            f"{target_mode} transition (transition still considered successful)"
+                            f"Source start failed after {target_mode} transition (non-fatal): {e}"
                         )
-                except Exception as e:
-                    self.logger.warning(
-                        f"Source start failed after {target_mode} transition (non-fatal): {e}"
+            except Exception:
+                # Step 1 published STARTING and nothing else republishes on this
+                # path: the caller broadcasts multiroom_error and returns, so the
+                # card would show "Starting" for the rest of the session. Same
+                # recipe as transition_to_source's post-start resync — read the
+                # source's real state back rather than guess one.
+                if source_instance:
+                    await self.state_machine.update_source_state(
+                        source=active_source,
+                        new_state=source_instance.state,
+                        metadata=source_instance.metadata,
                     )
+                raise
 
     async def _post_transition_setup_best_effort(self, enabled: bool) -> None:
         """Post-transition: WebSocket lifecycle, volume sync, and ready broadcast.

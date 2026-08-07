@@ -38,6 +38,13 @@ class MacSource(BaseAudioSource):
 
     NETWORK_REQUIREMENT = NetworkRequirement.LAN
 
+    # ROC is a passive PCM stream with no pause signalling at all — roc-vad
+    # sends unbroken 44.1 kHz for as long as Milō is the Mac's output, silence
+    # included — so there is no idle edge an auto-stop could key on, and
+    # roc-recv handles a sender simply going away. The 12 h INACTIVITY_TIMEOUT
+    # in AudioStateMachine is the backstop.
+    AUTO_STOP_SUPPORTED = False
+
     def __init__(
         self,
         config: Optional[Dict[str, Any]] = None,
@@ -64,13 +71,9 @@ class MacSource(BaseAudioSource):
         self.connected_clients: Dict[str, str] = {}  # {ip: hostname}
         self._monitor_task: Optional[asyncio.Task] = None
 
-        # No per-source auto-stop: ROC is a passive PCM stream with no
-        # pause signaling, and roc-receiver already handles client absence
-        # on its own. The 12h INACTIVITY_TIMEOUT in AudioStateMachine
-        # remains as the final backstop. `camilladsp_service` is kept on
-        # the constructor for DI compatibility with the other Family A
-        # sources.
-        self.auto_stop_enabled = False
+        # Auto-stop is declined at class level (AUTO_STOP_SUPPORTED, above).
+        # `camilladsp_service` is kept on the constructor for DI compatibility
+        # with the other Family A sources.
         _ = camilladsp_service  # reserved for future use
 
     def _reset_playback_state(self) -> None:

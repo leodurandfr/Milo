@@ -243,7 +243,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
-import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import { useI18n } from '@/services/i18n';
@@ -300,7 +299,6 @@ function formatGitVersion(version) {
 }
 
 const { t } = useI18n();
-const { onReconnect } = useWebSocket();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const settingsStore = useSettingsStore();
@@ -374,13 +372,8 @@ function getLocalLatestVersion(program) {
 // === LIFECYCLE ===
 
 onMounted(async () => {
-  // Local programs resync centrally in App.vue::resyncStores on reconnect;
-  // satellites only surface here, so refetch them on reconnect while mounted
-  // (reconciles in-flight flags if progress/complete events were missed).
-  onReconnect(() => {
-    if (isMultiroomEnabled.value) loadSatellites();
-  });
-
+  // Both inventories resync centrally in App.vue::resyncStores — a reconnect
+  // handler here would fetch the satellites a second time.
   const tasks = [loadLocalPrograms()];
   if (isMultiroomEnabled.value) {
     tasks.push(loadSatellites());

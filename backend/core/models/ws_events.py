@@ -545,11 +545,18 @@ class MultiroomClientStateChanged(WsEvent):
 
 
 class MultiroomZoneChanged(WsEvent):
-    """multiroomStore zone sync — union: {zone_id, zone} on create/update/
-    delete, {zone_id, mac_id} on zone_client_removed (zone omitted)."""
+    """multiroomStore zone sync — union discriminated by `action`:
+    {action: created|updated|deleted, zone} | {action: client_removed, mac_id}
+    (zone omitted).
+
+    `deleted` carries the zone dict too — snapshotted before the removal so the
+    payload is complete — so `zone` presence says nothing about what happened.
+    Branch on `action` only; reading the presence of `zone` gives the exact
+    opposite of the truth on both `deleted` and `client_removed`."""
     CATEGORY = "multiroom"
     TYPE = "zone_changed"
     EXCLUDE_NONE = True
+    action: Literal["created", "updated", "deleted", "client_removed"]
     zone_id: str
     zone: Optional[Dict[str, Any]] = None
     mac_id: Optional[str] = None

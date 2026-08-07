@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from backend.core.models.audio_state import SourceState
 from backend.sources.music_library.disc_merge import build_merged_id
 from backend.sources.music_library.source import MusicLibrarySource
 
@@ -135,6 +136,55 @@ async def test_offline_names_covers_an_unplugged_key():
     )
 
     assert await service.offline_names() == ["iPod de Léo"]
+
+
+# === a storage space that disappears ========================================
+
+async def test_unplugging_the_key_being_played_publishes_ready():
+    """The stop a yanked key triggers has to reach the screen.
+
+    ``stop()`` clears the source but publishes nothing (it is also the reroute
+    path), while the MusicLibraryStoragesChanged that ``broadcast_storages``
+    sends right after carries full_state — so without the publish the client is
+    handed a state still saying the track plays, and nothing corrects it.
+    """
+    source = MusicLibrarySource(config={})
+    source._service_manager = AsyncMock()
+    source.state_machine = MagicMock()
+    source.state_machine.update_source_state = AsyncMock()
+    source.state_machine.broadcast = AsyncMock()
+    source._shares = MagicMock()
+    source._shares.storages_with_stats = AsyncMock(
+        return_value=[{"library_id": 3, "mounted": False}]
+    )
+    source._shares.scan_state = MagicMock(return_value={})
+    source._queue = [{"id": "s1"}]
+    source._queue_library_id = 3
+
+    await source.broadcast_storages()
+
+    source.state_machine.update_source_state.assert_awaited_once()
+    _, state, metadata = source.state_machine.update_source_state.await_args.args
+    assert state is SourceState.READY
+    assert metadata["is_playing"] is False
+
+
+async def test_a_storage_still_mounted_stops_nothing():
+    source = MusicLibrarySource(config={})
+    source.state_machine = MagicMock()
+    source.state_machine.update_source_state = AsyncMock()
+    source.state_machine.broadcast = AsyncMock()
+    source._shares = MagicMock()
+    source._shares.storages_with_stats = AsyncMock(
+        return_value=[{"library_id": 3, "mounted": True}]
+    )
+    source._shares.scan_state = MagicMock(return_value={})
+    source._queue = [{"id": "s1"}]
+    source._queue_library_id = 3
+
+    await source.broadcast_storages()
+
+    source.state_machine.update_source_state.assert_not_called()
 
 
 # === library reconcile ======================================================

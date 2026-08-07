@@ -6,6 +6,25 @@ Handles AirPlay streaming from Apple devices via shairport-sync.
 Metadata (title, artist, album) flows through the metadata pipe
 and is broadcast to the frontend via WebSocket. Artwork is stored
 in memory and served via a dedicated HTTP endpoint.
+
+A sender-side pause is invisible here, and no amount of looking changes that.
+Measured on shairport-sync 5.2.1 with a macOS sender (2026-08-07), every channel
+the receiver has: `pfls`/`pend` never fire — only tearing the output down sends
+`pend`, and `disc` with it; `core/caps` stays 0x01 throughout; D-Bus
+`RemoteControl.PlayerState` still reads "Playing" 96 s into a pause (it only
+moves for a pause *we* command, and `RemoteControl.Available` is false, so there
+is no back-channel to ask); and `FramePosition` keeps advancing at 44.1 kHz
+because shairport goes on writing silence — the same shape as ROC on the Mac
+source, which is why the pause path there is closed too.
+
+The one thing that stops is the position the sender reports, so pause is
+*inferrable* from two `prgr` snapshots standing still — but only 5-15 s late, and
+sometimes not at all, because the sender may simply stop reporting. That
+inference was built and then dropped at the owner's call: the progress bar it
+existed to freeze is not drawn for AirPlay at all (AirPlaySource.vue), the sender
+draws its own. Consequence to know before wondering: `_start_pause_timer()` is
+reachable only from `pfls`/`pend`, so a paused session holds the source until the
+sender disconnects — IDLE_STATES excludes ACTIVE, so the 12 h sweep never gets it.
 """
 import asyncio
 import hashlib
@@ -23,7 +42,7 @@ from backend.shared.decorators import handle_errors
 AIRPLAY_SAMPLE_RATE = 44100
 
 # How often the aged position is pushed out while a track plays. shairport-sync
-# emits `prgr` about once per track, not continuously, so the frame snapshot has
+# emits `prgr` every 5-15 s, not continuously, so the frame snapshot has
 # to be aged here: left alone, system_state.metadata["position"] stays frozen at
 # whatever the track started on, and every client that connects mid-track (a page
 # refresh, a second browser) seeds its progress bar from that stale value and

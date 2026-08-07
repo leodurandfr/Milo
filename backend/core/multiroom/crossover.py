@@ -432,6 +432,7 @@ class CrossoverService:
             # _handle_registry_event and call apply_zone_crossover a second time.
             if self.state_machine:
                 await self.state_machine.broadcast(MultiroomZoneChanged(
+                    action="updated",
                     zone_id=zone.id,
                     zone=self._registry.zone_to_enriched_dict(zone),
                 ))

@@ -25,9 +25,20 @@ const clientEvent = (macId, client) => ({
   data: client === undefined ? { mac_id: macId } : { mac_id: macId, client },
 });
 
-const zoneEvent = (zoneId, zone) => ({
+/**
+ * Mirrors what ClientRegistryService actually emits: `deleted` carries the zone
+ * dict too — snapshotted before the removal — so `action` is the only thing that
+ * says what happened.
+ */
+const zoneEvent = (action, zoneId, zone) => ({
   type: 'zone_changed',
-  data: { zone_id: zoneId, zone },
+  data: { action, zone_id: zoneId, zone },
+});
+
+/** The one variant with no zone dict: {action, zone_id, mac_id}. */
+const zoneClientRemovedEvent = (zoneId, macId) => ({
+  type: 'zone_changed',
+  data: { action: 'client_removed', zone_id: zoneId, mac_id: macId },
 });
 
 describe('multiroomStore', () => {
@@ -108,26 +119,38 @@ describe('multiroomStore', () => {
 
   describe('zones', () => {
     it('creates and updates a zone', () => {
-      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', name: 'Living', client_ids: ['mac-a'] }));
+      store.handleMultiroomEvent(zoneEvent('created', 'z1', { id: 'z1', name: 'Living', client_ids: ['mac-a'] }));
       expect(store.zoneList).toHaveLength(1);
 
-      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', name: 'Living Extended', client_ids: ['mac-a', 'mac-b'] }));
+      store.handleMultiroomEvent(zoneEvent('updated', 'z1', { id: 'z1', name: 'Living Extended', client_ids: ['mac-a', 'mac-b'] }));
 
       expect(store.zoneList).toHaveLength(1);
       expect(store.zoneList[0].name).toBe('Living Extended');
       expect(store.zoneList[0].client_ids).toHaveLength(2);
     });
 
-    it('deletes the zone when the event carries a null zone', () => {
-      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', name: 'Living', client_ids: ['mac-a'] }));
+    it('deletes the zone on action=deleted, whose payload still carries the zone', () => {
+      const zone = { id: 'z1', name: 'Living', client_ids: ['mac-a', 'mac-b'] };
+      store.handleMultiroomEvent(zoneEvent('created', 'z1', zone));
 
-      store.handleMultiroomEvent(zoneEvent('z1', null));
+      store.handleMultiroomEvent(zoneEvent('deleted', 'z1', zone));
 
       expect(store.zoneList).toHaveLength(0);
     });
 
+    it('keeps the zone on action=client_removed and takes membership from the ZONE_UPDATED behind it', () => {
+      store.handleMultiroomEvent(zoneEvent('created', 'z1', { id: 'z1', name: 'Living', client_ids: ['mac-a', 'mac-b', 'mac-c'] }));
+
+      // The backend emits both, in this order, for a single removal.
+      store.handleMultiroomEvent(zoneClientRemovedEvent('z1', 'mac-c'));
+      expect(store.zoneList).toHaveLength(1);
+
+      store.handleMultiroomEvent(zoneEvent('updated', 'z1', { id: 'z1', name: 'Living', client_ids: ['mac-a', 'mac-b'] }));
+      expect(store.zoneList[0].client_ids).toEqual(['mac-a', 'mac-b']);
+    });
+
     it('resolves the zone of a member and leaves a standalone client alone', () => {
-      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', name: 'Living', client_ids: ['mac-a', 'mac-b'] }));
+      store.handleMultiroomEvent(zoneEvent('created', 'z1', { id: 'z1', name: 'Living', client_ids: ['mac-a', 'mac-b'] }));
 
       expect(store.getZoneForClient('mac-a').id).toBe('z1');
       expect(store.getZoneForClient('mac-solo')).toBeNull();
@@ -136,7 +159,7 @@ describe('multiroomStore', () => {
     });
 
     it('hasOnlineSubwoofer requires a subwoofer that is actually online', () => {
-      store.handleMultiroomEvent(zoneEvent('z1', { id: 'z1', client_ids: ['mac-sub', 'mac-sat'] }));
+      store.handleMultiroomEvent(zoneEvent('created', 'z1', { id: 'z1', client_ids: ['mac-sub', 'mac-sat'] }));
       store.handleMultiroomEvent(clientEvent('mac-sat', CLIENT('mac-sat', { speaker_type: 'satellite' })));
 
       store.handleMultiroomEvent(clientEvent('mac-sub', CLIENT('mac-sub', { speaker_type: 'subwoofer', online: false })));
@@ -213,13 +236,20 @@ describe('multiroomStore', () => {
       expect(store.transitionError).toBe('');
     });
 
-    it('gives up after 15s when no terminal event arrives', () => {
+    it('releases the spinner after 15s without showing an error', () => {
+      // A backend that dies mid-transition sends no terminal event and resync()
+      // never touches transition state, so only the timer can free the UI — and
+      // it has no reason code to localize, so it must not raise a banner either.
       vi.useFakeTimers();
 
       store.handleRoutingEvent({ type: 'multiroom_enabling', data: {} });
+      expect(store.isTransitioning).toBe(true);
+
       vi.advanceTimersByTime(15000);
 
-      expect(store.transitionState).toBe('error');
+      expect(store.isTransitioning).toBe(false);
+      expect(store.transitionState).toBe('idle');
+      expect(store.transitionError).toBe('');
     });
 
     it('cancels the timeout once the transition completes', () => {

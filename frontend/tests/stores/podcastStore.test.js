@@ -70,6 +70,22 @@ describe('podcastStore', () => {
       });
     });
 
+    it('drops the current episode when the source goes idle without one', () => {
+      // Every stop that is not a natural end — auto-stop after pause, explicit
+      // stop, mpv gone — publishes {is_playing, is_buffering} and nothing else.
+      // Only episode_ended carries a uuid, so an absent one means "no episode
+      // loaded"; without this, useEpisodePlaybackStatus keeps flagging the
+      // stopped episode as current for the rest of the session.
+      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+      expect(store.currentEpisode.uuid).toBe('ep1');
+
+      store.handleSourceEvent(sourceEvent({ is_playing: false, is_buffering: false }));
+
+      expect(store.currentEpisode).toBeNull();
+      // displayEpisode still belongs to the player's fade-out, which clears it.
+      expect(store.displayEpisode.uuid).toBe('ep1');
+    });
+
     it('applies a playback speed change pushed by the backend', () => {
       store.handleSourceEvent(sourceEvent({ playback_speed: 1.5 }));
 

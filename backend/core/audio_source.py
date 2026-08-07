@@ -87,6 +87,15 @@ class BaseAudioSource(ABC):
     # selected. NONE is the safe default: it reports nothing.
     NETWORK_REQUIREMENT: NetworkRequirement = NetworkRequirement.NONE
 
+    # Whether the global auto-stop delay applies to this source at all. False
+    # for the two receivers that arm no pause timer (Bluetooth, Mac), and it has
+    # to be declared rather than left to their `auto_stop_enabled` default:
+    # reload_auto_stop_for_all_sources() fans out over *every* registered
+    # source, so editing audio.auto_stop_delay used to switch their flag back on
+    # behind the comment saying it is off. Nothing was armed by it — neither
+    # calls _start_pause_timer — which is why it could stay wrong.
+    AUTO_STOP_SUPPORTED: bool = True
+
     def __init__(
         self,
         source_id: str,
@@ -317,6 +326,35 @@ class BaseAudioSource(ABC):
         self._is_playing = False
         self._metadata = {}
 
+    def _idle_metadata(self) -> Dict[str, Any]:
+        """The metadata that describes this source stopped, for _publish_idle().
+
+        Default is the pair every player reads. A source whose idle view still
+        has something to show overrides it (CD keeps the loaded disc visible).
+        """
+        return {"is_playing": False, "is_buffering": False}
+
+    async def _publish_idle(self) -> None:
+        """Drop to READY and publish it — awaited, not spawned.
+
+        For the paths that clear playback themselves and never announce it: the
+        mpv disconnect hooks, the storage-gone stop. Both emit something else
+        right after (an error banner, a storages payload), and those events carry
+        INCLUDE_FULL_STATE — so without this the client is told playback broke
+        *and* handed a state saying the track is still running, permanently
+        (IDLE_STATES excludes ACTIVE, so the 12 h inactivity sweep never repairs
+        it either).
+
+        Awaited rather than set_state() precisely because of that following
+        event: the order between _bg-spawned tasks is guaranteed nowhere.
+        """
+        self._state = SourceState.READY
+        self._metadata = self._idle_metadata()
+        if self.state_machine:
+            await self.state_machine.update_source_state(
+                self.source, SourceState.READY, self._metadata
+            )
+
     async def _do_stop(self) -> bool:
         """
         Stop the source: cleanup resources then stop the service.
@@ -422,7 +460,7 @@ class BaseAudioSource(ABC):
 
     async def _load_auto_stop_config(self) -> None:
         """Load the global auto-stop delay from settings."""
-        if not self._settings_service:
+        if not self._settings_service or not self.AUTO_STOP_SUPPORTED:
             return
 
         try:

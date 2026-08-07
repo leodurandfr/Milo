@@ -41,7 +41,7 @@ function registerClient(macId, extra = {}) {
 function registerZone(zoneId, clientIds, extra = {}) {
   multiroomStore.handleMultiroomEvent({
     type: 'zone_changed',
-    data: { zone_id: zoneId, zone: { id: zoneId, name: `Zone ${zoneId}`, client_ids: clientIds, ...extra } },
+    data: { action: 'created', zone_id: zoneId, zone: { id: zoneId, name: `Zone ${zoneId}`, client_ids: clientIds, ...extra } },
   });
 }
 

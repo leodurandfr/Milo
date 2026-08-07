@@ -399,6 +399,10 @@ class MusicLibrarySource(MpvAudioSource):
             self._queue_library_id,
         )
         await self.stop()
+        # stop() clears the source but publishes nothing (it is also the reroute
+        # path — see release_for_reroute), and the storages event the caller
+        # sends next carries full_state.
+        await self._publish_idle()
 
     # =========================================================================
     # LIFECYCLE
