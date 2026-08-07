@@ -39,6 +39,29 @@ export async function preloadNetworkStatus({ force = false } = {}) {
 }
 
 /**
+ * Refresh only the WiFi signal, from the one endpoint that reads it without
+ * rebuilding the whole status server-side. Driven by whichever view is showing
+ * the signal arc, for exactly as long as it shows it: the backend does not push
+ * the RSSI, so an unread arc costs nothing anywhere.
+ *
+ * Patches the single field rather than replacing `_status`: a poll in flight
+ * across a `status_changed` (a cable being plugged) must not restore the link
+ * state that event just corrected.
+ */
+export async function refreshWifiSignal() {
+  const result = await apiCall.get('/api/network/wifi/signal', {
+    category: 'network',
+    message: 'Failed to read WiFi signal',
+    logLevel: 'debug',
+  });
+  if (!result.ok) return;
+  _status.value = {
+    ..._status.value,
+    wifi: { ..._status.value.wifi, signal: result.data.data.signal },
+  };
+}
+
+/**
  * WS handler for `network.status_changed` events broadcast by the backend on
  * physical link changes (cable plug/unplug, WiFi associate/dissociate).
  * Updates the shared module-level status so any mounted NetworkSettings

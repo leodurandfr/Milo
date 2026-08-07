@@ -60,13 +60,16 @@
 <script setup>
 import { computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { useNetwork } from '@/composables/useNetwork';
+import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
+import { useTimer } from '@/composables/useTimer';
+import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { t } = useI18n();
+const timer = useTimer();
 
 // Status display state — selection state lives inside NetworkSelector.
 const { status, networks, loading, initialize } = useNetwork();
@@ -122,6 +125,9 @@ watch(() => [status.value.ethernet.connected, status.value.wifi.connected, statu
 
 onMounted(() => {
   initialize();
+  // The WiFi row is on screen for this step's whole life, so the arc reads
+  // itself for exactly that long — useTimer stops it on unmount.
+  timer.setInterval(refreshWifiSignal, WIFI_SIGNAL_POLL_MS);
 });
 </script>
 

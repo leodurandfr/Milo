@@ -8,14 +8,21 @@ subscription so the UI sees physical link / DHCP / WiFi roam events the
 moment NM has them, with no polling and no race against DHCP lease
 completion.
 
-Three subscription tiers (eth0 + wlan0):
+Two subscription tiers (eth0 + wlan0):
   1. Device.PropertiesChanged (base interface) — eth0 + wlan0
      Watches State, Ip4Config, ActiveConnection.
   2. Device.Wireless.PropertiesChanged — wlan0 only
-     Watches ActiveAccessPoint (associate / roam / dissociate).
-  3. AccessPoint.PropertiesChanged on the currently active AP — wlan0
-     Watches Strength (live signal). Re-anchored when ActiveAccessPoint
-     changes so we never leak handlers across roams.
+     Watches ActiveAccessPoint (associate / roam / dissociate). Also anchors
+     the AccessPoint proxy below, re-anchored on every change so we never
+     read a stale AP across roams.
+
+The associated AP's Strength is NOT subscribed to. It was, and it cost more
+than it bought: NM re-samples RSSI every few seconds, each sample triggered a
+full status re-read (four nmcli forks, ~55 ms CPU), and measurement on the
+appliance found 7 broadcasts in 120 s of which 0 changed anything on screen —
+the only consumer is a four-arc icon quantised at 25/50/75. The strength is
+therefore read on demand through `get_wifi_signal()`, which the WiFi panel
+polls while it is on screen and nothing calls when it is not.
 
 Fails open: if NM D-Bus is unavailable (dev environment, NM stopped),
 initialize() logs and returns False. The existing nmcli-based status path
@@ -64,7 +71,6 @@ class NetworkService:
     """Network management service (Ethernet + WiFi) wrapping nmcli + NetworkManager D-Bus."""
 
     WIFI_INTERFACE = "wlan0"
-    SIGNAL_DEBOUNCE_S = 1.5  # coalesce Strength bursts during roaming
 
     def __init__(self, state_machine, settings_service):
         self.logger = logging.getLogger(__name__)
@@ -90,18 +96,18 @@ class NetworkService:
         self._ip4_listener: dict = {}
         # (properties_iface, handler) on wlan0, tier 2 (Device.Wireless)
         self._wireless_listener: Optional[Tuple] = None
-        # Tier 3 — re-anchored each time ActiveAccessPoint changes path.
-        # _ap_proxy is also read on every status refresh for live SSID +
-        # Strength (avoids `nmcli dev wifi` which can stall on scans).
+        # AccessPoint proxy for the associated AP, re-anchored by tier 2 each
+        # time ActiveAccessPoint changes path. Read on every status refresh for
+        # live SSID + Strength (avoids `nmcli dev wifi`, which can stall on
+        # scans) and by get_wifi_signal(). No listener hangs off it — see the
+        # module docstring on why Strength is polled on demand, not subscribed.
         self._ap_path: Optional[str] = None
         self._ap_proxy = None
-        self._ap_listener: Optional[Tuple] = None
         # Broadcast plumbing
         self._last_broadcast: Optional[NetworkStatus] = None
         self._broadcast_lock = asyncio.Lock()
         # Serializes listener mutations to avoid leaks when path changes bounce.
         self._listener_setup_lock = asyncio.Lock()
-        self._signal_debounce_task: Optional[asyncio.Task] = None
         # Holds strong refs to fire-and-forget tasks (CPython can otherwise GC
         # a pending task that has no external reference).
         self._bg = BackgroundTaskSet(self.logger, "network")
@@ -689,9 +695,8 @@ class NetworkService:
     async def cleanup(self) -> None:
         """Detach every listener and disconnect the bus. Idempotent."""
         await self._bg.cancel_all()
-        self._signal_debounce_task = None
-
-        await self._detach_ap_listener()
+        self._ap_proxy = None
+        self._ap_path = None
 
         if self._wireless_listener is not None:
             properties_iface, handler = self._wireless_listener
@@ -834,7 +839,7 @@ class NetworkService:
             return
         self._bg.spawn(self._reanchor_active_ap(), label="reanchor_active_ap")
 
-    # ---- Tier 3: AccessPoint (re-anchored on AP change) ----
+    # ---- AccessPoint proxy (re-anchored on AP change, not subscribed) ----
 
     async def _read_active_ap_path(self) -> Optional[str]:
         if self._wlan_proxy is None:
@@ -847,42 +852,41 @@ class NetworkService:
             return None
 
     async def _reanchor_active_ap(self) -> None:
-        """Detach old AP listener (if any), attach to the new ActiveAccessPoint."""
+        """Drop the old AP proxy (if any), anchor the new ActiveAccessPoint."""
         async with self._listener_setup_lock:
             new_path = await self._read_active_ap_path()
             if new_path == self._ap_path:
                 return
 
-            await self._detach_ap_listener()
+            self._ap_proxy = None
             self._ap_path = new_path
 
             if new_path and new_path != "/":
-                await self._attach_ap_listener(new_path)
+                await self._anchor_ap_proxy(new_path)
 
         # AP change is itself a status change — refresh now.
         self._bg.spawn(self._refresh_and_broadcast(), label="refresh_and_broadcast")
 
-    async def _attach_ap_listener(self, path: str) -> None:
+    async def _anchor_ap_proxy(self, path: str) -> None:
+        """Cache a proxy on the associated AP so its props can be read on demand."""
         try:
             introspect = await self._bus.introspect(NM_SERVICE, path)
-            proxy = self._bus.get_proxy_object(NM_SERVICE, path, introspect)
-            properties_iface = proxy.get_interface(DBUS_PROPERTIES_IFACE)
-            properties_iface.on_properties_changed(self._on_ap_props_changed)
-            self._ap_proxy = proxy
-            self._ap_listener = (properties_iface, self._on_ap_props_changed)
+            self._ap_proxy = self._bus.get_proxy_object(NM_SERVICE, path, introspect)
         except Exception as exc:
-            self.logger.debug("Failed to attach AP listener at %s: %s", path, exc)
+            self.logger.debug("Failed to anchor AP proxy at %s: %s", path, exc)
             self._ap_proxy = None
-            self._ap_listener = None
 
-    async def _detach_ap_listener(self) -> None:
-        self._ap_proxy = None
-        if self._ap_listener is None:
-            return
-        properties_iface, handler = self._ap_listener
-        with contextlib.suppress(Exception):
-            properties_iface.off_properties_changed(handler)
-        self._ap_listener = None
+    async def get_wifi_signal(self) -> Optional[int]:
+        """Live RSSI (0-100) of the associated AP, or None when not associated.
+
+        One D-Bus read on the anchored proxy, no nmcli — the point of splitting
+        it from get_network_status(), which forks four. Called only by
+        GET /api/network/wifi/signal, i.e. only while a client is showing the
+        signal arc. Fails open (None) with no proxy, like every other D-Bus
+        path here: a dev host without NM gets a greyed-out icon, not an error.
+        """
+        _, signal = await self._read_active_ap_info()
+        return signal
 
     async def _read_active_ap_info(self) -> Tuple[Optional[str], Optional[int]]:
         """Return (ssid, strength) from the cached AP proxy. (None, None) on miss."""
@@ -899,26 +903,6 @@ class NetworkService:
         except Exception as exc:
             self.logger.debug("Failed to read AP info: %s", exc)
             return None, None
-
-    def _on_ap_props_changed(self, iface: str, changed: dict, _invalidated: list) -> None:
-        if iface != NM_ACCESS_POINT_IFACE:
-            return
-        if "Strength" not in changed:
-            return
-
-        # Debounce: coalesce Strength bursts (RSSI sampling, roaming) into
-        # one refresh. connected/Ip4Config events stay un-debounced — they
-        # surface immediately via the tier-1 path.
-        if self._signal_debounce_task and not self._signal_debounce_task.done():
-            self._signal_debounce_task.cancel()
-        self._signal_debounce_task = self._bg.spawn(
-            self._debounced_refresh(), label="debounced_refresh"
-        )
-
-    async def _debounced_refresh(self) -> None:
-        with contextlib.suppress(asyncio.CancelledError):
-            await asyncio.sleep(self.SIGNAL_DEBOUNCE_S)
-            await self._refresh_and_broadcast()
 
     async def _refresh_and_broadcast(self) -> None:
         """Re-read full network status and broadcast it, dedup against last sent.

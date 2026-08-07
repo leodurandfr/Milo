@@ -13,9 +13,11 @@ that argv is the contract with NetworkManager exactly as sudo's is with the
 sudoers policy.
 
 Deliberately **not** covered, and named in the checklist as still bare: the
-three D-Bus subscription tiers (device / wireless / access-point property
-signals and their re-anchoring). They have no observable outside a live NM
-session, and a mock of dbus-next would assert the mock.
+two D-Bus subscription tiers (device / wireless property signals and the AP
+proxy re-anchoring behind them). They have no observable outside a live NM
+session, and a mock of dbus-next would assert the mock. The one D-Bus-adjacent
+thing asserted below is the *absence* of a cost — that reading the live signal
+spawns no process — which is measured at the nmcli boundary, not at dbus-next's.
 """
 from unittest.mock import AsyncMock, patch
 
@@ -372,5 +374,66 @@ async def test_cleanup_is_idempotent_on_a_service_that_never_connected(service):
     """cleanup() runs on the failed-initialize path, before anything was attached."""
     await service.cleanup()
     await service.cleanup()
+
+
+# --------------------------------------------------------------------------- #
+# The live signal read (GET /api/network/wifi/signal)
+# --------------------------------------------------------------------------- #
+
+class FakeApProxy:
+    """Stands in for the NM AccessPoint object dbus-next hands back."""
+
+    def __init__(self, ssid: bytes, strength: int):
+        self._ssid = ssid
+        self._strength = strength
+
+    def get_interface(self, name):
+        assert name == "org.freedesktop.NetworkManager.AccessPoint", name
+        return self
+
+    async def get_ssid(self):
+        return self._ssid
+
+    async def get_strength(self):
+        return self._strength
+
+
+@pytest.mark.asyncio
+async def test_wifi_signal_is_read_from_the_ap_without_spawning_nmcli(service):
+    """The signal poll must not cost what a full status costs.
+
+    A view showing the signal arc re-reads it every few seconds for as long as
+    it is on screen, which is only affordable because this path answers from
+    the anchored AccessPoint proxy. Routing it through get_network_status()
+    instead — the obvious "reuse" — would put four nmcli forks on that cadence,
+    which is precisely the regression this endpoint was split out to end, and
+    nothing else in either suite would notice.
+
+    The returned 63 is the non-triviality guard (a read broken into returning
+    None must fail here, not pass quietly); the claim is the empty call list.
+    """
+    service._ap_proxy = FakeApProxy(b"Freebox-CA3555", 63)
+
+    fake, patcher = with_nmcli()
+    with patcher:
+        signal = await service.get_wifi_signal()
+
+    assert signal == 63
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_wifi_signal_fails_open_when_no_access_point_is_anchored(service):
+    """No NM D-Bus (dev host) or no association → None, and still no nmcli.
+
+    The arc renders greyed on null; raising here would surface as an error
+    banner every few seconds on a machine whose only fault is having no WiFi.
+    """
+    fake, patcher = with_nmcli()
+    with patcher:
+        signal = await service.get_wifi_signal()
+
+    assert signal is None
+    assert fake.calls == []
 
 
