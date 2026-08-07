@@ -1072,8 +1072,7 @@ export const SOURCE_PAGES = [
       offline(
         'mac',
         'no_network',
-        'ROC is a LAN stream, so only a dead link blocks it. The sender list is empty by construction here — with no network there is nothing to receive from — and the "audio received from" wording has no name to complete.',
-        { client_names: [] }
+        'ROC is a LAN stream, so only a dead link blocks it. The sender list is the one Mac field this scenario does not send, and the only one whose absence is not a shortcut: a missing prerequisite outranks the state, so the card stops at the phrase and never reaches the "audio received from" wording that reads the names. Empty by construction here anyway — with no network there is nothing to receive from.'
       ),
       errored(
         'mac',
