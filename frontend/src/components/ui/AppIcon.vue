@@ -1,9 +1,13 @@
 <template>
   <div class="app-icon" :style="iconStyle" :class="{
-    'size-large': props.size === 'large' || props.size === 72
+    'size-large': props.size === 'large' || props.size === 72,
+    'app-icon--loading': loading
   }">
     <div class="app-icon-content">
-      <div v-html="svgContent" class="app-icon-svg" />
+      <!-- Loading replaces the artwork, not the tile: the slot keeps its size
+           and shape so nothing around it reflows when the source settles. -->
+      <LoadingSpinner v-if="loading" size="inherit" />
+      <div v-else v-html="svgContent" class="app-icon-svg" />
     </div>
   </div>
 </template>
@@ -43,6 +47,7 @@ export const APP_ICON_NAMES = Object.keys(iconMapping);
 <script setup>
 import { computed } from 'vue';
 import { logger } from '@/services/logger';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const instanceId = ++instanceCounter;
 
@@ -55,6 +60,13 @@ const props = defineProps({
   size: {
     type: [String, Number],
     default: 32
+  },
+  // The tile while its source is still coming up — a spinner on the plate the
+  // artwork would otherwise cover. `name` still applies: it is the same icon,
+  // in a state, not a different one.
+  loading: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -152,6 +164,17 @@ const svgContent = computed(() => {
   max-width: 100%;
   max-height: 100%;
   isolation: isolate; /* Prevent mix-blend-mode from SVGs leaking to other elements */
+}
+
+/* App icons are drawn full-bleed, so the loading state has to paint the plate
+   the artwork was carrying — otherwise the tile disappears and the row reads as
+   a gap. The spinner is inset rather than full-bleed: it is a mark on a plate,
+   where the artwork is the plate. */
+.app-icon--loading {
+  --spinner-size: calc(var(--icon-size) * 0.8);
+
+  background: var(--color-background);
+  color: var(--color-text);
 }
 
 .app-icon-content {

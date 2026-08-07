@@ -3,7 +3,7 @@
     :class="{ 'is-delayed': loading && !showLoading, 'mc--no-glyph': !icon && !showLoading, 'message-content--dark': variant === 'dark' }">
     <!-- Loading spinner OR icon (mutually exclusive) — same size, so a card
          swapping one for the other doesn't resize its glyph mid-transition. -->
-    <LoadingSpinner v-if="showLoading" :size="48" variant="background" />
+    <LoadingSpinner v-if="showLoading" :size="48" />
     <SvgIcon v-else-if="icon" :name="icon" :size="48" :color="iconColor" />
 
     <!-- Content always visible (even while loading) -->
@@ -150,10 +150,15 @@ watch(() => props.loading, (isLoading) => {
   color: var(--color-text-secondary);
 }
 
-/* The spinner's `background` variant carries its own light plate, so it sits on
-   a known surface in both variants and takes one color, not the card's. */
+/* The spinner is bare — the light plate it used to carry belongs to an app-icon
+   tile, not to a state card — so it takes the card's own colour, and the dark
+   variant has to name its own the way the icon beside it does. */
 .message-content > :deep(.loading-spinner) {
   color: var(--color-text-secondary);
+}
+
+.message-content--dark > :deep(.loading-spinner) {
+  color: var(--color-text-contrast);
 }
 
 .cta-group {

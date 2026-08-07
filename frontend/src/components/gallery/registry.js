@@ -299,10 +299,7 @@ export const REGISTRY = {
   LoadingSpinner: {
     component: LoadingSpinner,
     args: { size: 48 },
-    overrides: { size: PIXEL_SIZE },
-    // The `background` variant is the same spinner on its own light plate: on the
-    // light stage the plate is invisible and the variant looks identical.
-    surface: args => (args.variant === 'background' ? 'contrast' : null)
+    overrides: { size: PIXEL_SIZE }
   },
 
   NotificationBanner: {
