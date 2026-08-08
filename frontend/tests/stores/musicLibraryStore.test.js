@@ -146,6 +146,35 @@ describe('musicLibraryStore — storage scoping', () => {
     expect(store.browsableStorages.map((s) => s.id)).toEqual([NAS.id]);
   });
 
+  it('keeps an absent space in the three views the settings screen reads', async () => {
+    // `browsableStorages` is the only one that may filter on `mounted`. The
+    // settings screen is where an absent space is still administered, and each
+    // of the other three breaks differently if it starts filtering too:
+    //   storages   → hides the `separate_storages` toggle (`length > 1` IS the
+    //                switch), removing the only way out of merged mode;
+    //   usbDevices → an unplugged key can no longer be renamed or forgotten,
+    //                and forgetting is the only way to drop its index rows;
+    //   shares     → the NAS row survives but its track count reads zero.
+    apiCall.get.mockResolvedValueOnce(ok({
+      storages: [{ ...NAS, mounted: false, track_count: 2419 }, { ...USB, mounted: false }],
+    }));
+    await store.loadStorages();
+    await nextTick();
+
+    // The share config carries neither figure: both are folded in from the
+    // storage push, which is what greys a row out with no refetch.
+    apiCall.get.mockResolvedValueOnce(ok({
+      shares: [{ id: NAS.id, type: 'cifs', host: '192.168.1.20', name: NAS.name }],
+    }));
+    await store.loadShares();
+
+    expect(store.browsableStorages).toEqual([]);
+    expect(store.storages.map((s) => s.id)).toEqual([NAS.id, USB.id]);
+    expect(store.usbDevices.map((s) => s.id)).toEqual([USB.id]);
+    expect(store.shares.map((s) => [s.id, s.mounted, s.track_count]))
+      .toEqual([[NAS.id, false, 2419]]);
+  });
+
   it('drops the scope entirely when storage spaces are merged', async () => {
     // separate_storages=false is the whole merged mode: every catalog read must
     // go out unscoped, or the user would still be looking at one storage space

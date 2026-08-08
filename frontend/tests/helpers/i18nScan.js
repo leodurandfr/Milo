@@ -14,6 +14,11 @@
  *    `categoryLabelMap`, multiroomStore's `MULTIROOM_ERROR_KEYS`) and template
  *    prefixes (`radio.genres.${key}`). Used to assert "this key is used
  *    somewhere". A stricter rule here would report live keys as dead.
+ *
+ * The same high-confidence calls are also split by whether they pass a second
+ * argument (`paramlessCalls` / `parameterisedCalls`), which is what lets the
+ * locale test match a call against its string's `{placeholders}`: a `{name}` no
+ * call site fills renders literally as "{name} needs re-indexing".
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +29,9 @@ export const SRC_DIR = resolve(HERE, '../../src');
 export const LOCALES_DIR = join(SRC_DIR, 'locales');
 
 // `t('x')`, `$t('x')` and `i18n.t('x')` — but not `store.t(` or `apiCall.get(`.
-const CALL_RE = /(?:(?<![\w$.])\$?t|\bi18n\.t)\(\s*['"]([^'"]+)['"]/g;
+// The trailing group is the comma that introduces the interpolation params, so
+// `t('x')` and `t('x', { n })` are told apart.
+const CALL_RE = /(?:(?<![\w$.])\$?t|\bi18n\.t)\(\s*['"]([^'"]+)['"]\s*(,?)/g;
 // The same three call forms with a template literal: `t(`prefix.${id}`)`.
 const CALL_TEMPLATE_RE = /(?:(?<![\w$.])\$?t|\bi18n\.t)\(\s*`([^`]*?)\$\{/g;
 // A prefix built into a variable first: const path = `radio.genres.${key}`.
@@ -62,6 +69,8 @@ function collectSourceFiles(dir, files = []) {
 
 export function scanI18nUsage() {
   const calledKeys = new Map();      // key → first file that calls it
+  const paramlessCalls = new Map();  // ... of those, called as t('x')
+  const parameterisedCalls = new Map(); // ... and as t('x', { … })
   const referencedKeys = new Set();
   const dynamicPrefixes = new Set();
   const files = collectSourceFiles(SRC_DIR);
@@ -70,9 +79,13 @@ export function scanI18nUsage() {
     const content = readFileSync(file, 'utf8');
     const relative = file.slice(SRC_DIR.length + 1);
 
-    for (const [, key] of content.matchAll(CALL_RE)) {
+    for (const [, key, comma] of content.matchAll(CALL_RE)) {
       if (!isKeyShaped(key)) continue; // e.g. t('') guards, or a plain word
       if (!calledKeys.has(key)) calledKeys.set(key, relative);
+      // A key called both ways lands in both maps — that is the point: one bad
+      // call site among several is exactly what the placeholder check must see.
+      const bucket = comma === ',' ? parameterisedCalls : paramlessCalls;
+      if (!bucket.has(key)) bucket.set(key, relative);
       referencedKeys.add(key);
     }
 
@@ -90,7 +103,14 @@ export function scanI18nUsage() {
     }
   }
 
-  return { calledKeys, referencedKeys, dynamicPrefixes, fileCount: files.length };
+  return {
+    calledKeys,
+    paramlessCalls,
+    parameterisedCalls,
+    referencedKeys,
+    dynamicPrefixes,
+    fileCount: files.length,
+  };
 }
 
 /** Flatten a locale object to dot-notation leaves. */

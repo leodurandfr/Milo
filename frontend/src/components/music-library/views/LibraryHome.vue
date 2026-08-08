@@ -195,10 +195,8 @@ function emptyState(titleKey, subtitleKey) {
   }
   if (store.unindexedStorage) {
     return {
-      title: t('musicLibrary.storage.notIndexed'),
-      subtitle: t('musicLibrary.storage.notIndexedHint', {
-        name: store.unindexedStorage.name,
-      }),
+      title: t('musicLibrary.storage.notIndexed', { name: store.unindexedStorage.name }),
+      subtitle: t('musicLibrary.storage.notIndexedHint'),
       ctaLabel: t('musicLibrary.storage.reindex'),
       ctaLoading: rescanning.value,
       ctaClick: handleRescan,

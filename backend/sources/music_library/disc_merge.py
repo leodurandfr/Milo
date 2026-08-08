@@ -178,8 +178,8 @@ def _sum_int(members: List[_Member], field: str) -> int:
 def _merge_genres(members: List[_Member]) -> List[Dict[str, Any]]:
     """Every disc's genres, de-duplicated, in first-seen order.
 
-    A union rather than disc 1's list: the per-storage genre list is derived from
-    this catalog (see source.get_library_genres), and a genre carried only by
+    A union rather than disc 1's list: the per-scope genre list is derived from
+    this catalog (see source.genres_in_scope), and a genre carried only by
     disc 2 would otherwise vanish from it while its songs stay findable.
     """
     seen: Dict[str, Dict[str, Any]] = {}

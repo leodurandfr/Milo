@@ -7,10 +7,11 @@ just shows the wrong music:
 - ``NetworkShareService.storages`` is what the library filter is built from, so
   a duplicate display name or a missing library id makes two storage spaces
   indistinguishable (or unbrowsable).
-- ``MusicLibrarySource.playlists_in_storage`` decides which playlists belong to
-  the storage space being browsed. Navidrome keeps playlists catalog-wide and
-  ignores ``musicFolderId`` on getPlaylists, so this is the only thing standing
-  between the user and a NAS playlist listed under a USB key.
+- ``MusicLibrarySource.browse_scope`` decides which storage spaces a browse call
+  may read at all, and ``playlists_in_scope`` which playlists belong to them.
+  Navidrome keeps playlists catalog-wide and ignores ``musicFolderId`` on
+  getPlaylists, so the latter is the only thing standing between the user and a
+  NAS playlist listed under a USB key.
 """
 from unittest.mock import AsyncMock, MagicMock
 
@@ -276,23 +277,51 @@ async def test_reconcile_retry_stops_when_nothing_is_waiting(monkeypatch):
     assert service._get_admin.await_count == 1
 
 
-# === playlists_in_storage() =================================================
+# === browse_scope() / playlists_in_scope() ==================================
 
 @pytest.fixture
 def source():
-    """A source whose two live storage spaces are the USB key (library 3) it is
-    browsing and a NAS share (library 2)."""
+    """A source with three known storage spaces: a NAS share (library 2) and a
+    USB key (library 3), both connected, plus a key that is away (library 4)."""
     src = MusicLibrarySource(config={}, state_machine=MagicMock())
     src._shares = MagicMock()
     src._shares.storages = AsyncMock(return_value=[
-        {"kind": "share", "id": "nas-1", "library_id": 2},
-        {"kind": "usb", "id": "U-1", "library_id": 3},
+        {"kind": "share", "id": "nas-1", "library_id": 2, "mounted": True},
+        {"kind": "usb", "id": "U-1", "library_id": 3, "mounted": True},
+        {"kind": "usb", "id": "U-2", "library_id": 4, "mounted": False},
     ])
     return src
 
 
+async def test_the_default_scope_is_what_is_mounted(source):
+    # The whole point: an unplugged key keeps its Navidrome index on purpose, and
+    # Navidrome answers a stream request for its files with HTTP 200 carrying a
+    # JSON error body — mpv skips to the next entry and reports nothing. There is
+    # no hook at play time, so a browse that asked for no storage space in
+    # particular must still not offer that key's music.
+    assert await source.browse_scope() == [2, 3]
+
+
+async def test_an_explicitly_named_storage_is_honoured_even_when_away(source):
+    # The caller named its scope, and the frontend deliberately keeps the
+    # selection on a storage space that has just gone away (it draws its own
+    # "disconnected" message there).
+    assert await source.browse_scope(4) == [4]
+
+
+async def test_a_storage_navidrome_has_not_mapped_yet_is_not_in_the_scope(source):
+    # A null library id must never reach the query: _encode_query drops None
+    # items from a repeated param, so a scope of [None] would go out as no
+    # musicFolderId at all — which to Subsonic means the entire catalog.
+    source._shares.storages = AsyncMock(return_value=[
+        {"kind": "usb", "id": "U-3", "library_id": None, "mounted": True},
+    ])
+
+    assert await source.browse_scope() == []
+
+
 def _with_catalog(src, album_ids, playlist_albums=None):
-    """Pin the storage space's album catalog and each playlist's first album."""
+    """Pin the scope's album catalog and each playlist's first album."""
     src.get_merged_albums = AsyncMock(
         return_value=[{"id": album_id} for album_id in album_ids]
     )
@@ -312,7 +341,7 @@ async def test_recorded_playlist_belongs_only_to_its_own_storage(source):
     _with_catalog(source, album_ids=["al-1"])
     playlists = [{"id": "pl-usb", "songCount": 3}, {"id": "pl-nas", "songCount": 3}]
 
-    kept = await source.playlists_in_storage(playlists, library_id=3)
+    kept = await source.playlists_in_scope(playlists, scope=[3])
 
     assert [p["id"] for p in kept] == ["pl-usb"]
 
@@ -327,7 +356,7 @@ async def test_unknown_playlist_is_placed_by_its_first_track(source):
     )
     playlists = [{"id": "pl-here", "songCount": 5}, {"id": "pl-elsewhere", "songCount": 5}]
 
-    kept = await source.playlists_in_storage(playlists, library_id=3)
+    kept = await source.playlists_in_scope(playlists, scope=[3])
 
     assert [p["id"] for p in kept] == ["pl-here"]
 
@@ -342,7 +371,7 @@ async def test_track_of_a_merged_multi_disc_album_still_places_its_playlist(sour
         playlist_albums={"pl-1": "al-disc2"},
     )
 
-    kept = await source.playlists_in_storage([{"id": "pl-1", "songCount": 2}], library_id=3)
+    kept = await source.playlists_in_scope([{"id": "pl-1", "songCount": 2}], scope=[3])
 
     assert [p["id"] for p in kept] == ["pl-1"]
 
@@ -354,9 +383,22 @@ async def test_playlist_of_a_removed_storage_falls_back_to_its_content(source):
     source._shares.playlist_storages = AsyncMock(return_value={"pl-1": "nas-gone"})
     _with_catalog(source, album_ids=["al-here"], playlist_albums={"pl-1": "al-here"})
 
-    kept = await source.playlists_in_storage([{"id": "pl-1", "songCount": 4}], library_id=3)
+    kept = await source.playlists_in_scope([{"id": "pl-1", "songCount": 4}], scope=[3])
 
     assert [p["id"] for p in kept] == ["pl-1"]
+
+
+async def test_playlist_of_a_storage_that_is_away_leaves_the_default_scope(source):
+    # The distinction the record makes: a storage space that no longer *exists*
+    # is no record at all (above), while one that exists and is unplugged is
+    # honoured — none of that playlist can be played, so the merged view, which
+    # names no storage space at all, must not list it either.
+    source._shares.playlist_storages = AsyncMock(return_value={"pl-away": "U-2"})
+    _with_catalog(source, album_ids=["al-here"])
+    playlist = [{"id": "pl-away", "songCount": 4}]
+
+    assert await source.playlists_in_scope(playlist, scope=[2, 3]) == []
+    assert await source.playlists_in_scope(playlist, scope=[4]) == playlist
 
 
 async def test_unrecorded_empty_playlist_is_never_hidden(source):
@@ -365,6 +407,6 @@ async def test_unrecorded_empty_playlist_is_never_hidden(source):
     source._shares.playlist_storages = AsyncMock(return_value={})
     _with_catalog(source, album_ids=["al-1"])
 
-    kept = await source.playlists_in_storage([{"id": "pl-empty", "songCount": 0}], library_id=3)
+    kept = await source.playlists_in_scope([{"id": "pl-empty", "songCount": 0}], scope=[3])
 
     assert [p["id"] for p in kept] == ["pl-empty"]

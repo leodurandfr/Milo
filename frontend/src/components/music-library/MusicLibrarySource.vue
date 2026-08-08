@@ -7,10 +7,13 @@
       :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
       @header-back="goBack" @scroll-restored="onScrollRestored">
 
-      <!-- Header actions (home only): queue + search -->
+      <!-- Header actions (home only): queue + search. Search is scoped on the
+           selected storage space, so it goes away with it (see scopedViews
+           below); the queue is what is loaded, not what is browsable, and stays. -->
       <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
         <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
-        <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
+        <IconButton v-if="!store.disconnectedStorage" icon="search" :variant="iconVariant"
+          @click="goToSearch" />
       </template>
 
       <!-- Scrollable views -->
@@ -133,8 +136,22 @@ const timer = useTimer();
 // Scroll-aware navigation stack (save/restore across push/back).
 const audioLayoutRef = ref(null);
 const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null);
-const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore } =
+const { currentView, currentParams, canGoBack, push, back, reset, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef });
+
+// Search and Liked Songs are the two views scoped ON the selected space rather
+// than on what is browsable: they name it by library_id, which the backend
+// honours as given (that is what keeps the selection alive on a space that has
+// just gone). Every other view is filtered against the mounted spaces backend-
+// side, so these two are the only ones that would go on offering tracks whose
+// stream Navidrome answers with a JSON error mpv skips without a word. They fold
+// back to home, where the "storage disconnected" message says why. Watching the
+// view too, not just the flag: back() out of an album reached from a search is a
+// second way into a stale search.
+const scopedViews = ['search', 'liked'];
+watch([() => store.disconnectedStorage, currentView], ([gone, view]) => {
+  if (gone && scopedViews.includes(view)) reset();
+});
 
 // Player visibility follows backend source_state (active → shown, ready →
 // hidden). Clear the sticky display track only after the fade-out completes so
