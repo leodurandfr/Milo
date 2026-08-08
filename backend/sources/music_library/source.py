@@ -130,11 +130,12 @@ class MusicLibrarySource(MpvAudioSource):
         # routes read the catalog even while music_library is not active.
         self._navidrome: Optional[NavidromeClient] = None
         # Merged (multi-disc) album catalog, cached for the alphabetical grid —
-        # one entry per storage space (library id → (built_at, albums)), since
-        # the grid asks for one library at a time.
-        self._album_cache: Dict[Optional[int], Tuple[float, List[Dict[str, Any]]]] = {}
+        # one entry per browse scope (the sorted library ids → (built_at,
+        # albums)), so the merged view and the "everything mounted" view of the
+        # same spaces are one entry rather than two.
+        self._album_cache: Dict[Tuple[int, ...], Tuple[float, List[Dict[str, Any]]]] = {}
         # playlist id → its first track's album id, for placing a playlist Milō
-        # did not create in a storage space (see playlists_in_storage).
+        # did not create in a storage space (see playlists_in_scope).
         self._playlist_album: Dict[str, Optional[str]] = {}
 
         # Playback / queue state (reset on stop). The queue holds the Subsonic
@@ -185,20 +186,51 @@ class MusicLibrarySource(MpvAudioSource):
             await self._navidrome.close()
             self._navidrome = None
 
-    async def get_merged_albums(
-        self, library_id: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """One storage space's catalog, alphabetical, multi-disc sets collapsed.
+    async def browse_scope(self, library_id: Optional[int] = None) -> List[int]:
+        """The Navidrome libraries a browse call is allowed to read.
+
+        The default — what every unscoped call gets — is **the storage spaces
+        that are mounted right now**, because a space that cannot be read is not
+        a space to offer: Navidrome keeps an unplugged key's index on purpose
+        (that is what makes a replug cost a quick scan instead of 18 minutes),
+        and answers a stream request for its files with HTTP **200** carrying a
+        JSON error body, which mpv skips over in silence. There is no hook at
+        play time, so the filter has to fall at browse time.
+
+        An explicit ``library_id`` is honoured as asked, mounted or not: the
+        caller named its scope, and the frontend deliberately keeps the
+        selection on a storage space that has just gone away.
+        """
+        if library_id is not None:
+            return [library_id]
+        return [
+            entry["library_id"]
+            for entry in await self._shares.storages()
+            if entry["mounted"] and entry["library_id"] is not None
+        ]
+
+    async def mounted_album_ids(self) -> set:
+        """Every album id readable right now — the descent routes' filter.
+
+        ``getArtist``/``getAlbum``/``getPlaylist`` take no scope in Subsonic, so
+        what they return is post-filtered against this set.
+        """
+        return await self._scope_album_ids(await self.browse_scope())
+
+    async def get_merged_albums(self, scope: List[int]) -> List[Dict[str, Any]]:
+        """A browse scope's catalog, alphabetical, multi-disc sets collapsed.
 
         The album grid pages over this list (see routes.get_albums) so a split
         "… CD 1"/"CD 2" release is merged even when the pair would straddle a page
-        boundary. ``library_id`` scopes it to one storage space (None = every
-        one). Cached with a short TTL; an explicit rescan or share change calls
-        :meth:`invalidate_album_cache`. Returns [] until the catalog is reachable
-        (never caches an empty result — a not-yet-ready daemon retries next call).
+        boundary. ``scope`` is the storage spaces to read (see
+        :meth:`browse_scope`). Cached with a short TTL; an explicit rescan or
+        share change calls :meth:`invalidate_album_cache`. Returns [] until the
+        catalog is reachable (never caches an empty result — a not-yet-ready
+        daemon retries next call).
         """
+        key = tuple(sorted(scope))
         now = asyncio.get_event_loop().time()
-        cached = self._album_cache.get(library_id)
+        cached = self._album_cache.get(key)
         if cached is not None and now - cached[0] < ALBUM_CACHE_TTL_S:
             return cached[1]
         client = await self.get_navidrome_client()
@@ -208,10 +240,10 @@ class MusicLibrarySource(MpvAudioSource):
         offset = 0
         while True:
             page = await client.get_album_list(
+                scope,
                 list_type="alphabeticalByName",
                 size=_ALBUM_PAGE,
                 offset=offset,
-                music_folder_id=library_id,
             )
             albums.extend(page)
             if len(page) < _ALBUM_PAGE:
@@ -219,11 +251,11 @@ class MusicLibrarySource(MpvAudioSource):
             offset += _ALBUM_PAGE
         merged = merge_albums(albums)
         if albums:
-            self._album_cache[library_id] = (now, merged)
+            self._album_cache[key] = (now, merged)
         return merged
 
-    async def get_library_genres(self, library_id: int) -> List[Dict[str, Any]]:
-        """The genres present in ONE storage space, in the getGenres shape.
+    async def genres_in_scope(self, scope: List[int]) -> List[Dict[str, Any]]:
+        """The genres present in a browse scope, in the getGenres shape.
 
         Navidrome accepts ``musicFolderId`` on getAlbumList2, getArtists,
         search3 and getSongsByGenre — but **not** on getGenres, which answers
@@ -231,14 +263,14 @@ class MusicLibrarySource(MpvAudioSource):
         list would offer a genre that belongs to another storage space and open
         an empty view, since the drill-down *is* scoped.
 
-        So it is derived from the storage space's own album catalog, which is
-        already cached for the album grid. ``songCount`` is the sum of the
-        matching albums' track counts: exact for the usual single-genre album,
-        an over-count for an album whose tracks disagree, and never wrong about
+        So it is derived from the scope's own album catalog, which is already
+        cached for the album grid. ``songCount`` is the sum of the matching
+        albums' track counts: exact for the usual single-genre album, an
+        over-count for an album whose tracks disagree, and never wrong about
         *which* genres exist — the part a tap depends on.
         """
         totals: Dict[str, List[int]] = {}
-        for album in await self.get_merged_albums(library_id):
+        for album in await self.get_merged_albums(scope):
             names = [g.get("name") for g in album.get("genres") or []]
             if not names and album.get("genre"):
                 names = [album["genre"]]
@@ -251,10 +283,10 @@ class MusicLibrarySource(MpvAudioSource):
             for name, counts in sorted(totals.items())
         ]
 
-    async def playlists_in_storage(
-        self, playlists: List[Dict[str, Any]], library_id: int
+    async def playlists_in_scope(
+        self, playlists: List[Dict[str, Any]], scope: List[int]
     ) -> List[Dict[str, Any]]:
-        """Keep the playlists that belong to ONE storage space.
+        """Keep the playlists that belong to a browse scope's storage spaces.
 
         Navidrome's playlists are catalog-wide — ``getPlaylists`` accepts
         ``musicFolderId`` and ignores it — but a playlist mixing a NAS and a USB
@@ -266,30 +298,30 @@ class MusicLibrarySource(MpvAudioSource):
           one that works for an *empty* playlist, which has no content to judge.
         - **Anything else** — Navidrome auto-imports the ``.m3u`` files it finds,
           so a music key brings its own playlists — → its first track's album is
-          looked up in this storage's catalog. One extra call per unknown
-          playlist, memoised until the next rescan.
+          looked up in the scope's catalog. One extra call per unknown playlist,
+          memoised until the next rescan.
 
         A playlist that is both unrecorded and empty is shown everywhere: there
         is nothing to place it by, and hiding it would make it unreachable. A
         record pointing at a storage space that no longer exists — the share it
         was created in was removed — is treated as no record at all, for exactly
         the same reason: it would otherwise match nothing and vanish from every
-        storage space while still existing in Navidrome.
+        storage space while still existing in Navidrome. A record pointing at a
+        space that exists but is *away* is a different thing and is honoured: the
+        playlist is out of scope, because none of it can be played.
         """
         recorded = await self._shares.playlist_storages()
         entries = await self._shares.storages()
-        storage_id = next(
-            (e["id"] for e in entries if e["library_id"] == library_id), None
-        )
+        scoped_storages = {e["id"] for e in entries if e["library_id"] in scope}
         live_storages = {entry["id"] for entry in entries}
-        album_ids = await self._library_album_ids(library_id)
+        album_ids = await self._scope_album_ids(scope)
 
         kept: List[Dict[str, Any]] = []
         undecided: List[Dict[str, Any]] = []
         for playlist in playlists:
             known = recorded.get(playlist.get("id"))
             if known in live_storages:
-                if known == storage_id:
+                if known in scoped_storages:
                     kept.append(playlist)
             elif not playlist.get("songCount"):
                 kept.append(playlist)
@@ -310,8 +342,8 @@ class MusicLibrarySource(MpvAudioSource):
         order = {playlist["id"]: index for index, playlist in enumerate(playlists)}
         return sorted(kept, key=lambda playlist: order[playlist["id"]])
 
-    async def _library_album_ids(self, library_id: int) -> set:
-        """Every album id in one storage space, merged sets expanded.
+    async def _scope_album_ids(self, scope: List[int]) -> set:
+        """Every album id in a browse scope, merged sets expanded.
 
         The grid's merged catalog is reused rather than re-fetched, so this
         usually costs nothing — but a merged multi-disc album carries a
@@ -319,7 +351,7 @@ class MusicLibrarySource(MpvAudioSource):
         what has to be in the set.
         """
         ids: set = set()
-        for album in await self.get_merged_albums(library_id):
+        for album in await self.get_merged_albums(scope):
             album_id = album.get("id")
             if not album_id:
                 continue
@@ -352,8 +384,8 @@ class MusicLibrarySource(MpvAudioSource):
         self._playlist_album.pop(playlist_id, None)
 
     def invalidate_album_cache(self) -> None:
-        """Drop every storage space's merged-album cache so the next grid load
-        rebuilds it (called after an explicit rescan or a share add/update/remove).
+        """Drop every scope's merged-album cache so the next grid load rebuilds
+        it (called after an explicit rescan or a share add/update/remove).
 
         The playlist→album memo goes with it: both answer "what is in this
         storage space", and a rescan is exactly when that changes.

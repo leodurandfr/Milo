@@ -21,7 +21,12 @@ REST surface for the indexed catalog served by the Navidrome sidecar:
              forgetting a USB key.
 
 Every browse route takes an optional ``library_id``: it is the Navidrome library
-of one storage space (see libraries.py), and omitting it browses all of them.
+of one storage space (see libraries.py). Omitting it browses **every storage
+space that is mounted**, not the whole catalog — an unplugged key keeps its index
+on purpose, and Navidrome serves its files as HTTP 200 with a JSON error body, so
+nothing downstream can tell the difference at play time. The scope is resolved
+once per request by ``source.browse_scope`` and the three descent routes, which
+Subsonic gives no scope at all, post-filter against ``source.mounted_album_ids``.
 
 There is **no scan-status route**: the scan flag rides the ``/storages`` payload
 and the ``source/storages_changed`` push, so one backend watcher observes
@@ -76,8 +81,23 @@ router = APIRouter(
 set_source_provider, get_source = make_source_dependency("Music Library")
 
 # Every browse route shares this one: the Navidrome library id of a storage
-# space, from GET /storages. Omitted = every storage space at once.
+# space, from GET /storages. Omitted = every storage space that is mounted.
 LIBRARY_ID_DESC = "Scope to one storage space (Navidrome library id)"
+
+
+def _keep_playable(item: Dict[str, Any], key: str, album_ids: set) -> None:
+    """Drop an album's or playlist's entries that no storage space can serve.
+
+    In place, and the two header fields that describe those entries are retallied
+    with them: left at their catalog values, ``songCount`` and ``duration`` would
+    announce tracks the page no longer lists (AlbumView reads both, PlaylistView
+    the duration). Every entry carries its own ``albumId``, so a merged multi-disc
+    set spanning a mounted and an absent space keeps exactly the discs that play.
+    """
+    kept = [entry for entry in item.get(key) or [] if entry.get("albumId") in album_ids]
+    item[key] = kept
+    item["songCount"] = len(kept)
+    item["duration"] = sum(int(entry.get("duration") or 0) for entry in kept)
 
 
 def setup_music_library_routes(source_provider) -> APIRouter:
@@ -130,7 +150,7 @@ async def get_artists(
     """All artists as A–Z index buckets (Subsonic getArtists)."""
     async with _catalog_errors("Error listing artists", source):
         client = await _require_client(source)
-        return {"index": await client.get_artists(music_folder_id=library_id)}
+        return {"index": await client.get_artists(await source.browse_scope(library_id))}
 
 
 @router.get("/artist/{artist_id}")
@@ -141,7 +161,14 @@ async def get_artist(
     """A single artist with its albums (Subsonic getArtist).
 
     The album list is collapsed for multi-disc sets (see disc_merge) — the artist
-    page shows a split "… CD 1/CD 2" release as one album.
+    page shows a split "… CD 1/CD 2" release as one album — and holds only the
+    albums a mounted storage space can serve: getArtist answers across every
+    library, which is how a correctly-scoped artist list still led to 2902
+    unplayable tracks (62 of 108 artists, measured).
+
+    An artist left with nothing renders an empty page rather than a 404: the id
+    is legitimately held by a tab opened before the key was pulled, and a 404
+    there reads as "this artist never existed".
     """
     async with _catalog_errors("Error getting artist", source):
         client = await _require_client(source)
@@ -149,8 +176,10 @@ async def get_artist(
         if artist is None:
             logger.error("Artist not found: %s", artist_id)
             raise HTTPException(status_code=404, detail="Artist not found")
-        if artist.get("album"):
-            artist["album"] = merge_albums(artist["album"])
+        album_ids = await source.mounted_album_ids()
+        artist["album"] = merge_albums(
+            [album for album in artist.get("album") or [] if album.get("id") in album_ids]
+        )
         return {"artist": artist}
 
 
@@ -163,7 +192,8 @@ async def get_album(
 
     A synthetic ``mdisc:`` id (a merged multi-disc release) is expanded into one
     album with the members' tracks concatenated and disc-tagged; a plain id is a
-    straight getAlbum.
+    straight getAlbum. Songs a mounted storage space cannot serve are dropped,
+    for the same reason as on the artist page.
     """
     async with _catalog_errors("Error getting album", source):
         client = await _require_client(source)
@@ -174,6 +204,7 @@ async def get_album(
         if album is None:
             logger.error("Album not found: %s", album_id)
             raise HTTPException(status_code=404, detail="Album not found")
+        _keep_playable(album, "song", await source.mounted_album_ids())
         return {"album": album}
 
 
@@ -200,17 +231,18 @@ async def get_albums(
             logger.error("Invalid album list type: %s", type)
             raise HTTPException(status_code=400, detail=f"Invalid album list type: {type}")
         client = await _require_client(source)
+        scope = await source.browse_scope(library_id)
         if type == "alphabeticalByName" and genre is None:
-            merged = await source.get_merged_albums(library_id)
+            merged = await source.get_merged_albums(scope)
             return {"albums": merged[offset:offset + size]}
         albums = await client.get_album_list(
+            scope,
             list_type=type,
             size=size,
             offset=offset,
             genre=genre,
             from_year=from_year,
             to_year=to_year,
-            music_folder_id=library_id,
         )
         return {"albums": merge_albums(albums)}
 
@@ -233,10 +265,10 @@ async def search(
         client = await _require_client(source)
         result = await client.search3(
             query,
+            await source.browse_scope(library_id),
             song_count=song_count,
             album_count=album_count,
             artist_count=artist_count,
-            music_folder_id=library_id,
         )
         return {
             "artists": result["artist"],
@@ -252,17 +284,18 @@ async def get_genres(
     source: MusicLibrarySource = Depends(get_source),
     library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
-    """All genres with song/album counts (Subsonic getGenres).
+    """All genres with song/album counts, in the getGenres shape.
 
-    Scoping to one storage space is NOT a getGenres param — it ignores
-    musicFolderId — so a scoped call is answered from that storage's own album
-    catalog instead (see source.get_library_genres).
+    getGenres itself is never called: it ignores musicFolderId and answers with
+    the whole catalog, so every genre list here — scoped or default — is derived
+    from the scope's own album catalog (see source.genres_in_scope). The client
+    is still required, so a catalog that isn't ready says 503 instead of
+    answering "no genres".
     """
     async with _catalog_errors("Error listing genres", source):
-        client = await _require_client(source)
-        if library_id is not None:
-            return {"genres": await source.get_library_genres(library_id)}
-        return {"genres": await client.get_genres()}
+        await _require_client(source)
+        scope = await source.browse_scope(library_id)
+        return {"genres": await source.genres_in_scope(scope)}
 
 
 @router.get("/genre-songs")
@@ -281,7 +314,7 @@ async def get_genre_songs(
     async with _catalog_errors("Error getting genre songs", source):
         client = await _require_client(source)
         songs = await client.get_songs_by_genre(
-            genre, count=count, offset=offset, music_folder_id=library_id
+            genre, await source.browse_scope(library_id), count=count, offset=offset
         )
         return {"songs": songs}
 
@@ -295,16 +328,15 @@ async def get_playlists(
 ) -> Dict[str, Any]:
     """All playlists, without their entries (Subsonic getPlaylists).
 
-    Scoped to one storage space when asked: Navidrome keeps playlists
-    catalog-wide, so membership is decided by the source (see
-    source.playlists_in_storage), not by a Subsonic param.
+    Navidrome keeps playlists catalog-wide and ignores musicFolderId here, so
+    membership is decided by the source (see source.playlists_in_scope), not by a
+    Subsonic param — for the default scope exactly as for a named storage space.
     """
     async with _catalog_errors("Error listing playlists", source):
         client = await _require_client(source)
         playlists = await client.get_playlists()
-        if library_id is not None:
-            playlists = await source.playlists_in_storage(playlists, library_id)
-        return {"playlists": playlists}
+        scope = await source.browse_scope(library_id)
+        return {"playlists": await source.playlists_in_scope(playlists, scope)}
 
 
 @router.get("/playlist/{playlist_id}")
@@ -312,13 +344,19 @@ async def get_playlist(
     playlist_id: str,
     source: MusicLibrarySource = Depends(get_source),
 ) -> Dict[str, Any]:
-    """A single playlist with its ordered entries (Subsonic getPlaylist)."""
+    """A single playlist with its ordered entries (Subsonic getPlaylist).
+
+    A playlist can mix storage spaces, so the entries no mounted space can serve
+    are dropped in silence — the alternative is a queue that skips tracks with
+    nothing said about why.
+    """
     async with _catalog_errors("Error getting playlist", source):
         client = await _require_client(source)
         playlist = await client.get_playlist(playlist_id)
         if playlist is None:
             logger.error("Playlist not found: %s", playlist_id)
             raise HTTPException(status_code=404, detail="Playlist not found")
+        _keep_playable(playlist, "entry", await source.mounted_album_ids())
         return {"playlist": playlist}
 
 
@@ -470,7 +508,7 @@ async def get_starred(
     playlist. Songs only; albums/artists aren't surfaced as favourites."""
     async with _catalog_errors("Error listing starred songs", source):
         client = await _require_client(source)
-        starred = await client.get_starred(music_folder_id=library_id)
+        starred = await client.get_starred(await source.browse_scope(library_id))
         return {"songs": starred["song"]}
 
 

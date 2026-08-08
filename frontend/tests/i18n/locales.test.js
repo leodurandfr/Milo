@@ -19,6 +19,12 @@ const otherLocales = Object.keys(locales).filter(name => name !== CANONICAL);
 
 const usage = scanI18nUsage();
 
+/** The `{n}` names a string interpolates, sorted. Non-strings have none. */
+function placeholdersOf(value) {
+  if (typeof value !== 'string') return [];
+  return [...value.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();
+}
+
 /** A key is live if referenced literally or covered by a dynamic prefix. */
 function isReferenced(key) {
   if (usage.referencedKeys.has(key)) return true;
@@ -59,13 +65,12 @@ describe('locale inventory', () => {
     });
 
     it('keeps the same interpolation placeholders as english.json', () => {
-      const placeholders = (value) => [...value.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();
       const mismatched = [];
 
       for (const key of englishKeys) {
         if (!keys.has(key)) continue;
-        const expected = placeholders(locales[CANONICAL][key]);
-        const actual = placeholders(locales[name][key]);
+        const expected = placeholdersOf(locales[CANONICAL][key]);
+        const actual = placeholdersOf(locales[name][key]);
         if (expected.join(',') !== actual.join(',')) {
           mismatched.push(`${key}: expected {${expected}}, got {${actual}}`);
         }
@@ -111,6 +116,28 @@ describe('code ↔ english.json', () => {
     const unused = englishKeys.filter(key => !isReferenced(key));
 
     expect(unused).toEqual([]);
+  });
+
+  it('fills every {placeholder} the called string declares', () => {
+    // A string that interpolates and a call that passes nothing renders the
+    // braces: "{name} needs re-indexing", on any mounted-but-unindexed space,
+    // from a clean prod boot. Both halves of that bug lived on adjacent lines —
+    // the params were passed to the neighbouring key, which has no placeholder.
+    const unfilled = [...usage.paramlessCalls]
+      .filter(([key]) => placeholdersOf(locales[CANONICAL][key]).length)
+      .map(([key, file]) => `${key} (${file})`);
+
+    expect(unfilled).toEqual([]);
+  });
+
+  it('passes params only to strings that interpolate', () => {
+    // The mirror half: params handed to a string with no placeholder do nothing
+    // at all, so they read as filled while the real hole sits elsewhere.
+    const wasted = [...usage.parameterisedCalls]
+      .filter(([key]) => key in locales[CANONICAL] && !placeholdersOf(locales[CANONICAL][key]).length)
+      .map(([key, file]) => `${key} (${file})`);
+
+    expect(wasted).toEqual([]);
   });
 
   it('still resolves the known dynamic prefixes', () => {

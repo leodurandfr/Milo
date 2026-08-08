@@ -44,7 +44,7 @@ class TestNavidromeBrowse:
                 ],
             }
         })
-        index = await client.get_artists()
+        index = await client.get_artists([2])
         assert index == [
             {"name": "D", "artist": [{"id": "ar-1", "name": "Daft Punk"}]}
         ]
@@ -74,7 +74,7 @@ class TestNavidromeBrowse:
             "albumList2": {"album": [{"id": "al-1"}, {"id": "al-2"}]}
         })
         albums = await client.get_album_list(
-            list_type="byGenre", size=10, offset=20, genre="Techno"
+            [2, 5], list_type="byGenre", size=10, offset=20, genre="Techno"
         )
         assert [a["id"] for a in albums] == ["al-1", "al-2"]
         _, params = client._make_request.await_args.args
@@ -82,23 +82,19 @@ class TestNavidromeBrowse:
         assert params["size"] == 10
         assert params["offset"] == 20
         assert params["genre"] == "Techno"
-
-    async def test_get_genres_extracts_list(self, client):
-        client._make_request = AsyncMock(return_value={
-            "genres": {"genre": [{"value": "Techno", "songCount": 42}]}
-        })
-        genres = await client.get_genres()
-        assert genres[0]["value"] == "Techno"
+        # The whole scope goes out as one call: _encode_query repeats the key,
+        # and Navidrome adds the libraries up (155 + 43 = 198 on the unit).
+        assert params["musicFolderId"] == [2, 5]
 
     async def test_get_songs_by_genre_extracts_list(self, client):
         client._make_request = AsyncMock(return_value={
             "songsByGenre": {"song": [{"id": "s-1"}, {"id": "s-2"}]}
         })
-        songs = await client.get_songs_by_genre("Techno", count=50, offset=0)
+        songs = await client.get_songs_by_genre("Techno", [2], count=50, offset=0)
         assert [s["id"] for s in songs] == ["s-1", "s-2"]
         _, params = client._make_request.await_args.args
         assert params == {
-            "genre": "Techno", "count": 50, "offset": 0, "musicFolderId": None,
+            "genre": "Techno", "count": 50, "offset": 0, "musicFolderId": [2],
         }
 
     async def test_get_playlists_extracts_list(self, client):
@@ -122,7 +118,7 @@ class TestNavidromeBrowse:
                 "song": [{"id": "s-1"}],
             }
         })
-        result = await client.search3("daft")
+        result = await client.search3("daft", [2])
         assert result == {
             "artist": [{"id": "ar-1"}],
             "album": [{"id": "al-1"}],
@@ -133,13 +129,30 @@ class TestNavidromeBrowse:
     async def test_list_methods_degrade_to_empty(self, client, payload):
         """A None (API error) or network-error sentinel yields empty, never raises."""
         client._make_request = AsyncMock(return_value=payload)
-        assert await client.get_artists() == []
-        assert await client.get_genres() == []
+        assert await client.get_artists([2]) == []
         assert await client.get_playlists() == []
-        assert await client.get_album_list() == []
-        assert await client.get_songs_by_genre("Techno") == []
+        assert await client.get_album_list([2]) == []
+        assert await client.get_songs_by_genre("Techno", [2]) == []
         assert await client.get_artist("ar-1") is None
         assert await client.get_album("al-1") is None
+
+    async def test_an_empty_scope_reads_nothing_at_all(self, client):
+        """No readable library must never become "the whole catalog".
+
+        To Subsonic an absent musicFolderId means *everything*, so a scope that
+        resolved to nothing — every key unplugged, the NAS asleep — would answer
+        with the 919 albums of the unplayable catalog if the request went out at
+        all. The assertion is that it does not go out.
+        """
+        client._make_request = AsyncMock(return_value={})
+
+        assert await client.get_artists([]) == []
+        assert await client.get_album_list([]) == []
+        assert await client.get_songs_by_genre("Techno", []) == []
+        assert await client.search3("daft", []) == {"artist": [], "album": [], "song": []}
+        assert await client.get_starred([]) == {"song": [], "album": [], "artist": []}
+
+        client._make_request.assert_not_awaited()
 
 
 class TestNavidromeStar:
@@ -353,7 +366,6 @@ def nav_client():
     c.get_artist = AsyncMock(return_value={"id": "ar-1", "name": "Daft Punk"})
     c.get_album = AsyncMock(return_value={"id": "al-1", "name": "Discovery"})
     c.get_album_list = AsyncMock(return_value=[{"id": "al-1"}])
-    c.get_genres = AsyncMock(return_value=[{"value": "Techno"}])
     c.get_songs_by_genre = AsyncMock(return_value=[{"id": "s-1"}])
     c.search3 = AsyncMock(return_value={"artist": [{"id": "ar-1"}], "album": [], "song": []})
     c.get_playlists = AsyncMock(return_value=[{"id": "pl-1"}])
@@ -380,7 +392,13 @@ def source(nav_client):
     src.shares.forget_playlist = AsyncMock()
     src.shares.record_playlist_storage = AsyncMock()
     src.shares.note_scan_started = AsyncMock()
-    src.playlists_in_storage = AsyncMock(return_value=[{"id": "pl-scoped"}])
+    # The browse scope every catalog route resolves first: one mounted storage
+    # space, whose catalog holds the single album "al-1".
+    src.browse_scope = AsyncMock(return_value=[2])
+    src.mounted_album_ids = AsyncMock(return_value={"al-1"})
+    src.get_merged_albums = AsyncMock(return_value=[{"id": "al-1"}])
+    src.genres_in_scope = AsyncMock(return_value=[{"value": "Techno"}])
+    src.playlists_in_scope = AsyncMock(return_value=[{"id": "pl-scoped"}])
     return src
 
 
@@ -418,6 +436,9 @@ class TestBrowseRoutes:
         assert r.status_code == 200
         assert r.json() == {"albums": [{"id": "al-1"}]}
         nav_client.get_album_list.assert_awaited_once()
+        # The resolved scope is the first argument — a page that went out
+        # without it would be a page of the whole catalog.
+        assert nav_client.get_album_list.await_args.args[0] == [2]
         kwargs = nav_client.get_album_list.await_args.kwargs
         assert kwargs["list_type"] == "byGenre"
         assert kwargs["genre"] == "Techno"
@@ -429,8 +450,12 @@ class TestBrowseRoutes:
         assert r.status_code == 400
         nav_client.get_album_list.assert_not_called()
 
-    def test_genres_envelope(self, api):
+    def test_genres_are_derived_never_asked_of_navidrome(self, api, source):
+        # getGenres ignores musicFolderId and answers with the whole catalog, so
+        # the route derives the list from the scope's own albums instead — for
+        # the default scope exactly as for a named storage space.
         assert api.get("/api/music-library/genres").json() == {"genres": [{"value": "Techno"}]}
+        source.genres_in_scope.assert_awaited_once_with([2])
 
     def test_genre_songs_requires_genre(self, api):
         # `genre` is a required query param — omitting it is a 422 from FastAPI.
@@ -439,6 +464,75 @@ class TestBrowseRoutes:
     def test_genre_songs_envelope(self, api):
         r = api.get("/api/music-library/genre-songs", params={"genre": "Techno"})
         assert r.json() == {"songs": [{"id": "s-1"}]}
+
+
+class TestDescentStaysInsideMountedStorage:
+    """getArtist/getAlbum/getPlaylist take no scope in Subsonic, so what they
+    return is post-filtered — the leak a scoped browse cannot close by itself.
+
+    Measured on the unit with both keys unplugged: 62 of the 108 artists of the
+    only mounted space led to 185 albums (2902 tracks) that no longer exist.
+    Navidrome streams those with HTTP 200 and a JSON error body, so mpv skips
+    them in silence and nothing downstream can catch it.
+    """
+
+    def test_artist_albums_of_an_absent_space_are_dropped(self, api, nav_client):
+        nav_client.get_artist = AsyncMock(return_value={
+            "id": "ar-1",
+            "name": "Daft Punk",
+            "album": [{"id": "al-1"}, {"id": "al-unplugged"}],
+        })
+
+        artist = api.get("/api/music-library/artist/ar-1").json()["artist"]
+
+        assert [album["id"] for album in artist["album"]] == ["al-1"]
+
+    def test_an_artist_left_with_nothing_is_an_empty_page_not_a_404(self, api, nav_client):
+        # The id is legitimately held by a tab opened before the key was pulled.
+        nav_client.get_artist = AsyncMock(return_value={
+            "id": "ar-9", "name": "Gone", "album": [{"id": "al-unplugged"}]
+        })
+
+        r = api.get("/api/music-library/artist/ar-9")
+
+        assert r.status_code == 200
+        assert r.json()["artist"]["album"] == []
+
+    def test_album_keeps_only_the_songs_a_mounted_space_serves(self, api, nav_client):
+        # A merged multi-disc set can straddle two storage spaces; each song
+        # carries its own albumId, so the discs are judged one by one.
+        nav_client.get_album = AsyncMock(return_value={
+            "id": "al-1",
+            "songCount": 2,
+            "duration": 300,
+            "song": [
+                {"id": "s-1", "albumId": "al-1", "duration": 100},
+                {"id": "s-2", "albumId": "al-unplugged", "duration": 200},
+            ],
+        })
+
+        album = api.get("/api/music-library/album/al-1").json()["album"]
+
+        assert [song["id"] for song in album["song"]] == ["s-1"]
+        # The header is drawn from these two, not from the song list.
+        assert album["songCount"] == 1
+        assert album["duration"] == 100
+
+    def test_playlist_entries_of_an_absent_space_are_dropped(self, api, nav_client):
+        nav_client.get_playlist = AsyncMock(return_value={
+            "id": "pl-1",
+            "songCount": 2,
+            "duration": 300,
+            "entry": [
+                {"id": "s-1", "albumId": "al-1", "duration": 100},
+                {"id": "s-2", "albumId": "al-unplugged", "duration": 200},
+            ],
+        })
+
+        playlist = api.get("/api/music-library/playlist/pl-1").json()["playlist"]
+
+        assert [entry["id"] for entry in playlist["entry"]] == ["s-1"]
+        assert playlist["songCount"] == 1
 
 
 class TestSearchRoute:
@@ -454,8 +548,15 @@ class TestSearchRoute:
 
 
 class TestPlaylistRoutes:
-    def test_playlists_envelope(self, api):
-        assert api.get("/api/music-library/playlists").json() == {"playlists": [{"id": "pl-1"}]}
+    def test_playlists_are_placed_before_being_listed(self, api, source):
+        # Navidrome ignores musicFolderId on getPlaylists, so the placement is
+        # the only thing between the user and a playlist of a storage space that
+        # is away — and it now runs for the default scope too, not just a named
+        # storage space.
+        assert api.get("/api/music-library/playlists").json() == {
+            "playlists": [{"id": "pl-scoped"}]
+        }
+        source.playlists_in_scope.assert_awaited_once_with([{"id": "pl-1"}], [2])
 
     def test_playlist_404_when_missing(self, api, nav_client):
         nav_client.get_playlist = AsyncMock(return_value=None)
