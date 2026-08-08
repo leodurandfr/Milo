@@ -7,10 +7,14 @@
   its own Navidrome library, and rescans on every change.
 
   Every row here is live: the storage list arrives on the `source/storages_changed`
-  push, so plugging a key in or pulling it out — or a NAS going unreachable —
-  updates this screen with no refetch and no polling. A key that is unplugged
-  keeps its row (it keeps its Navidrome library and its index too), which is
-  where it gets renamed, or forgotten for good.
+  push, so this screen never refetches. A USB key is instant — its directory
+  appears or vanishes. A NAS is not, and cannot be: a server that dies leaves a
+  perfectly-formed mount behind, so the backend has to ask the far side
+  (NetworkShareService._watch_share_liveness — statvfs every 30 s, three strikes,
+  and the kernel's own CIFS timeout comes first). A power cut therefore greys the
+  row in a couple of minutes, not at once. A key that is unplugged keeps its row
+  (it keeps its Navidrome library and its index too), which is where it gets
+  renamed, or forgotten for good.
 -->
 <template>
   <SettingsContainer>

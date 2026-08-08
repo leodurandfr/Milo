@@ -91,12 +91,11 @@ class MusicLibrarySource(MpvAudioSource):
     and at the right granularity: each storage space carries `mounted`, which is
     what `browsableStorages` filters on and what makes `disconnectedStorage` put
     "storage unplugged" in place of the grid — for that space alone, while the
-    others keep playing. One case escapes it, a link dying with the mount still
-    in /proc/mounts (`list()` reads `mounted` from there, so a stale NFS/SMB
-    mount still reports up until the remount cycle notices). Closing that means
-    teaching the mount layer to flip `mounted`, which makes the message that
-    already exists fire — not a source-wide flag that cannot see which library
-    the user is in.
+    others keep playing. A link dying with the mount still in /proc/mounts is
+    covered there too: `NetworkShareService._watch_share_liveness` probes the far
+    side and folds its verdict into that same `mounted`, so the message that
+    already exists fires — rather than a source-wide flag that cannot see which
+    library the user is in.
     """
 
     def __init__(

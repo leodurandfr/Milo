@@ -20,7 +20,10 @@ podcast (``podcast_data``) and cd (``data_service``) already use.
 """
 import asyncio
 import contextlib
+import errno
 import logging
+import os
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.config.constants import MUSIC_LIBRARY_MOUNT_ROOT
@@ -43,9 +46,38 @@ _SHARE_REMOUNT_RETRY_DELAYS_S = (15, 30, 60)
 _SCAN_POLL_IDLE_S = 15.0
 _SCAN_POLL_ACTIVE_S = 3.0
 
+# Liveness probe for network shares. /proc/mounts answers "is something mounted
+# here", never "does the far side still answer": a NAS that loses power leaves
+# its CIFS mount in the table indefinitely, and every track behind it becomes a
+# stream Navidrome serves as HTTP 200 carrying a JSON error body — which mpv
+# skips in silence. USB needs none of this (milo-umount removes the directory,
+# so the absence is total and free to observe); a share is the ambiguous one.
+#
+# statvfs rather than stat or listdir: it is the call that actually reaches the
+# filesystem, where the attribute cache (actimeo=1) can answer a stat from
+# memory. Measured on the live mount: stat 0.93 ms, statvfs 0.50 ms,
+# listdir 4.94 ms.
+_LIVENESS_INTERVAL_S = 30.0
+_LIVENESS_TIMEOUT_S = 5.0
+# Consecutive certain-negative probes before a share counts as gone. Flipping
+# `mounted` arms _stop_if_storage_gone, which cuts the music that is playing, so
+# one blocked call — which a merely busy NAS produces on its own — must not.
+_LIVENESS_FAILURES = 3
+# One thread per simultaneously-wedged share; a probe that timed out stays
+# parked in the syscall until the kernel gives up on the link, and at most one
+# probe per share is ever in flight.
+_LIVENESS_PROBE_THREADS = 4
+# The errnos that mean "the link is gone" rather than "this call failed".
+# Anything else keeps the previous verdict: calling a live NAS dead costs a
+# stopped track and a library that leaves the browser, so only a certain
+# negative may do it.
+_DEAD_LINK_ERRNOS = frozenset({
+    errno.EIO, errno.ETIMEDOUT, errno.ENOTCONN, errno.EHOSTDOWN, errno.ESTALE,
+})
+
 
 class NetworkShareService:
-    """The configured SMB/NFS shares: config, mount, rescan, and their status."""
+    """The configured SMB/NFS shares: config, mount, rescan, liveness, status."""
 
     def __init__(
         self,
@@ -76,6 +108,22 @@ class NetworkShareService:
         # (see _mount_configured). Tracked so it isn't GC'd mid-flight; bounded
         # and self-terminating, so it needs no explicit cancellation.
         self._retry_task: Optional[asyncio.Task] = None
+        # share id -> did its far side answer the last probe. An id absent from
+        # the map reads as alive, which is what makes the probe purely
+        # subtractive: it can hide a share it has caught being dead, and can
+        # never be the reason one fails to appear.
+        self._alive: Dict[str, bool] = {}
+        # share id -> consecutive certain-negative probes (see _LIVENESS_FAILURES).
+        self._probe_failures: Dict[str, int] = {}
+        # share id -> the probe submitted for it, kept while it is still parked
+        # in the syscall so the next tick doesn't submit a second one.
+        self._probe_inflight: Dict[str, Future] = {}
+        # A dedicated pool, not asyncio.to_thread: the default executor is 8
+        # threads shared with the fan telemetry, the CD poller and api/system.py,
+        # and a probe stuck on a dead mount must not starve them.
+        self._probe_pool = ThreadPoolExecutor(
+            max_workers=_LIVENESS_PROBE_THREADS, thread_name_prefix="share-probe"
+        )
 
     # =========================================================================
     # LIFECYCLE
@@ -99,6 +147,7 @@ class NetworkShareService:
         # a boot with nothing plugged in at all.
         await self._sync_libraries()
         self._bg.spawn(self._watch_scan(), label="scan-watcher")
+        self._bg.spawn(self._watch_share_liveness(), label="share-liveness")
 
     async def cleanup(self) -> None:
         """Stop the USB monitor thread and drain the library reconciler.
@@ -107,8 +156,13 @@ class NetworkShareService:
         watcher are background tasks, and one still sleeping on its schedule at
         shutdown would only wake to talk to a Navidrome that is going down with
         us.
+
+        The probe pool is dropped without waiting: a worker parked on a dead
+        mount returns when the kernel gives up on the link, which is minutes,
+        and nothing here needs its answer.
         """
         await self._bg.cancel_all()
+        self._probe_pool.shutdown(wait=False, cancel_futures=True)
         await self._storage.cleanup()
         await self._libraries.cleanup()
 
@@ -138,10 +192,27 @@ class NetworkShareService:
         caller can retry it — never propagates.
         """
         try:
-            return await self._storage.mount_share(share) is not None
+            return await self._mount_share(share) is not None
         except Exception as e:
             self._logger.warning(f"Failed to mount share {share.get('id')}: {e}")
             return False
+
+    async def _mount_share(
+        self, share: Dict[str, Any], credentials: Optional[Dict[str, str]] = None
+    ) -> Optional[str]:
+        """Mount a share and drop whatever the liveness probe thought of it.
+
+        The one path every mount in this service takes, because a mount that
+        succeeded *is* the far side answering — mount.cifs talked to it — and a
+        verdict must never outlive the mount it was about. Without this, fixing
+        a dead share's host and saving it would leave the settings row grey and
+        the library out of the browser until the next probe caught up.
+        """
+        mountpoint = await self._storage.mount_share(share, credentials=credentials)
+        if mountpoint is not None:
+            self._alive.pop(share["id"], None)
+            self._probe_failures.pop(share["id"], None)
+        return mountpoint
 
     async def _retry_offline(self, shares: List[Dict[str, Any]]) -> None:
         """Retry shares that were offline at boot over a short, bounded schedule.
@@ -332,6 +403,138 @@ class NetworkShareService:
             await self._on_storages_changed()
         return scanning
 
+    async def _watch_share_liveness(self) -> None:
+        """Keep ``mounted`` honest for network shares, by asking the far side.
+
+        A share is the only storage space that can be listed in /proc/mounts and
+        unreadable at the same time: unplugging a USB key removes its directory,
+        while a NAS losing power leaves a perfectly-formed CIFS mount behind.
+        Every browse then offers tracks whose stream Navidrome answers with HTTP
+        200 and a JSON error body, which mpv skips without a word.
+
+        **The verdict folds into ``mounted``; it adds no second key.** ``mounted``
+        already means "usable right now" to every consumer, and a `s.mounted &&
+        s.reachable !== false` chain in the frontend is exactly the shape this
+        repo forbids. So the "storage disconnected" message that already exists
+        starts working for a dead NAS, for that space alone.
+
+        **What it promises:** a share is hidden in ~30 s plus a probe timeout,
+        *after the kernel has given up on the link* — not instantly. `soft`
+        bounds the failure, not the latency: the CIFS client only notices a dead
+        server through its echo worker (echo_interval=60), so the first blocked
+        call after a power cut can sit there for a minute or two. Add the
+        three-strike hysteresis and a real outage is announced in a couple of
+        minutes, deliberately.
+
+        Rejected: /proc/fs/cifs/DebugData gives the same verdict with no network
+        I/O, but it flips on that same echo timeout (cheaper, not faster), it is
+        a debug interface with no ABI promise, and it is CIFS-only while
+        ShareRequest.type also accepts nfs — two code paths for one question.
+        """
+        while True:
+            await asyncio.sleep(_LIVENESS_INTERVAL_S)
+            try:
+                await self._probe_shares()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._logger.warning("Share liveness sweep failed: %s", exc)
+
+    async def _probe_shares(self) -> None:
+        """One sweep over the mounted shares; pushes once if a verdict moved.
+
+        Only configured shares are probed — :meth:`StorageManager.get_mounted_share_ids`
+        reports every mount under the root, USB keys included, and those have no
+        far side to ask about.
+        """
+        mounted_ids = self._storage.get_mounted_share_ids()
+        targets = [
+            share["id"]
+            for share in await self._data.list_shares()
+            if share["id"] in mounted_ids
+        ]
+        # A verdict is about a mount, so it dies with it: an unmounted share is
+        # already reported absent by /proc/mounts, and keeping the verdict would
+        # let it survive into the next mount under the same id.
+        for share_id in [i for i in self._alive if i not in targets]:
+            self._alive.pop(share_id, None)
+            self._probe_failures.pop(share_id, None)
+
+        changed = False
+        returned = False
+        for share_id in targets:
+            verdict = await self._probe_share(share_id)
+            if verdict is None:
+                continue
+            if verdict:
+                self._probe_failures[share_id] = 0
+                if not self._alive.get(share_id, True):
+                    self._alive[share_id] = True
+                    changed = returned = True
+                    self._logger.info("Share %s is answering again", share_id)
+                continue
+            failures = self._probe_failures.get(share_id, 0) + 1
+            self._probe_failures[share_id] = failures
+            if failures >= _LIVENESS_FAILURES and self._alive.get(share_id, True):
+                self._alive[share_id] = False
+                changed = True
+                self._logger.warning(
+                    "Share %s stopped answering (%d consecutive probes); "
+                    "hiding it until it comes back",
+                    share_id, failures,
+                )
+
+        if returned:
+            # Symmetric with a USB replug: what changed on the far side while it
+            # was away is only knowable from a scan, and a quick one adds without
+            # purging. The kick puts "indexing…" on screen with it rather than an
+            # idle cadence later.
+            await self._storage.request_scan()
+            self._scan_kick.set()
+        if changed:
+            # A space entering or leaving the browsable set is a catalog change:
+            # the browse scope is built from `mounted`, and the per-scope album
+            # lists cached behind it were built for the other set.
+            self._on_catalog_changed()
+            await self._on_storages_changed()
+
+    async def _probe_share(self, share_id: str) -> Optional[bool]:
+        """Ask one share's filesystem whether it is still there.
+
+        True = it answered, False = it certainly did not, None = inconclusive,
+        keep the previous verdict (fail open — see _DEAD_LINK_ERRNOS).
+
+        The timeout is a deadline on *our wait*, not a cancellation: a worker
+        already inside statvfs stays there whatever asyncio does with the future,
+        so the probe is left tracked and no second one is submitted for that
+        share. Still parked at the next tick is itself a negative — the
+        filesystem is not answering — which is what lets a wedged mount reach the
+        three strikes it takes to be hidden.
+        """
+        inflight = self._probe_inflight.get(share_id)
+        if inflight is not None:
+            if not inflight.done():
+                return False
+            self._probe_inflight.pop(share_id, None)
+
+        mountpoint = str(MUSIC_LIBRARY_MOUNT_ROOT / share_id)
+        future = self._probe_pool.submit(os.statvfs, mountpoint)
+        self._probe_inflight[share_id] = future
+        try:
+            await asyncio.wait_for(
+                asyncio.wrap_future(future), timeout=_LIVENESS_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            return False
+        except OSError as exc:
+            if exc.errno in _DEAD_LINK_ERRNOS:
+                return False
+            self._logger.debug(
+                "Liveness probe for %s inconclusive: %s", share_id, exc
+            )
+            return None
+        return True
+
     async def storage_id_for_library(self, library_id: int) -> Optional[str]:
         """The storage space a Navidrome library belongs to, or None.
 
@@ -380,13 +583,27 @@ class NetworkShareService:
     async def list(self) -> List[Dict[str, Any]]:
         """Configured network shares (non-secret metadata; safe over the API).
 
-        Each entry is annotated with a live ``mounted`` flag (read from
-        /proc/mounts) so the settings UI can show which shares are actually
-        connected right now versus configured-but-offline.
+        Each entry is annotated with a live ``mounted`` flag so the settings UI
+        can show which shares are actually connected right now versus
+        configured-but-offline. It is the conjunction of the two questions that
+        both have to be yes: /proc/mounts says a filesystem is mounted there,
+        *and* the liveness probe has not caught the far side gone (see
+        :meth:`_watch_share_liveness` — a NAS that loses power answers the first
+        question and not the second). The probe is purely subtractive: a share it
+        has never had a verdict on reads as mounted, so it can hide a share but
+        can never be the reason one fails to appear.
+
+        This is the only expression of ``mounted`` for a share; everything that
+        decides anything from it — the storage filter, the browse scope, the
+        purge gate, the stop-on-storage-gone — reads it from here.
         """
         mounted_ids = self._storage.get_mounted_share_ids()
         return [
-            {**share, "mounted": share.get("id") in mounted_ids}
+            {
+                **share,
+                "mounted": share.get("id") in mounted_ids
+                and self._alive.get(share.get("id"), True),
+            }
             for share in await self._data.list_shares()
         ]
 
@@ -492,7 +709,7 @@ class NetworkShareService:
             username=req.username,
             domain=req.domain,
         )
-        mountpoint = await self._storage.mount_share(
+        mountpoint = await self._mount_share(
             share, credentials=self._credentials(req)
         )
         # A share whose NAS is down never reached the mount hook, so this is what
@@ -532,7 +749,7 @@ class NetworkShareService:
             return None
         # Unmount first so a changed host/path/credentials actually takes effect.
         await self._storage.unmount_share(share_id)
-        mountpoint = await self._storage.mount_share(
+        mountpoint = await self._mount_share(
             share, credentials=self._credentials(req)
         )
         # Same reason as in add(): a failed remount fires no hook, and the new
