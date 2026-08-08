@@ -23,8 +23,8 @@ still valid — for the key, the 18-minute pass that indexed 10 000 tracks, ever
 single time it is unplugged. A storage space only loses its library when the user
 removes the share or forgets the key.
 
-Fail-open: Navidrome not up yet, a rejected write, an expired token — log, retry
-on a short bounded schedule, and let the next mount change reconcile. A mount
+Fail-open: Navidrome not up yet, a rejected write, an expired token — log and
+retry, for as long as a storage space is still without its library id. A mount
 must never fail because the catalog engine was busy.
 """
 import asyncio
@@ -38,9 +38,16 @@ from backend.sources.music_library.navidrome_admin import NavidromeAdminClient
 logger = logging.getLogger("source.music_library.libraries")
 
 # Catch-up schedule when Navidrome isn't answering yet (it boots alongside the
-# backend, and the first USB mount can land before its port is open). ~1.5 min,
-# then we stop: the next mount change reconciles anyway.
+# backend, and the first USB mount can land before its port is open). The ramp
+# is only the impatient part — it plateaus rather than ending.
 _RETRY_DELAYS_S = (5, 15, 30, 45)
+# Cadence the retry settles on once the ramp is spent. There is no other
+# periodic pass, and milo-navidrome is PartOf=milo-backend.service, so it goes
+# down with every backend restart and comes back on its own schedule: a catch-up
+# that expired left every storage space with a null library id until the next
+# mount change, and the frontend drops those — an empty library, no message, for
+# the whole session.
+_RETRY_PLATEAU_S = 60
 
 
 class NavidromeLibraryService:
@@ -220,22 +227,40 @@ class NavidromeLibraryService:
         return self._admin
 
     def _schedule_retry(self) -> None:
-        """Retry the reconcile on a short bounded schedule (one at a time)."""
+        """Retry the reconcile until it lands (one loop at a time)."""
         if self._retrying:
             return
         self._retrying = True
         self._bg.spawn(self._retry_loop(), label="library-reconcile-retry")
 
     async def _retry_loop(self) -> None:
+        """Reconcile on the schedule above until it passes, or until nothing waits.
+
+        A library id is what makes a storage space browsable at all, so giving up
+        on the retry is giving up on the library — for the rest of the session,
+        since nothing else reconciles on a timer. The one other way out is an
+        empty desired set: there is nothing to map, and any mount change calls
+        reconcile() again anyway. Each pass re-reads `_desired`, so a set that
+        changed while we slept is the one we converge on.
+        """
         try:
-            for delay in _RETRY_DELAYS_S:
-                await asyncio.sleep(delay)
+            attempt = 0
+            while True:
+                ramping = attempt < len(_RETRY_DELAYS_S)
+                await asyncio.sleep(
+                    _RETRY_DELAYS_S[attempt] if ramping else _RETRY_PLATEAU_S
+                )
+                attempt += 1
                 async with self._lock:
                     if await self._converge():
                         self.logger.info("Navidrome libraries reconciled on retry")
                         return
-            self.logger.warning(
-                "Gave up syncing Navidrome libraries; next mount change retries"
-            )
+                    if not self._desired:
+                        return
+                if attempt == len(_RETRY_DELAYS_S):
+                    self.logger.warning(
+                        "Navidrome libraries still not synced after %d attempts; "
+                        "retrying every %ds", attempt, _RETRY_PLATEAU_S,
+                    )
         finally:
             self._retrying = False
