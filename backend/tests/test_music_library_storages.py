@@ -232,6 +232,50 @@ async def test_reconcile_leaves_a_library_outside_the_mount_root_alone():
     admin.delete_library.assert_not_called()
 
 
+async def test_reconcile_retry_outlives_its_ramp(monkeypatch):
+    # milo-navidrome is PartOf=milo-backend.service, so it goes down with every
+    # backend restart and comes back on its own schedule — the boot reconcile
+    # races it each time, not just on a cold boot. When the ramp ended in a give
+    # up, every storage space kept a null library id for the rest of the session,
+    # and the frontend drops those: an empty library with nothing said about it.
+    from backend.sources.music_library import libraries as libraries_module
+
+    monkeypatch.setattr(libraries_module, "_RETRY_DELAYS_S", (0, 0))
+    monkeypatch.setattr(libraries_module, "_RETRY_PLATEAU_S", 0)
+    admin = MagicMock()
+    # "Could not ask" for longer than the ramp, then Navidrome finally answers.
+    admin.list_libraries = AsyncMock(side_effect=[
+        None, None, None, None,
+        [{"id": 3, "name": "MUSIC", "path": "/media/milo/MUSIC"}],
+    ])
+    admin.grant_all_libraries = AsyncMock(return_value=True)
+    service = _reconciler(admin)
+    service._desired = {"/media/milo/MUSIC": "MUSIC"}
+
+    await service._retry_loop()
+
+    assert service.library_id("/media/milo/MUSIC") == 3
+    assert admin.list_libraries.await_count == 5
+
+
+async def test_reconcile_retry_stops_when_nothing_is_waiting(monkeypatch):
+    # The counterpart: with no storage space to map there is nothing to repair,
+    # and a loop that kept talking to a Navidrome nobody needs would never end.
+    from backend.sources.music_library import libraries as libraries_module
+
+    monkeypatch.setattr(libraries_module, "_RETRY_DELAYS_S", (0,))
+    monkeypatch.setattr(libraries_module, "_RETRY_PLATEAU_S", 0)
+    service = _reconciler(None)  # Navidrome unreachable: no admin client at all
+    # One answer only: a second pass raises rather than spinning forever, so a
+    # lost exit condition fails the run instead of hanging it.
+    service._get_admin = AsyncMock(side_effect=[None])
+    service._desired = {}
+
+    await service._retry_loop()
+
+    assert service._get_admin.await_count == 1
+
+
 # === playlists_in_storage() =================================================
 
 @pytest.fixture
