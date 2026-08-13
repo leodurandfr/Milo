@@ -5,7 +5,6 @@ extend-exclude = [
     "venv",
     ".venv",
     "frontend",
-    "milo-client",
     "rootfs",
     "install",
     "scripts",

@@ -7,6 +7,7 @@ Handles deploying app updates pushed from the main Milo server:
 - Write version file and schedule service restart
 """
 import asyncio
+import contextlib
 import os
 import shutil
 import tarfile
@@ -104,12 +105,12 @@ class AppUpdateService:
 
         finally:
             self._update_in_progress = False
-            # Clean up tarball
-            try:
-                if os.path.exists(tarball_path):
-                    os.unlink(tarball_path)
-            except Exception:
-                pass
+            # Clean up tarball — best-effort, like ignore_errors on the temp dir
+            # below: the tarball is disposable and a cleanup failure must not
+            # mask the update's own outcome. FileNotFoundError is an OSError, so
+            # an already-removed tarball needs no separate existence check.
+            with contextlib.suppress(OSError):
+                os.unlink(tarball_path)
             # Clean up temp extraction dir
             if temp_dir:
                 shutil.rmtree(temp_dir, ignore_errors=True)

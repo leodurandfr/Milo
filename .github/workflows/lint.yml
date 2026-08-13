@@ -14,7 +14,7 @@ on:
 
 jobs:
   backend:
-    name: Backend (ruff + pytest)
+    name: Backend + satellite (ruff + pytest)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -28,10 +28,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+      # milo-client/ is the satellite half of the appliance and ships in the same
+      # commit as the server, so it is gated by the same job — not a separate one.
+      # Its runtime deps are a subset of requirements.txt, so nothing extra to install.
       - name: Lint with ruff
-        run: ruff check backend/
+        run: ruff check backend/ milo-client/
+      # Two invocations, not `pytest backend/ milo-client/`: a combined run puts
+      # rootdir at the repo root, which drops backend/pytest.ini and with it
+      # `asyncio_mode = auto` — every unmarked async backend test then errors.
       - name: Run backend tests
         run: pytest backend/
+      - name: Run satellite tests
+        run: pytest milo-client/
 
   frontend:
     name: Frontend (eslint + stylelint + vitest)
