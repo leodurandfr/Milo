@@ -580,6 +580,23 @@ class UpdateService(VersionService):
             self.update_logger.error(f"{display_name} rollback failed: {e}")
             return False
 
+    async def _restore_multiroom_services(self, services_were_active: Dict[str, bool]) -> None:
+        """Starts back only the multiroom units that were running before the update.
+
+        The two snapcast units have no `WantedBy`: their lifecycle is owned solely
+        by `AudioRoutingService._sync_snapcast_state`, which runs at init and inside
+        `set_multiroom_enabled` and never reconciles afterwards. Starting a unit that
+        was inactive leaves snapclient holding hw:Loopback,0,0, so the next
+        direct-mode source opens a busy device and plays silence until a reboot or a
+        manual multiroom toggle.
+        """
+        for service, was_active in services_were_active.items():
+            if not was_active:
+                self.update_logger.info(f"Leaving {service} stopped (it was inactive before the update)")
+                continue
+            if not await self._start_service(service):
+                self.update_logger.error(f"Failed to start {service}")
+
     async def _update_multiroom(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates both snapserver and snapclient atomically"""
         config = self.programs["multiroom"]
@@ -587,6 +604,8 @@ class UpdateService(VersionService):
 
         server_download = None
         client_download = None
+        # Empty until phase 2 stops anything, so a failure before that restores nothing.
+        services_were_active: Dict[str, bool] = {}
 
         try:
             # Phase 1: Download both packages (0-30%)
@@ -610,6 +629,8 @@ class UpdateService(VersionService):
                 await progress_callback("updates.progress.stoppingMultiroom", 35)
 
             for service in config["services"]:
+                services_were_active[service] = await self._is_service_active(service)
+                self.update_logger.info(f"Service {service} was {'active' if services_were_active[service] else 'inactive'} before update")
                 await self._stop_service(service)
 
             # Phase 3: Install snapserver (40-60%)
@@ -618,8 +639,7 @@ class UpdateService(VersionService):
 
             server_install = await self._install_deb_package(server_download["deb_path"])
             if not server_install["success"]:
-                for service in config["services"]:
-                    await self._start_service(service)
+                await self._restore_multiroom_services(services_were_active)
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
                 await self._cleanup_temp_files(client_download.get("temp_dir"))
                 return {"success": False, "error": f"Failed to install snapserver: {server_install.get('error')}"}
@@ -631,8 +651,7 @@ class UpdateService(VersionService):
             client_install = await self._install_deb_package(client_download["deb_path"])
             if not client_install["success"]:
                 self.update_logger.warning(f"Snapclient installation failed after snapserver succeeded: {client_install.get('error')}")
-                for service in config["services"]:
-                    await self._start_service(service)
+                await self._restore_multiroom_services(services_were_active)
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
                 await self._cleanup_temp_files(client_download.get("temp_dir"))
                 return {
@@ -644,9 +663,7 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.startingMultiroom", 85)
 
-            for service in config["services"]:
-                if not await self._start_service(service):
-                    self.update_logger.error(f"Failed to start {service}")
+            await self._restore_multiroom_services(services_were_active)
 
             # Phase 6: Cleanup (95-100%)
             if progress_callback:
@@ -664,8 +681,7 @@ class UpdateService(VersionService):
 
         except Exception as e:
             self.update_logger.error(f"Multiroom update failed: {e}")
-            for service in config["services"]:
-                await self._start_service(service)
+            await self._restore_multiroom_services(services_were_active)
             if server_download:
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
             if client_download:
