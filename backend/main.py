@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.dependencies import get_service, initialize_services, get_init_task
 from backend.api import audio
+from backend.api.middleware import ALLOWED_ORIGINS, RequestOriginGate
 from backend.api.routing import create_routing_router
 from backend.api.equalizer import create_equalizer_router
 from backend.api.volume import create_volume_router
@@ -168,16 +169,15 @@ app = FastAPI(title="Milo API", lifespan=lifespan)
 # CORS configuration - restricted to authorized origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://milo.local",
-        "https://milo.local",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Accept", "Authorization"],
 )
+
+# Added last, so it wraps CORS: what CORS admits as a reader still has to be a
+# request we accept at all. See backend/api/middleware.py.
+app.add_middleware(RequestOriginGate)
 
 audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
