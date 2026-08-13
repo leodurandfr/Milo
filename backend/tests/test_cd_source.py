@@ -868,6 +868,27 @@ class TestEjectCommand:
         assert source._ejecting is False
 
 
+class TestTeardownOrder:
+    @pytest.mark.asyncio
+    async def test_cleanup_lets_mpv_go_before_stopping_the_reader(self, source):
+        """The stop path has one order, and this is it.
+
+        A paused mpv holds the FIFO read end open without draining it, so the
+        reader thread is blocked in write() and reader.stop()'s 3 s join
+        expires — measured on a unit as a 3.1 s switch away from a paused CD,
+        plus `CD reader thread did not stop within timeout`. mpv.stop() closes
+        the read end and the writer gets its BrokenPipeError, which is why
+        _stop_reader_and_mpv (seek, eject) never had the problem.
+        """
+        order = []
+        source._mpv = _mpv(stop=AsyncMock(side_effect=lambda: order.append("mpv")))
+        source._reader = Mock(stop=Mock(side_effect=lambda: order.append("reader")))
+
+        await source._cleanup()
+
+        assert order == ["mpv", "reader"]
+
+
 class TestReaderHandshake:
     @pytest.mark.asyncio
     async def test_the_reader_wait_never_runs_on_the_event_loop_thread(self, source):

@@ -3,10 +3,32 @@
 Pytest configuration - Shared fixtures for all tests
 """
 import asyncio
+import logging
 
 import pytest
 from unittest.mock import Mock, AsyncMock
+from backend.config.constants import ERROR_LOG_FILE
 from backend.core.models.audio_state import SourceState
+
+
+@pytest.fixture(scope="session", autouse=True)
+def keep_the_suite_out_of_the_operator_log():
+    """Detach the production errors.log handler for the whole run.
+
+    `backend/main.py` attaches a RotatingFileHandler on /var/lib/milo/errors.log
+    at import time, and three test modules import it. On CI that path does not
+    exist and the handler fails open — but this repo is also checked out *on the
+    appliance*, where it does exist, so a plain `pytest` writes its own fixtures
+    ("Multiroom update failed: network down", "unknown zone: nonexistent") into
+    the log an operator reads. Session-scoped rather than module-level: the
+    import happens during collection, before any fixture can run.
+    """
+    root = logging.getLogger()
+    for handler in [
+        h for h in root.handlers
+        if getattr(h, "baseFilename", None) == str(ERROR_LOG_FILE)
+    ]:
+        root.removeHandler(handler)
 
 
 async def drain_background_tasks() -> None:
