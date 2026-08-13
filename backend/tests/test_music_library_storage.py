@@ -258,7 +258,7 @@ async def test_mount_share_failure_records_nothing(manager, navidrome):
 async def test_unmount_share_tracked(manager, navidrome):
     manager._share_mounts["nas-abcd1234"] = "/media/milo/nas-abcd1234"
     with patch("asyncio.create_subprocess_exec", return_value=_proc()) as exec_mock:
-        await manager.unmount_share("nas-abcd1234")
+        await manager.unmount_share("nas-abcd1234", purge=True)
 
     args = exec_mock.call_args.args
     assert args[:3] == ("sudo", "-n", MILO_UMOUNT_CMD)
@@ -267,11 +267,27 @@ async def test_unmount_share_tracked(manager, navidrome):
     navidrome.start_scan.assert_awaited_once()
 
 
+async def test_unmount_without_purge_unmounts_and_scans_nothing(manager, navidrome):
+    """The caller refused the purge, so no scan may run — not even a quick one.
+
+    A full scan is global (PurgeMissing="full") and the layer above blocks it
+    while any other storage space is away; the fallback is *no* scan, since a
+    quick one would only walk a path that no longer exists.
+    """
+    manager._share_mounts["nas-abcd1234"] = "/media/milo/nas-abcd1234"
+    with patch("asyncio.create_subprocess_exec", return_value=_proc()) as exec_mock:
+        await manager.unmount_share("nas-abcd1234", purge=False)
+
+    assert exec_mock.call_args.args[3] == "/media/milo/nas-abcd1234"
+    assert manager._share_mounts == {}
+    navidrome.start_scan.assert_not_awaited()
+
+
 async def test_unmount_share_untracked_falls_back_to_deterministic_path(manager):
     # Not in the session map (e.g. mounted before a backend restart) -> derive
     # the deterministic /media/milo/<id> so a delete still unmounts it.
     with patch("asyncio.create_subprocess_exec", return_value=_proc()) as exec_mock:
-        await manager.unmount_share("nfs-abcd1234")
+        await manager.unmount_share("nfs-abcd1234", purge=True)
     assert exec_mock.call_args.args[3] == "/media/milo/nfs-abcd1234"
 
 
@@ -348,7 +364,8 @@ async def test_two_mounts_racing_one_scan_share_a_single_waiter(manager, navidro
          patch("backend.sources.music_library.storage._SCAN_WAIT_POLL_S", 0):
         await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
                                    "host": "nas.local", "path": "music"})
-        await manager.unmount_share("usb-old")   # defers full=True into the waiter
+        # defers full=True into the waiter
+        await manager.unmount_share("usb-old", purge=True)
         await manager._deferred_scan
     navidrome.start_scan.assert_awaited_once_with(full=True)
 

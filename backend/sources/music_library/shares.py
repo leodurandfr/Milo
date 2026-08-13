@@ -212,7 +212,32 @@ class NetworkShareService:
         if mountpoint is not None:
             self._alive.pop(share["id"], None)
             self._probe_failures.pop(share["id"], None)
+            # The probe parked on the *previous* mount is evidence about a mount
+            # that no longer exists, and _probe_share reads a still-parked one as
+            # a negative — three ticks of it and the share we have just repaired
+            # is hidden again, 90 s after it came back. Dropped rather than
+            # cancelled: the worker is inside statvfs, where cancellation is a
+            # no-op, and it returns when the kernel gives up on the old link.
+            self._probe_inflight.pop(share["id"], None)
         return mountpoint
+
+    async def _unmount_share(self, share_id: str) -> None:
+        """Unmount a share, purging its tracks only when nothing else is away.
+
+        The scan that drops them is full, and a full scan is global
+        (PurgeMissing="full"): run while a USB key is unplugged or another NAS is
+        asleep, it throws out an index that is still perfectly valid — the same
+        reason the /scan/full route is gated by :meth:`offline_names`. The set is
+        read *before* the unmount, so the share on its way out cannot veto its
+        own purge.
+        """
+        offline = await self.offline_names()
+        if offline:
+            self._logger.info(
+                "Unmounting share %s without the purge scan; storage offline: %s",
+                share_id, ", ".join(offline),
+            )
+        await self._storage.unmount_share(share_id, purge=not offline)
 
     async def _retry_offline(self, shares: List[Dict[str, Any]]) -> None:
         """Retry shares that were offline at boot over a short, bounded schedule.
@@ -748,7 +773,7 @@ class NetworkShareService:
         if share is None:
             return None
         # Unmount first so a changed host/path/credentials actually takes effect.
-        await self._storage.unmount_share(share_id)
+        await self._unmount_share(share_id)
         mountpoint = await self._mount_share(
             share, credentials=self._credentials(req)
         )
@@ -764,7 +789,7 @@ class NetworkShareService:
         False if no share has that id."""
         if await self._data.get_share(share_id) is None:
             return False
-        await self._storage.unmount_share(share_id)
+        await self._unmount_share(share_id)
         await self._data.remove_share(share_id)
         await self._storage.forget_share_credentials(share_id)
         # The unmount's own sync still saw the share in the config (config is

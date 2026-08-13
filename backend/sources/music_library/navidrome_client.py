@@ -328,13 +328,18 @@ class NavidromeClient:
         genre: Optional[str] = None,
         from_year: Optional[int] = None,
         to_year: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
-        """A page of albums (Subsonic ``getAlbumList2``).
+    ) -> Optional[List[Dict[str, Any]]]:
+        """A page of albums (Subsonic ``getAlbumList2``), None if the request failed.
 
         ``list_type`` is one of :data:`ALBUM_LIST_TYPES`. ``genre`` is required
         for ``byGenre``; ``from_year``/``to_year`` for ``byYear``. Callers page
         with ``size``/``offset``, and the page spans the storage spaces named by
         ``music_folder_ids`` — the counts add up (155 + 43 = 198, measured).
+
+        The one list method here that does **not** degrade to ``[]``, because
+        this is the one that is paged: a short page is what ends the walk, so a
+        failure read as an empty page truncates the catalog instead of failing
+        it. An empty ``albumList2`` still answers ``[]`` — that is a real end.
         """
         if not music_folder_ids:
             return []
@@ -351,7 +356,7 @@ class NavidromeClient:
             },
         )
         if not response or response.get("_network_error"):
-            return []
+            return None
         return response.get("albumList2", {}).get("album", []) or []
 
     async def get_songs_by_genre(

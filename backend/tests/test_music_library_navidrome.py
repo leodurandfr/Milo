@@ -131,10 +131,26 @@ class TestNavidromeBrowse:
         client._make_request = AsyncMock(return_value=payload)
         assert await client.get_artists([2]) == []
         assert await client.get_playlists() == []
-        assert await client.get_album_list([2]) == []
         assert await client.get_songs_by_genre("Techno", [2]) == []
         assert await client.get_artist("ar-1") is None
         assert await client.get_album("al-1") is None
+
+    @pytest.mark.parametrize("payload", [None, {"_network_error": True}])
+    async def test_a_failed_album_page_is_not_an_empty_one(self, client, payload):
+        """getAlbumList2 is the paged call, so it must not degrade to [].
+
+        The caller walks pages until a short one ends the loop: an error read as
+        an empty page ends it too, and the truncated catalog it yields is
+        indistinguishable from the real thing.
+        """
+        client._make_request = AsyncMock(return_value=payload)
+        assert await client.get_album_list([2]) is None
+
+    async def test_a_genuinely_empty_album_list_is_still_empty(self, client):
+        """The other half: an empty albumList2 is a real end of catalog, not a
+        failure, and must stay distinguishable from one."""
+        client._make_request = AsyncMock(return_value={"albumList2": {}})
+        assert await client.get_album_list([2]) == []
 
     async def test_an_empty_scope_reads_nothing_at_all(self, client):
         """No readable library must never become "the whole catalog".
@@ -444,6 +460,14 @@ class TestBrowseRoutes:
         assert kwargs["genre"] == "Techno"
         assert kwargs["size"] == 10
         assert kwargs["offset"] == 5
+
+    def test_albums_reports_a_failed_page_instead_of_an_empty_one(self, api, nav_client):
+        # None means the request failed, and it reaches the browser as the same
+        # transient 503 a not-yet-provisioned client gets. A 200 carrying [] is
+        # the answer that makes a live catalog look emptied.
+        nav_client.get_album_list = AsyncMock(return_value=None)
+        r = api.get("/api/music-library/albums", params={"type": "newest"})
+        assert r.status_code == 503
 
     def test_albums_rejects_invalid_type(self, api, nav_client):
         r = api.get("/api/music-library/albums", params={"type": "bogus"})

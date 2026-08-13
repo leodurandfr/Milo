@@ -4,9 +4,10 @@
 Covers the play_context → gapless mpv playlist path, transport commands
 (pause/resume/next/prev/seek/play_index/set_shuffle/stop), the now-playing WS
 metadata projection (title/artist/album/art + queue/index/shuffle), the live
-shuffle toggle, resume-on-return, and the monitor's gapless auto-advance +
-end-of-queue detection. mpv IPC and the Navidrome client are mocked — no service,
-socket, or daemon is touched.
+shuffle toggle, resume-on-return, the monitor's gapless auto-advance +
+end-of-queue detection, and the whole-catalog album walk the alphabetical grid
+is paged from. mpv IPC and the Navidrome client are mocked — no service, socket,
+or daemon is touched.
 """
 import asyncio
 import pytest
@@ -396,6 +397,36 @@ class TestSetShuffle:
         assert urls == ["http://nav/stream/s2", "http://nav/stream/s3"]
 
     @pytest.mark.asyncio
+    async def test_toggle_off_keeps_a_track_the_queue_lists_twice(self, source):
+        """A repeated track id must survive shuffle OFF, minus the played copies.
+
+        The pristine order was consumed by set membership, so a queue holding the
+        same id twice — an album with a reprise, a hand-built playlist — lost
+        *both* copies as soon as the first had played: the track silently
+        disappeared from the rest of the session.
+        """
+        reprise = dict(TRACKS[0], title="One (reprise)")
+        pristine = [TRACKS[0], TRACKS[1], reprise, TRACKS[2]]
+        source._mpv = _mpv()
+        # Shuffled: the first copy of s1 has played, everything else is upcoming.
+        source._queue = [TRACKS[0], TRACKS[2], reprise, TRACKS[1]]
+        source._queue_unshuffled = pristine
+        source._queue_index = 0
+        source._shuffle = True
+
+        result = await source.command("set_shuffle", {"shuffle": False})
+
+        assert result["success"] is True
+        # One copy of s1 played, so exactly one is dropped — the second returns
+        # to its pristine place between s2 and s3.
+        assert [t["id"] for t in source._queue] == ["s1", "s2", "s1", "s3"]
+        assert source._queue[2]["title"] == "One (reprise)"
+        _, urls = source._mpv.replace_playlist_tail.await_args.args
+        assert urls == [
+            "http://nav/stream/s2", "http://nav/stream/s1", "http://nav/stream/s3",
+        ]
+
+    @pytest.mark.asyncio
     async def test_noop_when_already_in_target_state(self, source):
         source._mpv = _mpv()
         source._queue = list(TRACKS)
@@ -414,6 +445,45 @@ class TestSetShuffle:
         result = await source.command("set_shuffle", {"shuffle": True})
         assert result["success"] is False
         source._mpv.replace_playlist_tail.assert_not_called()
+
+
+class TestMergedAlbumCache:
+    """The whole-catalog walk behind the alphabetical grid. It is cached for a
+    TTL, so what lands in the cache has to be the catalog — a walk cut short by a
+    failed page would otherwise BE the catalog until it expires, and the albums
+    past the break read as deleted."""
+
+    @staticmethod
+    def _client(pages):
+        """A Navidrome client answering the paged walk with ``pages`` in order."""
+        return Mock(get_album_list=AsyncMock(side_effect=list(pages)))
+
+    @pytest.mark.asyncio
+    async def test_a_failed_page_is_served_but_never_cached(self, source):
+        source.get_navidrome_client = AsyncMock(
+            return_value=self._client([[{"id": "a1"}, {"id": "a2"}], None])
+        )
+
+        with patch("backend.sources.music_library.source._ALBUM_PAGE", 2):
+            albums = await source.get_merged_albums([2])
+
+        # This call still answers with what it got — a partial grid beats none.
+        assert [a["id"] for a in albums] == ["a1", "a2"]
+        assert source._album_cache == {}
+
+    @pytest.mark.asyncio
+    async def test_a_walk_that_reached_the_end_is_cached(self, source):
+        client = self._client([[{"id": "a1"}, {"id": "a2"}], [{"id": "a3"}]])
+        source.get_navidrome_client = AsyncMock(return_value=client)
+
+        with patch("backend.sources.music_library.source._ALBUM_PAGE", 2):
+            albums = await source.get_merged_albums([2])
+            again = await source.get_merged_albums([2])
+
+        assert [a["id"] for a in albums] == ["a1", "a2", "a3"]
+        assert again == albums
+        # The short second page ended the walk; the second call asked nothing.
+        assert client.get_album_list.await_count == 2
 
 
 class TestResume:

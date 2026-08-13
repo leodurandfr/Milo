@@ -348,12 +348,20 @@ class StorageManager:
         await self.request_scan()
         return mountpoint
 
-    async def unmount_share(self, share_id: str) -> None:
-        """Unmount a share (edit/removal) and rescan so Navidrome drops its tracks.
+    async def unmount_share(self, share_id: str, *, purge: bool) -> None:
+        """Unmount a share (edit/removal); ``purge`` runs the scan that drops its
+        tracks from Navidrome.
 
         Idempotent: falls back to the deterministic /media/milo/<id> mountpoint
         when the share isn't in the session map (e.g. mounted before a backend
         restart), and milo-umount no-ops on a path that isn't mounted.
+
+        Only a full scan purges (Scanner.PurgeMissing="full") and a full scan is
+        **global** — it drops every track Navidrome cannot see, not just this
+        share's. Whether that is safe depends on what else is away right now,
+        which this layer cannot see (it knows mounts, not the configured shares
+        and remembered USB keys), so the caller decides. ``purge=False`` runs no
+        scan at all: a quick one would only walk a path that no longer exists.
         """
         async with self._lock:
             mountpoint = self._share_mounts.pop(
@@ -361,12 +369,12 @@ class StorageManager:
             )
             await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
             self.logger.info("Unmounted share %s (%s)", share_id, mountpoint)
-        # Full scan so Navidrome purges the removed share's now-missing tracks.
         # The library itself outlives an unmount that is only a remount (an edit
         # unmounts before it mounts again) — the caller decides, from the share
         # config, whether it still belongs; here we only report the change.
         await self._on_storage_changed()
-        await self.request_scan(full=True)
+        if purge:
+            await self.request_scan(full=True)
 
     async def forget_share_credentials(self, share_id: str) -> None:
         """Drop a share's root-only cred file (called on share deletion)."""
