@@ -304,8 +304,14 @@ if __name__ == "__main__":
     for logger_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
+    # The app object, never the "backend.main:app" import string: the unit runs
+    # this file as __main__, so an import string makes uvicorn import the module
+    # a second time under its real name and every module-level statement above
+    # runs twice in the one process — both log handlers attached twice, so every
+    # warning landed in errors.log as two identical lines. Passing the object
+    # keeps one import. (reload/workers, which need the string form, are off.)
     uvicorn.run(
-        "backend.main:app",
+        app,
         host="0.0.0.0",
         port=8000,
         reload=False,
