@@ -112,9 +112,11 @@ EOF
     log_success "NetworkManager connectivity check enabled"
 }
 
-configure_nginx() {
-    log_info "Configuring Nginx..."
-
+# Writes the site config and enables it — no service interaction. Split out of
+# configure_nginx so pi-gen can reuse the same bytes inside the build chroot,
+# where `nginx -t`/`systemctl reload nginx` are not valid (same reason
+# configure_nm_connectivity is not reused there either).
+write_nginx_site() {
     sudo tee /etc/nginx/sites-available/milo > /dev/null << 'EOF'
 upstream milo_backend {
     server 127.0.0.1:8000;
@@ -185,6 +187,12 @@ EOF
 
     sudo ln -sf /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/milo
     sudo rm -f /etc/nginx/sites-enabled/default
+}
+
+configure_nginx() {
+    log_info "Configuring Nginx..."
+
+    write_nginx_site
 
     sudo nginx -t
     sudo systemctl reload nginx

@@ -145,25 +145,27 @@ Prefer Ethernet over WiFi — network jitter is what makes rooms drift apart.
 
 Flash **Raspberry Pi OS (64-bit) Lite** (Debian Trixie) with Raspberry Pi Imager. In "Edit Settings", set hostname and username to `milo`.
 
+The installer is split across modules under `install/`, so it must be run from a clone of the repository rather than downloaded on its own. It clones its own copy into `/home/milo/milo`, so any working directory will do:
+
 ```bash
-wget https://raw.githubusercontent.com/leodurandfr/Milo/main/install.sh
-chmod +x install.sh
+git clone https://github.com/leodurandfr/Milo.git /tmp/Milo
+cd /tmp/Milo
 ./install.sh
 ```
 
-For multiroom clients, set hostname and username to `milo-client`:
+For multiroom clients, set hostname and username to `milo-client`. The client installer reuses the server's install modules, so it needs the same full clone:
 
 ```bash
-wget https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-client/install-client.sh
-chmod +x install-client.sh
+git clone https://github.com/leodurandfr/Milo.git /tmp/Milo
+cd /tmp/Milo/milo-client
 ./install-client.sh
 ```
 
-Uninstall:
+Uninstall — also from a clone, for the same reason:
 
 ```bash
-./install.sh --uninstall         # Server
-./install-client.sh --uninstall  # Client
+cd /tmp/Milo && ./install.sh --uninstall                # Server
+cd /tmp/Milo/milo-client && ./install-client.sh --uninstall  # Client
 ```
 
 </details>

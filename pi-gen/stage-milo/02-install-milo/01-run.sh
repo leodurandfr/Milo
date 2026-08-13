@@ -183,67 +183,18 @@ DBUS
 CHROOT
 
 # ── Nginx configuration ──────────────────────────────────────────────────────
+# Reuse install/network.sh::write_nginx_site so pi-gen and the bash installer
+# ship an identical /etc/nginx/sites-available/milo — single source of truth.
+# Inline-writing it here is what let the two drift: this was the one installer
+# file pi-gen copy-pasted rather than sourced, so an nginx change reached
+# script-installed units only. configure_nginx itself is not reused because its
+# `nginx -t` + `systemctl reload nginx` tail is not valid inside the chroot.
 
 on_chroot << 'CHROOT'
-tee /etc/nginx/sites-available/milo > /dev/null << 'NGINX'
-upstream milo_backend {
-    server 127.0.0.1:8000;
-}
-
-server {
-    listen 80;
-    server_name milo.local localhost _;
-
-    client_max_body_size 10M;
-
-    root /home/milo/milo/frontend/dist;
-    index index.html;
-
-    location ^~ /api/radio/images/ {
-        proxy_pass http://milo_backend;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_buffering off;
-    }
-
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        expires 1y;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-        try_files $uri =404;
-    }
-
-    location /api/ {
-        proxy_pass http://milo_backend;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_buffering off;
-    }
-
-    location /ws {
-        proxy_pass http://milo_backend;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_read_timeout 86400;
-        proxy_send_timeout 86400;
-        proxy_buffering off;
-    }
-
-    location / {
-        try_files $uri $uri/ /index.html;
-        add_header Cache-Control "no-cache, no-store, must-revalidate";
-    }
-}
-NGINX
-
-ln -sf /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/milo
-rm -f /etc/nginx/sites-enabled/default
+cd /home/milo/milo
+source install/common.sh
+source install/network.sh
+write_nginx_site
 CHROOT
 
 # ── Nginx permissions ────────────────────────────────────────────────────────
