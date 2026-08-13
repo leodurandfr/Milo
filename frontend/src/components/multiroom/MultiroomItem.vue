@@ -399,11 +399,12 @@ function handleVolumeInput(newDisplayVolume) {
 function handleVolumeChange(newDisplayVolume) {
   // Don't clear localDisplayVolume here - keep showing the user's chosen value
   // until the backend confirms via WebSocket (handled by watcher above)
+  // The flush is the ONLY emit on release. The parent reads a zone change as a DELTA
+  // against the average captured when the drag began, and clears that capture once it
+  // has applied it — so a second emit in the same tick recaptures a state the WS has
+  // not corrected yet and applies the same delta twice. RangeSlider only ever emits
+  // `change` after an `input` carrying the same value, so the flush has it.
   flushZoneVolume();
-  if (!props.isLoading) {
-    // Use mac_id as the unique identifier (id is undefined for all clients)
-    emit('volume-change', props.client.mac_id, newDisplayVolume, { isZone: props.isZone });
-  }
   // Fallback: clear local value after 2s if WebSocket didn't confirm
   timer.setTimeout(() => {
     if (localDisplayVolume.value === newDisplayVolume) {
