@@ -111,15 +111,22 @@ class UpdateService(VersionService):
                 await proc.communicate()
 
             # Reinstall Python dependencies in venv
-            requirements_file = Path(config["git_path"]) / "backend" / "requirements.txt"
+            requirements_file = Path(config["git_path"]) / "requirements.txt"
             venv_pip = str(Path(config["git_path"]) / "venv" / "bin" / "pip3")
-            if requirements_file.exists():
-                proc = await asyncio.create_subprocess_exec(
-                    venv_pip, "install", "-r", str(requirements_file),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await proc.communicate()
+            proc = await asyncio.create_subprocess_exec(
+                venv_pip, "install", "-r", str(requirements_file),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise Exception("pip install timed out (600s)")
+
+            if proc.returncode != 0:
+                raise Exception(f"pip install failed: {stderr.decode()}")
 
             # Sync system files from rolled-back version
             await self._sync_system_files()
@@ -254,16 +261,23 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.installingPythonDeps", 60)
 
-            # 8. Install Python dependencies in venv if requirements.txt exists
-            requirements_file = Path(config["git_path"]) / "backend" / "requirements.txt"
+            # 8. Install Python dependencies in venv
+            requirements_file = Path(config["git_path"]) / "requirements.txt"
             venv_pip = str(Path(config["git_path"]) / "venv" / "bin" / "pip3")
-            if requirements_file.exists():
-                proc = await asyncio.create_subprocess_exec(
-                    venv_pip, "install", "-r", str(requirements_file),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await proc.communicate()
+            proc = await asyncio.create_subprocess_exec(
+                venv_pip, "install", "-r", str(requirements_file),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise Exception("pip install timed out (600s)")
+
+            if proc.returncode != 0:
+                raise Exception(f"pip install failed: {stderr.decode()}")
 
             if progress_callback:
                 await progress_callback("updates.progress.syncingSystemFiles", 75)
