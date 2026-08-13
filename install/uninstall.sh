@@ -36,6 +36,12 @@ uninstall_milo() {
 
     log_info "Removing systemd services..."
     sudo rm -f /etc/systemd/system/milo-*.service
+    # The Avahi drop-in is not matched by the milo-*.service glob above, and it
+    # runs /usr/local/bin/milo-apply-avahi-iface (removed further down) as
+    # ExecStartPre. Left behind, it makes avahi-daemon fail 203/EXEC on this boot
+    # and every boot after, and nothing else ever removes it.
+    sudo rm -f /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
+    sudo rmdir /etc/systemd/system/avahi-daemon.service.d 2>/dev/null || true
     sudo systemctl daemon-reload
 
     # Unmount Music Library USB/SMB/NFS shares BEFORE touching $MILO_DATA_DIR.
@@ -128,7 +134,12 @@ uninstall_milo() {
     esac
 
     log_info "Restarting system services..."
-    sudo systemctl restart nginx avahi-daemon || true
+    # Not `|| true`: a failure here means the uninstall left the host with a
+    # broken system service, which is exactly what the drop-in removal above
+    # exists to prevent. Report it rather than aborting the uninstall.
+    if ! sudo systemctl restart nginx avahi-daemon; then
+        log_warning "nginx or avahi-daemon failed to restart — check 'systemctl status avahi-daemon'"
+    fi
 
     log_success "Uninstallation complete!"
     echo ""

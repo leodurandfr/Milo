@@ -208,6 +208,11 @@ enable_services() {
     sudo systemctl enable milo-bluealsa-aplay.service
     sudo systemctl enable milo-camilladsp.service
     sudo systemctl enable milo-cpu-governor.service
+    # Always-on Music Library catalog engine. Its PartOf=milo-backend.service
+    # propagates stop and restart but never *starts* the unit, so without this
+    # enable a script-installed unit boots with a permanently empty library and
+    # no error anywhere.
+    sudo systemctl enable milo-navidrome.service
     sudo systemctl enable avahi-daemon
     sudo systemctl enable nginx
 
