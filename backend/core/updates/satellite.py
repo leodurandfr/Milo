@@ -18,8 +18,11 @@ from backend.shared.decorators import handle_errors
 MILO_REPO_DIR = Path("/home/milo/milo")
 MILO_CLIENT_DIR = MILO_REPO_DIR / "milo-client"
 
-# Patterns to exclude from the client tarball
-TARBALL_EXCLUDE_PATTERNS = {"__pycache__", ".pyc", ".pytest_cache", "tests", ".git"}
+# Patterns to exclude from the client tarball. `venv` is the satellite's own,
+# built at install time and symlinked into the repo dir — shipping the server's
+# copy meant sending 67 MB the satellite extracted and threw away, over 99 % of
+# every app update's payload.
+TARBALL_EXCLUDE_PATTERNS = {"__pycache__", ".pyc", ".pytest_cache", "tests", ".git", "venv"}
 
 
 class SatelliteUpdateService:
@@ -136,6 +139,7 @@ class SatelliteUpdateService:
                             update_result = await self._wait_for_update_completion(
                                 mac_id,
                                 ip,
+                                data["target_version"],
                                 progress_callback
                             )
 
@@ -162,9 +166,15 @@ class SatelliteUpdateService:
         self,
         mac_id: str,
         ip: str,
+        target_version: str,
         progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
-        """Waits for update completion on the satellite."""
+        """Waits for update completion on the satellite, then checks it landed.
+
+        `update_in_progress` going false says the attempt ended, not that it
+        worked — a failed download and a successful install clear it alike. Only
+        the version the satellite now reports separates the two.
+        """
         max_wait_time = 180
         check_interval = 5
         elapsed = 0
@@ -197,6 +207,15 @@ class SatelliteUpdateService:
                                     if status_response.status == 200:
                                         status_data = await status_response.json()
                                         new_version = status_data.get("snapclient", {}).get("version")
+
+                                        if new_version != target_version:
+                                            return {
+                                                "success": False,
+                                                "error": (
+                                                    f"Satellite {mac_id} still runs snapclient "
+                                                    f"{new_version}, expected {target_version}"
+                                                )
+                                            }
 
                                         if progress_callback:
                                             await progress_callback(
@@ -371,7 +390,7 @@ class SatelliteUpdateService:
                                 )
 
                             return await self._wait_for_camilladsp_update_completion(
-                                mac_id, ip, progress_callback
+                                mac_id, ip, data["target_version"], progress_callback
                             )
                         else:
                             return {
@@ -395,9 +414,12 @@ class SatelliteUpdateService:
         self,
         mac_id: str,
         ip: str,
+        target_version: str,
         progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
-        """Polls satellite until CamillaDSP update completes."""
+        """Polls the satellite until the CamillaDSP update completes, then
+        checks the version actually moved — same reasoning as the snapclient
+        waiter above."""
         max_wait_time = 180
         check_interval = 5
         elapsed = 0
@@ -431,6 +453,15 @@ class SatelliteUpdateService:
                                     if status_response.status == 200:
                                         status_data = await status_response.json()
                                         new_version = status_data.get("camilladsp", {}).get("version")
+
+                                        if new_version != target_version:
+                                            return {
+                                                "success": False,
+                                                "error": (
+                                                    f"Satellite {mac_id} still runs CamillaDSP "
+                                                    f"{new_version}, expected {target_version}"
+                                                )
+                                            }
 
                                         if progress_callback:
                                             await progress_callback(

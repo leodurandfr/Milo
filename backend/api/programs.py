@@ -19,7 +19,7 @@ from backend.core.models.ws_events import (
     SatelliteUpdateComplete,
     SatelliteUpdateProgress,
 )
-from backend.core.updates.helpers import compare_versions, extract_base_tag
+from backend.core.updates.helpers import compare_versions
 
 if TYPE_CHECKING:
     from backend.core.state import AudioStateMachine
@@ -171,11 +171,13 @@ def create_programs_router(
                     satellite.get("snapclient_version"),
                     latest_version
                 )
-                # App update: compare base tags (v0.0.1-347-g14ee633 -> v0.0.1)
+                # Both sides report the same repo's `git describe`, so anything
+                # but exact equality is a satellite running older code. Comparing
+                # base tags here made the flag permanently false: the whole fleet
+                # shared the server's tag while sitting hundreds of commits behind.
                 satellite["server_version"] = server_version
-                satellite["app_update_available"] = compare_versions(
-                    extract_base_tag(satellite.get("app_version")),
-                    extract_base_tag(server_version)
+                satellite["app_update_available"] = (
+                    bool(server_version) and satellite.get("app_version") != server_version
                 )
                 # CamillaDSP update
                 satellite["camilladsp_latest_version"] = camilladsp_latest

@@ -1,9 +1,9 @@
 # backend/tests/test_version_helpers.py
 """
-Tests for version helper utilities (compare_versions, extract_base_tag).
+Tests for version helper utilities (compare_versions).
 """
 
-from backend.core.updates.helpers import compare_versions, extract_base_tag
+from backend.core.updates.helpers import compare_versions
 
 
 class TestCompareVersions:
@@ -73,32 +73,3 @@ class TestCompareVersions:
         # Only first 3 parts are used
         assert compare_versions("1.0.0.1", "1.0.0.2") is False
 
-
-class TestExtractBaseTag:
-    """Tests for extract_base_tag() git describe output parsing"""
-
-    def test_full_git_describe(self):
-        assert extract_base_tag("v0.0.1-347-g14ee633") == "v0.0.1"
-
-    def test_exact_tag(self):
-        assert extract_base_tag("v0.0.1") == "v0.0.1"
-
-    def test_tag_without_v(self):
-        assert extract_base_tag("1.2.3") == "1.2.3"
-
-    def test_git_describe_without_v(self):
-        assert extract_base_tag("1.2.3-10-gabcdef0") == "1.2.3"
-
-    def test_none_input(self):
-        assert extract_base_tag(None) is None
-
-    def test_empty_string(self):
-        assert extract_base_tag("") is None
-
-    def test_short_hash_only(self):
-        # git describe --always with no tags: just a hash
-        assert extract_base_tag("14ee633") == "14ee633"
-
-    def test_tag_with_hyphen(self):
-        # Tag like "v1.0.0-rc1" with describe suffix
-        assert extract_base_tag("v1.0.0-rc1-5-g1234567") == "v1.0.0-rc1"

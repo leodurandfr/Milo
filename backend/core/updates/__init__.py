@@ -8,14 +8,13 @@ This module provides:
 - SatelliteUpdateService: Satellite device updates
 """
 
-from backend.core.updates.helpers import compare_versions, extract_base_tag
+from backend.core.updates.helpers import compare_versions
 from backend.core.updates.version import VersionService
 from backend.core.updates.update import UpdateService
 from backend.core.updates.satellite import SatelliteUpdateService
 
 __all__ = [
     "compare_versions",
-    "extract_base_tag",
     "VersionService",
     "UpdateService",
     "SatelliteUpdateService",
