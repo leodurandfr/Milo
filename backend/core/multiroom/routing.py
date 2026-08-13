@@ -565,9 +565,10 @@ class AudioRoutingService:
         — a failing source no longer fails the whole transition.
 
         Raises only when snapcast services fail to start (multiroom→enabled)
-        or when the state machine is unavailable — and republishes the source's
-        real state on the way out, so the STARTING posted at step 1 is never the
-        last word.
+        or when the state machine is unavailable. Every path that does not end
+        in the source broadcasting its own start — the raise, and both step-5
+        failure branches — republishes the source's real state, so the STARTING
+        posted at step 1 is never the last word.
         """
         if not self.state_machine:
             raise RuntimeError("State machine not available for routing transition")
@@ -619,8 +620,10 @@ class AudioRoutingService:
                 # mode is correctly set and the user can retry source playback.
                 if source_instance:
                     self.logger.info(f"Re-acquiring source {active_source.value} for {target_mode} mode")
+                    reacquired = False
                     try:
-                        if not await source_instance.acquire_after_reroute():
+                        reacquired = await source_instance.acquire_after_reroute()
+                        if not reacquired:
                             self.logger.warning(
                                 f"Source {active_source.value} re-acquire returned False after "
                                 f"{target_mode} transition (transition still considered successful)"
@@ -628,6 +631,20 @@ class AudioRoutingService:
                     except Exception as e:
                         self.logger.warning(
                             f"Source start failed after {target_mode} transition (non-fatal): {e}"
+                        )
+
+                    if not reacquired:
+                        # The success path relies on the source's own start
+                        # broadcast to replace the STARTING published at step 1;
+                        # neither of these two branches has one. Without this the
+                        # card spins for the rest of the session — re-tapping the
+                        # source is a no-op because the state machine already
+                        # believes it is starting, and only switching sources
+                        # recovers. Same recipe as the except below.
+                        await self.state_machine.update_source_state(
+                            source=active_source,
+                            new_state=source_instance.state,
+                            metadata=source_instance.metadata,
                         )
             except Exception:
                 # Step 1 published STARTING and nothing else republishes on this

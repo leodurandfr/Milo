@@ -488,13 +488,24 @@ class CrossoverService:
             # Only ever queued for a remote client — the local client's record is
             # equalizer.json, restored by CamillaDSPService itself.
             client = self._registry.get_client(client_id) if self._registry else None
+            applied = False
             if client and client.ip and self._proxy_service:
-                if not await self._proxy_service.apply_record(client.ip, pending["record"]):
-                    success = False
+                applied = await self._proxy_service.apply_record(client.ip, pending["record"])
+                if not applied:
                     self.logger.warning(f"Failed to apply pending EQ record to {client_id}")
             else:
-                success = False
                 self.logger.warning(f"Cannot apply pending EQ record: client {client_id} unreachable")
+
+            if not applied:
+                success = False
+                # Unlike crossover/lowpass above, nothing else re-applies a
+                # record: the zone recalculation that covers those filters does
+                # not touch it. The pop at the top of this method already removed
+                # it, so dropping it here leaves the client on whatever EQ it
+                # booted with until someone edits the EQ by hand — and the
+                # unreachable branch is the *likely* one, since a client that
+                # just failed admission is exactly a client without an ip yet.
+                self._pending_settings.setdefault(client_id, {})["record"] = pending["record"]
 
         return success
 
