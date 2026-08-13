@@ -711,6 +711,102 @@ class TestUpdateBinaryProgram:
 class TestUpdateMultiroom:
     """Tests for _update_multiroom() orchestration"""
 
+    # Named by the catalog, so a renamed unit surfaces here rather than in a literal.
+    SERVICES = PROGRAMS["multiroom"]["services"]
+    STATUS = {"installed": {"versions": {"main": "0.27.0"}}, "latest": {"version": "0.28.0"}}
+
+    @staticmethod
+    @contextmanager
+    def _flow(service, *, active, install=None):
+        """Stack the collaborators, leaving _update_multiroom itself real.
+
+        `active` maps each multiroom unit to what systemd reported before the
+        update; `install` overrides the two _install_deb_package results.
+        """
+        with ExitStack() as stack:
+            mocks = {
+                "_is_service_active": stack.enter_context(patch.object(
+                    service, "_is_service_active", side_effect=lambda svc: active[svc]
+                )),
+                "_download_snapcast_component": stack.enter_context(patch.object(
+                    service, "_download_snapcast_component",
+                    return_value={"success": True, "deb_path": "/tmp/pkg.deb", "temp_dir": "/tmp/dl"},
+                )),
+                "_install_deb_package": stack.enter_context(patch.object(
+                    service, "_install_deb_package",
+                    side_effect=install or [{"success": True}, {"success": True}],
+                )),
+            }
+            for name, value in (("_stop_service", True), ("_start_service", True), ("_cleanup_temp_files", None)):
+                mocks[name] = stack.enter_context(patch.object(service, name, return_value=value))
+            yield mocks
+
+    @staticmethod
+    def _started(mocks):
+        """The units _start_service was actually asked to start."""
+        return [call.args[0] for call in mocks["_start_service"].await_args_list]
+
+    @pytest.mark.asyncio
+    async def test_units_inactive_before_the_update_stay_stopped(self, update_service):
+        """The snapcast units have no WantedBy — nothing reconciles them after an
+        update. Starting them in direct mode leaves snapclient holding
+        hw:Loopback,0,0, so the next direct-mode source plays silence until reboot.
+        """
+        active = dict.fromkeys(self.SERVICES, False)
+
+        with self._flow(update_service, active=active) as mocks:
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is True
+        assert self._started(mocks) == []
+
+    @pytest.mark.asyncio
+    async def test_units_active_before_the_update_come_back(self, update_service):
+        """Multiroom mode: the update must not leave the appliance mute."""
+        active = dict.fromkeys(self.SERVICES, True)
+
+        with self._flow(update_service, active=active) as mocks:
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is True
+        assert self._started(mocks) == list(self.SERVICES)
+
+    @pytest.mark.asyncio
+    async def test_restore_is_decided_per_unit(self, update_service):
+        """A server-only unit (snapserver up, no local snapclient) must not gain one."""
+        active = {self.SERVICES[0]: True, self.SERVICES[1]: False}
+
+        with self._flow(update_service, active=active) as mocks:
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is True
+        assert self._started(mocks) == [self.SERVICES[0]]
+
+    @pytest.mark.asyncio
+    async def test_install_failure_does_not_start_inactive_units(self, update_service):
+        """The recovery branches restore the prior state, they do not impose one."""
+        active = dict.fromkeys(self.SERVICES, False)
+
+        with self._flow(update_service, active=active, install=[{"success": False, "error": "dpkg"}]) as mocks:
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is False
+        assert self._started(mocks) == []
+
+    @pytest.mark.asyncio
+    async def test_failure_before_the_stop_starts_nothing(self, update_service):
+        """The download phase runs before anything is stopped, so its except branch
+        has no prior state to restore — and must not invent one.
+        """
+        active = dict.fromkeys(self.SERVICES, True)
+
+        with self._flow(update_service, active=active) as mocks:
+            mocks["_download_snapcast_component"].side_effect = RuntimeError("network down")
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is False
+        assert self._started(mocks) == []
+
     @pytest.mark.asyncio
     async def test_server_download_failure(self, update_service):
         status = {
@@ -750,34 +846,17 @@ class TestUpdateMultiroom:
 
     @pytest.mark.asyncio
     async def test_snapclient_install_failure_partial_success(self, update_service):
-        status = {
-            "installed": {"versions": {"main": "0.27.0"}},
-            "latest": {"version": "0.28.0"}
-        }
+        install = [{"success": True}, {"success": False, "error": "install failed"}]
 
-        with patch.object(update_service, "_download_snapcast_component", return_value={
-            "success": True, "deb_path": "/tmp/pkg.deb", "temp_dir": "/tmp/tmp"
-        }):
-            with patch.object(update_service, "_stop_service", return_value=True):
-                call_count = 0
-                async def mock_install(path):
-                    nonlocal call_count
-                    call_count += 1
-                    if call_count == 1:
-                        return {"success": True}
-                    return {"success": False, "error": "install failed"}
-
-                with patch.object(update_service, "_install_deb_package", side_effect=mock_install):
-                    with patch.object(update_service, "_start_service", return_value=True):
-                        with patch.object(update_service, "_cleanup_temp_files"):
-                            result = await update_service._update_multiroom(status)
+        with self._flow(update_service, active=dict.fromkeys(self.SERVICES, True), install=install) as mocks:
+            result = await update_service._update_multiroom(self.STATUS)
 
         # The discriminator is which half failed: snapserver installed, snapclient
         # did not. "success is False" alone would also pass if snapserver had
         # failed, which is a different outcome (nothing was replaced).
         assert result["success"] is False
         assert "snapclient failed" in result["error"]
-        assert call_count == 2
+        assert mocks["_install_deb_package"].await_count == 2
 
 
 class TestUpdateMiloApp:
