@@ -332,14 +332,14 @@ class CdSource(MpvAudioSource):
         # set_property dropped on a down link would let mpv load UNPAUSED and
         # emit audio through the loadfile/FIFO handshake, which is exactly what
         # that pause exists to prevent. Also avoids reader.start() plus a 5 s
-        # synchronous wait_ready for an mpv that is not there to drain the FIFO.
+        # wait_ready for an mpv that is not there to drain the FIFO.
         if not await self._mpv.ensure_connected():
             self._logger.error("mpv link down, cannot start playback")
             return False
 
         self._reader.start(start_lba, self._disc_end_lba)
 
-        if not self._reader.wait_ready(timeout=5.0):
+        if not await asyncio.to_thread(self._reader.wait_ready, 5.0):
             self._logger.error("Reader not ready within timeout")
             await asyncio.to_thread(self._reader.stop)
             return False

@@ -206,6 +206,11 @@ class AudioStateMachine:
                 logger.error(f"No source registered for: {target_source.value}")
                 return False
 
+            # Holds the previous source while its teardown is in flight. The
+            # timeout below can fire inside that stop and cancel it half-done,
+            # and the unwind is then the only place left to finish it.
+            unstopped_source = AudioSource.NONE
+
             try:
                 async with asyncio.timeout(self.TRANSITION_TIMEOUT):
                     async with self._state_lock:
@@ -226,7 +231,9 @@ class AudioStateMachine:
 
                     # Stop old source
                     if old_source != AudioSource.NONE:
+                        unstopped_source = old_source
                         await self._stop_source(old_source)
+                        unstopped_source = AudioSource.NONE
 
                     # Start new source
                     if target_source != AudioSource.NONE:
@@ -306,7 +313,7 @@ class AudioStateMachine:
                         message=message
                     ))
 
-                await self._settle_failed_transition(target_source, error)
+                await self._settle_failed_transition(target_source, error, unstopped_source)
                 return False
 
     async def update_source_state(
@@ -417,7 +424,7 @@ class AudioStateMachine:
         return await instance.start()
 
     async def _settle_failed_transition(
-        self, target_source: AudioSource, error: str
+        self, target_source: AudioSource, error: str, unstopped_source: AudioSource
     ) -> None:
         """Stop the source whose start failed, then settle it in ERROR.
 
@@ -428,14 +435,22 @@ class AudioStateMachine:
         system_state so full_state carries the message the card reads; the
         banner rides on the SystemErrorEvent emitted just before.
 
-        Only the target is stopped: the previous source was already stopped
-        above, and the one-active-source invariant means nothing else is
-        running. The target still needs it — a start can fail after its systemd
-        unit came up (e.g. mpv started, IPC connect failed). Stopping every
-        registered source instead would run Bluetooth's unconditional teardown
-        (bluetoothctl + bluealsa/bluetooth.service, no is-running guard) on a
-        source the failed transition never touched.
+        The target is always stopped: a start can fail after its systemd unit
+        came up (e.g. mpv started, IPC connect failed). `unstopped_source` is
+        the previous source *only* on the one branch where the timeout fired
+        inside its teardown and cancelled it — it is NONE on every other path,
+        because a stop that returned already ran and re-running an unguarded
+        teardown is its own bug (Bluetooth's tears down bluetoothctl +
+        bluealsa/bluetooth.service with no is-running guard). Left running, it
+        keeps the ALSA device and every later start fails until reboot.
         """
+        if unstopped_source not in (AudioSource.NONE, target_source):
+            logger.warning(
+                "Teardown of %s was cut short by the transition timeout — retrying it",
+                unstopped_source.value,
+            )
+            await self._stop_source(unstopped_source)
+
         if target_source != AudioSource.NONE:
             await self._stop_source(target_source)
 

@@ -528,6 +528,33 @@ class TestResume:
         assert source._resume is None                # consumed
 
     @pytest.mark.asyncio
+    async def test_a_resumed_queue_still_knows_which_key_it_came_from(self, source):
+        """Capture → restore → the storage-gone guard must still fire.
+
+        `_stop_if_storage_gone` returns early on a queue attributed to no space,
+        so a snapshot that drops `queue_library_id` disarms it for the whole
+        resumed session: the user unplugs the key and gets a silent
+        fast-forward through unreachable tracks instead of a stop. Driven
+        end-to-end rather than asserting the dict key, since the round trip is
+        what broke — the capture and the restore are two separate sites.
+        """
+        source._mpv = _mpv_with_props({"time-pos": 10, "duration": 200})
+        source._queue = list(TRACKS)
+        source._queue_unshuffled = list(TRACKS)
+        source._queue_index = 1
+        source._queue_library_id = 3
+
+        await source._capture_resume_session()
+        source._reset_playback_state()
+        assert await source._restore_resume_session() is True
+
+        source.state_machine = Mock()
+        source.state_machine.update_source_state = AsyncMock()
+        await source._stop_if_storage_gone([{"library_id": 3, "mounted": False}])
+
+        assert source._queue == []
+
+    @pytest.mark.asyncio
     async def test_restore_fails_without_catalog(self, source):
         source._mpv = _mpv()
         source.get_navidrome_client = AsyncMock(return_value=None)

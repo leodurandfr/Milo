@@ -503,6 +503,72 @@ class TestFailedTransition:
 
         assert state_machine.system_state.active_source == AudioSource.NONE
 
+    @pytest.mark.asyncio
+    async def test_timeout_inside_the_old_teardown_finishes_that_teardown(
+        self, state_machine, mock_source
+    ):
+        """A timeout while the *old* source is stopping must still stop it.
+
+        The unwind only ever tore down the target, so a stop cancelled mid-way
+        left the previous source running: bluealsa keeps the ALSA device and
+        every later start of anything fails until the unit is rebooted. The
+        second stop is the recovery — the first one never returned.
+        """
+        stop_calls = []
+
+        async def stop_hangs_once():
+            stop_calls.append(1)
+            if len(stop_calls) == 1:
+                await asyncio.sleep(10)  # cancelled by the transition timeout
+            return True
+
+        old_source = Mock()
+        old_source.initialize = AsyncMock(return_value=True)
+        old_source.start = AsyncMock(return_value=True)
+        old_source.stop = stop_hangs_once
+        old_source.is_initialized = False
+        old_source.state = SourceState.ACTIVE
+        old_source.metadata = {}
+
+        state_machine.register_source(AudioSource.BLUETOOTH, old_source)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        await state_machine.transition_to_source(AudioSource.BLUETOOTH)
+
+        state_machine.TRANSITION_TIMEOUT = 0.1
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
+
+        assert result is False
+        assert len(stop_calls) == 2
+        mock_source.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_start_failure_does_not_stop_the_old_source_twice(
+        self, state_machine, mock_source
+    ):
+        """The far commoner branch: the old teardown completed, leave it alone.
+
+        Re-running a teardown that already ran is its own bug — Bluetooth's is
+        unconditional (bluetoothctl + bluealsa, no is-running guard) — so the
+        recovery above must be reachable only from the cancelled branch.
+        """
+        old_source = Mock()
+        old_source.initialize = AsyncMock(return_value=True)
+        old_source.start = AsyncMock(return_value=True)
+        old_source.stop = AsyncMock(return_value=True)
+        old_source.is_initialized = False
+        old_source.state = SourceState.ACTIVE
+        old_source.metadata = {}
+
+        mock_source.start = AsyncMock(side_effect=Exception("Start failed"))
+        state_machine.register_source(AudioSource.BLUETOOTH, old_source)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        await state_machine.transition_to_source(AudioSource.BLUETOOTH)
+
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
+
+        assert result is False
+        old_source.stop.assert_awaited_once()
+
 
 class TestGetCurrentState:
     """Test get_current_state method."""
