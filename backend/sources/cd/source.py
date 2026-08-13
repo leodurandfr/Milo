@@ -300,9 +300,17 @@ class CdSource(MpvAudioSource):
         return await self._stop_service()
 
     async def _cleanup(self) -> None:
-        """Clean up reader + mpv resources. Does NOT stop disc watcher or clear disc info."""
+        """Clean up reader + mpv resources. Does NOT stop disc watcher or clear disc info.
+
+        Tears down through _stop_reader_and_mpv rather than stopping the reader
+        on its own: a paused mpv still holds the FIFO read end open without
+        draining it, so the reader thread sits blocked in write() and its
+        3 s join expires — measured on a unit as a 3.1 s source switch plus a
+        warning. reader.stop()'s own unblock trick cannot help, it exists for a
+        writer still blocked on *opening* the FIFO. mpv must let go first.
+        """
         self._stop_monitor()
-        await asyncio.to_thread(self._reader.stop)
+        await self._stop_reader_and_mpv()
         if self._mpv:
             await self._mpv.disconnect()
             self._mpv = None
