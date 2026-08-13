@@ -4,6 +4,7 @@ Tests for UpdateService — update orchestration, backup/restore, service manage
 """
 import asyncio
 from contextlib import ExitStack, contextmanager
+from pathlib import Path
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -11,6 +12,10 @@ from unittest.mock import AsyncMock, patch
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.update import UpdateService
 from backend.core.systemd import SystemdServiceManager
+
+# This checkout's root, so a path the service builds can be checked against the
+# tree that actually ships rather than against a literal repeated in the test.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
@@ -880,6 +885,132 @@ class TestUpdateMiloApp:
 
         assert result["success"] is False
         assert "Git fetch failed" in result["error"]
+
+
+class TestMiloAppPythonDependencies:
+    """The pip step of a Milo update — the only step that can brick the unit.
+
+    A release adding a direct dependency (aiohttp-retry did, imported by
+    sources/radio/shazam.py) leaves the backend importing a module absent from
+    the venv on the post-update reboot. Two things are asserted: pip is run
+    against a requirements file this checkout really ships, and a pip that
+    fails aborts into the rollback instead of rebooting on a half-built venv.
+    """
+
+    @staticmethod
+    def _routed_exec(*, pip_proc=None):
+        """Answer each subprocess by command, recording every argv.
+
+        git rev-parse must yield a commit or the rollback branch is never
+        armed; git status must yield nothing or the flow stops on a dirty tree.
+        """
+        calls = []
+
+        async def mock_exec(*args, **kwargs):
+            calls.append(args)
+            if args[0].endswith("pip3"):
+                return pip_proc or _make_mock_proc()
+            if "rev-parse" in args:
+                return _make_mock_proc(stdout=b"abc123def456\n")
+            return _make_mock_proc()
+
+        return calls, mock_exec
+
+    @staticmethod
+    def _pip_call(calls):
+        return next((c for c in calls if c[0].endswith("pip3")), None)
+
+    @contextmanager
+    def _milo_flow(self, service, *, pip_proc=None):
+        """Everything outside the update itself, stubbed."""
+        calls, mock_exec = self._routed_exec(pip_proc=pip_proc)
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch.object(service, "_sync_system_files"))
+            stack.enter_context(patch.object(service, "_run_deploy", return_value=(True, "")))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            yield calls
+
+    @pytest.mark.asyncio
+    async def test_pip_runs_against_a_requirements_file_the_repo_ships(self, update_service):
+        """The path was `backend/requirements.txt`, which has never existed.
+
+        Anchored on the tree instead of on a literal: whatever path the service
+        builds, resolved inside this checkout, must be a file that is there.
+        """
+        status = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
+
+        with self._milo_flow(update_service) as calls:
+            result = await update_service._update_milo_app(status)
+
+        assert result["success"] is True
+        pip_call = self._pip_call(calls)
+        assert pip_call is not None, f"pip never ran; commands were {calls}"
+        assert pip_call[1:3] == ("install", "-r")
+
+        git_path = update_service.programs["milo"]["git_path"]
+        requirements = Path(pip_call[3]).relative_to(git_path)
+        assert (REPO_ROOT / requirements).is_file(), f"{requirements} is not in the repo"
+
+    @pytest.mark.asyncio
+    async def test_pip_failure_aborts_the_update_and_rolls_back(self, update_service):
+        """The step had no returncode check, so a broken venv still rebooted."""
+        status = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
+        pip_proc = _make_mock_proc(returncode=1, stderr=b"No matching distribution found")
+
+        with ExitStack() as stack:
+            calls = stack.enter_context(self._milo_flow(update_service, pip_proc=pip_proc))
+            rollback = stack.enter_context(
+                patch.object(update_service, "_rollback_milo_to_commit", return_value=True)
+            )
+            result = await update_service._update_milo_app(status)
+
+        assert result["success"] is False
+        assert "pip install failed" in result["error"]
+        assert "No matching distribution found" in result["error"]
+        rollback.assert_awaited_once()
+        # The reboot must not have been reached: only pip ran after the build.
+        assert self._pip_call(calls) == calls[-1]
+
+    @pytest.mark.asyncio
+    async def test_pip_timeout_kills_the_process(self, update_service):
+        """A hung pip must not be left running behind a failed update."""
+        status = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
+        pip_proc = _make_mock_proc()
+        pip_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+
+        with ExitStack() as stack:
+            stack.enter_context(self._milo_flow(update_service, pip_proc=pip_proc))
+            stack.enter_context(patch.object(update_service, "_rollback_milo_to_commit", return_value=True))
+            result = await update_service._update_milo_app(status)
+
+        assert result["success"] is False
+        assert "pip install timed out" in result["error"]
+        pip_proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_rollback_reinstalls_dependencies_from_the_same_path(self, update_service):
+        """The rollback carried the same wrong path, so a rollback restored the
+        code but left the venv holding the failed update's packages.
+        """
+        calls, mock_exec = self._routed_exec()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch.object(update_service, "_sync_system_files"))
+            stack.enter_context(patch.object(update_service, "_restart_service", return_value=True))
+            stack.enter_context(patch.object(update_service._systemd, "restart_self", return_value=True))
+            result = await update_service._rollback_milo_to_commit("abc123def456")
+
+        assert result is True
+        pip_call = self._pip_call(calls)
+        assert pip_call is not None, f"pip never ran; commands were {calls}"
+
+        git_path = update_service.programs["milo"]["git_path"]
+        requirements = Path(pip_call[3]).relative_to(git_path)
+        assert (REPO_ROOT / requirements).is_file(), f"{requirements} is not in the repo"
 
 
 class TestVerifyBinaryProgram:
