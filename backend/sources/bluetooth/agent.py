@@ -48,19 +48,26 @@ class BluetoothAgent(ServiceInterface):
         # Connect to system bus
         self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
 
-        # Export agent interface
-        self._bus.export(self._path, self)
+        try:
+            # Export agent interface
+            self._bus.export(self._path, self)
 
-        # Get AgentManager1 interface
-        introspect = await self._bus.introspect('org.bluez', '/org/bluez')
-        agent_manager = self._bus.get_proxy_object(
-            'org.bluez', '/org/bluez', introspect
-        )
-        agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
+            # Get AgentManager1 interface
+            introspect = await self._bus.introspect('org.bluez', '/org/bluez')
+            agent_manager = self._bus.get_proxy_object(
+                'org.bluez', '/org/bluez', introspect
+            )
+            agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
 
-        # Register and set as default
-        await agent_iface.call_register_agent(self._path, 'NoInputNoOutput')
-        await agent_iface.call_request_default_agent(self._path)
+            # Register and set as default
+            await agent_iface.call_register_agent(self._path, 'NoInputNoOutput')
+            await agent_iface.call_request_default_agent(self._path)
+        except Exception:
+            # Nothing else will: unregister() returns early on a failed
+            # registration, so the socket would live until the process dies and
+            # the next source start would open another.
+            self._disconnect()
+            raise
 
         self._registered = True
         self._logger.info(f"Agent registered at {self._path}")
@@ -77,22 +84,31 @@ class BluetoothAgent(ServiceInterface):
         if not self._registered or not self._bus:
             return True
 
-        # Get AgentManager1 interface
-        introspect = await self._bus.introspect('org.bluez', '/org/bluez')
-        agent_manager = self._bus.get_proxy_object(
-            'org.bluez', '/org/bluez', introspect
-        )
-        agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
+        try:
+            # Get AgentManager1 interface
+            introspect = await self._bus.introspect('org.bluez', '/org/bluez')
+            agent_manager = self._bus.get_proxy_object(
+                'org.bluez', '/org/bluez', introspect
+            )
+            agent_iface = agent_manager.get_interface('org.bluez.AgentManager1')
 
-        # Unregister agent
-        await agent_iface.call_unregister_agent(self._path)
-
-        # Clean up resources
-        self._bus.unexport(self._path)
-        self._registered = False
+            # Unregister agent
+            await agent_iface.call_unregister_agent(self._path)
+        finally:
+            # Whatever BlueZ answered, the socket is ours to close: the source
+            # is stopping and register() opens a fresh one on every start.
+            self._bus.unexport(self._path)
+            self._disconnect()
+            self._registered = False
 
         self._logger.info("Agent unregistered")
         return True
+
+    def _disconnect(self) -> None:
+        """Close the system-bus connection this agent opened."""
+        if self._bus:
+            self._bus.disconnect()
+            self._bus = None
 
     # === org.bluez.Agent1 Interface Methods ===
 

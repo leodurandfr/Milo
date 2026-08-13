@@ -180,6 +180,7 @@ class AvrcpController:
         self._logger = logging.getLogger("source.bluetooth.avrcp")
         self._bus: Optional[MessageBus] = None
         self._player_path: Optional[str] = None
+        self._last_address: Optional[str] = None
         self._track: Dict[str, Any] = {}
         self._status: str = ""
         self._position: Optional[int] = None
@@ -301,6 +302,12 @@ class AvrcpController:
             # the anchor the track had before, permanently adrift (traced on the
             # unit: 44 s with no discontinuity, a pause finally revealing 20242 ms
             # of error). There, ours is the only playhead there is.
+            #
+            # Taken while paused too, where it is worth even more: BlueZ
+            # re-anchors on a state change and a paused Previous is not one, so
+            # its Get answers the pre-press offset for as long as the pause
+            # lasts. Owning it is what pins the bar to zero; `snapshot` is where
+            # it stays there instead of counting.
             self._own_playhead_from = time.monotonic()
             self._mark_dirty()
 
@@ -358,7 +365,14 @@ class AvrcpController:
         snap["is_playing"] = self._status in PLAYING_STATES
         position = self._position
         if self._own_playhead_from is not None:
-            position = int((time.monotonic() - self._own_playhead_from) * 1000)
+            # Ours to count — but only a playing track advances. A Previous
+            # pressed while paused owns the playhead at zero and holds it there
+            # (see `send`); counted, it would creep up a bar the user can see is
+            # stopped.
+            position = (
+                int((time.monotonic() - self._own_playhead_from) * 1000)
+                if snap["is_playing"] else 0
+            )
         snap["position"] = None if position is None or position >= POSITION_ENDED else position
         return snap
 
@@ -420,7 +434,15 @@ class AvrcpController:
         self._apply_props(props)
 
     def _clear_player(self) -> None:
-        """Forget the current player (sender gone, or AVRCP dropped)."""
+        """Forget the current player (sender gone, or AVRCP dropped).
+
+        `_last_address` outlives the path on purpose. Every publish is addressed
+        by MAC and the path is where the MAC comes from, so a departure would
+        have nobody to be reported for — the notifier would wake, find no
+        address, and drop it, leaving the track the sender took with it on
+        screen until something else happened to move.
+        """
+        self._last_address = self.device_address or self._last_address
         self._player_path = None
         self._track = {}
         self._status = ""
@@ -516,7 +538,7 @@ class AvrcpController:
                 await self._dirty.get()
                 if self._stopped or not self._on_update:
                     continue
-                address = self.device_address
+                address = self.device_address or self._last_address
                 if not address:
                     continue
                 # Deliberately does not read the playhead. A signal is what wakes

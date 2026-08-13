@@ -142,6 +142,31 @@ class TestPlayerTracking:
         assert not avrcp.has_player
         assert avrcp.snapshot()["title"] is None
 
+    async def test_a_player_leaving_is_announced(self):
+        """`_clear_player` wipes the track and wakes the notifier — but every
+        publish is addressed by MAC, and the MAC comes from the path that just
+        went. Dropped there, nothing tells the source the sender stopped
+        publishing, and the track it left stays on screen."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Says"), Status=Variant("s", "playing")))
+        published = AsyncMock()
+        avrcp.set_callback(published)
+        avrcp._notify_task = asyncio.create_task(avrcp._notify_loop())
+        await asyncio.sleep(0.02)
+        published.reset_mock()
+
+        avrcp._on_dbus_message(Signal(
+            "InterfacesRemoved", [PLAYER_PATH, [MEDIA_PLAYER_IFACE]]
+        ))
+        await asyncio.sleep(0.02)
+
+        published.assert_awaited_once()
+        address, snapshot = published.await_args.args
+        assert address == ADDRESS, "published for nobody"
+        assert snapshot["title"] is None
+        await avrcp.stop()
+
     def test_a_property_change_updates_only_what_it_carries(self):
         """PropertiesChanged is a delta — BlueZ sends Status alone on a pause.
         Applying it as a whole record would wipe the track that is still loaded."""
@@ -323,6 +348,52 @@ class TestPlayerTracking:
         # No sleep: waiting on a verdict is what left the bar reading 0:03 by
         # the time it reset.
         assert avrcp.snapshot()["position"] < 100
+        await avrcp.stop()
+
+    async def test_previous_while_paused_holds_the_bar_at_zero(self):
+        """The same press, on a track that is not moving. Previous starts from
+        the top whichever thing it does, so the bar belongs at zero — and it
+        belongs *at* zero, not counting up from it. Counted, a paused progress
+        bar walks across the screen on its own."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Newbutt Lane", Duration=180000),
+            Status=Variant("s", "paused"),
+            Position=Variant("u", 20242),
+        ))
+        avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
+            message_type=MessageType.METHOD_RETURN, body=[]
+        )))
+
+        assert await avrcp.send("Previous") is True
+        assert avrcp.snapshot()["position"] == 0
+
+        # Thirty seconds of paused wall clock, without waiting for any.
+        avrcp._own_playhead_from -= 30.0
+        assert avrcp.snapshot()["position"] == 0
+        await avrcp.stop()
+
+    async def test_a_paused_restart_is_not_undone_by_a_read(self):
+        """Why the playhead is still *taken* while paused. BlueZ re-anchors on
+        a state change and a Previous is not one, so its Get keeps answering
+        the offset the track had before the press — for as long as the pause
+        lasts, since nothing else will move it."""
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Newbutt Lane", Duration=180000),
+            Status=Variant("s", "paused"),
+            Position=Variant("u", 20242),
+        ))
+        avrcp._bus = Mock(call=AsyncMock(return_value=Mock(
+            message_type=MessageType.METHOD_RETURN, body=[Variant("u", 20242)]
+        )))
+        assert await avrcp.send("Previous") is True
+        # Past REANCHOR_SETTLE_S, so what discards the read is the ownership
+        # and not the settle window.
+        avrcp._status_changed_at -= 1.0
+
+        assert await avrcp.read_position() is True
+        assert avrcp.snapshot()["position"] == 0
         await avrcp.stop()
 
     async def test_a_new_track_keeps_counting_when_bluez_says_nothing(self):

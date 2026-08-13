@@ -125,13 +125,19 @@ class DlnaSource(BaseAudioSource):
 
     async def _on_metadata_update(self, metadata: Dict[str, Any]) -> None:
         """Handle track metadata from GENA DIDL-Lite (title, artist, album)."""
-        self._metadata.update({
+        track = {
             "title": metadata.get("title", self._metadata.get("title", "")),
             "artist": metadata.get("artist", self._metadata.get("artist", "")),
             "album": metadata.get("album", self._metadata.get("album", "")),
-            "is_playing": self._is_playing,
-        })
-        # album_art_url is set separately by _on_artwork once the image is fetched.
+        }
+        # A cover belongs to the track it was fetched for: kept, it is what the
+        # player draws for the whole of the next one. The bridge re-dispatches
+        # the art URL on every track change, so a track that has one gets it
+        # straight back and a track that has none shows none.
+        if any(track[key] != self._metadata.get(key, "") for key in track):
+            self._clear_artwork()
+
+        self._metadata.update({**track, "is_playing": self._is_playing})
         self._device_connected = True
         self._update_connection_state()
 
@@ -166,6 +172,11 @@ class DlnaSource(BaseAudioSource):
         GENA subscription alive.
         """
         self._reset_playback_state()
+        # The bridge only forwards what changed, and the renderer goes on
+        # publishing the same track: without this, the resume that follows
+        # re-emits nothing and the player stays a status card for the rest of it.
+        if self._bridge:
+            self._bridge.forget_last_seen()
         self._update_connection_state()
 
     @handle_errors(default=None)
@@ -272,10 +283,12 @@ class DlnaSource(BaseAudioSource):
         self._reset_playback_state()
 
     def _clear_artwork(self) -> None:
-        """Clear stored artwork data."""
+        """Drop the stored cover and the metadata pointing at it."""
         self._artwork_data = None
         self._artwork_mime = None
         self._artwork_hash = None
+        self._metadata.pop("album_art_url", None)
+        self._metadata.pop("album_art_width", None)
 
     # === Public API ===
 

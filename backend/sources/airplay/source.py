@@ -86,10 +86,19 @@ class AirPlaySource(BaseAudioSource):
         self._device_connected = False
         self._client_name: Optional[str] = None
 
-        # Artwork served via dedicated endpoint
+        # Artwork served via dedicated endpoint, and held apart from _metadata
+        # so it is merged in at publish time rather than written through it.
+        # _artwork_id is the rtptime the held cover was stamped with and
+        # _track_id the one on screen: a picture and its track arrive in
+        # separate messages in no guaranteed order (see MetadataReader), so the
+        # pairing is the id, never the arrival.
         self._artwork_data: Optional[bytes] = None
         self._artwork_mime: Optional[str] = None
         self._artwork_hash: Optional[str] = None
+        self._artwork_url: Optional[str] = None
+        self._artwork_width: int = 0
+        self._artwork_id: Optional[str] = None
+        self._track_id: Optional[str] = None
 
         # Progress tracking: `prgr` gives a position snapshot in RTP frames; the
         # elapsed time since it arrived is what makes the position current.
@@ -111,6 +120,7 @@ class AirPlaySource(BaseAudioSource):
         self._position_ms = 0
         self._duration_ms = 0
         self._position_at = None
+        self._track_id = None
         self._clear_artwork()
 
     async def _do_start(self) -> bool:
@@ -186,15 +196,23 @@ class AirPlaySource(BaseAudioSource):
 
     # === Metadata Callbacks ===
 
-    async def _on_metadata_update(self, metadata: Dict[str, Any]) -> None:
-        """Handle track metadata from pipe (title, artist, album)."""
+    async def _on_metadata_update(
+        self, metadata: Dict[str, Any], track_id: Optional[str]
+    ) -> None:
+        """Handle track metadata from pipe (title, artist, album).
+
+        Recording which track is on screen is all that is needed to move the
+        cover with it: the publish pairs the two by rtptime. A track whose
+        sender pushes no PICT of its own — plenty do not — would otherwise wear
+        the previous one's cover for its whole duration.
+        """
+        self._track_id = track_id
         self._metadata.update({
             "title": metadata.get("title", self._metadata.get("title", "")),
             "artist": metadata.get("artist", self._metadata.get("artist", "")),
             "album": metadata.get("album", self._metadata.get("album", "")),
             "is_playing": self._is_playing,
         })
-        # artwork_url is set separately by _on_artwork when PICT data arrives
 
         self._update_progress_metadata()
         self._device_connected = True
@@ -231,7 +249,7 @@ class AirPlaySource(BaseAudioSource):
         self._update_connection_state()
 
     @handle_errors(default=None)
-    async def _on_artwork(self, data: bytes) -> None:
+    async def _on_artwork(self, data: bytes, track_id: Optional[str]) -> None:
         """Handle artwork from pipe: store in memory and serve via endpoint.
 
         Also decodes pixel dimensions so the frontend can gate the rich
@@ -240,9 +258,16 @@ class AirPlaySource(BaseAudioSource):
         Spotify desktop) push a high-resolution cover. Dimensions are
         broadcast as album_art_width/height; the display policy lives on the
         frontend (AudioSourceView.hasRichDisplay).
+
+        The rtptime is recorded before the dedupe: two tracks off one album send
+        the identical image, and the picture that changed nothing still moved
+        which track the cover belongs to.
         """
+        paired_with, self._artwork_id = self._artwork_id, track_id
         new_hash = hashlib.md5(data).hexdigest()[:12]
         if new_hash == self._artwork_hash:
+            if track_id != paired_with:
+                self._update_connection_state()
             return
 
         # Detect image format from magic bytes (shairport-sync sends JPEG or PNG)
@@ -255,8 +280,8 @@ class AirPlaySource(BaseAudioSource):
 
         self._artwork_data = data
         self._artwork_hash = new_hash
-        self._metadata["album_art_url"] = f"/api/airplay/artwork?v={new_hash}"
-        self._metadata["album_art_width"] = width
+        self._artwork_url = f"/api/airplay/artwork?v={new_hash}"
+        self._artwork_width = width
         self._logger.info(f"AirPlay artwork {width}x{height} ({self._artwork_mime})")
         self._update_connection_state()
 
@@ -369,6 +394,15 @@ class AirPlaySource(BaseAudioSource):
         """Update state based on device connection."""
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
+        # The cover is published only for the track it was stamped for, and the
+        # width comes with it — both dropped first, because _metadata is the
+        # last publish handed back and either would otherwise round-trip
+        # through it and outlive the pairing that put it there.
+        core.album_art_url = None
+        extras.pop("album_art_width", None)
+        if self._artwork_url and self._artwork_id == self._track_id:
+            core.album_art_url = self._artwork_url
+            extras["album_art_width"] = self._artwork_width
         extras["client_name"] = self._client_name
         self.emit_connection_state(self._device_connected, core, extras)
 
@@ -387,6 +421,9 @@ class AirPlaySource(BaseAudioSource):
         self._artwork_data = None
         self._artwork_mime = None
         self._artwork_hash = None
+        self._artwork_url = None
+        self._artwork_width = 0
+        self._artwork_id = None
 
     # === Public API ===
 
