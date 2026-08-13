@@ -316,8 +316,13 @@ class TestEqualizerServiceMasterBypass:
         assert equalizer_service.equalizer_enabled is False
 
 
-class TestEqualizerServiceFilterTypeAndEnable:
-    """set_filter must apply filter_type and per-band enable, not just gain/freq/q."""
+class TestEqualizerServiceFilterTuning:
+    """set_filter applies tuning only — filter_type included, pipeline membership excluded.
+
+    A band's presence in the pipeline is owned by set_equalizer_enabled(), on a
+    satellite exactly as on the server. If set_filter ever regains that power,
+    tuning a band would silently un-bypass a bypassed client.
+    """
 
     @pytest.mark.asyncio
     async def test_set_filter_applies_filter_type(self, equalizer_service, mock_camilla_client):
@@ -328,10 +333,15 @@ class TestEqualizerServiceFilterTypeAndEnable:
         assert config["filters"]["eq_band_1"]["parameters"]["type"] == "Lowshelf"
 
     @pytest.mark.asyncio
-    async def test_set_filter_enabled_false_removes_band_from_pipeline(self, equalizer_service, mock_camilla_client):
-        """enabled=False should drop the band from the pipeline but keep its definition."""
+    async def test_set_filter_does_not_repipe_a_bypassed_band(self, equalizer_service, mock_camilla_client):
+        """Tuning a band on a bypassed client must apply the gain without restoring the band."""
         config = mock_camilla_client.config.active.return_value
-        result = await equalizer_service.set_filter("eq_band_1", gain=0.0, enabled=False)
-        assert result is True
+        await equalizer_service.set_equalizer_enabled(False)
         assert "eq_band_1" not in config["pipeline"][0]["names"]
-        assert "eq_band_1" in config["filters"]
+
+        result = await equalizer_service.set_filter("eq_band_1", gain=4.0)
+
+        assert result is True
+        assert config["filters"]["eq_band_1"]["parameters"]["gain"] == 4.0
+        assert "eq_band_1" not in config["pipeline"][0]["names"]
+        assert equalizer_service.equalizer_enabled is False

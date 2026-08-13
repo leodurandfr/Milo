@@ -25,8 +25,13 @@ npm run lint                                     # eslint + stylelint
 npm run test:run                                 # vitest — needs the WHOLE repo (guardrails read backend/)
 npm run test:run -- tests/stores/radioStore.test.js   # one file
 
+# Satellite (from the repo root) — same gate as the backend, separate pytest run:
+# a combined `pytest backend/ milo-client/` moves rootdir to the repo root, which
+# drops backend/pytest.ini and its `asyncio_mode = auto`.
+pytest milo-client/
+
 # Lint floor (what CI blocks on)
-ruff check backend/ && pytest backend/
+ruff check backend/ milo-client/ && pytest backend/ && pytest milo-client/
 cd frontend && npm run lint:js && npm run lint:css && npm run test:run
 
 # On a unit
@@ -218,7 +223,9 @@ Docstrings say what breaks when the test fails and name the consumer — no stor
 
 ## Lint floor
 
-CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `ruff check backend/`, `pytest backend/`, `npm run lint:js`, `npm run lint:css`, `npm run test:run`.
+CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `ruff check backend/ milo-client/`, `pytest backend/`, `pytest milo-client/`, `npm run lint:js`, `npm run lint:css`, `npm run test:run`.
+
+**Both halves of the appliance are gated.** `milo-client/` sits in the same job as the backend, not a separate one — the two ship in the same commit, so a satellite regression is a regression of this commit. It was excluded from ruff and never tested until 2026-08-13; the excluding is what let a stale test and an `except: pass` sit red in the tree.
 
 - **eslint:** `no-restricted-imports` (axios outside `apiCall.js`), `no-restricted-syntax` (`console.*`), `no-restricted-globals` (bare timers).
 - **ruff:** `F` (pyflakes — undefined name, redefinition, unused import/variable) + `S110`/`S112`. `F` is selected as a **family**, not rule by rule: `F401` alone is its least valuable member, and enabling it while `F821`/`F811`/`F841` stay off is what kept individual unused imports coming back as findings. `E4`/`E7`/`E9` stay out on purpose — the `E402`s (imports after code in `api/models.py`, `main.py`) and the `E731` lambdas in tests are deliberate, and they are style rather than faults. `BLE001` stays out too: several hundred broad catches here are legitimately logged-and-handled (best-effort hardware, route translators, background-loop bodies), and the layered doctrine above already governs them — activating it would force a mass refactor for no safety gain. One `per-file-ignores` entry: `F821` in `sources/bluetooth/agent.py`, where `dbus-next` declares D-Bus signatures as string annotations (`'o'`, `'s'`, `'u'`) that read as unresolvable forward references.
