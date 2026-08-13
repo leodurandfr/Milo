@@ -97,12 +97,21 @@ async def _smb_list_shares(
 async def _smb_list_folders(
     host: str, path: str, credentials: Optional[Dict[str, str]]
 ) -> Dict[str, object]:
-    """List the sub-folders of ``<share>/<subpath>`` (``smbclient //host/share -c ls``)."""
+    """List the sub-folders of ``<share>/<subpath>`` (``smbclient //host/share -c ls``).
+
+    The subpath travels as smbclient's own ``--directory`` argv slot, never inside
+    ``-c``: that flag takes *semicolon-separated commands*, one of which (``!``)
+    runs a local shell, so a folder name in there is a folder name that executes.
+    The long ``--directory=VALUE`` form keeps it a single element, so a name
+    starting with ``-`` cannot be re-read as an option.
+    """
     share, _, subpath = path.partition("/")
     # smbclient uses backslash path separators inside a share.
     ls_target = subpath.replace("/", "\\")
-    command = f'cd "{ls_target}"; ls' if ls_target else "ls"
-    rc, out, err = await _smbclient([f"//{host}/{share}", "-c", command], credentials)
+    args = [f"//{host}/{share}", "-c", "ls"]
+    if ls_target:
+        args.insert(1, f"--directory={ls_target}")
+    rc, out, err = await _smbclient(args, credentials)
     if rc != 0:
         return _smb_error_result(out, err)
 

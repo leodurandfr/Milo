@@ -80,6 +80,40 @@ class TestSmbListShares:
         assert r["entries"] == [{"name": "Albums", "path": "Music/Albums", "kind": "dir"}]
 
 
+class TestSmbFolderArgv:
+    """The browsed subpath must travel as smbclient's own ``--directory`` argv slot.
+
+    Breaks if anyone rebuilds the ``cd "<path>"; ls`` command string: ``-c`` takes
+    *semicolon-separated smbclient commands* and the ``!`` verb runs a local shell,
+    so a folder named ``x"; !cmd; cd "`` — returned by the NAS itself and clicked in
+    the wizard — executes cmd as the milo user, who holds NOPASSWD sudo. argv IS the
+    security contract here, which is why it is asserted directly.
+    Consumer: ``POST /api/music-library/shares/browse``.
+    """
+
+    # Slash-free payload: the subpath's "/" → "\" conversion would rewrite one.
+    HOSTILE = 'Music/x"; !id; cd "'
+
+    async def _argv(self, path):
+        smbclient = AsyncMock(return_value=(0, "", ""))
+        with patch.object(browse_mod, "_smbclient", smbclient):
+            await browse_share("cifs", "nas.local", path)
+        smbclient.assert_awaited_once()
+        return smbclient.await_args.args[0]
+
+    async def test_command_slot_is_exactly_ls(self):
+        argv = await self._argv(self.HOSTILE)
+        assert argv[argv.index("-c") + 1] == "ls"
+
+    async def test_payload_is_one_directory_element_and_nowhere_else(self):
+        argv = await self._argv(self.HOSTILE)
+        assert [a for a in argv if a.startswith("--directory=")] == ['--directory=x"; !id; cd "']
+        assert not any(";" in a for a in argv if not a.startswith("--directory="))
+
+    async def test_share_root_passes_no_directory(self):
+        assert await self._argv("Music") == ["//nas.local/Music", "-c", "ls"]
+
+
 class TestNfsExports:
     async def test_lists_exports(self):
         proc = MagicMock()
