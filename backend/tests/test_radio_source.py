@@ -9,6 +9,9 @@ Tests cover:
 - Command handling
 - Station data operations
 """
+import asyncio
+import json
+
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -658,3 +661,40 @@ class TestInbandShazamArbitration:
             await radio_source._poll_inband_metadata()
         assert radio_source._inband_track is None
         assert radio_source._inband_seen is True
+
+
+class TestPrerollProbe:
+    """The ffprobe pass that reads a station's pre-roll ad out of ICY tags."""
+
+    @pytest.mark.asyncio
+    async def test_a_preroll_is_read_off_the_stream(self, radio_source):
+        """The non-triviality check: a probe that parsed nothing would satisfy
+        the timeout test below on an empty surface. Infomaniak injects the ad
+        duration as ICY tags on the connection, and the skip is that plus the
+        two seconds of slack the source adds."""
+        process = Mock(returncode=0)
+        process.communicate = AsyncMock(return_value=(json.dumps({
+            "format": {"tags": {
+                "insertionType": "preroll", "durationMilliseconds": "15000",
+            }}
+        }).encode(), b""))
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=process)):
+            assert await radio_source._detect_preroll("http://stream.example/live") == 17
+
+    @pytest.mark.asyncio
+    async def test_a_probe_that_hangs_is_killed(self, radio_source):
+        """ffprobe holds an open HTTP connection to the station for as long as
+        it runs. Timed out and left alone it goes on pulling the stream for the
+        rest of the session — one leaked reader per station that stalls, on a
+        box whose whole job is the audio path."""
+        process = Mock(returncode=None)
+        process.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+        process.kill = Mock()
+        process.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=process)):
+            assert await radio_source._detect_preroll("http://stream.example/live") == 0
+
+        process.kill.assert_called_once()
+        process.wait.assert_awaited_once()

@@ -14,13 +14,24 @@ Artwork dimension decoding itself lives in backend.shared.artwork and is
 covered by test_artwork.py.
 """
 import datetime
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, call
 
 import pytest
+from PIL import Image
 
 from backend.sources.dlna.metadata_reader import DlnaBridge, _to_ms
 from backend.sources.dlna.source import DlnaSource
+
+
+def _png() -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (600, 600), "navy").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+_PNG = _png()
 
 
 # === _to_ms ==================================================================
@@ -131,6 +142,44 @@ def test_dispatch_skips_fully_empty_metadata():
     bridge._on_metadata.assert_not_called()
 
 
+def test_a_track_change_re_dispatches_the_very_same_cover():
+    """Two tracks off one album carry the identical art URL. The source drops
+    the cover with the track it belonged to, so an URL still deduped against
+    the previous track's would leave the second one showing its glyph."""
+    bridge = _make_bridge()
+    bridge._dmr = _make_dmr(
+        transport_state="PLAYING", media_title="Says",
+        media_image_url="http://nas/spaces.jpg",
+    )
+    bridge._dispatch_state()
+
+    bridge._dmr.media_title = "Says (Live)"
+    bridge._dispatch_state()
+
+    assert bridge._on_artwork.call_args_list == [
+        call("http://nas/spaces.jpg"), call("http://nas/spaces.jpg")
+    ]
+
+
+def test_forgetting_the_last_seen_state_re_emits_all_of_it():
+    """What the auto-stop reset needs. GENA resends full state and the bridge
+    forwards only what moved, so a consumer that cleared its own copy while the
+    renderer kept publishing the same track is never told again."""
+    bridge = _make_bridge()
+    bridge._dmr = _make_dmr(
+        transport_state="PLAYING", media_title="Says", media_artist="Nils Frahm",
+        media_image_url="http://nas/spaces.jpg",
+    )
+    bridge._dispatch_state()
+
+    bridge.forget_last_seen()
+    bridge._dispatch_state()
+
+    assert bridge._on_play_state.call_count == 2
+    assert bridge._on_metadata.call_count == 2
+    assert bridge._on_artwork.call_count == 2
+
+
 def test_dispatch_falls_back_to_album_artist():
     bridge = _make_bridge()
     bridge._dmr = _make_dmr(
@@ -150,6 +199,62 @@ async def test_source_rejects_every_command():
     src = DlnaSource()
     result = await src.command("play", {})
     assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_new_track_does_not_inherit_the_previous_cover():
+    """The cover is fetched for one track and cached in memory. Kept across a
+    track change it is what the full-screen player draws for the whole of the
+    next one — and for a track the renderer publishes no art for at all, for
+    the rest of the session."""
+    src = DlnaSource()
+    src._fetch_artwork = AsyncMock(return_value=_PNG)
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
+    await src._on_artwork("http://nas/spaces.jpg")
+    assert src.metadata["album_art_url"].startswith("/api/dlna/artwork?v=")
+
+    await src._on_metadata_update({"title": "Toilet Brush"})
+
+    assert src.metadata["title"] == "Toilet Brush"
+    assert "album_art_url" not in src.metadata
+    assert "album_art_width" not in src.metadata
+    assert src.get_artwork() is None
+
+
+@pytest.mark.asyncio
+async def test_the_same_track_again_keeps_its_cover():
+    """GENA resends the full DIDL-Lite payload; the bridge dedupes, but the
+    source is also reached by its own paths. Clearing on anything but a real
+    change would flicker the cover off on every one."""
+    src = DlnaSource()
+    src._fetch_artwork = AsyncMock(return_value=_PNG)
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
+    await src._on_artwork("http://nas/spaces.jpg")
+
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
+
+    assert "album_art_url" in src.metadata
+
+
+@pytest.mark.asyncio
+async def test_auto_stop_lets_the_bridge_say_it_all_again():
+    """The idle timeout clears the source's own copy of the track while the
+    renderer goes on publishing it. Without forgetting the bridge's last-seen
+    state there is nothing left to change, so nothing is re-emitted and the
+    resume draws the status card for the rest of the track."""
+    src = DlnaSource()
+    bridge = _make_bridge()
+    bridge._dmr = _make_dmr(
+        transport_state="PLAYING", media_title="Says", media_artist="Nils Frahm",
+    )
+    src._bridge = bridge
+    bridge._dispatch_state()
+
+    await src._on_auto_stop()
+    bridge._dispatch_state()
+
+    assert bridge._on_metadata.call_count == 2
+    assert bridge._on_play_state.call_count == 2
 
 
 def test_get_artwork_is_none_when_empty():

@@ -161,6 +161,10 @@ class DlnaBridge:
         meta = (title, artist, album)
         if any(meta) and meta != self._last_meta:
             self._last_meta = meta
+            # The source drops the cover with the track it belonged to, so the
+            # new track's art has to be dispatched again even when the renderer
+            # reports the very same URL — two tracks off one album do.
+            self._last_art = None
             self._bg.spawn(
                 self._on_metadata({"title": title, "artist": artist, "album": album}),
                 label="metadata",
@@ -170,6 +174,17 @@ class DlnaBridge:
         if art and art != self._last_art:
             self._last_art = art
             self._bg.spawn(self._on_artwork(art), label="artwork")
+
+    def forget_last_seen(self) -> None:
+        """Drop the change-detection memory, so the next event re-emits it all.
+
+        For a consumer that cleared its own copy while the renderer kept
+        publishing the same track — the auto-stop reset. Without this the
+        bridge has nothing new to report and the player never comes back.
+        """
+        self._last_state = None
+        self._last_meta = None
+        self._last_art = None
 
     async def _poll_once(self) -> None:
         dmr = self._dmr
@@ -190,6 +205,4 @@ class DlnaBridge:
             with contextlib.suppress(Exception):
                 await self._server.async_stop_server()
             self._server = None
-        self._last_state = None
-        self._last_meta = None
-        self._last_art = None
+        self.forget_last_seen()

@@ -99,7 +99,6 @@ class SpotifySource(BaseAudioSource):
         self._metadata: Dict[str, Any] = {}
         self._is_playing = False
         self._device_connected = False
-        self._ws_connected = False
         self._status_retry_pending = False
 
         # Auto-stop (uses BaseAudioSource timer infrastructure)
@@ -472,8 +471,6 @@ class SpotifySource(BaseAudioSource):
         """
         event_type = event.get("type")
 
-        self._ws_connected = True
-
         if event_type == "active":
             await self._on_device_active()
 
@@ -843,7 +840,6 @@ class SpotifySource(BaseAudioSource):
             await self._session.close()
             self._session = None
 
-        self._ws_connected = False
         self._reset_playback_state()
 
     def _update_connection_state(self) -> None:

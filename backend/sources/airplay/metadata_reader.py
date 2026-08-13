@@ -25,10 +25,18 @@ Important codes:
     - PICT: artwork (data is raw image bytes)
     - pvol: volume info
     - prgr: progress (start/current/end in sample frames at 44100Hz)
-    - mdst: metadata start
+    - mdst: metadata start   (data: the bundle's rtptime, when the sender gave one)
     - mden: metadata end
+    - pcst: picture start    (data: the picture's rtptime, same condition)
     - snua: user agent (device info)
     - snam: client name (X-Apple-Client-Name, e.g. "Mac mini de Léo")
+
+The rtptime on mdst/pcst is shairport-sync's own way of pairing a cover with its
+track — "if they refer to the same item, they have the same rtptime", rtsp.c. It
+is needed because the two arrive in separate SET_PARAMETER requests in no
+guaranteed order, so neither one following the other says anything. It rides out
+to the source alongside the metadata and the picture, and is None when the
+sender sent no RTP-Info (which shairport-sync tolerates and so do we).
 """
 import asyncio
 import contextlib
@@ -49,15 +57,20 @@ def _hex_to_str(hex_str: str) -> str:
         return hex_str
 
 
+def _rtptime(data: Optional[bytes]) -> Optional[str]:
+    """The rtptime carried by mdst/pcst, or None when the sender omitted it."""
+    return data.decode("ascii", errors="replace") if data else None
+
+
 class MetadataReader:
     """Async reader for shairport-sync metadata pipe."""
 
     def __init__(
         self,
         pipe_path: str,
-        on_metadata: Callable[[Dict[str, Any]], Any],
+        on_metadata: Callable[[Dict[str, Any], Optional[str]], Any],
         on_play_state: Callable[[str], Any],
-        on_artwork: Callable[[bytes], Any],
+        on_artwork: Callable[[bytes, Optional[str]], Any],
         on_progress: Optional[Callable[[int, int, int], Any]] = None,
         on_client_name: Optional[Callable[[str], Any]] = None,
         on_connection: Optional[Callable[[str, Optional[str]], Any]] = None,
@@ -65,9 +78,11 @@ class MetadataReader:
         """
         Args:
             pipe_path: Path to the metadata named pipe
-            on_metadata: Callback for metadata updates (dict with title, artist, album)
+            on_metadata: Callback for metadata updates (dict with title, artist,
+                         album) plus the bundle's rtptime, or None
             on_play_state: Callback for play state changes ("play", "pause", "stop")
-            on_artwork: Callback for artwork data (raw image bytes)
+            on_artwork: Callback for artwork data (raw image bytes) plus the
+                        picture's rtptime, or None
             on_progress: Optional callback for progress (start, current, end in frames)
             on_client_name: Optional callback for client name (X-Apple-Client-Name)
             on_connection: Optional callback for AirPlay 2 connection events
@@ -85,6 +100,11 @@ class MetadataReader:
 
         # Accumulate metadata between mdst/mden boundaries
         self._pending_metadata: Dict[str, str] = {}
+
+        # The rtptime stamped on the current bundle and on the last picture —
+        # see the module docstring. Equal means "same track".
+        self._bundle_id: Optional[str] = None
+        self._picture_id: Optional[str] = None
 
     async def start(self) -> None:
         """Start reading metadata pipe."""
@@ -194,15 +214,18 @@ class MetadataReader:
             await self._on_play_state("pause")
         elif code == "prsm":
             await self._on_play_state("play")
+        elif code == "pcst":
+            self._picture_id = _rtptime(data)
         elif code == "PICT" and data:
-            await self._on_artwork(data)
+            await self._on_artwork(data, self._picture_id)
         elif code == "prgr" and data:
             await self._handle_progress(data)
         elif code == "mdst":
             self._pending_metadata = {}
+            self._bundle_id = _rtptime(data)
         elif code == "mden":
             if self._pending_metadata:
-                await self._on_metadata(dict(self._pending_metadata))
+                await self._on_metadata(dict(self._pending_metadata), self._bundle_id)
         elif code == "snam" and data:
             if self._on_client_name:
                 name = data.decode("utf-8", errors="replace")
