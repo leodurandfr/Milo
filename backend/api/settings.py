@@ -388,7 +388,9 @@ def create_settings_router(
                         # snapcast stop, settings + routing.env writes, and broadcast.
                         operations_log.append("Disabling multiroom routing and switching to direct mode")
                         logger.info(f"Disabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_multiroom_enabled(False, active_source)
+                        success = await routing_service.set_multiroom_enabled(False, active_source)
+                        if not success:
+                            raise ValueError("Failed to disable multiroom routing")
 
                     # === EQUALIZER ===
                     elif app == 'equalizer':
@@ -398,7 +400,9 @@ def create_settings_router(
 
                         operations_log.append("Disabling equalizer effects")
                         logger.info(f"Disabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
-                        await multiroom_equalizer_service.set_local_equalizer_effects_enabled(False)
+                        success = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(False)
+                        if not success:
+                            raise ValueError("Failed to disable equalizer effects")
 
                 # === HANDLE ENABLES ===
                 for app in enabled_apps_new:
@@ -419,7 +423,9 @@ def create_settings_router(
                         # snapcast start, settings + routing.env writes, and broadcast.
                         operations_log.append("Enabling multiroom routing and switching to multiroom mode")
                         logger.info(f"Enabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_multiroom_enabled(True, active_source)
+                        success = await routing_service.set_multiroom_enabled(True, active_source)
+                        if not success:
+                            raise ValueError("Failed to enable multiroom routing")
 
                     # === EQUALIZER ===
                     elif app == 'equalizer':
@@ -429,7 +435,9 @@ def create_settings_router(
 
                         operations_log.append("Enabling equalizer effects")
                         logger.info(f"Enabling equalizer effects for active source: {active_source.value if active_source else 'none'}")
-                        await multiroom_equalizer_service.set_local_equalizer_effects_enabled(True)
+                        success = await multiroom_equalizer_service.set_local_equalizer_effects_enabled(True)
+                        if not success:
+                            raise ValueError("Failed to enable equalizer effects")
 
                 operations_log.append("Saving new settings")
                 logger.info("All operations successful, saving settings")

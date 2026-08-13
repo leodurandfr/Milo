@@ -528,6 +528,59 @@ class TestAudioRoutingService:
         assert published[-1] == mock_source.state
 
     @pytest.mark.asyncio
+    async def test_apply_transition_republishes_when_acquire_returns_false(
+        self, routing_service, mock_systemd_manager, mock_source
+    ):
+        """A best-effort step-5 failure must still replace the STARTING of step 1.
+
+        The success path relies on the source's own start broadcast to clear it.
+        A source that merely returns False never emits one, and the outer except
+        does not fire because step 5 is non-fatal — so the card spun for the rest
+        of the session, and re-tapping the source was a no-op because the state
+        machine already believed it was starting.
+        """
+        mock_systemd_manager.start = AsyncMock(return_value=True)
+        routing_service.set_source_callback(
+            lambda source: mock_source if source == AudioSource.SPOTIFY else None
+        )
+        mock_source.acquire_after_reroute = AsyncMock(return_value=False)
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
+            await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+
+        published = [
+            entry.kwargs["new_state"]
+            for entry in routing_service.state_machine.update_source_state.await_args_list
+        ]
+        assert published[0] == SourceState.STARTING
+        assert published[-1] == mock_source.state
+
+    @pytest.mark.asyncio
+    async def test_apply_transition_republishes_when_acquire_raises(
+        self, routing_service, mock_systemd_manager, mock_source
+    ):
+        """The second step-5 branch owes the same republish as the first.
+
+        Step 5 catches its own exception, so a raising source leaves the outer
+        handler untouched and lands on exactly the stuck STARTING above.
+        """
+        mock_systemd_manager.start = AsyncMock(return_value=True)
+        routing_service.set_source_callback(
+            lambda source: mock_source if source == AudioSource.SPOTIFY else None
+        )
+        mock_source.acquire_after_reroute = AsyncMock(side_effect=RuntimeError("source boom"))
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
+            await routing_service._apply_transition(True, active_source=AudioSource.SPOTIFY)
+
+        published = [
+            entry.kwargs["new_state"]
+            for entry in routing_service.state_machine.update_source_state.await_args_list
+        ]
+        assert published[0] == SourceState.STARTING
+        assert published[-1] == mock_source.state
+
+    @pytest.mark.asyncio
     async def test_apply_transition_source_acquire_failure_is_non_fatal(
         self, routing_service, mock_systemd_manager, mock_source
     ):

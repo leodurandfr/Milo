@@ -492,6 +492,54 @@ class TestPendingSettingsQueue:
         mock_proxy_service.apply_record.assert_awaited_once_with("192.168.1.20", record)
 
     @pytest.mark.asyncio
+    async def test_a_refused_record_stays_queued(
+        self, crossover_service_with_registry, mock_proxy_service
+    ):
+        """A record the satellite refused must survive for the next admission.
+
+        apply_pending_settings() pops the whole per-client dict up front, so a
+        failed push was discarded outright: nothing else re-applies a record, and
+        the client kept the EQ it booted with until someone edited the EQ by hand.
+        Crossover and lowpass are deliberately NOT re-queued — the zone
+        recalculation re-applies those — so this also pins the asymmetry.
+        """
+        from backend.core.multiroom.models import EqualizerSettings
+
+        service, registry = crossover_service_with_registry
+        registry._clients["sat-1"] = Client(
+            mac_id="sat-1", name="Bedroom", ip="192.168.1.20", online=True
+        )
+        record = EqualizerSettings.default()
+        mock_proxy_service.apply_record = AsyncMock(return_value=False)
+
+        await service.queue_pending_settings("sat-1", "crossover", {"enabled": True, "frequency": 80})
+        await service.queue_pending_settings("sat-1", "record", record)
+
+        assert await service.apply_pending_settings("sat-1") is False
+        assert service._pending_settings["sat-1"] == {"record": record}
+
+    @pytest.mark.asyncio
+    async def test_an_unreachable_client_keeps_its_record_queued(
+        self, crossover_service_with_registry
+    ):
+        """The no-ip branch must re-queue too, and it is the likely one.
+
+        A client whose record is pending is typically a client that has not
+        finished coming back — exactly one the registry holds without a usable
+        address. Dropping the record on that branch is the same permanent loss
+        as dropping it on a refused push.
+        """
+        from backend.core.multiroom.models import EqualizerSettings
+
+        service, _registry = crossover_service_with_registry
+        record = EqualizerSettings.default()
+
+        await service.queue_pending_settings("sat-1", "record", record)
+
+        assert await service.apply_pending_settings("sat-1") is False
+        assert service._pending_settings["sat-1"]["record"] is record
+
+    @pytest.mark.asyncio
     async def test_unknown_setting_type_fails_loud(self, crossover_service):
         """A type apply_pending_settings cannot dispatch must not be queueable."""
         with pytest.raises(ValueError, match="Unknown pending setting type"):

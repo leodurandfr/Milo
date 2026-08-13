@@ -752,8 +752,9 @@ class SnapcastWebSocketService:
             target_volume_db: Volume to set in dB
 
         Returns:
-            True if hardware application succeeded, False otherwise.
-            State/registry are updated regardless.
+            True only if BOTH the volume and the mute reached the hardware.
+            State/registry are updated regardless. The caller's retry loop is
+            what recovers a False, so reporting one is the whole mechanism.
         """
         try:
             if not self._volume_service:
@@ -777,11 +778,19 @@ class SnapcastWebSocketService:
             # CamillaDSP starts muted with -m flag, so skipping unmute on volume
             # failure would leave the client permanently silent.
             persisted_mute = self._volume_service.state_store.get_client_mute(mac_id)
-            await eq.set_equalizer_mute(mac_id, persisted_mute, force=True)
+            mute_ok = await eq.set_equalizer_mute(mac_id, persisted_mute, force=True)
             self.logger.debug(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
 
             if not volume_ok:
                 self.logger.warning(f"VOLUME_APPLY: Hardware failed for {mac_id}, state updated to {target_volume_db:.1f} dB (unmute still applied)")
+            if not mute_ok:
+                # Discarding this outcome is what admitted a client snapserver
+                # had, the UI showed online, and CamillaDSP still held muted from
+                # its -m start flag: a speaker silent for the whole session, with
+                # nothing anywhere to retry it.
+                self.logger.warning(f"MUTE_APPLY: Hardware failed for {mac_id} (mute={persisted_mute})")
+
+            if not (volume_ok and mute_ok):
                 return False
 
             self.logger.debug(

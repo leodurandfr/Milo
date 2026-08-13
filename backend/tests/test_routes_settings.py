@@ -275,6 +275,44 @@ class TestSettingsRoutes:
         })
         assert response.status_code == 422
 
+    def test_set_dock_apps_reports_a_failed_multiroom_transition(self, client, mock_routing_service):
+        """A 200 on a transition that did not happen leaves the UI permanently wrong.
+
+        `dock.enabled_apps` is written only after every transition succeeds, so
+        swallowing a False persisted "multiroom on" against an appliance still in
+        direct mode — a disagreement no later action reconciles, and one the user
+        has no way to see.
+        """
+        client._mock_settings.load_settings = AsyncMock(return_value={
+            "dock": {"enabled_apps": ["spotify"]}
+        })
+        mock_routing_service.set_multiroom_enabled = AsyncMock(return_value=False)
+
+        response = client.put("/api/settings/dock-apps", json={
+            "enabled_apps": ["spotify", "multiroom"]
+        })
+
+        assert response.status_code == 500
+        written = [c.args[0] for c in client._mock_settings.set_setting.call_args_list]
+        assert "dock.enabled_apps" not in written
+
+    def test_set_dock_apps_reports_a_failed_equalizer_toggle(self, client):
+        """Same contract on the equalizer branch, which has its own service call."""
+        client._mock_settings.load_settings = AsyncMock(return_value={
+            "dock": {"enabled_apps": ["spotify", "equalizer"]}
+        })
+        client._mock_multiroom_equalizer_service.set_local_equalizer_effects_enabled = AsyncMock(
+            return_value=False
+        )
+
+        response = client.put("/api/settings/dock-apps", json={
+            "enabled_apps": ["spotify"]
+        })
+
+        assert response.status_code == 500
+        written = [c.args[0] for c in client._mock_settings.set_setting.call_args_list]
+        assert "dock.enabled_apps" not in written
+
     def test_set_dock_apps_invalid_app(self, client):
         """Test PUT /dock-apps with invalid app - should return 422"""
         response = client.put("/api/settings/dock-apps", json={

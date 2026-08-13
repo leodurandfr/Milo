@@ -3348,6 +3348,61 @@ class TestApplyTargetVolumeToClient:
         )
 
     @pytest.mark.asyncio
+    async def test_apply_volume_reports_a_failed_unmute(self, mock_state_machine, mock_registry):
+        """A client whose unmute never reached CamillaDSP is not an applied client.
+
+        CamillaDSP starts muted (-m) and the admission sync announces a client
+        online only once this returns True. Discarding the unmute outcome is what
+        put a satellite in the UI, online, that stayed silent for the whole
+        session: the caller's retry loop never fired because nothing ever
+        reported a failure.
+        """
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        eq = mock_state_machine.volume_service.equalizer_controller
+        eq.set_equalizer_volume = AsyncMock(return_value=True)
+        eq.set_equalizer_mute = AsyncMock(return_value=False)
+
+        ws_service = SnapcastWebSocketService(
+            state_machine=mock_state_machine,
+            routing_service=MagicMock()
+        )
+        ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
+
+        result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
+
+        assert result is False
+        eq.set_equalizer_mute.assert_awaited_once_with("client-1", False, force=True)
+
+    @pytest.mark.asyncio
+    async def test_apply_volume_still_unmutes_after_a_failed_volume(self, mock_state_machine, mock_registry):
+        """The unmute is attempted whatever the volume call returned.
+
+        A muted client at the wrong volume is worse than an unmuted one: with the
+        -m start flag, skipping the unmute on a volume failure leaves the speaker
+        silent. What this pins is the ordering, not the return value — the volume
+        failure alone already makes the result False.
+        """
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        eq = mock_state_machine.volume_service.equalizer_controller
+        eq.set_equalizer_volume = AsyncMock(return_value=False)
+        eq.set_equalizer_mute = AsyncMock(return_value=True)
+
+        ws_service = SnapcastWebSocketService(
+            state_machine=mock_state_machine,
+            routing_service=MagicMock()
+        )
+        ws_service._registry = mock_registry
+        ws_service._volume_service = mock_state_machine.volume_service
+
+        result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
+
+        assert result is False
+        eq.set_equalizer_mute.assert_awaited_once_with("client-1", False, force=True)
+
+    @pytest.mark.asyncio
     async def test_apply_volume_without_volume_service_returns_false(self, mock_registry):
         """Test that apply fails gracefully without volume_service."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
