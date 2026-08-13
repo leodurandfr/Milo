@@ -28,6 +28,7 @@ plugged-in key is indexed even when music_library is not the active source.
 """
 import asyncio
 import random
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
@@ -63,11 +64,6 @@ PREV_RESTART_THRESHOLD_S = 3
 ALBUM_CACHE_TTL_S = 30.0
 # getAlbumList2's per-request ceiling — loop by it to pull the whole catalog.
 _ALBUM_PAGE = 500
-
-# Bounded catch-up schedule (seconds between attempts) for network shares whose
-# NAS was still offline when the backend booted — a NAS often boots slower than
-# the Pi. ~1.75 min total, then we give up; not an ongoing reconnection loop.
-_SHARE_REMOUNT_RETRY_DELAYS_S = (15, 30, 60)
 
 
 class MusicLibrarySource(MpvAudioSource):
@@ -224,8 +220,9 @@ class MusicLibrarySource(MpvAudioSource):
         boundary. ``scope`` is the storage spaces to read (see
         :meth:`browse_scope`). Cached with a short TTL; an explicit rescan or
         share change calls :meth:`invalidate_album_cache`. Returns [] until the
-        catalog is reachable (never caches an empty result — a not-yet-ready
-        daemon retries next call).
+        catalog is reachable, and caches only a walk that ran to the end — a
+        not-yet-ready daemon and a page that failed mid-catalog both retry on the
+        next call rather than serving what they got for the whole TTL.
         """
         key = tuple(sorted(scope))
         now = asyncio.get_event_loop().time()
@@ -237,6 +234,7 @@ class MusicLibrarySource(MpvAudioSource):
             return []
         albums: List[Dict[str, Any]] = []
         offset = 0
+        complete = True
         while True:
             page = await client.get_album_list(
                 scope,
@@ -244,12 +242,19 @@ class MusicLibrarySource(MpvAudioSource):
                 size=_ALBUM_PAGE,
                 offset=offset,
             )
+            if page is None:
+                # A failed request ends the walk short of the catalog. This call
+                # still serves what it has — a partial grid beats none — but the
+                # result is not the catalog and must not become the answer for
+                # the whole TTL.
+                complete = False
+                break
             albums.extend(page)
             if len(page) < _ALBUM_PAGE:
                 break
             offset += _ALBUM_PAGE
         merged = merge_albums(albums)
-        if albums:
+        if albums and complete:
             self._album_cache[key] = (now, merged)
         return merged
 
@@ -731,9 +736,17 @@ class MusicLibrarySource(MpvAudioSource):
             tail = self._queue[self._queue_index + 1:]
             random.shuffle(tail)
         else:
-            # Pristine order minus whatever is already in the played/current head.
-            head_ids = {t.get("id") for t in head}
-            tail = [t for t in self._queue_unshuffled if t.get("id") not in head_ids]
+            # Pristine order minus the played/current head, consumed *positionally*:
+            # a queue can list the same track id twice (an album with a reprise, a
+            # playlist built by hand), and dropping it by set membership deletes
+            # every later copy the moment the first one has played.
+            played = Counter(track.get("id") for track in head)
+            tail = []
+            for track in self._queue_unshuffled:
+                if played.get(track.get("id")):
+                    played[track.get("id")] -= 1
+                    continue
+                tail.append(track)
 
         urls = [client.stream_url(track["id"]) for track in tail]
         self._loading = True

@@ -244,6 +244,11 @@ async def get_albums(
             from_year=from_year,
             to_year=to_year,
         )
+        if albums is None:
+            logger.error("Navidrome did not answer the %s album list", type)
+            raise HTTPException(
+                status_code=503, detail="Music library catalog not ready"
+            )
         return {"albums": merge_albums(albums)}
 
 
