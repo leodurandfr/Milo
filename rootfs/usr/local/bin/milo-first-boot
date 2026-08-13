@@ -226,9 +226,15 @@ _apply_client_filesystem() {
     chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_HOME"
     ln -sfn "$MILO_APP_DIR/milo-client" "$repo_dir/milo-client"
     chown -h "$MILO_CLIENT_USER:audio" "$repo_dir/milo-client"
+    # -h retags the link, never the tree behind it, and the chown above stops at
+    # the symlink for the same reason. But the tree behind it is where the app
+    # actually lives and where every app update writes (app/ sync, pip into
+    # venv/), while the service runs as milo-client — so without this the whole
+    # self-update path dies on EACCES on a converted device, on every attempt.
+    chown -R "$MILO_CLIENT_USER:audio" "$MILO_APP_DIR/milo-client"
     log "Repo structure linked"
 
-    # 4. Set up venv (symlink to pre-built venv)
+    # 4. Set up venv (symlink to pre-built venv, already chowned above)
     ln -sfn "$MILO_APP_DIR/milo-client/venv" "$MILO_CLIENT_HOME/venv"
     chown -h "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_HOME/venv"
     log "Venv linked"

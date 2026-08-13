@@ -128,29 +128,39 @@ class AppUpdateService:
         await asyncio.get_event_loop().run_in_executor(None, _do_extract)
 
     async def _sync_app_files(self, source_app: Path):
-        """Syncs app/ files: clear old content and copy new."""
+        """Stages the new app/ tree next to the live one, then swaps it in.
+
+        Copying straight over the live tree means a failure mid-copy leaves a
+        half-written app on a machine whose only repair path is the API that app
+        serves. Staging first makes the copy — the part that can fail — happen
+        while the live tree is untouched, and reduces the window to two renames.
+        Both staging dirs sit inside REPO_DIR so the renames never cross a
+        filesystem and stay atomic.
+        """
         target_app = REPO_DIR / "app"
+        staging = REPO_DIR / "app.new"
+        previous = REPO_DIR / "app.old"
 
         def _do_sync():
-            # Remove old app files (keep directory itself)
-            if target_app.exists():
-                for item in target_app.iterdir():
-                    if item.name == "__pycache__":
-                        continue
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
+            # Anything left by a killed run is stale, never a fallback.
+            shutil.rmtree(staging, ignore_errors=True)
+            shutil.rmtree(previous, ignore_errors=True)
 
-            # Copy new files
-            for item in source_app.iterdir():
-                if item.name == "__pycache__":
-                    continue
-                dest = target_app / item.name
-                if item.is_dir():
-                    shutil.copytree(item, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-                else:
-                    shutil.copy2(item, dest)
+            shutil.copytree(
+                source_app, staging,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+            )
+
+            if target_app.exists():
+                os.rename(target_app, previous)
+            os.rename(staging, target_app)
+
+            # The unit's WorkingDirectory is this very path, so the running
+            # process is now holding the renamed-away inode as its cwd. pip runs
+            # two steps later and calls getcwd(); re-anchor before app.old goes.
+            os.chdir(target_app)
+
+            shutil.rmtree(previous, ignore_errors=True)
 
         await asyncio.get_event_loop().run_in_executor(None, _do_sync)
         self.logger.info("App files synced successfully")

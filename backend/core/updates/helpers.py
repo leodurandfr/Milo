@@ -9,21 +9,6 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-def extract_base_tag(version: Optional[str]) -> Optional[str]:
-    """Extracts the base tag from a git describe output.
-
-    'v0.0.1-347-g14ee633' -> 'v0.0.1'
-    'v0.0.1' -> 'v0.0.1'
-    """
-    if not version:
-        return None
-    # git describe format: <tag>-<N>-g<hash> or just <tag>
-    parts = version.rsplit("-", 2)
-    if len(parts) == 3 and parts[2].startswith("g"):
-        return parts[0]
-    return version
-
-
 def compare_versions(current: Optional[str], latest: Optional[str]) -> bool:
     """Compares two semver versions (returns True if update available)."""
     if not current or not latest:
