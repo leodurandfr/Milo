@@ -890,6 +890,10 @@ class MusicLibrarySource(MpvAudioSource):
             "queue": list(self._queue),
             "queue_unshuffled": list(self._queue_unshuffled),
             "queue_index": self._queue_index,
+            # Without it the restored queue is attributed to no space, which is
+            # what _stop_if_storage_gone gates on: the key leaves and playback
+            # fast-forwards through unreachable tracks instead of stopping.
+            "queue_library_id": self._queue_library_id,
             "position": self._position,
             "shuffle": self._shuffle,
         }
@@ -920,6 +924,7 @@ class MusicLibrarySource(MpvAudioSource):
         self._queue = tracks
         self._queue_unshuffled = session.get("queue_unshuffled") or list(tracks)
         self._queue_index = index
+        self._queue_library_id = session.get("queue_library_id")
         self._shuffle = bool(session.get("shuffle"))
         self._position = position
         self._duration = int(tracks[index].get("duration") or 0)

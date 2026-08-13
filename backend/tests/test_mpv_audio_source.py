@@ -218,6 +218,57 @@ class TestMpvDisconnect:
         assert cd._mpv_swap_in_progress() is True
 
 
+class TestMonitorSurvivesABadPass:
+    """One raising pass must cost one pass, not the rest of the session.
+
+    With the guard around the whole loop instead of the pass, a single
+    exception out of a source's tick retired the monitor for good: no
+    auto-advance, no position sync, and — worse — no disconnect banner and no
+    idle publish when mpv died afterwards, since that detection lives in the
+    same loop.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_raising_tick_does_not_end_the_monitor(self, radio_source):
+        radio_source._mpv = _live_mpv()
+        ticks: list[int] = []
+
+        async def tick():
+            ticks.append(len(ticks))
+            if len(ticks) == 1:
+                raise RuntimeError("transient mpv read")
+
+        radio_source._on_monitor_tick = tick
+
+        await _run_monitor(radio_source, passes=3)
+
+        assert ticks == [0, 1, 2]
+
+    @pytest.mark.asyncio
+    async def test_a_cancel_landing_inside_the_tick_still_ends_the_monitor(
+        self, radio_source
+    ):
+        """The per-pass guard must stay `except Exception`, never BaseException.
+
+        `_stop_monitor()` cancels the task wherever it happens to be, and that
+        is usually the 1 s sleep but can be any await inside the tick. Widened
+        to BaseException the loop would swallow its own teardown and keep
+        polling an mpv the source has already dropped.
+        """
+        radio_source._mpv = _live_mpv()
+        ticks: list[int] = []
+
+        async def tick():
+            ticks.append(len(ticks))
+            raise asyncio.CancelledError
+
+        radio_source._on_monitor_tick = tick
+
+        await asyncio.wait_for(_run_monitor(radio_source, passes=5), timeout=5)
+
+        assert ticks == [0]
+
+
 class TestPauseChange:
     """Edge-tracking arms/cancels the auto-stop timer."""
 

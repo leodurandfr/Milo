@@ -9,6 +9,8 @@ tick's auto-advance/album-end detection, and the MusicBrainz-unreachable
 offline fallback. The ioctl reader thread and mpv IPC are mocked — no real
 device, FIFO, or subprocess is touched.
 """
+import threading
+
 import pytest
 from unittest.mock import AsyncMock, Mock, call, patch
 
@@ -864,6 +866,33 @@ class TestEjectCommand:
 
         assert result["success"] is False
         assert source._ejecting is False
+
+
+class TestReaderHandshake:
+    @pytest.mark.asyncio
+    async def test_the_reader_wait_never_runs_on_the_event_loop_thread(self, source):
+        """`wait_ready` blocks for up to 5 s and must block a worker, not the loop.
+
+        It sits on the play path — and on every seek and track change, which is
+        where it hurts: on the loop thread it freezes every WS broadcast, HTTP
+        handler and monitor tick of the whole appliance for its whole duration.
+        Recorded from inside the call, so it states where the work happened
+        rather than which helper was used to get there.
+        """
+        loop_thread = threading.current_thread()
+        ran_on = []
+
+        def wait_ready(timeout):
+            ran_on.append(threading.current_thread())
+            return True
+
+        source._mpv = _mpv()
+        source._reader = Mock(wait_ready=wait_ready, start=Mock(), stop=Mock())
+        source._disc_end_lba = 45000
+
+        assert await source._start_reader_and_mpv(0, autostart=False) is True
+
+        assert ran_on and ran_on[0] is not loop_thread
 
 
 class TestMonitorTick:
