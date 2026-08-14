@@ -1,0 +1,50 @@
+#!/bin/bash
+# Apply the desired Avahi interface (allow + deny) from the state file.
+#
+# Why both allow-interfaces AND deny-interfaces are needed:
+#   Avahi 0.8 only enforces `allow-interfaces` during the initial interface
+#   enumeration at startup. Interfaces that come up *after* startup (e.g.
+#   wlan0 reconnecting, DHCP lease rolling over) bypass that filter and the
+#   daemon ends up publishing on them anyway. `deny-interfaces` is checked
+#   on every interface event, so it's the only reliable way to keep Avahi
+#   strictly mono-interface — which we need to prevent the self-loop rename
+#   to milo-client-2.local.
+#
+# Why this reads persisted intent instead of resetting to a hardcoded eth0:
+# the drop-in that calls it runs on *every* avahi start, including the restart
+# the dispatcher itself issues after ethernet drops. A hardcoded default undoes
+# the WiFi fallback the dispatcher just asked for, and nothing re-runs the
+# dispatcher afterwards — so the satellite stayed unreachable by name for as
+# long as the cable was out. Re-applying intent is the only shape that survives
+# its own restart.
+#
+# Deliberately NOT a `Twin of` the server's milo-apply-avahi-iface: same
+# mechanism, but a satellite receives a tarball containing only milo-client/
+# and keeps its state under /var/lib/milo-client.
+
+set -e
+
+STATE_FILE=/var/lib/milo-client/avahi-interface
+CONF=/etc/avahi/avahi-daemon.conf
+
+IFACE=$(cat "$STATE_FILE" 2>/dev/null || echo eth0)
+case "$IFACE" in
+    eth0)  DENY=wlan0 ;;
+    wlan0) DENY=eth0  ;;
+    *)     IFACE=eth0; DENY=wlan0 ;;
+esac
+
+# Idempotent rewrite of both keys — insert if missing, replace if present.
+# Both must be writable from any starting state (fresh rootfs, hand-edited
+# config) so the daemon always boots with the intended pair.
+if grep -q "^allow-interfaces=" "$CONF"; then
+    sed -i "s/^allow-interfaces=.*/allow-interfaces=$IFACE/" "$CONF"
+else
+    sed -i "/^\[server\]/a allow-interfaces=$IFACE" "$CONF"
+fi
+
+if grep -q "^deny-interfaces=" "$CONF"; then
+    sed -i "s/^deny-interfaces=.*/deny-interfaces=$DENY/" "$CONF"
+else
+    sed -i "/^allow-interfaces=/a deny-interfaces=$DENY" "$CONF"
+fi

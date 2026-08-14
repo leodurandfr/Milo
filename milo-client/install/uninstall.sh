@@ -56,6 +56,15 @@ uninstall_milo_client() {
     sudo rm -f /etc/systemd/system/milo-client.service
     sudo rm -f /etc/systemd/system/milo-client-snapclient.service
     sudo rm -f /etc/systemd/system/milo-client-camilladsp.service
+    # The Avahi drop-in is not one of the three units above, and it runs
+    # /usr/local/bin/milo-client-apply-avahi-iface (removed further down) as
+    # ExecStartPre. Left behind, it makes avahi-daemon fail 203/EXEC on this
+    # boot and every boot after, and nothing else ever removes it. Both
+    # spellings: the script installer wrote milo-override.conf before the two
+    # trees agreed on one name.
+    sudo rm -f /etc/systemd/system/avahi-daemon.service.d/milo-client-override.conf
+    sudo rm -f /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
+    sudo rmdir /etc/systemd/system/avahi-daemon.service.d 2>/dev/null || true
     sudo systemctl daemon-reload
 
     # 3. Remove sudoers rules and wrapper scripts
@@ -66,6 +75,8 @@ uninstall_milo_client() {
     sudo rm -f /usr/local/bin/milo-client-deploy-update
     sudo rm -f /usr/local/bin/milo-client-snapclient-launcher
     sudo rm -f /usr/local/bin/milo-client-apply-hardware
+    sudo rm -f /usr/local/bin/milo-client-apply-avahi-iface
+    sudo rm -f /etc/NetworkManager/dispatcher.d/90-milo-network
 
     # 4. Uninstall Snapclient
     log_info "Uninstalling Snapclient..."
