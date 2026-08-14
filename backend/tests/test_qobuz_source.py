@@ -16,7 +16,11 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from backend.core.models.audio_state import AudioSource, SourceState
-from backend.sources.qobuz.source import QobuzSource, _TRACKLESS_GRACE_TICKS
+from backend.sources.qobuz.source import (
+    QobuzSource,
+    _IDLE_GRACE_TICKS,
+    _TRACKLESS_GRACE_TICKS,
+)
 
 
 NOW_PLAYING = {
@@ -120,3 +124,35 @@ class TestStatusToState:
         await source._on_status(trackless, True)
 
         publish.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_settled_idle_stops_republishing(self, qobuz):
+        """The ~1 Hz poll is the progress feed of a *playing* session. Once READY
+        is out, the next tick has nothing to add — and this source stays selected
+        for hours, so each one was a full_state to every connected client."""
+        source, publish = qobuz
+        await source._on_status({"status": "playing", "now_playing": NOW_PLAYING}, True)
+        for _ in range(_IDLE_GRACE_TICKS + 1):
+            await source._on_status({"status": "idle"}, True)
+        assert published_state(publish)[0] == SourceState.READY
+        publish.reset_mock()
+
+        for _ in range(5):
+            await source._on_status({"status": "idle"}, True)
+
+        publish.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_logout_while_idle_is_still_published(self, qobuz):
+        """The login state is the one thing that moves while idle, and the idle
+        card's 'connect account' CTA is drawn from it."""
+        source, publish = qobuz
+        for _ in range(_IDLE_GRACE_TICKS + 1):
+            await source._on_status({"status": "idle"}, True)
+        publish.reset_mock()
+
+        await source._on_status({"status": "idle"}, False)
+
+        state, metadata = published_state(publish)
+        assert state == SourceState.READY
+        assert metadata["account_authenticated"] is False

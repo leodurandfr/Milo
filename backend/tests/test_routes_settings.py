@@ -5,7 +5,9 @@ Unit tests for Settings API routes
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from unittest.mock import Mock, AsyncMock, patch
+from backend.api.models import HardwareConfigRequest
 from backend.api.settings import create_settings_router
 from backend.core.settings import SettingsService
 
@@ -465,3 +467,35 @@ class TestSettingsRoutes:
         response = client.get("/api/settings/hardware-info")
         assert response.status_code == 200
         assert "hardware" in response.json()
+
+
+class TestHardwareConfigRequest:
+    """PUT /hardware-config's request model — checked without the route, which
+    applies the config and reboots the unit."""
+
+    @staticmethod
+    def _payload(ir_gpio_pin, ir_enabled=True):
+        """A config valid in every respect but the IR data line."""
+        return {
+            "audio": {"id": "hifiberry_amp2"},
+            "screen": {"type": "waveshare_7_usb"},
+            "rotary_encoder": {"enabled": True, "clk_pin": 22, "dt_pin": 27, "sw_pin": 23},
+            "ir_remote": {"enabled": ir_enabled, "gpio_pin": ir_gpio_pin},
+        }
+
+    def test_a_free_pin_is_accepted(self):
+        """The negative case below has to fail for its own reason, not because
+        the rest of the payload was invalid."""
+        assert HardwareConfigRequest(**self._payload(17)).ir_remote.gpio_pin == 17
+
+    def test_the_ir_line_cannot_reuse_a_rotary_pin(self):
+        """Two peripherals, one GPIO header, one form. Nothing else compares
+        them, and the route reboots — so an accepted collision comes back as a
+        remote (or an encoder) that simply does not respond."""
+        with pytest.raises(ValidationError):
+            HardwareConfigRequest(**self._payload(22))
+
+    def test_a_disabled_ir_remote_frees_its_pin(self):
+        """The stored pin of a disabled remote drives nothing; rejecting it
+        would block a legitimate encoder config."""
+        assert HardwareConfigRequest(**self._payload(22, ir_enabled=False))

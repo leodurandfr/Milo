@@ -200,41 +200,6 @@ class TestRankingKey:
         assert api._ranking_key(clean) > api._ranking_key(broken)
 
 
-class TestFindAlternativeUrls:
-    """WI-4: alternatives stay on the same broadcaster, never a name twin."""
-
-    @pytest.mark.asyncio
-    async def test_drops_other_country_matches(self, api):
-        """A same-name station in another country is never offered."""
-        origin = {"name": "Radio X", "id": "u1", "countrycode": "FR", "url": "http://fr/a"}
-        results = [
-            {"name": "Radio X", "id": "u2", "countrycode": "FR", "url": "http://fr/b", "bitrate": 128, "codec": "MP3"},
-            {"name": "Radio X", "id": "u3", "countrycode": "BR", "url": "http://br/c", "bitrate": 320, "codec": "MP3"},
-        ]
-        with patch.object(api, "_fetch_stations_by_query", new=AsyncMock(return_value=results)):
-            alts = await api.find_alternative_urls(origin, exclude_url="http://fr/a")
-
-        urls = [a["url"] for a in alts]
-        assert urls == ["http://fr/b"]  # Brazilian twin dropped despite higher bitrate
-
-    @pytest.mark.asyncio
-    async def test_same_host_outranks_higher_quality_stranger(self, api):
-        """Same streaming host (same broadcaster) beats a higher-bitrate name-match."""
-        origin = {"name": "Radio X", "id": "u1", "countrycode": "FR", "url": "http://cdn.example/a"}
-        results = [
-            {"name": "Radio X", "id": "u2", "countrycode": "FR", "url": "http://cdn.example/b", "bitrate": 96, "codec": "MP3"},
-            {"name": "Radio X", "id": "u3", "countrycode": "FR", "url": "http://other.net/c", "bitrate": 320, "codec": "MP3"},
-        ]
-        with patch.object(api, "_fetch_stations_by_query", new=AsyncMock(return_value=results)):
-            alts = await api.find_alternative_urls(origin, exclude_url="http://cdn.example/a")
-
-        assert alts[0]["url"] == "http://cdn.example/b"  # affinity (host) beats quality
-
-    @pytest.mark.asyncio
-    async def test_excludes_failing_url_and_empty_name(self, api):
-        assert await api.find_alternative_urls({"name": ""}) == []
-
-
 class TestExtractValidGenre:
     def test_urban_is_skipped(self):
         """'urban' was removed from VALID_GENRES — must skip past it."""

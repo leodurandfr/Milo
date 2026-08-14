@@ -41,7 +41,6 @@ REGISTRY_EVENT_CLASSES: Dict[str, Type[WsEvent]] = {
     RegistryEventType.CLIENT_CONNECTED: MultiroomClientStateChanged,
     RegistryEventType.CLIENT_DISCONNECTED: MultiroomClientStateChanged,
     RegistryEventType.CLIENT_UPDATED: MultiroomClientStateChanged,
-    RegistryEventType.VOLUME_CHANGED: MultiroomClientStateChanged,
     RegistryEventType.ZONE_CREATED: MultiroomZoneChanged,
     RegistryEventType.ZONE_UPDATED: MultiroomZoneChanged,
     RegistryEventType.ZONE_DELETED: MultiroomZoneChanged,
@@ -372,7 +371,13 @@ class ClientRegistryService:
         mute: Optional[bool] = None
     ) -> None:
         """
-        Update client volume state.
+        Mirror a client's volume/mute into the registry.
+
+        State only, no event: the registry copy exists for the zone averages and
+        the reconnection context. What the UI renders comes from VolumeStateStore
+        over the `volume` category — `client_state_changed` strips volume_db and
+        mute on arrival, so announcing a volume here would be a full client frame
+        carrying nothing its consumer keeps.
 
         Args:
             mac_id: The client's mac_id
@@ -388,11 +393,6 @@ class ClientRegistryService:
                 client.volume_db = volume_db
             if mute is not None:
                 client.mute = mute
-
-        await self._emit_event(RegistryEventType.VOLUME_CHANGED, {
-            "mac_id": mac_id,
-            "client": client.to_dict()
-        })
 
     # === CLIENT QUERIES ===
 

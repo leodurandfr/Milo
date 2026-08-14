@@ -306,21 +306,12 @@ class RadioSource(MpvAudioSource):
             self._metadata = self._build_playback_metadata()
             self._update_connection_state()
 
-            # Try to play with fallback mechanism
-            working_url = await self._try_play_with_fallback(station)
-
-            if not working_url:
+            if not await self._load_stream(primary_url):
                 self._is_buffering = False
                 self._current_station = None
                 error_msg = f"Unable to load stream: {station_name}"
                 self.broadcast_error(error_msg)
                 return self.error_response(error_msg)
-
-            # Update station URL if we used an alternative
-            if working_url != primary_url:
-                station['url'] = working_url
-                self._current_station = station
-                self._metadata = self._build_playback_metadata()
 
             # Per-station now-playing gate: when the station is opted out via
             # ManageStation, show no track at all (neither in-band nor Shazam).
@@ -346,41 +337,13 @@ class RadioSource(MpvAudioSource):
             self.broadcast_error(str(e))
             return self.error_response(str(e))
 
-    async def _try_play_with_fallback(
-        self, station: Dict[str, Any], max_alternatives: int = 3
-    ) -> Optional[str]:
-        """Try to play a station with fallback to alternative URLs."""
-        station_name = station.get('name', 'Unknown')
-        primary_url = station.get('url')
+    async def _load_stream(self, url: str) -> bool:
+        """Hand a stream URL to mpv.
 
-        # Try primary URL
-        if await self._try_single_url(primary_url):
-            return primary_url
-
-        self._logger.info(f"Primary URL failed for {station_name}, searching alternatives...")
-
-        # Find and try alternative URLs — anchored to the same broadcaster
-        # (uuid/host/country), never a different station that shares the name.
-        alternatives = await self._radio_api.find_alternative_urls(
-            station, exclude_url=primary_url
-        )
-
-        if not alternatives:
-            return None
-
-        for i, alt_station in enumerate(alternatives[:max_alternatives]):
-            alt_url = alt_station.get('url')
-            if not alt_url:
-                continue
-
-            if await self._try_single_url(alt_url):
-                self._logger.info(f"Alternative URL {i+1} works for {station_name}")
-                return alt_url
-
-        return None
-
-    async def _try_single_url(self, url: str) -> bool:
-        """Try to play a single URL in mpv."""
+        False means mpv refused the command, not that the stream is bad: mpv
+        acknowledges `loadfile` before it has opened anything. A dead stream is
+        caught later, by the buffering timeout in the monitor.
+        """
         if not self._mpv:
             self._logger.error("MPV not connected, cannot load stream")
             return False

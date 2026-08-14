@@ -154,7 +154,6 @@ class TestRadioSourceCommands:
             "url": "http://stream.url"
         })
         radio_source._radio_api.increment_station_clicks = AsyncMock()
-        radio_source._radio_api.find_alternative_urls = AsyncMock(return_value=[])
 
         result = await radio_source.command("play_station", {"station_id": "test-id"})
 
