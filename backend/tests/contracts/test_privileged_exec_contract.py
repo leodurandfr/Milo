@@ -369,6 +369,63 @@ def test_argument_scoped_grants_stay_argument_scoped():
 # The contract.
 # --------------------------------------------------------------------------- #
 
+# Matched on the rule text rather than parsed: what the test below is about is
+# the *order* of these two kinds of rule, not their contents.
+WITHDRAWAL_TAG = "PASSWD: ALL"
+GRANT_TAG = "NOPASSWD:"
+
+
+def _rules_in_read_order(tree_name: str) -> list[tuple[str, str]]:
+    """(policy name, rule line) for one user, in the order sudo reads them.
+
+    sudo reads /etc/sudoers.d in lexical filename order, so sorting a tree's
+    policies by name reproduces it — `milo-backend` before `milo-ir-remote`.
+    """
+    user = TREES[tree_name]["user"]
+    return [
+        (policy.name, line.strip())
+        for policy in sorted(TREES[tree_name]["policies"], key=lambda p: p.name)
+        for line in policy.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith(f"{user} ")
+    ]
+
+
+@pytest.mark.parametrize("tree_name", sorted(TREES))
+def test_the_image_blanket_grant_is_withdrawn_before_any_grant(tree_name):
+    """Without this rule the policy is decorative; below the grants it is fatal.
+
+    Raspberry Pi OS ships /etc/sudoers.d/010_pi-nopasswd — a conffile of
+    raspberrypi-sys-mods, whose username userconf-pi rewrites on first boot — so
+    on a unit whose appliance account is also the image's first user it reads
+    `<user> ALL=(ALL) NOPASSWD: ALL`. Measured on a satellite: `sudo -n true`
+    succeeded for `milo-client`, which makes every argument-scoped grant the
+    tests above check decorative, and leaves invariant #1 true in the tree and
+    false on the appliance. Each policy therefore re-tags the same commands
+    PASSWD; it is read after 010_… and sudo applies the *last* matching rule.
+
+    The order is the whole fix. Below the grants that rule becomes the last
+    match for those too, and a satellite is then asked for a password no service
+    can type — while the repair path, `milo-client-deploy-update`, needs the
+    very sudo it just lost.
+    """
+    rules = _rules_in_read_order(tree_name)
+    withdrawals = [
+        i for i, (_, rule) in enumerate(rules)
+        if GRANT_TAG not in rule and rule.endswith(WITHDRAWAL_TAG)
+    ]
+    grants = [i for i, (_, rule) in enumerate(rules) if GRANT_TAG in rule]
+
+    assert grants, f"{tree_name}: no grant parsed — the extractor is broken"
+    assert withdrawals, (
+        f"{tree_name}: no `{TREES[tree_name]['user']} … {WITHDRAWAL_TAG}` rule — "
+        "the image's blanket NOPASSWD makes every grant here decorative"
+    )
+    assert max(withdrawals) < min(grants), (
+        f"{tree_name}: the `{WITHDRAWAL_TAG}` rule must precede every grant; "
+        f"{rules[max(withdrawals)]} comes after {rules[min(grants)]}"
+    )
+
+
 @pytest.mark.parametrize("tree_name", sorted(TREES))
 def test_every_privileged_call_is_permitted(tree_name):
     """A call the policy does not grant is a silent denial on a real unit."""

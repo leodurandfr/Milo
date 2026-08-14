@@ -11,6 +11,19 @@
 # Suppress sudo + PAM session logs (noisy in journalctl)
 Defaults:milo !syslog, !pam_session
 
+# Take back the image's blanket grant. Raspberry Pi OS ships
+# /etc/sudoers.d/010_pi-nopasswd (a conffile of raspberrypi-sys-mods) and
+# userconf-pi rewrites the username inside it on first boot, so on a flashed
+# unit — pi-gen/config sets FIRST_USER_NAME="milo" — it reads
+# `milo ALL=(ALL) NOPASSWD: ALL` and the grants below are decorative. sudoers
+# applies the *last* matching rule and reads /etc/sudoers.d in lexical order, so
+# this file (m…) is read after that one (0…). Same rule, same reasoning, in
+# milo-client/rootfs/etc/sudoers.d/milo-client, where it was measured.
+#
+# Order is load-bearing: it must stay above the grants, or it becomes the last
+# match for those too and the backend loses every privileged command it has.
+milo ALL=(ALL:ALL) PASSWD: ALL
+
 # System control (SystemdServiceManager: start/stop/restart a unit, and
 # `systemctl reboot|poweroff` for the power path — there is no separate
 # /usr/sbin/reboot grant because nothing shells those binaries)
