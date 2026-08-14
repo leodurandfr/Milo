@@ -16,6 +16,7 @@ import aiohttp
 
 from backend.core.multiroom.models import ReconnectionContext
 from backend.core.multiroom.identity import compute_mac_id
+from backend.core.multiroom.routing import resolve_snapclient_config
 from backend.core.multiroom.snapcast import SnapcastService
 from backend.core.multiroom.client_registry import (
     ClientRegistryService,
@@ -805,15 +806,7 @@ class SnapcastWebSocketService:
     async def _push_snapclient_config(self, client_ip: str):
         """Push current snapclient buffer config to a remote client on reconnection."""
         try:
-            buffer_time = 80
-            fragments = 4
-            if self.settings_service:
-                val = await self.settings_service.get_setting('multiroom.snapclient_buffer_time')
-                if val is not None:
-                    buffer_time = val
-                val = await self.settings_service.get_setting('multiroom.snapclient_fragments')
-                if val is not None:
-                    fragments = val
+            buffer_time, fragments = await resolve_snapclient_config(self.settings_service)
 
             timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(timeout=timeout) as session:

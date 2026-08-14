@@ -138,6 +138,52 @@ class TestSnapclientRoutes:
         assert "update_in_progress" in data
 
 
+class TestSnapclientConfigBounds:
+    """PUT /snapclient/config carries the ALSA buffer pair the server resolved.
+
+    The handler used to clamp both values silently, with a range of its own that
+    had drifted from the server's — so a disagreement between the two halves
+    played out as a satellite running a different ALSA buffer than the rest of
+    the house, reported nowhere. The bound now lives on the model, and a value
+    outside it is a 422 the server logs.
+    """
+
+    @pytest.mark.parametrize("payload", [
+        {"buffer_time": 59, "fragments": 4},
+        {"buffer_time": 301, "fragments": 4},
+        {"buffer_time": 120, "fragments": 1},
+        {"buffer_time": 120, "fragments": 9},
+    ])
+    def test_a_value_outside_the_shared_range_is_refused(self, client, payload):
+        assert client.put("/snapclient/config", json=payload).status_code == 422
+
+    def test_both_fields_are_required(self, client):
+        """The server sends the pair on every push; a partial body is a bug there."""
+        assert client.put("/snapclient/config", json={"buffer_time": 120}).status_code == 422
+
+    def test_an_in_range_pair_reaches_the_env_file(self, client, tmp_path, monkeypatch):
+        env = tmp_path / "env"
+        env.write_text("MILO_PRINCIPAL_IP=192.168.1.10\nMILO_SNAPCLIENT_BUFFER_TIME=80\n")
+        monkeypatch.setattr("routes.snapclient.ENV_FILE", env)
+
+        async def _ok(*args, **kwargs):
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(b"", b""))
+            proc.returncode = 0
+            return proc
+
+        monkeypatch.setattr("routes.snapclient.asyncio.create_subprocess_exec", _ok)
+
+        response = client.put("/snapclient/config", json={"buffer_time": 300, "fragments": 8})
+
+        assert response.status_code == 200
+        assert response.json()["changed"] is True
+        written = env.read_text()
+        assert "MILO_SNAPCLIENT_BUFFER_TIME=300" in written
+        assert "MILO_SNAPCLIENT_FRAGMENTS=8" in written
+        assert "MILO_PRINCIPAL_IP=192.168.1.10" in written
+
+
 class TestEqualizerRoutes:
     """Test Equalizer control routes."""
 

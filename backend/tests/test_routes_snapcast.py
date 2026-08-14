@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock
 from backend.api.routing import create_routing_router
+from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG, SNAPCLIENT_LIMITS
 
 
 class TestSnapcastRoutes:
@@ -109,3 +110,118 @@ class TestSnapcastRoutes:
             json={"config": {"buffer": 1000}}
         )
         assert response.status_code == 502
+
+
+class TestSnapclientBufferSetting:
+    """`snapclient_buffer_time` / `snapclient_fragments` travel a path of their own.
+
+    The route pops both out of `config` before SnapcastService sees it — they
+    belong to snapclient.env, not snapserver.conf — so the validators that used
+    to sit in `SnapcastService._validate_config` were never reached: an
+    out-of-range value was persisted, written to the local env and pushed to
+    every satellite, each end clamping it its own way. This route is the only
+    gate the pair passes through.
+    """
+
+    @pytest.fixture
+    def settings_service(self):
+        store = {}
+        svc = Mock()
+        svc.get_setting = AsyncMock(side_effect=lambda key: store.get(key))
+        svc.set_settings = AsyncMock(side_effect=lambda updates: store.update(updates))
+        svc.store = store
+        return svc
+
+    @pytest.fixture
+    def client(self, settings_service):
+        routing_service = Mock()
+        routing_service.service_manager = Mock()
+        routing_service.service_manager.restart = AsyncMock(return_value=True)
+
+        snapcast_service = Mock()
+        snapcast_service.is_available = AsyncMock(return_value=True)
+        snapcast_service.get_server_config = AsyncMock(return_value={"buffer_ms": 1000})
+        snapcast_service.update_server_config = AsyncMock(return_value=True)
+
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+
+        app = FastAPI()
+        app.include_router(create_routing_router(
+            routing_service, state_machine, snapcast_service,
+            settings_service=settings_service,
+        ))
+        c = TestClient(app)
+        c.routing_service = routing_service
+        c.snapcast_service = snapcast_service
+        return c
+
+    def test_get_reports_the_declared_default_when_nothing_is_stored(self, client):
+        """The route used to answer with its own `80`, a second declaration of
+        a default DEFAULT_SNAPCLIENT_CONFIG already owns."""
+        body = client.get("/api/routing/snapcast/server-config").json()
+        assert body["config"]["snapclient_buffer_time"] == DEFAULT_SNAPCLIENT_CONFIG["buffer_time"]
+
+    def test_get_reports_the_stored_value(self, client, settings_service):
+        settings_service.store['multiroom.snapclient_buffer_time'] = 150
+        body = client.get("/api/routing/snapcast/server-config").json()
+        assert body["config"]["snapclient_buffer_time"] == 150
+
+    @pytest.mark.parametrize("field,value", [
+        ("snapclient_buffer_time", SNAPCLIENT_LIMITS["buffer_time"][1] + 1),
+        ("snapclient_buffer_time", SNAPCLIENT_LIMITS["buffer_time"][0] - 1),
+        ("snapclient_buffer_time", "120"),
+        ("snapclient_fragments", SNAPCLIENT_LIMITS["fragments"][1] + 1),
+        ("snapclient_fragments", SNAPCLIENT_LIMITS["fragments"][0] - 1),
+    ])
+    def test_out_of_range_is_rejected_and_nothing_is_written(
+        self, client, settings_service, field, value, monkeypatch
+    ):
+        """Rejected at the door — before settings.json, before snapclient.env,
+        before the push to the satellites and before the snapserver restart."""
+        regenerate = Mock()
+        monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", regenerate)
+
+        payload = {"snapclient_buffer_time": 120, "snapclient_fragments": 4}
+        payload[field] = value
+        response = client.put("/api/routing/snapcast/server-config", json={"config": payload})
+
+        assert response.status_code == 400
+        settings_service.set_settings.assert_not_called()
+        regenerate.assert_not_called()
+        client.snapcast_service.update_server_config.assert_not_called()
+        client.routing_service.service_manager.restart.assert_not_called()
+
+    def test_the_pair_never_reaches_the_snapserver_config_writer(self, client, monkeypatch):
+        """Both keys belong to snapclient.env, not snapserver.conf.
+
+        They leave `config` before SnapcastService sees the body — which is why
+        the validators that used to sit in `_validate_config` for them covered
+        nothing at all, and why this route has to gate them itself.
+        """
+        monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", Mock())
+
+        client.put("/api/routing/snapcast/server-config", json={"config": {
+            "buffer_ms": 1000, "snapclient_buffer_time": 120, "snapclient_fragments": 4,
+        }})
+
+        (written,), _ = client.snapcast_service.update_server_config.call_args
+        assert written == {"buffer_ms": 1000}
+
+    def test_an_accepted_value_reaches_the_env_and_the_local_snapclient(
+        self, client, settings_service, monkeypatch
+    ):
+        regenerate = Mock()
+        monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", regenerate)
+
+        response = client.put(
+            "/api/routing/snapcast/server-config",
+            json={"config": {"snapclient_buffer_time": SNAPCLIENT_LIMITS["buffer_time"][1]}}
+        )
+
+        assert response.status_code == 200
+        high = SNAPCLIENT_LIMITS["buffer_time"][1]
+        assert settings_service.store['multiroom.snapclient_buffer_time'] == high
+        # Fragments were not part of the request: the declared default carries.
+        regenerate.assert_called_once_with(high, DEFAULT_SNAPCLIENT_CONFIG["fragments"])
+        client.routing_service.service_manager.restart.assert_awaited_once()

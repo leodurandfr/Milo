@@ -417,13 +417,18 @@ class SnapcastService:
         recognised meant a body in the wrong shape passed, wrote nothing,
         returned success and restarted snapserver anyway — the only way this
         endpoint can lie.
+
+        The two `snapclient_*` keys are deliberately absent: they belong to
+        snapclient.env, not snapserver.conf, and the route pops them before
+        calling here — so entries for them validated nothing at all. Their range
+        lives with the value they bound (`SNAPCLIENT_LIMITS` in routing.py) and
+        is enforced by the route. Should one ever reach this method again, the
+        unknown-key rule above rejects it loudly, which is the point.
         """
         validators = {
             "buffer_ms": lambda x: isinstance(x, int) and 150 <= x <= 3000,
             "codec": lambda x: x in SUPPORTED_CODECS,
             "chunk_ms": lambda x: isinstance(x, int) and 15 <= x <= 50,
-            "snapclient_buffer_time": lambda x: isinstance(x, int) and 60 <= x <= 300,
-            "snapclient_fragments": lambda x: isinstance(x, int) and 2 <= x <= 8
         }
 
         unknown = set(config) - set(validators) - {"sampleformat"}

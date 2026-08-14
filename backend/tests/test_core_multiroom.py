@@ -39,6 +39,7 @@ from backend.core.multiroom.snapcast import (
     SnapcastRequestError,
 )
 from backend.core.multiroom.crossover import CrossoverService
+from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG, SNAPCLIENT_LIMITS
 from backend.core.equalizer.client_proxy import is_ip_address
 
 
@@ -1413,6 +1414,25 @@ class TestSnapcastService:
             "sampleformat": "48000:32:2",
         }
         assert snapcast_service._validate_config(config) is True
+
+    def test_every_preset_is_a_config_the_api_would_accept(self, snapcast_service):
+        """A preset the UI offers must survive the route it is sent back through.
+
+        The presets are served as capabilities and re-sent verbatim as a write
+        body, split the way the route splits it: the snapclient key leaves
+        `config` and is gated by SNAPCLIENT_LIMITS, the rest is gated by
+        `_validate_config`. A preset outside either bound is silently altered on
+        the way in, and the settings page then never shows it as the active one.
+        """
+        from backend.core.multiroom.snapcast import NETWORK_PRESETS
+
+        assert NETWORK_PRESETS, "no presets to check"
+        low, high = SNAPCLIENT_LIMITS["buffer_time"]
+        for preset in NETWORK_PRESETS:
+            config = dict(preset["config"])
+            buffer_time = config.pop("snapclient_buffer_time")
+            assert low <= buffer_time <= high, f"{preset['id']}: {buffer_time} ms is outside the accepted range"
+            assert snapcast_service._validate_config(config) is True, f"{preset['id']} is not a legal write body"
 
     @pytest.mark.asyncio
     async def test_read_and_write_of_server_config_agree_on_one_body(self, snapcast_service):
@@ -3929,4 +3949,11 @@ class TestAdmissionPathConvergence:
         url, body = pushed[0]
         assert url.startswith(f"http://{self.IP}:")
         assert url.endswith("/snapclient/config")
-        assert set(body) == {"buffer_time", "fragments"}
+        # Nothing stored here, so the pair must resolve to the one declaration
+        # of the default. This push used to carry its own `80`/`4` literals —
+        # a second default for a setting DEFAULT_SNAPCLIENT_CONFIG owns, which
+        # a satellite would have been re-synced to on every reconnection.
+        assert body == {
+            "buffer_time": DEFAULT_SNAPCLIENT_CONFIG["buffer_time"],
+            "fragments": DEFAULT_SNAPCLIENT_CONFIG["fragments"],
+        }

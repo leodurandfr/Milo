@@ -1,7 +1,7 @@
 """
 Pydantic models for API request validation.
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 
 
@@ -80,6 +80,14 @@ class EqualizerEnabledUpdate(BaseModel):
 
 
 class SnapclientConfigUpdate(BaseModel):
-    """Model for snapclient ALSA buffer configuration update."""
-    buffer_time: int
-    fragments: Optional[int] = 4
+    """Model for snapclient ALSA buffer configuration update.
+
+    Both fields are required and bounded here rather than clamped in the
+    handler: the server sends the pair on every push, already resolved against
+    the same range (`SNAPCLIENT_LIMITS` in the backend's multiroom/routing.py,
+    which a satellite tarball does not carry). A value outside it means the two
+    halves disagree — worth a loud 422 the server logs, not a satellite quietly
+    running a different ALSA buffer than the rest of the house.
+    """
+    buffer_time: int = Field(..., ge=60, le=300)
+    fragments: int = Field(..., ge=2, le=8)
