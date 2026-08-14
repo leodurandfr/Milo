@@ -3,6 +3,7 @@
 Tests for UpdateService — update orchestration, backup/restore, service management.
 """
 import asyncio
+import tempfile
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
@@ -1221,3 +1222,53 @@ class TestRollbackShairportSync:
 
         assert result is True
         mock_start.assert_not_called()
+
+
+class TestSnapcastComponentDownloadTempDir:
+    """A download that fails must not leave its scratch directory in /tmp.
+
+    Only the success path hands `temp_dir` back, and _cleanup_temp_files is what
+    releases it. Every other exit owns the directory itself: on this appliance
+    /tmp is a tmpfs, and a Multiroom update retried after a network failure
+    grows the leak once per attempt with nothing that ever collects it.
+    """
+
+    @staticmethod
+    @contextmanager
+    def _sandboxed_tmp(service, tmp_path):
+        """Redirect mkdtemp into tmp_path and record every directory it creates."""
+        created = []
+        real_mkdtemp = tempfile.mkdtemp
+
+        def fake_mkdtemp(dir=None):  # noqa: A002 -- mirrors tempfile.mkdtemp's kwarg
+            path = real_mkdtemp(dir=str(tmp_path))
+            created.append(Path(path))
+            return path
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(
+                service, "_get_debian_codename", AsyncMock(return_value="bookworm")
+            ))
+            stack.enter_context(patch("backend.core.updates.update.tempfile.mkdtemp", fake_mkdtemp))
+            yield created
+
+    @pytest.mark.asyncio
+    async def test_unknown_component_creates_no_temp_dir(self, update_service, tmp_path):
+        with self._sandboxed_tmp(update_service, tmp_path) as created:
+            result = await update_service._download_snapcast_component("snapfoo", "0.31.0")
+
+        assert result["success"] is False
+        assert "Unknown component" in result["error"]
+        assert created == [], "a scratch directory was created for a component we reject"
+
+    @pytest.mark.asyncio
+    async def test_failed_download_removes_its_temp_dir(self, update_service, tmp_path):
+        with self._sandboxed_tmp(update_service, tmp_path) as created:
+            with patch("backend.core.updates.update.aiohttp.ClientSession",
+                       side_effect=RuntimeError("network down")):
+                result = await update_service._download_snapcast_component("snapclient", "0.31.0")
+
+        assert result["success"] is False
+        assert "network down" in result["error"]
+        assert len(created) == 1
+        assert not created[0].exists(), "the scratch directory outlived the failed download"

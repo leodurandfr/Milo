@@ -366,13 +366,22 @@ class TestSettingsService:
         assert service._cache is not None
 
     @pytest.mark.asyncio
-    async def test_save_settings_error_cleanup_temp_file(self, service):
-        """Temporary file cleanup test in case of error"""
-        # Mock aiofiles.open to raise an exception (service uses aiofiles, not builtins.open)
-        with patch('aiofiles.open', side_effect=Exception('Write error')):
+    async def test_save_settings_returns_false_when_the_write_fails(self, service):
+        """A failed persist is reported, not swallowed into a success.
+
+        Patched at the persistence collaborator rather than at whatever file
+        primitive it happens to use: this pinned `aiofiles.open` until
+        save_versioned_json moved its whole sequence onto a worker thread, at
+        which point the patch stopped intercepting anything and the test
+        asserted a write that had actually succeeded. The temp-file cleanup this
+        used to be named for belongs to persistence.py and is asserted there.
+        """
+        with patch(
+            'backend.core.settings.save_versioned_json', side_effect=Exception('Write error')
+        ):
             result = await service.save_settings({'language': 'french'})
 
-            assert result is False
+        assert result is False
 
     # ------------------------------------------------------------------ #
     # Phase 1 — failure-loud writes and validated sync reads             #

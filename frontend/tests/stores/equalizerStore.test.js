@@ -227,6 +227,62 @@ describe('equalizerStore', () => {
     });
   });
 
+  describe('superseded loads', () => {
+    /**
+     * loadStatus fetches the target record and the preset catalog together, and
+     * only the record carries the abort signal. So a target switch while the
+     * presets are still in flight leaves the previous call holding a *complete*
+     * record for a target that is no longer displayed — the abort came too late
+     * to stop it. Nothing but controller identity separates the two.
+     */
+    function deferPresets() {
+      const resolvers = [];
+      const signals = [];
+      let records = 0;
+      apiCall.get.mockImplementation(async (url, { signal } = {}) => {
+        if (url.endsWith('/presets')) {
+          return new Promise(resolve => resolvers.push(resolve));
+        }
+        signals.push(signal);
+        records += 1;
+        return ok({
+          state: 'running',
+          filters: [],
+          active_preset: records === 1 ? 'rock' : 'jazz',
+        });
+      });
+      return { resolvers, signals };
+    }
+
+    it('does not apply the superseded target record over the newer one', async () => {
+      const { resolvers } = deferPresets();
+
+      const first = equalizerStore.loadStatus();
+      const second = equalizerStore.loadStatus();
+
+      resolvers[1](ok({ presets: [] }));
+      await second;
+      expect(equalizerStore.activePreset).toBe('jazz');
+
+      resolvers[0](ok({ presets: [] }));
+      await first;
+      expect(equalizerStore.activePreset).toBe('jazz');
+    });
+
+    it('leaves the newer load abortable by cleanup()', async () => {
+      const { resolvers, signals } = deferPresets();
+
+      const first = equalizerStore.loadStatus();
+      equalizerStore.loadStatus();
+
+      resolvers[0](ok({ presets: [] }));
+      await first;
+
+      equalizerStore.cleanup();
+      expect(signals[1].aborted).toBe(true);
+    });
+  });
+
   describe('one loader per target', () => {
     /**
      * The record carries the master toggle, so loadStatus() is the only thing

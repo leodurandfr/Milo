@@ -139,7 +139,7 @@ class BtRemoteController:
         """Stop all scanning, monitoring, and D-Bus listener."""
         self.running = False
 
-        self._dispatcher.cancel()
+        await self._dispatcher.cleanup()
         await self._volume.cleanup()
 
         for task_ref in (self._scan_task, self._discovery_task, self._dbus_listener_task):

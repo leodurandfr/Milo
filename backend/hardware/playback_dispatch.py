@@ -67,12 +67,20 @@ class PlaybackDispatcher:
             lambda: self._bg.spawn(self._resolve_clicks(), label="resolve_clicks"),
         )
 
-    def cancel(self):
-        """Cancel any pending multi-click timer."""
+    async def cleanup(self):
+        """Cancel the pending multi-click window and drain the resolver tasks.
+
+        The timer fires into `_bg`, so cancelling it alone leaves an already
+        spawned `_resolve_clicks` in flight: a controller that has released its
+        hardware still dispatches a play/pause a fraction of a second later.
+        Draining here also puts this class under the guardrail in
+        test_service_wiring.py, which only inspects teardowns it can name.
+        """
         if self._click_timer:
             self._click_timer.cancel()
             self._click_timer = None
         self._click_count = 0
+        await self._bg.cancel_all()
 
     async def _resolve_clicks(self):
         """Resolve accumulated clicks after the multi-click window expires."""

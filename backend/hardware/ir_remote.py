@@ -161,7 +161,7 @@ class IrRemoteController:
     async def cleanup(self) -> None:
         """Stop background tasks."""
         await self._stop_runtime_listener()
-        self._dispatcher.cancel()
+        await self._dispatcher.cleanup()
         self._cancel_menu_click_timer()
         await self._volume.cleanup()
         await self._bg.cancel_all()

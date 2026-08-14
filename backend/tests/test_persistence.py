@@ -1,10 +1,13 @@
 """Unit tests for load_versioned_json / save_versioned_json."""
 import asyncio
 import json
+import os
+import threading
 from pathlib import Path
 
 import pytest
 
+from backend.shared import persistence
 from backend.shared.persistence import (
     SchemaVersionMismatch,
     load_versioned_json,
@@ -98,4 +101,53 @@ async def test_save_concurrent_writes_do_not_race_on_tempfile(tmp_path: Path):
     assert "writer" in loaded
 
     # No stray temp files left behind.
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+@pytest.mark.asyncio
+async def test_save_does_not_block_the_event_loop(tmp_path: Path, monkeypatch):
+    """The whole write sequence must run off the event-loop thread.
+
+    mkdir, fsync and os.replace are blocking syscalls, and this primitive is on
+    the write path of every persisted file. Doing them on the loop thread stalls
+    every WS, HTTP and monitor task for as long as the SD card takes — the same
+    class of freeze as the CD reader's blocking wait_ready. Asserting *where*
+    the syscall ran rather than how long it took keeps this off the wall clock.
+    """
+    file = tmp_path / "offloaded.json"
+    threads = []
+    real_replace = os.replace
+
+    def recording_replace(src, dst):
+        threads.append(threading.current_thread())
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(persistence.os, "replace", recording_replace)
+    await save_versioned_json(file, {"x": 1}, version=1)
+
+    assert threads, "os.replace was never called — the write did not happen"
+    assert threading.main_thread() not in threads, (
+        "the atomic replace ran on the event-loop thread"
+    )
+
+
+@pytest.mark.asyncio
+async def test_failed_write_leaves_no_temp_file(tmp_path: Path, monkeypatch):
+    """A write that dies part-way must not leave its scratch file behind.
+
+    The temp name carries a PID and a counter, so a leak is never overwritten:
+    every failed write of a hot record (the EQ persist fires on every drag)
+    would add one more file next to the real one, forever.
+    """
+    file = tmp_path / "doomed.json"
+
+    def failing_replace(src, dst):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(persistence.os, "replace", failing_replace)
+
+    with pytest.raises(OSError):
+        await save_versioned_json(file, {"x": 1}, version=1)
+
+    assert not file.exists()
     assert list(tmp_path.glob("*.tmp")) == []

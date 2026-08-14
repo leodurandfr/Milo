@@ -5,11 +5,14 @@ seeding, add/list/get/update/remove, id generation, the immutability of id/
 created_at across updates, and the fail-loud schema-version protocol. The file is
 redirected to a tmp path so nothing touches /var/lib/milo.
 """
+import asyncio
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
 from backend.shared.persistence import SchemaVersionMismatch, save_versioned_json
+from backend.sources.music_library import data as library_data
 from backend.sources.music_library.data import MusicLibraryDataService
 
 
@@ -145,3 +148,60 @@ def test_generate_id_slug(name, prefix):
     svc = MusicLibraryDataService()
     generated = svc._generate_id(name, set())
     assert generated.startswith(prefix)
+
+
+# === read-modify-write atomicity ==================================================
+
+async def test_concurrent_mutations_both_survive(service):
+    """A share added while a USB key is being remembered must not vanish.
+
+    `load_data` and `save_data` take `_file_lock` separately, so the second
+    mutator's load lands in the window between the first's load and its save:
+    it starts from a stale dict and its save writes the first one's whole
+    update back out. This file is what a boot remount replays, so a lost write
+    is a share or a key that silently stops coming back — and the udev USB
+    path genuinely runs alongside the shares API.
+    """
+    await service.initialize()
+
+    await asyncio.gather(
+        service.add_share("cifs", "nas.local", "/music", "NAS", has_credentials=False),
+        service.remember_usb("UUID-1", "MUSIC", "/media/milo/music"),
+    )
+
+    data = await service.load_data()
+    assert [s["name"] for s in data["shares"]] == ["NAS"]
+    assert "UUID-1" in data["known_usb"]
+
+
+async def test_concurrent_usb_writes_both_survive(service):
+    """Several keys plugged at once — no entry may be dropped."""
+    await service.initialize()
+
+    await asyncio.gather(*[
+        service.remember_usb(f"UUID-{i}", f"KEY{i}", f"/media/milo/key{i}")
+        for i in range(6)
+    ])
+
+    assert sorted(await service.get_known_usb()) == [f"UUID-{i}" for i in range(6)]
+
+
+async def test_unchanged_mutation_does_not_rewrite(service, monkeypatch):
+    """Forgetting an unknown playlist must not write.
+
+    `_mutate` writes only when its callback reports a change. The content would
+    be identical either way, so the file cannot show this — only the write can:
+    a mutator that found nothing to do still re-stamps the file, and on this
+    appliance every write is an fsync to the SD card. It is also what the
+    pre-`_mutate` code did, and keeping it is what makes this a pure refactor
+    of the locking.
+    """
+    await service.initialize()
+    await service.set_playlist_storage("pl-1", "UUID-1")
+
+    saves = AsyncMock()
+    monkeypatch.setattr(library_data, "save_versioned_json", saves)
+
+    await service.forget_playlist("absent-playlist")
+
+    saves.assert_not_awaited()
