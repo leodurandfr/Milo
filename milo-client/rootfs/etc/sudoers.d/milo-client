@@ -5,6 +5,23 @@
 # — the one machine CI never touches. Both directions are enforced by
 # backend/tests/contracts/test_privileged_exec_contract.py. `systemctl is-active`
 # is deliberately absent: it needs no root and both call sites run it plain.
+#
+# The first rule is what makes the rest of the file mean anything. Raspberry Pi
+# OS ships /etc/sudoers.d/010_pi-nopasswd — a conffile of raspberrypi-sys-mods —
+# and userconf-pi rewrites the username inside it on first boot, so on a unit
+# whose appliance account is also the image's first user it reads
+# `milo-client ALL=(ALL) NOPASSWD: ALL` and every scoping below is decorative.
+# Measured on a satellite: `sudo -n true` succeeded there. sudoers applies the
+# *last* matching rule and reads /etc/sudoers.d in lexical order, so this file
+# (m…) is read after that one (0…) and takes the passwordless part back. It
+# grants nothing new — the account is in the `sudo` group, which already permits
+# any command with a password.
+#
+# Order is load-bearing: this rule must stay above the grants. Below them it
+# would also be the last match for a *granted* command, and a satellite would be
+# asked for a password it has no way to type.
+milo-client ALL=(ALL:ALL) PASSWD: ALL
+
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl stop milo-client-snapclient.service
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl start milo-client-snapclient.service
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-install-snapclient

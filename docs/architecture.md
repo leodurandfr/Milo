@@ -999,6 +999,7 @@ Allowed methods: `GET POST PUT PATCH DELETE OPTIONS`. Allowed headers: `Content-
 - Backend runs as `milo` user (not root)
 - Privileged exec is centralized (see CLAUDE.md invariant #1): systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. PolicyKit covers only NetworkManager.
 - Each policy file is authored once under `rootfs/etc/sudoers.d/` (satellite: `milo-client/rootfs/`) and copied by both the install scripts and `pi-gen/`, so the two install routes cannot grant different sets. `backend/tests/contracts/test_privileged_exec_contract.py` compares the granted commands against the argv the code builds, in both directions.
+- The scoping only means something because each policy's first rule withdraws the blanket `NOPASSWD: ALL` Raspberry Pi OS grants the image's first user (`/etc/sudoers.d/010_pi-nopasswd`, shipped by `raspberrypi-sys-mods`, its username rewritten on first boot by `userconf-pi`). Any unit whose appliance account is also that first user held unrestricted passwordless root until then — measured on a satellite. sudo reads `/etc/sudoers.d` in lexical order and applies the *last* matching rule, so `milo-*` is read after `010_*` and the withdrawal must sit above the grants, never below them.
 
 ## Performance
 
