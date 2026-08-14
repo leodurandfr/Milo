@@ -26,12 +26,16 @@ configure_avahi() {
     # Dispatcher flips both keys at runtime if eth0 becomes unavailable.
     sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/avahi/avahi-daemon.conf" /etc/avahi/avahi-daemon.conf
 
-    # Install systemd override that resets allow/deny-interfaces to ethernet
-    # defaults on every Avahi start.
-    log_info "Installing Avahi boot reset override..."
+    # Install the systemd override that re-applies the persisted interface
+    # choice on every Avahi start (see milo-client-apply-avahi-iface).
+    # The filename must match the one pi-gen and milo-first-boot use: on the
+    # universal image both role drop-ins exist and first-boot keeps exactly one
+    # by name, so a second spelling here is a drop-in nothing ever removes.
+    log_info "Installing Avahi interface override..."
     sudo mkdir -p /etc/systemd/system/avahi-daemon.service.d
     sudo cp "$MILO_CLIENT_SYSTEM_DIR/avahi-daemon-override.conf" \
-        /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
+        /etc/systemd/system/avahi-daemon.service.d/milo-client-override.conf
+    sudo rm -f /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
     sudo systemctl daemon-reload
 
     sudo systemctl enable avahi-daemon

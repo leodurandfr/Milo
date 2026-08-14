@@ -6,8 +6,8 @@
 # the self-loop hostname conflict without sacrificing WiFi as a fallback when
 # ethernet fails.
 #
-# Avahi config is reset to eth0 at every boot via systemd ExecStartPre.
-# This dispatcher only handles runtime changes (cable plug/unplug, WiFi events).
+# Avahi interface state is persisted in AVAHI_STATE_FILE and applied by the
+# avahi-daemon systemd ExecStartPre override on every Avahi start.
 #
 # Selection rules (in priority order):
 # - eth0 has an IPv4 address: Avahi on eth0  (ethernet preferred)
@@ -16,6 +16,7 @@
 INTERFACE=$1
 ACTION=$2
 AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
+AVAHI_STATE_FILE="/var/lib/milo-client/avahi-interface"
 
 # Check if interface has an IPv4 address
 has_ip() {
@@ -36,9 +37,13 @@ disable_eee() {
 }
 
 # Update Avahi allow/deny-interfaces - only restarts if config actually changes.
-# Both keys are written together: Avahi 0.8 ignores allow-interfaces for
-# interfaces that appear dynamically, so deny-interfaces is what keeps the
-# daemon strictly mono-interface (and prevents self-loop renames).
+# Both keys are compared: Avahi 0.8 ignores allow-interfaces for interfaces that
+# appear dynamically, so deny-interfaces is what keeps the daemon strictly
+# mono-interface (and prevents self-loop renames) — drift on it matters as much.
+#
+# The conf itself is written by milo-client-apply-avahi-iface from the state
+# file, on every Avahi start. Sed-ing the conf here instead would be undone by
+# the very restart below.
 set_avahi_interface() {
     local interface="$1"
     local deny
@@ -48,21 +53,16 @@ set_avahi_interface() {
         *)     return 1   ;;
     esac
 
-    # Skip only if BOTH keys are already correct — checking allow alone would
-    # miss drift on deny (the more critical key for runtime enforcement).
     local current_allow current_deny
     current_allow=$(grep "^allow-interfaces=" "$AVAHI_CONF" 2>/dev/null | cut -d= -f2)
     current_deny=$(grep "^deny-interfaces=" "$AVAHI_CONF" 2>/dev/null | cut -d= -f2)
     [ "$current_allow" = "$interface" ] && [ "$current_deny" = "$deny" ] && return 0
 
-    sed -i "s/^allow-interfaces=.*/allow-interfaces=$interface/" "$AVAHI_CONF"
-    if grep -q "^deny-interfaces=" "$AVAHI_CONF"; then
-        sed -i "s/^deny-interfaces=.*/deny-interfaces=$deny/" "$AVAHI_CONF"
-    else
-        sed -i "/^allow-interfaces=/a deny-interfaces=$deny" "$AVAHI_CONF"
-    fi
+    # Write desired interface to state file (applied by systemd ExecStartPre)
+    mkdir -p "$(dirname "$AVAHI_STATE_FILE")"
+    echo "$interface" > "$AVAHI_STATE_FILE"
 
-    # Restart Avahi to apply changes
+    # Restart Avahi - ExecStartPre will read state file and apply correct interface
     systemctl restart avahi-daemon.service
 }
 

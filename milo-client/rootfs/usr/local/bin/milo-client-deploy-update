@@ -31,10 +31,13 @@ for service_file in "$MILO_DIR"/system/*.service; do
     echo "  Installed $(basename "$service_file")"
 done
 
-# Deploy avahi override if present
+# Deploy avahi override if present. One spelling, the one pi-gen and
+# milo-first-boot use — a second file is a drop-in nothing ever removes, and
+# systemd reads them alphabetically, so the stale one would win.
 if [ -f "$MILO_DIR/system/avahi-daemon-override.conf" ]; then
     mkdir -p /etc/systemd/system/avahi-daemon.service.d/
-    cp "$MILO_DIR/system/avahi-daemon-override.conf" /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
+    cp "$MILO_DIR/system/avahi-daemon-override.conf" /etc/systemd/system/avahi-daemon.service.d/milo-client-override.conf
+    rm -f /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
     echo "  Installed avahi-daemon override"
 fi
 
