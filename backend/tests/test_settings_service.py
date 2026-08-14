@@ -2,11 +2,9 @@
 """
 Unit tests for SettingsService
 """
-import contextlib
 import pytest
 import json
 import os
-import tempfile
 from unittest.mock import patch
 from backend.core.settings import SettingsService, SettingsWriteError
 
@@ -15,20 +13,21 @@ class TestSettingsService:
     """Tests for the settings service"""
 
     @pytest.fixture
-    def temp_settings_file(self):
-        """Creates a temporary file for tests"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            temp_path = f.name
+    def temp_settings_file(self, tmp_path):
+        """A settings path inside pytest's own temp directory.
 
-        yield temp_path
-
-        # Cleanup
-        with contextlib.suppress(OSError):
-            os.unlink(temp_path)
-
-        # Cleanup .tmp file too if present
-        with contextlib.suppress(OSError):
-            os.unlink(temp_path + '.tmp')
+        Not `NamedTemporaryFile` in /tmp: the service writes *siblings* of this
+        path — `.tmp` while saving, and `.corrupted[.N]` when it snapshots an
+        unparseable file — so a teardown unlinking a hand-listed set misses
+        whichever suffix it was never told about. It missed `.corrupted`, and
+        every run of the two corruption tests left two files in /tmp. That
+        matters here because the dev host *is* the appliance and its /tmp is
+        tmpfs. A directory pytest owns takes every sibling with it, whatever
+        the service decides to write next.
+        """
+        path = tmp_path / "settings.json"
+        path.write_text("")
+        return str(path)
 
     @pytest.fixture
     def service(self, temp_settings_file):
