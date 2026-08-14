@@ -1273,27 +1273,31 @@ class UpdateService(VersionService):
 
     async def _download_snapcast_component(self, component_key: str, version: str) -> Dict[str, Any]:
         """Downloads a snapcast component (.deb) with auto Debian detection"""
+        debian_codename = await self._get_debian_codename()
+
+        # Determine package name according to component
+        if component_key == "snapserver":
+            package_name = f"snapserver_{version}-1_arm64_{debian_codename}.deb"
+        elif component_key == "snapclient":
+            package_name = f"snapclient_{version}-1_arm64_{debian_codename}.deb"
+        else:
+            return {"success": False, "error": f"Unknown component: {component_key}"}
+
+        url = f"https://github.com/badaix/snapcast/releases/download/v{version}/{package_name}"
+
+        self.update_logger.info(f"Downloading {package_name} from GitHub (Debian {debian_codename})...")
+
+        # Created only once the component is known and only the caller that gets
+        # the success dict is left to clean it up — the temp dir is handed back in
+        # `temp_dir` and released by _cleanup_temp_files. Every failure exit below
+        # removes it here, as _download_binary_program already does.
+        temp_dir = tempfile.mkdtemp(dir="/tmp")
         try:
-            debian_codename = await self._get_debian_codename()
-
-            temp_dir = tempfile.mkdtemp(dir="/tmp")
-
-            # Determine package name according to component
-            if component_key == "snapserver":
-                package_name = f"snapserver_{version}-1_arm64_{debian_codename}.deb"
-            elif component_key == "snapclient":
-                package_name = f"snapclient_{version}-1_arm64_{debian_codename}.deb"
-            else:
-                return {"success": False, "error": f"Unknown component: {component_key}"}
-
-            url = f"https://github.com/badaix/snapcast/releases/download/v{version}/{package_name}"
-
-            self.update_logger.info(f"Downloading {package_name} from GitHub (Debian {debian_codename})...")
-
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
                         return {"success": False, "error": f"Download failed: HTTP {response.status}"}
 
                     deb_path = Path(temp_dir) / package_name
@@ -1308,6 +1312,7 @@ class UpdateService(VersionService):
             }
 
         except Exception as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return {"success": False, "error": str(e)}
 
 

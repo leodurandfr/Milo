@@ -29,7 +29,7 @@ import re
 import secrets
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.config.constants import MUSIC_LIBRARY_DATA_FILE
 from backend.shared.persistence import load_versioned_json, save_versioned_json
@@ -74,13 +74,40 @@ class MusicLibraryDataService:
     async def load_data(self) -> Dict[str, Any]:
         """Load the shares file. Trusts shape (validated at boot in initialize())."""
         async with self._file_lock:
-            data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
+            return await self._load_locked()
+
+    async def _load_locked(self) -> Dict[str, Any]:
+        """Read + validate. The caller must already hold ``_file_lock``."""
+        data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
 
         if not data:
             return self._get_default_structure()
 
         self._validate_required_keys(data)
         return data
+
+    async def _mutate(self, apply: Callable[[Dict[str, Any]], Tuple[bool, Any]]) -> Any:
+        """Read → mutate → write under a single hold of ``_file_lock``.
+
+        ``apply`` receives the loaded dict, edits it in place and returns
+        ``(changed, result)``; the file is rewritten only when ``changed``, and
+        ``result`` is what this returns. It is deliberately synchronous: an
+        await inside it would reopen the window this closes.
+
+        Taking the lock once is the whole point. ``load_data`` and ``save_data``
+        each take it separately, so two concurrent mutators interleave as
+        load/load/save/save and the second write drops the first one's entire
+        update — a USB key remembered while a share was being added simply
+        disappeared, and this file is what a boot remount replays. ``asyncio.Lock``
+        is not reentrant, which is why this goes through the unlocked internals
+        instead of reusing those two.
+        """
+        async with self._file_lock:
+            data = await self._load_locked()
+            changed, result = apply(data)
+            if changed:
+                await save_versioned_json(self._data_file, data, self.SCHEMA_VERSION)
+        return result
 
     def _validate_required_keys(self, data: Dict[str, Any]) -> None:
         """Fail-loud if any expected top-level key is missing."""
@@ -132,22 +159,23 @@ class MusicLibraryDataService:
         screen can show them (an account name is an identifier, not a secret);
         only the password stays write-only in the root-only cred file.
         """
-        data = await self.load_data()
-        existing_ids = {s.get("id") for s in data["shares"]}
-        share = {
-            "id": self._generate_id(name, existing_ids),
-            "type": share_type,
-            "host": host,
-            "path": path,
-            "name": name,
-            "has_credentials": has_credentials,
-            "username": username,
-            "domain": domain,
-            "created_at": int(time.time()),
-        }
-        data["shares"].append(share)
-        await self.save_data(data)
-        return share
+        def apply(data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+            existing_ids = {s.get("id") for s in data["shares"]}
+            share = {
+                "id": self._generate_id(name, existing_ids),
+                "type": share_type,
+                "host": host,
+                "path": path,
+                "name": name,
+                "has_credentials": has_credentials,
+                "username": username,
+                "domain": domain,
+                "created_at": int(time.time()),
+            }
+            data["shares"].append(share)
+            return True, share
+
+        return await self._mutate(apply)
 
     async def update_share(
         self, share_id: str, updates: Dict[str, Any]
@@ -156,26 +184,28 @@ class MusicLibraryDataService:
 
         Returns the updated share, or None if no share has that id.
         """
-        data = await self.load_data()
-        share = next((s for s in data["shares"] if s.get("id") == share_id), None)
-        if share is None:
-            return None
-        for key, value in updates.items():
-            if key in ("id", "created_at"):
-                continue
-            share[key] = value
-        await self.save_data(data)
-        return share
+        def apply(data: Dict[str, Any]) -> Tuple[bool, Optional[Dict[str, Any]]]:
+            share = next((s for s in data["shares"] if s.get("id") == share_id), None)
+            if share is None:
+                return False, None
+            for key, value in updates.items():
+                if key in ("id", "created_at"):
+                    continue
+                share[key] = value
+            return True, share
+
+        return await self._mutate(apply)
 
     async def remove_share(self, share_id: str) -> Optional[Dict[str, Any]]:
         """Drop a share from the config; return the removed entry or None."""
-        data = await self.load_data()
-        removed = next((s for s in data["shares"] if s.get("id") == share_id), None)
-        if removed is None:
-            return None
-        data["shares"] = [s for s in data["shares"] if s.get("id") != share_id]
-        await self.save_data(data)
-        return removed
+        def apply(data: Dict[str, Any]) -> Tuple[bool, Optional[Dict[str, Any]]]:
+            removed = next((s for s in data["shares"] if s.get("id") == share_id), None)
+            if removed is None:
+                return False, None
+            data["shares"] = [s for s in data["shares"] if s.get("id") != share_id]
+            return True, removed
+
+        return await self._mutate(apply)
 
     # ========== KNOWN USB KEYS ==========
 
@@ -197,15 +227,17 @@ class MusicLibraryDataService:
         actually chose — it can differ from the last session's when a second key
         claimed the same label first and this one took the disambiguating suffix.
         """
-        data = await self.load_data()
-        entry = data["known_usb"].get(uuid) or {"name": None}
-        data["known_usb"][uuid] = {
-            "name": entry.get("name"),
-            "label": label,
-            "mountpoint": mountpoint,
-            "last_seen": int(time.time()),
-        }
-        await self.save_data(data)
+        def apply(data: Dict[str, Any]) -> Tuple[bool, None]:
+            entry = data["known_usb"].get(uuid) or {"name": None}
+            data["known_usb"][uuid] = {
+                "name": entry.get("name"),
+                "label": label,
+                "mountpoint": mountpoint,
+                "last_seen": int(time.time()),
+            }
+            return True, None
+
+        await self._mutate(apply)
 
     async def set_usb_name(self, uuid: str, name: str) -> bool:
         """Name a known USB key, or restore its disk label when ``name`` is empty.
@@ -215,13 +247,14 @@ class MusicLibraryDataService:
         known set. The name outlives an unplug: that it comes back with the key
         is the whole point of filing it under the filesystem UUID.
         """
-        data = await self.load_data()
-        entry = data["known_usb"].get(uuid)
-        if entry is None:
-            return False
-        entry["name"] = name or None
-        await self.save_data(data)
-        return True
+        def apply(data: Dict[str, Any]) -> Tuple[bool, bool]:
+            entry = data["known_usb"].get(uuid)
+            if entry is None:
+                return False, False
+            entry["name"] = name or None
+            return True, True
+
+        return await self._mutate(apply)
 
     async def forget_usb(self, uuid: str) -> bool:
         """Drop a key from the known set; False when it was not there.
@@ -230,11 +263,12 @@ class MusicLibraryDataService:
         actually frees the index — so this is the only way a key that will never
         be plugged in again stops costing catalog rows.
         """
-        data = await self.load_data()
-        if data["known_usb"].pop(uuid, None) is None:
-            return False
-        await self.save_data(data)
-        return True
+        def apply(data: Dict[str, Any]) -> Tuple[bool, bool]:
+            if data["known_usb"].pop(uuid, None) is None:
+                return False, False
+            return True, True
+
+        return await self._mutate(apply)
 
     # ========== PLAYLIST ↔ STORAGE SPACE ==========
 
@@ -251,15 +285,18 @@ class MusicLibraryDataService:
 
     async def set_playlist_storage(self, playlist_id: str, storage_id: str) -> None:
         """Record the storage space a playlist was created in."""
-        data = await self.load_data()
-        data["playlist_storages"][playlist_id] = storage_id
-        await self.save_data(data)
+        def apply(data: Dict[str, Any]) -> Tuple[bool, None]:
+            data["playlist_storages"][playlist_id] = storage_id
+            return True, None
+
+        await self._mutate(apply)
 
     async def forget_playlist(self, playlist_id: str) -> None:
         """Drop a deleted playlist's association."""
-        data = await self.load_data()
-        if data["playlist_storages"].pop(playlist_id, None) is not None:
-            await self.save_data(data)
+        def apply(data: Dict[str, Any]) -> Tuple[bool, None]:
+            return data["playlist_storages"].pop(playlist_id, None) is not None, None
+
+        await self._mutate(apply)
 
     @staticmethod
     def _generate_id(name: str, existing_ids: set) -> str:

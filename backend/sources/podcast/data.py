@@ -14,7 +14,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.core.models.ws_events import (
     PodcastFavoriteAdded,
@@ -67,13 +67,39 @@ class PodcastDataService:
     async def load_data(self) -> Dict[str, Any]:
         """Load podcast_data.json. Trusts shape (validated at boot in initialize())."""
         async with self._file_lock:
-            data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
+            return await self._load_locked()
+
+    async def _load_locked(self) -> Dict[str, Any]:
+        """Read + validate. The caller must already hold ``_file_lock``."""
+        data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
 
         if not data:
             return self._get_default_structure()
 
         self._validate_required_keys(data)
         return data
+
+    async def _mutate(self, apply: Callable[[Dict[str, Any]], Tuple[bool, Any]]) -> Any:
+        """Read → mutate → write under a single hold of ``_file_lock``.
+
+        ``apply`` receives the loaded dict, edits it in place and returns
+        ``(changed, result)``; the file is rewritten only when ``changed``, and
+        ``result`` is what this returns. It is deliberately synchronous: an
+        await inside it would reopen the window this closes.
+
+        Taking the lock once is the whole point. ``load_data`` and ``save_data``
+        each take it separately, so two concurrent mutators interleave as
+        load/load/save/save and the second write drops the first one's entire
+        update — a subscription added while a progress tick was in flight simply
+        disappeared. ``asyncio.Lock`` is not reentrant, which is why this goes
+        through the unlocked internals instead of reusing those two.
+        """
+        async with self._file_lock:
+            data = await self._load_locked()
+            changed, result = apply(data)
+            if changed:
+                await save_versioned_json(self._data_file, data, self.SCHEMA_VERSION)
+        return result
 
     def _validate_required_keys(self, data: Dict[str, Any]) -> None:
         """Fail-loud if any expected top-level key is missing."""
@@ -126,23 +152,22 @@ class PodcastDataService:
             itunes_id: Apple podcast ID (lets iTunes-sourced search results be
                 flagged as subscribed). Stored as a string; None when unknown.
         """
-        data = await self.load_data()
+        def apply(data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+            existing = next(
+                (s for s in data['subscriptions'] if s.get('uuid') == podcast_uuid),
+                None
+            )
 
-        existing = next(
-            (s for s in data['subscriptions'] if s.get('uuid') == podcast_uuid),
-            None
-        )
+            if existing:
+                existing['name'] = name
+                existing['image_url'] = image_url
+                existing['children_hash'] = children_hash
+                existing['last_checked'] = int(time.time())
+                # Never clobber a known itunes_id with None on a metadata refresh
+                if itunes_id:
+                    existing['itunes_id'] = str(itunes_id)
+                return True, existing
 
-        if existing:
-            existing['name'] = name
-            existing['image_url'] = image_url
-            existing['children_hash'] = children_hash
-            existing['last_checked'] = int(time.time())
-            # Never clobber a known itunes_id with None on a metadata refresh
-            if itunes_id:
-                existing['itunes_id'] = str(itunes_id)
-            subscription = existing
-        else:
             subscription = {
                 'uuid': podcast_uuid,
                 'name': name,
@@ -153,31 +178,25 @@ class PodcastDataService:
                 'last_checked': int(time.time())
             }
             data['subscriptions'].append(subscription)
+            return True, subscription
 
-        success = await self.save_data(data)
-
-        if success:
-            await self._broadcast(PodcastFavoriteAdded(podcast=subscription))
-
-        return success
+        subscription = await self._mutate(apply)
+        await self._broadcast(PodcastFavoriteAdded(podcast=subscription))
+        return True
 
     async def remove_subscription(self, podcast_uuid: str) -> bool:
         """Remove podcast from subscriptions."""
-        data = await self.load_data()
+        def apply(data: Dict[str, Any]) -> Tuple[bool, bool]:
+            original_count = len(data['subscriptions'])
+            data['subscriptions'] = [
+                s for s in data['subscriptions']
+                if s.get('uuid') != podcast_uuid
+            ]
+            removed = len(data['subscriptions']) != original_count
+            return removed, removed
 
-        original_count = len(data['subscriptions'])
-        data['subscriptions'] = [
-            s for s in data['subscriptions']
-            if s.get('uuid') != podcast_uuid
-        ]
-
-        if len(data['subscriptions']) != original_count:
-            success = await self.save_data(data)
-
-            if success:
-                await self._broadcast(PodcastFavoriteRemoved(uuid=podcast_uuid))
-
-            return success
+        if await self._mutate(apply):
+            await self._broadcast(PodcastFavoriteRemoved(uuid=podcast_uuid))
 
         return True
 
@@ -230,26 +249,26 @@ class PodcastDataService:
             podcast_name: Podcast name
             image_url: Episode or podcast image URL
         """
-        data = await self.load_data()
+        def apply(data: Dict[str, Any]) -> Tuple[bool, bool]:
+            # Get existing entry to preserve metadata
+            existing = data['playback_progress'].get(episode_uuid, {})
 
-        # Get existing entry to preserve metadata
-        existing = data['playback_progress'].get(episode_uuid, {})
+            # Mark as completed if within 30 seconds of end
+            completed = position >= (duration - 30) if duration > 0 else False
 
-        # Mark as completed if within 30 seconds of end
-        completed = position >= (duration - 30) if duration > 0 else False
+            data['playback_progress'][episode_uuid] = {
+                'position': position,
+                'duration': duration,
+                'last_played': int(time.time()),
+                'completed': completed,
+                'podcast_uuid': podcast_uuid or existing.get('podcast_uuid', ''),
+                'episode_name': episode_name or existing.get('episode_name', ''),
+                'podcast_name': podcast_name or existing.get('podcast_name', ''),
+                'image_url': image_url or existing.get('image_url', '')
+            }
+            return True, True
 
-        data['playback_progress'][episode_uuid] = {
-            'position': position,
-            'duration': duration,
-            'last_played': int(time.time()),
-            'completed': completed,
-            'podcast_uuid': podcast_uuid or existing.get('podcast_uuid', ''),
-            'episode_name': episode_name or existing.get('episode_name', ''),
-            'podcast_name': podcast_name or existing.get('podcast_name', ''),
-            'image_url': image_url or existing.get('image_url', '')
-        }
-
-        return await self.save_data(data)
+        return await self._mutate(apply)
 
     async def get_playback_progress(self, episode_uuid: str) -> Optional[Dict[str, Any]]:
         """Get playback progress for an episode."""
@@ -291,14 +310,15 @@ class PodcastDataService:
 
     async def mark_episode_completed(self, episode_uuid: str) -> bool:
         """Mark an episode as completed."""
-        data = await self.load_data()
+        def apply(data: Dict[str, Any]) -> Tuple[bool, bool]:
+            entry = data.get('playback_progress', {}).get(episode_uuid)
+            if entry is None:
+                return False, True
+            entry['completed'] = True
+            entry['last_played'] = int(time.time())
+            return True, True
 
-        if episode_uuid in data.get('playback_progress', {}):
-            data['playback_progress'][episode_uuid]['completed'] = True
-            data['playback_progress'][episode_uuid]['last_played'] = int(time.time())
-            return await self.save_data(data)
-
-        return True
+        return await self._mutate(apply)
 
     # ========== SETTINGS ==========
 
@@ -314,14 +334,14 @@ class PodcastDataService:
         Args:
             settings: Dict with settings to update (partial update supported)
         """
-        data = await self.load_data()
+        def apply(data: Dict[str, Any]) -> Tuple[bool, bool]:
+            # Update only provided settings
+            for key, value in settings.items():
+                if key in data['settings']:
+                    data['settings'][key] = value
+            return True, True
 
-        # Update only provided settings
-        for key, value in settings.items():
-            if key in data['settings']:
-                data['settings'][key] = value
-
-        return await self.save_data(data)
+        return await self._mutate(apply)
 
     async def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a single setting value."""

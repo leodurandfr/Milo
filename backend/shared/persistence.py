@@ -7,6 +7,7 @@ The owning service declares a ``SCHEMA_VERSION`` class constant, loads via
 is raised so main.py can log a clear reset command and exit. See CLAUDE.md
 §"Persistence & schema-version protocol".
 """
+import asyncio
 import contextlib
 import itertools
 import json
@@ -65,6 +66,30 @@ async def load_versioned_json(file: Path, expected_version: int) -> Dict[str, An
     return data
 
 
+def _write_atomically(file: Path, payload: Dict[str, Any], temp_file: Path) -> None:
+    """Serialize, fsync and rename into place. Blocking — call via ``to_thread``.
+
+    Every syscall of the sequence runs on the same worker thread. Wrapping only
+    the write (aiofiles) left mkdir, fsync and replace on the event-loop thread,
+    where an fsync on a busy SD card stalls every WS, HTTP and monitor task —
+    and this primitive is on the write path of every persisted file.
+    """
+    file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(temp_file, file)
+    finally:
+        # On success the temp was renamed away (unlink → FileNotFoundError, suppressed);
+        # on any failure/cancellation, drop our unique temp so it can't leak.
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temp_file)
+
+
 async def save_versioned_json(file: Path, data: Dict[str, Any], version: int) -> None:
     """Atomically write a versioned JSON file, stamping ``schema_version`` into the payload.
 
@@ -74,7 +99,6 @@ async def save_versioned_json(file: Path, data: Dict[str, Any], version: int) ->
     payload = dict(data)
     payload["schema_version"] = version
 
-    file.parent.mkdir(parents=True, exist_ok=True)
     # Unique temp name per write. A shared "<file>.tmp" lets concurrent writers
     # collide: the first os.replace() renames it onto the final path, and the
     # loser's os.replace() then raises FileNotFoundError. The same record reaches
@@ -84,16 +108,4 @@ async def save_versioned_json(file: Path, data: Dict[str, Any], version: int) ->
     # atomic, so the final file is always a complete payload (last writer wins).
     temp_file = file.with_name(f"{file.name}.{os.getpid()}.{next(_temp_counter)}.tmp")
 
-    try:
-        async with aiofiles.open(temp_file, "w", encoding="utf-8") as f:
-            await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
-            await f.write("\n")
-            await f.flush()
-            os.fsync(f.fileno())
-
-        os.replace(temp_file, file)
-    finally:
-        # On success the temp was renamed away (unlink → FileNotFoundError, suppressed);
-        # on any failure/cancellation, drop our unique temp so it can't leak.
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(temp_file)
+    await asyncio.to_thread(_write_atomically, file, payload, temp_file)

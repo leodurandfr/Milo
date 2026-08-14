@@ -142,7 +142,7 @@ class RotaryVolumeController:
                 await self._monitor_task
             self._monitor_task = None
 
-        self._dispatcher.cancel()
+        await self._dispatcher.cleanup()
         await self._volume.cleanup()
 
         if self.chip_handle is not None:

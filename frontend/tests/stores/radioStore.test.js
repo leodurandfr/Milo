@@ -209,6 +209,55 @@ describe('radioStore', () => {
       expect(store.displayedStations).toHaveLength(1);
     });
 
+    /**
+     * Typing in the search box fires one loadStations per keystroke, each
+     * aborting the last. The cancelled call used to run the shared epilogue on
+     * its way out — clearing `loading` and nulling the controller — so the
+     * search still in flight lost its spinner and could no longer be cancelled
+     * by the keystroke after it.
+     */
+    it('a superseded search leaves the newer one loading', async () => {
+      const resolvers = [];
+      apiCall.get.mockImplementation(() => new Promise(resolve => resolvers.push(resolve)));
+
+      const first = store.loadStations();
+      const second = store.loadStations();
+      expect(resolvers).toHaveLength(2);
+
+      // apiCall swallows an AbortController cancellation into this exact shape.
+      resolvers[0]({ ok: false, data: null, error: null });
+      expect(await first).toBe(false);
+
+      // It bows out in silence — no error banner, no retry loop — and the
+      // spinner still belongs to the search that is actually running.
+      expect(store.hasError).toBe(false);
+      expect(store.searchUnavailable).toBe(false);
+      expect(store.loading).toBe(true);
+
+      resolvers[1](ok({ stations: [STATION('s1')], total: 1 }));
+      await second;
+      expect(store.loading).toBe(false);
+      expect(store.displayedStations).toHaveLength(1);
+    });
+
+    it('a superseded search leaves the newer one abortable', async () => {
+      const signals = [];
+      const resolvers = [];
+      apiCall.get.mockImplementation((url, { signal }) => {
+        signals.push(signal);
+        return new Promise(resolve => resolvers.push(resolve));
+      });
+
+      const first = store.loadStations();
+      store.loadStations();
+      resolvers[0]({ ok: false, data: null, error: null });
+      await first;
+
+      // A third keystroke must still cancel the second request.
+      store.loadStations();
+      expect(signals[1].aborted).toBe(true);
+    });
+
     it('serves the unfiltered top-stations list from cache on the second call', async () => {
       apiCall.get.mockResolvedValueOnce(ok({ stations: [STATION('s1')], total: 1 }));
       await store.loadStations();
@@ -269,17 +318,6 @@ describe('radioStore', () => {
       await store.loadStations();
 
       expect(store.hasError).toBe(true);
-      expect(store.searchUnavailable).toBe(false);
-    });
-
-    it('stays silent when the request was cancelled by a newer search', async () => {
-      // apiCall reports cancellation as { ok: false, error: null }.
-      apiCall.get.mockResolvedValueOnce({ ok: false, data: null, error: null });
-
-      const result = await store.loadStations();
-
-      expect(result).toBe(false);
-      expect(store.hasError).toBe(false);
       expect(store.searchUnavailable).toBe(false);
     });
 

@@ -269,8 +269,11 @@ export const useRadioStore = defineStore('radio', () => {
       currentAbortController.abort();
     }
 
-    currentAbortController = new AbortController();
-    const signal = currentAbortController.signal;
+    // Held locally as well: after the await, `currentAbortController` may already
+    // belong to a newer search, and only identity tells the two apart.
+    const ctrl = new AbortController();
+    currentAbortController = ctrl;
+    const signal = ctrl.signal;
 
     // Clear old data before API call
     searchResults.value = [];
@@ -289,6 +292,14 @@ export const useRadioStore = defineStore('radio', () => {
       params,
       signal
     });
+
+    // Superseded: a newer search aborted this one and now owns both the spinner
+    // and the controller. Clearing them here would end its loading state early
+    // and leave it unabortable.
+    if (currentAbortController !== ctrl) {
+      logger.debug('radio', 'Search request cancelled');
+      return false;
+    }
 
     loading.value = false;
     currentAbortController = null;
@@ -315,12 +326,6 @@ export const useRadioStore = defineStore('radio', () => {
 
       logger.debug('radio', `Loaded ${result.data.stations.length} stations`);
       return true;
-    }
-
-    // result.error === null means the request was cancelled (AbortController)
-    if (result.error === null) {
-      logger.debug('radio', 'Search request cancelled');
-      return false;
     }
 
     hasError.value = true;

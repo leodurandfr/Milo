@@ -212,8 +212,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     if (loadAbortController) {
       loadAbortController.abort();
     }
-    loadAbortController = new AbortController();
-    const signal = loadAbortController.signal;
+    // Held locally as well: after the awaits, `loadAbortController` may already
+    // belong to a newer loadStatus, and only identity tells the two apart.
+    const ctrl = new AbortController();
+    loadAbortController = ctrl;
+    const signal = ctrl.signal;
 
     hasEverLoaded.value = true;
     filtersLoaded.value = false;
@@ -227,8 +230,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         fetchPresets(),  // builtin catalog only (labels + gains)
       ]);
 
-      // Cancelled or failed (a newer loadStatus aborted this one).
-      if (record === null) return;
+      // Cancelled or failed, or superseded while the presets were still in
+      // flight — the record then describes a target that is no longer shown.
+      if (record === null || loadAbortController !== ctrl) return;
 
       state.value = record.state || 'disconnected';
       isEqualizerEffectsEnabled.value = record.enabled ?? true;
@@ -267,7 +271,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       isPresetEdited.value = false;
       _snapshotPresetGains(activePreset.value);
     });
-    loadAbortController = null;
+
+    // Only this call's own controller is ours to drop. Nulling a newer one
+    // leaves cleanup() with nothing to abort on the next target switch.
+    if (loadAbortController === ctrl) loadAbortController = null;
   }
 
   function updateFilterValue(filterId, field, value) {

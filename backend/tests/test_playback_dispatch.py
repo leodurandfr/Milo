@@ -177,14 +177,53 @@ class TestMultiClickRouting:
         source.command.assert_awaited_once_with("prev", {})
 
     @pytest.mark.asyncio
-    async def test_cancel_clears_pending_clicks(self):
+    async def test_cleanup_clears_pending_clicks(self):
         source = MagicMock()
         source.command = AsyncMock()
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
         dispatcher = PlaybackDispatcher(sm)
         await dispatcher.on_click()
-        dispatcher.cancel()
+        await dispatcher.cleanup()
         await asyncio.sleep(MULTI_CLICK_WINDOW + 0.1)
 
         source.command.assert_not_called()
+
+
+class TestCleanupDrains:
+    """A resolver already spawned must not outlive the controller's teardown.
+
+    Cancelling the TimerHandle only stops a window that has not expired yet.
+    Once it has, the resolve task is in `_bg` and holds a reference to the
+    source: without the drain it dispatches a command after the hardware
+    controller released its devices, and its failure is logged against a
+    controller nobody owns any more.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cleanup_cancels_an_in_flight_resolve(self):
+        blocked = asyncio.Event()
+        never = asyncio.Event()
+        cancelled = False
+
+        async def slow_command(*_args):
+            nonlocal cancelled
+            blocked.set()
+            try:
+                await never.wait()
+            except asyncio.CancelledError:
+                cancelled = True
+                raise
+
+        source = MagicMock()
+        source.command = AsyncMock(side_effect=slow_command)
+        sm = _make_state_machine(AudioSource.SPOTIFY, source)
+
+        dispatcher = PlaybackDispatcher(sm)
+        await dispatcher.on_click()
+        # The window has expired: the resolver is spawned and inside the command.
+        await asyncio.wait_for(blocked.wait(), timeout=MULTI_CLICK_WINDOW + 1)
+
+        await asyncio.wait_for(dispatcher.cleanup(), timeout=1)
+
+        assert cancelled, "cleanup() left the resolve task running"
