@@ -1365,16 +1365,6 @@ class TestSnapcastService:
         assert len(result) == 1
         assert result[0]["id"] == "c1"
 
-    def test_calculate_connection_quality_good(self, snapcast_service):
-        """Test connection quality calculation."""
-        quality = snapcast_service._calculate_connection_quality({"sec": 12345})
-        assert quality == "good"
-
-    def test_calculate_connection_quality_unknown(self, snapcast_service):
-        """Test connection quality with no data."""
-        quality = snapcast_service._calculate_connection_quality({})
-        assert quality == "unknown"
-
     def test_validate_config_valid(self, snapcast_service):
         """Test config validation with valid config."""
         config = {

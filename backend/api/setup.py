@@ -88,7 +88,7 @@ def create_setup_router(
 
         On failure: rolls back setup_completed to false so the wizard reappears.
         """
-        from backend.hardware.registry import AUDIO_CARDS, DEFAULT_IR_REMOTE, SCREENS
+        from backend.hardware.registry import AUDIO_CARDS, SCREENS
         from backend.core.settings import VALID_LANGUAGES
 
         # Idempotency guard — prevent double-submit triggering two reboots
@@ -125,21 +125,18 @@ def create_setup_router(
             if payload.volume_control is not None:
                 audio_config["volume_control"] = payload.volume_control
 
+            current = hardware_service.get_full_config()
             config = {
                 "audio": audio_config,
                 "screen": {
                     "type": payload.screen_type,
                     "resolution": screen["resolution"],
                 },
-                "rotary_encoder": hardware_service.get_full_config().get("rotary_encoder", {
-                    "clk_pin": 22,
-                    "dt_pin": 27,
-                    "sw_pin": 23,
-                }),
+                "rotary_encoder": current["rotary_encoder"],
                 # Preserve the install-time gpio-ir overlay: milo-apply-hardware
                 # strips the IR block from config.txt unless ir_remote.enabled is
-                # True here, so a missing key would silently disable the receiver.
-                "ir_remote": hardware_service.get_full_config().get("ir_remote", DEFAULT_IR_REMOTE),
+                # True here, so dropping the key would disable the receiver.
+                "ir_remote": current["ir_remote"],
             }
 
             await hardware_service.save_config(config)

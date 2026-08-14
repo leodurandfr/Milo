@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock, patch
 from backend.api.settings import create_settings_router
+from backend.core.settings import SettingsService
 
 
 class TestSettingsRoutes:
@@ -100,8 +101,14 @@ class TestSettingsRoutes:
         """Fixture to create a TestClient with mocks"""
         app = FastAPI()
 
+        # The real service guarantees every declared section, keys included, so
+        # the mock answers from the same declaration: a route that reads
+        # screen['screensaver_enabled'] must be testable without a fallback that
+        # cannot happen in production.
+        defaults = SettingsService().defaults
+
         mock_settings = Mock()
-        mock_settings.get_setting = AsyncMock(return_value=None)
+        mock_settings.get_setting = AsyncMock(side_effect=lambda key: defaults.get(key))
         mock_settings.set_setting = AsyncMock(return_value=True)
         mock_settings.load_settings = AsyncMock(return_value={})
         mock_settings._cache = None

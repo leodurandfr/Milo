@@ -518,7 +518,7 @@ is driven entirely by an external app:
 ### Engine + player source: Music Library (Family C)
 
 Music Library (`backend/sources/music_library/`) is a **Family C** source (active
-player, `<AudioPlayerFull>` with controls) but the first one split into a catalog
+player, `<AudioPlayer>` — it has an in-app browser) but the first one split into a catalog
 **engine** + a **player** — the reference for a source backed by an external index
 and a storage/mount layer. Mental model: **≈ the Podcast source, with Navidrome
 standing in for Podcast Index and a mount layer underneath.**

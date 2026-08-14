@@ -306,11 +306,6 @@ class SettingsService:
             'frame_length_ms': frame_length if frame_length in ALLOWED_FRAME_LENGTHS else mac_d['frame_length_ms']
         }
 
-        # Equalizer (saved_bands) - Preserve equalizer section without strict validation
-        equalizer_input = settings.get('equalizer', {})
-        if equalizer_input:
-            validated['equalizer'] = equalizer_input
-
         # Audio (auto-stop on pause)
         audio_input = settings.get('audio', {})
         try:

@@ -22,9 +22,8 @@ import { logger } from '@/services/logger';
  *   routing   → multiroomStore (multiroom_* transition events)
  *   multiroom → multiroomStore / equalizerStore (client_state_changed,
  *               zone_changed, pending_client_changed, equalizer_changed)
- *   equalizer → equalizerStore (state_changed, filter_changed,
- *               compressor_changed, loudness_changed, mono_changed,
- *               enabled_changed, zone_enabled_changed)
+ *   equalizer → equalizerStore (state_changed, levels, enabled_changed,
+ *               zone_enabled_changed)
  *   settings  → settingsStore / fanStore (settings.*_changed)
  *   programs  → updatesStore (program + satellite update progress/completion)
  *   network   → useNetwork's module singleton (status_changed) — the one

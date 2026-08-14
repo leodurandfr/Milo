@@ -242,17 +242,6 @@ class TestSettingsService:
         assert result['routing']['multiroom_enabled'] is True
         assert result['routing']['equalizer_effects_enabled'] is False
 
-    def test_validate_and_merge_equalizer_preserved(self, service):
-        """Equalizer section preservation test"""
-        result = service._validate_and_merge({
-            'equalizer': {
-                'saved_bands': {'preset1': [65, 66, 67]},
-                'active_preset': 'preset1'
-            }
-        })
-        assert 'equalizer' in result
-        assert result['equalizer']['saved_bands'] == {'preset1': [65, 66, 67]}
-
     @pytest.mark.asyncio
     async def test_get_setting_simple(self, service):
         """Simple setting retrieval test"""

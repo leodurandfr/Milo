@@ -140,20 +140,6 @@ class TestMacSourceLifecycle:
         mock_task.cancel.assert_called_once()
 
 
-class TestMacSourceCommands:
-    """Test MacSource command handling."""
-
-    @pytest.mark.asyncio
-    async def test_get_connections_command(self, mac_source):
-        """Test get_connections command."""
-        mac_source.connected_clients = {"192.168.1.1": "MacBook"}
-
-        result = await mac_source.command("get_connections", {})
-
-        assert result["success"] is True
-        assert result["connection_count"] == 1
-        assert "192.168.1.1" in result["connections"]
-
 class TestConnectionState:
     """Test connection state management."""
 

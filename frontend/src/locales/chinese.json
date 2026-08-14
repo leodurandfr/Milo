@@ -414,6 +414,8 @@
   "radio": {
     "country": "国家",
     "genre": "类型",
+    "unknownStation": "未知电台",
+    "live": "直播",
     "genres": {
       "classical": "古典",
       "news": "新闻",

@@ -28,8 +28,8 @@ from backend.sources.music_library.source import MusicLibrarySource
 from backend.sources.qobuz.source import QobuzSource
 from backend.sources.tidal.source import TidalSource
 
-# QobuzSource is listed with an empty COMMANDS registry (Family B: playback is
-# driven by the Qobuz sender, not by us) — the per-command loops below are then
+# QobuzSource and MacSource are listed with an empty COMMANDS registry (playback
+# is driven by the sender, not by us) — the per-command loops below are then
 # no-ops, which is the correct outcome, not a gap.
 ALL_SOURCES = [
     SpotifySource, RadioSource, PodcastSource, CdSource,
@@ -211,7 +211,8 @@ def test_every_dispatch_arm_is_registered(cls):
 
     An unregistered arm is unreachable — `command()` rejects the name before
     `_handle_command` runs — so it reads as live playback code while being dead.
-    Family B sources have an empty registry and no if-chain, which is correct.
+    A sender-driven source has an empty registry and no if-chain, which is
+    correct.
     """
     dispatched = _dispatched_commands(cls)
     if not cls.COMMANDS:
