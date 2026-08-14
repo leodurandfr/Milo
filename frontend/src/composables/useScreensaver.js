@@ -192,8 +192,8 @@ export function useScreensaver() {
       return {
         mode: 'media',
         artwork: stationArt,
-        title: station?.name || 'Unknown station',
-        subtitle: metaParts.length > 0 ? metaParts.join(' \u2022 ') : 'Live',
+        title: station?.name || t('radio.unknownStation'),
+        subtitle: metaParts.length > 0 ? metaParts.join(' \u2022 ') : t('radio.live'),
         stationFavicon: null,
         stationName: null,
         useMonoSubtitle: true,
@@ -205,7 +205,7 @@ export function useScreensaver() {
       return {
         mode: 'media',
         artwork: episode?.image_url || null,
-        title: episode?.name || 'No episode',
+        title: episode?.name || t('podcasts.noEpisode'),
         subtitle: episode?.podcast?.name || null,
         stationFavicon: null,
         stationName: null,

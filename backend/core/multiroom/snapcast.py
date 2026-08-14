@@ -170,19 +170,12 @@ class SnapcastService:
         status = await self._request("Server.GetStatus")
         return self.extract_clients(status)
 
-    def _parse_clients(
-        self,
-        status: dict,
-        include_offline: bool = False,
-        detailed: bool = False
-    ) -> List[Dict[str, Any]]:
+    def _parse_clients(self, status: dict) -> List[Dict[str, Any]]:
         """
-        Parse clients from server status with configurable output.
+        Parse online clients from server status.
 
         Args:
             status: Snapcast server status response
-            include_offline: If True, include clients that aren't recently seen
-            detailed: If True, include extra fields (host_info, snapclient_info, group_id)
 
         Returns:
             List of client dicts, deduplicated by MAC address
@@ -192,7 +185,6 @@ class SnapcastService:
         now = time.time()
 
         for group in status.get("server", {}).get("groups", []):
-            group_id = group.get("id")
             for client_data in group.get("clients", []):
                 if not client_data.get("connected"):
                     continue
@@ -225,11 +217,10 @@ class SnapcastService:
                 if ip == "127.0.0.1":
                     is_online = True
 
-                # Skip offline clients unless explicitly requested
-                if not is_online and not include_offline:
+                if not is_online:
                     continue
 
-                client_info = {
+                raw_clients.append({
                     "id": client_data["id"],
                     "name": name,
                     "volume": client_data["config"]["volume"]["percent"],
@@ -238,24 +229,8 @@ class SnapcastService:
                     "ip": ip,
                     "mac_id": mac_id,
                     "online": is_online,
-                }
-
-                if detailed:
-                    # Add detailed fields for monitoring endpoint
-                    client_info.update({
-                        "last_seen": last_seen_data,
-                        "connection_quality": self._calculate_connection_quality(last_seen_data),
-                        "host_info": {
-                            "arch": client_data["host"].get("arch", ""),
-                            "os": client_data["host"].get("os", "")
-                        },
-                        "snapclient_info": client_data.get("snapclient", {}),
-                        "group_id": group_id
-                    })
-                else:
-                    client_info["last_seen_age"] = int(last_seen_age)
-
-                raw_clients.append(client_info)
+                    "last_seen_age": int(last_seen_age),
+                })
 
         return self._deduplicate_by_mac(raw_clients)
 
@@ -266,7 +241,7 @@ class SnapcastService:
         from "no client is connected": it guards on an empty status of its own
         and only then parses, which ``get_clients``' fail-open [] cannot express.
         """
-        return self._parse_clients(status, include_offline=False, detailed=False)
+        return self._parse_clients(status)
 
     def _deduplicate_by_mac(self, clients: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Remove duplicate clients based on computed mac_id."""
@@ -290,13 +265,6 @@ class SnapcastService:
                 deduplicated.append(group[0])
 
         return deduplicated
-
-    def _calculate_connection_quality(self, last_seen: Dict[str, Any]) -> str:
-        """Calculate connection quality based on lastSeen."""
-        if not last_seen:
-            return "unknown"
-        sec = last_seen.get("sec", 0)
-        return "good" if sec > 0 else "poor"
 
     # === AVAILABILITY CHECK ===
 

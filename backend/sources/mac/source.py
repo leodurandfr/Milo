@@ -17,8 +17,6 @@ import contextlib
 import ipaddress
 from typing import Dict, Any, Optional, Tuple
 
-from pydantic import BaseModel
-
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import NetworkRequirement
 from backend.shared.decorators import handle_errors
@@ -31,9 +29,9 @@ class MacSource(BaseAudioSource):
     """
     Mac audio source using ROC toolkit.
 
-    Family A (mute receiver): playback control flows from the Mac sender;
-    commands routed through `/api/audio/control/mac` reach `_handle_command`.
-    Extends BaseAudioSource — implements `_do_start / _do_stop / _handle_command`.
+    Family A (mute receiver): playback control flows from the Mac sender, so
+    this source registers no command at all.
+    Extends BaseAudioSource — implements `_do_start / _do_stop`.
     """
 
     NETWORK_REQUIREMENT = NetworkRequirement.LAN
@@ -113,19 +111,6 @@ class MacSource(BaseAudioSource):
         self._reset_playback_state()
 
         return await self._stop_service()
-
-
-    COMMANDS = {"get_connections": None}
-
-    async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
-        """Handle Mac-specific commands."""
-        if cmd == "get_connections":
-            return self.success_response(
-                connections=dict(self.connected_clients),
-                connection_count=len(self.connected_clients)
-            )
-
-        return self.error_response(f"Unhandled command: {cmd}")
 
     # === Connection Monitoring ===
 

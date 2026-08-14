@@ -531,10 +531,10 @@ def create_settings_router(
                 updates['screen.screensaver_delay_seconds'] = payload.screensaver_delay_seconds
             return settings.set_settings(updates)
 
-        screen = await settings.get_setting('screen') or {}
+        screen = await settings.get_setting('screen')
         config = {
-            "screensaver_enabled": payload.screensaver_enabled if payload.screensaver_enabled is not None else screen.get("screensaver_enabled", True),
-            "screensaver_delay_seconds": payload.screensaver_delay_seconds if payload.screensaver_delay_seconds is not None else screen.get("screensaver_delay_seconds", 120)
+            "screensaver_enabled": payload.screensaver_enabled if payload.screensaver_enabled is not None else screen["screensaver_enabled"],
+            "screensaver_delay_seconds": payload.screensaver_delay_seconds if payload.screensaver_delay_seconds is not None else screen["screensaver_delay_seconds"]
         }
 
         return await _handle_setting_update(
@@ -567,10 +567,10 @@ def create_settings_router(
                 updates['screen.color_filter_warmth'] = payload.warmth
             return settings.set_settings(updates)
 
-        screen = await settings.get_setting('screen') or {}
+        screen = await settings.get_setting('screen')
         config = {
-            "enabled": payload.enabled if payload.enabled is not None else screen.get("color_filter_enabled", False),
-            "warmth": payload.warmth if payload.warmth is not None else screen.get("color_filter_warmth", 50)
+            "enabled": payload.enabled if payload.enabled is not None else screen["color_filter_enabled"],
+            "warmth": payload.warmth if payload.warmth is not None else screen["color_filter_warmth"]
         }
 
         return await _handle_setting_update(

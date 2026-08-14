@@ -414,6 +414,8 @@
   "radio": {
     "country": "देश",
     "genre": "शैली",
+    "unknownStation": "अज्ञात स्टेशन",
+    "live": "लाइव",
     "genres": {
       "classical": "क्लासिकल",
       "news": "समाचार",

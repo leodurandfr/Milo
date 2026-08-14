@@ -414,6 +414,8 @@
   "radio": {
     "country": "País",
     "genre": "Género",
+    "unknownStation": "Estação desconhecida",
+    "live": "Ao vivo",
     "genres": {
       "classical": "Clássica",
       "news": "Notícias",

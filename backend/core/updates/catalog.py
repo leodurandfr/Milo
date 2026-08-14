@@ -102,7 +102,6 @@ PROGRAMS = {
             "milo-snapserver-multiroom.service",
             "milo-snapclient-multiroom.service"
         ],
-        "components": ["snapserver", "snapclient"],
         "backup_path": "/var/lib/milo/backups/multiroom"
     },
     "camilladsp": {
