@@ -60,12 +60,21 @@ function storesExposingResync() {
   return exposing;
 }
 
+const DISPATCH_TABLES = ['RAW_EVENTS', 'PARSED_EVENTS', 'SETTINGS_CONFIG_EVENTS'];
+
+/** The `[..., handler]` column of one of App.vue's dispatch tables. */
+function tableHandlers(source, name) {
+  const block = new RegExp(`const ${name} = \\[([\\s\\S]*?)\\n\\];`).exec(source);
+  if (!block) throw new Error(`${name} not found in App.vue — the extractor is broken`);
+  return [...block[1].matchAll(/,\s*([\w.]+)\]/g)].map(m => m[1]);
+}
+
 /**
- * Store identifiers referenced inside a WS subscription callback in App.vue.
- * Walks each `on(` / `parsedOn(` call to its matching paren so multi-line
- * handler bodies are covered.
+ * Store identifiers referenced inside an inline `on(` / `parsedOn(` callback.
+ * Walks each call to its matching paren so multi-line handler bodies are
+ * covered.
  */
-function storesMutatedByWsHandlers(source) {
+function storesInInlineHandlers(source) {
   const referenced = new Set();
   for (const match of source.matchAll(/(?<![.\w])(parsedOn|on)\(/g)) {
     let depth = 0;
@@ -83,6 +92,53 @@ function storesMutatedByWsHandlers(source) {
     }
   }
   return referenced;
+}
+
+/** Store identifiers named directly in a dispatch table's handler column. */
+function storesInDispatchTables(source) {
+  const referenced = new Set();
+  for (const name of DISPATCH_TABLES) {
+    for (const handler of tableHandlers(source, name)) {
+      const [local] = handler.split('.');
+      if (/Store$/.test(local)) referenced.add(local);
+    }
+  }
+  return referenced;
+}
+
+/**
+ * Store identifiers reached through a table row's *named* handler — a local
+ * function in App.vue rather than a store method (`handleConnectivityChanged`).
+ * Third shape, third extractor: the store it mutates appears in neither of the
+ * two above.
+ */
+function storesInNamedTableHandlers(source) {
+  const referenced = new Set();
+  for (const name of DISPATCH_TABLES) {
+    for (const handler of tableHandlers(source, name)) {
+      if (handler.includes('.')) continue;
+      const body = new RegExp(`function ${handler}\\s*\\([^)]*\\)\\s*\\{([\\s\\S]*?)\\n\\}`).exec(source);
+      if (!body) continue;  // imported from a composable, not a store mutator
+      for (const [, identifier] of body[1].matchAll(/(\w+Store)\./g)) referenced.add(identifier);
+    }
+  }
+  return referenced;
+}
+
+/**
+ * Every store a WS handler mutates, whichever of the three shapes it takes.
+ *
+ * The tables are the shape that matters: `RAW_EVENTS.map(([c, t, handler]) =>
+ * on(c, t, handler))` names no store inside the `on(` call, so reading the
+ * subscription bodies alone saw 5 of the 10 WS-fed stores and quietly held the
+ * other 5 to no rule at all.
+ */
+function storesMutatedByWsHandlers(source) {
+  return new Set([
+    ...storesInInlineHandlers(source),
+    ...storesInDispatchTables(source),
+    ...storesInNamedTableHandlers(source),
+  ]);
 }
 
 const bindings = storeBindings(appSource);
@@ -181,9 +237,18 @@ describe('App.vue has one recipe for populating the stores', () => {
 });
 
 describe('WS subscriptions ↔ deltaStores', () => {
+  it('sees more stores than any single dispatch shape yields', () => {
+    // The floor is above what each extractor finds alone (8 for the tables, 5
+    // for the inline callbacks, 2 for the named handlers), so losing any one
+    // of the three fails here instead of shrinking the rule below in silence.
+    expect(storesInDispatchTables(appSource).size).toBeGreaterThan(5);
+    expect(storesInInlineHandlers(appSource).size).toBeGreaterThan(3);
+    expect(storesInNamedTableHandlers(appSource).size).toBeGreaterThan(1);
+    expect(storesMutatedByWsHandlers(appSource).size).toBeGreaterThan(8);
+  });
+
   it('every store mutated by a WS handler is delta-listed or snapshot-fed', () => {
     const mutated = storesMutatedByWsHandlers(appSource);
-    expect(mutated.size).toBeGreaterThan(3);
 
     const unhealed = [...mutated]
       .filter(id => bindings.has(id))

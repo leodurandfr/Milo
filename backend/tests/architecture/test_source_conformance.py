@@ -304,30 +304,18 @@ def _is_property(method):
     )
 
 
-@pytest.mark.parametrize("source_id", SOURCE_IDS)
-def test_collaborators_are_exposed_not_proxied(source_id):
-    """A collaborator a public source method touches is exposed as a property.
+def _collaborators(cls, package_names):
+    """`self.<attr>` assigned something the source's own package builds.
 
-    Crossing the public boundary is the discriminator, not the collaborator
-    itself: cd's `_reader`, radio's `_artwork` and bluetooth's agent/monitor are
-    referenced only from private playback code and are exactly where they
-    belong. One that a *public* method reaches is one routes.py needs — and then
-    the source must hand it over (`source.shares`, `source.station_data`) rather
-    than grow a forwarding method per call, which is a second API surface that
-    drifts and puts non-playback work on the audio source.
-
-    `initialize`/`refresh_metadata` are exempt: they are the base contract, and
-    bringing a collaborator up is the source's job even when nothing else is.
+    Every method, not just `__init__`: five of the eleven sources construct
+    their collaborator in `_do_start` — airplay's reader, dlna's bridge,
+    qobuz's monitor, spotify's ws client, tidal's controller — because it holds
+    a socket that must not outlive a stopped source. Reading `__init__` alone
+    found nothing for them, and the rule below then *skipped* them, so it
+    covered 5 of 11 sources while its name claimed all of them.
     """
-    cls, package_names = _source_ast(source_id)
-    methods = [
-        m for m in cls.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
-    ]
-    assert methods, f"{source_id}: no methods parsed — the extractor is broken"
-
-    init = next((m for m in methods if m.name == "__init__"), None)
     collaborators = {}
-    for node in ast.walk(init) if init else []:
+    for node in ast.walk(cls):
         if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
             continue
         func = node.value.func
@@ -341,6 +329,61 @@ def test_collaborators_are_exposed_not_proxied(source_id):
                 and target.value.id == "self"
             ):
                 collaborators[target.attr] = built
+    return collaborators
+
+
+# Sources whose package holds no class for the source to own: mac's helpers
+# (log_patterns, mdns) are plain functions. Any *other* source landing here
+# means the extractor stopped seeing a construction site — which is exactly how
+# this rule came to cover 5 of 11 sources in silence.
+NO_COLLABORATOR_SOURCES = {"mac"}
+
+# Public methods where reaching a collaborator is the source's own work rather
+# than a proxy for a caller. `initialize`/`refresh_metadata` are the base
+# contract — bringing a collaborator up is the source's job even when nothing
+# else is. `on_shazam_setting_changed` is the same kind: its caller
+# (api/settings.py::set_radio_settings) wants the *source* to react to a global
+# toggle, and the method re-arms `_shazam_candidate` against the in-band feed —
+# state nobody holding `source.shazam` could reason about. Exposing the service
+# to satisfy the rule would add a property no caller reads.
+COLLABORATOR_OWNER_METHODS = ("initialize", "refresh_metadata", "on_shazam_setting_changed")
+
+
+def test_collaborator_extraction_reaches_every_source_but_the_named_ones():
+    """The skip in the rule below is a claim, and this is what checks it."""
+    none_found = {
+        source_id for source_id in SOURCE_IDS
+        if not _collaborators(*_source_ast(source_id))
+    }
+    assert none_found == NO_COLLABORATOR_SOURCES, (
+        f"sources constructing no collaborator: {sorted(none_found)}; expected "
+        f"{sorted(NO_COLLABORATOR_SOURCES)}. A source that stops yielding one is "
+        f"skipped by test_collaborators_are_exposed_not_proxied, not checked by it."
+    )
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_collaborators_are_exposed_not_proxied(source_id):
+    """A collaborator a public source method touches is exposed as a property.
+
+    Crossing the public boundary is the discriminator, not the collaborator
+    itself: cd's `_reader`, radio's `_artwork` and bluetooth's agent/monitor are
+    referenced only from private playback code and are exactly where they
+    belong. One that a *public* method reaches is one routes.py needs — and then
+    the source must hand it over (`source.shares`, `source.station_data`) rather
+    than grow a forwarding method per call, which is a second API surface that
+    drifts and puts non-playback work on the audio source.
+
+    The exemptions are named in `COLLABORATOR_OWNER_METHODS`, with the reason
+    each one is the source's own work rather than a forwarded call.
+    """
+    cls, package_names = _source_ast(source_id)
+    methods = [
+        m for m in cls.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    assert methods, f"{source_id}: no methods parsed — the extractor is broken"
+
+    collaborators = _collaborators(cls, package_names)
     if not collaborators:
         pytest.skip(f"{source_id} constructs no collaborator from its own package")
 
@@ -352,7 +395,7 @@ def test_collaborators_are_exposed_not_proxied(source_id):
     for method in methods:
         if _is_property(method) or method.name.startswith("_"):
             continue
-        if method.name in ("initialize", "refresh_metadata"):
+        if method.name in COLLABORATOR_OWNER_METHODS:
             continue
         for attr in sorted(_self_attrs(method) & set(collaborators)):
             assert attr in exposed, (
