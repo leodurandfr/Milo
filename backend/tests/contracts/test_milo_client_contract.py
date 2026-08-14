@@ -487,3 +487,53 @@ def test_every_key_the_backend_sends_is_read_by_milo_client(method, path):
                     f"{path}, but milo-client's handler never reads those keys — they "
                     f"are dropped silently. It reads {sorted(inner_keys)}"
                 )
+
+
+# --------------------------------------------------------------------------- #
+# Side C: a value both trees bound, and must bound identically.
+# --------------------------------------------------------------------------- #
+
+def _satellite_snapclient_bounds() -> dict:
+    """field → (ge, le) as milo-client's SnapclientConfigUpdate declares them."""
+    tree = ast.parse((CLIENT_APP_DIR / "models.py").read_text())
+    bounds = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ClassDef) and node.name == "SnapclientConfigUpdate"):
+            continue
+        for stmt in node.body:
+            if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
+                continue
+            call = stmt.value
+            if not (isinstance(call, ast.Call) and getattr(call.func, "id", None) == "Field"):
+                continue
+            limits = {
+                kw.arg: kw.value.value
+                for kw in call.keywords
+                if kw.arg in ("ge", "le") and isinstance(kw.value, ast.Constant)
+            }
+            if {"ge", "le"} <= set(limits):
+                bounds[stmt.target.id] = (limits["ge"], limits["le"])
+    return bounds
+
+
+def test_snapclient_bounds_agree_across_the_two_trees():
+    """The ALSA buffer pair is bounded on both sides, and the two must be one range.
+
+    A satellite tarball ships without `backend/`, so milo-client cannot import
+    SNAPCLIENT_LIMITS and restates it — which is exactly how the two came apart:
+    the server clamped buffer_time to 200 ms while the satellites accepted 300,
+    so a single write left the local speaker on a different ALSA buffer than
+    every other room, with nothing anywhere reporting a disagreement.
+
+    When this fails, move both declarations together — do not widen one side to
+    absorb the other.
+    """
+    from backend.core.multiroom.routing import SNAPCLIENT_LIMITS
+
+    bounds = _satellite_snapclient_bounds()
+    assert set(bounds) == {"buffer_time", "fragments"}, (
+        f"SnapclientConfigUpdate no longer declares a bounded pair: {bounds}. "
+        "Either the model moved, or a field lost its Field(ge=…, le=…) — in which "
+        "case the satellite accepts anything the server sends and this check is blind."
+    )
+    assert bounds == {k: tuple(v) for k, v in SNAPCLIENT_LIMITS.items()}

@@ -46,6 +46,51 @@ DEFAULT_SNAPCLIENT_CONFIG = {
     "fragments": 4,
 }
 
+# The one accepted range for that pair, and the only place it is declared on
+# this side: PUT /api/routing/snapcast/server-config rejects a request outside
+# it, and everything reading the stored value goes through the clamp below.
+# The local env writer used to stop at 200 while the satellites accepted 300,
+# so one write left the local speaker on a different ALSA buffer than the rest
+# of the house. milo-client/ restates the range in its own Pydantic model — a
+# satellite tarball ships without backend/ — and the two declarations are
+# pinned together by tests/contracts/test_milo_client_contract.py.
+SNAPCLIENT_LIMITS = {
+    "buffer_time": (60, 300),
+    "fragments": (2, 8),
+}
+
+
+def _clamp_snapclient(key: str, value: Any) -> int:
+    """Coerce one snapclient value to an int inside SNAPCLIENT_LIMITS[key].
+
+    Absent or unparseable falls back to DEFAULT_SNAPCLIENT_CONFIG[key]; a stored
+    value out of range is clamped rather than rejected, so a hand-edited
+    settings.json still boots.
+    """
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        value = DEFAULT_SNAPCLIENT_CONFIG[key]
+    low, high = SNAPCLIENT_LIMITS[key]
+    return max(low, min(high, value))
+
+
+async def resolve_snapclient_config(settings_service) -> tuple:
+    """Read the stored (buffer_time, fragments) pair, defaulted and clamped.
+
+    One resolution path for both readers of the pair — the GET that reports it
+    and the reconnection push that re-sends it to a satellite. Each used to
+    carry its own `80`/`4` literals, which is two more defaults for one setting.
+    """
+    buffer_time = fragments = None
+    if settings_service:
+        buffer_time = await settings_service.get_setting('multiroom.snapclient_buffer_time')
+        fragments = await settings_service.get_setting('multiroom.snapclient_fragments')
+    return (
+        _clamp_snapclient("buffer_time", buffer_time),
+        _clamp_snapclient("fragments", fragments),
+    )
+
 
 def _atomic_write(path: str, content: str) -> None:
     """Write file atomically: temp file + fsync + os.replace."""
@@ -164,29 +209,15 @@ class SnapclientEnv:
     def regenerate(buffer_time: Any, fragments: Any) -> None:
         """Regenerate snapclient.env from pre-loaded buffer_time / fragments values.
 
-        Pure function: validates and clamps inputs, falls back to
-        DEFAULT_SNAPCLIENT_CONFIG when either is None. The caller owns the
-        settings read (consolidated in
+        Pure function: coerces and clamps both inputs through the one declared
+        range (SNAPCLIENT_LIMITS), falling back to DEFAULT_SNAPCLIENT_CONFIG when
+        either is None. The caller owns the settings read (consolidated in
         AudioRoutingService.regenerate_env_files since Phase 4).
         """
         logger = logging.getLogger(__name__)
 
-        if buffer_time is None:
-            buffer_time = DEFAULT_SNAPCLIENT_CONFIG["buffer_time"]
-        if fragments is None:
-            fragments = DEFAULT_SNAPCLIENT_CONFIG["fragments"]
-
-        try:
-            buffer_time = int(buffer_time)
-        except (TypeError, ValueError):
-            buffer_time = DEFAULT_SNAPCLIENT_CONFIG["buffer_time"]
-        buffer_time = max(10, min(200, buffer_time))
-
-        try:
-            fragments = int(fragments)
-        except (TypeError, ValueError):
-            fragments = DEFAULT_SNAPCLIENT_CONFIG["fragments"]
-        fragments = max(2, min(8, fragments))
+        buffer_time = _clamp_snapclient("buffer_time", buffer_time)
+        fragments = _clamp_snapclient("fragments", fragments)
 
         content = (
             "# Milo Snapclient Environment\n"

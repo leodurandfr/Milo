@@ -75,8 +75,8 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
 
         Idempotent: skips restart if values are already current.
         """
-        buffer_time = max(60, min(300, payload.buffer_time))
-        fragments = max(2, min(8, payload.fragments))
+        buffer_time = payload.buffer_time
+        fragments = payload.fragments
 
         try:
             if not ENV_FILE.exists():

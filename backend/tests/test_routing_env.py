@@ -18,6 +18,8 @@ from backend.core.multiroom.routing import (
     SnapclientEnv,
     DEFAULT_ROC_CONFIG,
     DEFAULT_SNAPCLIENT_CONFIG,
+    SNAPCLIENT_LIMITS,
+    resolve_snapclient_config,
 )
 
 
@@ -198,20 +200,36 @@ class TestSnapclientEnv:
         assert "MILO_SNAPCLIENT_BUFFER_TIME=90" in content
         assert "MILO_SNAPCLIENT_FRAGMENTS=3" in content
 
-    def test_regenerate_clamps_buffer_high(self, env_paths):
-        SnapclientEnv.regenerate(9999, None)
-        content = _read(env_paths["snapclient"])
-        assert "MILO_SNAPCLIENT_BUFFER_TIME=200" in content
+    def test_regenerate_clamps_buffer_to_the_declared_range(self, env_paths):
+        """The local env writer is one end of a bound shared with the satellites.
 
-    def test_regenerate_clamps_buffer_low(self, env_paths):
-        SnapclientEnv.regenerate(1, None)
-        content = _read(env_paths["snapclient"])
-        assert "MILO_SNAPCLIENT_BUFFER_TIME=10" in content
+        It used to stop at 200 ms while milo-client accepted 300, so a single
+        `PUT /snapcast/server-config` at 300 left the local speaker on a
+        different ALSA buffer than every other room — from the same write.
+        """
+        low, high = SNAPCLIENT_LIMITS["buffer_time"]
 
-    def test_regenerate_clamps_fragments(self, env_paths):
-        SnapclientEnv.regenerate(None, 99)
+        SnapclientEnv.regenerate(high + 1000, None)
+        assert f"MILO_SNAPCLIENT_BUFFER_TIME={high}" in _read(env_paths["snapclient"])
+
+        SnapclientEnv.regenerate(low - 50, None)
+        assert f"MILO_SNAPCLIENT_BUFFER_TIME={low}" in _read(env_paths["snapclient"])
+
+    def test_regenerate_clamps_fragments_to_the_declared_range(self, env_paths):
+        low, high = SNAPCLIENT_LIMITS["fragments"]
+
+        SnapclientEnv.regenerate(None, high + 91)
+        assert f"MILO_SNAPCLIENT_FRAGMENTS={high}" in _read(env_paths["snapclient"])
+
+        SnapclientEnv.regenerate(None, low - 1)
+        assert f"MILO_SNAPCLIENT_FRAGMENTS={low}" in _read(env_paths["snapclient"])
+
+    def test_regenerate_falls_back_to_defaults_on_unparseable(self, env_paths):
+        """Garbage resolves to the declared default, not to the clamp floor."""
+        SnapclientEnv.regenerate("soon", [])
         content = _read(env_paths["snapclient"])
-        assert "MILO_SNAPCLIENT_FRAGMENTS=8" in content
+        assert f"MILO_SNAPCLIENT_BUFFER_TIME={DEFAULT_SNAPCLIENT_CONFIG['buffer_time']}" in content
+        assert f"MILO_SNAPCLIENT_FRAGMENTS={DEFAULT_SNAPCLIENT_CONFIG['fragments']}" in content
 
     def test_regenerate_does_not_touch_routing_env(self, env_paths):
         RoutingEnv.regenerate(True)
@@ -229,6 +247,56 @@ class TestSnapclientEnv:
         SnapclientEnv.regenerate(100, 5)
         second = _read(env_paths["snapclient"])
         assert first == second
+
+
+# =============================================================================
+# resolve_snapclient_config — the one read path for the stored pair
+# =============================================================================
+
+class TestResolveSnapclientConfig:
+    """The pair reaches a satellite from two places — `GET /snapcast/server-config`
+    and the reconnection push in multiroom/websocket.py. Both used to carry their
+    own `80`/`4` literals, so a change to the declared default moved one and left
+    the other, and a reconnecting satellite could be re-synced to a value the UI
+    had never shown.
+    """
+
+    def _settings(self, storage):
+        from unittest.mock import AsyncMock, Mock
+
+        svc = Mock()
+        svc.get_setting = AsyncMock(side_effect=lambda key: storage.get(key))
+        return svc
+
+    async def test_stored_pair_is_returned(self):
+        settings = self._settings({
+            'multiroom.snapclient_buffer_time': 120,
+            'multiroom.snapclient_fragments': 6,
+        })
+        assert await resolve_snapclient_config(settings) == (120, 6)
+
+    async def test_missing_keys_resolve_to_the_declared_defaults(self):
+        assert await resolve_snapclient_config(self._settings({})) == (
+            DEFAULT_SNAPCLIENT_CONFIG["buffer_time"],
+            DEFAULT_SNAPCLIENT_CONFIG["fragments"],
+        )
+
+    async def test_no_settings_service_resolves_to_the_declared_defaults(self):
+        assert await resolve_snapclient_config(None) == (
+            DEFAULT_SNAPCLIENT_CONFIG["buffer_time"],
+            DEFAULT_SNAPCLIENT_CONFIG["fragments"],
+        )
+
+    async def test_a_stored_out_of_range_value_is_clamped_not_forwarded(self):
+        """A hand-edited settings.json must not push a value the satellite rejects."""
+        low, high = SNAPCLIENT_LIMITS["buffer_time"]
+        settings = self._settings({'multiroom.snapclient_buffer_time': high + 500})
+        buffer_time, _ = await resolve_snapclient_config(settings)
+        assert buffer_time == high
+
+        settings = self._settings({'multiroom.snapclient_buffer_time': low - 500})
+        buffer_time, _ = await resolve_snapclient_config(settings)
+        assert buffer_time == low
 
 
 # =============================================================================

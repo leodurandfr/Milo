@@ -20,7 +20,12 @@ from backend.api.responses import MultiroomSetResponse
 from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.models.ws_events import SystemStateChanged
-from backend.core.multiroom.routing import SnapclientEnv, DEFAULT_SNAPCLIENT_CONFIG
+from backend.core.multiroom.routing import (
+    DEFAULT_SNAPCLIENT_CONFIG,
+    SNAPCLIENT_LIMITS,
+    SnapclientEnv,
+    resolve_snapclient_config,
+)
 from backend.core.multiroom.snapcast import NETWORK_PRESETS, SUPPORTED_CODECS
 
 if TYPE_CHECKING:
@@ -37,6 +42,25 @@ logger = logging.getLogger(__name__)
 class MultiroomRequest(BaseModel):
     """Request to enable/disable multiroom mode."""
     enabled: bool
+
+
+def _validate_snapclient_value(key: str, value) -> None:
+    """Reject a snapclient value outside SNAPCLIENT_LIMITS, or pass silently.
+
+    This is the only gate the pair passes through. Both keys leave `config`
+    before it reaches SnapcastService, so the validators there never saw them:
+    an out-of-range buffer_time used to be persisted, written to snapclient.env
+    and pushed to every satellite, each end clamping it its own way.
+    """
+    if value is None:
+        return
+    low, high = SNAPCLIENT_LIMITS[key]
+    if not isinstance(value, int) or not low <= value <= high:
+        logger.error(f"Invalid snapclient_{key}: {value}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"snapclient_{key} must be an integer between {low} and {high}"
+        )
 
 
 def create_routing_router(
@@ -143,11 +167,10 @@ def create_routing_router(
 
             config = await snapcast_service.get_server_config()
 
-            # Add snapclient_buffer_time from settings
-            if settings_service and config:
-                snapclient_buffer_time = await settings_service.get_setting('multiroom.snapclient_buffer_time')
-                if snapclient_buffer_time is None:
-                    snapclient_buffer_time = 80  # Default value
+            # Add snapclient_buffer_time from settings — reported as it will be
+            # applied (defaulted and clamped), not as it happens to be stored.
+            if config:
+                snapclient_buffer_time, _ = await resolve_snapclient_config(settings_service)
                 config["snapclient_buffer_time"] = snapclient_buffer_time
 
             return {"config": config, "capabilities": capabilities}
@@ -164,6 +187,8 @@ def create_routing_router(
             # Extract snapclient config (not part of snapserver.conf)
             snapclient_buffer_time = config.pop("snapclient_buffer_time", None)
             snapclient_fragments = config.pop("snapclient_fragments", None)
+            _validate_snapclient_value("buffer_time", snapclient_buffer_time)
+            _validate_snapclient_value("fragments", snapclient_fragments)
 
             # Snapclient buffer settings must be propagated to remotes BEFORE
             # the snapserver restart: the restart disconnects every client, and
