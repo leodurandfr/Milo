@@ -464,6 +464,25 @@ class HardwareConfigRequest(BaseModel):
     rotary_encoder: HardwareRotaryEncoderRequest
     ir_remote: HardwareIrRemoteRequest
 
+    @model_validator(mode='after')
+    def validate_no_pin_collision(self):
+        """Two peripherals, one GPIO header. The rotary encoder rejects its own
+        duplicates but knows nothing of the IR data line, and this route reboots
+        the unit — an accepted collision comes back as a dead remote (or a dead
+        encoder) with nothing to point at."""
+        if self.rotary_encoder.enabled and self.ir_remote.enabled:
+            rotary_pins = {
+                self.rotary_encoder.clk_pin,
+                self.rotary_encoder.dt_pin,
+                self.rotary_encoder.sw_pin,
+            }
+            if self.ir_remote.gpio_pin in rotary_pins:
+                raise ValueError(
+                    f'GPIO {self.ir_remote.gpio_pin} cannot be the IR data line: '
+                    'the rotary encoder already uses it'
+                )
+        return self
+
 
 class MacRocConfigRequest(BaseModel):
     """Mac ROC streaming configuration request"""

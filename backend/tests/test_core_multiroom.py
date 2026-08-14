@@ -353,7 +353,6 @@ class TestRegistryEventType:
         assert RegistryEventType.ZONE_CREATED == "zone_created"
         assert RegistryEventType.ZONE_UPDATED == "zone_updated"
         assert RegistryEventType.ZONE_DELETED == "zone_deleted"
-        assert RegistryEventType.VOLUME_CHANGED == "volume_changed"
         assert RegistryEventType.EQUALIZER_SETTINGS_CHANGED == "equalizer_settings_changed"
 
 

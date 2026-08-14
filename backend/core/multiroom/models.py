@@ -587,8 +587,5 @@ class RegistryEventType:
     ZONE_UPDATED = "zone_updated"
     ZONE_CLIENT_REMOVED = "zone_client_removed"
 
-    # Volume events (emitted for frontend updates)
-    VOLUME_CHANGED = "volume_changed"
-
     # Equalizer events
     EQUALIZER_SETTINGS_CHANGED = "equalizer_settings_changed"

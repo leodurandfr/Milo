@@ -293,6 +293,20 @@ const displayClients = computed(() => {
   });
 });
 
+// Which rows are shown, under which names — everything the two watchers below
+// react to. displayClients itself is rebuilt on every volume WS event (a level
+// is one of its fields), and watching it was a localStorage write plus a full
+// re-measure of the name column for each one, several times a second while a
+// slider moves.
+const displayStructure = computed(() => JSON.stringify(
+  displayClients.value.map(client => [
+    client.mac_id || client.id,
+    client.isZone || false,
+    client.name,
+    (client.zoneClientDetails || []).map(zoneClient => zoneClient.name)
+  ])
+));
+
 // === NAME WIDTH SYNCHRONIZATION ===
 // Align all name columns to the widest name (max 200px)
 function updateNameWidth() {
@@ -438,15 +452,16 @@ watch(isMultiroomActive, (newValue, oldValue) => {
 });
 
 // Synchronize name column widths when clients load or loading finishes
-watch([displayClients, shouldShowLoading], () => { nextTick(updateNameWidth); });
+watch([displayStructure, shouldShowLoading], () => { nextTick(updateNameWidth); });
 
 // Save display cache when real clients are loaded (for zone-aware skeleton on next load)
-watch(displayClients, (newClients) => {
+watch(displayStructure, () => {
+  const items = displayClients.value;
   // Only save when we have real data (not placeholders) and not in loading state
-  if (!shouldShowLoading.value && newClients.length > 0 && newClients[0].mac_id) {
-    snapcastStore.saveDisplayCache(newClients);
+  if (!shouldShowLoading.value && items.length > 0 && items[0].mac_id) {
+    snapcastStore.saveDisplayCache(items);
   }
-}, { deep: true });
+});
 </script>
 
 <style scoped>

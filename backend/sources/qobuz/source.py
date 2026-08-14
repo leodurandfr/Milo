@@ -184,6 +184,7 @@ class QobuzSource(BaseAudioSource):
         it rides the broadcast metadata so the idle card can offer a "connect
         account" CTA when no Qobuz account is logged in.
         """
+        was_authenticated = self._authenticated
         if authenticated is not None:
             self._authenticated = authenticated
 
@@ -239,10 +240,18 @@ class QobuzSource(BaseAudioSource):
             if self._device_connected and self._idle_ticks < _IDLE_GRACE_TICKS:
                 self._idle_ticks += 1
                 return
+            # Idle is a steady state, not a progress feed: the READY published
+            # when the session ended (or by _do_start) already says everything
+            # the next tick would, and this poll runs at ~1 Hz for as long as the
+            # source is selected. Only the login state still moves while idle, so
+            # that is the one thing worth a second broadcast.
+            was_connected = self._device_connected
             self._is_playing = False
             self._metadata = {}
             self._device_connected = False
             self._trackless_ticks = 0
+            if not was_connected and self._authenticated == was_authenticated:
+                return
 
         self._update_connection_state()
 

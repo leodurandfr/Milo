@@ -6,7 +6,6 @@ import aiohttp
 import logging
 import re
 from typing import List, Dict, Any, Optional
-from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from backend.sources.radio.genres import extract_valid_genre
 from backend.sources.radio.server_discovery import ServerDiscovery
@@ -118,19 +117,13 @@ class RadioBrowserAPI:
             f"All Radio Browser mirrors failed for /{endpoint}: {last_error}"
         )
 
-    async def _fetch_stations_by_query(
-        self, query: str, *, deduplicate: bool = True
-    ) -> List[Dict[str, Any]]:
+    async def _fetch_stations_by_query(self, query: str) -> List[Dict[str, Any]]:
         """
         Gets all stations matching a search query via the API
         Global search among all stations from all countries
 
         Args:
             query: Search term (station name)
-            deduplicate: Merge same-name variants into one entry (default). Set
-                False for alternative-URL resolution, which needs the raw
-                same-name variants to rank them by broadcaster affinity — dedup
-                would collapse different broadcasters into one and defeat WI-4.
 
         Returns:
             List of normalized and filtered stations
@@ -138,8 +131,8 @@ class RadioBrowserAPI:
             for callers like get_stations_by_ids' favicon-fallback loop)
         """
         try:
-            # Exact-name lookup (favicon/alternative resolution): a station rarely
-            # has more than a handful of URL variants, so a broad limit was waste.
+            # Exact-name lookup (favicon resolution): a station rarely has more
+            # than a handful of URL variants, so a broad limit was waste.
             # Order server-side by bitrate so the strongest variants survive the
             # cap even when a name is very common (final ranking is client-side).
             stations = await self._request(
@@ -167,9 +160,6 @@ class RadioBrowserAPI:
             for station in stations
             if self._is_valid_station(station)
         ]
-
-        if not deduplicate:
-            return valid_stations
 
         deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
@@ -333,76 +323,6 @@ class RadioBrowserAPI:
             quality += resolution_bonus
 
         return quality
-
-    @handle_errors(default=[])
-    async def find_alternative_urls(
-        self, station: Dict[str, Any], exclude_url: str = ""
-    ) -> List[Dict[str, Any]]:
-        """
-        Finds alternative URLs for the *same* station when its primary URL fails.
-
-        Two genuinely different stations can share a name (e.g. a French and a
-        Brazilian "Radio X"), so matching by name alone risks silently switching
-        the listener to a different broadcaster. To prevent that (WI-4) we:
-          - never accept an alternative from a *different* country than the origin,
-          - rank survivors by affinity to the origin — same `stationuuid`, then
-            same URL host, then same country — before audio quality.
-
-        Args:
-            station: The origin station (needs `name`; uses `id`, `countrycode`,
-                     `url` to anchor the match to the same broadcaster)
-            exclude_url: URL to exclude from results (the failing primary URL)
-
-        Returns:
-            List of alternative stations, most-trustworthy-and-highest-quality first
-        """
-        station_name = (station.get('name') or '').strip()
-        if not station_name:
-            return []
-
-        origin_uuid = station.get('id')
-        origin_cc = station.get('countrycode') or ''
-        origin_host = urlparse(exclude_url or station.get('url') or '').hostname
-
-        # Search by exact name. Keep the raw same-name variants (no dedup) so the
-        # affinity ranking below can distinguish broadcasters (WI-4) — dedup-by-name
-        # would merge them into a single entry and make the ranking a no-op.
-        search_results = await self._fetch_stations_by_query(station_name, deduplicate=False)
-
-        # Keep exact-name matches with a usable, non-excluded URL.
-        alternatives = [
-            s for s in search_results
-            if s.get('name', '').lower().strip() == station_name.lower()
-            and s.get('url') and s.get('url') != exclude_url
-        ]
-
-        # Anti "other station": drop any variant from a different country. A blank
-        # country on either side is treated as compatible (federated data is spotty).
-        if origin_cc:
-            alternatives = [
-                s for s in alternatives
-                if not s.get('countrycode') or s.get('countrycode') == origin_cc
-            ]
-
-        def _affinity(s: Dict[str, Any]) -> int:
-            if origin_uuid and s.get('id') == origin_uuid:
-                return 3  # same radio-browser entry (url_resolved drifted)
-            if origin_host and urlparse(s.get('url') or '').hostname == origin_host:
-                return 2  # same streaming host → same broadcaster
-            if origin_cc and s.get('countrycode') == origin_cc:
-                return 1  # same country name-match
-            return 0
-
-        # Affinity dominates (trust), then quality-first ranking within a tier.
-        alternatives.sort(key=lambda s: (_affinity(s), self._ranking_key(s)), reverse=True)
-
-        self.logger.debug(
-            f"Found {len(alternatives)} alternative URLs for '{station_name}' "
-            f"(cc={origin_cc or '?'}, host={origin_host or '?'}, "
-            f"excluded: {exclude_url[:50] if exclude_url else 'none'})"
-        )
-
-        return alternatives
 
     def _normalize_station(self, station: Dict[str, Any]) -> Dict[str, Any]:
         """
