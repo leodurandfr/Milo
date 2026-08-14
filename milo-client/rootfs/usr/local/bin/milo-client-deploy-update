@@ -5,6 +5,31 @@ set -euo pipefail
 
 error_exit() { echo "ERROR: $1" >&2; exit 1; }
 
+# Install this very script, which a plain `cp` cannot do: bash reads a script
+# lazily by byte offset, so overwriting it mid-run makes the shell resume at the
+# same offset in different bytes and die on a syntax error in whatever token it
+# lands in — after the deploy has already happened, so the caller sees a failure
+# for work that was done. It cost the fleet every satellite app update it ever
+# attempted.
+#
+# Writing beside it and renaming is the fix, not skipping it: rename(2) swaps
+# the directory entry while this process keeps reading the inode it opened, so
+# the running shell is untouched and the next run is the new script. Skipping
+# was what left a paired satellite on a deploy script no push could ever
+# update — every later fix to this file stopped at the unit's door, silently.
+# Same shape as the server's milo-deploy-update.
+#
+# The `.new` file must sit in the destination directory, not /tmp: mv across
+# filesystems degrades to copy-then-unlink, which is exactly the in-place
+# overwrite this avoids.
+install_self() {
+    local rel_path="$1"
+    cp "$MILO_DIR/rootfs/$rel_path" "/$rel_path.new"
+    chmod +x "/$rel_path.new"
+    mv -f "/$rel_path.new" "/$rel_path"
+    echo "  Installed /$rel_path (renamed into place)"
+}
+
 [ $# -ne 1 ] && error_exit "Usage: $0 <extracted-tarball-directory>"
 
 UPDATE_DIR="$1"
@@ -52,17 +77,12 @@ while read -r rel_path; do
     # Remove leading ./
     rel_path="${rel_path#./}"
 
-    # Skip per-device config, and files that must not be overwritten during
-    # their own execution. Bash reads a script lazily by byte offset, so
-    # replacing this file mid-run makes the shell resume at the same offset in
-    # different bytes and die on a syntax error in whatever token it lands in —
-    # after the deploy has already happened, so the caller sees a failure for
-    # work that was done. It cost the fleet every satellite app update it ever
-    # attempted. Same guard as the server's milo-deploy-update.
+    # Skip per-device config. This script is the one file a plain copy cannot
+    # install — see the rename branch below.
     case "$rel_path" in
         var/lib/milo-client/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
         etc/avahi/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
-        usr/local/bin/milo-client-deploy-update) echo "  Skipping /$rel_path (self-protection)"; continue ;;
+        usr/local/bin/milo-client-deploy-update) install_self "$rel_path"; continue ;;
     esac
 
     target="/$rel_path"
