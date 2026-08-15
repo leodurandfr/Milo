@@ -155,3 +155,49 @@ class TestRestoreFavoriteMetadata:
         assert event.station["favicon"] == "http://origin/logo.png"
         assert event.station["id"] == station_id
         assert event.station["is_favorite"] is True
+
+
+class TestBlankNameIsRefused:
+    """The guard ran before the strip, so whitespace was not "empty" yet.
+
+    Found while probing Phase 4 on the unit: `POST /api/radio/custom/add` with a
+    whitespace-only name and url answered `{"status": "success"}` and created a
+    station with neither — a card with no title that plays nothing, and no way to
+    tell it apart from a real one except by opening it.
+    """
+
+    @pytest.mark.parametrize("name,url", [
+        ("   ", "http://example.invalid/s"),
+        ("Real name", "  "),
+        ("\t", "\n"),
+    ])
+    async def test_whitespace_cannot_create_a_station(self, data, name, url):
+        result = await data.add_custom_station(name=name, url=url)
+
+        assert result["success"] is False
+        assert data._manual_stations == {}, "a blank station was stored"
+
+    async def test_whitespace_cannot_blank_an_existing_favourite(self, data):
+        created = await data.add_custom_station(
+            name="Created", url="http://example.invalid/s",
+        )
+        station_id = created["station"]["id"]
+
+        result = await data.modify_favorite_metadata(
+            station_id, name="   ", url="http://example.invalid/s",
+        )
+
+        assert result["success"] is False
+        assert station_id not in data._modified_metadata
+        assert data._manual_stations[station_id]["name"] == "Created"
+
+    async def test_a_padded_name_is_still_accepted_trimmed(self, data):
+        """The strip itself must survive the reorder — a name typed with a
+        trailing space is ordinary input, not an error."""
+        result = await data.add_custom_station(
+            name="  France Inter  ", url="  http://example.invalid/s  ",
+        )
+
+        assert result["success"] is True
+        assert result["station"]["name"] == "France Inter"
+        assert result["station"]["url"] == "http://example.invalid/s"

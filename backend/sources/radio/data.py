@@ -477,6 +477,10 @@ class StationDataService:
         shazam_enabled: bool = True
     ) -> Dict[str, Any]:
         """Add custom station."""
+        # Strip before guarding, not after: the route takes a raw Form string, so
+        # a whitespace-only name passed `not name` and was then emptied by the
+        # .strip() below — a station with no name and no URL, reported as created.
+        name, url = name.strip(), url.strip()
         if not name or not url:
             return {"success": False, "error": "name and url required"}
 
@@ -486,8 +490,8 @@ class StationDataService:
 
             station = {
                 "id": station_id,
-                "name": name.strip(),
-                "url": url.strip(),
+                "name": name,
+                "url": url,
                 "country": country.strip(),
                 "countrycode": countrycode.strip().upper(),
                 "genre": genre.strip(),
@@ -560,6 +564,9 @@ class StationDataService:
         shazam_enabled: bool = True
     ) -> Dict[str, Any]:
         """Create/update custom metadata for a station."""
+        # Same order as add_custom_station, and the same reason: here it renamed
+        # an existing favourite to nothing rather than creating a blank one.
+        name, url = name.strip(), url.strip()
         if not name or not url:
             return {"success": False, "error": "name and url required"}
 
@@ -584,8 +591,8 @@ class StationDataService:
                 final_image_filename = image_filename
 
             custom_metadata = {
-                "name": name.strip(),
-                "url": url.strip(),
+                "name": name,
+                "url": url,
                 "country": country.strip(),
                 "countrycode": countrycode.strip().upper(),
                 "genre": genre.strip(),
