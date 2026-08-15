@@ -148,8 +148,8 @@ class QobuzSource(BaseAudioSource):
         """Refresh the flag from the persisted qobuz.allow_app_volume setting."""
         allowed = False
         if self._settings_service:
-            qobuz = await self._settings_service.get_setting("qobuz") or {}
-            allowed = bool(qobuz.get("allow_app_volume", False))
+            qobuz = await self._settings_service.get_setting("qobuz")
+            allowed = bool(qobuz["allow_app_volume"])
         self._write_volume_flag(allowed)
 
     async def on_allow_app_volume_changed(self, allowed: bool) -> bool:

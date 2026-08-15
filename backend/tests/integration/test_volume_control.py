@@ -17,6 +17,7 @@ import asyncio
 import json
 from unittest.mock import Mock, AsyncMock, patch
 
+from backend.core.settings import SettingsService
 from backend.core.volume import VolumeService
 from backend.core.volume.state import VolumeStateStore, ZoneConfig
 from backend.core.models.volume import VolumeConfig
@@ -52,6 +53,19 @@ def mock_snapcast_service():
     return service
 
 
+def volume_section(**overrides):
+    """A complete `volume` section, defaulted from the one declaration.
+
+    `_load_volume_config` reads every key directly — the fallback operands it
+    used to carry were a third declaration of these values and had drifted from
+    `SettingsService.defaults`. A partial section is a settings.json
+    `_validate_and_merge` cannot produce, so a test handing one over is pinning
+    a state that cannot occur. Each call below still spells out the values it
+    depends on; only the keys it does not care about come from the defaults.
+    """
+    return {**SettingsService().defaults["volume"], **overrides}
+
+
 @pytest.fixture
 def mock_settings_service():
     """Mock settings service with default volume configuration."""
@@ -59,14 +73,14 @@ def mock_settings_service():
     service.invalidate_cache = Mock()
 
     # Default volume settings
-    volume_config = {
-        "limit_min_db": -80.0,
-        "limit_max_db": -21.0,
-        "startup_volume_db": -30.0,
-        "restore_last_volume": False,
-        "step_mobile_db": 3.0,
-        "step_rotary_db": 2.0
-    }
+    volume_config = volume_section(
+        limit_min_db=-80.0,
+        limit_max_db=-21.0,
+        startup_volume_db=-30.0,
+        restore_last_volume=False,
+        step_mobile_db=3.0,
+        step_rotary_db=2.0,
+    )
 
     async def mock_get_setting(key):
         if key == "volume":
@@ -649,14 +663,14 @@ class TestVolumePersistence:
 
         async def mock_get_setting(key):
             if key == "volume":
-                return {
-                    "limit_min_db": -80.0,
-                    "limit_max_db": -21.0,
-                    "startup_volume_db": -30.0,
-                    "restore_last_volume": True,  # Enable persistence
-                    "step_mobile_db": 3.0,
-                    "step_rotary_db": 2.0
-                }
+                return volume_section(
+                    limit_min_db=-80.0,
+                    limit_max_db=-21.0,
+                    startup_volume_db=-30.0,
+                    restore_last_volume=True,  # Enable persistence
+                    step_mobile_db=3.0,
+                    step_rotary_db=2.0,
+                )
             elif key == "volume.restore_last_volume":
                 return True
             elif key == "routing.multiroom_enabled":
@@ -732,14 +746,14 @@ class TestVolumePersistence:
         # Enable restore
         async def mock_get_setting(key):
             if key == "volume":
-                return {
-                    "limit_min_db": -80.0,
-                    "limit_max_db": -21.0,
-                    "startup_volume_db": -30.0,
-                    "restore_last_volume": True,
-                    "step_mobile_db": 3.0,
-                    "step_rotary_db": 2.0
-                }
+                return volume_section(
+                    limit_min_db=-80.0,
+                    limit_max_db=-21.0,
+                    startup_volume_db=-30.0,
+                    restore_last_volume=True,
+                    step_mobile_db=3.0,
+                    step_rotary_db=2.0,
+                )
             elif key == "volume.restore_last_volume":
                 return True
             elif key == "routing.multiroom_enabled":
@@ -780,14 +794,14 @@ class TestVolumePersistence:
 
         async def mock_get_setting(key):
             if key == "volume":
-                return {
-                    "limit_min_db": -80.0,
-                    "limit_max_db": -21.0,
-                    "startup_volume_db": -30.0,
-                    "restore_last_volume": True,  # Enable persistence
-                    "step_mobile_db": 3.0,
-                    "step_rotary_db": 2.0
-                }
+                return volume_section(
+                    limit_min_db=-80.0,
+                    limit_max_db=-21.0,
+                    startup_volume_db=-30.0,
+                    restore_last_volume=True,  # Enable persistence
+                    step_mobile_db=3.0,
+                    step_rotary_db=2.0,
+                )
             elif key == "volume.restore_last_volume":
                 return True
             elif key == "routing.multiroom_enabled":
@@ -1413,14 +1427,14 @@ class TestStartupVolumeIntegration:
         # Create settings with restore_last_volume=True (active: auto-track volume)
         settings = Mock()
         settings.invalidate_cache = Mock()
-        settings_data = {
-            "limit_min_db": -80.0,
-            "limit_max_db": -21.0,
-            "startup_volume_db": -60.0,  # Initial value
-            "restore_last_volume": True,  # active: auto-track current volume
-            "step_mobile_db": 3.0,
-            "step_rotary_db": 2.0
-        }
+        settings_data = volume_section(
+            limit_min_db=-80.0,
+            limit_max_db=-21.0,
+            startup_volume_db=-60.0,  # Initial value
+            restore_last_volume=True,  # active: auto-track current volume
+            step_mobile_db=3.0,
+            step_rotary_db=2.0,
+        )
 
         async def mock_get_setting(key):
             if key == "volume":
@@ -1489,14 +1503,14 @@ class TestStartupVolumeIntegration:
         # Create settings with restore_last_volume=False (NOT active: fixed startup volume)
         settings = Mock()
         settings.invalidate_cache = Mock()
-        settings_data = {
-            "limit_min_db": -80.0,
-            "limit_max_db": -21.0,
-            "startup_volume_db": -60.0,
-            "restore_last_volume": False,  # NOT active
-            "step_mobile_db": 3.0,
-            "step_rotary_db": 2.0
-        }
+        settings_data = volume_section(
+            limit_min_db=-80.0,
+            limit_max_db=-21.0,
+            startup_volume_db=-60.0,
+            restore_last_volume=False,  # NOT active
+            step_mobile_db=3.0,
+            step_rotary_db=2.0,
+        )
 
         async def mock_get_setting(key):
             if key == "volume":
@@ -1561,14 +1575,14 @@ class TestStartupVolumeIntegration:
 
         async def mock_get_setting(key):
             if key == "volume":
-                return {
-                    "limit_min_db": -80.0,
-                    "limit_max_db": -21.0,
-                    "startup_volume_db": startup_volume,
-                    "restore_last_volume": False,  # Use startup_volume_db
-                    "step_mobile_db": 3.0,
-                    "step_rotary_db": 2.0
-                }
+                return volume_section(
+                    limit_min_db=-80.0,
+                    limit_max_db=-21.0,
+                    startup_volume_db=startup_volume,
+                    restore_last_volume=False,  # Use startup_volume_db
+                    step_mobile_db=3.0,
+                    step_rotary_db=2.0,
+                )
             elif key == "routing.multiroom_enabled":
                 return False
             elif key == "equalizer.linked_groups":
@@ -1636,14 +1650,14 @@ class TestStartupVolumeIntegration:
 
         async def mock_get_setting(key):
             if key == "volume":
-                return {
-                    "limit_min_db": -80.0,
-                    "limit_max_db": -21.0,
-                    "startup_volume_db": persisted_volume,  # synced this before shutdown
-                    "restore_last_volume": True,
-                    "step_mobile_db": 3.0,
-                    "step_rotary_db": 2.0
-                }
+                return volume_section(
+                    limit_min_db=-80.0,
+                    limit_max_db=-21.0,
+                    startup_volume_db=persisted_volume,  # synced this before shutdown
+                    restore_last_volume=True,
+                    step_mobile_db=3.0,
+                    step_rotary_db=2.0,
+                )
             elif key == "routing.multiroom_enabled":
                 return False
             elif key == "equalizer.linked_groups":
@@ -1847,14 +1861,14 @@ class TestVolumeApiEndpointsIntegration:
         # Create settings service that tracks updates
         settings = Mock()
         settings.invalidate_cache = Mock()
-        settings_data = {
-            "limit_min_db": -80.0,
-            "limit_max_db": -21.0,
-            "startup_volume_db": -60.0,
-            "restore_last_volume": False,
-            "step_mobile_db": 3.0,
-            "step_rotary_db": 2.0
-        }
+        settings_data = volume_section(
+            limit_min_db=-80.0,
+            limit_max_db=-21.0,
+            startup_volume_db=-60.0,
+            restore_last_volume=False,
+            step_mobile_db=3.0,
+            step_rotary_db=2.0,
+        )
 
         async def mock_get_setting(key):
             if key == "volume":

@@ -379,8 +379,8 @@ class ShazamRecognitionService:
     async def is_enabled(self) -> bool:
         """Check if Shazam recognition is enabled in settings."""
         try:
-            radio_settings = await self._settings_service.get_setting("radio") or {}
-            return radio_settings.get("shazam_enabled", True)
+            radio_settings = await self._settings_service.get_setting("radio")
+            return radio_settings["shazam_enabled"]
         except Exception as e:
             logger.debug(f"Shazam is_enabled check failed, defaulting to True: {e}")
             return True

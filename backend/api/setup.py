@@ -16,11 +16,11 @@ import json
 import logging
 import os
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from typing import Literal, Optional, TYPE_CHECKING
-from pydantic import BaseModel, Field, field_validator
+from typing import Optional, TYPE_CHECKING
+from pydantic import BaseModel, Field
 
 from backend.config.constants import MILO_DATA_DIR
-from backend.core.multiroom.models import SPEAKER_TYPES
+from backend.core.multiroom.models import SpeakerType
 
 if TYPE_CHECKING:
     from backend.core.network.service import NetworkService
@@ -52,14 +52,7 @@ class BecomeClientRequest(BaseModel):
     wifi_password: str = Field(default="", description="Target WiFi password (empty for open networks)")
     audio_id: str = Field(..., min_length=1, description="Audio card registry ID")
     speaker_name: str = Field(..., min_length=1, max_length=64, description="Display name for the speaker")
-    speaker_type: Literal['satellite', 'bookshelf', 'tower', 'subwoofer'] = Field(..., description="Speaker physical type")
-
-    @field_validator('speaker_type')
-    @classmethod
-    def validate_speaker_type(cls, v):
-        if v not in SPEAKER_TYPES:
-            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
-        return v
+    speaker_type: SpeakerType = Field(..., description="Speaker physical type")
 
 
 def _atomic_write_json(path, data: dict) -> None:

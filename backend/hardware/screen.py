@@ -25,9 +25,12 @@ class ScreenController:
         self.screen_type = hardware_service.get_screen_type()
         self.logger.info(f"Screen type detected: {self.screen_type}")
 
-        # Configuration from settings
-        self.timeout_seconds = 10
-        self.brightness_on = 5
+        # Placeholders until initialize() runs _load_config(); read from the one
+        # declaration rather than restated, because the literals that used to sit
+        # here said 10 s where SettingsService.defaults says 120.
+        screen_defaults = settings_service.defaults['screen']
+        self.timeout_seconds = screen_defaults['timeout_seconds']
+        self.brightness_on = screen_defaults['brightness_on']
 
         # Backlight sysfs path (DSI screen only)
         self.backlight_path = None
@@ -105,10 +108,10 @@ class ScreenController:
 
             # Load all settings directly from file
             all_settings = await self.settings_service.load_settings()
-            screen_config = all_settings.get('screen', {})
+            screen_config = all_settings['screen']
 
-            self.timeout_seconds = screen_config.get('timeout_seconds', 10)
-            self.brightness_on = screen_config.get('brightness_on', 5)
+            self.timeout_seconds = screen_config['timeout_seconds']
+            self.brightness_on = screen_config['brightness_on']
 
             timeout_enabled = self.timeout_seconds != 0
             self.logger.debug(f"Screen config loaded: timeout={self.timeout_seconds}s ({'enabled' if timeout_enabled else 'DISABLED'}), brightness={self.brightness_on}")
@@ -118,9 +121,12 @@ class ScreenController:
 
         except Exception as e:
             self.logger.error(f"Error loading screen config: {e}")
-            # Fallback to defaults
-            self.timeout_seconds = 10
-            self.brightness_on = 5
+            # `_validate_and_merge` guarantees the section, so getting here means a
+            # broken settings.json — fall back to the declared defaults, never to a
+            # second set of literals.
+            screen_defaults = self.settings_service.defaults['screen']
+            self.timeout_seconds = screen_defaults['timeout_seconds']
+            self.brightness_on = screen_defaults['brightness_on']
             self._update_screen_commands()
 
     @handle_errors(default=False)

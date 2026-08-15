@@ -37,7 +37,7 @@ def create_fan_router(fan_controller: "FanController", settings_service: "Settin
     async def get_config():
         """Persisted fan configuration (enabled, mode, manual_percent, target_temp_c, curve)."""
         async with api_error_handler("Error reading fan config", logger):
-            cfg = await settings_service.get_setting("fan") or {}
+            cfg = await settings_service.get_setting("fan")
             return {"status": "success", "config": cfg}
 
     @router.put("/config")

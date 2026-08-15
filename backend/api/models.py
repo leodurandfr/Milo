@@ -495,26 +495,17 @@ class MacRocConfigRequest(BaseModel):
 # MULTIROOM - CLIENT
 # =============================================================================
 
-# Import from domain model to avoid duplication (single source of truth)
-from backend.core.multiroom.models import SPEAKER_TYPES
+# Import from domain model to avoid duplication (single source of truth):
+# `SpeakerType` IS the accepted set, so Pydantic rejects anything else on
+# its own and no per-model validator can add to it.
+from backend.core.multiroom.models import DEFAULT_SPEAKER_TYPE, SpeakerType
 
 
 class ClientUpdateRequest(BaseModel):
     """Request to update client properties (name, speaker_type, volume_control)."""
     name: Optional[str] = None
-    speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = None
+    speaker_type: Optional[SpeakerType] = None
     volume_control: Optional[bool] = None  # True = Milo manages volume, False = external amp
-
-    @field_validator('speaker_type')
-    @classmethod
-    def validate_speaker_type(cls, v):
-        """Validate speaker_type against allowed values."""
-        if v is not None and v not in SPEAKER_TYPES:
-            raise ValueError(
-                f"Invalid speaker_type '{v}'. "
-                f"Must be one of: {', '.join(SPEAKER_TYPES)}"
-            )
-        return v
 
 
 class ClientEqIndependentRequest(BaseModel):
@@ -537,7 +528,7 @@ class RegisterClientRequest(BaseModel):
     # Identity carried by wifi-adopted clients so the server can pre-fill the
     # registry without waiting for a separate configure step.
     name: Optional[str] = Field(default=None, max_length=64)
-    speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = None
+    speaker_type: Optional[SpeakerType] = None
 
     @field_validator('mac_id')
     @classmethod
@@ -555,13 +546,6 @@ class RegisterClientRequest(BaseModel):
             return v
         stripped = v.strip()
         return stripped or None
-
-    @field_validator('speaker_type')
-    @classmethod
-    def validate_speaker_type(cls, v):
-        if v is not None and v not in SPEAKER_TYPES:
-            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
-        return v
 
 
 def _validate_configurable_audio_id(v: str) -> str:
@@ -587,16 +571,9 @@ class ConfigureClientAudioRequest(BaseModel):
 class ConfigurePendingClientRequest(BaseModel):
     """Request to configure a pending client's audio and reboot it."""
     name: Optional[str] = None
-    speaker_type: Optional[Literal['satellite', 'bookshelf', 'tower', 'subwoofer']] = Field(default='bookshelf')
+    speaker_type: Optional[SpeakerType] = Field(default=DEFAULT_SPEAKER_TYPE)
     audio_id: str = Field(..., min_length=1)
     volume_control: Optional[bool] = None  # Override auto-detection (None = derive from card category)
-
-    @field_validator('speaker_type')
-    @classmethod
-    def validate_speaker_type(cls, v):
-        if v is not None and v not in SPEAKER_TYPES:
-            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
-        return v
 
     @field_validator('audio_id')
     @classmethod

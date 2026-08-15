@@ -322,20 +322,29 @@ class VolumeService:
     # ============================================================================
 
     async def _load_volume_config(self) -> None:
-        """Load volume configuration from settings."""
+        """Load volume configuration from settings.
+
+        Every key is read directly, with no fallback operand: `_validate_and_merge`
+        guarantees the whole `volume` section, so a missing key is a broken
+        settings.json and must be logged, not papered over. The operands that used
+        to sit here were a third declaration of these defaults and had drifted from
+        `SettingsService.defaults` — `limit_max_db` −21 against −20,
+        `step_mobile_db` 3 against 2, and `restore_last_volume` False against True,
+        so a degraded read silently stopped restoring the volume at startup.
+        """
         try:
             self.settings_service.invalidate_cache()
-            volume_settings = await self.settings_service.get_setting('volume') or {}
+            volume_settings = await self.settings_service.get_setting('volume')
 
             self._volume_config = VolumeConfig(
-                limit_min_db=volume_settings.get("limit_min_db", -80.0),
-                limit_max_db=volume_settings.get("limit_max_db", -21.0),
-                step_mobile_db=volume_settings.get("step_mobile_db", 3.0),
-                step_rotary_db=volume_settings.get("step_rotary_db", 2.0),
-                step_bt_remote_db=volume_settings.get("step_bt_remote_db", 2.0),
-                step_ir_remote_db=volume_settings.get("step_ir_remote_db", 2.0),
-                startup_volume_db=volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
-                restore_last_volume=volume_settings.get("restore_last_volume", False)
+                limit_min_db=volume_settings["limit_min_db"],
+                limit_max_db=volume_settings["limit_max_db"],
+                step_mobile_db=volume_settings["step_mobile_db"],
+                step_rotary_db=volume_settings["step_rotary_db"],
+                step_bt_remote_db=volume_settings["step_bt_remote_db"],
+                step_ir_remote_db=volume_settings["step_ir_remote_db"],
+                startup_volume_db=volume_settings["startup_volume_db"],
+                restore_last_volume=volume_settings["restore_last_volume"]
             )
         except Exception as e:
             self.logger.error(f"Error loading volume config: {e}")
@@ -797,7 +806,7 @@ class VolumeService:
         # Signal availability immediately — local volume state is ready
         self._availability_ready.set()
 
-        multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled") or False
+        multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled")
 
         if multiroom_enabled and self._snapcast_websocket_service:
             ws_ready = await self._snapcast_websocket_service.wait_for_ready(timeout=30.0)

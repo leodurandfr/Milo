@@ -20,6 +20,7 @@ from backend.core.equalizer import (
     BUILTIN_PRESETS,
 )
 from backend.core.equalizer.client_proxy import SatelliteUnreachable, is_ip_address
+from backend.core.equalizer.presets import DEFAULT_EQ_FREQS
 from backend.core.multiroom.models import EqFilter, EqualizerSettings, FilterType
 
 
@@ -294,7 +295,7 @@ class TestCamillaDSPService:
         master toggle owned by routing/settings.json)."""
         from backend.core.multiroom.models import (
             EqualizerSettings, EqFilter, CompressorSettings, LoudnessSettings,
-            FilterType, DEFAULT_EQ_FREQUENCIES,
+            FilterType,
         )
         persisted = []
 
@@ -309,7 +310,7 @@ class TestCamillaDSPService:
         settings = EqualizerSettings(
             enabled=False,
             filters=[
-                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQUENCIES[i],
+                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQS[i],
                          gain=float(i), q=1.41, filter_type=FilterType.PEAKING)
                 for i in range(10)
             ],
@@ -331,7 +332,7 @@ class TestCamillaDSPService:
         assert camilladsp_service._custom_gains == [1.0] * 10
         assert camilladsp_service._filters[5]["gain"] == 5.0
         assert camilladsp_service._filters[0]["id"] == "eq_band_00"
-        assert camilladsp_service._filters[0]["freq"] == DEFAULT_EQ_FREQUENCIES[0]
+        assert camilladsp_service._filters[0]["freq"] == DEFAULT_EQ_FREQS[0]
         # Master toggle is owned elsewhere — update_cache must not clobber it.
         assert camilladsp_service._effects_enabled is True
         # Intent persisted to equalizer.json.
@@ -373,13 +374,13 @@ class TestCamillaDSPService:
         those exact cache values to the daemon. Proves equalizer.json never drifts from
         the live DSP across the boot/reconnect window (carried-over Phase 1 fix)."""
         from backend.core.multiroom.models import (
-            EqualizerSettings, EqFilter, FilterType, DEFAULT_EQ_FREQUENCIES,
+            EqualizerSettings, EqFilter, FilterType,
         )
         monkeypatch.setattr(camilladsp_service, "_persist_state_async", AsyncMock())
 
         settings = EqualizerSettings(
             filters=[
-                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQUENCIES[i],
+                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQS[i],
                          gain=4.0 if i == 0 else 0.0, q=1.41, filter_type=FilterType.PEAKING)
                 for i in range(10)
             ],
@@ -565,7 +566,7 @@ class TestCamillaDSPService:
         """A full 10-band record applies in ONE set_config, not 13 sequential RMWs."""
         import asyncio  # noqa: F401 -- parity with sibling tests; kept for clarity
         from backend.core.multiroom.models import (
-            EqualizerSettings, EqFilter, FilterType, DEFAULT_EQ_FREQUENCIES,
+            EqualizerSettings, EqFilter, FilterType,
         )
 
         camilladsp_service._connected = True
@@ -589,7 +590,7 @@ class TestCamillaDSPService:
 
         settings = EqualizerSettings(
             filters=[
-                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQUENCIES[i],
+                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQS[i],
                          gain=float(i), q=1.41, filter_type=FilterType.PEAKING)
                 for i in range(10)
             ],
@@ -617,7 +618,7 @@ class TestCamillaDSPService:
         keeps playing the old one.
         """
         from backend.core.multiroom.models import (
-            EqualizerSettings, EqFilter, FilterType, DEFAULT_EQ_FREQUENCIES,
+            EqualizerSettings, EqFilter, FilterType,
         )
 
         camilladsp_service._connected = True
@@ -643,7 +644,7 @@ class TestCamillaDSPService:
 
         settings = EqualizerSettings(
             filters=[
-                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQUENCIES[i],
+                EqFilter(id=f"eq_band_{i:02d}", frequency=DEFAULT_EQ_FREQS[i],
                          gain=99.0, q=1.41, filter_type=FilterType.PEAKING)
                 for i in range(10)
             ],

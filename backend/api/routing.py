@@ -21,7 +21,6 @@ from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.models.ws_events import SystemStateChanged
 from backend.core.multiroom.routing import (
-    DEFAULT_SNAPCLIENT_CONFIG,
     SNAPCLIENT_LIMITS,
     SnapclientEnv,
     resolve_snapclient_config,
@@ -205,13 +204,15 @@ def create_routing_router(
                         updates['multiroom.snapclient_fragments'] = snapclient_fragments
                     await settings_service.set_settings(updates)
 
-                # Resolve effective fragments value: explicit if provided,
-                # otherwise re-read from settings (async), otherwise default.
+                # Resolve the effective fragments through the one clamped read
+                # path. An explicit value was validated above; a *stored* one
+                # used to be passed through raw, and the two consumers below
+                # disagreed about it: SnapclientEnv clamps it to 8 for the local
+                # speaker while the satellites received it unbounded and
+                # answered 422 — one house on two ALSA buffer settings.
                 effective_fragments = snapclient_fragments
-                if effective_fragments is None and settings_service:
-                    effective_fragments = await settings_service.get_setting('multiroom.snapclient_fragments')
                 if effective_fragments is None:
-                    effective_fragments = DEFAULT_SNAPCLIENT_CONFIG['fragments']
+                    _, effective_fragments = await resolve_snapclient_config(settings_service)
 
                 # 2. Regenerate local snapclient.env with the resolved values
                 SnapclientEnv.regenerate(snapclient_buffer_time, effective_fragments)
