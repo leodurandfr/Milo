@@ -306,7 +306,7 @@ class TestProcessOnlineStatusChanges:
         ws = _make_ws_service(registry)
         ws._sync_reconnecting_client_volume = AsyncMock(return_value=True)
 
-        all_clients = [{"mac_id": "client-a", "id": "snap-a", "online": True, "last_seen_age": 0}]
+        all_clients = [{"mac_id": "client-a", "id": "snap-a", "last_seen_age": 0}]
         await ws._process_online_status_changes(all_clients)
 
         # Client is NOT yet online — the sync task will set it online after
@@ -320,24 +320,12 @@ class TestProcessOnlineStatusChanges:
         )
 
     @pytest.mark.asyncio
-    async def test_client_goes_offline_no_sync(self, mock_settings_service, mock_state_machine):
-        """A client transitioning online→offline does NOT trigger volume sync."""
-        registry = await _setup_registry(
-            mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
-        )
-        ws = _make_ws_service(registry)
-        ws._sync_reconnecting_client_volume = AsyncMock(return_value=True)
-
-        all_clients = [{"mac_id": "client-a", "id": "snap-a", "online": False, "last_seen_age": 0}]
-        await ws._process_online_status_changes(all_clients)
-
-        assert registry.get_client("client-a").online is False
-        ws._sync_reconnecting_client_volume.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_no_change_no_sync(self, mock_settings_service, mock_state_machine):
-        """If online status is unchanged, no sync task is spawned."""
+        """A client the registry already holds online is left alone.
+
+        Snapcast lists it on every sweep; re-syncing each time would re-push the
+        volume to a speaker that already has it, every RECONCILE_INTERVAL_S.
+        """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
@@ -345,7 +333,7 @@ class TestProcessOnlineStatusChanges:
         ws = _make_ws_service(registry)
         ws._sync_reconnecting_client_volume = AsyncMock(return_value=True)
 
-        all_clients = [{"mac_id": "client-a", "id": "snap-a", "online": True, "last_seen_age": 0}]
+        all_clients = [{"mac_id": "client-a", "id": "snap-a", "last_seen_age": 0}]
         await ws._process_online_status_changes(all_clients)
 
         ws._sync_reconnecting_client_volume.assert_not_called()
@@ -365,9 +353,9 @@ class TestProcessOnlineStatusChanges:
         ws._sync_reconnecting_client_volume = AsyncMock(return_value=True)
 
         all_clients = [
-            {"mac_id": "client-a", "id": "snap-a", "online": True, "last_seen_age": 0},
-            {"mac_id": "client-b", "id": "snap-b", "online": True, "last_seen_age": 0},
-            {"mac_id": "client-c", "id": "snap-c", "online": True, "last_seen_age": 0},
+            {"mac_id": "client-a", "id": "snap-a", "last_seen_age": 0},
+            {"mac_id": "client-b", "id": "snap-b", "last_seen_age": 0},
+            {"mac_id": "client-c", "id": "snap-c", "last_seen_age": 0},
         ]
         await ws._process_online_status_changes(all_clients)
         await asyncio.sleep(0)
@@ -568,8 +556,8 @@ class TestConcurrentReconnectRaceConditions:
         ws._sync_reconnecting_client_volume = capture_sync
 
         all_clients = [
-            {"mac_id": "client-a", "id": "snap-a", "online": True, "last_seen_age": 0},
-            {"mac_id": "client-b", "id": "snap-b", "online": True, "last_seen_age": 0},
+            {"mac_id": "client-a", "id": "snap-a", "last_seen_age": 0},
+            {"mac_id": "client-b", "id": "snap-b", "last_seen_age": 0},
         ]
         await ws._process_online_status_changes(all_clients)
 
@@ -658,7 +646,7 @@ class TestFireAndForgetTaskRecovery:
         # Hardware always fails
         ws._volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
 
-        all_clients = [{"mac_id": "client-a", "id": "snap-a", "online": True, "last_seen_age": 0}]
+        all_clients = [{"mac_id": "client-a", "id": "snap-a", "last_seen_age": 0}]
         await ws._process_online_status_changes(all_clients)
 
         # Client is NOT marked online — waits for hardware confirmation

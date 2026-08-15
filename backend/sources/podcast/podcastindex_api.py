@@ -142,12 +142,6 @@ class PodcastIndexAPI:
                 headers={'User-Agent': 'Milo/1.0'}
             )
 
-    async def close(self) -> None:
-        """Closes aiohttp session"""
-        if self.session and not self.session.closed:
-            await self.session.close()
-            self.session = None
-
     def _auth_headers(self) -> Dict[str, str]:
         """Per-request auth headers: SHA-1(key + secret + epoch), 3-min window."""
         now = str(int(time.time()))
@@ -624,14 +618,6 @@ class PodcastIndexAPI:
         start = (page - 1) * limit
         page_episodes = episodes[start:start + limit]
         return {"results": page_episodes, "total": len(page_episodes)}
-
-    def clear_cache(self) -> None:
-        """Clear all caches"""
-        self._search_cache.clear()
-        self._series_cache.clear()
-        self._episode_cache.clear()
-        self._discovery_cache.clear()
-        self.logger.info("Cache cleared")
 
     # ========== NORMALIZATION ==========
 

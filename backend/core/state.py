@@ -202,7 +202,10 @@ class AudioStateMachine:
                 logger.info(f"Already on source {target_source.value}")
                 return True
 
-            if target_source != AudioSource.NONE and target_source not in self.sources:
+            # The key always exists — self.sources is built with every AudioSource
+            # as a key — so it is the value that says whether a source was
+            # registered. Checked here, before the old source is stopped.
+            if target_source != AudioSource.NONE and not self.sources.get(target_source):
                 logger.error(f"No source registered for: {target_source.value}")
                 return False
 

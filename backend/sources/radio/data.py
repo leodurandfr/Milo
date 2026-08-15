@@ -672,10 +672,3 @@ class StationDataService:
             self.logger.error(f"Error restoring favorite metadata: {e}")
             return {"success": False, "error": str(e)}
 
-    def get_stats(self) -> Dict[str, int]:
-        """Get statistics."""
-        return {
-            'favorites_count': len(self._favorites),
-            'modified_metadata_count': len(self._modified_metadata),
-            'manual_stations_count': len(self._manual_stations)
-        }

@@ -81,18 +81,23 @@ class TestSourceActivation:
         mock_source.start.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_transition_to_unregistered_source(self, state_machine):
-        """A source with no implementation behind it settles in ERROR.
+    async def test_transition_to_unregistered_source(self, state_machine, mock_source):
+        """A source with no implementation behind it is refused before anything stops.
 
-        Every AudioSource member is a key of `sources` from construction, so an
-        unregistered one gets as far as _start_source and fails there — the
-        same unwind as a daemon that will not come up.
+        Every AudioSource member is a key of `sources` from construction, so the
+        key is never the question — the value is. Refusing here is what keeps the
+        source that is currently playing when a service failed to be created.
         """
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        await state_machine.transition_to_source(AudioSource.SPOTIFY)
+        mock_source.reset_mock()
+
         result = await state_machine.transition_to_source(AudioSource.RADIO)
 
         assert result is False
-        assert state_machine.system_state.active_source == AudioSource.RADIO
-        assert state_machine.system_state.source_state == SourceState.ERROR
+        mock_source.stop.assert_not_called()
+        assert state_machine.system_state.active_source == AudioSource.SPOTIFY
+        assert state_machine.system_state.source_state != SourceState.ERROR
 
     @pytest.mark.asyncio
     async def test_transition_to_none(self, state_machine, mock_source):

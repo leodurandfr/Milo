@@ -553,13 +553,12 @@ class SnapcastWebSocketService:
 
                 # Sync volume then set online. The sync task owns the
                 # _syncing_mac_ids guard and clears it when done.
-                if client["online"]:
-                    self._bg.spawn(
-                        self._sync_reconnecting_client_volume(
-                            mac_id, set_online_after=True, snapcast_id=client["id"]
-                        ),
-                        label=f"sync_new_client_{mac_id}",
-                    )
+                self._bg.spawn(
+                    self._sync_reconnecting_client_volume(
+                        mac_id, set_online_after=True, snapcast_id=client["id"]
+                    ),
+                    label=f"sync_new_client_{mac_id}",
+                )
 
     async def _process_disconnected_clients(self, current_mac_ids: set, known_mac_ids: set) -> None:
         """Mark registry clients as offline when they no longer appear in Snapcast.
@@ -579,36 +578,33 @@ class SnapcastWebSocketService:
                     await self.registry.set_client_online(mac_id, False)
 
     async def _process_online_status_changes(self, all_clients: list) -> None:
-        """Detect and apply online/offline transitions for known clients."""
+        """Bring back the known clients Snapcast lists again.
+
+        Every client in the list is live — the offline direction is handled by
+        absence, in ``_process_disconnected_clients``.
+        """
         for client in all_clients:
             mac_id = client["mac_id"]
-            online = client["online"]
 
             registry_client = self.registry.get_client(mac_id) if self.registry else None
-            if not registry_client:
+            if not registry_client or registry_client.online:
                 continue
-            previous_online = registry_client.online
 
-            if online != previous_online:
-                self.logger.info(f"Client {mac_id} online status: {previous_online} -> {online}")
+            self.logger.info(f"Client {mac_id} online status: False -> True")
 
-                if online and not previous_online:
-                    # Client reconnecting: do NOT set online yet — the sync task
-                    # sets online after hardware confirms volume (set_online_after=True).
-                    # This prevents a window where the frontend shows the client
-                    # at a stale volume before sync completes.
-                    self._bg.spawn(
-                        self._sync_reconnecting_client_volume(
-                            mac_id, set_online_after=True, snapcast_id=client["id"]
-                        ),
-                        label=f"sync_reconnect_{mac_id}",
-                    )
-                elif self.registry:
-                    # Client going offline: update immediately
-                    await self.registry.set_client_online(mac_id, False)
+            # Client reconnecting: do NOT set online yet — the sync task
+            # sets online after hardware confirms volume (set_online_after=True).
+            # This prevents a window where the frontend shows the client
+            # at a stale volume before sync completes.
+            self._bg.spawn(
+                self._sync_reconnecting_client_volume(
+                    mac_id, set_online_after=True, snapcast_id=client["id"]
+                ),
+                label=f"sync_reconnect_{mac_id}",
+            )
 
-                # Crossover recalculation is handled by CrossoverService._handle_registry_event
-                # via CLIENT_CONNECTED/CLIENT_DISCONNECTED events emitted by set_client_online()
+            # Crossover recalculation is handled by CrossoverService._handle_registry_event
+            # via CLIENT_CONNECTED/CLIENT_DISCONNECTED events emitted by set_client_online()
 
     async def _handle_response(self, response: Dict[str, Any]) -> None:
         """Process a response to a request."""

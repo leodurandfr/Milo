@@ -51,7 +51,6 @@ def mock_camilladsp_service():
     cam.set_compressor = AsyncMock(return_value=True)
     cam.set_loudness = AsyncMock(return_value=True)
     cam.set_mono = AsyncMock(return_value=True)
-    cam.set_active_preset = AsyncMock(return_value=None)
     # Batched full-record apply: the local path drives the DSP through this one
     # call now (filters + compressor + loudness + mono + preset name in a single
     # graph write), not the per-parameter set_* loop.

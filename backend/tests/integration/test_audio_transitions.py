@@ -324,7 +324,11 @@ class TestErrorHandling:
         integration_state_machine: AudioStateMachine
     ):
         """
-        Transition to an unregistered source should return False.
+        Transition to an unregistered source is refused, and changes nothing.
+
+        The refusal happens before the state machine commits to the target, so
+        neither the selection nor the state moves — a source that failed to be
+        created cannot drag the appliance into ERROR by being asked for.
         """
         sm = integration_state_machine
         # No sources registered
@@ -332,7 +336,8 @@ class TestErrorHandling:
         result = await sm.transition_to_source(AudioSource.RADIO)
 
         assert result is False, "Should fail for unregistered source"
-        assert sm.system_state.source_state == SourceState.ERROR
+        assert sm.system_state.active_source == AudioSource.NONE
+        assert sm.system_state.source_state == SourceState.READY
 
     @pytest.mark.asyncio
     async def test_transition_with_source_start_failure(
