@@ -196,6 +196,13 @@ class BluetoothSource(BaseAudioSource):
         except Exception as e:
             self._logger.error(f"Start failed: {e}")
             await self._cleanup()
+            # A failure past step 3 leaves the adapter open and the senders
+            # unblocked while the source settles in ERROR — the one state that
+            # is neither started nor stopped, and the one _apply_exposure would
+            # never be called from again.
+            self._running = False
+            self.connected_device = None
+            await self._apply_exposure()
             return False
 
     @handle_errors(default=False)
