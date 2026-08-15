@@ -160,7 +160,8 @@ class BluetoothSource(BaseAudioSource):
             # 5. Set up and start BlueALSA monitor (event-based connection detection)
             self.monitor.set_callbacks(
                 self._on_device_connected,
-                self._on_device_disconnected
+                self._on_device_disconnected,
+                self._on_monitor_lost
             )
             if not await self.monitor.start():
                 raise RuntimeError("BlueALSA monitor failed to start")
@@ -308,6 +309,21 @@ class BluetoothSource(BaseAudioSource):
             self.connected_device = {"address": address, "name": name}
             self._logger.info(f"Device connected: {name} ({address})")
             self._update_connection_state()
+
+    async def _on_monitor_lost(self, reason: str) -> None:
+        """The BlueALSA feed died — say what it costs, and leave the state alone.
+
+        Nothing is transitioned here. The monitor is the only thing that knows a
+        sender is connected, so a source that reacted by dropping
+        `connected_device` would be guessing: the audio may well still be
+        flowing through bluealsa-aplay. The monitor already logged the failure at
+        error level (hence the UI banner); this names the source it belongs to,
+        which is what tells the owner *which* card has stopped updating.
+        """
+        self._logger.error(
+            f"BlueALSA feed lost ({reason}) — connect/disconnect will no longer be "
+            f"detected; switch away from Bluetooth and back to restart it"
+        )
 
     @handle_errors(default=False)
     async def _disconnect_device(self, address: str) -> bool:

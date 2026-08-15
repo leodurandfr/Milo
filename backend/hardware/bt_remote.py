@@ -518,8 +518,12 @@ class BtRemoteController:
 
             try:
                 all_paths = evdev.list_devices()
-            except Exception as e:
+            except OSError as e:
+                # /dev/input unreadable or gone — expected on a dev host.
                 logger.debug("Error listing input devices: %s", e)
+                return
+            except Exception as e:
+                logger.warning("Unexpected error listing input devices: %s", e)
                 return
 
             # Clean up disconnected devices
@@ -543,8 +547,13 @@ class BtRemoteController:
 
                 try:
                     device = evdev.InputDevice(path)
-                except Exception as e:
+                except OSError as e:
+                    # The node vanished between list_devices() and here, or we
+                    # may not open it — both are ordinary, both are frequent.
                     logger.debug("Error opening device %s: %s", path, e)
+                    continue
+                except Exception as e:
+                    logger.warning("Unexpected error opening device %s: %s", path, e)
                     continue
 
                 try:
@@ -561,9 +570,14 @@ class BtRemoteController:
                     task = asyncio.create_task(self._monitor_device(device))
                     self._monitor_tasks[device.path] = task
                     logger.info("BT HID device found: %s (%s) at %s", device.name, device.uniq, device.path)
-                except Exception as e:
+                except OSError as e:
                     device.close()
                     logger.debug("Error checking device %s: %s", path, e)
+                except Exception as e:
+                    # Anything else is a fault in our own matching, not a device
+                    # that went away — at debug it silently ignored every remote.
+                    device.close()
+                    logger.warning("Unexpected error checking device %s: %s", path, e)
 
             # Broadcast only if a new MAC appeared (not for each additional evdev node)
             new_macs = self._monitored_macs() - macs_before

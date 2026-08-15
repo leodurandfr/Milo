@@ -161,6 +161,50 @@ class TestBrowseRoute:
         assert r.status_code == 422
 
 
+class TestScanRoutes:
+    """Both scan routes answered "indexing in progress" for a scan Navidrome
+    may have refused, and pushed `scanning: true` to every client with it —
+    `note_scan_started`'s docstring states the opposite precondition.
+    """
+
+    @pytest.fixture
+    def harness(self):
+        client = MagicMock()
+        source = MagicMock()
+        source.get_navidrome_client = AsyncMock(return_value=client)
+        source.invalidate_album_cache = MagicMock()
+        source.shares.offline_names = AsyncMock(return_value=[])
+        source.shares.note_scan_started = AsyncMock()
+
+        app = FastAPI()
+        setup_music_library_routes(lambda: source)
+        app.include_router(router, prefix="/api")
+        return TestClient(app), source, client
+
+    @pytest.mark.parametrize("path,full", [("/api/music-library/scan", False),
+                                           ("/api/music-library/scan/full", True)])
+    def test_a_refused_scan_is_reported(self, harness, path, full):
+        api, source, client = harness
+        client.start_scan = AsyncMock(return_value=False)
+
+        r = api.post(path)
+
+        assert r.status_code == 502
+        client.start_scan.assert_awaited_once()
+        source.shares.note_scan_started.assert_not_awaited()
+
+    @pytest.mark.parametrize("path", ["/api/music-library/scan", "/api/music-library/scan/full"])
+    def test_an_accepted_scan_is_watched(self, harness, path):
+        api, source, client = harness
+        client.start_scan = AsyncMock(return_value=True)
+
+        r = api.post(path)
+
+        assert r.status_code == 200
+        assert r.json()["status"] == "success"
+        source.shares.note_scan_started.assert_awaited_once()
+
+
 class TestShareRequestPath:
     def test_allows_spaces_in_path(self):
         # Real folders are named "My Music" — the path may contain spaces.

@@ -357,3 +357,37 @@ async def test_an_unmapped_keycode_is_ignored(bt):
 
     bt.volume_service.adjust_volume_db.assert_not_awaited()
     await bt.controller._stop_scanning()
+
+
+# ------------------------------------------------- the key map, validated once
+def test_the_default_key_map_only_uses_actions_the_dispatcher_knows():
+    """DEFAULT_KEY_MAP ships the appliance's remote; an action outside the
+    declared set would be a factory default that does nothing when pressed."""
+    from backend.config.constants import BT_REMOTE_ACTIONS
+
+    assert set(bt_remote_module.DEFAULT_KEY_MAP.values()) <= BT_REMOTE_ACTIONS
+    assert all(k.isdigit() for k in bt_remote_module.DEFAULT_KEY_MAP)
+
+
+@pytest.mark.parametrize("bad_map", [
+    {"KEY_VOLUMEUP": "volume_up"},   # a name where an evdev code belongs
+    {"115": "volume_upp"},           # an action nothing dispatches
+    {"115": None},
+], ids=["non-numeric-keycode", "unknown-action", "no-action"])
+def test_a_key_map_the_controller_cannot_use_is_refused(bad_map):
+    """Accepted, these reached `_is_bt_hid_device`, where `int(k)` over the whole
+    map raised inside a broad `except` logged at debug — no device matched, no
+    remote worked, and nothing said so."""
+    from pydantic import ValidationError
+
+    from backend.api.models import BtRemoteConfigRequest
+
+    with pytest.raises(ValidationError):
+        BtRemoteConfigRequest(key_map=bad_map)
+
+
+def test_a_usable_key_map_is_accepted():
+    from backend.api.models import BtRemoteConfigRequest
+
+    payload = BtRemoteConfigRequest(key_map=dict(bt_remote_module.DEFAULT_KEY_MAP))
+    assert payload.key_map == bt_remote_module.DEFAULT_KEY_MAP

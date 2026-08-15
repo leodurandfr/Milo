@@ -47,11 +47,19 @@ class BlueAlsaMonitor:
         self._stopped = False
         self._read_task: Optional[asyncio.Task] = None
         self._bus: Optional[MessageBus] = None  # BlueZ system bus for name lookups
+        self._on_lost: Optional[Callable[[str], Awaitable[None]]] = None
+        self._alive = False
+
+    @property
+    def alive(self) -> bool:
+        """False once the feed died — connect/disconnect events stopped arriving."""
+        return self._alive
 
     def set_callbacks(
         self,
         on_connect: ConnectionCallback,
-        on_disconnect: ConnectionCallback
+        on_disconnect: ConnectionCallback,
+        on_lost: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> None:
         """
         Set connection/disconnection callbacks.
@@ -59,9 +67,12 @@ class BlueAlsaMonitor:
         Args:
             on_connect: Called with (address, name) on device connection
             on_disconnect: Called with (address, name) on device disconnection
+            on_lost: Called with a reason when the feed itself dies, i.e. when
+                connection detection has gone mute for good
         """
         self._on_connect = on_connect
         self._on_disconnect = on_disconnect
+        self._on_lost = on_lost
 
     @handle_errors(default=False)
     async def start(self) -> bool:
@@ -89,6 +100,7 @@ class BlueAlsaMonitor:
         )
 
         # Start reading task
+        self._alive = True
         self._read_task = asyncio.create_task(self._read_output())
 
         self._logger.info("BlueALSA monitoring started")
@@ -97,6 +109,7 @@ class BlueAlsaMonitor:
     async def stop(self) -> None:
         """Stop BlueALSA PCM monitoring."""
         self._stopped = True
+        self._alive = False
 
         # Cancel read task
         if self._read_task and not self._read_task.done():
@@ -131,15 +144,24 @@ class BlueAlsaMonitor:
         self._logger.info("BlueALSA monitoring stopped")
 
     async def _read_output(self) -> None:
-        """Read and process bluealsa-cli output."""
+        """Read and process bluealsa-cli output until it stops talking.
+
+        Every way out of this loop that is not our own stop() leaves the source
+        started with its connection detection permanently mute: no PCMAdded, no
+        PCMRemoved, so a phone can neither be seen arriving nor leaving. It used
+        to exit through a bare `break` — no log, no return code read, nothing
+        anywhere to say the feed had gone. `_report_lost` is that report.
+        """
         if not self._process or not self._process.stdout:
+            await self._report_lost("bluealsa-cli produced no output stream")
             return
 
         try:
             while not self._stopped and not self._process.stdout.at_eof():
                 line = await self._process.stdout.readline()
                 if not line:
-                    break
+                    await self._report_lost("bluealsa-cli monitor closed its output")
+                    return
 
                 line_str = line.decode().strip()
                 if line_str:
@@ -149,7 +171,41 @@ class BlueAlsaMonitor:
             pass
         except Exception as e:
             if not self._stopped:
-                self._logger.error(f"Monitor read error: {e}")
+                await self._report_lost(f"monitor read error: {e}")
+
+    async def _report_lost(self, reason: str) -> None:
+        """Log the death of the feed with what the process left behind, and
+        surface it once.
+
+        No automatic restart, deliberately: `bluealsa-cli monitor` reaches EOF
+        when the bluealsa daemon itself went away, and respawning the client
+        against a dead daemon would busy-loop for as long as it stays down. The
+        recovery gesture is a source restart, which _do_start performs in full —
+        this makes it visible so it can be asked for.
+        """
+        if self._stopped or not self._alive:
+            return
+        self._alive = False
+
+        detail = ""
+        if self._process:
+            with contextlib.suppress(Exception):
+                if self._process.stderr:
+                    detail = (await self._process.stderr.read()).decode().strip()
+            # Bounded: a monitor that closed stdout without exiting must not
+            # hold this report — the report is the point.
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(self._process.wait(), 1.0)
+            reason = f"{reason} (exit={self._process.returncode})"
+
+        self._logger.error(
+            f"BlueALSA monitor lost — Bluetooth connection detection is down until "
+            f"the source is restarted: {reason}{f': {detail}' if detail else ''}"
+        )
+
+        if self._on_lost:
+            with contextlib.suppress(Exception):
+                await self._on_lost(reason)
 
     @handle_errors(default=None)
     async def _process_line(self, line: str) -> None:
