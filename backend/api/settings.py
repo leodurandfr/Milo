@@ -223,7 +223,9 @@ def create_settings_router(
     # Language
     @router.get("/language")
     async def get_language():
-        return {"status": "success", "language": await settings.get_setting('language') or 'english'}
+        # No fallback: `_validate_and_merge` guarantees the key, exactly as
+        # GET /bulk relies on for its 29 others.
+        return {"status": "success", "language": await settings.get_setting('language')}
 
     @router.put("/language")
     async def set_language(payload: LanguageRequest):
@@ -338,7 +340,7 @@ def create_settings_router(
             # Validation done by Pydantic
 
             old_settings = await settings.load_settings()
-            old_enabled_apps = old_settings.get("dock", {}).get("enabled_apps", [])
+            old_enabled_apps = old_settings["dock"]["enabled_apps"]
 
             disabled_apps = set(old_enabled_apps) - set(enabled_apps)
             enabled_apps_new = set(enabled_apps) - set(old_enabled_apps)

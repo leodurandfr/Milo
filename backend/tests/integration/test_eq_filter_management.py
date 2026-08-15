@@ -21,10 +21,10 @@ from backend.core.equalizer import (
     DEFAULT_CUSTOM_GAINS,
     BUILTIN_PRESETS,
 )
+from backend.core.equalizer.presets import DEFAULT_EQ_FREQS
 from backend.core.multiroom.models import (
     EqualizerSettings,
     EqFilter,
-    DEFAULT_EQ_FREQUENCIES,
 )
 
 
@@ -62,7 +62,7 @@ class TestFilterParameterUpdate:
         service._connected = True
         service._state = CamillaDspState.RUNNING
         service._filters = [
-            {"id": f"eq_band_{i:02d}", "type": "Peaking", "freq": DEFAULT_EQ_FREQUENCIES[i], "gain": 0, "q": 1.41, "enabled": True}
+            {"id": f"eq_band_{i:02d}", "type": "Peaking", "freq": DEFAULT_EQ_FREQS[i], "gain": 0, "q": 1.41, "enabled": True}
             for i in range(10)
         ]
         return service
@@ -124,7 +124,7 @@ class TestSetFilterMethod:
         service._connected = True
         service._state = CamillaDspState.RUNNING
         service._filters = [
-            {"id": f"eq_band_{i:02d}", "type": "Peaking", "freq": DEFAULT_EQ_FREQUENCIES[i], "gain": 0, "q": 1.41, "enabled": True}
+            {"id": f"eq_band_{i:02d}", "type": "Peaking", "freq": DEFAULT_EQ_FREQS[i], "gain": 0, "q": 1.41, "enabled": True}
             for i in range(10)
         ]
         service.state_machine = Mock()
@@ -222,8 +222,8 @@ class TestTenBandEqConfiguration:
     def test_default_eq_frequencies_match_spec(self):
         """Should have exactly 10 bands with standard frequencies"""
         expected = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        assert DEFAULT_EQ_FREQUENCIES == expected
-        assert len(DEFAULT_EQ_FREQUENCIES) == 10
+        assert DEFAULT_EQ_FREQS == expected
+        assert len(DEFAULT_EQ_FREQS) == 10
 
     def test_equalizer_settings_default_creates_10_bands(self):
         """EqualizerSettings.default() should create 10-band EQ"""
@@ -303,7 +303,7 @@ class TestNoAutoSwitchOnFilterEdit:
         service._connected = True
         service._state = CamillaDspState.RUNNING
         service._filters = [
-            {"id": f"eq_band_{i:02d}", "type": "Peaking", "freq": DEFAULT_EQ_FREQUENCIES[i], "gain": 0, "q": 1.41, "enabled": True}
+            {"id": f"eq_band_{i:02d}", "type": "Peaking", "freq": DEFAULT_EQ_FREQS[i], "gain": 0, "q": 1.41, "enabled": True}
             for i in range(10)
         ]
         service.state_machine = Mock()
@@ -357,10 +357,10 @@ class TestFrontendStoreDefaults:
     """Verify frontend defaults match backend expectations"""
 
     def test_default_frequencies_match_frontend(self):
-        """Frontend DEFAULT_FREQUENCIES should match backend DEFAULT_EQ_FREQUENCIES"""
+        """Frontend DEFAULT_FREQUENCIES should match backend DEFAULT_EQ_FREQS"""
         # Frontend: [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
         frontend_default = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        assert DEFAULT_EQ_FREQUENCIES == frontend_default
+        assert DEFAULT_EQ_FREQS == frontend_default
 
     def test_filter_id_format_consistency(self):
         """Filter IDs should use eq_band_XX format with zero-padding"""

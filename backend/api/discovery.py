@@ -16,13 +16,13 @@ speaker: temporarily join its setup hotspot, push audio + target wifi config,
 then restore the server's original network connection.
 """
 import logging
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from backend.api.route_helpers import api_error_handler
-from backend.core.multiroom.models import SPEAKER_TYPES
+from backend.core.multiroom.models import SpeakerType
 from backend.core.multiroom.wifi_adoption import AdoptionError
 from backend.core.network.service import HOTSPOT_NAME
 
@@ -39,16 +39,9 @@ class AdoptSpeakerRequest(BaseModel):
     ssid: str = Field(..., min_length=1, description="Hotspot SSID of the speaker (always 'Milō')")
     audio_id: str = Field(..., min_length=1, description="Audio card registry ID")
     speaker_name: str = Field(..., min_length=1, max_length=64, description="Display name for the speaker")
-    speaker_type: Literal['satellite', 'bookshelf', 'tower', 'subwoofer'] = Field(..., description="Speaker physical type")
+    speaker_type: SpeakerType = Field(..., description="Speaker physical type")
     wifi_ssid: str = Field(..., min_length=1, description="Target home wifi the speaker must join")
     wifi_password: str = Field(default="", description="Target wifi password (empty for open networks)")
-
-    @field_validator('speaker_type')
-    @classmethod
-    def _validate_speaker_type(cls, v):
-        if v not in SPEAKER_TYPES:
-            raise ValueError(f"Invalid speaker_type '{v}'. Must be one of: {', '.join(SPEAKER_TYPES)}")
-        return v
 
 
 # Map AdoptionError.code → HTTP status. 4xx = caller/state issue, 502 = the

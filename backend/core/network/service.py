@@ -400,8 +400,7 @@ class NetworkService:
 
     async def get_country(self) -> str:
         """Return the stored WiFi country code, or empty string if not set."""
-        code = await self.settings_service.get_setting("wifi.country")
-        return code or ""
+        return await self.settings_service.get_setting("wifi.country")
 
     async def set_country(self, country_code: str) -> None:
         """Apply WiFi regulatory domain and persist the country code.

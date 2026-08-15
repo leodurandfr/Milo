@@ -189,13 +189,6 @@ class TestNextAudioSourceInDockOrder:
         result = await controller._next_audio_source_in_dock_order()
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_returns_none_when_dock_setting_missing(self):
-        controller = _menu_controller([], AudioSource.NONE)
-        controller.settings_service.get_setting.return_value = None
-        result = await controller._next_audio_source_in_dock_order()
-        assert result is None
-
 
 class TestMenuClickResolver:
     """`_register_menu_click()` + `_resolve_menu_clicks()` integration."""

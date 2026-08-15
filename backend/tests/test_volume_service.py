@@ -4,8 +4,20 @@ Unit tests for VolumeService - Tests for dB-based volume management
 """
 import pytest
 from unittest.mock import Mock, AsyncMock
+from backend.core.settings import SettingsService
 from backend.core.volume import VolumeService
 from backend.core.models.volume import VolumeConfig
+
+
+def volume_section(**overrides):
+    """A complete `volume` section, taken from the one declaration.
+
+    `_load_volume_config` reads every key directly — the fallback operands it
+    used to carry were a third declaration of these values and had drifted from
+    this dict. A partial section is a settings.json `_validate_and_merge` cannot
+    produce, so a test that hands one over is testing a state that cannot occur.
+    """
+    return {**SettingsService().defaults["volume"], **overrides}
 
 
 class TestVolumeService:
@@ -68,14 +80,14 @@ class TestVolumeService:
     async def test_load_volume_config(self, service):
         """Volume configuration loading test"""
         service.settings_service.invalidate_cache = Mock()
-        service.settings_service.get_setting = AsyncMock(return_value={
-            "limit_min_db": -50.0,
-            "limit_max_db": -15.0,
-            "startup_volume_db": -25.0,
-            "restore_last_volume": True,
-            "step_mobile_db": 4.0,
-            "step_rotary_db": 3.0
-        })
+        service.settings_service.get_setting = AsyncMock(return_value=volume_section(
+            limit_min_db=-50.0,
+            limit_max_db=-15.0,
+            startup_volume_db=-25.0,
+            restore_last_volume=True,
+            step_mobile_db=4.0,
+            step_rotary_db=3.0,
+        ))
 
         await service._load_volume_config()
 
@@ -118,14 +130,12 @@ class TestVolumeService:
 
         async def mock_get_setting(key):
             if key == "volume":
-                return {
-                    "limit_min_db": -80.0,
-                    "limit_max_db": -21.0,
-                    "startup_volume_db": -30.0,
-                    "restore_last_volume": False,
-                    "step_mobile_db": 5.0,
-                    "step_rotary_db": 2.0
-                }
+                return volume_section(
+                    startup_volume_db=-30.0,
+                    restore_last_volume=False,
+                    step_mobile_db=5.0,
+                    step_rotary_db=2.0,
+                )
             elif key == "equalizer.linked_groups":
                 return []
             return None
@@ -144,14 +154,12 @@ class TestVolumeService:
 
         async def mock_get_setting(key):
             if key == "volume":
-                return {
-                    "limit_min_db": -80.0,
-                    "limit_max_db": -21.0,
-                    "startup_volume_db": -30.0,
-                    "restore_last_volume": False,
-                    "step_mobile_db": 3.0,
-                    "step_rotary_db": 4.0
-                }
+                return volume_section(
+                    startup_volume_db=-30.0,
+                    restore_last_volume=False,
+                    step_mobile_db=3.0,
+                    step_rotary_db=4.0,
+                )
             elif key == "equalizer.linked_groups":
                 return []
             return None
@@ -170,14 +178,12 @@ class TestVolumeService:
 
         async def mock_get_setting(key):
             if key == "volume":
-                return {
-                    "limit_min_db": -80.0,
-                    "limit_max_db": -21.0,
-                    "startup_volume_db": -25.0,
-                    "restore_last_volume": True,
-                    "step_mobile_db": 3.0,
-                    "step_rotary_db": 2.0
-                }
+                return volume_section(
+                    startup_volume_db=-25.0,
+                    restore_last_volume=True,
+                    step_mobile_db=3.0,
+                    step_rotary_db=2.0,
+                )
             elif key == "equalizer.linked_groups":
                 return []
             return None

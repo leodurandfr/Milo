@@ -225,3 +225,106 @@ class TestSnapclientBufferSetting:
         # Fragments were not part of the request: the declared default carries.
         regenerate.assert_called_once_with(high, DEFAULT_SNAPCLIENT_CONFIG["fragments"])
         client.routing_service.service_manager.restart.assert_awaited_once()
+
+
+class TestStoredFragmentsReachBothSidesClamped:
+    """A stored `fragments` must reach the local env and the satellites as one value.
+
+    The route validates an *explicit* fragments against SNAPCLIENT_LIMITS, but a
+    request that carries only `buffer_time` re-reads fragments from settings.json,
+    and that read used to skip the clamp. `SnapclientEnv.regenerate` clamps its
+    own input, so the local speaker was bounded at 8 while the satellites got the
+    stored value raw — and answered 422, leaving one house on two ALSA buffer
+    settings with nothing but a warning in the log.
+    """
+
+    OUT_OF_RANGE = SNAPCLIENT_LIMITS["fragments"][1] + 4
+    CLAMPED = SNAPCLIENT_LIMITS["fragments"][1]
+
+    class _RecordingSatellite:
+        """An aiohttp session stand-in recording what the push sent."""
+
+        def __init__(self):
+            self.puts = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def put(self, url, json=None, **kwargs):
+            self.puts.append((url, json))
+            return TestStoredFragmentsReachBothSidesClamped._Response()
+
+    class _Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def text(self):
+            return ""
+
+    @pytest.fixture
+    def settings_service(self):
+        store = {'multiroom.snapclient_fragments': TestStoredFragmentsReachBothSidesClamped.OUT_OF_RANGE}
+        svc = Mock()
+        svc.get_setting = AsyncMock(side_effect=lambda key: store.get(key))
+        svc.set_settings = AsyncMock(side_effect=lambda updates: store.update(updates))
+        svc.store = store
+        return svc
+
+    @pytest.fixture
+    def registry(self):
+        svc = Mock()
+        svc.get_online_clients = Mock(return_value=[
+            Mock(ip="192.168.1.153", name="Canape"),
+        ])
+        return svc
+
+    @pytest.fixture
+    def client(self, settings_service, registry):
+        routing_service = Mock()
+        routing_service.service_manager = Mock()
+        routing_service.service_manager.restart = AsyncMock(return_value=True)
+
+        snapcast_service = Mock()
+        snapcast_service.is_available = AsyncMock(return_value=True)
+        snapcast_service.update_server_config = AsyncMock(return_value=True)
+
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+
+        app = FastAPI()
+        app.include_router(create_routing_router(
+            routing_service, state_machine, snapcast_service,
+            settings_service=settings_service,
+            client_registry_service=registry,
+        ))
+        return TestClient(app)
+
+    def test_both_consumers_receive_the_same_clamped_value(self, client, monkeypatch):
+        regenerate = Mock()
+        monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", regenerate)
+        satellite = self._RecordingSatellite()
+        monkeypatch.setattr(
+            "backend.api.routing.aiohttp.ClientSession", lambda **kw: satellite
+        )
+
+        response = client.put(
+            "/api/routing/snapcast/server-config",
+            json={"config": {"snapclient_buffer_time": 120}},
+        )
+
+        assert response.status_code == 200
+        # The local env writer clamps whatever it is handed — assert on its input,
+        # which is where the two values used to diverge.
+        (_, env_fragments), _ = regenerate.call_args
+        assert env_fragments == self.CLAMPED
+        assert len(satellite.puts) == 1
+        _, pushed = satellite.puts[0]
+        assert pushed["fragments"] == self.CLAMPED

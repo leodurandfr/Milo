@@ -380,8 +380,8 @@ class IrRemoteController:
         filtered to audio sources. When the active source is NONE or not
         present in the dock, wraps to the first audio app.
         """
-        dock = await self.settings_service.get_setting('dock') or {}
-        enabled_apps = dock.get('enabled_apps') or []
+        dock = await self.settings_service.get_setting('dock')
+        enabled_apps = dock['enabled_apps']
         audio_apps = [app for app in enabled_apps if app in AUDIO_SOURCE_APPS]
         if not audio_apps:
             return None

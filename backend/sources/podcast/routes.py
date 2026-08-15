@@ -52,7 +52,7 @@ async def get_top_charts(
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
-        milo_language = settings.get('language', 'english')
+        milo_language = settings['language']
         itunes_country = map_milo_language_to_itunes_country(milo_language)
 
         result = await source.podcast_api.get_itunes_top_podcasts(
@@ -83,7 +83,7 @@ async def get_content_by_genre(
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
-        milo_language = settings.get('language', 'english')
+        milo_language = settings['language']
         itunes_country = map_milo_language_to_itunes_country(milo_language)
 
         podcasts_result = await source.podcast_api.get_itunes_top_podcasts_by_genre(
@@ -141,7 +141,7 @@ async def search_podcasts(
         from backend.dependencies import get_service
         settings_service = get_service("settings_service")
         settings = await settings_service.load_settings()
-        milo_language = settings.get('language', 'english')
+        milo_language = settings['language']
         itunes_country = map_milo_language_to_itunes_country(milo_language)
 
         result = await source.podcast_api.search_podcasts(

@@ -2,8 +2,14 @@
 """
 Volume configuration domain model.
 
-VolumeConfig is the single source of truth for volume limits and settings.
-All volume operations should use config.clamp() for limit enforcement.
+VolumeConfig carries the volume limits and steps in memory; it does not declare
+them. `SettingsService.defaults['volume']` does, and `VolumeService._load_volume_config`
+fills this dataclass from it. The field defaults below only apply to an instance
+built with no arguments — a test, or the pre-load value in `VolumeService.__init__`
+— and must stay equal to that section.
+
+What this model *does* own is the clamp: every volume operation goes through
+config.clamp() for limit enforcement.
 """
 from dataclasses import dataclass
 
@@ -13,7 +19,7 @@ from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUM
 @dataclass
 class VolumeConfig:
     """
-    Volume configuration - SSOT for volume limits and settings.
+    In-memory volume configuration.
 
     All values are in decibels (dB).
     Range: -80 dB (silent) to 0 dB (maximum)

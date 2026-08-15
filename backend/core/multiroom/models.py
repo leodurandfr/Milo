@@ -9,7 +9,7 @@ throughout the application.
 Architecture: Uses mac_id as the single unique identifier for clients.
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Literal, Any
+from typing import Dict, List, Optional, Literal, Any, get_args
 from enum import Enum
 import uuid
 
@@ -29,10 +29,6 @@ class FilterType(str, Enum):
     HIGHPASS = "Highpass"
     NOTCH = "Notch"
     ALLPASS = "Allpass"
-
-
-# Default EQ frequencies for 10-band parametric equalizer
-DEFAULT_EQ_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
 
 # =============================================================================
@@ -216,10 +212,13 @@ class LoudnessSettings:
         )
 
 
-# Speaker types for crossover configuration
+# Speaker types for crossover configuration. The Literal is the declaration;
+# every Pydantic request model annotates its `speaker_type` with it rather than
+# spelling the four values again — six models did, each with a validator the
+# Literal made unreachable. SPEAKER_TYPES is derived, not restated.
 SpeakerType = Literal['satellite', 'bookshelf', 'tower', 'subwoofer']
 
-SPEAKER_TYPES = ['satellite', 'bookshelf', 'tower', 'subwoofer']
+SPEAKER_TYPES = list(get_args(SpeakerType))
 
 DEFAULT_SPEAKER_TYPE: SpeakerType = 'bookshelf'
 
@@ -315,6 +314,10 @@ class EqualizerSettings:
         - compressor disabled
         - loudness disabled
         """
+        # Deferred: core.equalizer's package __init__ imports service.py, which
+        # imports this module — same cycle MultiroomEqualizerService works around.
+        from backend.core.equalizer.presets import DEFAULT_EQ_FREQS
+
         # Create 10-band parametric EQ with flat (0 dB) gains
         filters = [
             EqFilter(
@@ -325,7 +328,7 @@ class EqualizerSettings:
                 filter_type=FilterType.PEAKING,
                 enabled=True
             )
-            for i, freq in enumerate(DEFAULT_EQ_FREQUENCIES)
+            for i, freq in enumerate(DEFAULT_EQ_FREQS)
         ]
 
         return cls(
