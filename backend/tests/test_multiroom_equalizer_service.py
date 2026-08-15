@@ -10,6 +10,8 @@ One EQ record per client is the source of truth; a zone holds no EQ of its own
 - partial updates (per-member persistence + targeted broadcast)
 - local DSP application + the active-preset name sync
 """
+import logging
+
 import pytest
 from unittest.mock import Mock, AsyncMock
 
@@ -550,35 +552,70 @@ class TestPresetLoading:
 
 class TestResolvePresetGains:
     """resolve_preset_gains maps a preset id to its gain values. The "custom" id
-    resolves from the target's own custom_gains, falling back to the global
-    CamillaDSP gains, then to a flat default — the branches the indirect
-    load_*_preset tests never exercise."""
+    resolves from the target's own custom_gains, falling back to the local DAC's
+    saved curve for the LOCAL target only, and to a flat default everywhere else
+    — the branches the indirect load_*_preset tests never exercise."""
 
     @pytest.mark.asyncio
     async def test_resolve_builtin_returns_preset_gains(self, multiroom_equalizer_service):
         from backend.core.equalizer.presets import get_preset_by_id
 
-        gains = await multiroom_equalizer_service.resolve_preset_gains("rock")
+        gains = await multiroom_equalizer_service.resolve_preset_gains(
+            "rock", None, "client", "local"
+        )
         assert gains == get_preset_by_id("rock")["gains"]
 
     @pytest.mark.asyncio
     async def test_resolve_unknown_preset_raises(self, multiroom_equalizer_service):
         with pytest.raises(ValueError, match="Preset not found"):
-            await multiroom_equalizer_service.resolve_preset_gains("does_not_exist")
+            await multiroom_equalizer_service.resolve_preset_gains(
+                "does_not_exist", None, "client", "local"
+            )
 
     @pytest.mark.asyncio
     async def test_resolve_custom_from_settings(self, multiroom_equalizer_service):
         settings = EqualizerSettings(custom_gains=[2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
-        gains = await multiroom_equalizer_service.resolve_preset_gains("custom", settings)
+        gains = await multiroom_equalizer_service.resolve_preset_gains(
+            "custom", settings, "client", "local"
+        )
         assert gains == settings.custom_gains
 
     @pytest.mark.asyncio
-    async def test_resolve_custom_falls_back_to_camilladsp(self, multiroom_equalizer_service, mock_camilladsp_service):
-        # No per-target custom_gains → use the global CamillaDSP gains (distinct from
-        # the flat DEFAULT so the branch is unambiguous).
+    async def test_resolve_custom_falls_back_to_camilladsp_for_local(self, multiroom_equalizer_service, mock_camilladsp_service):
+        # No per-target custom_gains → use the local DAC's saved curve (distinct
+        # from the flat DEFAULT so the branch is unambiguous).
         mock_camilladsp_service.get_custom_gains = AsyncMock(return_value=[1.5] * 10)
-        gains = await multiroom_equalizer_service.resolve_preset_gains("custom", None)
+        gains = await multiroom_equalizer_service.resolve_preset_gains(
+            "custom", None, "client", "local"
+        )
         assert gains == [1.5] * 10
+
+    @pytest.mark.asyncio
+    async def test_resolve_custom_for_a_satellite_never_uses_the_server_curve(self, multiroom_equalizer_service, mock_camilladsp_service):
+        """Loading "custom" on a satellite that never saved one must not dress it
+        in the SERVER's curve — it would play a tuning nobody chose for it, and
+        the read route (GET /target/{target}) already refuses to display that."""
+        from backend.core.equalizer.presets import DEFAULT_CUSTOM_GAINS
+
+        mock_camilladsp_service.get_custom_gains = AsyncMock(return_value=[1.5] * 10)
+        gains = await multiroom_equalizer_service.resolve_preset_gains(
+            "custom", None, "client", "milo-client-1"
+        )
+        assert gains == DEFAULT_CUSTOM_GAINS
+        mock_camilladsp_service.get_custom_gains.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_resolve_custom_for_a_zone_never_uses_the_server_curve(self, multiroom_equalizer_service, mock_camilladsp_service):
+        """Same for a zone: a zone containing the local member reads its curve
+        through the record (get_zone_eq), never through this fallback."""
+        from backend.core.equalizer.presets import DEFAULT_CUSTOM_GAINS
+
+        mock_camilladsp_service.get_custom_gains = AsyncMock(return_value=[1.5] * 10)
+        gains = await multiroom_equalizer_service.resolve_preset_gains(
+            "custom", None, "zone", "zone-123"
+        )
+        assert gains == DEFAULT_CUSTOM_GAINS
+        mock_camilladsp_service.get_custom_gains.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_resolve_custom_falls_back_to_default(self, mock_registry):
@@ -586,7 +623,7 @@ class TestResolvePresetGains:
 
         # A service with no CamillaDSP and no per-target gains → the flat default.
         service = MultiroomEqualizerService(client_registry_service=mock_registry)
-        gains = await service.resolve_preset_gains("custom", None)
+        gains = await service.resolve_preset_gains("custom", None, "client", "local")
         assert gains == DEFAULT_CUSTOM_GAINS
 
 
@@ -748,6 +785,178 @@ class TestRemoteRecordPush:
 # =============================================================================
 # Partial update methods (per-member persistence + targeted broadcast)
 # =============================================================================
+
+class TestZoneFanoutOutcome:
+    """A zone write reports what actually happened to its members.
+
+    The fan-out used to return a hardcoded True and log "applied to all members"
+    unconditionally: a satellite that refused kept playing the old curve while
+    the UI drew the new one, with nothing in the journal and nothing in the
+    banner. These tests drive the fan-out through a proxy that fails for one
+    member only.
+    """
+
+    ZONE_MEMBERS = ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]
+    REFUSING_IP = "192.168.1.11"
+
+    @pytest.fixture
+    def proxy_service(self):
+        proxy = Mock()
+        proxy.apply_record = AsyncMock(return_value=True)
+        return proxy
+
+    @pytest.fixture
+    def service(self, mock_registry, mock_camilladsp_service, mock_state_machine, proxy_service):
+        return MultiroomEqualizerService(
+            client_registry_service=mock_registry,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=proxy_service,
+            state_machine=mock_state_machine,
+        )
+
+    @pytest.fixture
+    def two_remote_members(self, mock_registry):
+        """A zone of two online satellites — no local member, so every write goes
+        through the proxy."""
+        clients = {
+            self.ZONE_MEMBERS[0]: Client(
+                mac_id=self.ZONE_MEMBERS[0], name="A", ip="192.168.1.10",
+                online=True, zone_id="z",
+            ),
+            self.ZONE_MEMBERS[1]: Client(
+                mac_id=self.ZONE_MEMBERS[1], name="B", ip=self.REFUSING_IP,
+                online=True, zone_id="z",
+            ),
+        }
+        mock_registry.get_zone.return_value = Zone(
+            id="z", name="Pair", client_ids=list(clients)
+        )
+        mock_registry.get_client.side_effect = clients.get
+        mock_registry.get_online_zone_clients.return_value = list(clients.values())
+        return clients
+
+    @pytest.mark.asyncio
+    async def test_a_member_that_refused_makes_the_zone_write_fail(
+        self, service, proxy_service, two_remote_members, sample_equalizer_settings, caplog
+    ):
+        proxy_service.apply_record = AsyncMock(
+            side_effect=lambda ip, _settings: ip != self.REFUSING_IP
+        )
+
+        with caplog.at_level(logging.ERROR):
+            result = await service.set_zone_eq("z", sample_equalizer_settings)
+
+        assert result is False
+        # The failing member is named: it is the only thing that tells the owner
+        # which speaker kept the old curve.
+        assert self.ZONE_MEMBERS[1] in caplog.text
+        assert self.ZONE_MEMBERS[0] not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_zone_write_that_reached_everyone_still_succeeds(
+        self, service, two_remote_members, sample_equalizer_settings, caplog
+    ):
+        with caplog.at_level(logging.INFO):
+            result = await service.apply_zone_equalizer("z", sample_equalizer_settings)
+
+        assert result is True
+        assert "applied to all members" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_applied_to_all_members_is_not_logged_when_it_is_untrue(
+        self, service, proxy_service, two_remote_members, sample_equalizer_settings, caplog
+    ):
+        proxy_service.apply_record = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.INFO):
+            assert await service.apply_zone_equalizer("z", sample_equalizer_settings) is False
+
+        assert "applied to all members" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_partial_update_surfaces_an_unreachable_member(
+        self, service, mock_registry, mock_state_machine, two_remote_members
+    ):
+        """The zone branch used to absorb member exceptions in its gather while
+        the same write to a single client raised through to a 503 — two opposite
+        answers for one operation."""
+        from backend.core.equalizer.client_proxy import SatelliteUnreachable
+
+        router = Mock()
+        router.update_filter = AsyncMock(side_effect=[
+            {"status": "success"},
+            SatelliteUnreachable(self.REFUSING_IP, "Cannot reach client", 503),
+        ])
+        service._equalizer_router = router
+
+        with pytest.raises(SatelliteUnreachable):
+            await service.update_filter("zone", "z", "eq_band_00", gain=5.0)
+
+        # Everything that did succeed is still committed: the records are stored
+        # (they sync to the absent member on reconnection) and the broadcast fired.
+        assert mock_registry.set_client_equalizer.call_count == 2
+        mock_state_machine.broadcast.assert_called_once()
+
+    @pytest.fixture
+    def mixed_enabled_members(self, mock_registry):
+        """One member applying effects, one bypassed — so the zone's derived
+        `enabled` is False while a member's own is True."""
+        def record(enabled):
+            settings = EqualizerSettings.default()
+            settings.enabled = enabled
+            return settings
+
+        stored = {
+            self.ZONE_MEMBERS[0]: record(True),
+            self.ZONE_MEMBERS[1]: record(False),
+        }
+        mock_registry.get_client_equalizer.side_effect = stored.get
+        return stored
+
+    @pytest.mark.asyncio
+    async def test_a_zone_fanout_keeps_each_members_own_enabled(
+        self, service, mock_registry, proxy_service, two_remote_members, mixed_enabled_members
+    ):
+        """`enabled` is derived on read — the conjunction of the members' own
+        flags — so writing it back into a member bypasses a satellite because
+        ANOTHER member is bypassed. On a fresh unit the local member's flag is
+        False by default, which makes the conjunction False for every zone.
+        """
+        zone_record = await service.get_zone_eq("z")
+        assert zone_record.enabled is False  # the conjunction, as reported
+
+        await service.set_zone_eq("z", zone_record)
+
+        persisted = {
+            call.args[0]: call.args[1]
+            for call in mock_registry.set_client_equalizer.call_args_list
+        }
+        assert persisted[self.ZONE_MEMBERS[0]].enabled is True
+        assert persisted[self.ZONE_MEMBERS[1]].enabled is False
+        # And each satellite is sent its own flag, not the zone's conjunction.
+        pushed = {
+            call.args[0]: call.args[1] for call in proxy_service.apply_record.await_args_list
+        }
+        assert pushed["192.168.1.10"].enabled is True
+        assert pushed[self.REFUSING_IP].enabled is False
+
+    @pytest.mark.asyncio
+    async def test_a_partial_update_keeps_each_members_own_enabled(
+        self, service, mock_registry, two_remote_members, mixed_enabled_members
+    ):
+        """Same on the targeted path — dragging one EQ band is what runs it."""
+        service._equalizer_router = None
+
+        await service.update_filter("zone", "z", "eq_band_00", gain=5.0)
+
+        persisted = {
+            call.args[0]: call.args[1]
+            for call in mock_registry.set_client_equalizer.call_args_list
+        }
+        assert persisted[self.ZONE_MEMBERS[0]].filters[0].gain == 5.0
+        assert persisted[self.ZONE_MEMBERS[0]].enabled is True
+        assert persisted[self.ZONE_MEMBERS[1]].enabled is False
+
 
 class TestPartialUpdateMethods:
     @pytest.mark.asyncio

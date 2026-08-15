@@ -3647,6 +3647,41 @@ class TestClientReconcileSweep:
         assert service.reconcile_task is None
 
     @pytest.mark.asyncio
+    async def test_disabling_multiroom_closes_the_snapserver_socket(self):
+        """Turning multiroom off must actually close the control socket.
+
+        The close was guarded on `self.websocket`, but `_connect_and_listen`'s
+        finally nulls that attribute as its task unwinds — and `cancel_all()`
+        drains the tasks before the guard is read, so the branch could never run
+        and the TCP connection to snapserver leaked on every disable.
+        """
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        websocket = MagicMock()
+        websocket.closed = False
+        websocket.close = AsyncMock()
+
+        service = SnapcastWebSocketService(state_machine=MagicMock(), routing_service=MagicMock())
+        service.running = True
+        service.should_connect = True
+        service.websocket = websocket
+
+        async def connection_loop():
+            try:
+                await asyncio.sleep(3600)
+            finally:
+                # Exactly what _connect_and_listen does as it is cancelled.
+                service.websocket = None
+
+        service._bg.spawn(connection_loop(), label="connection_loop")
+        await asyncio.sleep(0)
+
+        await service.stop_connection()
+
+        websocket.close.assert_awaited_once()
+        assert service.websocket is None
+
+    @pytest.mark.asyncio
     async def test_reconnect_does_not_readmit_a_client_that_is_no_longer_seen(self):
         """Re-marking a stale client online on reconnect is how the ghost survived.
 

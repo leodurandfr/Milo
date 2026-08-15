@@ -306,7 +306,12 @@ def create_equalizer_router(
 
     @router.post("/target/{target}/preset", response_model=TargetPresetResponse)
     async def load_target_preset(target: str, payload: EqualizerPresetRequest):
-        """Load a preset for any target; returns resolved gains for immediate UI apply."""
+        """Load a preset for any target; returns resolved gains for immediate UI apply.
+
+        A target that did not take the preset answers 502, never a 200 carrying
+        the gains it is not playing. For a zone that means at least one member
+        refused, and the service has logged which.
+        """
         async with api_error_handler(f"Error loading preset for target {target}", logger):
             target_type, target_id = _resolve_target(target)
             try:
@@ -316,8 +321,14 @@ def create_equalizer_router(
             except ValueError as e:
                 logger.error(f"Preset load failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
+            if not success:
+                logger.error(f"Preset {payload.preset_id} not applied to target {target}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Preset not applied to target {target}",
+                )
             return {
-                "status": "success" if success else "error",
+                "status": "success",
                 "target": target,
                 "preset_id": payload.preset_id,
                 "gains": gains,
@@ -329,10 +340,16 @@ def create_equalizer_router(
         async with api_error_handler(f"Error saving custom preset for target {target}", logger):
             target_type, target_id = _resolve_target(target)
             try:
-                await multiroom_equalizer_service.save_custom_preset(target_type, target_id)
+                saved = await multiroom_equalizer_service.save_custom_preset(target_type, target_id)
             except ValueError as e:
                 logger.error(f"Custom-preset save failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
+            if not saved:
+                logger.error(f"Custom preset not applied to target {target}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Custom preset not applied to target {target}",
+                )
             return {"status": "success", "target": target, "preset_id": "custom"}
 
     return router

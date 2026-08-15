@@ -464,11 +464,18 @@ def create_multiroom_router(
             # Reset every member to a neutral zone EQ. In the unified per-client
             # model a zone holds no EQ of its own; creating one applies a neutral
             # record (mono on) to each member via the access layer.
+            # Best-effort on purpose: the zone exists either way, and a member
+            # that was not reached recovers the record on its reconnection sync.
+            # Only the log tells the operator, so it must not stay silent.
             if multiroom_equalizer_service:
                 try:
-                    await multiroom_equalizer_service.apply_zone_equalizer(
+                    if not await multiroom_equalizer_service.apply_zone_equalizer(
                         zone_id, EqualizerSettings.default_for_zone()
-                    )
+                    ):
+                        logger.warning(
+                            f"Zone {zone_id} created, but its initial equalizer did not "
+                            "reach every member"
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to apply initial zone equalizer: {e}")
 
@@ -581,8 +588,14 @@ def create_multiroom_router(
 
             # Capture an existing member's EQ before the add, so the new member
             # can adopt the zone's current EQ (members hold identical records).
+            # A member that detached its EQ is not the zone's any more, so it
+            # cannot speak for it — same donor rule as the re-attach path above.
             existing_member = next(
-                (m for m in zone.client_ids if m != request.mac_id), None
+                (m for m in zone.client_ids
+                 if m != request.mac_id
+                 and (c := registry_service.get_client(m)) is not None
+                 and not c.eq_independent),
+                None,
             )
 
             success = await registry_service.add_client_to_zone(zone_id, request.mac_id)

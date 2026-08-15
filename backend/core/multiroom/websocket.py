@@ -154,6 +154,12 @@ class SnapcastWebSocketService:
         self.logger.info("Stopping Snapcast WebSocket connection (multiroom disabled)")
         self.should_connect = False
 
+        # Capture the socket BEFORE cancelling: _connect_and_listen nulls the
+        # attribute in its finally as the task unwinds, and cancel_all() drains
+        # the tasks — so a close guarded on self.websocket afterwards can never
+        # fire, and the TCP connection to snapserver leaked on every disable.
+        websocket = self.websocket
+
         # Cancel all in-flight background tasks (connection loop, sync retries,
         # config push, etc.)
         await self._bg.cancel_all()
@@ -161,11 +167,24 @@ class SnapcastWebSocketService:
         self.reconcile_task = None
         self._syncing_mac_ids.clear()
 
-        if self.websocket:
-            await self.websocket.close()
-            self.websocket = None
+        await self._close_websocket(websocket)
 
         self._ready_event.clear()
+
+    async def _close_websocket(self, websocket) -> None:
+        """Close a captured snapserver socket, bounded.
+
+        aiohttp's close() waits for the peer's CLOSE frame, and the usual reason
+        we are here is that snapserver is going down with multiroom — so an
+        unbounded wait would block a request (PUT /api/routing/multiroom) or the
+        lifespan teardown on a peer that will never answer.
+        """
+        if websocket is None or websocket.closed:
+            return
+        try:
+            await asyncio.wait_for(websocket.close(), timeout=2.0)
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            self.logger.warning(f"Snapcast WebSocket did not close cleanly: {e}")
 
     async def wait_for_ready(self, timeout: float = 10.0) -> bool:
         """Wait for WebSocket to be connected and initialized."""
@@ -182,10 +201,12 @@ class SnapcastWebSocketService:
         self.running = False
         self.should_connect = False
 
+        # Captured first, for the reason spelled out in stop_connection.
+        websocket = self.websocket
+
         await self._bg.cancel_all()
 
-        if self.websocket:
-            await self.websocket.close()
+        await self._close_websocket(websocket)
 
         if self.session:
             await self.session.close()
