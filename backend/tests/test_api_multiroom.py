@@ -997,6 +997,58 @@ class TestAddClientToZone:
         )
 
 
+@pytest.fixture
+def eq_donor_client():
+    """A zone whose FIRST member detached its EQ, a second member still sharing
+    the zone's record, and a standalone client about to join."""
+    clients = {
+        "mac-indep": Client(mac_id="mac-indep", name="Kitchen", ip="192.168.1.50",
+                            online=True, zone_id="z1", eq_independent=True),
+        "mac-shared": Client(mac_id="mac-shared", name="Living", ip="192.168.1.51",
+                             online=True, zone_id="z1"),
+        "mac-new": Client(mac_id="mac-new", name="Bedroom", ip="192.168.1.52",
+                          online=True, zone_id=None),
+    }
+    zone = Zone(id="z1", name="Pair", client_ids=["mac-indep", "mac-shared"])
+
+    registry = Mock()
+    registry.get_client = Mock(side_effect=clients.get)
+    registry.get_zone = Mock(side_effect=lambda zone_id: zone if zone_id == "z1" else None)
+    registry.zone_to_enriched_dict = Mock(side_effect=lambda z: z.to_dict())
+
+    async def _add(zone_id, mac_id):
+        zone.client_ids.append(mac_id)
+        return True
+
+    registry.add_client_to_zone = AsyncMock(side_effect=_add)
+
+    eq = Mock()
+    eq.get_client_eq = AsyncMock(return_value=EqualizerSettings.default())
+    eq.set_client_eq = AsyncMock(return_value=True)
+
+    app = FastAPI()
+    app.include_router(create_multiroom_router(registry, eq))
+    return TestClient(app), eq
+
+
+class TestNewZoneMemberEqDonor:
+    """POST /zones/{id}/clients picks the record the new member adopts."""
+
+    def test_the_donor_is_never_a_member_that_detached_its_eq(self, eq_donor_client):
+        """A detached member has retuned its own curve and left the zone's shared
+        record — adopting it would put two audibly different timbres in one zone.
+        The re-attach donor (PUT /clients/{mac}/eq-independent) already filters
+        it out; this path took the first member it found.
+        """
+        client, eq = eq_donor_client
+
+        resp = client.post("/api/multiroom/zones/z1/clients", json={"mac_id": "mac-new"})
+
+        assert resp.status_code == 200
+        eq.get_client_eq.assert_awaited_once_with("mac-shared")
+        assert eq.set_client_eq.await_args.args[0] == "mac-new"
+
+
 class TestRemoveClientFromZone:
     """Tests for DELETE /api/multiroom/zones/{zone_id}/clients/{mac_id} endpoint."""
 

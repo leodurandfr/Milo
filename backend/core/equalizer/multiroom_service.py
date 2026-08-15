@@ -192,11 +192,58 @@ class MultiroomEqualizerService:
                 break
         return record
 
+    def _member_record(self, mac_id: str, record: EqualizerSettings) -> EqualizerSettings:
+        """A fresh per-member copy of a zone record, carrying the member's own
+        ``enabled``.
+
+        Everything in the record is the zone's except the master bypass. A zone
+        holds no ``enabled`` of its own: ``get_zone_eq`` reports the conjunction
+        of its members', and the flag itself lives in a different domain per
+        member — settings.json for the local one, the per-client record for a
+        satellite. Writing the derived value back would make the fan-out a
+        second way to set it, and the conjunction reads False as soon as ONE
+        member is bypassed (the default on a fresh unit), so a band edit would
+        silently bypass every satellite that had effects on. The local path
+        already ignores it — neither ``apply_settings`` nor ``update_cache``
+        touches the master toggle — and this keeps the remote path symmetrical.
+        ``set_zone_equalizer_effects_enabled`` is the one way to change it.
+        """
+        copy = EqualizerSettings.from_dict(record.to_dict())
+        existing = self._registry.get_client_equalizer(mac_id) if self._registry else None
+        # Nothing stored yet → nothing to preserve, so the neutral default
+        # applies rather than the zone's conjunction.
+        copy.enabled = existing.enabled if existing else EqualizerSettings.default().enabled
+        return copy
+
+    def _failed_members(self, context: str, members: list, results: list) -> list:
+        """Name the members a parallel fan-out did not reach, one log line each.
+
+        ``asyncio.gather(return_exceptions=True)`` hands back a mix of return
+        values and exceptions, and both directions are silent unless read — the
+        whole point of this phase. The level is error: this line is what tells
+        the operator which speaker kept the old curve, and it is what raises the
+        UI's backend-error banner through WebSocketLogHandler.
+        """
+        failed = []
+        for mac_id, result in zip(members, results):
+            if isinstance(result, BaseException):
+                self.logger.error(f"{context} not applied to {mac_id}: {result}")
+                failed.append(mac_id)
+            elif not result:
+                self.logger.error(f"{context} not applied to {mac_id}")
+                failed.append(mac_id)
+        return failed
+
     async def set_zone_eq(self, zone_id: str, settings: EqualizerSettings) -> bool:
         """Apply one EQ record to every zone member, keeping them identical.
 
-        Each member receives its own copy so later per-member edits never alias.
-        Members are written in parallel.
+        Each member receives its own copy so later per-member edits never alias
+        (and keeps its own ``enabled`` — see ``_member_record``). Members are
+        written in parallel.
+
+        Returns True only when *every* member took it: the zone's invariant is
+        that its members hold identical records, so a partial fan-out is a
+        failure, not a success. Each member that failed is logged by name.
         """
         if not self._registry:
             self.logger.error("ClientRegistryService not available")
@@ -205,15 +252,15 @@ class MultiroomEqualizerService:
         if not zone:
             raise ValueError(f"Zone not found: {zone_id}")
         # Skip members that detached their EQ from the zone — they own their record.
-        await asyncio.gather(
+        members = [m for m in zone.client_ids if not self._is_eq_independent(m)]
+        results = await asyncio.gather(
             *[
-                self.set_client_eq(mac_id, EqualizerSettings.from_dict(settings.to_dict()))
-                for mac_id in zone.client_ids
-                if not self._is_eq_independent(mac_id)
+                self.set_client_eq(mac_id, self._member_record(mac_id, settings))
+                for mac_id in members
             ],
             return_exceptions=True,
         )
-        return True
+        return not self._failed_members(f"Zone {zone_id} equalizer", members, results)
 
     # =========================================================================
     # Zone / Client Equalizer Methods — route-facing wrappers over the access layer
@@ -222,29 +269,44 @@ class MultiroomEqualizerService:
     async def apply_zone_equalizer(self, zone_id: str, settings: EqualizerSettings) -> bool:
         """Apply equalizer settings to a whole zone (fan-out to all members).
 
+        False when at least one member did not take the record; ``set_zone_eq``
+        has already logged which ones by name.
+
         Raises:
             ValueError: If zone not found
         """
         async with self._lock:
             result = await self.set_zone_eq(zone_id, settings)
-            self.logger.info(f"Zone {zone_id} equalizer applied to all members")
+            if result:
+                self.logger.info(f"Zone {zone_id} equalizer applied to all members")
             return result
 
-    async def resolve_preset_gains(self, preset_id: str, settings: EqualizerSettings = None) -> list:
-        """
-        Resolve gain values for a preset ID (builtin or custom).
+    async def resolve_preset_gains(
+        self,
+        preset_id: str,
+        settings: Optional[EqualizerSettings],
+        target_type: str,
+        target_id: str,
+    ) -> list:
+        """Resolve the gain values of a preset ID (builtin or custom) for one target.
 
-        For 'custom' preset, reads from settings.custom_gains (zone/client-specific)
-        with fallback to global CamillaDSP custom gains.
+        The target is required because "custom" has no global meaning: it is the
+        curve saved on *that* record. The local DAC's own curve is the fallback
+        for the local target only — a satellite or a zone that has never saved
+        one gets the flat default, never the server's curve (which is what
+        ``GET /target/{target}`` already refuses to show for the same reason).
         """
         from backend.core.equalizer.presets import get_preset_by_id, DEFAULT_CUSTOM_GAINS
 
         if preset_id == "custom":
-            # Per-zone/client custom gains (stored in EqualizerSettings)
+            # The target's own saved curve, when it has one.
             if settings and settings.custom_gains:
                 return settings.custom_gains
-            # Fallback to global custom gains (local standalone)
-            if self._camilladsp_service and hasattr(self._camilladsp_service, 'get_custom_gains'):
+            if (
+                target_type == "client"
+                and self._is_local(target_id)
+                and self._camilladsp_service
+            ):
                 return await self._camilladsp_service.get_custom_gains()
             return DEFAULT_CUSTOM_GAINS
 
@@ -253,13 +315,13 @@ class MultiroomEqualizerService:
             raise ValueError(f"Preset not found: {preset_id}")
         return preset["gains"]
 
-    async def save_custom_preset(self, target_type: str, target_id: str) -> None:
+    async def save_custom_preset(self, target_type: str, target_id: str) -> bool:
         """Snapshot current filter gains as the 'custom' preset for a zone or client.
 
         Persists the gains into custom_gains and sets active_preset='custom' on the
         target's record(s) through the per-client access layer, so name and gains
         travel together (local → equalizer.json, remote → registry, zone → every
-        member).
+        member). Returns whether the apply reached every member.
         """
         current = await self.get_equalizer(target_type, target_id)
         if not current:
@@ -267,7 +329,7 @@ class MultiroomEqualizerService:
 
         current.custom_gains = [f.gain for f in current.filters[:10]]
         current.active_preset = "custom"
-        await self.apply_equalizer(target_type, target_id, current)
+        return await self.apply_equalizer(target_type, target_id, current)
 
     def _build_preset_filters(self, gains: list) -> list:
         """Build EqFilter objects from gain values using standard frequencies."""
@@ -304,7 +366,7 @@ class MultiroomEqualizerService:
             # Only a zone can be missing — a client always yields a record.
             raise ValueError(f"Zone not found: {target_id}")
 
-        gains = await self.resolve_preset_gains(preset_id, current)
+        gains = await self.resolve_preset_gains(preset_id, current, target_type, target_id)
         current.filters = self._build_preset_filters(gains)
         current.active_preset = preset_id
         return await self.apply_equalizer(target_type, target_id, current), gains
@@ -474,9 +536,14 @@ class MultiroomEqualizerService:
         Shared logic for partial equalizer updates (persist → route → broadcast).
 
         1. Persist `current` to each affected member's per-client record (remote →
-           registry; local → its live DSP snapshot, after the router applies below)
+           registry, each keeping its own ``enabled``; local → its live DSP
+           snapshot, after the router applies below)
         2. Route the targeted update to ONLINE members via EqualizerRouter
         3. Broadcast targeted WebSocket event with only the changed sub-object
+
+        Raises whatever the fan-out raised (typically ``SatelliteUnreachable``,
+        which the api/ layer maps to a 503) once the three steps are done — a
+        member that refused the command must not be reported as applied.
 
         Args:
             target_type: "zone" or "client"
@@ -517,10 +584,11 @@ class MultiroomEqualizerService:
                 local_touched = True
             else:
                 await self._registry.set_client_equalizer(
-                    member, EqualizerSettings.from_dict(current.to_dict()), broadcast=False
+                    member, self._member_record(member, current), broadcast=False
                 )
 
         # Route the targeted update to ONLINE members via EqualizerRouter
+        fanout_error: Optional[BaseException] = None
         if self._equalizer_router:
             method = getattr(self._equalizer_router, router_method)
             if target_type == "zone":
@@ -529,10 +597,32 @@ class MultiroomEqualizerService:
                     if not self._is_eq_independent(c.mac_id)
                 ]
                 if online_clients:
-                    await asyncio.gather(
+                    results = await asyncio.gather(
                         *[method(mac_id=c.mac_id, persist=False, **router_kwargs)
                           for c in online_clients],
                         return_exceptions=True,
+                    )
+                    # Same outcome as the single-client branch below, which lets a
+                    # SatelliteUnreachable reach api_error_handler (→ 503): gather
+                    # holds the exceptions back, it does not make the write
+                    # succeed. Every member is named in the log first, since one
+                    # raise can only carry one of them. "skipped" is not a failure
+                    # — the client went offline between the online filter and the
+                    # call, and its record above syncs on reconnection.
+                    outcomes = [
+                        r if isinstance(r, BaseException) else r.get("status") != "error"
+                        for r in results
+                    ]
+                    self._failed_members(
+                        f"Zone {target_id} {router_method}",
+                        [c.mac_id for c in online_clients],
+                        outcomes,
+                    )
+                    # Raised at the end, not here: the members that DID take the
+                    # update still need the local snapshot and the broadcast below,
+                    # or equalizer.json drifts from the DSP the router just wrote.
+                    fanout_error = next(
+                        (r for r in results if isinstance(r, BaseException)), None
                     )
             else:
                 await method(mac_id=target_id, persist=False, **router_kwargs)
@@ -557,6 +647,9 @@ class MultiroomEqualizerService:
                 target_id=target_id,
                 equalizer_settings=broadcast_settings,
             ))
+
+        if fanout_error is not None:
+            raise fanout_error
 
         return True
 

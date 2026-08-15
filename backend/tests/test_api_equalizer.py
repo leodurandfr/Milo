@@ -64,7 +64,7 @@ def mock_mre():
     mre.set_zone_equalizer_effects_enabled = AsyncMock(return_value=True)
     mre.resolve_preset_gains = AsyncMock(return_value=[1.0] * 10)
     mre.load_preset = AsyncMock(return_value=(True, [1.0] * 10))
-    mre.save_custom_preset = AsyncMock(return_value=None)
+    mre.save_custom_preset = AsyncMock(return_value=True)
     return mre
 
 
@@ -310,6 +310,14 @@ class TestTargetPresetWrite:
         assert resp.status_code == 404
         mock_mre.load_preset.assert_awaited()  # 404 came from the access layer
 
+    def test_preset_not_applied_returns_502(self, client, mock_mre):
+        """A preset the target did not take must not come back as a 200 carrying
+        the gains it is not playing: for a zone that is one member left on the
+        old curve while the UI redraws every band."""
+        mock_mre.load_preset.return_value = (False, [1.0] * 10)
+        resp = client.post("/api/equalizer/target/zone:z1/preset", json={"preset_id": "rock"})
+        assert resp.status_code == 502
+
 
 class TestTargetSaveCustomWrite:
     def test_save_custom_client_dispatches(self, client, mock_mre):
@@ -321,6 +329,13 @@ class TestTargetSaveCustomWrite:
         resp = client.post("/api/equalizer/target/zone:z1/save-custom")
         assert resp.status_code == 200
         mock_mre.save_custom_preset.assert_awaited_once_with("zone", "z1")
+
+    def test_save_custom_not_applied_returns_502(self, client, mock_mre):
+        """The route used to answer success whatever the fan-out did — the
+        result was not even read."""
+        mock_mre.save_custom_preset.return_value = False
+        resp = client.post("/api/equalizer/target/zone:z1/save-custom")
+        assert resp.status_code == 502
 
 
 # =============================================================================
