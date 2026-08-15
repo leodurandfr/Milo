@@ -33,7 +33,8 @@ smoke run if the previous session left services restarted by hand.
 6. Source switch (radio → spotify → radio) leaves no stuck audio and no ghost state.
 7. Screen: sleep timeout turns it off, touch wakes it, brightness setting applies.
 8. Background the browser tab ~60 s, return: state matches reality (resync, not stale).
-9. `journalctl -u milo-backend -p warning --since -10min` shows nothing new.
+9. `journalctl -u milo-backend --since -10min | grep -E "ERROR:|WARNING:"` shows nothing new.
+   **Not `-p warning`** — see the note under *Boot and process health*.
 
 If a change touched only one subsystem and none of the shared layers (state machine, WS,
 volume, routing), the smoke set can be cut to items 1, 6, 9 plus that subsystem's targeted
@@ -79,12 +80,18 @@ what made two of its original four rows wrong.
 
 ## Boot and process health
 
+**Filter the journal on the level *prefix*, never on `-p`.** The backend logs through Python's
+`logging` to stdout, so journald files every line — `INFO`, `WARNING`, `ERROR` alike — at the
+default priority, and the level lives in the message text. `journalctl -p warning` therefore
+returns *no entries* on this appliance whatever is happening, which is indistinguishable from a
+clean run. Three verification passes recorded it as evidence before anyone noticed.
+
 | Check | Expected observable | Set |
 |---|---|---|
 | Cold boot | Kiosk reaches the dock without a manual refresh; no blank page, no Vite banner | smoke |
 | Units | `systemctl --failed` empty; `milo-backend`, `milo-camilladsp`, `milo-kiosk` active | smoke |
 | Source units | Only the units for *enabled* dock sources are running; `BindsTo` holds (stopping `milo-backend` stops them) | targeted |
-| Warnings | `journalctl -u milo-backend -p warning --since -10min` shows nothing new | smoke |
+| Warnings | `journalctl -u milo-backend --since -10min \| grep -E "ERROR:\|WARNING:"` shows nothing new | smoke |
 | Schema versions | No fail-loud banner in the journal (`SchemaVersionMismatch` → the unit restart-loops) | smoke |
 | Dock | Every source enabled in Settings > Dock appears, in the configured order; disabled ones absent | targeted |
 
