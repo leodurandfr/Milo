@@ -35,7 +35,9 @@ from backend.hardware.fan import (
 from backend.shared.decorators import handle_errors
 from backend.shared.persistence import (
     SchemaVersionMismatch,
+    check_schema_version,
     load_versioned_json,
+    load_versioned_json_sync,
     save_versioned_json,
 )
 
@@ -415,15 +417,20 @@ class SettingsService:
         Loaded data is run through ``_validate_and_merge`` before caching
         so missing keys (e.g. older installs without a ``routing`` block)
         resolve to validated defaults rather than ``None``.
+
+        Raises SchemaVersionMismatch on version drift, exactly like
+        ``load_settings``: this is the first reader of settings.json on every
+        boot, and a stale shape consumed here is a stale shape written into the
+        three env files before any consumer gets the chance to refuse it.
         """
         if not self._cache:
             try:
-                if os.path.exists(self.settings_file):
-                    with open(self.settings_file, 'r', encoding='utf-8') as f:
-                        raw = json.load(f)
-                    self._cache = self._validate_and_merge(raw)
-                else:
-                    self._cache = self._default_settings()
+                data = load_versioned_json_sync(
+                    Path(self.settings_file), self.SCHEMA_VERSION
+                )
+                self._cache = self._validate_and_merge(data) if data else self._default_settings()
+            except SchemaVersionMismatch:
+                raise
             except Exception as e:
                 self.logger.warning(f"get_setting_sync fallback to defaults: {e}")
                 self._cache = self._default_settings()
@@ -565,6 +572,11 @@ class SettingsService:
         content is snapshotted to ``.corrupted`` first — otherwise the caller's
         subsequent ``_write_locked`` would overwrite the (possibly recoverable)
         corrupt file with defaults, silently losing every setting.
+
+        A version it did not verify is the one thing it must not fall back on:
+        ``_write_locked`` re-stamps whatever this returns at the current
+        ``SCHEMA_VERSION``, so consuming a drifted file here would migrate it in
+        silence. Raises SchemaVersionMismatch instead, and the write is refused.
         """
         if not os.path.exists(self.settings_file):
             return self._default_settings()
@@ -573,7 +585,9 @@ class SettingsService:
                 content = await f.read()
             if not content.strip():
                 return self._default_settings()
-            return self._validate_and_merge(json.loads(content))
+            data = json.loads(content)
+            check_schema_version(Path(self.settings_file), data, self.SCHEMA_VERSION)
+            return self._validate_and_merge(data)
         except json.JSONDecodeError:
             self.logger.error("settings.json corrupt during locked read; backing up and using defaults")
             await self._backup_corrupted_file(content)

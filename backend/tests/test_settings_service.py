@@ -427,23 +427,75 @@ class TestSettingsService:
         assert service._cache['routing']['multiroom_enabled'] is False
 
     def test_get_setting_sync_validates_missing_keys(self, service, temp_settings_file):
-        """Bootstrap reads of legacy files without a `routing` block must
-        return the validated default (False) — not None.
+        """Bootstrap reads of a file with no `routing` block must return the
+        validated default (False) — not None.
 
         This guards against Defect 5 in the multiroom-state-desync plan:
         an unvalidated cache fill that propagated `None` into
         RoutingEnv.regenerate.
         """
-        # Write a legacy-shaped settings.json missing the `routing` block.
-        legacy_settings = {'language': 'english'}
+        # A current-version file that predates the `routing` block being written.
+        partial_settings = {
+            'schema_version': SettingsService.SCHEMA_VERSION,
+            'language': 'english',
+        }
         with open(temp_settings_file, 'w') as f:
-            json.dump(legacy_settings, f)
+            json.dump(partial_settings, f)
 
         service._cache = None
 
         value = service.get_setting_sync('routing.multiroom_enabled')
 
         assert value is False
+
+    def test_get_setting_sync_raises_on_schema_mismatch(
+        self, service, temp_settings_file
+    ):
+        """The bootstrap reader fails loud like `load_settings` does.
+
+        It is the *first* reader on every boot — `dependencies.py` STEP 3b
+        derives routing.env / mac.env / snapclient.env from it before any async
+        init runs. Consuming a drifted file here would rewrite the three env
+        files from a shape the protocol is supposed to refuse, on every restart
+        of the banner loop.
+        """
+        from backend.shared.persistence import SchemaVersionMismatch
+
+        legacy_settings = {'language': 'english'}
+        with open(temp_settings_file, 'w') as f:
+            json.dump(legacy_settings, f)
+
+        service._cache = None
+
+        with pytest.raises(SchemaVersionMismatch):
+            service.get_setting_sync('routing.multiroom_enabled')
+
+    @pytest.mark.asyncio
+    async def test_a_write_refuses_to_restamp_a_drifted_file(
+        self, service, temp_settings_file
+    ):
+        """`_read_locked` must not hand a drifted file to `_write_locked`.
+
+        The write path re-stamps whatever it reads at the current
+        SCHEMA_VERSION, so a version it never verified would be migrated in
+        silence — the exact opposite of the fail-loud protocol. The file must
+        come out of a refused write byte-for-byte unchanged, so the operator's
+        `rm` is still a choice they get to make.
+        """
+        from backend.shared.persistence import SchemaVersionMismatch
+
+        legacy_settings = {'language': 'english'}
+        with open(temp_settings_file, 'w') as f:
+            json.dump(legacy_settings, f)
+        before = open(temp_settings_file).read()
+
+        with pytest.raises(SchemaVersionMismatch):
+            await service.set_setting_strict('routing.multiroom_enabled', True)
+
+        # The lossy variant reports the failure instead of raising, and is
+        # equally forbidden from writing.
+        assert await service.set_setting('routing.multiroom_enabled', True) is False
+        assert open(temp_settings_file).read() == before
 
     @pytest.mark.asyncio
     async def test_get_setting_sync_followed_by_get_setting_is_consistent(
@@ -452,9 +504,12 @@ class TestSettingsService:
         """get_setting_sync must not poison the cache for subsequent
         async reads. The cache must hold validated data either way.
         """
-        legacy_settings = {'language': 'english'}
+        partial_settings = {
+            'schema_version': SettingsService.SCHEMA_VERSION,
+            'language': 'english',
+        }
         with open(temp_settings_file, 'w') as f:
-            json.dump(legacy_settings, f)
+            json.dump(partial_settings, f)
 
         service._cache = None
 

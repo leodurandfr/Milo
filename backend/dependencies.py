@@ -430,7 +430,19 @@ def initialize_services() -> None:
     # If they start before routing_service.initialize() completes (which runs
     # in async init_async), they would read stale values. Pre-writing here
     # guarantees the three env files match settings.json before any service starts.
-    routing_service.regenerate_env_files()
+    #
+    # This is also the boot's first read of settings.json, through the sync
+    # reader — so the schema check fires here, before a drifted shape is
+    # derived into routing.env. Same fail-loud handling as init_async below.
+    try:
+        routing_service.regenerate_env_files()
+    except SchemaVersionMismatch as mismatch:
+        logger.error(
+            "Schema version mismatch while deriving the env files — bailing.\n%s",
+            mismatch,
+        )
+        sys.stderr.flush()
+        raise SystemExit(1) from mismatch
 
     # =========================================================================
     # STEP 4: Parallel async initialization
@@ -449,12 +461,11 @@ def initialize_services() -> None:
             # SettingsService + HardwareService come first in this list, but
             # that buys no ordering: gather() below starts every entry at once,
             # so routing_service.initialize() reads settings concurrently with
-            # the schema check — and STEP 3b already consumed settings.json
-            # synchronously, before any of this. A schema mismatch therefore
-            # surfaces *after* a stale shape has been read. Closing that hole
-            # means giving get_setting_sync and _read_locked the same version
-            # check load_settings performs — not reordering this list, which
-            # cannot fix it.
+            # settings_service.initialize(). That is fine, and reordering this
+            # list would not have made it otherwise: the schema check is not
+            # positional. Every reader of settings.json performs it — the sync
+            # bootstrap one included — so STEP 3b above is where a mismatch
+            # actually stops the boot, before any artifact is derived from it.
             ("settings_service", settings_service.initialize()),
             ("hardware_service", hardware_service.initialize()),
             ("client_registry_service", client_registry_service.initialize()),

@@ -370,7 +370,7 @@ async def add_custom_station(
                 detail=result.get("error", "Add custom station failed")
             )
 
-        return result
+        return {"status": "success", "station": result["station"]}
 
 
 @router.delete("/custom/{station_id}")
