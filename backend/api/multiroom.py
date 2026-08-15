@@ -60,7 +60,8 @@ async def _mark_unreachable(registry_service, mac_id: str, client_ip: str, exc: 
     still claim online at the moment a route tries to reach it. A refused HTTP
     request is direct proof to the contrary: flipping the flag here makes the
     frontend render the client as offline immediately instead of waiting for the
-    reconcile sweep (SnapcastWebSocketService._reconcile_loop, up to 90s).
+    reconcile sweep, which takes up to SnapcastWebSocketService.RECONCILE_INTERVAL_S
+    + SnapcastService.LAST_SEEN_FRESHNESS_S to notice.
 
     Logged at warning, not error: an unplugged speaker is an expected state, and
     WebSocketLogHandler (level=ERROR) would turn it into a backend-error banner.

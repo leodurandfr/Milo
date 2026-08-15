@@ -125,9 +125,17 @@ class VolumeService:
                                          client_ids: list) -> Optional[Dict[str, float]]:
         """Compute per-client volume updates for multiroom mode.
 
-        Must be called with _volume_lock held. Reads state and computes
-        deltas but does NOT write to memory (state is committed after
-        hardware application succeeds, via set_client_volume).
+        Must be called with _volume_lock held. The two modes commit at
+        different moments, on purpose:
+
+        - multiroom: nothing is written here. Each client's volume is committed
+          in _apply_volume_to_hardware, per client, only once its hardware call
+          succeeded (set_client_volume).
+        - direct: the local target is written here, *before* the CamillaDSP
+          call. It is the record-intent half of the record-intent + reconcile
+          pattern _apply_volume_to_hardware documents — a volume set while the
+          daemon is disconnected must survive to be replayed by the reconnect
+          callback.
 
         Args:
             target_db: Target global volume in dB.

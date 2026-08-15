@@ -446,10 +446,15 @@ def initialize_services() -> None:
     async def init_async():
         """Async initialization with error handling."""
         services = [
-            # SettingsService + HardwareService init runs first so a
-            # settings.json / hardware.json schema mismatch surfaces here
-            # (clean SystemExit(1) banner) before any consumer touches a
-            # stale on-disk shape.
+            # SettingsService + HardwareService come first in this list, but
+            # that buys no ordering: gather() below starts every entry at once,
+            # so routing_service.initialize() reads settings concurrently with
+            # the schema check — and STEP 3b already consumed settings.json
+            # synchronously, before any of this. A schema mismatch therefore
+            # surfaces *after* a stale shape has been read. Closing that hole
+            # means giving get_setting_sync and _read_locked the same version
+            # check load_settings performs — not reordering this list, which
+            # cannot fix it.
             ("settings_service", settings_service.initialize()),
             ("hardware_service", hardware_service.initialize()),
             ("client_registry_service", client_registry_service.initialize()),

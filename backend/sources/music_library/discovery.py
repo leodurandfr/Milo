@@ -38,10 +38,12 @@ _ESCAPE_RE = re.compile(r"\\(\d{3})")
 async def discover_servers() -> List[Dict[str, str]]:
     """Browse the LAN for SMB and NFS servers.
 
-    Returns a de-duplicated, name-sorted list of ``{name, host, address, type}``:
-    ``host`` is what the form should use (the mDNS ``.local`` hostname when
-    advertised, else the IPv4 address); ``address`` is the raw IPv4 shown as a
-    hint. Returns ``[]`` when discovery is unavailable.
+    Returns a de-duplicated, name-sorted list of ``{name, host, address, type}``.
+    ``host`` is what the form should use and ``address`` is the raw IPv4 shown
+    as a hint — they are deliberately equal: the advertised ``.local`` name is
+    never used as the host, because mount.cifs and smbclient resolve through
+    getaddrinfo, which does not answer ``.local`` on this stack (see
+    _parse_resolved). Returns ``[]`` when discovery is unavailable.
     """
     # Browse each service type concurrently (halves the wall-clock vs sequential).
     # Result order matches _SERVICE_TYPES order, so dedup precedence is stable.
