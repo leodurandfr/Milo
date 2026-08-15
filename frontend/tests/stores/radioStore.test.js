@@ -437,7 +437,9 @@ describe('radioStore', () => {
     });
 
     it('surfaces the backend error detail when adding fails', async () => {
-      apiCall.post.mockResolvedValueOnce(ok({ success: false, error: 'Invalid URL' }));
+      // The route raises a 400 on a refused creation — a 200 carrying a false
+      // flag is a shape it cannot produce.
+      apiCall.post.mockResolvedValueOnce(fail('Invalid URL', 400));
 
       const result = await store.addCustomStation({ name: 'Bad', url: 'invalid' });
 
@@ -445,7 +447,7 @@ describe('radioStore', () => {
     });
 
     it('sends the creation as multipart form data', async () => {
-      apiCall.post.mockResolvedValueOnce(ok({ success: true, station: STATION('custom1') }));
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success', station: STATION('custom1') }));
 
       await store.addCustomStation({ name: 'My Station', url: 'https://stream.example' });
 

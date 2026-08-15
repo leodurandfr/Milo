@@ -44,6 +44,20 @@ class SchemaVersionMismatch(RuntimeError):
         )
 
 
+def check_schema_version(file: Path, data: Any, expected_version: int) -> None:
+    """Raise SchemaVersionMismatch unless ``data`` carries ``expected_version``.
+
+    Exposed on its own for the reader that must do its own file I/O:
+    ``SettingsService._read_locked`` keeps the raw text so it can snapshot a
+    corrupt file before falling back, and still has to refuse a version it did
+    not verify — otherwise its ``_write_locked`` re-stamps the file at the
+    current version, which is a silent migration.
+    """
+    found = data.get("schema_version") if isinstance(data, dict) else None
+    if found != expected_version:
+        raise SchemaVersionMismatch(file, expected_version, found)
+
+
 async def load_versioned_json(file: Path, expected_version: int) -> Dict[str, Any]:
     """Load a versioned JSON file, raising SchemaVersionMismatch on version drift.
 
@@ -59,10 +73,24 @@ async def load_versioned_json(file: Path, expected_version: int) -> Dict[str, An
         content = await f.read()
 
     data = json.loads(content)
-    found = data.get("schema_version") if isinstance(data, dict) else None
-    if found != expected_version:
-        raise SchemaVersionMismatch(file, expected_version, found)
+    check_schema_version(file, data, expected_version)
+    return data
 
+
+def load_versioned_json_sync(file: Path, expected_version: int) -> Dict[str, Any]:
+    """Blocking twin of ``load_versioned_json``, for the pre-loop bootstrap read.
+
+    ``SettingsService.get_setting_sync`` runs before the event loop exists
+    (``dependencies.py`` STEP 3b derives routing.env / mac.env / snapclient.env
+    from it), so it cannot await the async reader — and it is the *first* reader
+    of settings.json on every boot. Same contract: ``{}`` when the file is
+    absent, ``SchemaVersionMismatch`` on drift.
+    """
+    if not file.exists():
+        return {}
+
+    data = json.loads(file.read_text(encoding="utf-8"))
+    check_schema_version(file, data, expected_version)
     return data
 
 

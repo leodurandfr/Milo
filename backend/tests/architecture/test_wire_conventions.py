@@ -288,6 +288,115 @@ assert len(HANDLERS) > 150, f"only {len(HANDLERS)} handlers found — extractor 
 assert all(src for _, _, src in HANDLERS), "a handler's source could not be read — extractor broken?"
 
 
+def _returns_a_success_dict(fn: ast.AST) -> bool:
+    """True if `fn` has a `return` of a dict literal carrying a "success" key."""
+    return any(
+        isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Dict)
+        and any(
+            isinstance(key, ast.Constant) and key.value == "success"
+            for key in node.value.keys
+        )
+        for node in ast.walk(fn)
+    )
+
+
+def _success_dict_producers():
+    """Every backend function name that can return a dict with a "success" key.
+
+    Names, not qualified symbols: a route reaches its service through an
+    instance attribute (`source.station_data.add_custom_station`), which no
+    offline resolver can bind to a class. Matching on the method name
+    over-approximates — two same-named functions make the check stricter, never
+    laxer — and that is the right direction for a guardrail.
+    """
+    producers = set()
+    for path in BACKEND_ROOT.rglob("*.py"):
+        if "tests" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _returns_a_success_dict(node):
+                producers.add(node.name)
+    return producers
+
+
+SUCCESS_PRODUCERS = _success_dict_producers()
+assert "add_custom_station" in SUCCESS_PRODUCERS, "producer scan broken?"
+
+
+def _handler_success_flag(src: str) -> str | None:
+    """Describe how `src` answers with a `success` flag, or None if it doesn't.
+
+    Two ways a route can do it: build the dict itself, or hand back one a
+    service built. The second is the one the string-matching version missed —
+    `return result` reads as clean at the route and is the forbidden envelope on
+    the wire.
+    """
+    import textwrap
+
+    fn = ast.parse(textwrap.dedent(src)).body[0]
+    if _returns_a_success_dict(fn):
+        return "builds it"
+
+    returned = {
+        node.value.id for node in ast.walk(fn)
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Name)
+    }
+    if not returned:
+        return None
+
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+            continue
+        target = node.targets[0]
+        if not (isinstance(target, ast.Name) and target.id in returned):
+            continue
+        value = node.value.value if isinstance(node.value, ast.Await) else node.value
+        if not isinstance(value, ast.Call):
+            continue
+        func = value.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if name in SUCCESS_PRODUCERS:
+            return f"returns {name}()'s dict"
+    return None
+
+
+def test_the_success_flag_extractor_discriminates():
+    """Both directions of the check above, on hand-written handlers.
+
+    A guardrail that only ever runs against a clean tree proves nothing: this
+    pins that it still catches the literal form, that it follows a value one hop
+    into the service that built it, and that it leaves the two legitimate shapes
+    alone — the documented envelope, and a command result handed back through
+    `run_source_command`.
+    """
+    caught = {
+        "literal": 'async def r():\n    return {"success": True}\n',
+        "via a service": (
+            "async def r():\n"
+            "    result = await source.station_data.add_custom_station(name=name)\n"
+            "    return result\n"
+        ),
+    }
+    allowed = {
+        "envelope": 'async def r():\n    return {"status": "success", "station": s}\n',
+        "command result": (
+            "async def r():\n"
+            "    result = await run_source_command(source, 'play', {})\n"
+            "    return result\n"
+        ),
+    }
+
+    assert {k: bool(_handler_success_flag(v)) for k, v in caught.items()} == {
+        "literal": True,
+        "via a service": True,
+    }
+    assert {k: _handler_success_flag(v) for k, v in allowed.items()} == {
+        "envelope": None,
+        "command result": None,
+    }
+
+
 def test_no_route_returns_a_bare_success_flag():
     """`{"success": bool}` is not an envelope — it is a failure a consumer misses.
 
@@ -295,13 +404,20 @@ def test_no_route_returns_a_bare_success_flag():
     failure. Four podcast routes used to answer `{"success": <always True>}`, a
     flag whose False branch was unreachable and which two of its three callers
     already ignored. `success` inside a *command result* (`run_source_command`'s
-    return value) is a different, internal contract and is unaffected.
+    return value) is a different, internal contract and is unaffected — it
+    reaches this check as a `return` of a name bound to `run_source_command`,
+    which builds no dict of its own and is therefore not a producer.
+
+    The check follows the value one hop into the service that built it:
+    `POST /api/radio/custom/add` answered `{"success": True, "station": …}` for
+    a year under a literal-only extractor, because the route said `return
+    result`.
     """
     offenders = [
-        f"{m} {p}" for m, p, src in HANDLERS
-        if 'return {"success"' in src or "return {'success'" in src
+        f"{m} {p} ({how})" for m, p, src in HANDLERS
+        if (how := _handler_success_flag(src))
     ]
     assert not offenders, (
-        f"routes returning a bare success flag: {offenders} — use "
+        f"routes answering with a success flag: {offenders} — use "
         f'{{"status": "success"}} and raise on failure.'
     )

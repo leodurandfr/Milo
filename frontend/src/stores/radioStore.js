@@ -439,14 +439,12 @@ export const useRadioStore = defineStore('radio', () => {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
 
+    // The route raises on failure, so result.ok is the whole verdict.
     if (!result.ok) {
       return { success: false, error: result.error?.detail || 'Failed to add station' };
     }
-    if (result.data.success) {
-      logger.info('radio', 'Custom station added', result.data.station);
-      return { success: true, station: result.data.station };
-    }
-    return { success: false, error: result.data.error || 'Failed to add station' };
+    logger.info('radio', 'Custom station added', result.data.station);
+    return { success: true, station: result.data.station };
   }
 
   /**

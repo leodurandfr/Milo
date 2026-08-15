@@ -11,6 +11,7 @@ from backend.shared import persistence
 from backend.shared.persistence import (
     SchemaVersionMismatch,
     load_versioned_json,
+    load_versioned_json_sync,
     save_versioned_json,
 )
 
@@ -54,6 +55,38 @@ async def test_load_matching_schema_version_returns_data(tmp_path: Path):
 
     data = await load_versioned_json(file, expected_version=2)
     assert data == {"schema_version": 2, "x": 42}
+
+
+def test_sync_loader_matches_the_async_one_on_every_outcome(tmp_path: Path):
+    """The bootstrap reader must refuse exactly what the async reader refuses.
+
+    ``SettingsService.get_setting_sync`` runs before the event loop exists and
+    is the first reader of settings.json on every boot. A sync twin that only
+    *mostly* matched would put the one unchecked read back on the boot path,
+    which is the hole this pair closes.
+    """
+    absent = tmp_path / "absent.json"
+    assert load_versioned_json_sync(absent, expected_version=1) == {}
+
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(json.dumps({"some": "data"}), encoding="utf-8")
+    with pytest.raises(SchemaVersionMismatch) as excinfo:
+        load_versioned_json_sync(legacy, expected_version=1)
+    assert excinfo.value.found is None
+    assert f"rm {legacy}" in str(excinfo.value)
+
+    stale = tmp_path / "stale.json"
+    stale.write_text(json.dumps({"schema_version": 1, "x": 42}), encoding="utf-8")
+    with pytest.raises(SchemaVersionMismatch) as excinfo:
+        load_versioned_json_sync(stale, expected_version=2)
+    assert excinfo.value.found == 1
+
+    current = tmp_path / "current.json"
+    current.write_text(json.dumps({"schema_version": 2, "x": 42}), encoding="utf-8")
+    assert load_versioned_json_sync(current, expected_version=2) == {
+        "schema_version": 2,
+        "x": 42,
+    }
 
 
 @pytest.mark.asyncio
