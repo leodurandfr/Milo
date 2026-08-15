@@ -14,8 +14,9 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
 from backend.sources.bluetooth.source import BluetoothSource
+from backend.sources.bluetooth.adapter import BluetoothAdapter
 from backend.sources.bluetooth.agent import BluetoothAgent
-from backend.sources.bluetooth.monitor import BlueAlsaMonitor
+from backend.sources.bluetooth.monitor import BlueAlsaMonitor, PCM_REMOVED_PREFIX
 from backend.core.models.audio_state import SourceState
 
 
@@ -54,6 +55,14 @@ def bluetooth_source(config):
     source.monitor.stop = AsyncMock()
     source.monitor.set_callbacks = Mock()
     source.monitor.connected_devices = {}
+
+    # Mock adapter (BlueZ D-Bus boundary)
+    source.adapter = Mock(spec=BluetoothAdapter)
+    source.adapter.power_on = AsyncMock(return_value=True)
+    source.adapter.set_discoverable_timeout = AsyncMock(return_value=True)
+    source.adapter.set_exposure = AsyncMock(return_value=True)
+    source.adapter.set_audio_peers_blocked = AsyncMock(return_value=True)
+    source.adapter.close = AsyncMock()
 
     # Mock settings_service (needed by _do_stop -> _cleanup)
     source._settings_service = Mock()
@@ -345,3 +354,137 @@ class TestBluetoothAgent:
 
         assert agent._registered is False
         assert agent.path.startswith("/org/milo/agent_")
+
+
+class TestStartTimeDetectionHandsOverToTheMonitor:
+    """The scan at start and the event feed must own one collection.
+
+    `_handle_pcm_removed` fires the departure only for addresses the monitor
+    holds. A link found by `_detect_connected_device` (a backend restart over a
+    live A2DP session) used to be written to the source alone, so its PCMRemoved
+    was read, parsed and dropped: the card kept naming a sender that had left,
+    and no other sender could take its place until the source was switched away.
+    """
+
+    PCM_PATH = "/org/bluealsa/hci0/dev_AA_BB_CC_DD_EE_FF/a2dpsnk/source"
+
+    @pytest.fixture
+    def source_with_live_pcm(self, bluetooth_source):
+        """Real monitor (the collection under test), stubbed bluealsa-cli."""
+        monitor = BlueAlsaMonitor()
+        monitor.resolve_device_name = AsyncMock(return_value="Phone")
+        bluetooth_source.monitor = monitor
+        return bluetooth_source
+
+    async def _detect(self, source):
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(return_value=(self.PCM_PATH.encode() + b"\n", b""))
+        proc.returncode = 0
+        with patch('asyncio.create_subprocess_exec', return_value=proc):
+            await source._detect_connected_device()
+
+    @pytest.mark.asyncio
+    async def test_detected_pcm_enters_the_monitor_collection(self, source_with_live_pcm):
+        await self._detect(source_with_live_pcm)
+
+        assert source_with_live_pcm.connected_device["address"] == "AA:BB:CC:DD:EE:FF"
+        assert "AA:BB:CC:DD:EE:FF" in source_with_live_pcm.monitor._connected_devices
+
+    @pytest.mark.asyncio
+    async def test_a_detected_pcm_can_then_be_seen_leaving(self, source_with_live_pcm):
+        source = source_with_live_pcm
+        source.monitor.set_callbacks(
+            source._on_device_connected, source._on_device_disconnected
+        )
+        await self._detect(source)
+
+        await source.monitor._process_line(f"{PCM_REMOVED_PREFIX} {self.PCM_PATH}")
+
+        assert source.connected_device is None
+
+
+class TestExposureFollowsState:
+    """Discoverable/pairable/blocked are a function of state, not of start/stop.
+
+    The owner's invariant: Milō is discoverable and connectable only while the
+    Bluetooth source runs and no sender holds it. Each transition below used to
+    leave one half of it unenforced — a connected device did not hide the
+    appliance, and a paired device could still dial in with the source off,
+    because bluetooth.service deliberately stays up for the HID remote.
+    """
+
+    @pytest.mark.asyncio
+    async def test_start_with_no_sender_opens(self, bluetooth_source):
+        with patch('asyncio.create_subprocess_exec') as mock_exec:
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(return_value=(b"", b""))
+            proc.returncode = 0
+            mock_exec.return_value = proc
+            await bluetooth_source.start()
+
+        bluetooth_source.adapter.set_exposure.assert_called_with(
+            discoverable=True, pairable=True
+        )
+        bluetooth_source.adapter.set_audio_peers_blocked.assert_called_with(
+            False, keep_unblocked=None
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_connected_sender_hides_the_appliance(self, bluetooth_source):
+        bluetooth_source._running = True
+
+        await bluetooth_source._on_device_connected("AA:BB:CC:DD:EE:FF", "Phone")
+
+        bluetooth_source.adapter.set_exposure.assert_called_with(
+            discoverable=False, pairable=False
+        )
+        # The holder is exempt: blocking it would drop the audio it is playing.
+        bluetooth_source.adapter.set_audio_peers_blocked.assert_called_with(
+            True, keep_unblocked="AA:BB:CC:DD:EE:FF"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_departing_sender_opens_it_again(self, bluetooth_source):
+        bluetooth_source._running = True
+        bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "Phone"}
+
+        await bluetooth_source._on_device_disconnected("AA:BB:CC:DD:EE:FF", "Phone")
+
+        bluetooth_source.adapter.set_exposure.assert_called_with(
+            discoverable=True, pairable=True
+        )
+        bluetooth_source.adapter.set_audio_peers_blocked.assert_called_with(
+            False, keep_unblocked=None
+        )
+
+    @pytest.mark.asyncio
+    async def test_stop_blocks_every_sender_including_the_last_one(self, bluetooth_source):
+        bluetooth_source._running = True
+        bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "Phone"}
+
+        await bluetooth_source._do_stop()
+
+        bluetooth_source.adapter.set_exposure.assert_called_with(
+            discoverable=False, pairable=False
+        )
+        # No exemption here — the source is off, so nothing may dial in.
+        bluetooth_source.adapter.set_audio_peers_blocked.assert_called_with(
+            True, keep_unblocked=None
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_refused_property_is_a_failure_not_a_configured_adapter(
+        self, bluetooth_source
+    ):
+        """The whole point of 7.4: bluetoothctl exited 0 whatever happened."""
+        bluetooth_source._running = True
+        bluetooth_source.adapter.set_exposure = AsyncMock(return_value=False)
+
+        assert await bluetooth_source._apply_exposure() is False
+
+    @pytest.mark.asyncio
+    async def test_a_dead_adapter_fails_the_configuration(self, bluetooth_source):
+        bluetooth_source.adapter.power_on = AsyncMock(return_value=False)
+
+        assert await bluetooth_source._configure_adapter() is False
+        bluetooth_source.adapter.set_exposure.assert_not_called()

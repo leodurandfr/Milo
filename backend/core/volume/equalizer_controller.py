@@ -56,11 +56,21 @@ class EqualizerController:
 
     @staticmethod
     def _is_success(result: dict) -> bool:
-        """Interpret EqualizerRouter result dict as boolean."""
+        """Interpret an EqualizerRouter result dict as "the command was applied".
+
+        The router skips for two opposite reasons and only one of them is an
+        outcome. `external_volume_control` means there was nothing to send — a
+        DAC client owns its own volume, and the caller must still record the
+        level it asked for. `client_offline` means the command was *not*
+        delivered; counting it as applied is what wrote the store for a
+        satellite that never heard the change and then reported success.
+        """
         if not result:
             return False
         status = result.get("status", "")
-        return status in ("success", "skipped")
+        if status == "skipped":
+            return result.get("reason") != "client_offline"
+        return status == "success"
 
     # ========== Single Client Operations ==========
 

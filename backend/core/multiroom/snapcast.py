@@ -509,39 +509,3 @@ class SnapcastService:
 
         self.logger.warning("Snapserver restarted but API not available yet")
         return False
-
-
-# === HELPER FUNCTIONS ===
-
-async def get_online_clients(snapcast_service: SnapcastService) -> List[Dict[str, Any]]:
-    """
-    Get list of online clients with their mac_id.
-
-    Args:
-        snapcast_service: SnapcastService instance
-
-    Returns:
-        List of dicts with 'mac_id' and 'online' keys for online clients
-    """
-    clients = await snapcast_service.get_clients()
-    return [
-        {"mac_id": client.get("mac_id", ""), "online": client.get("online", True)}
-        for client in clients
-        if client.get("mac_id") and client.get("online", True)
-    ]
-
-
-async def get_online_client_ids(snapcast_service: SnapcastService) -> List[str]:
-    """
-    Get list of online client IDs (mac_ids).
-
-    Args:
-        snapcast_service: SnapcastService instance
-
-    Returns:
-        List of client IDs (mac_ids) for online clients
-    """
-    clients = await get_online_clients(snapcast_service)
-    return [c["mac_id"] for c in clients]
-
-
