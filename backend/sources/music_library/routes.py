@@ -340,8 +340,7 @@ async def get_playlists(
     async with _catalog_errors("Error listing playlists", source):
         client = await _require_client(source)
         playlists = await client.get_playlists()
-        scope = await source.browse_scope(library_id)
-        return {"playlists": await source.playlists_in_scope(playlists, scope)}
+        return {"playlists": await source.playlists_in_scope(playlists, library_id)}
 
 
 @router.get("/playlist/{playlist_id}")

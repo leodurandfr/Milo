@@ -198,9 +198,21 @@ class MusicLibrarySource(MpvAudioSource):
         """
         if library_id is not None:
             return [library_id]
+        return self._scope_from(await self._shares.storages())
+
+    @staticmethod
+    def _scope_from(entries: List[Dict[str, Any]], library_id: Optional[int] = None) -> List[int]:
+        """:meth:`browse_scope`'s rule over an already-read storage list.
+
+        Split out so a caller that needs both the scope *and* the entries reads
+        them once: recomputing `storages()` costs five JSON file reads, and
+        `GET /playlists` used to do it twice per request.
+        """
+        if library_id is not None:
+            return [library_id]
         return [
             entry["library_id"]
-            for entry in await self._shares.storages()
+            for entry in entries
             if entry["mounted"] and entry["library_id"] is not None
         ]
 
@@ -288,9 +300,15 @@ class MusicLibrarySource(MpvAudioSource):
         ]
 
     async def playlists_in_scope(
-        self, playlists: List[Dict[str, Any]], scope: List[int]
+        self, playlists: List[Dict[str, Any]], library_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """Keep the playlists that belong to a browse scope's storage spaces.
+
+        Takes the raw ``library_id`` rather than a resolved scope so the storage
+        list is read **once** for the whole request: the scope is derived from
+        the same entries this needs anyway. Passing a scope meant the caller had
+        to resolve it first, and `GET /playlists` paid for two identical
+        computations — five JSON file reads each.
 
         Navidrome's playlists are catalog-wide — ``getPlaylists`` accepts
         ``musicFolderId`` and ignores it — but a playlist mixing a NAS and a USB
@@ -316,6 +334,7 @@ class MusicLibrarySource(MpvAudioSource):
         """
         recorded = await self._shares.playlist_storages()
         entries = await self._shares.storages()
+        scope = self._scope_from(entries, library_id)
         scoped_storages = {e["id"] for e in entries if e["library_id"] in scope}
         live_storages = {entry["id"] for entry in entries}
         album_ids = await self._scope_album_ids(scope)
@@ -392,10 +411,13 @@ class MusicLibrarySource(MpvAudioSource):
         it (called after an explicit rescan or a share add/update/remove).
 
         The playlist→album memo goes with it: both answer "what is in this
-        storage space", and a rescan is exactly when that changes.
+        storage space", and a rescan is exactly when that changes. So does the
+        client's cover memo — a rescan is when an album gains or loses its art.
         """
         self._album_cache.clear()
         self._playlist_album.clear()
+        if self._navidrome is not None:
+            self._navidrome.invalidate_cover_memo()
 
     async def broadcast_storages(self) -> None:
         """Push the storage spaces (with their counts) and the scan flag over WS.

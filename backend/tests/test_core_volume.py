@@ -6,7 +6,7 @@ Tests the migrated VolumeService, VolumeStateStore,
 and EqualizerController in the new core/volume/ location.
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch, call
 import asyncio
 
 from backend.core.volume import (
@@ -1225,6 +1225,18 @@ class TestStartupVolumeAutoUpdate:
         svc._state_store._mode = "direct"
         return svc
 
+    @staticmethod
+    async def _settled(service):
+        """Let the debounced startup-volume write land.
+
+        The write is deferred by STARTUP_VOLUME_DEBOUNCE_S so a rotary turn costs
+        one settings.json rewrite instead of one per step; the tests below set
+        that delay to 0 and give the task its turns.
+        """
+        service.STARTUP_VOLUME_DEBOUNCE_S = 0
+        for _ in range(5):
+            await asyncio.sleep(0)
+
     @pytest.mark.asyncio
     async def test_set_volume_updates_startup_volume_when_restore_true(
         self, service, mock_settings, mock_state_machine
@@ -1234,9 +1246,11 @@ class TestStartupVolumeAutoUpdate:
         """
         # Arrange: restore_last_volume=True (already set in fixture)
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
+        service.STARTUP_VOLUME_DEBOUNCE_S = 0
 
         # Act: Set volume to -45dB
         await service.set_volume_db(-45.0)
+        await self._settled(service)
 
         # Assert: startup_volume_db was updated via SettingsService
         mock_settings.set_setting.assert_called_with('volume.startup_volume_db', -45.0)
@@ -1272,13 +1286,15 @@ class TestStartupVolumeAutoUpdate:
         """
         # Arrange: restore_last_volume=True (already set in fixture)
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
+        service.STARTUP_VOLUME_DEBOUNCE_S = 0
         service._state_store.set_local_volume(-50.0)
 
         # Act: Adjust by +5dB -> -45dB
         await service.adjust_volume_db(5.0)
 
-        # Allow background task (_schedule_post_volume_tasks) to run
-        await asyncio.sleep(0)
+        # Allow background task (_schedule_post_volume_tasks) and the debounced
+        # persist to run
+        await self._settled(service)
 
         # Assert: startup_volume_db was updated
         mock_settings.set_setting.assert_called()
@@ -1365,10 +1381,49 @@ class TestStartupVolumeAutoUpdate:
         service._state_store.clear_zone_targets = Mock()
 
         # Act
+        service.STARTUP_VOLUME_DEBOUNCE_S = 0
         await service.apply_zone_volume_delta('zone-1', 5.0)
+        await self._settled(service)
 
         # Assert: startup_volume_db was updated with local client's new volume
         mock_settings.set_setting.assert_called_with('volume.startup_volume_db', -45.0)
+
+    @pytest.mark.asyncio
+    async def test_a_burst_of_steps_writes_nothing_while_it_lasts(
+        self, service, mock_settings, mock_state_machine
+    ):
+        """A rotary turn must not rewrite settings.json once per step.
+
+        Measured on the appliance before this was debounced: ~105 steps over a
+        3 s turn produced 104 full rewrites + fsyncs of an 8.6 KB file, 1.72 MB
+        of block writes and 9.3 % of one core against 0.53 % at rest. The turn
+        must cost the card nothing until it stops, while the tracked value is
+        live in memory immediately — everything that reads startup_volume_db
+        (initialize, the reconnection sync, GET /volume/startup) reads it there.
+        """
+        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
+
+        for target in range(-60, -50):
+            await service.set_volume_db(float(target))
+
+        assert mock_settings.set_setting.call_args_list == []
+        assert service.volume_config.startup_volume_db == -51.0
+
+    @pytest.mark.asyncio
+    async def test_the_burst_lands_as_one_write_carrying_the_last_value(
+        self, service, mock_settings, mock_state_machine
+    ):
+        """…and when it settles, exactly one write, with where the knob stopped."""
+        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
+        service.STARTUP_VOLUME_DEBOUNCE_S = 0
+
+        for target in range(-60, -50):
+            await service.set_volume_db(float(target))
+        await self._settled(service)
+
+        assert mock_settings.set_setting.call_args_list == [
+            call('volume.startup_volume_db', -51.0)
+        ]
 
 
 class TestStartupVolumeOnRestart:

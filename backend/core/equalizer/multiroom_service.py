@@ -576,16 +576,20 @@ class MultiroomEqualizerService:
             members = [target_id]
 
         # Persist `current` to each REMOTE member's record (the per-client source
-        # of truth — a fresh copy each, so members never alias). The local member
-        # is persisted from its live DSP cache below, after the router applies.
-        local_touched = False
-        for member in members:
-            if self._is_local(member):
-                local_touched = True
-            else:
-                await self._registry.set_client_equalizer(
-                    member, self._member_record(member, current), broadcast=False
-                )
+        # of truth — a fresh copy each, so members never alias) in ONE write: the
+        # registry rewrites the whole of settings.json per call, and a drag emits
+        # 20 requests a second. The local member is persisted from its live DSP
+        # cache below, after the router applies.
+        local_touched = any(self._is_local(member) for member in members)
+        remote_records = {
+            member: self._member_record(member, current)
+            for member in members
+            if not self._is_local(member)
+        }
+        if remote_records and self._registry:
+            await self._registry.set_clients_equalizer(
+                remote_records, broadcast=False, defer_persist=True
+            )
 
         # Route the targeted update to ONLINE members via EqualizerRouter
         fanout_error: Optional[BaseException] = None
@@ -631,12 +635,15 @@ class MultiroomEqualizerService:
 
         # Persist the local member's record so it survives a restart. When the DSP
         # is connected the router already applied the targeted change to the live
-        # cache, so we snapshot it. When it is disconnected the router no-op'd, so
-        # we capture the intended record into the cache + equalizer.json instead —
-        # restore_effects() re-pushes it on reconnect (no drift from remote members).
+        # cache, so we schedule a snapshot of it — debounced, because this is the
+        # drag path and an immediate write here cost one full rewrite + fsync of
+        # equalizer.json per throttled request. When it is disconnected the router
+        # no-op'd, so we capture the intended record into the cache + equalizer.json
+        # instead — restore_effects() re-pushes it on reconnect (no drift from
+        # remote members), and that branch stays immediate: it is not a hot path.
         if local_touched and self._camilladsp_service:
             if self._camilladsp_service.connected:
-                await self._camilladsp_service.persist_state()
+                self._camilladsp_service.schedule_persist()
             else:
                 await self._camilladsp_service.update_cache(current)
 

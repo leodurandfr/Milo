@@ -105,7 +105,7 @@ websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, se
 async def lifespan(app: FastAPI):
     """Application lifecycle management with async service initialization."""
     try:
-        initialize_services()
+        await initialize_services()
 
         logger.info("Waiting for services initialization to complete...")
         init_task = get_init_task()
@@ -144,6 +144,7 @@ async def lifespan(app: FastAPI):
         state_machine.cleanup()
         await camilladsp_service.cleanup()
         await snapcast_websocket_service.cleanup()
+        await client_registry_service.cleanup()
         await get_service("pending_clients_service").shutdown()
         await volume_service.cleanup()
         await equalizer_proxy_service.cleanup()

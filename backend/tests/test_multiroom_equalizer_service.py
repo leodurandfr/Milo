@@ -28,6 +28,21 @@ from backend.core.multiroom.models import (
 
 
 # =============================================================================
+# Helpers
+# =============================================================================
+
+def batched_records(registry):
+    """The {mac: record} mapping a partial update persists in ONE registry write.
+
+    The fan-out writes every member in a single call, because each call rewrites
+    the whole of settings.json: asserting on the mapping is asserting that the
+    batch happened at all.
+    """
+    registry.set_clients_equalizer.assert_awaited_once()
+    return registry.set_clients_equalizer.await_args.args[0]
+
+
+# =============================================================================
 # Fixtures
 # =============================================================================
 
@@ -39,6 +54,7 @@ def mock_registry():
     registry.get_client = Mock(return_value=None)
     registry.get_client_equalizer = Mock(return_value=None)
     registry.set_client_equalizer = AsyncMock()
+    registry.set_clients_equalizer = AsyncMock()
     registry.get_online_zone_clients = Mock(return_value=[])
     registry.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
     return registry
@@ -60,6 +76,7 @@ def mock_camilladsp_service():
     # Fresh snapshot each call so partial-update tests don't alias across calls.
     cam.get_equalizer_settings = Mock(side_effect=lambda: EqualizerSettings.default())
     cam.persist_state = AsyncMock()
+    cam.schedule_persist = Mock()
     cam.update_cache = AsyncMock()
     cam.set_custom_gains = Mock()
     cam.get_custom_gains = AsyncMock(return_value=[0.0] * 10)
@@ -129,6 +146,7 @@ def offline_registry():
     registry.get_client = Mock(return_value=None)
     registry.get_client_equalizer = Mock(return_value=None)
     registry.set_client_equalizer = AsyncMock()
+    registry.set_clients_equalizer = AsyncMock()
     registry.get_online_zone_clients = Mock(return_value=[])
     registry.is_local_client = Mock(return_value=False)  # empty registry → nothing is "local"
     return registry
@@ -894,7 +912,7 @@ class TestZoneFanoutOutcome:
 
         # Everything that did succeed is still committed: the records are stored
         # (they sync to the absent member on reconnection) and the broadcast fired.
-        assert mock_registry.set_client_equalizer.call_count == 2
+        assert set(batched_records(mock_registry)) == set(self.ZONE_MEMBERS)
         mock_state_machine.broadcast.assert_called_once()
 
     @pytest.fixture
@@ -949,10 +967,7 @@ class TestZoneFanoutOutcome:
 
         await service.update_filter("zone", "z", "eq_band_00", gain=5.0)
 
-        persisted = {
-            call.args[0]: call.args[1]
-            for call in mock_registry.set_client_equalizer.call_args_list
-        }
+        persisted = batched_records(mock_registry)
         assert persisted[self.ZONE_MEMBERS[0]].filters[0].gain == 5.0
         assert persisted[self.ZONE_MEMBERS[0]].enabled is True
         assert persisted[self.ZONE_MEMBERS[1]].enabled is False
@@ -964,9 +979,12 @@ class TestPartialUpdateMethods:
         mock_registry.get_zone.return_value = sample_zone
         result = await multiroom_equalizer_service.update_filter("zone", "zone-123", "eq_band_00", gain=5.0)
         assert result is True
-        persisted = mock_registry.set_client_equalizer.call_args.args[1]
+        (persisted,) = batched_records(mock_registry).values()
         assert persisted.filters[0].gain == 5.0
-        mock_camilladsp_service.persist_state.assert_awaited()  # local member snapshotted
+        # Local member snapshotted — debounced, not written on the spot: this is
+        # the drag path, 20 requests a second.
+        mock_camilladsp_service.schedule_persist.assert_called()
+        mock_camilladsp_service.persist_state.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_partial_update_local_disconnected_captures_intent(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone):
@@ -982,6 +1000,7 @@ class TestPartialUpdateMethods:
         captured = mock_camilladsp_service.update_cache.call_args.args[0]
         assert captured.filters[0].gain == 5.0
         mock_camilladsp_service.persist_state.assert_not_called()
+        mock_camilladsp_service.schedule_persist.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_filter_broadcasts(self, multiroom_equalizer_service, mock_registry, mock_state_machine, sample_zone):
@@ -1003,7 +1022,7 @@ class TestPartialUpdateMethods:
         mock_registry.get_zone.return_value = sample_zone
         result = await multiroom_equalizer_service.update_filter("zone", "zone-123", "eq_band_00", filter_type="Lowshelf")
         assert result is True
-        persisted = mock_registry.set_client_equalizer.call_args.args[1]
+        (persisted,) = batched_records(mock_registry).values()
         assert persisted.filters[0].filter_type == FilterType.LOWSHELF
         assert persisted.filters[0].gain == 0.0
 
@@ -1018,7 +1037,7 @@ class TestPartialUpdateMethods:
         mock_registry.get_zone.return_value = sample_zone
         result = await multiroom_equalizer_service.update_compressor("zone", "zone-123", enabled=True, threshold=-30.0)
         assert result is True
-        persisted = mock_registry.set_client_equalizer.call_args.args[1]
+        (persisted,) = batched_records(mock_registry).values()
         assert persisted.compressor.enabled is True
         assert persisted.compressor.threshold == -30.0
         assert persisted.compressor.ratio == 4.0  # preserved
@@ -1028,7 +1047,7 @@ class TestPartialUpdateMethods:
         mock_registry.get_zone.return_value = sample_zone
         result = await multiroom_equalizer_service.update_loudness("zone", "zone-123", enabled=True, low_boost=10.0)
         assert result is True
-        persisted = mock_registry.set_client_equalizer.call_args.args[1]
+        (persisted,) = batched_records(mock_registry).values()
         assert persisted.loudness.enabled is True
         assert persisted.loudness.low_boost == 10.0
         assert persisted.loudness.high_boost == 5.0  # preserved
@@ -1039,7 +1058,7 @@ class TestPartialUpdateMethods:
         mock_registry.get_client_equalizer.return_value = EqualizerSettings.default()
         result = await multiroom_equalizer_service.update_mono("client", "milo-client-1", enabled=True)
         assert result is True
-        persisted = mock_registry.set_client_equalizer.call_args.args[1]
+        (persisted,) = batched_records(mock_registry).values()
         assert persisted.mono is True
 
     @pytest.mark.asyncio
@@ -1049,7 +1068,7 @@ class TestPartialUpdateMethods:
         mock_registry.get_client.return_value = None
         with pytest.raises(ValueError, match="Client not found"):
             await multiroom_equalizer_service.update_filter("client", "unknown-mac", "eq_band_00", gain=5.0)
-        mock_registry.set_client_equalizer.assert_not_called()
+        mock_registry.set_clients_equalizer.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_compressor_unknown_client_raises(self, multiroom_equalizer_service, mock_registry):
@@ -1270,8 +1289,8 @@ class TestLocalTargetSentinel:
         # the local member is persisted from its live DSP cache instead.
         result = await offline_service.update_filter("client", "local", "eq_band_00", gain=4.0)
         assert result is True
-        offline_registry.set_client_equalizer.assert_not_called()
-        mock_camilladsp_service.persist_state.assert_awaited()
+        offline_registry.set_clients_equalizer.assert_not_called()
+        mock_camilladsp_service.schedule_persist.assert_called()
 
     @pytest.mark.asyncio
     async def test_set_client_equalizer_effects_enabled_local_sentinel_routes_to_routing(
@@ -1409,5 +1428,4 @@ class TestEqIndependentMembers:
 
         await multiroom_equalizer_service.update_mono("zone", "z", enabled=True)
 
-        persisted = [c.args[0] for c in mock_registry.set_client_equalizer.call_args_list]
-        assert persisted == ["milo-client-2"]
+        assert list(batched_records(mock_registry)) == ["milo-client-2"]

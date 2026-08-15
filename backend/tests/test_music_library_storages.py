@@ -341,7 +341,7 @@ async def test_recorded_playlist_belongs_only_to_its_own_storage(source):
     _with_catalog(source, album_ids=["al-1"])
     playlists = [{"id": "pl-usb", "songCount": 3}, {"id": "pl-nas", "songCount": 3}]
 
-    kept = await source.playlists_in_scope(playlists, scope=[3])
+    kept = await source.playlists_in_scope(playlists, library_id=3)
 
     assert [p["id"] for p in kept] == ["pl-usb"]
 
@@ -356,7 +356,7 @@ async def test_unknown_playlist_is_placed_by_its_first_track(source):
     )
     playlists = [{"id": "pl-here", "songCount": 5}, {"id": "pl-elsewhere", "songCount": 5}]
 
-    kept = await source.playlists_in_scope(playlists, scope=[3])
+    kept = await source.playlists_in_scope(playlists, library_id=3)
 
     assert [p["id"] for p in kept] == ["pl-here"]
 
@@ -371,7 +371,7 @@ async def test_track_of_a_merged_multi_disc_album_still_places_its_playlist(sour
         playlist_albums={"pl-1": "al-disc2"},
     )
 
-    kept = await source.playlists_in_scope([{"id": "pl-1", "songCount": 2}], scope=[3])
+    kept = await source.playlists_in_scope([{"id": "pl-1", "songCount": 2}], library_id=3)
 
     assert [p["id"] for p in kept] == ["pl-1"]
 
@@ -383,7 +383,7 @@ async def test_playlist_of_a_removed_storage_falls_back_to_its_content(source):
     source._shares.playlist_storages = AsyncMock(return_value={"pl-1": "nas-gone"})
     _with_catalog(source, album_ids=["al-here"], playlist_albums={"pl-1": "al-here"})
 
-    kept = await source.playlists_in_scope([{"id": "pl-1", "songCount": 4}], scope=[3])
+    kept = await source.playlists_in_scope([{"id": "pl-1", "songCount": 4}], library_id=3)
 
     assert [p["id"] for p in kept] == ["pl-1"]
 
@@ -397,8 +397,8 @@ async def test_playlist_of_a_storage_that_is_away_leaves_the_default_scope(sourc
     _with_catalog(source, album_ids=["al-here"])
     playlist = [{"id": "pl-away", "songCount": 4}]
 
-    assert await source.playlists_in_scope(playlist, scope=[2, 3]) == []
-    assert await source.playlists_in_scope(playlist, scope=[4]) == playlist
+    assert await source.playlists_in_scope(playlist) == []
+    assert await source.playlists_in_scope(playlist, library_id=4) == playlist
 
 
 async def test_unrecorded_empty_playlist_is_never_hidden(source):
@@ -407,6 +407,6 @@ async def test_unrecorded_empty_playlist_is_never_hidden(source):
     source._shares.playlist_storages = AsyncMock(return_value={})
     _with_catalog(source, album_ids=["al-1"])
 
-    kept = await source.playlists_in_scope([{"id": "pl-empty", "songCount": 0}], scope=[3])
+    kept = await source.playlists_in_scope([{"id": "pl-empty", "songCount": 0}], library_id=3)
 
     assert [p["id"] for p in kept] == ["pl-empty"]

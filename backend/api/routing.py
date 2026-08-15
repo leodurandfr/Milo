@@ -215,7 +215,7 @@ def create_routing_router(
                     _, effective_fragments = await resolve_snapclient_config(settings_service)
 
                 # 2. Regenerate local snapclient.env with the resolved values
-                SnapclientEnv.regenerate(snapclient_buffer_time, effective_fragments)
+                await SnapclientEnv.regenerate(snapclient_buffer_time, effective_fragments)
 
                 # 3. Push to remotes and AWAIT — must complete before snapserver restart
                 await _push_snapclient_config_to_remotes(snapclient_buffer_time, effective_fragments)
