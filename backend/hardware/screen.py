@@ -138,18 +138,22 @@ class ScreenController:
         self.last_activity_time = monotonic()
         return True
 
-    async def apply_screen_config(self, brightness_on: int) -> None:
+    async def apply_screen_config(self, brightness_on: int) -> bool:
         """Apply a new brightness instantly + reset inactivity timer.
 
         Single public entry point for routes that need to mutate screen state —
         replaces direct mutation of brightness_on / last_activity_time / screen_on
         and direct calls to _update_screen_commands / _screen_cmd.
+
+        Returns whether the panel took it, so the route answers what the screen
+        does rather than what was asked of it. screen_on is _screen_cmd's to
+        write, and only on success.
         """
         self.brightness_on = brightness_on
         self._update_screen_commands()
-        await self._screen_cmd(self.screen_on_cmd)
+        applied = await self._screen_cmd(self.screen_on_cmd)
         self.last_activity_time = monotonic()
-        self.screen_on = True
+        return applied
 
     @handle_errors(default=False)
     async def initialize(self) -> bool:
@@ -175,26 +179,39 @@ class ScreenController:
 
         return True
 
-    @handle_errors(default=None)
-    async def _screen_cmd(self, cmd):
-        """Executes a screen command"""
-        # Do nothing if no screen is configured or command is empty
+    @handle_errors(default=False)
+    async def _screen_cmd(self, cmd) -> bool:
+        """Execute a screen command; True when the backlight really took it.
+
+        The return code used to be ignored and screen_on written whatever
+        happened, so a backlight write refused by the kernel (a replaced panel
+        whose udev rule was never replayed) was completely silent — and the
+        apply route reported a brightness the screen never showed.
+        """
+        # Nothing to drive is not a failure: no screen configured, no command.
         if not cmd or self.screen_type == "none":
-            return
+            return True
 
         process = await asyncio.create_subprocess_shell(
             cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         try:
-            await asyncio.wait_for(process.communicate(), 5.0)
+            _, stderr = await asyncio.wait_for(process.communicate(), 5.0)
         except asyncio.TimeoutError:
             process.kill()
             self.logger.error(f"Timeout executing screen command: {cmd}")
-            return
+            return False
+
+        if process.returncode != 0:
+            self.logger.error(
+                f"Screen command failed ({process.returncode}): {cmd} — {stderr.decode().strip()}"
+            )
+            return False
 
         # Determine if screen is on by comparing with screen_off_cmd
         # (if command is screen_off_cmd, screen is off, otherwise it's on)
         self.screen_on = (cmd != self.screen_off_cmd)
+        return True
 
     @handle_errors(default=None)
     async def _broadcast_sleep_state(self, sleeping: bool):

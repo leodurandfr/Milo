@@ -329,11 +329,12 @@ def create_settings_router(
         If an app is disabled, stop the associated processes.
         If an app is enabled, start the associated processes (multiroom/equalizer).
 
-        Fail-fast, not atomic: the first failing operation aborts the batch with
-        a 500 and dock.enabled_apps is never written — but the operations that
-        already ran keep their effects (each of them persists its own state).
-        The visible residue is therefore the tile list alone, still showing an
-        app whose function was just switched off.
+        Fail-fast, and the tile list follows step by step: each operation that
+        succeeds persists dock.enabled_apps as it stands at that point, so an
+        error mid-batch leaves the list describing exactly the effects that were
+        applied. Not a transaction — nothing is compensated, because a rollback
+        would mean re-entering the audio path from an error handler — but no
+        longer a dock showing a tile for a function that was just switched off.
         """
         async with api_error_handler("Unexpected error in dock-apps update", logger):
             enabled_apps = payload.enabled_apps
@@ -358,6 +359,17 @@ def create_settings_router(
 
             # Operations log for debugging
             operations_log = []
+
+            # `applied` is the tile list as it stands after each effect that
+            # succeeded; `persisted` is what settings.json actually holds, which
+            # only commit_applied() may advance.
+            applied = list(old_enabled_apps)
+            persisted = list(old_enabled_apps)
+
+            async def commit_applied():
+                if not await settings.set_setting("dock.enabled_apps", list(applied)):
+                    raise ValueError("Failed to save settings")
+                persisted[:] = applied
 
             try:
                 # === HANDLE DISABLES ===
@@ -411,6 +423,9 @@ def create_settings_router(
                         if not success:
                             raise ValueError("Failed to disable equalizer effects")
 
+                    applied.remove(app)
+                    await commit_applied()
+
                 # === HANDLE ENABLES ===
                 for app in enabled_apps_new:
                     logger.info(f"Processing enable for app: {app}")
@@ -446,6 +461,13 @@ def create_settings_router(
                         if not success:
                             raise ValueError("Failed to enable equalizer effects")
 
+                    # Placed where the payload wants it, so the intermediate
+                    # list is already in the requested order.
+                    applied.insert(min(enabled_apps.index(app), len(applied)), app)
+                    await commit_applied()
+
+                # The step-by-step writes carry the membership; this last one
+                # also carries the order, which the payload may have changed.
                 operations_log.append("Saving new settings")
                 logger.info("All operations successful, saving settings")
                 success = await settings.set_setting("dock.enabled_apps", enabled_apps)
@@ -464,9 +486,16 @@ def create_settings_router(
 
             except Exception as e:
                 # Stop here: nothing is compensated and operations_log is
-                # diagnostic text, never replayed.
+                # diagnostic text, never replayed. The effects that ran are
+                # already persisted — including the tile list — so all that is
+                # left is to tell the consumers which dock they are looking at.
                 logger.error(f"Error during dock-apps update: {e}")
                 logger.error(f"Operations completed before error: {operations_log}")
+
+                if persisted != old_enabled_apps:
+                    await state_machine.broadcast(DockAppsChanged(
+                        config=DockAppsConfig(enabled_apps=list(persisted))
+                    ))
 
                 raise HTTPException(
                     status_code=500,
@@ -520,7 +549,9 @@ def create_settings_router(
     async def apply_brightness_instantly(payload: ScreenBrightnessRequest):
         """Instant brightness application + restart timeout"""
         async with api_error_handler("Error applying brightness", logger):
-            await screen_controller.apply_screen_config(payload.brightness_on)
+            if not await screen_controller.apply_screen_config(payload.brightness_on):
+                logger.error(f"Screen did not take brightness {payload.brightness_on}")
+                raise HTTPException(status_code=502, detail="Screen did not apply the brightness")
             return {
                 "status": "success",
                 "brightness_applied": payload.brightness_on,

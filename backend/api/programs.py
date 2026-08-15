@@ -128,6 +128,11 @@ def create_programs_router(
                 "active_updates": active
             }
         except Exception as e:
+            # HTTP 200 + status:error is the documented resilience pattern for a
+            # /status-style read — the settings screen must render with whatever
+            # it has rather than collapsing on a GitHub timeout. It is not a
+            # reason to keep the failure out of the journal and the banner.
+            logger.error(f"Error listing program status: {e}")
             return {
                 "status": "error",
                 "message": str(e),
@@ -192,6 +197,11 @@ def create_programs_router(
                 "count": len(satellites)
             }
         except Exception as e:
+            # Same resilience pattern as GET "" above, same duty to log: the
+            # satellite list is built from four awaits, and a discovery that
+            # throws used to leave the screen showing "no satellite" with
+            # nothing anywhere to say why.
+            logger.error(f"Error listing satellites: {e}")
             return {
                 "status": "error",
                 "message": str(e),
@@ -292,6 +302,8 @@ def create_programs_router(
                 "installed": result
             }
         except Exception as e:
+            # Same resilience pattern as the two reads above, same duty to log.
+            logger.error(f"Error reading installed version of {program_key}: {e}")
             return {
                 "status": "error",
                 "message": str(e),

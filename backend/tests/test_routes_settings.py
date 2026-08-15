@@ -52,6 +52,7 @@ class TestSettingsRoutes:
         controller.current_source_state = "PLAYING"
         controller._update_screen_commands = Mock()
         controller._screen_cmd = AsyncMock()
+        controller.apply_screen_config = AsyncMock(return_value=True)
         controller.on_touch_detected = AsyncMock()
         return controller
 
@@ -284,13 +285,45 @@ class TestSettingsRoutes:
         })
         assert response.status_code == 422
 
+    def test_set_dock_apps_persists_the_effects_that_did_run(self, client, mock_routing_service):
+        """A batch that dies halfway must leave the tile list describing what ran.
+
+        The whole list used to be written after the loop, so a failure on the
+        second operation kept a tile for the function the first one had just
+        switched off — a dock advertising something already gone, and the
+        consumers never told.
+        """
+        client._mock_settings.load_settings = AsyncMock(return_value={
+            "dock": {"enabled_apps": ["spotify", "multiroom"]}
+        })
+        # Disables run first: multiroom goes, then the equalizer enable fails.
+        client._mock_multiroom_equalizer_service.set_local_equalizer_effects_enabled = AsyncMock(
+            return_value=False
+        )
+
+        response = client.put("/api/settings/dock-apps", json={
+            "enabled_apps": ["spotify", "equalizer"]
+        })
+
+        assert response.status_code == 500
+        mock_routing_service.set_multiroom_enabled.assert_awaited_once()
+
+        dock_writes = [
+            c.args[1] for c in client._mock_settings.set_setting.call_args_list
+            if c.args[0] == "dock.enabled_apps"
+        ]
+        assert dock_writes == [["spotify"]], "the applied disable was not persisted on its own"
+
+        broadcasts = [c.args[0] for c in client._mock_state_machine.broadcast.call_args_list]
+        assert [b.config.enabled_apps for b in broadcasts] == [["spotify"]]
+
     def test_set_dock_apps_reports_a_failed_multiroom_transition(self, client, mock_routing_service):
         """A 200 on a transition that did not happen leaves the UI permanently wrong.
 
-        `dock.enabled_apps` is written only after every transition succeeds, so
-        swallowing a False persisted "multiroom on" against an appliance still in
+        Swallowing a False persisted "multiroom on" against an appliance still in
         direct mode — a disagreement no later action reconciles, and one the user
-        has no way to see.
+        has no way to see. Nothing ran before the failure here, so nothing at all
+        may be written (the partial case is the test above).
         """
         client._mock_settings.load_settings = AsyncMock(return_value={
             "dock": {"enabled_apps": ["spotify"]}
@@ -306,7 +339,8 @@ class TestSettingsRoutes:
         assert "dock.enabled_apps" not in written
 
     def test_set_dock_apps_reports_a_failed_equalizer_toggle(self, client):
-        """Same contract on the equalizer branch, which has its own service call."""
+        """Same contract on the equalizer branch, which has its own service call —
+        again with the failure as the first operation, so nothing is written."""
         client._mock_settings.load_settings = AsyncMock(return_value={
             "dock": {"enabled_apps": ["spotify", "equalizer"]}
         })
@@ -388,6 +422,24 @@ class TestSettingsRoutes:
             "brightness_on": 15
         })
         assert response.status_code == 422
+
+    def test_apply_brightness_reports_a_panel_that_refused(self, client, mock_screen_controller):
+        """The route used to manufacture its own success: it awaited the apply
+        and answered "brightness_applied" whatever the backlight had done."""
+        mock_screen_controller.apply_screen_config = AsyncMock(return_value=False)
+
+        response = client.post("/api/settings/screen-brightness/apply", json={
+            "brightness_on": 7
+        })
+
+        assert response.status_code == 502
+
+    def test_apply_brightness_success(self, client):
+        response = client.post("/api/settings/screen-brightness/apply", json={
+            "brightness_on": 7
+        })
+        assert response.status_code == 200
+        assert response.json()["brightness_applied"] == 7
 
     # ===================
     # SCREEN SCREENSAVER TESTS

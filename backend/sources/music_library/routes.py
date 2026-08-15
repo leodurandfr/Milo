@@ -540,10 +540,14 @@ async def trigger_scan(
     """
     async with _catalog_errors("Error starting scan", source):
         client = await _require_client(source)
-        await client.start_scan()
+        if not await client.start_scan():
+            logger.error("Navidrome refused the scan request")
+            raise HTTPException(status_code=502, detail="Navidrome refused the scan")
         # The catalog is about to change — drop the merged-album cache so the next
         # grid load reflects new/removed music without waiting for its TTL.
         source.invalidate_album_cache()
+        # Only now: note_scan_started's own precondition is that a scan really
+        # is running, and it pushes `scanning: true` to every client.
         await source.shares.note_scan_started()
         return {"status": "success"}
 
@@ -569,7 +573,9 @@ async def trigger_full_scan(
             logger.info("Full scan skipped; storage offline: %s", ", ".join(offline))
             return {"status": "blocked", "offline_shares": offline}
         client = await _require_client(source)
-        await client.start_scan(full=True)
+        if not await client.start_scan(full=True):
+            logger.error("Navidrome refused the full scan request")
+            raise HTTPException(status_code=502, detail="Navidrome refused the scan")
         source.invalidate_album_cache()
         await source.shares.note_scan_started()
         return {"status": "success"}

@@ -226,14 +226,21 @@ def create_routing_router(
                 raise HTTPException(status_code=502, detail="Snapserver config update failed")
 
             # 5. Restart local snapclient to pick up the new env (after
-            # snapserver restart so it reconnects cleanly to the new server)
+            # snapserver restart so it reconnects cleanly to the new server).
+            # A refused restart is not cosmetic: every satellite is now on the
+            # new buffer_time and the local speaker is still on the old one, so
+            # it must reach the caller rather than a log line under a "services
+            # restarted" answer.
             if snapclient_buffer_time is not None:
                 if routing_service and routing_service.service_manager:
-                    try:
-                        await routing_service.service_manager.restart("milo-snapclient-multiroom.service")
-                        logger.info(f"Local snapclient restarted with buffer_time={snapclient_buffer_time}ms")
-                    except Exception as e:
-                        logger.error(f"Failed to restart local snapclient: {e}")
+                    unit = routing_service.snapclient_service
+                    if not await routing_service.service_manager.restart(unit):
+                        logger.error(f"Failed to restart {unit} with buffer_time={snapclient_buffer_time}ms")
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Configuration saved but {unit} did not restart"
+                        )
+                    logger.info(f"Local snapclient restarted with buffer_time={snapclient_buffer_time}ms")
 
             await _publish_snapcast_update()
             return {

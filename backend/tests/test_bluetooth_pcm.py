@@ -8,6 +8,7 @@ so a change is a deliberate, reviewed edit — and cover the BlueZ D-Bus
 name-resolution fail-open path.
 """
 import pytest
+from unittest.mock import AsyncMock, Mock
 
 from backend.sources.bluetooth.monitor import (
     BlueAlsaMonitor,
@@ -110,3 +111,64 @@ class TestResolveDeviceNameFailOpen:
         monitor._read_device_name = _boom
 
         assert await monitor.resolve_device_name("AA:BB:CC:DD:EE:FF") == "Device AA:BB:CC:DD:EE:FF"
+
+
+class TestFeedDeath:
+    """The read loop used to exit through a bare `break`: no log, no return
+    code read, no callback. The source stayed "started" with connection
+    detection permanently mute — a phone could neither be seen arriving nor
+    leaving, and nothing anywhere said why.
+    """
+
+    @staticmethod
+    def _dead_process(returncode=1, stderr=b""):
+        """A bluealsa-cli that closed its output — an empty readline is EOF."""
+        proc = AsyncMock()
+        proc.stdout = AsyncMock()
+        proc.stdout.at_eof = Mock(return_value=False)
+        proc.stdout.readline = AsyncMock(return_value=b"")
+        proc.stderr = AsyncMock()
+        proc.stderr.read = AsyncMock(return_value=stderr)
+        proc.wait = AsyncMock(return_value=returncode)
+        proc.returncode = returncode
+        return proc
+
+    @pytest.mark.asyncio
+    async def test_eof_is_logged_with_what_the_process_left(self, monitor, caplog):
+        monitor._process = self._dead_process(stderr=b"bluealsa: connection refused")
+        monitor._alive = True
+
+        await monitor._read_output()
+
+        assert "connection refused" in caplog.text
+        assert "exit=1" in caplog.text
+        assert monitor.alive is False
+
+    @pytest.mark.asyncio
+    async def test_eof_reaches_the_source(self, monitor):
+        seen = []
+
+        async def on_lost(reason):
+            seen.append(reason)
+
+        monitor.set_callbacks(AsyncMock(), AsyncMock(), on_lost)
+        monitor._process = self._dead_process()
+        monitor._alive = True
+
+        await monitor._read_output()
+
+        assert len(seen) == 1, "the source was never told the feed died"
+
+    @pytest.mark.asyncio
+    async def test_our_own_stop_is_not_a_death(self, monitor, caplog):
+        """stop() closes the same stream; that must stay silent."""
+        on_lost = AsyncMock()
+        monitor.set_callbacks(AsyncMock(), AsyncMock(), on_lost)
+        monitor._process = self._dead_process(returncode=0)
+        monitor._alive = True
+        monitor._stopped = True
+
+        await monitor._read_output()
+
+        on_lost.assert_not_awaited()
+        assert "lost" not in caplog.text

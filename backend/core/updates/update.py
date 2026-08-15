@@ -91,24 +91,14 @@ class UpdateService(VersionService):
             if progress_callback:
                 await progress_callback("updates.progress.rollbackRebuilding", 92)
 
-            # Rebuild frontend after rollback
+            # Rebuild frontend after rollback. Bounded and checked exactly like
+            # the forward path: an npm that hangs here would freeze the rollback
+            # with no ceiling, leaving the backend un-restarted and the update
+            # key in active_updates — the UI would show an update running forever.
             frontend_dir = Path(config["git_path"]) / "frontend"
             if frontend_dir.exists():
-                proc = await asyncio.create_subprocess_exec(
-                    "npm", "install",
-                    cwd=str(frontend_dir),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await proc.communicate()
-
-                proc = await asyncio.create_subprocess_exec(
-                    "npm", "run", "build",
-                    cwd=str(frontend_dir),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await proc.communicate()
+                await self._run_npm(["install"], frontend_dir)
+                await self._run_npm(["run", "build"], frontend_dir)
 
             # Reinstall Python dependencies in venv
             requirements_file = Path(config["git_path"]) / "requirements.txt"
@@ -220,43 +210,13 @@ class UpdateService(VersionService):
 
             frontend_dir = Path(config["git_path"]) / "frontend"
             if frontend_dir.exists():
-                proc = await asyncio.create_subprocess_exec(
-                    "npm", "install",
-                    cwd=str(frontend_dir),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                try:
-                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                    raise Exception("npm install timed out (600s)")
-
-                if proc.returncode != 0:
-                    error_msg = f"npm install failed: {stderr.decode()}"
-                    raise Exception(error_msg)
+                await self._run_npm(["install"], frontend_dir)
 
             if progress_callback:
                 await progress_callback("updates.progress.buildingFrontend", 45)
 
             if frontend_dir.exists():
-                proc = await asyncio.create_subprocess_exec(
-                    "npm", "run", "build",
-                    cwd=str(frontend_dir),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                try:
-                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                    raise Exception("npm run build timed out (600s)")
-
-                if proc.returncode != 0:
-                    error_msg = f"npm run build failed: {stderr.decode()}"
-                    raise Exception(error_msg)
+                await self._run_npm(["run", "build"], frontend_dir)
 
             if progress_callback:
                 await progress_callback("updates.progress.installingPythonDeps", 60)
@@ -292,7 +252,16 @@ class UpdateService(VersionService):
             # Small delay to ensure the WebSocket message is sent
             await asyncio.sleep(1)
 
-            await self._run_deploy("reboot")
+            rebooting, reboot_output = await self._run_deploy("reboot")
+            if not rebooting:
+                # No rollback: the new code is pulled, built and synced — it is
+                # the *restart* that did not happen, and undoing a good update
+                # over that would be worse. Report it so the owner reboots.
+                self.update_logger.error(f"Reboot refused after a successful update: {reboot_output}")
+                return {
+                    "success": False,
+                    "error": f"Update applied but the reboot failed ({reboot_output}). Reboot to complete it.",
+                }
 
             # The process will be killed by the reboot, but return success in case it somehow continues
             return {"success": True}
@@ -323,6 +292,30 @@ class UpdateService(VersionService):
 
             return {"success": False, "error": str(e)}
 
+    async def _run_npm(self, args: list, cwd: Path, timeout: int = 600) -> None:
+        """Run one npm step, bounded and checked. Raises on timeout or non-zero.
+
+        The forward path and the rollback share this: both rebuild the same
+        frontend, and an unbounded or unchecked npm on either side produces the
+        same silent outcome — a broken `frontend/dist/` reported as a success.
+        """
+        step = "npm " + " ".join(args)
+        proc = await asyncio.create_subprocess_exec(
+            "npm", *args,
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise Exception(f"{step} timed out ({timeout}s)")
+
+        if proc.returncode != 0:
+            raise Exception(f"{step} failed: {stderr.decode()}")
+
     async def _run_deploy(self, *args, timeout: int = 120) -> tuple[bool, str]:
         """Run a milo-deploy-update subcommand via sudo."""
         try:
@@ -352,12 +345,16 @@ class UpdateService(VersionService):
         - Copying rootfs/** preserving directory structure
         - Setting executable/ownership permissions
         - Reloading udev rules if needed
+
+        Raises on failure rather than warning: the units and the rootfs helpers
+        this copies are what the new code expects to find on the next boot, so a
+        sync that did not happen is an update that did not happen. The caller
+        turns it into a failed update and a rollback.
         """
         success, output = await self._run_deploy("sync-system-files", timeout=60)
         if not success:
-            self.update_logger.warning(f"System files sync had errors: {output}")
-        else:
-            self.update_logger.info("System files sync completed")
+            raise Exception(f"System files sync failed: {output}")
+        self.update_logger.info("System files sync completed")
 
     async def _update_binary_program(self, program_key: str, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates a program shipped as a single binary inside a release tarball.

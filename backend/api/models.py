@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Dict, Any, List, Literal
 
 from backend.config.constants import (
+    BT_REMOTE_ACTIONS,
     DEFAULT_ROC_CONFIG,
     GPIO_MAX_PIN,
     GPIO_MIN_PIN,
@@ -126,6 +127,26 @@ class BtRemoteConfigRequest(BaseModel):
     enabled: Optional[bool] = None
     device_name_filter: Optional[str] = Field(None, max_length=64)
     key_map: Optional[dict] = None
+
+    @field_validator('key_map')
+    @classmethod
+    def validate_key_map(cls, v: Optional[dict]) -> Optional[dict]:
+        """Keycodes are evdev codes and actions are the dispatcher's own.
+
+        Both were accepted unchecked and only failed downstream, where a
+        non-numeric keycode broke device matching for every remote at debug
+        level — a remote that simply never worked again, with nothing to see.
+        """
+        if v is None:
+            return v
+        for keycode, action in v.items():
+            if not str(keycode).isdigit():
+                raise ValueError(f"keycode must be a positive integer, got '{keycode}'")
+            if action not in BT_REMOTE_ACTIONS:
+                raise ValueError(
+                    f"unknown action '{action}' (expected one of {sorted(BT_REMOTE_ACTIONS)})"
+                )
+        return v
 
 
 class IrRemoteConfigRequest(BaseModel):

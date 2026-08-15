@@ -1093,6 +1093,122 @@ class TestMiloAppPythonDependencies:
         assert (REPO_ROOT / requirements).is_file(), f"{requirements} is not in the repo"
 
 
+class TestMiloAppLastSteps:
+    """The two steps of a Milo update whose result was never read.
+
+    `_sync_system_files` only warned, and `_run_deploy("reboot")` was called
+    without looking at what it answered — so an update that copied no unit file,
+    or one the reboot refused, still reported `success: True` to the UI and to
+    Milo-Mac. The rollback's npm steps had neither timeout nor returncode check,
+    which is the same silence one layer down: a rollback that rebuilt nothing
+    logged "completed successfully".
+    """
+
+    STATUS = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
+
+    @staticmethod
+    def _exec(*, npm_proc=None):
+        """Answer each subprocess by command; npm is the one under test here."""
+        calls = []
+
+        async def mock_exec(*args, **kwargs):
+            calls.append(args)
+            if args[0] == "npm":
+                return npm_proc or _make_mock_proc()
+            if "rev-parse" in args:
+                return _make_mock_proc(stdout=b"abc123def456\n")
+            return _make_mock_proc()
+
+        return calls, mock_exec
+
+    @pytest.mark.asyncio
+    async def test_a_failed_system_files_sync_aborts_the_update(self, update_service):
+        """The units the new code expects were not copied — that is not a warning."""
+        calls, mock_exec = self._exec()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            deploy = stack.enter_context(
+                patch.object(update_service, "_run_deploy", return_value=(False, "cp: permission denied"))
+            )
+            rollback = stack.enter_context(
+                patch.object(update_service, "_rollback_milo_to_commit", return_value=True)
+            )
+            result = await update_service._update_milo_app(self.STATUS)
+
+        assert result["success"] is False
+        assert "cp: permission denied" in result["error"]
+        rollback.assert_awaited_once()
+        # The reboot must never have been asked for.
+        assert [c.args[0] for c in deploy.await_args_list] == ["sync-system-files"]
+
+    @pytest.mark.asyncio
+    async def test_a_refused_reboot_is_reported_without_rolling_back(self, update_service):
+        """The code is pulled, built and synced — undoing it over a refused
+        reboot would be worse than reporting it. Only the answer changes.
+        """
+        calls, mock_exec = self._exec()
+
+        async def deploy(*args, **kwargs):
+            return (False, "sudo: a password is required") if args[0] == "reboot" else (True, "")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(patch.object(update_service, "_run_deploy", side_effect=deploy))
+            rollback = stack.enter_context(
+                patch.object(update_service, "_rollback_milo_to_commit", return_value=True)
+            )
+            result = await update_service._update_milo_app(self.STATUS)
+
+        assert result["success"] is False
+        assert "reboot" in result["error"].lower()
+        assert "sudo: a password is required" in result["error"]
+        rollback.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_rollback_that_cannot_rebuild_the_frontend_fails(self, update_service):
+        """A rollback leaving a broken dist/ must not log "completed successfully"."""
+        npm_proc = _make_mock_proc(returncode=1, stderr=b"ENOSPC: no space left on device")
+        calls, mock_exec = self._exec(npm_proc=npm_proc)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch.object(update_service, "_sync_system_files"))
+            restart = stack.enter_context(
+                patch.object(update_service._systemd, "restart_self", return_value=True)
+            )
+            result = await update_service._rollback_milo_to_commit("abc123def456")
+
+        assert result is False
+        # Nothing after the failed build ran: no pip, no self-restart.
+        assert not [c for c in calls if c[0].endswith("pip3")]
+        restart.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_hung_npm_does_not_freeze_the_rollback(self, update_service):
+        """Unbounded, this is the plausible one: the backend is never restarted
+        and the update key stays in active_updates, so the UI shows an update
+        running forever.
+        """
+        npm_proc = _make_mock_proc()
+        npm_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        calls, mock_exec = self._exec(npm_proc=npm_proc)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch.object(update_service, "_sync_system_files"))
+            result = await update_service._rollback_milo_to_commit("abc123def456")
+
+        assert result is False
+        npm_proc.kill.assert_called_once()
+
+
 class TestVerifyBinaryProgram:
     """Tests for _verify_binary_program()"""
 
