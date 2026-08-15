@@ -209,8 +209,7 @@ def _create_service(name: str) -> Any:
             },
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
-            systemd_manager=get_service("systemd_manager"),
-            camilladsp_service=get_service("camilladsp_service")
+            systemd_manager=get_service("systemd_manager")
         ),
         "bluetooth_source": lambda: _import("backend.sources.bluetooth", "BluetoothSource")(
             config={
@@ -221,8 +220,7 @@ def _create_service(name: str) -> Any:
             },
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
-            systemd_manager=get_service("systemd_manager"),
-            camilladsp_service=get_service("camilladsp_service")
+            systemd_manager=get_service("systemd_manager")
         ),
         "radio_source": lambda: _import("backend.sources.radio", "RadioSource")(
             config={"mpv_socket": "/run/milo/radio-ipc.sock"},

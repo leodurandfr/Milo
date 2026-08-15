@@ -18,9 +18,8 @@ from backend.core.equalizer import (
     get_preset_by_id,
     DEFAULT_CUSTOM_GAINS,
     BUILTIN_PRESETS,
-    is_ip_address,
 )
-from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.equalizer.client_proxy import SatelliteUnreachable, is_ip_address
 from backend.core.multiroom.models import EqFilter, EqualizerSettings, FilterType
 
 

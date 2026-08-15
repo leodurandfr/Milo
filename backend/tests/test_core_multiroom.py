@@ -2187,7 +2187,6 @@ class TestSnapcastClientDetection:
             "name": "Milō Client",  # Snapcast host name — must lose to the pending name
             "ip": "192.168.1.100",
             "host": "milo-client",
-            "online": False,
         }
 
         await ws_service._process_new_clients([snapcast_client], known_mac_ids=set())
@@ -3588,6 +3587,24 @@ class TestClientReconcileSweep:
 
         assert registry.get_client(self.VANISHED).online is True
         assert registry.get_client(self.FRESH).online is True
+
+    @pytest.mark.asyncio
+    async def test_a_parsed_client_carries_no_liveness_flag(self):
+        """Absence is the only way `extract_clients` reports a departure.
+
+        A stale client is dropped from the list, never returned carrying a false
+        flag — so a consumer that reads one is reading something the parser
+        cannot produce, and its offline branch can never run.
+        """
+        snapcast = SnapcastService(systemd_manager=MagicMock())
+
+        parsed = snapcast.extract_clients(self._status(vanished_last_seen_age=500))
+
+        assert [c["mac_id"] for c in parsed] == [self.FRESH]
+        assert "online" not in parsed[0], (
+            "a liveness flag on a list that only ever holds live clients is a "
+            "constant, and the branches reading it are dead"
+        )
 
     @pytest.mark.asyncio
     async def test_sweep_ignores_an_unreadable_server_status(self):

@@ -174,6 +174,10 @@ class SnapcastService:
         """
         Parse online clients from server status.
 
+        Only live clients are returned — a stale or disconnected one is skipped,
+        never returned with a flag. Absence is how the callers detect a departure
+        (``_process_disconnected_clients``).
+
         Args:
             status: Snapcast server status response
 
@@ -228,7 +232,6 @@ class SnapcastService:
                     "host": host,
                     "ip": ip,
                     "mac_id": mac_id,
-                    "online": is_online,
                     "last_seen_age": int(last_seen_age),
                 })
 

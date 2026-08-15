@@ -48,8 +48,7 @@ class MacSource(BaseAudioSource):
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
         settings_service=None,
-        systemd_manager=None,
-        camilladsp_service=None
+        systemd_manager=None
     ):
         super().__init__(
             source_id="mac",
@@ -68,11 +67,6 @@ class MacSource(BaseAudioSource):
 
         self.connected_clients: Dict[str, str] = {}  # {ip: hostname}
         self._monitor_task: Optional[asyncio.Task] = None
-
-        # Auto-stop is declined at class level (AUTO_STOP_SUPPORTED, above).
-        # `camilladsp_service` is kept on the constructor for DI compatibility
-        # with the other Family A sources.
-        _ = camilladsp_service  # reserved for future use
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()

@@ -250,13 +250,18 @@ def test_no_source_reintroduces_a_status_endpoint():
 
 @pytest.mark.parametrize("source_id", SOURCE_IDS)
 def test_source_constructor_signature(source_id):
-    """One injection shape for all 10, so dependencies.py stays uniform."""
+    """One injection shape for all of them, so dependencies.py stays uniform.
+
+    Exact, not a prefix: an extra injected service that the source then stores
+    nowhere is a dependency the wiring pays for and nothing reads — which is
+    what `camilladsp_service` was on Mac and Bluetooth.
+    """
     params = list(inspect.signature(source_class(source_id).__init__).parameters)
-    assert params[:5] == [
+    assert params == [
         "self", "config", "state_machine", "settings_service", "systemd_manager"
     ], (
-        f"{source_id}: unexpected constructor signature {params} — the first four "
-        f"injected services are fixed (extra ones may follow, e.g. camilladsp_service)"
+        f"{source_id}: unexpected constructor signature {params} — the four "
+        f"injected services are fixed, and no source takes a fifth"
     )
 
 

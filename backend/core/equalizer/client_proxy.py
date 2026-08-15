@@ -35,10 +35,6 @@ class SatelliteUnreachable(Exception):
         super().__init__(detail)
 
 
-# =============================================================================
-# Shared utility function (used by crossover_service, settings_sync_service)
-# =============================================================================
-
 def is_ip_address(hostname: str) -> bool:
     """
     Check if hostname is an IP address.

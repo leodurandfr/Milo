@@ -88,8 +88,7 @@ class BluetoothSource(BaseAudioSource):
         config: Optional[Dict[str, Any]] = None,
         state_machine=None,
         settings_service=None,
-        systemd_manager=None,
-        camilladsp_service=None
+        systemd_manager=None
     ):
         super().__init__(
             source_id="bluetooth",
@@ -129,11 +128,6 @@ class BluetoothSource(BaseAudioSource):
         self._artwork = ArtworkResolver()
         self._artwork_url: Optional[str] = None
         self._artwork_key: tuple = ()
-
-        # Auto-stop is declined at class level (AUTO_STOP_SUPPORTED, above).
-        # `camilladsp_service` is kept on the constructor for DI compatibility
-        # with the other Family A sources.
-        _ = camilladsp_service  # reserved for future use
 
     def _reset_playback_state(self) -> None:
         super()._reset_playback_state()

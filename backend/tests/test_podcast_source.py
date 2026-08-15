@@ -323,8 +323,8 @@ class TestPodcastDataService:
 
     @pytest.mark.asyncio
     async def test_subscription_captures_itunes_id(self, tmp_path):
-        """itunes_id is stored as a string; get_subscription_itunes_ids exposes
-        it (excluding legacy subscriptions saved without one)."""
+        """itunes_id is stored as a string, so an iTunes-sourced search result can be
+        matched against it; a subscription saved without one keeps a null."""
         service = PodcastDataService()
         service._data_file = tmp_path / "podcast_data.json"
         await service.initialize()
@@ -335,8 +335,6 @@ class TestPodcastDataService:
         by_uuid = {s["uuid"]: s for s in await service.get_subscriptions()}
         assert by_uuid["1409945"]["itunes_id"] == "1556250107"  # coerced to string
         assert by_uuid["920666"]["itunes_id"] is None
-
-        assert await service.get_subscription_itunes_ids() == {"1556250107"}
 
     @pytest.mark.asyncio
     async def test_resubscribe_does_not_clobber_itunes_id(self, tmp_path):

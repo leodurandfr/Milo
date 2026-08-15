@@ -48,7 +48,6 @@ def mock_camilladsp():
     cam = Mock()
     cam.get_status = AsyncMock(return_value={"available": True, "state": "running"})
     cam.get_filters = AsyncMock(return_value=[])
-    cam.set_active_preset = AsyncMock(return_value=None)
     cam.set_mute = AsyncMock(return_value=True)
     return cam
 

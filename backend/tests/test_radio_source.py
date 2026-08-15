@@ -79,7 +79,6 @@ class TestRadioSourceLifecycle:
             with patch('backend.sources.radio.source.StationDataService') as mock_data_class:
                 mock_data = AsyncMock()
                 mock_data.initialize = AsyncMock()
-                mock_data.get_stats = Mock(return_value={'favorites_count': 0})
                 mock_data_class.return_value = mock_data
 
                 with patch('backend.sources.radio.source.RadioBrowserAPI') as mock_api_class:
@@ -216,20 +215,6 @@ class TestStationDataService:
 
         assert service.is_favorite("station-1") is True
         assert service.is_favorite("station-3") is False
-
-    @pytest.mark.asyncio
-    async def test_get_stats(self):
-        """Test get_stats method."""
-        service = StationDataService()
-        service._favorites = ["s1", "s2", "s3"]
-        service._manual_stations = {"c1": {}, "c2": {}}
-        service._modified_metadata = {"m1": {}}
-
-        stats = service.get_stats()
-
-        assert stats["favorites_count"] == 3
-        assert stats["manual_stations_count"] == 2
-        assert stats["modified_metadata_count"] == 1
 
     @pytest.mark.asyncio
     async def test_enrich_with_favorite_status(self):

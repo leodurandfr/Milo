@@ -210,16 +210,6 @@ class PodcastDataService:
         subscriptions = await self.get_subscriptions()
         return [s['uuid'] for s in subscriptions if s.get('uuid')]
 
-    async def get_subscription_itunes_ids(self) -> set[str]:
-        """Get the iTunes IDs (as strings) of subscribed podcasts.
-
-        Lets iTunes-sourced search results (which carry only an itunes_id, no
-        resolved feedId) be flagged as subscribed. Subscriptions created before
-        itunes_id capture simply won't match — no backfill.
-        """
-        subscriptions = await self.get_subscriptions()
-        return {s['itunes_id'] for s in subscriptions if s.get('itunes_id')}
-
     async def is_subscribed(self, podcast_uuid: str) -> bool:
         """Check if podcast is subscribed."""
         subscriptions = await self.get_subscription_uuids()

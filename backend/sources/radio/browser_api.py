@@ -42,12 +42,6 @@ class RadioBrowserAPI:
                 }
             )
 
-    async def close(self) -> None:
-        """Closes aiohttp session"""
-        if self.session and not self.session.closed:
-            await self.session.close()
-            self.session = None
-
     async def _request(
         self,
         path: str,
