@@ -60,11 +60,6 @@ class VolumeStateStore:
     - Thread-safe with async locks
     """
 
-    # Volume constants imported from backend.config.constants:
-    # - DEFAULT_VOLUME_DB = -60.0 (default volume for new clients)
-    # - MIN_VOLUME_DB = -80.0 (technical minimum)
-    # - MAX_VOLUME_DB = 0.0 (technical maximum)
-
     # Persistence
     STORAGE_PATH = Path("/var/lib/milo/last_volume.json")
 

@@ -73,7 +73,10 @@ def create_equalizer_router(
 
     @router.post("/levels/monitor", response_model=StatusResponse)
     async def keepalive_levels_monitor(payload: LevelsMonitorRequest):
-        """Arm the WS levels push (`equalizer`/`levels`, ~4 Hz) for the next ~15 s.
+        """Arm the WS levels push (`equalizer`/`levels`) for LevelsMonitor.KEEPALIVE_TTL.
+
+        The push runs at LevelsMonitor.SAMPLE_INTERVAL and only when the reading
+        changed.
 
         Open EQ views re-POST this keepalive every few seconds while visible;
         the monitor stops by itself once the last keepalive expires.

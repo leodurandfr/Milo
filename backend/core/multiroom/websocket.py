@@ -462,9 +462,10 @@ class SnapcastWebSocketService:
         vanishes without a TCP FIN (power cut, Wi-Fi drop) stays `connected:
         true` there indefinitely and no Client.OnDisconnect / Server.OnUpdate
         notification is ever emitted. Without this sweep the freshness rule in
-        SnapcastService._parse_clients (lastSeen < 60s) is never evaluated, the
-        registry keeps the client online forever, and the frontend offers
-        controls for a speaker that is gone.
+        SnapcastService._parse_clients (lastSeen younger than
+        SnapcastService.LAST_SEEN_FRESHNESS_S) is never evaluated, the registry
+        keeps the client online forever, and the frontend offers controls for a
+        speaker that is gone.
         """
         while self.running and self.should_connect:
             await asyncio.sleep(self.RECONCILE_INTERVAL_S)

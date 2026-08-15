@@ -13,6 +13,8 @@ Architecture:
 import logging
 from typing import Any, Dict, Callable, Awaitable, TYPE_CHECKING
 
+from backend.config.constants import DEFAULT_VOLUME_DB
+
 if TYPE_CHECKING:
     from backend.core.equalizer.client_proxy import EqualizerClientProxyService
     from backend.core.equalizer.service import CamillaDSPService
@@ -272,8 +274,8 @@ class EqualizerRouter:
         async def local():
             if self._camilladsp_service:
                 vol = await self._camilladsp_service.get_volume()
-                return {"main": vol.get("main", -60), "mute": vol.get("mute", False)}
-            return {"main": -60, "mute": False}
+                return {"main": vol.get("main", DEFAULT_VOLUME_DB), "mute": vol.get("mute", False)}
+            return {"main": DEFAULT_VOLUME_DB, "mute": False}
 
         async def remote(ip: str):
             return await self._proxy_service.request(ip, "GET", "/equalizer/volume")

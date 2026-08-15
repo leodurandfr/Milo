@@ -326,7 +326,12 @@ def create_settings_router(
         Update the enabled apps in the dock.
         If an app is disabled, stop the associated processes.
         If an app is enabled, start the associated processes (multiroom/equalizer).
-        Strict approach: one error = full rollback.
+
+        Fail-fast, not atomic: the first failing operation aborts the batch with
+        a 500 and dock.enabled_apps is never written — but the operations that
+        already ran keep their effects (each of them persists its own state).
+        The visible residue is therefore the tile list alone, still showing an
+        app whose function was just switched off.
         """
         async with api_error_handler("Unexpected error in dock-apps update", logger):
             enabled_apps = payload.enabled_apps
@@ -456,7 +461,8 @@ def create_settings_router(
                 }
 
             except Exception as e:
-                # ROLLBACK: any error = full cancellation
+                # Stop here: nothing is compensated and operations_log is
+                # diagnostic text, never replayed.
                 logger.error(f"Error during dock-apps update: {e}")
                 logger.error(f"Operations completed before error: {operations_log}")
 
