@@ -51,6 +51,7 @@ from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.source_metadata import PlaybackMetadata
+from backend.sources.bluetooth.adapter import BluetoothAdapter
 from backend.sources.bluetooth.agent import BluetoothAgent
 from backend.sources.bluetooth.avrcp import AvrcpController
 from backend.sources.bluetooth.monitor import BlueAlsaMonitor
@@ -108,7 +109,11 @@ class BluetoothSource(BaseAudioSource):
         self.auto_agent = self._config.get("auto_agent", True)
 
         self.connected_device: Optional[Dict[str, str]] = None
+        # Half of the exposure authority below. SourceState cannot carry it:
+        # READY means both "started, waiting for a sender" and "stopped".
+        self._running = False
 
+        self.adapter = BluetoothAdapter()
         self.agent = BluetoothAgent()
         self.monitor = BlueAlsaMonitor()
         self.avrcp = AvrcpController()
@@ -139,6 +144,8 @@ class BluetoothSource(BaseAudioSource):
     async def _do_start(self) -> bool:
         """Start Bluetooth services and monitoring."""
         try:
+            self._running = True
+
             # 1. Start system services
             for service in [self.bluetooth_service, self.bluealsa_service]:
                 if not await self._start_service(service):
@@ -177,7 +184,11 @@ class BluetoothSource(BaseAudioSource):
             # 7. Detect already-connected device (e.g. backend restart during active stream)
             await self._detect_connected_device()
 
-            # 8. Update state
+            # 8. Re-evaluate exposure: finding a sender here means the appliance
+            # must already be hidden, and step 3 opened it.
+            await self._apply_exposure()
+
+            # 9. Update state
             self._update_connection_state()
 
             return True
@@ -192,8 +203,13 @@ class BluetoothSource(BaseAudioSource):
         """Stop monitoring and services."""
         await self._cleanup()
 
-        # Disable discoverability
-        await self._run_bluetoothctl("discoverable off\npairable off\nquit")
+        # Close the exposure before the services go, and block the senders with
+        # it: with the HID remote enabled bluetooth.service deliberately keeps
+        # running, so the adapter stays powered and a paired phone would
+        # otherwise still be able to dial in with the source off.
+        self._running = False
+        self.connected_device = None
+        await self._apply_exposure()
 
         # Stop BlueALSA services
         if self.stop_bluetooth_on_exit:
@@ -206,6 +222,10 @@ class BluetoothSource(BaseAudioSource):
                 await self._stop_service(self.bluetooth_service)
 
         self._reset_playback_state()
+        # Released last: _apply_exposure above needed it, and _cleanup runs
+        # before that on purpose — blocking a peer while the monitor is still
+        # reading would echo back as a disconnect event.
+        await self.adapter.close()
 
         return True
 
@@ -308,6 +328,9 @@ class BluetoothSource(BaseAudioSource):
         if not self.connected_device:
             self.connected_device = {"address": address, "name": name}
             self._logger.info(f"Device connected: {name} ({address})")
+            # Hide first: the appliance now has a sender, so it must stop
+            # offering itself to a second one instead of kicking it afterwards.
+            await self._apply_exposure()
             self._update_connection_state()
 
     async def _on_monitor_lost(self, reason: str) -> None:
@@ -360,6 +383,8 @@ class BluetoothSource(BaseAudioSource):
         # player is back would otherwise re-publish the previous track.
         self._playback = {}
         self._logger.info(f"Device disconnected: {name} ({address})")
+        # Nothing holds the appliance any more: offer it again.
+        await self._apply_exposure()
         self._update_connection_state()
 
     # === AVRCP Callbacks ===
@@ -447,34 +472,63 @@ class BluetoothSource(BaseAudioSource):
 
     # === Helper Methods ===
 
-    async def _configure_adapter(self) -> bool:
-        """Configure Bluetooth adapter via bluetoothctl."""
-        commands = "\n".join([
-            "power on",
-            "discoverable-timeout 0",
-            "discoverable on",
-            "pairable on",
-            "class 0x200404",  # Audio device class
-            "quit"
-        ])
-        return await self._run_bluetoothctl(commands)
+    def _may_accept_sender(self) -> bool:
+        """The one authority for "may a sender connect right now?".
 
-    @handle_errors(default=False)
-    async def _run_bluetoothctl(self, commands: str) -> bool:
-        """Execute bluetoothctl commands."""
-        proc = await asyncio.create_subprocess_exec(
-            "bluetoothctl",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL
+        The rule, in full: Milō is discoverable and connectable only while the
+        Bluetooth source is running *and* nothing holds it. Every exposure
+        decision reads this, so the four transitions cannot drift apart.
+        """
+        return self._running and self.connected_device is None
+
+    async def _apply_exposure(self) -> bool:
+        """Make the appliance's Bluetooth exposure match the state it is in.
+
+        Called from the four transitions that can change the answer — source
+        start, sender connected, sender disconnected, source stop — rather than
+        being set once at start and cleared once at stop, which is how the
+        appliance came to keep advertising while a sender already held it.
+
+        Two mechanisms, because one does not cover the other's case:
+          - Discoverable/Pairable stop a *new* device finding or pairing with
+            Milō. They say nothing to a device that is already paired.
+          - Blocked on each known A2DP sender refuses the link itself. That is
+            the only thing that stops a paired phone dialling a known address
+            while `bluetooth.service` stays up for the HID remote. The sender
+            currently connected is exempt: blocking it would drop the audio it
+            is playing.
+
+        Blocking writes durable per-device state, so a backend that dies leaves
+        senders blocked; the unblock half runs on every source start, which is
+        the reconciliation that recovers it.
+        """
+        may_accept = self._may_accept_sender()
+        holder = self.connected_device.get("address") if self.connected_device else None
+
+        exposed = await self.adapter.set_exposure(discoverable=may_accept, pairable=may_accept)
+        unblocked = await self.adapter.set_audio_peers_blocked(
+            not may_accept, keep_unblocked=holder
         )
-        try:
-            await asyncio.wait_for(proc.communicate(input=commands.encode()), 10.0)
-        except asyncio.TimeoutError:
-            proc.kill()
-            self._logger.error("Timeout running bluetoothctl commands")
+        if not (exposed and unblocked):
+            self._logger.error(
+                f"Bluetooth exposure not applied (accepting={may_accept}) — the "
+                f"appliance may be visible or connectable in the wrong state"
+            )
             return False
-        return proc.returncode == 0
+
+        self._logger.info(
+            f"Bluetooth exposure: {'open' if may_accept else 'closed'}"
+            f"{f' (held by {holder})' if holder else ''}"
+        )
+        return True
+
+    async def _configure_adapter(self) -> bool:
+        """Power the adapter and apply the exposure its current state calls for."""
+        if not await self.adapter.power_on():
+            return False
+        if not await self.adapter.set_discoverable_timeout(0):
+            return False
+        return await self._apply_exposure()
 
     @handle_errors(default=None)
     async def _detect_connected_device(self) -> None:
@@ -502,6 +556,10 @@ class BluetoothSource(BaseAudioSource):
                     address = device_info["address"]
                     name = await self.monitor.resolve_device_name(address)
                     self.connected_device = {"address": address, "name": name}
+                    # The monitor's collection is the one that authorises a
+                    # departure — a PCM adopted here and not handed over is a
+                    # sender that can never be seen leaving.
+                    self.monitor.adopt_device(device_info, name)
                     return
 
         # No A2DP device found

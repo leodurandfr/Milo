@@ -241,6 +241,22 @@ class BlueAlsaMonitor:
             if self._on_connect:
                 await self._on_connect(address, name)
 
+    def adopt_device(self, device_info: Dict[str, Any], name: str) -> None:
+        """Record a PCM discovered outside the event stream.
+
+        `_handle_pcm_removed` fires the departure only for addresses this
+        collection holds, so a link found by the source's own start-time scan —
+        a backend restart over a live A2DP session — was seen arriving and never
+        seen leaving: the card kept naming a sender that had gone, and no other
+        sender could take its place until the source was switched away. One
+        collection owns "who is connected"; this is how the scan writes into it.
+
+        Args:
+            device_info: A parse_pcm_path() result for the live PCM
+            name: Resolved device name
+        """
+        self._connected_devices[device_info["address"]] = {**device_info, "name": name}
+
     async def _handle_pcm_removed(self, line: str) -> None:
         """Handle PCM removed event."""
         path = line.split(f"{PCM_REMOVED_PREFIX} ", 1)[1].strip()

@@ -19,7 +19,6 @@ from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.core.volume.state import VolumeStateStore
 from backend.core.volume.equalizer_controller import EqualizerController
-from backend.core.multiroom.snapcast import get_online_client_ids
 from backend.core.multiroom.identity import get_local_mac
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState
@@ -116,9 +115,21 @@ class VolumeService:
     # HELPERS
     # ============================================================================
 
-    async def _get_controllable_client_ids(self) -> list:
-        """Fetch online client IDs that have volume control (excludes DAC clients)."""
-        client_ids = await get_online_client_ids(self.snapcast_service) if self._is_multiroom_enabled() else []
+    def _online_client_ids(self) -> list:
+        """Online client IDs, read from the registry.
+
+        The registry is the single authority for "is this client reachable":
+        it is what EqualizerRouter short-circuits on, so asking snapserver here
+        instead produced a list the router then refused to act on — the volume
+        was committed to the store for a client the command never reached.
+        """
+        if not self._client_registry:
+            return []
+        return self._client_registry.get_online_client_ids()
+
+    def _get_controllable_client_ids(self) -> list:
+        """Online client IDs that have volume control (excludes DAC clients)."""
+        client_ids = self._online_client_ids() if self._is_multiroom_enabled() else []
         return [cid for cid in client_ids if self._state_store.has_volume_control(cid)]
 
     async def _compute_multiroom_updates(self, target_db: float,
@@ -459,16 +470,16 @@ class VolumeService:
             return True
 
         registry = self._client_registry
-        clients = await self.snapcast_service.get_clients()
-        for client in clients:
-            cid = client.get("mac_id", "")
-            if not cid:
-                continue
+        if not registry:
+            self.logger.warning("Cannot sync client volumes: client registry not attached")
+            return False
+        clients = registry.get_online_clients()
+        for client_info in clients:
+            cid = client_info.mac_id
             # Read equalizer volume via the router, which owns local/remote
             # dispatch (local CamillaDSP vs satellite proxy) — VolumeService no
             # longer reaches a satellite directly.
-            client_info = registry.get_client(cid) if registry else None
-            if not (client_info and client_info.ip):
+            if not client_info.ip:
                 self.logger.warning(f"Cannot sync client {cid}: no IP address in registry")
                 continue
             if cid == self._state_store.local_mac_id:
@@ -489,7 +500,9 @@ class VolumeService:
                     volume = self._state_store.get_client_volume(cid)
                     if volume is None:
                         volume = DEFAULT_VOLUME_DB
-            await self._state_store.register_client(cid, volume_db=volume, available=client.get("available", True))
+            # Online in the registry is what "available" means here — there is no
+            # second liveness field to read, and the registry is the authority.
+            await self._state_store.register_client(cid, volume_db=volume, available=True)
 
         self.logger.info(f"Synced {len(clients)} clients from equalizer")
         await self.broadcast_volume_state(show_bar=False)
@@ -514,7 +527,7 @@ class VolumeService:
 
     async def _do_push_volume_to_all_clients(self, target_volume_db: Optional[float] = None) -> bool:
         """Internal push implementation (called under _push_lock)."""
-        client_ids = await get_online_client_ids(self.snapcast_service)
+        client_ids = self._online_client_ids()
         if not client_ids:
             # Benign boot-ordering case: the snapserver WS is ready but the local
             # snapclient has not registered yet. Push is a no-op (returns True) and
@@ -835,7 +848,7 @@ class VolumeService:
         if not self._volume_control and not self._is_multiroom_enabled():
             return True  # Direct + DAC: no clients to control
         target_db = self._volume_config.clamp(volume_db)
-        client_ids = await self._get_controllable_client_ids()
+        client_ids = self._get_controllable_client_ids()
         try:
             async with asyncio.timeout(2.0):
                 async with self._volume_lock:
@@ -854,7 +867,7 @@ class VolumeService:
         """Adjust volume by delta in dB (positive = louder, negative = quieter)."""
         if not self._volume_control and not self._is_multiroom_enabled():
             return True  # Direct + DAC: no clients to control
-        client_ids = await self._get_controllable_client_ids()
+        client_ids = self._get_controllable_client_ids()
         try:
             async with asyncio.timeout(2.0):
                 async with self._volume_lock:
@@ -883,15 +896,18 @@ class VolumeService:
 
     @handle_errors(default=None, level='warning')
     async def initialize_client_availability(self) -> None:
-        """Initialize client availability from Snapcast on startup."""
-        clients = await self.snapcast_service.get_clients()
-        for client in clients:
-            mac_id = client.get("mac_id", "")
-            available = client.get("available", True)
-            if mac_id:
-                await self._state_store.set_client_availability(mac_id, available)
-                self.logger.debug(f"Initialized availability: {mac_id} -> {available}")
-        self.logger.info(f"Initialized availability for {len(clients)} clients")
+        """Mark every client the registry reports online as available.
+
+        Belt and braces over the CLIENT_CONNECTED events VolumeStateStore is
+        already subscribed to: this runs once the snapcast WebSocket reports
+        ready, which is not ordered against the registration sweep that emits
+        them. It only ever raises availability — a client that is genuinely gone
+        is lowered by CLIENT_DISCONNECTED, never here.
+        """
+        client_ids = self._online_client_ids()
+        for mac_id in client_ids:
+            await self._state_store.set_client_availability(mac_id, True)
+        self.logger.info(f"Initialized availability for {len(client_ids)} online clients")
 
     async def broadcast_volume_state(self, show_bar: bool = True) -> None:
         """Broadcast volume state immediately to WebSocket clients."""

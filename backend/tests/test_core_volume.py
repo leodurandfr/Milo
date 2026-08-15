@@ -195,6 +195,45 @@ class TestEqualizerController:
         assert EqualizerController._is_success({}) is False
         assert EqualizerController._is_success(None) is False
 
+    @pytest.mark.asyncio
+    async def test_an_offline_client_is_not_reported_as_applied(self, controller, mock_router):
+        """A command the router refused to send must not read as applied.
+
+        Both refusals arrive as `skipped` and they are opposites: a DAC client
+        owns its own volume so there was nothing to send, while an offline
+        client never heard the command. Counting the second as success is what
+        let VolumeService commit a level to a satellite it had not reached.
+        """
+        mock_router.set_volume = AsyncMock(
+            return_value={"status": "skipped", "reason": "client_offline"}
+        )
+        assert await controller.set_equalizer_volume("milo-client-01", -25.0) is False
+
+        mock_router.set_volume = AsyncMock(
+            return_value={"status": "skipped", "reason": "external_volume_control"}
+        )
+        assert await controller.set_equalizer_volume("milo-client-01", -25.0) is True
+
+    @pytest.mark.asyncio
+    async def test_the_router_offline_skip_is_the_shape_the_controller_reads(self):
+        """Pin the two ends of the skip contract against the real router.
+
+        The controller discriminates on a reason string the router writes; a
+        rename on either side would leave both files self-consistent and the
+        offline client silently back to reading as applied.
+        """
+        from backend.core.multiroom.equalizer_router import EqualizerRouter
+
+        registry = Mock()
+        registry.get_client = Mock(return_value=Mock(
+            ip="192.168.1.100", is_local=False, online=False, volume_control=True
+        ))
+        router = EqualizerRouter(registry, Mock(), Mock())
+        result = await router.set_volume("milo-client-01", -25.0)
+
+        assert result["status"] == "skipped"
+        assert EqualizerController._is_success(result) is False
+
 
 # ============================================================================
 # VolumeStateStore Tests
@@ -745,6 +784,42 @@ class TestVolumeService:
         result = await service.reload_volume_limits()
 
         assert result is True
+
+    @pytest.mark.asyncio
+    async def test_liveness_comes_from_the_registry_not_snapserver(
+        self, service, mock_snapcast_service
+    ):
+        """One authority answers "is this client reachable", and it is the registry.
+
+        EqualizerRouter short-circuits on `client.online`, so a volume fan-out
+        built from a snapserver round-trip listed clients the router then
+        refused — and the store was written for them anyway. Asserting the
+        snapserver is not consulted is the half that keeps the second authority
+        from growing back.
+        """
+        service.set_routing_service(
+            Mock(get_state=Mock(return_value={'multiroom_enabled': True}))
+        )
+        registry = Mock()
+        registry.get_online_client_ids = Mock(return_value=["aa:bb", "cc:dd"])
+        service.attach_registry(registry)
+        service._state_store._clients = {}  # no DAC exclusions recorded
+
+        assert service._get_controllable_client_ids() == ["aa:bb", "cc:dd"]
+        mock_snapcast_service.get_clients.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_registry_means_no_client_to_drive(self, service):
+        """Without a registry there is no authority, so the fan-out is empty.
+
+        It must not silently fall back to a second source: an empty list makes
+        the push a logged no-op, where a snapserver-derived list would resume
+        writing state for clients nothing can reach.
+        """
+        service.set_routing_service(
+            Mock(get_state=Mock(return_value={'multiroom_enabled': True}))
+        )
+        assert service._get_controllable_client_ids() == []
 
 
 # ============================================================================
