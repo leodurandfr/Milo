@@ -179,7 +179,7 @@ class TestSnapclientBufferSetting:
     ):
         """Rejected at the door — before settings.json, before snapclient.env,
         before the push to the satellites and before the snapserver restart."""
-        regenerate = Mock()
+        regenerate = AsyncMock()
         monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", regenerate)
 
         payload = {"snapclient_buffer_time": 120, "snapclient_fragments": 4}
@@ -199,7 +199,7 @@ class TestSnapclientBufferSetting:
         the validators that used to sit in `_validate_config` for them covered
         nothing at all, and why this route has to gate them itself.
         """
-        monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", Mock())
+        monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", AsyncMock())
 
         client.put("/api/routing/snapcast/server-config", json={"config": {
             "buffer_ms": 1000, "snapclient_buffer_time": 120, "snapclient_fragments": 4,
@@ -211,7 +211,7 @@ class TestSnapclientBufferSetting:
     def test_an_accepted_value_reaches_the_env_and_the_local_snapclient(
         self, client, settings_service, monkeypatch
     ):
-        regenerate = Mock()
+        regenerate = AsyncMock()
         monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", regenerate)
 
         response = client.put(
@@ -308,7 +308,7 @@ class TestStoredFragmentsReachBothSidesClamped:
         return TestClient(app)
 
     def test_both_consumers_receive_the_same_clamped_value(self, client, monkeypatch):
-        regenerate = Mock()
+        regenerate = AsyncMock()
         monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", regenerate)
         satellite = self._RecordingSatellite()
         monkeypatch.setattr(

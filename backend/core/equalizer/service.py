@@ -1059,14 +1059,26 @@ class CamillaDSPService:
     async def persist_state(self) -> None:
         """Immediately flush the local client's full EQ state to equalizer.json.
 
-        Public entry point for the per-client EQ access layer. When the local
-        client's EQ is changed through the multiroom layer the live cache is
-        already updated; this snapshots it to disk (cancelling any pending
-        debounced write first) so the local client's record survives a restart.
+        Public entry point for the per-client EQ access layer when the write is
+        a single deliberate gesture (loading a preset, saving a custom curve).
+        The live cache is already updated by then; this snapshots it to disk
+        (cancelling any pending debounced write first) so the local client's
+        record survives a restart. A *streamed* write — the band drag, which
+        emits 20 requests a second — must use :meth:`schedule_persist` instead.
         """
         if self._persist_debounce_task and not self._persist_debounce_task.done():
             self._persist_debounce_task.cancel()
         await self._persist_state_async()
+
+    def schedule_persist(self) -> None:
+        """Snapshot the live cache to equalizer.json ~1 s after the last change.
+
+        The debounced twin of :meth:`persist_state`, for the partial-update path.
+        A 3 s EQ drag measured 61 immediate rewrites + fsyncs of equalizer.json;
+        the debounce collapses them to one, and ``cleanup()`` flushes whatever is
+        still pending, so a restart never loses the last drag.
+        """
+        self._schedule_persist()
 
     async def update_cache(self, settings: EqualizerSettings) -> None:
         """Unconditionally overwrite the in-memory EQ cache from a full record, then persist.

@@ -1471,18 +1471,21 @@ class TestStartupVolumeIntegration:
             # Action: Set volume to -45dB
             await service.set_volume_db(-45.0)
 
-            # Assert: settings was updated
-            settings.set_setting.assert_called()
-            assert settings_data["startup_volume_db"] == -45.0
-
-            # Assert: WebSocket broadcast occurred with settings category
+            # Assert: WebSocket broadcast occurred with settings category —
+            # immediately, ahead of the disk write, so the UI never waits on it
             events = websocket_collector.get_events_by_type("volume_startup_changed")
             assert len(events) >= 1
             assert events[0]["category"] == "settings"
             assert events[0]["data"]["config"]["startup_volume_db"] == -45.0
             assert events[0]["data"]["config"]["restore_last_volume"] is True
 
+            # Assert: settings was updated. The write is debounced (a rotary turn
+            # must not rewrite settings.json once per step), so it lands on the
+            # shutdown flush — which is the path that guarantees the last value
+            # of a turn survives a restart.
             await service.cleanup()
+            settings.set_setting.assert_called()
+            assert settings_data["startup_volume_db"] == -45.0
 
     @pytest.mark.asyncio
     async def test_restore_disabled_does_not_update_startup_volume(

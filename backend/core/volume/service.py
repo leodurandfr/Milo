@@ -12,6 +12,7 @@ Architecture:
 - VolumeService: Orchestration layer only
 """
 import asyncio
+import contextlib
 import logging
 from typing import Optional, Dict
 
@@ -43,6 +44,15 @@ class VolumeService:
         EqualizerController: Hardware abstraction (local + remote equalizer updates)
         VolumeService: Orchestration (API -> State -> Hardware)
     """
+
+    # Debounce for the startup-volume tracking write. Measured on this
+    # appliance: a 3 s rotary turn drives ~105 volume steps, each of which used
+    # to rewrite the whole of settings.json (8.6 KB) and fsync it — 104 writes,
+    # 1.72 MB of block traffic on the SD card and 9.3 % of one core, against
+    # 0.53 % at rest. Nothing coalesced, because every step wrote immediately.
+    # Same value as VolumeStateStore's own debounce, which was already
+    # collapsing last_volume.json to a single write over that identical burst.
+    STARTUP_VOLUME_DEBOUNCE_S = 2.0
 
     def __init__(self, state_machine, snapcast_service, settings_service=None,
                  camilladsp_service=None, equalizer_client_proxy_service=None,
@@ -78,6 +88,10 @@ class VolumeService:
 
         # Event to signal when client availability has been initialized (for WebSocket handshake)
         self._availability_ready = asyncio.Event()
+
+        # Debounced persistence of volume.startup_volume_db (see the constant above).
+        self._startup_volume_pending: Optional[float] = None
+        self._startup_persist_task: Optional[asyncio.Task] = None
 
     def attach_registry(self, registry):
         """Attach the ClientRegistryService: subscribe the volume state store to
@@ -343,6 +357,7 @@ class VolumeService:
         `step_mobile_db` 3 against 2, and `restore_last_volume` False against True,
         so a degraded read silently stopped restoring the volume at startup.
         """
+        self._drop_pending_startup_volume()
         try:
             self.settings_service.invalidate_cache()
             volume_settings = await self.settings_service.get_setting('volume')
@@ -413,16 +428,62 @@ class VolumeService:
         if abs(current_startup - volume_db) < 0.1:
             return
 
-        # Update setting atomically via SettingsService
+        # In memory now, on disk in STARTUP_VOLUME_DEBOUNCE_S. The in-memory
+        # value is what the next step compares against and what every reader
+        # (initialize, the reconnection sync, GET /volume/startup) uses, so the
+        # appliance behaves as if the write had already landed — only the SD
+        # card sees one write per turn instead of one per step.
+        self._volume_config.startup_volume_db = volume_db
+        self._startup_volume_pending = volume_db
+        self._schedule_startup_volume_persist()
+
+        await self._broadcast_startup_volume_changed(volume_db)
+
+        self.logger.debug(f"Auto-updated startup_volume_db to {volume_db:.1f} dB")
+
+    def _schedule_startup_volume_persist(self) -> None:
+        """Schedule the debounced write of the pending startup volume."""
+        if self._startup_persist_task and not self._startup_persist_task.done():
+            self._startup_persist_task.cancel()
+
+        async def _debounced():
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.sleep(self.STARTUP_VOLUME_DEBOUNCE_S)
+                await self._persist_startup_volume()
+
+        self._startup_persist_task = self._bg.spawn(
+            _debounced(), label="persist_startup_volume"
+        )
+
+    @handle_errors(default=None, level='error')
+    async def _persist_startup_volume(self) -> None:
+        """Write the pending startup volume, if any. Idempotent."""
+        volume_db = self._startup_volume_pending
+        if volume_db is None or not self.settings_service:
+            return
+        self._startup_volume_pending = None
         await self.settings_service.set_setting('volume.startup_volume_db', volume_db)
 
-        await self._load_volume_config()
+    async def _flush_startup_volume(self) -> None:
+        """Cancel the debounce and write the pending value now (shutdown path)."""
+        if self._startup_persist_task and not self._startup_persist_task.done():
+            self._startup_persist_task.cancel()
+        await self._persist_startup_volume()
 
-        # Broadcast the actual persisted value from config (ensures consistency)
-        persisted_value = self._volume_config.startup_volume_db
-        await self._broadcast_startup_volume_changed(persisted_value)
+    def _drop_pending_startup_volume(self) -> None:
+        """Discard a pending tracking write superseded by a settings reload.
 
-        self.logger.debug(f"Auto-updated startup_volume_db to {persisted_value:.1f} dB")
+        `_load_volume_config` re-reads the whole `volume` section from disk, so
+        anything still only in memory is about to be overwritten by what the
+        file says. Writing it afterwards would resurrect it — and the reload's
+        own trigger is usually `PUT /api/settings/volume-startup`, i.e. a value
+        the user just chose explicitly. The tracked volume itself is not lost:
+        `last_volume.json` holds the local client's real level and is what
+        `initialize()` restores from whenever `restore_last_volume` is on.
+        """
+        if self._startup_persist_task and not self._startup_persist_task.done():
+            self._startup_persist_task.cancel()
+        self._startup_volume_pending = None
 
     @handle_errors(default=None)
     async def _broadcast_startup_volume_changed(self, volume_db: float) -> None:
@@ -953,6 +1014,7 @@ class VolumeService:
 
     async def cleanup(self) -> None:
         """Clean up resources. Flushes pending volume state to disk."""
+        await self._flush_startup_volume()
         await self._bg.cancel_all()
         await self._state_store.cleanup()
         self.logger.info("VolumeService cleanup completed")

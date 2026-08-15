@@ -576,11 +576,13 @@ class TestPlaylistRoutes:
         # Navidrome ignores musicFolderId on getPlaylists, so the placement is
         # the only thing between the user and a playlist of a storage space that
         # is away — and it now runs for the default scope too, not just a named
-        # storage space.
+        # storage space. The raw library_id is what travels, not a resolved
+        # scope: the source derives the scope from the storage list it has to
+        # read anyway, so the request reads it once instead of twice.
         assert api.get("/api/music-library/playlists").json() == {
             "playlists": [{"id": "pl-scoped"}]
         }
-        source.playlists_in_scope.assert_awaited_once_with([{"id": "pl-1"}], [2])
+        source.playlists_in_scope.assert_awaited_once_with([{"id": "pl-1"}], None)
 
     def test_playlist_404_when_missing(self, api, nav_client):
         nav_client.get_playlist = AsyncMock(return_value=None)

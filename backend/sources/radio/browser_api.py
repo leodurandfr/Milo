@@ -13,6 +13,20 @@ from backend.shared.decorators import handle_errors
 from backend.shared.network import NetworkUnavailableError
 
 
+# The API's own ceiling. Every search used to send it, whatever the caller
+# asked for: `query=rock` downloaded 2.34 MB and took 658 ms to answer a request
+# for 300 stations.
+MAX_SEARCH_RESULTS = 10000
+
+# How much more than the caller wants to ask the API for. Validity filtering and
+# deduplication shrink a result set, but far less than the old margin assumed —
+# measured against the live API: `rock` 2009 raw → 1641 usable, `jazz` 737 → 593,
+# i.e. ~1.25×. Doubling therefore leaves a wide margin while cutting a broad
+# query's payload by more than 3×. Results come back sorted by votes, so what
+# the bound drops is the least-voted tail of a list the UI pages 40 at a time.
+SEARCH_OVERFETCH = 2
+
+
 class RadioBrowserAPI:
     """
     Async client for Radio Browser API
@@ -467,7 +481,7 @@ class RadioBrowserAPI:
         country: str = "",
         genre: str = "",
         order: str = "votes",
-        limit: int = 10000
+        limit: int = MAX_SEARCH_RESULTS
     ) -> Dict[str, Any]:
         """
         Intelligently builds search parameters for the RadioBrowser API
@@ -554,17 +568,24 @@ class RadioBrowserAPI:
         query: str = "",
         country: str = "",
         genre: str = "",
-        limit: int = 10000
+        limit: int = MAX_SEARCH_RESULTS
     ) -> Dict[str, Any]:
         """
         Unified station search with filters (includes custom stations)
 
         Strategy:
-        1. Build optimal search parameters
+        1. Build search parameters, bounded by what the caller asked for
         2. Make unified API call
-        3. If < 10 results, attempt progressive fallback
-        4. Add custom stations
-        5. Enrich with custom images
+        3. Add the matching manually-created stations
+        4. Truncate to `limit`
+
+        `limit` bounds the API call itself (× SEARCH_OVERFETCH), not just the
+        answer: it used to bound only the slice at the end, so every search
+        downloaded and normalised up to MAX_SEARCH_RESULTS stations to return a
+        few hundred. `total` is therefore what was *fetched*, not the catalog's
+        true count for that query — no consumer reads it (neither the frontend
+        store nor Milo-Mac's manifest), and the count of a truncated list was
+        never meaningful anyway.
 
         Args:
             query: Search term (station name)
@@ -592,7 +613,10 @@ class RadioBrowserAPI:
                 self.logger.debug("No filters, loading top 500 stations")
                 all_stations = await self._fetch_top_stations(limit=500)
             else:
-                search_params = self._build_search_params(query, country, genre)
+                search_params = self._build_search_params(
+                    query, country, genre,
+                    limit=min(MAX_SEARCH_RESULTS, max(1, limit) * SEARCH_OVERFETCH),
+                )
 
                 all_stations = await self._fetch_with_search_params(search_params, search_desc)
         except NetworkUnavailableError:

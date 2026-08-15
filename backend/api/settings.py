@@ -787,7 +787,7 @@ def create_settings_router(
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to save Mac ROC settings")
 
-            MacEnv.regenerate(mac_config)
+            await MacEnv.regenerate(mac_config)
 
             restart_success = await systemd_manager.restart("milo-mac.service")
             if not restart_success:

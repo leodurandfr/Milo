@@ -362,7 +362,7 @@ class TestAudioRoutingService:
         assert routing_service.equalizer_effects_enabled is True
         mock_settings_service.set_setting.assert_called_with('routing.equalizer_effects_enabled', True)
 
-    def test_regenerate_env_files_writes_routing_env_from_settings(
+    async def test_regenerate_env_files_writes_routing_env_from_settings(
         self, routing_service, mock_settings_service
     ):
         """regenerate_env_files (Phase 4 helper) writes routing.env derived from settings.
@@ -380,7 +380,7 @@ class TestAudioRoutingService:
         with patch('builtins.open', m):
             with patch('os.replace'):
                 with patch('os.fsync'):
-                    routing_service.regenerate_env_files()
+                    await routing_service.regenerate_env_files()
 
                     assert m.called
                     handle = m()

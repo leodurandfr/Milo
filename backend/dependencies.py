@@ -292,7 +292,7 @@ def _create_equalizer_router():
 # Service Initialization
 # =============================================================================
 
-def initialize_services() -> None:
+async def initialize_services() -> None:
     """
     Initialize services after creation.
 
@@ -435,7 +435,7 @@ def initialize_services() -> None:
     # reader — so the schema check fires here, before a drifted shape is
     # derived into routing.env. Same fail-loud handling as init_async below.
     try:
-        routing_service.regenerate_env_files()
+        await routing_service.regenerate_env_files()
     except SchemaVersionMismatch as mismatch:
         logger.error(
             "Schema version mismatch while deriving the env files — bailing.\n%s",

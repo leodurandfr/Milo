@@ -11,8 +11,11 @@ Architecture:
 - Zones share equalizer settings, standalone clients have individual equalizer
 """
 import asyncio
+import contextlib
 import logging
 from typing import Dict, List, Optional, Callable, Awaitable, Any, Type
+
+from backend.shared.background import BackgroundTaskSet
 
 from backend.core.models.ws_events import (
     MultiroomClientStateChanged,
@@ -62,6 +65,12 @@ class ClientRegistryService:
     - Manage standalone equalizer settings
     """
 
+    # Debounce for the one write path that streams: an EQ band drag emits 20
+    # requests a second and each one used to rewrite the whole of settings.json.
+    # Same value as CamillaDSPService.PERSIST_DEBOUNCE_S, which collapses the
+    # local half of that very gesture.
+    PERSIST_DEBOUNCE_S = 1.0
+
     def __init__(self, settings_service=None):
         self.logger = logging.getLogger(__name__)
         self._settings_service = settings_service
@@ -75,7 +84,19 @@ class ClientRegistryService:
         # Subscriber callbacks for event handling (incl. WebSocket broadcasting)
         self._subscribers: List[Callable[[str, Dict], Awaitable[None]]] = []
 
+        # Debounced persistence, used by the EQ drag only (see set_clients_equalizer)
+        self._bg = BackgroundTaskSet(self.logger, "client_registry")
+        self._persist_debounce_task: Optional[asyncio.Task] = None
+
         self._initialized = False
+
+    async def cleanup(self) -> None:
+        """Flush a pending debounced persist, then drain the task set."""
+        if self._persist_debounce_task and not self._persist_debounce_task.done():
+            self._persist_debounce_task.cancel()
+            await self._persist_state()
+            self.logger.info("Flushed pending multiroom state on shutdown")
+        await self._bg.cancel_all()
 
     async def initialize(self) -> bool:
         """Load persisted state from settings."""
@@ -1001,24 +1022,61 @@ class ClientRegistryService:
             settings: Equalizer settings to store
             broadcast: Whether to emit the EQUALIZER_SETTINGS_CHANGED event
         """
+        await self.set_clients_equalizer({mac_id: settings}, broadcast=broadcast)
+
+    async def set_clients_equalizer(
+        self,
+        records: Dict[str, EqualizerSettings],
+        broadcast: bool = True,
+        defer_persist: bool = False,
+    ) -> None:
+        """Store several clients' equalizer records in **one** settings.json write.
+
+        The zone fan-out writes the same record to every member, and
+        ``_persist_state`` rewrites the whole file each time: a 3 s EQ drag over
+        a two-member zone measured 61 full rewrites + fsyncs on the SD card, one
+        per member per throttled request. Persistence is a property of the batch,
+        not of the individual record, so the loop belongs here rather than at the
+        call site.
+
+        ``defer_persist`` debounces that write (see :meth:`_schedule_persist`),
+        which is what removes the other half of the cost — batching alone changes
+        nothing for a zone holding a single satellite, and one write per request
+        at 20 requests a second is still 61 rewrites for a 3 s drag. It is for the
+        streamed path only: a deliberate one-shot write (a preset, a save) stays
+        immediate, exactly as the local client's equalizer.json does.
+
+        An empty mapping is a no-op — no write, no event.
+        """
+        if not records:
+            return
+
+        stored: Dict[str, EqualizerSettings] = {}
         async with self._lock:
-            client = self._clients.get(mac_id)
-            if not client:
-                self.logger.warning(f"Cannot set equalizer: client {mac_id} not found")
-                return
+            for mac_id, settings in records.items():
+                if not self._clients.get(mac_id):
+                    self.logger.warning(f"Cannot set equalizer: client {mac_id} not found")
+                    continue
+                # Store a copy so the registry owns its records — callers can never
+                # mutate the stored object through a reference they still hold.
+                self._client_equalizer[mac_id] = EqualizerSettings.from_dict(settings.to_dict())
+                stored[mac_id] = settings
 
-            # Store a copy so the registry owns its records — callers can never
-            # mutate the stored object through a reference they still hold.
-            self._client_equalizer[mac_id] = EqualizerSettings.from_dict(settings.to_dict())
+        if not stored:
+            return
 
-        await self._persist_state()
+        if defer_persist:
+            self._schedule_persist()
+        else:
+            await self._persist_state()
         if broadcast:
-            await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
-                "target_type": "client",
-                "target_id": mac_id,
-                # Wire shape (freq/type) — the frontend WS handler reads freq/type.
-                "equalizer_settings": settings.to_wire_dict()
-            })
+            for mac_id, settings in stored.items():
+                await self._emit_event(RegistryEventType.EQUALIZER_SETTINGS_CHANGED, {
+                    "target_type": "client",
+                    "target_id": mac_id,
+                    # Wire shape (freq/type) — the frontend WS handler reads freq/type.
+                    "equalizer_settings": settings.to_wire_dict()
+                })
 
     # === STATE SNAPSHOT ===
 
@@ -1104,6 +1162,27 @@ class ClientRegistryService:
             for mac_id, settings in self._client_equalizer.items()
         }
 
+    def _schedule_persist(self) -> None:
+        """Schedule a debounced persist (~1 s after the last change).
+
+        Only :meth:`set_clients_equalizer` uses it, and only when its caller asks
+        for it: every other mutation here is a discrete event (a client arrives,
+        a zone is renamed) that must survive an immediate power cut, while an EQ
+        drag is a stream of 20 requests a second whose intermediate values nobody
+        needs on disk. Correct by construction whatever the interleaving, because
+        :meth:`_persist_state` always serialises the *current* in-memory state —
+        so an immediate persist supersedes a pending one, and cancels it.
+        """
+        if self._persist_debounce_task and not self._persist_debounce_task.done():
+            self._persist_debounce_task.cancel()
+
+        async def _debounced():
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.sleep(self.PERSIST_DEBOUNCE_S)
+                await self._persist_state()
+
+        self._persist_debounce_task = self._bg.spawn(_debounced(), label="persist_state")
+
     async def _persist_state(self) -> None:
         """Persist all multiroom state to settings in one atomic write.
 
@@ -1116,6 +1195,16 @@ class ClientRegistryService:
         ``set_settings({k: v})``, one read-modify-write of the whole file, so
         writing three keys instead of one costs nothing.
         """
+        # This write already carries everything a pending debounced one would.
+        # `is not current_task` is load-bearing, not defensive: the debounced
+        # task reaches this line through its own timer, and without the guard it
+        # cancels itself here and the write never happens — the record then only
+        # ever landed on the shutdown flush. Found on the unit, not in the suite,
+        # because a test that flushes through cleanup() cancels from another task.
+        pending = self._persist_debounce_task
+        if pending and not pending.done() and pending is not asyncio.current_task():
+            pending.cancel()
+
         if not self._settings_service:
             return
 

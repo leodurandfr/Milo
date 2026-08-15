@@ -3,6 +3,7 @@
 Audio routing service for Milo - UNIFIED version with SystemAudioState as single source of truth
 """
 import contextlib
+import itertools
 import logging
 import asyncio
 import os
@@ -45,6 +46,9 @@ DEFAULT_SNAPCLIENT_CONFIG = {
     "buffer_time": 80,
     "fragments": 4,
 }
+
+# Monotonic counter making each in-flight env temp file unique (see _atomic_write).
+_temp_counter = itertools.count()
 
 # The one accepted range for that pair, and the only place it is declared on
 # this side: PUT /api/routing/snapcast/server-config rejects a request outside
@@ -92,9 +96,14 @@ async def resolve_snapclient_config(settings_service) -> tuple:
     )
 
 
-def _atomic_write(path: str, content: str) -> None:
-    """Write file atomically: temp file + fsync + os.replace."""
-    temp_path = path + ".tmp"
+def _write_atomically(path: str, content: str, temp_path: str) -> None:
+    """Write file atomically: temp file + fsync + os.replace. Blocking.
+
+    Twin of ``shared/persistence.py::_write_atomically`` for the three plain-text
+    env files, which carry no schema and cannot go through the versioned-JSON
+    primitive. Every syscall runs on the same (worker) thread — see
+    :func:`_atomic_write`.
+    """
     try:
         with open(temp_path, "w") as f:
             f.write(content)
@@ -108,13 +117,33 @@ def _atomic_write(path: str, content: str) -> None:
         raise
 
 
+async def _atomic_write(path: str, content: str) -> None:
+    """Write an env file atomically, off the event loop.
+
+    Measured on this appliance's SD card: open+write+fsync+replace of a 110 B
+    file is 7.06 ms median and 18.6 ms at worst, and ``regenerate_env_files``
+    does three in a row (~21 ms). On the event loop that blocks *every* WS, HTTP
+    and monitor task — during a multiroom transition, which is the moment the
+    appliance is busiest. Same reason ``shared/persistence.py`` moved its own
+    write to a worker thread.
+
+    The temp name is unique per write (pid + counter) rather than a shared
+    ``<file>.tmp``: with the sequence on a worker thread two writers of the same
+    file really can overlap, and a shared temp makes the loser's ``os.replace``
+    raise FileNotFoundError. ``os.replace`` stays atomic, so the final file is
+    always a complete payload.
+    """
+    temp_path = f"{path}.{os.getpid()}.{next(_temp_counter)}.tmp"
+    await asyncio.to_thread(_write_atomically, path, content, temp_path)
+
+
 class RoutingEnv:
     """Writes /var/lib/milo/routing.env. Holds only MILO_MODE."""
 
     PATH = "/var/lib/milo/routing.env"
 
     @staticmethod
-    def regenerate(multiroom_enabled: bool) -> None:
+    async def regenerate(multiroom_enabled: bool) -> None:
         """Regenerate routing.env from a boolean state.
 
         Sets os.environ["MILO_MODE"] as a side effect for in-process ALSA
@@ -132,7 +161,7 @@ class RoutingEnv:
         )
 
         try:
-            _atomic_write(RoutingEnv.PATH, content)
+            await _atomic_write(RoutingEnv.PATH, content)
         except Exception as e:
             logger.error(f"Failed to write {RoutingEnv.PATH}: {e}")
             raise RuntimeError(f"Failed to write routing.env: {e}")
@@ -147,7 +176,7 @@ class MacEnv:
     PATH = "/var/lib/milo/mac.env"
 
     @staticmethod
-    def regenerate(mac_config: Optional[Dict[str, Any]]) -> None:
+    async def regenerate(mac_config: Optional[Dict[str, Any]]) -> None:
         """Regenerate mac.env from a pre-loaded `mac` config dict.
 
         Pure function: validates and clamps values to allowed ranges, falls
@@ -190,7 +219,7 @@ class MacEnv:
         )
 
         try:
-            _atomic_write(MacEnv.PATH, content)
+            await _atomic_write(MacEnv.PATH, content)
         except Exception as e:
             logger.error(f"Failed to write {MacEnv.PATH}: {e}")
             raise RuntimeError(f"Failed to write mac.env: {e}")
@@ -206,7 +235,7 @@ class SnapclientEnv:
     PATH = "/var/lib/milo/snapclient.env"
 
     @staticmethod
-    def regenerate(buffer_time: Any, fragments: Any) -> None:
+    async def regenerate(buffer_time: Any, fragments: Any) -> None:
         """Regenerate snapclient.env from pre-loaded buffer_time / fragments values.
 
         Pure function: coerces and clamps both inputs through the one declared
@@ -228,7 +257,7 @@ class SnapclientEnv:
         )
 
         try:
-            _atomic_write(SnapclientEnv.PATH, content)
+            await _atomic_write(SnapclientEnv.PATH, content)
         except Exception as e:
             logger.error(f"Failed to write {SnapclientEnv.PATH}: {e}")
             raise RuntimeError(f"Failed to write snapclient.env: {e}")
@@ -369,7 +398,7 @@ class AudioRoutingService:
                 f"equalizer_effects={self.equalizer_effects_enabled}"
             )
 
-            self.regenerate_env_files()
+            await self.regenerate_env_files()
             await self._sync_snapcast_state()
             await self._initialize_camilladsp()
 
@@ -644,7 +673,7 @@ class AudioRoutingService:
                         raise RuntimeError("Failed to stop snapcast services")
 
                 # Step 4: Regenerate routing.env so source unit picks up new MILO_MODE
-                RoutingEnv.regenerate(enabled)
+                await RoutingEnv.regenerate(enabled)
 
                 # Step 5: Restart source with new routing — best-effort.
                 # A source failure here doesn't fail the transition; the multiroom
@@ -812,7 +841,7 @@ class AudioRoutingService:
             await self.state_machine.broadcast(SystemStateChanged(source="equalizer"))
         return success
 
-    def regenerate_env_files(self) -> None:
+    async def regenerate_env_files(self) -> None:
         """Re-derive all three env files (routing/mac/snapclient) from settings.
 
         Sole entry point for the boot-time env-file write and for the
@@ -828,9 +857,9 @@ class AudioRoutingService:
           mac.env / snapclient.env are unchanged by a mode toggle).
         """
         if not self.settings_service:
-            RoutingEnv.regenerate(False)
-            MacEnv.regenerate(None)
-            SnapclientEnv.regenerate(None, None)
+            await RoutingEnv.regenerate(False)
+            await MacEnv.regenerate(None)
+            await SnapclientEnv.regenerate(None, None)
             return
 
         multiroom = self._to_bool(
@@ -840,9 +869,9 @@ class AudioRoutingService:
         buffer_time = self.settings_service.get_setting_sync('multiroom.snapclient_buffer_time')
         fragments = self.settings_service.get_setting_sync('multiroom.snapclient_fragments')
 
-        RoutingEnv.regenerate(multiroom)
-        MacEnv.regenerate(mac_config)
-        SnapclientEnv.regenerate(buffer_time, fragments)
+        await RoutingEnv.regenerate(multiroom)
+        await MacEnv.regenerate(mac_config)
+        await SnapclientEnv.regenerate(buffer_time, fragments)
 
     async def _wait_snapserver_ready(self, timeout: float = 10.0) -> bool:
         """Wait for snapserver's JSON-RPC to answer (real-condition, wall-clock).

@@ -691,6 +691,86 @@ class TestClientRegistryService:
         assert retrieved.filters[0].frequency == 1000
 
     @pytest.mark.asyncio
+    async def test_a_deferred_eq_write_costs_one_persist_for_the_whole_drag(
+        self, registry, mock_settings_service
+    ):
+        """An EQ band drag must not rewrite settings.json 20 times a second.
+
+        Measured on the appliance: a 3 s drag on a zone emitted 61 throttled
+        requests and 61 full rewrites + fsyncs, one per remote member per
+        request — 1.0 MB of block writes on the SD card for one gesture. Every
+        other registry mutation is a discrete event and keeps its immediate
+        write; only this streamed one defers. The flush belongs to the shutdown
+        path, so the last value of a drag survives a restart.
+        """
+        from backend.core.multiroom.models import EqFilter
+
+        await registry.initialize()
+        await registry.register_client(mac_id="client2", name="Client 2", ip="192.168.1.100")
+        mock_settings_service.set_settings.reset_mock()
+
+        for gain in range(6):
+            await registry.set_clients_equalizer(
+                {"client2": EqualizerSettings(
+                    filters=[EqFilter(id="eq_band_00", frequency=1000, gain=float(gain))]
+                )},
+                broadcast=False,
+                defer_persist=True,
+            )
+
+        mock_settings_service.set_settings.assert_not_called()
+
+        await registry.cleanup()
+
+        mock_settings_service.set_settings.assert_awaited_once()
+        persisted = mock_settings_service.set_settings.await_args[0][0]
+        assert persisted["multiroom.client_equalizer"]["client2"]["filters"][0]["gain"] == 5.0
+
+    @pytest.mark.asyncio
+    async def test_a_deferred_eq_write_lands_on_its_own_without_a_shutdown(
+        self, registry, mock_settings_service
+    ):
+        """The debounce must fire by itself, not only when something flushes it.
+
+        It did not: `_persist_state` cancels a pending debounce so an immediate
+        write supersedes it, and the debounced task reaches that line through its
+        own timer — so it cancelled itself and the drag reached the disk only at
+        shutdown. Invisible to the sibling test above, which flushes through
+        cleanup() (a different task), and caught on the appliance by watching
+        settings.json not move for three seconds after a band change.
+        """
+        from backend.core.multiroom.models import EqFilter
+
+        registry.PERSIST_DEBOUNCE_S = 0
+        await registry.initialize()
+        await registry.register_client(mac_id="client2", name="Client 2", ip="192.168.1.100")
+        mock_settings_service.set_settings.reset_mock()
+        # A settings write is file I/O: it suspends, and only a suspension
+        # delivers a cancellation. `assert_awaited` would not see this bug — the
+        # call *is* entered — so what is asserted is that it came back.
+        landed = []
+
+        async def _yielding_write(updates):
+            await asyncio.sleep(0)
+            landed.append(updates)
+            return True
+
+        mock_settings_service.set_settings.side_effect = _yielding_write
+
+        await registry.set_clients_equalizer(
+            {"client2": EqualizerSettings(
+                filters=[EqFilter(id="eq_band_00", frequency=1000, gain=7.0)]
+            )},
+            broadcast=False,
+            defer_persist=True,
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        assert len(landed) == 1, "the debounced write never completed"
+        assert landed[0]["multiroom.client_equalizer"]["client2"]["filters"][0]["gain"] == 7.0
+
+    @pytest.mark.asyncio
     async def test_client_equalizer_broadcast_uses_wire_shape(self, registry):
         """The EQUALIZER_SETTINGS_CHANGED broadcast must carry filters in the
         frontend wire shape (freq/type), not the model's frequency/filter_type —

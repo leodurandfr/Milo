@@ -125,19 +125,21 @@ class NavidromeClient:
         self._password = password
         self._base_url = base_url.rstrip("/")
         self._session: Optional[aiohttp.ClientSession] = None
-        # Signature of Navidrome's built-in "no cover" placeholder, fetched once
-        # at runtime (see _ensure_placeholder_signature). None until fetched or
-        # if the fetch failed (fail-open: we then never suppress any cover).
-        self._placeholder_len: Optional[int] = None
-        self._placeholder_sha: Optional[str] = None
-        self._placeholder_checked: bool = False
-        # Navidrome resizes its "no cover" placeholder too, so a thumbnail request
-        # returns bytes that differ from the full-size signature above (this is why
-        # an art-less playlist's generic cover slips through at thumb size). We
-        # learn the resized placeholder's signature per requested size the first
-        # time we confirm one against the authoritative full-size art. size → (len,
-        # sha256).
-        self._thumb_placeholder_sigs: Dict[int, Tuple[int, str]] = {}
+        # Signature of Navidrome's built-in "no cover" placeholder, per requested
+        # size (None = full size). Navidrome resizes the placeholder like any
+        # other cover, so a thumbnail request returns bytes that differ from the
+        # full-size ones — hence one signature per size. The full-size one is
+        # fetched proactively (see _ensure_placeholder_signature); the resized
+        # ones can only be learned from a real art-less item (see get_cover_art).
+        # A key present with a None value means "probed, unknown" — fail-open, no
+        # cover is ever suppressed at that size. size → (len, sha256) | None.
+        self._placeholder_sigs: Dict[Optional[int], Optional[Tuple[int, str]]] = {}
+        # Cover ids whose full-size art has been confirmed to be real. It is the
+        # confirmation itself that is expensive — the whole original re-read to
+        # judge one thumbnail — so remembering it turns that cost into once per
+        # album instead of once per request. Dropped by invalidate_cover_memo()
+        # when the library is rescanned, since an album can lose its art.
+        self._real_art: set = set()
 
     @classmethod
     def from_cred_file(
@@ -506,50 +508,61 @@ class NavidromeClient:
         return self._build_url("stream", {"id": song_id, "format": "raw"})
 
     async def _ensure_placeholder_signature(self) -> None:
-        """Fetch (once) the byte-signature of Navidrome's built-in "no cover"
-        placeholder so get_cover_art can tell it apart from real artwork.
+        """Fetch (once) the full-size byte-signature of Navidrome's built-in
+        "no cover" placeholder so get_cover_art can tell it apart from real
+        artwork.
 
         Navidrome serves an identical generic image (HTTP 200, an actual image
         body) for any album that has no embedded/folder art — and, conveniently,
         for an *empty* id too. We fetch that empty-id reference at runtime rather
         than hardcoding a hash, so the check tracks whatever placeholder the
-        running Navidrome version ships. Fail-open: on any error the signature
-        stays unset and no cover is ever suppressed.
-        """
-        if self._placeholder_checked:
-            return
-        self._placeholder_checked = True
-        await self._ensure_session()
-        try:
-            async with self._session.get(
-                f"{self._base_url}/rest/getCoverArt",
-                params=_encode_query({**self._auth_params(), "id": ""}),
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                if resp.status != 200:
-                    return
-                if resp.headers.get("Content-Type", "").startswith(
-                    ("application/json", "text/")
-                ):
-                    return
-                data = await resp.read()
-            self._placeholder_len = len(data)
-            self._placeholder_sha = hashlib.sha256(data).hexdigest()
-            self.logger.info(
-                "Navidrome cover placeholder signature: %d bytes sha256=%s…",
-                self._placeholder_len,
-                self._placeholder_sha[:12],
-            )
-        except Exception as exc:
-            self.logger.info(f"Could not fetch Navidrome cover placeholder ref: {exc}")
+        running Navidrome version ships.
 
-    def _is_placeholder(self, data: bytes) -> bool:
+        Full size only, and that is a measured limit rather than an oversight:
+        the empty id bypasses the resize pipeline. Asked at size=100, 300 or not
+        at all, Navidrome answers the same 69 228 bytes, while a genuinely
+        art-less item answers 2 059 / 6 465 / 69 228 — so this reference cannot
+        teach a thumbnail's signature. Those are learned in get_cover_art, from
+        the first art-less item actually met.
+
+        Fail-open: on any error the signature stays unset and no cover is ever
+        suppressed.
+        """
+        if None in self._placeholder_sigs:
+            return
+        # Recorded before the fetch so a failure is remembered as "probed,
+        # unknown" and never retried on the hot path.
+        self._placeholder_sigs[None] = None
+        result = await self._fetch_cover_bytes("", None)
+        if result is None:
+            self.logger.info("Could not fetch Navidrome cover placeholder ref")
+            return
+        data = result[0]
+        signature = (len(data), hashlib.sha256(data).hexdigest())
+        self._placeholder_sigs[None] = signature
+        self.logger.info(
+            "Navidrome cover placeholder signature: %d bytes sha256=%s…",
+            signature[0],
+            signature[1][:12],
+        )
+
+    def invalidate_cover_memo(self) -> None:
+        """Forget which covers were confirmed real (called on a library rescan).
+
+        A rescan is when an album can gain or lose its art, which is the one
+        event that makes the memo wrong.
+        """
+        self._real_art.clear()
+
+    def _is_placeholder(self, data: bytes, size: Optional[int] = None) -> bool:
         """True when ``data`` is byte-identical to Navidrome's generic placeholder
-        (length pre-check short-circuits for real covers of any other size)."""
+        at ``size`` (length pre-check short-circuits for real covers of any other
+        size). False whenever that size's signature is unknown — fail-open."""
+        signature = self._placeholder_sigs.get(size)
         return (
-            self._placeholder_sha is not None
-            and len(data) == self._placeholder_len
-            and hashlib.sha256(data).hexdigest() == self._placeholder_sha
+            signature is not None
+            and len(data) == signature[0]
+            and hashlib.sha256(data).hexdigest() == signature[1]
         )
 
     async def _fetch_cover_bytes(
@@ -605,32 +618,40 @@ class NavidromeClient:
 
         The placeholder check is size-aware: Navidrome resizes its placeholder for
         thumbnail requests, so those bytes don't match the full-size signature.
-        For a sized request whose placeholder signature we haven't learned yet, we
-        confirm against the authoritative full-size art before treating it as a
-        miss (and cache the resized signature so later thumbnails are a cheap
-        compare) — this is what stops an art-less playlist's blue-vinyl default
-        from leaking through at thumb size.
+        A size's signature can only be learned from a real art-less item (the
+        empty-id reference is served unresized — see
+        :meth:`_ensure_placeholder_signature`), so until one is met, a thumbnail
+        is judged by confirming its cover against the authoritative full-size
+        art. Only a genuine placeholder learns the signature, so a real cover can
+        never poison it.
+
+        That confirmation is the expensive half — the whole original re-read to
+        judge one thumbnail, measured at 704 KB to deliver 5.8 KB — and on a
+        library where every album has art it is never rewarded with a signature.
+        So its verdict is remembered per cover (``_real_art``): the cost is paid
+        once per album, not once per request, and the first art-less item met
+        ends it for every album at that size.
         """
         result = await self._fetch_cover_bytes(cover_id, size)
         if result is None:
             return None
         data, content_type = result
 
+        # Full-size signature first, whatever was asked: it also catches the case
+        # where Navidrome ignored `size` and returned the full placeholder.
         await self._ensure_placeholder_signature()
-        # Full-size signature: matches size=None requests and the cases where
-        # Navidrome ignored `size` and returned the full placeholder.
         if self._is_placeholder(data):
             self.logger.debug(
                 "Cover %s is Navidrome's placeholder — reporting as missing", cover_id
             )
             return None
         if size is None:
+            self._real_art.add(cover_id)
             return data, content_type
 
-        sig = self._thumb_placeholder_sigs.get(size)
-        digest = hashlib.sha256(data).hexdigest()
+        sig = self._placeholder_sigs.get(size)
         if sig is not None:
-            if sig == (len(data), digest):
+            if self._is_placeholder(data, size):
                 self.logger.debug(
                     "Cover %s is the resized placeholder (size=%s) — missing",
                     cover_id,
@@ -639,14 +660,15 @@ class NavidromeClient:
                 return None
             return data, content_type
 
-        # First sized request whose placeholder signature is unknown: confirm
-        # against the full-size art. Only a genuine placeholder learns the
-        # signature, so a real cover can never poison it.
+        if cover_id in self._real_art:
+            return data, content_type
+
         full = await self._fetch_cover_bytes(cover_id, None)
         if full is not None and self._is_placeholder(full[0]):
-            self._thumb_placeholder_sigs[size] = (len(data), digest)
+            self._placeholder_sigs[size] = (len(data), hashlib.sha256(data).hexdigest())
             self.logger.debug(
                 "Learned resized placeholder for size=%s from %s", size, cover_id
             )
             return None
+        self._real_art.add(cover_id)
         return data, content_type
