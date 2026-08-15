@@ -488,3 +488,22 @@ class TestExposureFollowsState:
 
         assert await bluetooth_source._configure_adapter() is False
         bluetooth_source.adapter.set_exposure.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_start_does_not_leave_the_appliance_open(self, bluetooth_source):
+        """ERROR is neither started nor stopped, and nothing revisits it.
+
+        A failure past step 3 has already opened the adapter and unblocked the
+        senders; without this the appliance stays discoverable and connectable
+        for as long as the source sits in ERROR.
+        """
+        bluetooth_source.monitor.start = AsyncMock(return_value=False)
+
+        assert await bluetooth_source.start() is False
+
+        bluetooth_source.adapter.set_exposure.assert_called_with(
+            discoverable=False, pairable=False
+        )
+        bluetooth_source.adapter.set_audio_peers_blocked.assert_called_with(
+            True, keep_unblocked=None
+        )
