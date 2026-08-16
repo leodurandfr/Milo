@@ -3914,6 +3914,32 @@ class TestAdmissionPathConvergence:
         service._sync_reconnecting_client_volume.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_a_reconnect_during_a_sync_still_refreshes_the_address(self):
+        """The _syncing_mac_ids guard dedups the sync, not the registration.
+
+        `_register_snapclient` is the only path that refreshes a known client's
+        ip/host, and the guard used to sit before it — so a reconnect landing
+        inside the sync's ~15 s retry budget skipped the refresh entirely.
+        After a DHCP lease change caught by that window the speaker keeps
+        playing (it dials out to snapserver) while every push Milō makes goes
+        to the old address: volume, EQ and hardware all fail silently.
+        """
+        service, registry, _, _ = await self._service()
+        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+        service._sync_reconnecting_client_volume = AsyncMock(return_value=True)
+        service._syncing_mac_ids.add(self.MAC)  # a sync is already in flight
+
+        await service._handle_client_connect({"client": {
+            "id": self.MAC,
+            "config": {"name": "Bureau", "volume": {"percent": 100}},
+            "host": {"name": "milo-client", "ip": "::ffff:192.168.1.177", "mac": self.MAC},
+        }})
+        await drain_background_tasks()
+
+        assert registry.get_client(self.MAC).ip == "192.168.1.177"
+        service._sync_reconnecting_client_volume.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_snapserver_is_left_a_passthrough_whenever_the_path_can_tell(self):
         """Attenuation is CamillaDSP's job on the client; snapserver stays at 100.
 

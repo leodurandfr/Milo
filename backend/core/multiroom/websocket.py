@@ -644,10 +644,6 @@ class SnapcastWebSocketService:
         # Compute mac_id early so we can dedup by stable identifier
         mac_id = compute_mac_id(client_host, client_ip, client_id or "")
 
-        if mac_id in self._syncing_mac_ids:
-            self.logger.debug(f"Skipping Client.OnConnect for {mac_id} - sync already in flight")
-            return
-
         client_name = client.get("config", {}).get("name") or get_client_display_name(client_host) or mac_id
         is_local = (client_ip == "127.0.0.1")
         local_marker = " LOCAL CLIENT" if is_local else ""
@@ -659,6 +655,22 @@ class SnapcastWebSocketService:
         await self._register_snapclient(
             mac_id, client_name, client_ip, client_host, is_local=is_local
         )
+
+        # Dedup the SYNC, never the registration above. This guard used to sit
+        # before it, and _register_snapclient is the only path that refreshes a
+        # known client's ip/host: a reconnect landing inside the sync's ~15 s
+        # retry budget therefore skipped the identity refresh entirely. After a
+        # DHCP lease change caught by that window the speaker keeps playing (it
+        # dials out to snapserver) while every push Milō makes goes to the old
+        # address — volume, EQ and hardware all fail silently, and the registry
+        # shows it offline. Registering twice is idempotent: the existing branch
+        # preserves a non-empty name and only overwrites ip/host, so the cost is
+        # one redundant CLIENT_UPDATED event.
+        if mac_id in self._syncing_mac_ids:
+            self.logger.debug(
+                f"Client.OnConnect for {mac_id}: identity refreshed, sync already in flight"
+            )
+            return
 
         # Hand the sync to a task rather than awaiting it: this runs inside the
         # snapserver message loop, and a satellite that is still booting takes the
