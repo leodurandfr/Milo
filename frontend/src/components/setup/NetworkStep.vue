@@ -195,7 +195,7 @@ onMounted(() => {
 }
 
 .connection-badge--connected {
-  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  background: var(--color-success-subtle);
   color: var(--color-success);
 }
 

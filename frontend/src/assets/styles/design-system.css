@@ -40,6 +40,7 @@
     /* Subtle variants — ~12% alpha for badges, banners, status blocks */
     --color-warning-subtle: rgba(255, 152, 0, 0.12);
     --color-error-subtle: rgba(244, 67, 54, 0.12);
+    --color-success-subtle: rgba(17, 170, 58, 0.12);
 
     /* === SVG BRAND TOKENS === */
     /* Inline-SVG fill aliases: a `fill="<hex>"` attribute cannot read a var(),

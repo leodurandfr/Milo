@@ -409,7 +409,8 @@
     "settings": "Einstellungen",
     "deleting": "Wird gelöscht...",
     "close": "Schließen",
-    "backToTop": "Nach oben"
+    "backToTop": "Nach oben",
+    "selectOption": "Option auswählen"
   },
   "radio": {
     "country": "Land",
@@ -715,6 +716,7 @@
       "confirmReboot": "Neustart bestätigen",
       "rebooting": "Neustart...",
       "rebootingDescription": "Bitte warte, während das System neu startet.",
+      "rebootTimeout": "Zeitüberschreitung beim Neustart. Bitte lade die Seite neu.",
       "accessHint": "Verbinde dich nach dem Neustart mit dem Netzwerk {ssid} und öffne milo.local in deinem Browser, um auf Milō zuzugreifen.",
       "volumeNotManaged": "Lautstärke nicht von Milō gesteuert"
     }

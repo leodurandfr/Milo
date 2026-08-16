@@ -409,7 +409,8 @@
     "settings": "Settings",
     "deleting": "Deleting...",
     "close": "Close",
-    "backToTop": "Back to top"
+    "backToTop": "Back to top",
+    "selectOption": "Select an option"
   },
   "radio": {
     "country": "Country",
@@ -716,6 +717,7 @@
       "accessHint": "After restart, connect to the {ssid} network and open milo.local in your browser to access Milō.",
       "rebooting": "Rebooting...",
       "rebootingDescription": "Please wait while the system restarts.",
+      "rebootTimeout": "Reboot timed out. Please refresh the page.",
       "volumeNotManaged": "Volume not managed by Milō"
     }
   },

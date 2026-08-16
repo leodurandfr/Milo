@@ -222,7 +222,7 @@ async function applySetup() {
       timer.clear(pollIntervalId);
       pollIntervalId = null;
       isRebooting.value = false;
-      error.value = 'Reboot timed out. Please refresh the page.';
+      error.value = t('setup.summary.rebootTimeout');
       return;
     }
     const pingResult = await apiCall.get('/api/ping', {

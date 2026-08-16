@@ -9,6 +9,7 @@
           :model-value="config.audio_id"
           :options="audioCardOptions"
           :disabled="isRebooting"
+          :placeholder="t('common.selectOption')"
           @change="onAudioChange"
         />
       </div>
@@ -54,6 +55,7 @@
             :model-value="config.clk_pin"
             :options="gpioPinOptions"
             :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
             @change="v => onPinChange('clk_pin', v)"
           />
         </SettingItem>
@@ -62,6 +64,7 @@
             :model-value="config.dt_pin"
             :options="gpioPinOptions"
             :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
             @change="v => onPinChange('dt_pin', v)"
           />
         </SettingItem>
@@ -70,6 +73,7 @@
             :model-value="config.sw_pin"
             :options="gpioPinOptions"
             :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
             @change="v => onPinChange('sw_pin', v)"
           />
         </SettingItem>
@@ -88,6 +92,7 @@
             :model-value="config.ir_gpio_pin"
             :options="gpioPinOptions"
             :disabled="isRebooting"
+            :placeholder="t('common.selectOption')"
             @change="v => onIrPinChange(v)"
           />
         </SettingItem>
