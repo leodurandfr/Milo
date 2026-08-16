@@ -41,7 +41,8 @@
           </div>
         </transition>
 
-        <!-- Podcast Index did not answer — the subscriptions block above is unaffected -->
+        <!-- The catalog could not be loaded, whether Podcast Index did not answer or the
+             request itself failed — the subscriptions block above is unaffected -->
         <transition name="content-fade">
           <MessageContent
             v-if="!loadingTopCharts && topChartsApiError"
@@ -179,6 +180,11 @@ async function loadData() {
       topChartsApiError.value = false
       topCharts.value = data.results || []
     }
+  } else {
+    // The request itself failed (backend 500, or a 502 while milo-backend restarts).
+    // Without this arm the grid renders empty and loadData — the retry — is unreachable.
+    topChartsApiError.value = true
+    topCharts.value = []
   }
   loadingTopCharts.value = false
 }
