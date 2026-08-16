@@ -79,7 +79,11 @@ export function useArtworkTransition(target, trackKey) {
 
   // A cover to head for — arriving with the track, or resolved later.
   watch(target, (url) => {
-    if (!url || url === shownArtwork.value) return;
+    if (!url) return;
+    // Already on screen: the next track of the same album resolves to the cover
+    // it is showing. Nothing will load, so the wait armed by the track change
+    // has to be settled here or it would blank a correct cover at T+4 s.
+    if (url === shownArtwork.value) { settleArtwork(url); return; }
     preloadArtwork.value = url;
     waitFor(url); // decode too slow, or no load event at all → paint it anyway
   }, { immediate: true });
