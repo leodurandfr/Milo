@@ -198,8 +198,15 @@ const deltaStores = [
 ];
 
 async function resyncStores() {
+  // The central mirror first and ALONE. Every source store's now-playing slice
+  // is a view of unifiedStore.systemState — radio and music_library compute
+  // theirs from it, podcast copies it into its own refs on each delta and
+  // re-applies the snapshot in its resync(). Healed in the same batch, that
+  // re-application would read the pre-resync mirror and put back exactly the
+  // stale episode the heal exists to replace.
+  await unifiedStore.resync();
   await Promise.allSettled([
-    ...deltaStores.map((store) => store.resync()),
+    ...deltaStores.filter((store) => store !== unifiedStore).map((store) => store.resync()),
     // Network status is a module-level singleton (useNetwork), not a store, but
     // its `status_changed` deltas are equally missable — heal it alongside.
     preloadNetworkStatus({ force: true }),
@@ -661,7 +668,14 @@ onMounted(async () => {
       }
     }),
     on('multiroom', 'pending_client_changed', (event) => {
-      const isNew = event.data?.action === 'registered' &&
+      // isInitialized gates the classification, not the store update: the
+      // subscription is installed before the first fetch (deliberately — it is
+      // what stops events being missed during boot), so until it lands the map
+      // is empty and every heartbeat of a long-known satellite reads as a brand
+      // new one. A satellite re-registers every 15 s, so that window reliably
+      // wakes the screen and opens Settings as the boot animation ends.
+      const isNew = multiroomStore.isInitialized &&
+        event.data?.action === 'registered' &&
         !multiroomStore.pendingClients.has(event.data?.client?.mac_id);
       multiroomStore.handleMultiroomEvent(event);
       if (isNew && !isSettingsOpen.value) {

@@ -423,6 +423,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     hasSearched.value = false;
     searchLoading.value = false;
     searchLoadingMore.value = { podcasts: false };
+    apiError.value = false;
   }
 
   // Clear display metadata after fade-out animation completes
@@ -431,8 +432,18 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   // === RETURN ===
+  // The subscriptions list is one half of what a missed delta costs. The other
+  // is the now-playing slice: _applyMetadata is its only writer and
+  // source/state_changed its only trigger, so a tab backgrounded across an
+  // episode change comes back with the mirror healed and displayEpisode still
+  // on the previous episode. App.vue resyncs unifiedStore first and alone, so
+  // its snapshot is the freshly fetched one — re-applying it here needs no
+  // second request and reuses the very entry point boot feeds.
   async function resync() {
-    return preloadSubscriptionsList({ force: true });
+    await preloadSubscriptionsList({ force: true });
+    if (unifiedStore.systemState.active_source === 'podcast') {
+      _applyMetadata(unifiedStore.systemState.metadata || {});
+    }
   }
 
   return {
