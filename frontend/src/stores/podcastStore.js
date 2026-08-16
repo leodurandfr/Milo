@@ -392,6 +392,71 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === SEARCH ACTIONS ===
 
+  const SEARCH_PAGE_SIZE = '25';
+
+  function searchParams(page) {
+    return new URLSearchParams({
+      term: searchTerm.value,
+      limit: SEARCH_PAGE_SIZE,
+      page: String(page)
+    });
+  }
+
+  // Cancels the request a previous keystroke left in flight. Two uncached
+  // iTunes queries can invert, and the response that hurts is a failed one:
+  // its `api_error` replaces a fresh result list with the "catalogue
+  // unavailable" panel until the next search succeeds.
+  let searchAbortController = null;
+
+  async function search() {
+    if (searchAbortController) searchAbortController.abort();
+
+    // Held locally as well: after the await the store's controller may already
+    // belong to a newer search, and only identity tells the two apart.
+    const ctrl = new AbortController();
+    searchAbortController = ctrl;
+
+    searchLoading.value = true;
+    const result = await apiCall.get('/api/podcast/search', {
+      category: 'podcast',
+      message: 'Error searching podcasts',
+      params: searchParams(1),
+      signal: ctrl.signal
+    });
+
+    // Superseded: the newer search owns the spinner and the controller, so
+    // clearing them here would end its loading state early.
+    if (searchAbortController !== ctrl) return;
+    searchAbortController = null;
+
+    if (result.ok) {
+      const data = result.data;
+      if (data.api_error) {
+        apiError.value = true;
+      } else {
+        apiError.value = false;
+        setSearchResults(data.podcasts, data.pagination);
+      }
+    }
+    searchLoading.value = false;
+  }
+
+  async function loadMoreSearchResults() {
+    if (searchLoadingMore.value.podcasts ||
+        searchCurrentPage.value.podcasts >= searchPagination.value.podcasts.pages) return;
+
+    searchLoadingMore.value.podcasts = true;
+    const result = await apiCall.get('/api/podcast/search', {
+      category: 'podcast',
+      message: 'Error loading more podcasts',
+      params: searchParams(searchCurrentPage.value.podcasts + 1)
+    });
+    if (result.ok) {
+      appendSearchResults(result.data.podcasts || []);
+    }
+    searchLoadingMore.value.podcasts = false;
+  }
+
   function setSearchResults(podcasts, pagination) {
     searchResults.value = {
       podcasts: podcasts || []
@@ -413,6 +478,13 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   function clearSearch() {
+    // Dropping the controller is what neutralises an in-flight search: the
+    // identity check then rejects its response instead of repopulating the
+    // state this call just wiped.
+    if (searchAbortController) {
+      searchAbortController.abort();
+      searchAbortController = null;
+    }
     searchTerm.value = '';
     lastSearchTerm.value = '';
     searchResults.value = { podcasts: [] };
@@ -500,6 +572,8 @@ export const usePodcastStore = defineStore('podcast', () => {
     removeSubscription,
 
     // Search
+    search,
+    loadMoreSearchResults,
     setSearchResults,
     appendSearchResults,
     clearSearch

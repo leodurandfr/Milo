@@ -17,7 +17,7 @@
         :subtitle="t('podcasts.catalogUnavailableHint')"
         :cta-label="t('podcasts.retry')"
         cta-variant="background-strong"
-        :cta-click="performSearch"
+        :cta-click="() => podcastStore.search()"
       />
 
       <!-- Search results -->
@@ -33,7 +33,7 @@
               @select="$emit('select-podcast', podcast)" />
           </div>
           <div v-if="searchCurrentPage.podcasts < searchPagination.podcasts.pages" class="load-more-container">
-            <Button variant="brand" :loading="searchLoadingMore.podcasts" @click="loadMorePodcasts">
+            <Button variant="brand" :loading="searchLoadingMore.podcasts" @click="podcastStore.loadMoreSearchResults">
               {{ t('podcasts.loadMorePodcasts') }}
             </Button>
           </div>
@@ -58,7 +58,6 @@ import { storeToRefs } from 'pinia'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useDebounce } from '@/composables/useDebounce'
 import { useI18n } from '@/services/i18n'
-import { apiCall } from '@/services/apiCall'
 import PodcastCard from './PodcastCard.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Button from '@/components/ui/Button.vue'
@@ -93,60 +92,18 @@ const {
   searchLoadingMore
 } = storeToRefs(podcastStore)
 
-const { debounced: debouncedSearch } = useDebounce(() => performSearch())
+const { debounced: debouncedSearch } = useDebounce(() => podcastStore.search())
 
 // Handle search input with debounce
 function onSearchInput() {
-  // Reset to initial state when the term is cleared
+  // Reset to initial state when the term is cleared — through the store's own
+  // reset, which also drops the request a previous keystroke left in flight.
   if (!searchTerm.value) {
-    hasSearched.value = false
-    searchResults.value = { podcasts: [] }
+    podcastStore.clearSearch()
     return
   }
 
   debouncedSearch()
-}
-
-function buildSearchParams(page) {
-  return new URLSearchParams({
-    term: searchTerm.value,
-    limit: '25',
-    page: String(page)
-  })
-}
-
-async function performSearch() {
-  loading.value = true
-  const result = await apiCall.get('/api/podcast/search', {
-    category: 'podcast',
-    message: 'Error searching podcasts',
-    params: buildSearchParams(1),
-  })
-  if (result.ok) {
-    const data = result.data
-    if (data.api_error) {
-      podcastStore.apiError = true
-    } else {
-      podcastStore.apiError = false
-      podcastStore.setSearchResults(data.podcasts, data.pagination)
-    }
-  }
-  loading.value = false
-}
-
-async function loadMorePodcasts() {
-  if (searchLoadingMore.value.podcasts || searchCurrentPage.value.podcasts >= searchPagination.value.podcasts.pages) return
-
-  searchLoadingMore.value.podcasts = true
-  const result = await apiCall.get('/api/podcast/search', {
-    category: 'podcast',
-    message: 'Error loading more podcasts',
-    params: buildSearchParams(searchCurrentPage.value.podcasts + 1),
-  })
-  if (result.ok) {
-    podcastStore.appendSearchResults(result.data.podcasts || [])
-  }
-  searchLoadingMore.value.podcasts = false
 }
 
 </script>
