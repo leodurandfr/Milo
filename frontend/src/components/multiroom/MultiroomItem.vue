@@ -399,11 +399,12 @@ function handleVolumeInput(newDisplayVolume) {
 function handleVolumeChange(newDisplayVolume) {
   // Don't clear localDisplayVolume here - keep showing the user's chosen value
   // until the backend confirms via WebSocket (handled by watcher above)
-  // The flush is the ONLY emit on release. The parent reads a zone change as a DELTA
-  // against the average captured when the drag began, and clears that capture once it
-  // has applied it — so a second emit in the same tick recaptures a state the WS has
+  // The released value must reach the parent EXACTLY ONCE. It reads a zone change as a
+  // DELTA against the average captured when the drag began, and clears that capture once
+  // it has applied it — so a second emit in the same tick recaptures a state the WS has
   // not corrected yet and applies the same delta twice. RangeSlider only ever emits
-  // `change` after an `input` carrying the same value, so the flush has it.
+  // `change` after an `input` carrying the same value, so either the throttle already
+  // sent it (and the flush finds nothing left) or the flush sends it. Never both.
   flushZoneVolume();
   // Fallback: clear local value after 2s if WebSocket didn't confirm
   timer.setTimeout(() => {
