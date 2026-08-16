@@ -46,7 +46,7 @@ body {
   pointer-events: none;
 }
 
-/* Reset pour les éléments de texte */
+/* Reset for text elements */
 h1,
 h2,
 h3,
@@ -58,7 +58,7 @@ p {
   padding: 0;
 }
 
-/* Reset pour les boutons */
+/* Reset for buttons */
 button {
   margin: 0;
   padding: 0;
@@ -72,7 +72,7 @@ button,
   touch-action: manipulation;
 }
 
-/* Reset pour les listes */
+/* Reset for lists */
 ul,
 ol {
   margin: 0;
@@ -80,7 +80,7 @@ ol {
   list-style: none;
 }
 
-/* Reset pour les images */
+/* Reset for images */
 img {
   margin: 0;
   padding: 0;

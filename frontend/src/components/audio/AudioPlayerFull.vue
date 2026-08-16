@@ -120,11 +120,12 @@ const props = defineProps({
     default: true
   },
   // Receiver-controlled sources (showControls=false) that still report
-  // position/duration: adds a read-only bar above the source bar. All three
-  // Family B sources opt in, AirPlay and DLNA included even though they only
-  // broadcast position every 30 s (useSourceProgress interpolates between
-  // corrections). Off by default for the controlled sources, which draw their
-  // own bar next to the transport.
+  // position/duration: adds a read-only bar above the source bar. DLNA and
+  // Qobuz opt in — they broadcast position only every 30 s, and
+  // useSourceProgress interpolates between corrections. AirPlay passes false
+  // on purpose: nothing on that channel reports that the sender paused, so an
+  // interpolated bar runs on through a paused track. Off by default for the
+  // controlled sources, which draw their own bar next to the transport.
   showProgress: {
     type: Boolean,
     default: false
