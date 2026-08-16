@@ -625,6 +625,28 @@ class TestResume:
         assert source._queue == []
 
     @pytest.mark.asyncio
+    async def test_a_storage_gone_stop_leaves_nothing_to_resume(self, source):
+        """The storage-gone stop must not snapshot the queue it just condemned.
+
+        `_do_stop` captures a resume session for every stop it sees, and this
+        is a caller its docstring did not anticipate. Left in place, reopening
+        the library restores a now-playing pointing at an absent device: the
+        titles scroll silently for a second or two before the load fails.
+        """
+        source._mpv = _mpv_with_props({"time-pos": 10})
+        source._queue = list(TRACKS)
+        source._queue_unshuffled = list(TRACKS)
+        source._queue_index = 1
+        source._queue_library_id = 3
+        source.state_machine = Mock()
+        source.state_machine.update_source_state = AsyncMock()
+
+        await source._stop_if_storage_gone([{"library_id": 3, "mounted": False}])
+
+        assert source._queue == []
+        assert source._resume is None
+
+    @pytest.mark.asyncio
     async def test_restore_fails_without_catalog(self, source):
         source._mpv = _mpv()
         source.get_navidrome_client = AsyncMock(return_value=None)
