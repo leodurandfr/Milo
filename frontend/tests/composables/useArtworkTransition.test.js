@@ -131,6 +131,29 @@ describe('useArtworkTransition', () => {
     expect(shownArtwork.value).toBe('/api/cover/two');
   });
 
+  it('disarms the wait when the cover resolved is the one already shown', async () => {
+    // Bluetooth again, but track 2 of the SAME album: the lookup answers with
+    // the cover on screen. Nothing is going to load, so if the wait armed by the
+    // track change is not disarmed here it fires at T+4 s and replaces a correct
+    // cover with the fallback, mid-track.
+    const target = ref('/api/cover/album');
+    const trackKey = ref('first|artist');
+    const { shownArtwork, artworkPending, settleFromLoad } = mountTransition(target, trackKey);
+    settleFromLoad(decodedAt(600, 600));
+
+    target.value = '';
+    trackKey.value = 'second|artist';
+    await nextTick();
+    expect(artworkPending.value).toBe(true);
+
+    target.value = '/api/cover/album';
+    await nextTick();
+    vi.advanceTimersByTime(ARTWORK_WAIT_MS);
+
+    expect(shownArtwork.value).toBe('/api/cover/album');
+    expect(artworkPending.value).toBe(false);
+  });
+
   it('lifts the veil when no cover ever arrives', async () => {
     const target = ref('/api/cover/one');
     const trackKey = ref('first|artist');

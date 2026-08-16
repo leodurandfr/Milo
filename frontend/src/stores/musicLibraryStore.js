@@ -358,41 +358,52 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       albums.value = [];
       albumsHasMore.value = true;
     }
-    const result = await apiCall.get(`${BASE}/albums`, {
-      category: 'musicLibrary',
-      message: 'Error loading albums',
-      checkStatus: true,
-      params: scoped({ type: 'alphabeticalByName', size: ALBUMS_PAGE_SIZE, offset: 0 }),
-    });
+    // The flag is released in `finally`, ahead of the scope check: a response
+    // that lands out of scope is dropped, but the skeleton grid it left up is
+    // gated on the flag and nothing would come back to lower it.
+    let result;
+    try {
+      result = await apiCall.get(`${BASE}/albums`, {
+        category: 'musicLibrary',
+        message: 'Error loading albums',
+        checkStatus: true,
+        params: scoped({ type: 'alphabeticalByName', size: ALBUMS_PAGE_SIZE, offset: 0 }),
+      });
+    } finally {
+      albumsLoading.value = false;
+    }
     if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.albums)) {
       albums.value = result.data.albums;
       albumsHasMore.value = result.data.albums.length >= ALBUMS_PAGE_SIZE;
       albumsLoaded.value = true;
     }
-    albumsLoading.value = false;
   }
 
   async function loadMoreAlbums() {
     if (albumsLoading.value || !albumsHasMore.value) return;
     const scope = activeLibraryId.value;
     albumsLoading.value = true;
-    const result = await apiCall.get(`${BASE}/albums`, {
-      category: 'musicLibrary',
-      message: 'Error loading more albums',
-      checkStatus: true,
-      params: scoped({
-        type: 'alphabeticalByName',
-        size: ALBUMS_PAGE_SIZE,
-        offset: albums.value.length,
-      }),
-    });
+    let result;
+    try {
+      result = await apiCall.get(`${BASE}/albums`, {
+        category: 'musicLibrary',
+        message: 'Error loading more albums',
+        checkStatus: true,
+        params: scoped({
+          type: 'alphabeticalByName',
+          size: ALBUMS_PAGE_SIZE,
+          offset: albums.value.length,
+        }),
+      });
+    } finally {
+      albumsLoading.value = false;
+    }
     if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.albums)) {
       albums.value = [...albums.value, ...result.data.albums];
       albumsHasMore.value = result.data.albums.length >= ALBUMS_PAGE_SIZE;
     }
-    albumsLoading.value = false;
   }
 
   // =========================================================================
@@ -412,19 +423,23 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (artistsLoaded.value && !force) return;
     const scope = activeLibraryId.value;
     artistsLoading.value = true;
-    const result = await apiCall.get(`${BASE}/artists`, {
-      category: 'musicLibrary',
-      message: 'Error loading artists',
-      checkStatus: true,
-      params: scoped(),
-    });
+    let result;
+    try {
+      result = await apiCall.get(`${BASE}/artists`, {
+        category: 'musicLibrary',
+        message: 'Error loading artists',
+        checkStatus: true,
+        params: scoped(),
+      });
+    } finally {
+      artistsLoading.value = false;
+    }
     if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.index)) {
       artistIndex.value = result.data.index;
       artistsRendered.value = ARTISTS_RENDER_CHUNK;
       artistsLoaded.value = true;
     }
-    artistsLoading.value = false;
   }
 
   const artistCount = computed(() =>
@@ -463,12 +478,17 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (genresLoaded.value && !force) return;
     const scope = activeLibraryId.value;
     genresLoading.value = true;
-    const result = await apiCall.get(`${BASE}/genres`, {
-      category: 'musicLibrary',
-      message: 'Error loading genres',
-      checkStatus: true,
-      params: scoped(),
-    });
+    let result;
+    try {
+      result = await apiCall.get(`${BASE}/genres`, {
+        category: 'musicLibrary',
+        message: 'Error loading genres',
+        checkStatus: true,
+        params: scoped(),
+      });
+    } finally {
+      genresLoading.value = false;
+    }
     if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.genres)) {
       // Alphabetical, skipping the empty-name genre Navidrome can emit.
@@ -477,7 +497,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         .sort((a, b) => a.value.localeCompare(b.value));
       genresLoaded.value = true;
     }
-    genresLoading.value = false;
   }
 
   // =========================================================================
@@ -491,18 +510,22 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (playlistsLoaded.value && !force) return;
     const scope = activeLibraryId.value;
     playlistsLoading.value = true;
-    const result = await apiCall.get(`${BASE}/playlists`, {
-      category: 'musicLibrary',
-      message: 'Error loading playlists',
-      checkStatus: true,
-      params: scoped(),
-    });
+    let result;
+    try {
+      result = await apiCall.get(`${BASE}/playlists`, {
+        category: 'musicLibrary',
+        message: 'Error loading playlists',
+        checkStatus: true,
+        params: scoped(),
+      });
+    } finally {
+      playlistsLoading.value = false;
+    }
     if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.playlists)) {
       playlists.value = result.data.playlists;
       playlistsLoaded.value = true;
     }
-    playlistsLoading.value = false;
   }
 
   // =========================================================================

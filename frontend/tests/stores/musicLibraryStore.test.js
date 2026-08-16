@@ -337,3 +337,70 @@ describe('musicLibraryStore — a storage space the index has lost', () => {
     expect(store.unindexedStorage).toBeNull();
   });
 });
+
+/**
+ * Dropping a response that lands after a storage switch is correct; dropping the
+ * loading flag with it is not. LibraryHome renders its skeletons while
+ * `<list>Loading` is set and gates the infinite-scroll sentinel on the same
+ * flag, and the switch watcher refetches only lists that had already *loaded* —
+ * so a first load abandoned mid-flight leaves the tab on placeholders with
+ * nothing left able to ask for the data.
+ */
+describe('musicLibraryStore — a loader that lands out of scope', () => {
+  let store;
+
+  beforeEach(async () => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS, USB] }));
+    await store.loadStorages();
+    await nextTick();
+  });
+
+  /** Start a read, switch storage while it is in flight, then let it land. */
+  async function landAfterSwitch(start, body, thenServes = null) {
+    let release;
+    apiCall.get.mockReturnValueOnce(
+      new Promise((resolve) => { release = () => resolve(ok(body)); })
+    );
+    const inFlight = start();
+    // Queued only now: what the switch watcher refetches must go behind the
+    // response held open above, not in front of it.
+    if (thenServes) apiCall.get.mockResolvedValueOnce(ok(thenServes));
+    store.activeLibraryId = USB.library_id;
+    await nextTick();
+    release();
+    await inFlight;
+  }
+
+  // The first load of a tab: `<list>Loaded` is still false, so the switch
+  // watcher reloads nothing and this response is the only one in flight.
+  it.each([
+    ['loadAlbums', (s) => s.loadAlbums(), 'albumsLoading', { albums: [{ id: 'nas-1' }] }],
+    ['loadArtists', (s) => s.loadArtists(), 'artistsLoading', { index: [{ name: 'A', artist: [] }] }],
+    ['loadGenres', (s) => s.loadGenres(), 'genresLoading', { genres: [{ value: 'Jazz' }] }],
+    ['loadPlaylists', (s) => s.loadPlaylists(), 'playlistsLoading', { playlists: [{ id: 'p1' }] }],
+  ])('%s releases its loading flag', async (_name, start, flag, body) => {
+    await landAfterSwitch(() => start(store), body);
+
+    expect(store[flag]).toBe(false);
+  });
+
+  it('loadMoreAlbums releases the loading flag it also gates itself on', async () => {
+    // Worse than the four above: `loadMoreAlbums` returns early while
+    // `albumsLoading` is set, so a stranded flag also bars every later page.
+    const firstPage = Array.from({ length: 40 }, (_, i) => ({ id: `nas-${i}` }));
+    apiCall.get.mockResolvedValueOnce(ok({ albums: firstPage }));
+    await store.loadAlbums();
+
+    // Loaded once, so the switch refetches the grid for the new space too.
+    await landAfterSwitch(
+      () => store.loadMoreAlbums(),
+      { albums: [{ id: 'nas-40' }] },
+      { albums: [{ id: 'usb-1' }] }
+    );
+
+    expect(store.albums.map((a) => a.id)).toEqual(['usb-1']);
+    expect(store.albumsLoading).toBe(false);
+  });
+});
