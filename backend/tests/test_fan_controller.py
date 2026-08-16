@@ -157,6 +157,77 @@ class TestMonitorLoopTargetMode:
         c._set_pwm_percent.assert_not_awaited()
 
 
+class TestDisableRacesTheMonitorLoop:
+    """reload_config must stop the loop before it touches the hardware.
+
+    The tick takes no lock — `_lock` appears in reload_config and
+    _load_config_from_settings and nowhere else — so a tick already awaiting
+    when the fan is disabled used to resume and re-assert the curve setpoint
+    over the 0 % _apply_mode had just written. reload_config then killed the
+    loop, so nothing corrected it: the fan spins on, the UI says disabled.
+    """
+
+    DISABLE = {
+        "enabled": False,
+        "mode": "auto",
+        "manual_percent": 50,
+        "target_temp_c": 70,
+        "curve": [{"temp_c": 55, "percent": 0}, {"temp_c": 82, "percent": 100}],
+    }
+
+    @pytest.mark.asyncio
+    async def test_an_in_flight_tick_cannot_restart_a_disabled_fan(self):
+        c = make_controller()
+        c.available = True
+        c.enabled = True
+        c.mode = "auto"
+        c.curve = [{"temp_c": 55, "percent": 0}, {"temp_c": 82, "percent": 100}]
+        c._temp_c = 82.0  # top of the curve → the tick would ask for 100 %
+        c._take_control = AsyncMock()
+
+        gate = asyncio.Event()
+
+        async def gated_sample():
+            await gate.wait()
+
+        writes = []
+
+        async def record_write(percent):
+            writes.append(percent)
+            if percent == 0:
+                # The disable write has landed. Release the parked tick here:
+                # this is the interleaving that leaves the fan running, because
+                # its write arrives after the 0 % and before the loop is killed.
+                gate.set()
+                await asyncio.sleep(0.01)
+
+        c._sample = gated_sample
+        c._set_pwm_percent = record_write
+
+        c._start_monitor()
+        await asyncio.sleep(0)  # the tick reaches _sample and parks
+
+        await c.reload_config(self.DISABLE)
+
+        assert writes == [0], f"a duty was re-asserted on a disabled fan: {writes}"
+        assert c._monitor_task is None
+
+    @pytest.mark.asyncio
+    async def test_a_tick_writes_nothing_while_disabled(self):
+        """Second half of the fix: the tick reads self.enabled itself."""
+        c = make_controller()
+        c.enabled = False
+        c.mode = "auto"
+        c._pwm_percent = 0  # the curve asks for 100 here, so a write is due
+        c._temp_c = 82.0
+        c._sample = AsyncMock()
+        c._set_pwm_percent = AsyncMock()
+
+        await TestMonitorLoopTargetMode().run_one_tick(c)
+
+        c._set_pwm_percent.assert_not_awaited()
+
+
 class TestSettingsSanitization:
     @pytest.fixture
     def service(self):

@@ -231,8 +231,22 @@ class FanController:
         self.curve = [dict(p) for p in cfg["curve"]]
 
     async def reload_config(self, cfg: dict) -> None:
-        """Apply a validated config (called by the PUT route after persisting)."""
+        """Apply a validated config (called by the PUT route after persisting).
+
+        The monitor loop is stopped *first*, before any field is touched. The
+        tick does not take ``self._lock`` — it is taken here and in
+        ``_load_config_from_settings`` and nowhere else — so holding it
+        serialises nothing against the loop: a tick already past its own await
+        would re-assert the curve setpoint over the 0 % ``_apply_mode`` had
+        just written, leaving the fan spinning while the config says disabled.
+        Stopping first is what makes that unreachable; the lock is irrelevant
+        to it. ``_apply_mode`` is idempotent and ``_start_monitor`` is a no-op
+        on a live task, so a reload that keeps the fan enabled pays only one
+        loop interval of restart.
+        """
         async with self._lock:
+            await self._stop_monitor()
+
             self.enabled = bool(cfg.get("enabled", self.enabled))
             mode = cfg.get("mode", self.mode)
             self.mode = mode if mode in VALID_MODES else "auto"
@@ -244,8 +258,6 @@ class FanController:
             await self._apply_mode()
             if self.enabled:
                 self._start_monitor()
-            else:
-                await self._stop_monitor()
         await self._broadcast_status(FanConfigChanged)
 
     async def test_speed(self, percent: int) -> None:
@@ -441,23 +453,29 @@ class FanController:
                 # write path. Auto and target read the EMA-smoothed temperature
                 # (stable proportional maps that would otherwise chase jitter);
                 # manual ignores temperature entirely.
-                control_temp = self._temp_ema if self._temp_ema is not None else self._temp_c
-                if self.mode == "auto":
-                    target = self._curve_target_percent(control_temp)
-                elif self.mode == "target":
-                    target = self._target_mode_percent(control_temp)
-                else:
-                    target = self.manual_percent
-                # Compare against the ACTUAL last-written duty (self._pwm_percent),
-                # not a loop-local var — otherwise a manual/disabled excursion
-                # leaves the loop's memory stale and hysteresis suppresses the
-                # corrective write when switching back to auto. Hysteresis absorbs
-                # sub-2 % jitter around a stable target; the rails (0 % / 100 %)
-                # are always written so a clean stop and the safety-override 100 %
-                # are never swallowed.
-                crossed_rail = target in (0, 100) and target != self._pwm_percent
-                if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_rail:
-                    await self._set_pwm_percent(target)
+                # A disabled fan is held at 0 % by _apply_mode and has no target
+                # to re-assert. reload_config stops this loop before it disables
+                # anything, so reaching here disabled means a tick that was
+                # already awaiting when it did — which must not write a duty
+                # over that 0 %.
+                if self.enabled:
+                    control_temp = self._temp_ema if self._temp_ema is not None else self._temp_c
+                    if self.mode == "auto":
+                        target = self._curve_target_percent(control_temp)
+                    elif self.mode == "target":
+                        target = self._target_mode_percent(control_temp)
+                    else:
+                        target = self.manual_percent
+                    # Compare against the ACTUAL last-written duty (self._pwm_percent),
+                    # not a loop-local var — otherwise a manual/disabled excursion
+                    # leaves the loop's memory stale and hysteresis suppresses the
+                    # corrective write when switching back to auto. Hysteresis absorbs
+                    # sub-2 % jitter around a stable target; the rails (0 % / 100 %)
+                    # are always written so a clean stop and the safety-override 100 %
+                    # are never swallowed.
+                    crossed_rail = target in (0, 100) and target != self._pwm_percent
+                    if abs(target - self._pwm_percent) >= PWM_HYSTERESIS_PCT or crossed_rail:
+                        await self._set_pwm_percent(target)
 
                 # Gate the broadcast on the actuator duty ALONE, not raw
                 # temp/rpm: those jitter every tick and would defeat the gate,
