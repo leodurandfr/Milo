@@ -30,6 +30,11 @@ from backend.sources.dlna.metadata_reader import DlnaBridge
 # Qobuz (QOBUZ_CLIENT_NAME).
 DLNA_CLIENT_NAME = "DLNA"
 
+# What makes a track a different track here: the triple _on_metadata_update
+# compares to decide the cover is stale, and the one _on_artwork re-checks
+# across its fetch.
+TRACK_IDENTITY_KEYS = ("title", "artist", "album")
+
 
 class DlnaSource(BaseAudioSource):
     NETWORK_REQUIREMENT = NetworkRequirement.LAN
@@ -126,9 +131,8 @@ class DlnaSource(BaseAudioSource):
     async def _on_metadata_update(self, metadata: Dict[str, Any]) -> None:
         """Handle track metadata from GENA DIDL-Lite (title, artist, album)."""
         track = {
-            "title": metadata.get("title", self._metadata.get("title", "")),
-            "artist": metadata.get("artist", self._metadata.get("artist", "")),
-            "album": metadata.get("album", self._metadata.get("album", "")),
+            key: metadata.get(key, self._metadata.get(key, ""))
+            for key in TRACK_IDENTITY_KEYS
         }
         # A cover belongs to the track it was fetched for: kept, it is what the
         # player draws for the whole of the next one. The bridge re-dispatches
@@ -179,6 +183,10 @@ class DlnaSource(BaseAudioSource):
             self._bridge.forget_last_seen()
         self._update_connection_state()
 
+    def _track_key(self) -> Tuple[str, ...]:
+        """The currently published track identity."""
+        return tuple(self._metadata.get(key, "") for key in TRACK_IDENTITY_KEYS)
+
     @handle_errors(default=None)
     async def _on_artwork(self, url: str) -> None:
         """Fetch the DIDL-Lite album-art URL, cache it, and serve via endpoint.
@@ -186,9 +194,23 @@ class DlnaSource(BaseAudioSource):
         Also decodes pixel dimensions so the frontend can gate the rich player on
         artwork quality (same policy as AirPlay): dimensions ride as
         album_art_width; the display decision lives on the frontend.
+
+        The bridge dispatches each callback as its own task and the fetch runs
+        up to 10 s, so the next track can land while this one is still in
+        flight. The track identity is therefore captured before the await and
+        re-checked after: without it the outgoing cover is published over the
+        incoming track and nothing corrects it until the track after that.
+        Bluetooth re-checks the same way; AirPlay pairs by track_id. Dropping a
+        cover here costs nothing — the bridge re-emits the art URL on every
+        track change (see _on_metadata_update).
         """
+        track = self._track_key()
         data = await self._fetch_artwork(url)
         if not data:
+            return
+
+        if self._track_key() != track:
+            self._logger.debug("Discarding artwork: the track moved on during the fetch")
             return
 
         new_hash = hashlib.md5(data).hexdigest()[:12]
