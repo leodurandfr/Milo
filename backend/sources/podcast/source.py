@@ -209,6 +209,16 @@ class PodcastSource(MpvAudioSource):
 
             self._logger.info(f"Episode found: {episode.get('name', 'Unknown')}")
 
+            # Armed BEFORE the stop below, not after the progress read further
+            # down: `await self._mpv.stop()` makes mpv idle while _is_playing
+            # and _current_episode still point at the outgoing episode, and a
+            # monitor tick landing in that interval reads it as "episode
+            # finished" — it saves progress and calls mark_episode_completed on
+            # the outgoing uuid, dropping it from the in-progress queue with
+            # nothing wrong on screen. Music Library arms in this position in
+            # four places; this is that shape.
+            self._loading = True
+
             # Stop current playback if any
             if self._is_playing:
                 await self._save_progress()
@@ -220,10 +230,6 @@ class PodcastSource(MpvAudioSource):
             if progress and progress.get('position', 0) > 10:  # Resume if > 10 seconds
                 start_position = progress['position']
                 self._logger.info(f"Resuming from {start_position}s")
-
-            # Guard: prevent monitor tick from reading inconsistent state
-            # during the async loading phase below
-            self._loading = True
 
             # Update state BEFORE loading stream
             self._current_episode = episode

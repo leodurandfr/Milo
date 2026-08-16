@@ -9,6 +9,7 @@ Tests cover:
 - Command handling (play, pause, seek, speed)
 - Data service operations
 """
+import asyncio
 import json
 
 import pytest
@@ -514,6 +515,67 @@ class TestEpisodeEndDetection:
         assert podcast_source._current_episode is None
         assert podcast_source.state == SourceState.READY
         podcast_source._podcast_data.mark_episode_completed.assert_awaited_once_with("ep1")
+
+
+class TestSwitchingEpisodesGuardsTheOutgoingOne:
+    """The _loading guard must be armed before mpv is stopped.
+
+    `await self._mpv.stop()` makes mpv idle while _is_playing and
+    _current_episode still point at the outgoing episode. A 1 Hz monitor tick
+    landing there used to read that as EOF and mark_episode_completed() the
+    outgoing uuid — dropping it from the in-progress queue. Nothing looks
+    wrong on screen: the new episode's state is written a few lines later.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_tick_during_the_stop_does_not_complete_the_outgoing_episode(
+        self, podcast_source
+    ):
+        entered_stop = asyncio.Event()
+        release_stop = asyncio.Event()
+
+        async def gated_stop():
+            entered_stop.set()
+            await release_stop.wait()
+
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.stop = gated_stop
+        podcast_source._mpv.load_stream = AsyncMock(return_value=True)
+        # What mpv reports once stopped: file unloaded, back to idle.
+        podcast_source._mpv.get_property = AsyncMock(side_effect=lambda name: {
+            "playback-time": None, "duration": None,
+            "pause": False, "idle-active": True,
+        }.get(name))
+        podcast_source._mpv.set_property = AsyncMock()
+        podcast_source._podcast_data.get_playback_progress = AsyncMock(return_value=None)
+        podcast_source._podcast_api = Mock()
+        podcast_source._podcast_api.get_episode = AsyncMock(return_value={
+            "uuid": "incoming", "name": "Incoming", "audio_url": "http://s", "duration": 1200,
+        })
+
+        podcast_source._current_episode = {"uuid": "outgoing", "name": "Outgoing"}
+        podcast_source._is_playing = True
+        podcast_source._loading = False
+        podcast_source._position = 300
+        podcast_source._duration = 1800
+
+        play = asyncio.create_task(
+            podcast_source._handle_play_episode(Mock(episode_uuid="incoming"))
+        )
+        await asyncio.wait_for(entered_stop.wait(), timeout=1)
+
+        await podcast_source._on_monitor_tick()
+
+        podcast_source._podcast_data.mark_episode_completed.assert_not_awaited()
+        assert podcast_source._current_episode is not None
+
+        release_stop.set()
+        result = await asyncio.wait_for(play, timeout=1)
+        podcast_source._stop_progress_save()
+
+        assert result["success"] is True
+        assert podcast_source._current_episode["uuid"] == "incoming"
+        assert podcast_source._loading is False
 
 
 class TestProperties:
