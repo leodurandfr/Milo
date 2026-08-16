@@ -136,12 +136,7 @@ module.exports = {
     {
       // ClientEdit: a skeleton `::before` reserving exact heading-3 metrics —
       // a utility class cannot be applied to a pseudo-element.
-      // LevelMeter: scale markers at 9px and 11px, below the smallest type
-      // token (--font-size-mono-small = 14px, 12px on mobile).
-      files: [
-        'src/components/settings/categories/multiroom/ClientEdit.vue',
-        'src/components/equalizer/LevelMeter.vue',
-      ],
+      files: ['src/components/settings/categories/multiroom/ClientEdit.vue'],
       rules: {
         'declaration-property-value-disallowed-list': NO_COLOR_FN,
       },

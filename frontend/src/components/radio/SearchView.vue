@@ -68,7 +68,6 @@
           :is-playing="currentStation?.id === station.id && isPlaying"
           :is-loading="bufferingStationId === station.id"
           @click="$emit('play-station', station.id)"
-          @play="$emit('play-station', station.id)"
         />
 
         <!-- Sentinel for infinite scroll -->

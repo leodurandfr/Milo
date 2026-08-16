@@ -1,7 +1,7 @@
 <!-- frontend/src/components/equalizer/LevelMeter.vue -->
 <!-- Audio level meter with peak hold -->
 <template>
-  <div class="level-meter" :class="{ vertical: orientation === 'vertical' }">
+  <div class="level-meter">
     <div v-if="label" class="meter-label text-mono">{{ label }}</div>
 
     <div class="meter-container">
@@ -9,30 +9,16 @@
         <div
           class="meter-bar"
           :class="{ warning: level > -6, danger: level > -3 }"
-          :style="{ [orientation === 'vertical' ? 'height' : 'width']: levelPercent + '%' }"
+          :style="{ width: levelPercent + '%' }"
         ></div>
 
         <div
           v-if="showPeak"
           class="peak-indicator"
           :class="{ warning: peakLevel > -6, danger: peakLevel > -3 }"
-          :style="{ [orientation === 'vertical' ? 'bottom' : 'left']: peakPercent + '%' }"
+          :style="{ left: peakPercent + '%' }"
         ></div>
       </div>
-
-      <!-- Scale markers (dynamic based on min/max) -->
-      <div v-if="showScale" class="meter-scale">
-        <span
-          v-for="marker in scaleMarkers"
-          :key="marker.value"
-          class="scale-marker"
-          :style="{ '--pos': marker.position + '%' }"
-        >{{ marker.label }}</span>
-      </div>
-    </div>
-
-    <div v-if="showValue" class="meter-value text-mono">
-      {{ level.toFixed(1) }} dB
     </div>
   </div>
 </template>
@@ -59,22 +45,9 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  orientation: {
-    type: String,
-    default: 'horizontal',
-    validator: (v) => ['horizontal', 'vertical'].includes(v)
-  },
   showPeak: {
     type: Boolean,
     default: true
-  },
-  showScale: {
-    type: Boolean,
-    default: false
-  },
-  showValue: {
-    type: Boolean,
-    default: false
   },
   peakHoldTime: {
     type: Number,
@@ -94,19 +67,6 @@ let decayInterval = null;
 
 const levelPercent = computed(() => dbToPercent(props.level, props.min, props.max));
 const peakPercent = computed(() => dbToPercent(peakLevel.value, props.min, props.max));
-
-// Dynamic scale markers based on min/max
-const scaleMarkers = computed(() => {
-  const range = props.max - props.min;
-  // Generate 5 markers at 0%, 25%, 50%, 75%, 100%
-  return [
-    { value: props.max, position: 100, label: props.max },
-    { value: props.min + range * 0.75, position: 75, label: Math.round(props.min + range * 0.75) },
-    { value: props.min + range * 0.5, position: 50, label: Math.round(props.min + range * 0.5) },
-    { value: props.min + range * 0.25, position: 25, label: Math.round(props.min + range * 0.25) },
-    { value: props.min, position: 0, label: props.min }
-  ];
-});
 
 // Update peak level
 watch(() => props.level, (newLevel) => {
@@ -139,12 +99,6 @@ watch(() => props.level, (newLevel) => {
   width: 100%;
 }
 
-.level-meter.vertical {
-  flex-direction: column;
-  width: auto;
-  height: 100%;
-}
-
 .meter-label {
   min-width: 24px;
   color: var(--color-text-secondary);
@@ -158,23 +112,12 @@ watch(() => props.level, (newLevel) => {
   gap: 2px;
 }
 
-.level-meter.vertical .meter-container {
-  flex-direction: row;
-  height: 100%;
-  width: auto;
-}
-
 .meter-track {
   position: relative;
   height: 4px;
   background: var(--color-background);
   border-radius: var(--radius-full);
   overflow: hidden;
-}
-
-.level-meter.vertical .meter-track {
-  height: 100%;
-  width: 8px;
 }
 
 .meter-bar {
@@ -184,12 +127,7 @@ watch(() => props.level, (newLevel) => {
   height: 100%;
   background: var(--color-brand);
   border-radius: var(--radius-01);
-  transition: width 100ms linear, height 100ms linear;
-}
-
-.level-meter.vertical .meter-bar {
-  width: 100%;
-  height: 0;
+  transition: width 100ms linear;
 }
 
 .meter-bar.warning {
@@ -205,12 +143,7 @@ watch(() => props.level, (newLevel) => {
   width: 2px;
   height: 100%;
   background: var(--color-text-secondary);
-  transition: left 100ms linear, bottom 100ms linear;
-}
-
-.level-meter.vertical .peak-indicator {
-  width: 100%;
-  height: 2px;
+  transition: left 100ms linear;
 }
 
 .peak-indicator.warning {
@@ -219,39 +152,5 @@ watch(() => props.level, (newLevel) => {
 
 .peak-indicator.danger {
   background: var(--color-error);
-}
-
-.meter-scale {
-  display: flex;
-  justify-content: space-between;
-  position: relative;
-  height: 12px;
-}
-
-.level-meter.vertical .meter-scale {
-  flex-direction: column-reverse;
-  width: 12px;
-  height: 100%;
-}
-
-.scale-marker {
-  position: absolute;
-  left: var(--pos);
-  font-size: 9px;
-  color: var(--color-text-light);
-  transform: translateX(-50%);
-}
-
-.level-meter.vertical .scale-marker {
-  left: auto;
-  bottom: var(--pos);
-  transform: translateY(50%);
-}
-
-.meter-value {
-  min-width: 56px;
-  font-size: 11px;
-  color: var(--color-text-secondary);
-  text-align: right;
 }
 </style>
