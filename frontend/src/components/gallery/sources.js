@@ -148,6 +148,7 @@ export const METADATA_READERS = [
   'composables/useSourceStatusDisplay.js',
   'composables/useSourceProgress.js',
   'utils/playbackBuffering.js',
+  'utils/nowPlayingMetadata.js',
   'stores/cdStore.js'
 ];
 
@@ -942,6 +943,35 @@ export const SOURCE_PAGES = [
           title: 'Keep',
           artist: 'Nils Frahm',
           album_art_url: albumPlaceholder,
+          current_track: 1,
+          position: 0,
+          duration: 0
+        }
+      ),
+      ready(
+        'cd',
+        'Disc not identified',
+        'The same screen as above with the MusicBrainz lookup having found nothing — a burned disc, an obscure pressing, or any disc while the unit is offline. `_build_fallback_disc_info` answers with the TOC alone: a disc_id (so this is not the loading window), generic "Track N" titles from the real track count and durations, and album/artist/year/cover all None. The rich-display rule admits it anyway, since it asks for disc_present + cache_ready and never for an artist, so the player draws the track title it does know over "Unknown Artist" — which is the honest label here, the artist genuinely being unknown — and the disc placeholder stands in for the cover. This is the only CD record with no artist, and it is what AudioPlayerFull\'s snapshot rule had to be relaxed for: demanding title AND artist left the player on its empty seed and showed "Unknown Title" over a tracklist that listed the tracks correctly.',
+        {
+          drive_connected: true,
+          disc_present: true,
+          cache_ready: true,
+          disc_id: 'JXbxvhCUq4rHKnvNGkzZgL3xIxA-',
+          disc_album: null,
+          disc_artist: null,
+          disc_year: null,
+          disc_cover_url: null,
+          track_count: 4,
+          tracks: [
+            { number: 1, title: 'Track 1', duration: 312000 },
+            { number: 2, title: 'Track 2', duration: 96000 },
+            { number: 3, title: 'Track 3', duration: 268000 },
+            { number: 4, title: 'Track 4', duration: 401000 }
+          ],
+          title: 'Track 1',
+          artist: null,
+          album_art_url: null,
+          is_playing: false,
           current_track: 1,
           position: 0,
           duration: 0
