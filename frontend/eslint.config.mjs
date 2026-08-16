@@ -5,6 +5,16 @@
 // restrictions.
 import pluginVue from 'eslint-plugin-vue';
 
+// The global `$t()` no longer exists: neither entry point installs it on
+// `app.config.globalProperties`, and CLAUDE.md's i18n rule mandates
+// `const { t } = useI18n()` in `<script setup>`. Reinstating it would pass the
+// i18n test (tests/helpers/i18nScan.js scans `$t(` as a live call form) and
+// fail only at runtime, so it is blocked here instead.
+const NO_GLOBAL_T = {
+  selector: "CallExpression[callee.name='$t']",
+  message: "Use `const { t } = useI18n()` from '@/services/i18n' instead of the global $t(). See CLAUDE.md \"Frontend Conventions\".",
+};
+
 export default [
   ...pluginVue.configs['flat/recommended'],
   {
@@ -68,7 +78,10 @@ export default [
       'no-restricted-syntax': ['error', {
         selector: "CallExpression[callee.object.name='console'][callee.property.name=/^(error|log|debug|warn|info)$/]",
         message: "Use logger.{debug,info,warn,error}() from '@/services/logger' instead. See CLAUDE.md \"Frontend Conventions\" + RFC 17.",
-      }],
+      }, NO_GLOBAL_T],
+      // The core rule above only visits <script>; template expressions need the
+      // plugin's own selector rule.
+      'vue/no-restricted-syntax': ['error', NO_GLOBAL_T],
 
       // Disable the noisier eslint-plugin-vue defaults. The point of this
       // config is to lock the rules of RFCs 17-21, not to enforce arbitrary
@@ -153,6 +166,8 @@ export default [
   // logger.js is the only site allowed to call console.* — it IS the logger.
   // main.js Vue errorHandler and schemas/api.js dev-only Zod warnings are the
   // other documented exceptions (see CLAUDE.md "Frontend Conventions").
+  // Re-declared with NO_GLOBAL_T rather than turned off: the console exemption
+  // is theirs, the $t ban is not — main.js is where the global used to live.
   {
     files: [
       'src/services/logger.js',
@@ -160,7 +175,7 @@ export default [
       'src/schemas/api.js',
     ],
     rules: {
-      'no-restricted-syntax': 'off',
+      'no-restricted-syntax': ['error', NO_GLOBAL_T],
     },
   },
   {

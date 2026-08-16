@@ -23,7 +23,6 @@ async function initCanvas() {
 
   app.use(createPinia())
   app.directive('press', vPress)
-  app.config.globalProperties.$t = i18n.t.bind(i18n)
 
   await i18n.initializeLanguage()
 

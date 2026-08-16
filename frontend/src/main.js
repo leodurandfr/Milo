@@ -48,8 +48,6 @@ async function initApp() {
   app.use(router)
   app.directive('press', vPress)
 
-  app.config.globalProperties.$t = i18n.t.bind(i18n)
-
   // Capture Vue component errors (render, lifecycle, watchers)
   app.config.errorHandler = (err, instance, info) => {
     const component = instance?.$options?.name || instance?.$.type?.name || 'unknown'

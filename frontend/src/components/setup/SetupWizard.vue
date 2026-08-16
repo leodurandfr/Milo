@@ -205,7 +205,6 @@ async function applySetup() {
 
   if (!applyResult.ok) {
     isApplying.value = false;
-    if (!error.value) error.value = 'Setup failed. Please try again.';
     return;
   }
 

@@ -44,13 +44,6 @@ export function useInfiniteScroll({
     if (el && observer) observer.observe(el);
   });
 
-  // Re-observe when more content becomes available
-  watch(canLoadMore, (hasMore) => {
-    if (hasMore && sentinelRef.value && observer) {
-      observer.observe(sentinelRef.value);
-    }
-  });
-
   onMounted(setup);
 
   onBeforeUnmount(() => {

@@ -92,7 +92,7 @@ const props = defineProps({
   }
 });
 
-defineEmits(['click', 'play']);
+defineEmits(['click']);
 
 const lazyImg = ref(null);
 const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.station.favicon);
