@@ -101,6 +101,27 @@ wifi_adoption_service = get_service("wifi_adoption_service")
 ws_manager = get_service("websocket_manager")
 websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, settings_service, network_service)
 
+# Per-entry ceiling for the shutdown teardown below
+CLEANUP_TIMEOUT_S = 3.0
+
+
+async def run_teardown(entries, timeout: float = CLEANUP_TIMEOUT_S) -> None:
+    """
+    Run each shutdown entry isolated and bounded.
+
+    `entries` is a list of (name, zero-arg coroutine function). One entry that
+    raises or blocks must not deny the others theirs — which is why this is a
+    loop and not a straight-line sequence under one try.
+    """
+    for name, entry in entries:
+        try:
+            await asyncio.wait_for(entry(), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.error(f"Cleanup timed out after {timeout}s: {name}")
+        except Exception as e:
+            logger.error(f"Cleanup error in {name}: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management with async service initialization."""
@@ -140,30 +161,44 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Milo backend shutting down...")
-    try:
-        state_machine.cleanup()
-        await camilladsp_service.cleanup()
-        await snapcast_websocket_service.cleanup()
-        await client_registry_service.cleanup()
-        await get_service("pending_clients_service").shutdown()
-        await volume_service.cleanup()
-        await equalizer_proxy_service.cleanup()
-        await levels_monitor.cleanup()
-        if rotary_controller:
-            await rotary_controller.cleanup()
-        await screen_controller.cleanup()
-        await bt_remote_controller.cleanup()
-        await ir_remote_controller.cleanup()
-        await fan_controller.cleanup()
-        await get_service("connectivity_service").cleanup()
-        await network_service.cleanup()
-        await routing_service.cleanup()
-        await crossover_service.cleanup()
-        await get_service("hostname_conflict_service").cleanup()
-        await get_service("music_library_source").shares.cleanup()
-        logger.info("Cleanup completed")
-    except Exception as e:
-        logger.error(f"Cleanup error: {e}")
+    state_machine.cleanup()
+
+    # Order: silence the registry's producer, then the two flushes, then
+    # everything else. client_registry and volume are the only entries that
+    # WRITE (pending multiroom state, pending volume) and they used to sit
+    # behind camilladsp — the entry most likely to block on a daemon going down
+    # with us. snapcast_websocket still leads them, because it is what mutates
+    # the registry: flushing before cancelling its loop would leave a debounce
+    # armed that nothing gets to fire. Each entry is now isolated and bounded,
+    # so one hanging cleanup can no longer deny every later one its own.
+    # Bound: systemd's TimeoutStopSec is 10 s (system/milo-backend.service), and
+    # cutting a flush is survivable because both write through os.replace — an
+    # interrupted one leaves the previous file, never a truncated one.
+    teardown = [
+        ("snapcast_websocket", snapcast_websocket_service.cleanup),
+        ("client_registry", client_registry_service.cleanup),
+        ("volume", volume_service.cleanup),
+        ("camilladsp", camilladsp_service.cleanup),
+        ("pending_clients", get_service("pending_clients_service").shutdown),
+        ("equalizer_proxy", equalizer_proxy_service.cleanup),
+        ("levels_monitor", levels_monitor.cleanup),
+        ("screen", screen_controller.cleanup),
+        ("bt_remote", bt_remote_controller.cleanup),
+        ("ir_remote", ir_remote_controller.cleanup),
+        ("fan", fan_controller.cleanup),
+        ("connectivity", get_service("connectivity_service").cleanup),
+        ("network", network_service.cleanup),
+        ("routing", routing_service.cleanup),
+        ("crossover", crossover_service.cleanup),
+        ("hostname_conflict", get_service("hostname_conflict_service").cleanup),
+        ("music_library_shares", get_service("music_library_source").shares.cleanup),
+    ]
+    if rotary_controller:
+        # Absent on a unit with no encoder; a release, so position is free
+        teardown.append(("rotary", rotary_controller.cleanup))
+
+    await run_teardown(teardown)
+    logger.info("Cleanup completed")
 
 app = FastAPI(title="Milo API", lifespan=lifespan)
 
