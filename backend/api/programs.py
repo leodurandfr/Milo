@@ -56,6 +56,26 @@ def create_programs_router(
 
     active_updates = {}
 
+    def _claim_update(update_key: str) -> bool:
+        """Reserve an update key, or refuse if one is already in flight.
+
+        Synchronous on purpose, and called by the route rather than by
+        _create_background_update: `update_program` awaits GitHub
+        (`can_update_program`, up to ~20 s) between deciding and starting, and
+        a check separated from its write by an await lets two clients both
+        pass. The frontend store blocks a same-client double click; it cannot
+        block a second device. Every path out of a route between the claim and
+        `background_tasks.add_task` must release the key.
+        """
+        if update_key in active_updates:
+            return False
+        active_updates[update_key] = {
+            "status": "starting",
+            "progress": 0,
+            "message": "Initializing update..."
+        }
+        return True
+
     def _create_background_update(
         update_key: str,
         update_fn,
@@ -66,13 +86,9 @@ def create_programs_router(
     ):
         """Create a background update task with progress tracking and WS broadcasting.
 
+        The key is already claimed by the route through _claim_update().
         Returns an async do_update coroutine to pass to background_tasks.add_task().
         """
-        active_updates[update_key] = {
-            "status": "starting",
-            "progress": 0,
-            "message": "Initializing update..."
-        }
 
         async def progress_callback(message: str, progress: int):
             active_updates[update_key] = {
@@ -215,7 +231,7 @@ def create_programs_router(
 
         satellite_key = f"satellite_{mac_id}"
 
-        if satellite_key in active_updates:
+        if not _claim_update(satellite_key):
             return {
                 "status": "error",
                 "message": f"Update already in progress for {mac_id}"
@@ -242,7 +258,7 @@ def create_programs_router(
 
         satellite_key = f"satellite_app_{mac_id}"
 
-        if satellite_key in active_updates:
+        if not _claim_update(satellite_key):
             return {
                 "status": "error",
                 "message": f"App update already in progress for {mac_id}"
@@ -269,7 +285,7 @@ def create_programs_router(
 
         satellite_key = f"satellite_camilladsp_{mac_id}"
 
-        if satellite_key in active_updates:
+        if not _claim_update(satellite_key):
             return {
                 "status": "error",
                 "message": f"CamillaDSP update already in progress for {mac_id}"
@@ -314,14 +330,20 @@ def create_programs_router(
     async def update_program(program_key: str, background_tasks: BackgroundTasks):
         """Launch a local program update in the background"""
 
-        if program_key in active_updates:
+        if not _claim_update(program_key):
             return {
                 "status": "error",
                 "message": "Update already in progress for this program"
             }
 
-        can_update = await update_service.can_update_program(program_key)
+        try:
+            can_update = await update_service.can_update_program(program_key)
+        except Exception:
+            active_updates.pop(program_key, None)
+            raise
+
         if not can_update.get("can_update"):
+            active_updates.pop(program_key, None)
             return {
                 "status": "error",
                 "message": can_update.get("reason", "Cannot update")
