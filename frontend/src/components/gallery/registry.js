@@ -180,7 +180,8 @@ const NOW_PLAYING = {
 const NOW_PLAYING_READERS = [
   'components/audio/AudioPlayerFull.vue',
   'composables/useSourceProgress.js',
-  'utils/playbackBuffering.js'
+  'utils/playbackBuffering.js',
+  'utils/nowPlayingMetadata.js'
 ];
 
 export const REGISTRY = {

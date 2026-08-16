@@ -104,6 +104,7 @@ import { useI18n } from '@/services/i18n';
 
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
 import { nowPlayingArtwork } from '@/utils/nowPlayingArtwork';
+import { nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
 
 import PlaybackControls from './PlaybackControls.vue';
 import ProgressBar from './ProgressBar.vue';
@@ -183,18 +184,14 @@ const lastValidMetadata = ref({
   album_art_url: ''
 });
 
-// Cache last valid metadata so the UI doesn't blank out during brief gaps
+// Cache last valid metadata so the UI doesn't blank out during brief gaps.
+// What counts as worth keeping is per-source and lives in the util — CD is the
+// one source that reaches this player with no artist.
 watch(
   () => unifiedStore.systemState.metadata,
   (currentMetadata) => {
-    const meta = currentMetadata || {};
-    if (meta.title && meta.artist) {
-      lastValidMetadata.value = {
-        title: meta.title,
-        artist: meta.artist,
-        album_art_url: meta.album_art_url || ''
-      };
-    }
+    const snapshot = nowPlayingSnapshot(props.source, currentMetadata);
+    if (snapshot) lastValidMetadata.value = snapshot;
   },
   { immediate: true }
 );
