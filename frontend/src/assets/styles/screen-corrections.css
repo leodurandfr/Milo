@@ -9,7 +9,7 @@
 
     /* Center components */
 
-    .now-playing-spotify,
+    .now-playing,
     .now-playing-screensaver {
         padding: var(--space-05) var(--space-07) calc(var(--space-05) + 8px) var(--space-05) !important;
     }
