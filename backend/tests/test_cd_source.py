@@ -9,6 +9,7 @@ tick's auto-advance/album-end detection, and the MusicBrainz-unreachable
 offline fallback. The ioctl reader thread and mpv IPC are mocked — no real
 device, FIFO, or subprocess is touched.
 """
+import asyncio
 import threading
 
 import pytest
@@ -914,6 +915,74 @@ class TestReaderHandshake:
         assert await source._start_reader_and_mpv(0, autostart=False) is True
 
         assert ran_on and ran_on[0] is not loop_thread
+
+
+class TestPauseDuringARestart:
+    """The playback lock must cover the gesture, not just the restart.
+
+    _playback_lock was taken by _restart_reader_and_mpv alone and by no command
+    handler, so a pause arriving mid-restart set _is_playing=False /
+    _is_paused=True on the mpv the restart was about to replace — and the
+    restart's own set_property("pause", False) then un-paused the new one. The
+    disc plays behind a UI showing paused, and _on_monitor_tick's first line
+    (`if not self._is_playing: return`) means nothing ever corrects it. Up to
+    8 s wide: reader.wait_ready 5 s + wait_until_advancing 3 s.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_pause_pressed_during_a_restart_is_deferred_not_lost(self, source):
+        _with_state_machine(source)
+
+        # Ordered log of every pause-state change that reaches mpv.
+        events = []
+
+        async def set_property(name, value):
+            if name == "pause":
+                events.append("pause" if value else "unpause")
+            return True
+
+        async def pause():
+            events.append("pause")
+            return True
+
+        source._mpv = _mpv(
+            set_property=AsyncMock(side_effect=set_property),
+            pause=AsyncMock(side_effect=pause),
+        )
+        source._tracks = TRACKS
+        source._sector_offsets = [0, 15000, 33000]
+        source._disc_end_lba = 45000
+
+        # Block inside the reader's own wait_ready — the real 5 s window, on the
+        # thread it really runs on, so the event loop stays free meanwhile.
+        entered = threading.Event()
+        finish = threading.Event()
+
+        def wait_ready(timeout):
+            entered.set()
+            return finish.wait(5)
+
+        source._reader = Mock(wait_ready=wait_ready, start=Mock(), stop=Mock())
+
+        play = asyncio.create_task(
+            source._handle_play_track(PlayTrackParams(track_number=1))
+        )
+        while not entered.is_set():
+            await asyncio.sleep(0.01)
+
+        paused = asyncio.create_task(source._handle_pause())
+        await asyncio.sleep(0.05)  # the press is in, mid-restart
+
+        finish.set()
+        assert (await asyncio.wait_for(play, timeout=5))["success"] is True
+        assert (await asyncio.wait_for(paused, timeout=5))["success"] is True
+
+        assert source._is_paused is True
+        assert source._is_playing is False
+        source._mpv.pause.assert_awaited()  # the press was deferred, not swallowed
+        assert events[-1] == "pause", (
+            f"published paused while mpv was left un-paused: {events}"
+        )
 
 
 class TestMonitorTick:

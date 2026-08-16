@@ -88,8 +88,15 @@ class CdSource(MpvAudioSource):
         # Lock protecting self._mpv creation/connection (shared by _do_start and _pre_start_service)
         self._mpv_lock = asyncio.Lock()
 
-        # Serializes reader+mpv (re)starts so a background preload can't collide
-        # with a user play/seek/resume on the shared reader thread + FIFO.
+        # Serializes whole playback GESTURES, not just the reader+mpv restart:
+        # every command handler that mutates a playback flag takes it, and it
+        # spans announce -> restart -> _settle_after_restart. Held only by the
+        # restart it used to be, it protected nothing a user could reach — a
+        # pause arriving mid-restart was applied to the mpv about to be
+        # replaced, then silently un-paused by the restart itself.
+        # Deliberately NOT taken by the teardown paths (_do_stop, _cleanup,
+        # _clear_disc_state): those react to a source switch or to a disc that
+        # is already gone, where prompt beats ordered.
         self._playback_lock = asyncio.Lock()
 
         # Disc watcher (permanent, from initialize)
@@ -269,27 +276,28 @@ class CdSource(MpvAudioSource):
         if not self._mpv or not self._sector_offsets or not self._tracks:
             return
 
-        self._current_track = 1
-        self._track_position = 0
-        self._track_duration = self._tracks[0].duration
-        self._is_playing = False
-        self._is_paused = False
-        self._is_buffering = True  # loader while the drive spins up + mpv loads
-        self._update_connection_state()
-
-        if not await self._restart_reader_and_mpv(
-            self._sector_offsets[0], autostart=False
-        ):
-            self._is_buffering = False
+        async with self._playback_lock:
+            self._current_track = 1
+            self._track_position = 0
+            self._track_duration = self._tracks[0].duration
+            self._is_playing = False
+            self._is_paused = False
+            self._is_buffering = True  # loader while the drive spins up + mpv loads
             self._update_connection_state()
-            self._logger.warning("Preload: failed to load track 1")
-            return
 
-        # Parked paused & primed — a play tap resumes instantly.
-        self._is_paused = True
-        self._is_buffering = False
-        self._handle_pause_change(True)
-        self._update_connection_state()
+            if not await self._restart_reader_and_mpv(
+                self._sector_offsets[0], autostart=False
+            ):
+                self._is_buffering = False
+                self._update_connection_state()
+                self._logger.warning("Preload: failed to load track 1")
+                return
+
+            # Parked paused & primed — a play tap resumes instantly.
+            self._is_paused = True
+            self._is_buffering = False
+            self._handle_pause_change(True)
+            self._update_connection_state()
         self._logger.info("Preloaded track 1 (paused)")
 
     @handle_errors(default=False)
@@ -396,27 +404,37 @@ class CdSource(MpvAudioSource):
         keeps _current_track + _track_position so a tap on play resumes the same
         track at the same position. mpv stays connected for a cheap restart.
         """
-        await self._stop_reader_and_mpv()
-        self._is_playing = False
-        self._is_paused = False
-        self._is_buffering = False
-        self._update_connection_state()
+        async with self._playback_lock:
+            await self._stop_reader_and_mpv()
+            self._is_playing = False
+            self._is_paused = False
+            self._is_buffering = False
+            self._update_connection_state()
 
     async def _restart_reader_and_mpv(self, start_lba: int, autostart: bool = True) -> bool:
         """Restart reader at a new LBA position and reconnect mpv.
+
+        **The caller must hold ``_playback_lock``.** The lock used to be taken
+        here, which covered the mutation and not the gesture: no command handler
+        took it, so a `pause` arriving mid-restart set pause=True and
+        _is_playing=False while this function's own `set_property("pause",
+        False)` un-paused the new mpv underneath. The disc then played behind a
+        UI showing paused, and _on_monitor_tick's first line (`if not
+        self._is_playing: return`) guaranteed nothing ever corrected it. Holding
+        it in the caller is also what covers _settle_after_restart, which used to
+        run after the lock was released.
 
         Guards the monitor tick out for the whole restart: _play_start_lba and
         _current_track are momentarily inconsistent here, and a tick reading the
         old mpv's time-pos against them would emit a bogus position/album-end.
         autostart=False loads paused (preload) instead of starting playback.
         """
-        async with self._playback_lock:
-            self._restarting = True
-            try:
-                await self._stop_reader_and_mpv()
-                return await self._start_reader_and_mpv(start_lba, autostart=autostart)
-            finally:
-                self._restarting = False
+        self._restarting = True
+        try:
+            await self._stop_reader_and_mpv()
+            return await self._start_reader_and_mpv(start_lba, autostart=autostart)
+        finally:
+            self._restarting = False
 
     async def _settle_after_restart(self, restarted: bool) -> bool:
         """Post-restart UI settle shared by play/seek/resume.
@@ -729,31 +747,37 @@ class CdSource(MpvAudioSource):
             return self.error_response("Disc not ready")
 
         try:
-            start_lba = self._sector_offsets[track_number - 1]
-            # Snapshot so a failed restart rolls back to the prior track instead
-            # of leaving the source pointing at one that never started.
-            prev = (self._current_track, self._track_duration, self._track_position)
+            # The whole gesture is one critical section: announce, restart,
+            # settle. A pause landing between the restart and the settle would
+            # otherwise be broadcast over playing audio (see
+            # _restart_reader_and_mpv).
+            async with self._playback_lock:
+                start_lba = self._sector_offsets[track_number - 1]
+                # Snapshot so a failed restart rolls back to the prior track
+                # instead of leaving the source pointing at one that never
+                # started.
+                prev = (self._current_track, self._track_duration, self._track_position)
 
-            # Announce the (re)load *before* the blocking restart: publish the
-            # target track at position 0 with is_buffering=True so the frontend
-            # snaps its progress bar to 0 and freezes it immediately. Without
-            # this the bar keeps interpolating the outgoing position during the
-            # ~1s restart and only resets once the post-restart broadcast lands —
-            # the visible "bar starts, then jumps back to 0:00".
-            self._current_track = track_number
-            self._track_position = 0
-            self._track_duration = self._tracks[track_number - 1].duration
-            self._is_playing = True
-            self._is_paused = False
-            self._is_buffering = True  # Until mpv produces audio
-            self._handle_pause_change(False)
-            self._update_connection_state()
+                # Announce the (re)load *before* the blocking restart: publish the
+                # target track at position 0 with is_buffering=True so the frontend
+                # snaps its progress bar to 0 and freezes it immediately. Without
+                # this the bar keeps interpolating the outgoing position during the
+                # ~1s restart and only resets once the post-restart broadcast lands —
+                # the visible "bar starts, then jumps back to 0:00".
+                self._current_track = track_number
+                self._track_position = 0
+                self._track_duration = self._tracks[track_number - 1].duration
+                self._is_playing = True
+                self._is_paused = False
+                self._is_buffering = True  # Until mpv produces audio
+                self._handle_pause_change(False)
+                self._update_connection_state()
 
-            restarted = await self._restart_reader_and_mpv(start_lba)
-            if not restarted:
-                self._current_track, self._track_duration, self._track_position = prev
-            if not await self._settle_after_restart(restarted):
-                return self.error_response("Failed to start playback")
+                restarted = await self._restart_reader_and_mpv(start_lba)
+                if not restarted:
+                    self._current_track, self._track_duration, self._track_position = prev
+                if not await self._settle_after_restart(restarted):
+                    return self.error_response("Failed to start playback")
 
             self.broadcast_error_cleared()
             return self.success_response(f"Playing track {track_number}")
@@ -765,24 +789,32 @@ class CdSource(MpvAudioSource):
     async def _handle_pause(self) -> Dict[str, Any]:
         if not self._mpv:
             return self.error_response("CD not active")
-        if not self._is_playing:
-            # Nothing to pause. Marking the source paused here would park it in
-            # the paused state with no stream loaded, and _handle_resume's
-            # paused branch un-pauses mpv in place rather than restarting the
-            # reader — so the next play tap would report playing while staying
-            # silent, with no way back except another pause.
-            return self.success_response("Not playing")
         try:
-            # Snapshot the live playhead before pausing so the broadcast lands
-            # exactly where the disc stopped — _track_position from the monitor
-            # tick can be up to ~1s stale, which snaps the progress bar back.
-            await self._sync_position_from_mpv()
-            await self._mpv.pause()
-            self._is_playing = False
-            self._is_paused = True
-            self._handle_pause_change(True)
-            self._update_connection_state()
-            return self.success_response("Paused")
+            # Waits behind an in-flight reader+mpv restart (up to ~8 s), and
+            # _is_playing is re-read on the far side of that wait. Pressed
+            # during a restart, the pause is now late instead of lost: it used
+            # to be applied to the mpv the restart was about to replace, and
+            # then un-paused by the restart's own set_property("pause", False).
+            async with self._playback_lock:
+                if not self._is_playing:
+                    # Nothing to pause. Marking the source paused here would park
+                    # it in the paused state with no stream loaded, and
+                    # _handle_resume's paused branch un-pauses mpv in place rather
+                    # than restarting the reader — so the next play tap would
+                    # report playing while staying silent, with no way back except
+                    # another pause.
+                    return self.success_response("Not playing")
+
+                # Snapshot the live playhead before pausing so the broadcast lands
+                # exactly where the disc stopped — _track_position from the monitor
+                # tick can be up to ~1s stale, which snaps the progress bar back.
+                await self._sync_position_from_mpv()
+                await self._mpv.pause()
+                self._is_playing = False
+                self._is_paused = True
+                self._handle_pause_change(True)
+                self._update_connection_state()
+                return self.success_response("Paused")
         except Exception as e:
             self._logger.error(f"Pause error: {e}")
             return self.error_response(str(e))
@@ -791,52 +823,56 @@ class CdSource(MpvAudioSource):
         if not self._mpv:
             return self.error_response("CD not active")
         try:
-            # Short pause / preload — mpv still loaded, unblock the reader in
-            # place. A cold preload (loaded but never advanced) incurs the ~1s
-            # output-startup latency on un-pause, so freeze the bar and gate on
-            # real advancement like play_track; a warm mid-track resume already
-            # has time-pos > 0, so wait_until_advancing returns immediately.
-            if self._is_paused:
-                self._is_buffering = True
-                self._update_connection_state()
-                await self._mpv.resume()
-                if not await self._mpv.wait_until_advancing(timeout=3.0):
-                    self._logger.warning("Resume: mpv playback did not advance in time")
-                await self._sync_position_from_mpv()
+            # Same critical section as pause and play_track: the branch is
+            # decided on flags read under the lock, so a resume pressed during a
+            # restart cannot act on the state the restart is about to replace.
+            async with self._playback_lock:
+                # Short pause / preload — mpv still loaded, unblock the reader in
+                # place. A cold preload (loaded but never advanced) incurs the ~1s
+                # output-startup latency on un-pause, so freeze the bar and gate on
+                # real advancement like play_track; a warm mid-track resume already
+                # has time-pos > 0, so wait_until_advancing returns immediately.
+                if self._is_paused:
+                    self._is_buffering = True
+                    self._update_connection_state()
+                    await self._mpv.resume()
+                    if not await self._mpv.wait_until_advancing(timeout=3.0):
+                        self._logger.warning("Resume: mpv playback did not advance in time")
+                    await self._sync_position_from_mpv()
+                    self._is_playing = True
+                    self._is_paused = False
+                    self._is_buffering = False
+                    self._handle_pause_change(False)
+                    self._update_connection_state()
+                    return self.success_response("Resumed")
+
+                if self._is_playing:
+                    return self.success_response("Already playing")
+
+                # Idle (auto-stopped or album-finished): no stream loaded. Restart
+                # the reader at the LBA computed from the saved track + position
+                # (same math as _handle_seek). Auto-stop resumes track N where it
+                # left off; album-finished resumes track 1 at 0:00 (reset there).
+                if not self._sector_offsets or not self._tracks:
+                    return self.error_response("Disc not ready")
+                track = self._current_track or 1
+                if track > len(self._tracks):
+                    track = 1
+                target_lba = self._track_position_to_lba(track, self._track_position)
+
+                # Freeze the bar at the resume point during the blocking restart,
+                # then settle to the real (already-advanced) playhead.
+                self._current_track = track
+                self._track_duration = self._tracks[track - 1].duration
                 self._is_playing = True
                 self._is_paused = False
-                self._is_buffering = False
+                self._is_buffering = True
                 self._handle_pause_change(False)
                 self._update_connection_state()
-                return self.success_response("Resumed")
 
-            if self._is_playing:
-                return self.success_response("Already playing")
-
-            # Idle (auto-stopped or album-finished): no stream loaded. Restart
-            # the reader at the LBA computed from the saved track + position
-            # (same math as _handle_seek). Auto-stop resumes track N where it
-            # left off; album-finished resumes track 1 at 0:00 (reset there).
-            if not self._sector_offsets or not self._tracks:
-                return self.error_response("Disc not ready")
-            track = self._current_track or 1
-            if track > len(self._tracks):
-                track = 1
-            target_lba = self._track_position_to_lba(track, self._track_position)
-
-            # Freeze the bar at the resume point during the blocking restart,
-            # then settle to the real (already-advanced) playhead.
-            self._current_track = track
-            self._track_duration = self._tracks[track - 1].duration
-            self._is_playing = True
-            self._is_paused = False
-            self._is_buffering = True
-            self._handle_pause_change(False)
-            self._update_connection_state()
-
-            restarted = await self._restart_reader_and_mpv(target_lba)
-            if not await self._settle_after_restart(restarted):
-                return self.error_response("Failed to resume")
+                restarted = await self._restart_reader_and_mpv(target_lba)
+                if not await self._settle_after_restart(restarted):
+                    return self.error_response("Failed to resume")
             self.broadcast_error_cleared()
             return self.success_response("Resumed")
         except Exception as e:
@@ -877,35 +913,38 @@ class CdSource(MpvAudioSource):
             return self.error_response("No track playing")
 
         try:
-            position = max(0, int(position))
-            target_lba = self._track_position_to_lba(self._current_track, position)
+            async with self._playback_lock:
+                position = max(0, int(position))
+                target_lba = self._track_position_to_lba(self._current_track, position)
 
-            # Seek moves the playhead; it never decides to play. Restart the
-            # reader at the target and resume audio only if audio was already
-            # running. With the default autostart, a seek from any non-playing
-            # state — paused, the preload's parked state where the user has
-            # never pressed play, or auto-stopped — un-paused mpv while these
-            # flags stayed put: the disc played behind a UI showing the play
-            # button, and the monitor tick, gated on _is_playing, froze the bar.
-            was_playing = self._is_playing
+                # Seek moves the playhead; it never decides to play. Restart the
+                # reader at the target and resume audio only if audio was already
+                # running. With the default autostart, a seek from any non-playing
+                # state — paused, the preload's parked state where the user has
+                # never pressed play, or auto-stopped — un-paused mpv while these
+                # flags stayed put: the disc played behind a UI showing the play
+                # button, and the monitor tick, gated on _is_playing, froze the bar.
+                # Read under the lock, so a pause that arrived during an earlier
+                # restart has already been applied here.
+                was_playing = self._is_playing
 
-            # Freeze the bar at the seek target during the blocking restart,
-            # then settle to the real (already-advanced) playhead.
-            self._track_position = position
-            self._is_buffering = True
-            self._update_connection_state()
+                # Freeze the bar at the seek target during the blocking restart,
+                # then settle to the real (already-advanced) playhead.
+                self._track_position = position
+                self._is_buffering = True
+                self._update_connection_state()
 
-            restarted = await self._restart_reader_and_mpv(
-                target_lba, autostart=was_playing
-            )
-            if not restarted:
-                # Nothing is loaded any more — leave the paused state so a play
-                # tap takes the idle full-restart path instead of un-pausing a
-                # dead mpv (_settle_after_restart only clears _is_playing).
-                self._is_paused = False
-            if not await self._settle_after_restart(restarted):
-                return self.error_response("Seek failed")
-            return self.success_response(f"Seeked to {position}s")
+                restarted = await self._restart_reader_and_mpv(
+                    target_lba, autostart=was_playing
+                )
+                if not restarted:
+                    # Nothing is loaded any more — leave the paused state so a play
+                    # tap takes the idle full-restart path instead of un-pausing a
+                    # dead mpv (_settle_after_restart only clears _is_playing).
+                    self._is_paused = False
+                if not await self._settle_after_restart(restarted):
+                    return self.error_response("Seek failed")
+                return self.success_response(f"Seeked to {position}s")
 
         except Exception as e:
             self._logger.error(f"Seek error: {e}")
@@ -913,15 +952,16 @@ class CdSource(MpvAudioSource):
 
     async def _handle_eject(self) -> Dict[str, Any]:
         try:
-            if self._is_playing or self._is_paused:
-                await self._stop_reader_and_mpv()
+            async with self._playback_lock:
+                if self._is_playing or self._is_paused:
+                    await self._stop_reader_and_mpv()
 
-            # Immediately clear disc state and show "ejecting" in the UI
-            self._reset_playback_state()
-            self._current_disc = None
-            self._tracks = []
-            self._ejecting = True
-            self._update_connection_state()
+                # Immediately clear disc state and show "ejecting" in the UI
+                self._reset_playback_state()
+                self._current_disc = None
+                self._tracks = []
+                self._ejecting = True
+                self._update_connection_state()
 
             proc = await asyncio.create_subprocess_exec(
                 "eject", CD_DEVICE,
