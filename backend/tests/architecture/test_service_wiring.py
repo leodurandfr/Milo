@@ -179,6 +179,10 @@ def test_registry_services_with_cleanup_are_called_on_shutdown():
 
     `CrossoverService.cleanup()` existed for months while the lifespan handler
     never invoked it, so its per-client retry tasks outlived every shutdown.
+
+    The shutdown block registers each entry as a bound method in a list that
+    `run_teardown` then calls, so a bare `.cleanup` reference counts here — in
+    that block, a mention *is* the registration.
     """
     main_src = (BACKEND_ROOT / "main.py").read_text()
     shutdown = main_src.split("yield", 1)[1] if "yield" in main_src else ""
@@ -208,12 +212,12 @@ def test_registry_services_with_cleanup_are_called_on_shutdown():
         if not has_cleanup:
             continue
         # main.py may hold the service in a local or resolve it inline.
-        called = re.search(rf'\b{service_name}\b[^\n]*\.(cleanup|shutdown)\(', shutdown) or re.search(
-            rf'get_service\("{service_name}"\)\.(cleanup|shutdown)\(', shutdown
+        called = re.search(rf'\b{service_name}\b[^\n]*\.(cleanup|shutdown)\b', shutdown) or re.search(
+            rf'get_service\("{service_name}"\)\.(cleanup|shutdown)\b', shutdown
         )
         local = re.search(rf'^(\w+) = get_service\("{service_name}"\)', main_src, re.M)
         if not called and local:
-            called = re.search(rf'\b{local.group(1)}\b\.(cleanup|shutdown)\(', shutdown)
+            called = re.search(rf'\b{local.group(1)}\b\.(cleanup|shutdown)\b', shutdown)
         if not called:
             uncalled.append(f"{cls_name}.cleanup() is never called in main.py's shutdown")
 
