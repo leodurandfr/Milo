@@ -89,11 +89,9 @@ class I18nService {
   async initializeLanguage() {
     if (this.isInitialized) return;
 
-    // Always preload French and English translations
-    await Promise.all([
-      this.loadTranslations('french'),
-      this.loadTranslations('english')
-    ]);
+    // English only: it is the fallback t() reads when a key is missing, so it is
+    // needed whatever the server answers. The active language loads just below.
+    await this.loadTranslations('english');
 
     const result = await apiCall.get('/api/settings/language', {
       category: 'i18n',
