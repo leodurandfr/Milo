@@ -345,8 +345,15 @@ class CdDataService:
                 self._download_cover_sync, release_mbid, release_group_mbid
             )
             if image_data:
-                async with aiofiles.open(cover_path, "wb") as f:
+                # Atomic, like _save_data: a jacket interrupted mid-write would
+                # be served forever — the existence check above never
+                # re-downloads, and get_cover_path only tests existence.
+                temp_path = cover_path + ".tmp"
+                async with aiofiles.open(temp_path, "wb") as f:
                     await f.write(image_data)
+                    await f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temp_path, cover_path)
                 logger.info(f"Cover art saved for disc {disc_id}")
                 return True
         except Exception as e:
