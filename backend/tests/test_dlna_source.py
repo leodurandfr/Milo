@@ -13,6 +13,7 @@ Covers the pure, non-trivial logic that has no other guard:
 Artwork dimension decoding itself lives in backend.shared.artwork and is
 covered by test_artwork.py.
 """
+import asyncio
 import datetime
 from io import BytesIO
 from types import SimpleNamespace
@@ -218,6 +219,37 @@ async def test_a_new_track_does_not_inherit_the_previous_cover():
     assert src.metadata["title"] == "Toilet Brush"
     assert "album_art_url" not in src.metadata
     assert "album_art_width" not in src.metadata
+    assert src.get_artwork() is None
+
+
+@pytest.mark.asyncio
+async def test_a_cover_still_in_flight_does_not_land_on_the_next_track():
+    """The fetch runs up to 10 s and the bridge dispatches each callback as an
+    independent task, so the previous track's cover can arrive after the next
+    one is already on screen — and stay there until the track after that,
+    since the renderer publishes no second art event for it."""
+    src = DlnaSource()
+
+    fetching = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_fetch(url):
+        fetching.set()
+        await release.wait()
+        return _PNG
+
+    src._fetch_artwork = slow_fetch
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
+
+    art = asyncio.create_task(src._on_artwork("http://nas/spaces.jpg"))
+    await asyncio.wait_for(fetching.wait(), timeout=1)
+
+    await src._on_metadata_update({"title": "Toilet Brush", "artist": "Nils Frahm", "album": "Spaces"})
+    release.set()
+    await asyncio.wait_for(art, timeout=1)
+
+    assert src.metadata["title"] == "Toilet Brush"
+    assert "album_art_url" not in src.metadata
     assert src.get_artwork() is None
 
 
