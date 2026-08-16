@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { usePodcastStore } from '@/stores/podcastStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 
@@ -301,6 +302,63 @@ describe('podcastStore', () => {
     });
   });
 
+  describe('resync heals the now-playing slice', () => {
+    // _applyMetadata is the only writer of currentEpisode/displayEpisode/
+    // playbackSpeed, and source/state_changed its only trigger. A tab
+    // backgrounded across an episode change misses that delta for good, so
+    // resync() must re-apply the snapshot App.vue has just healed the mirror
+    // with — otherwise the player paints episode A over episode B's progress.
+    const healMirror = (metadata, activeSource = 'podcast') => {
+      useUnifiedAudioStore().updateState({
+        data: {
+          full_state: {
+            active_source: activeSource,
+            source_state: 'active',
+            transitioning: false,
+            multiroom_enabled: false,
+            equalizer_effects_enabled: true,
+            metadata,
+          },
+        },
+      });
+    };
+
+    beforeEach(() => {
+      apiCall.get.mockResolvedValue(ok({ subscriptions: [] }));
+    });
+
+    it('adopts the episode the missed delta carried', async () => {
+      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+      healMirror({ current_episode: EPISODE('ep2'), playback_speed: 1.5 });
+
+      await store.resync();
+
+      expect(store.currentEpisode.uuid).toBe('ep2');
+      expect(store.displayEpisode.uuid).toBe('ep2');
+      expect(store.playbackSpeed).toBe(1.5);
+    });
+
+    it('drops an episode that stopped while the tab was backgrounded', async () => {
+      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+      healMirror({ is_playing: false });
+
+      await store.resync();
+
+      expect(store.currentEpisode).toBeNull();
+      // The player owns displayEpisode until its fade-out ends.
+      expect(store.displayEpisode.uuid).toBe('ep1');
+    });
+
+    it('leaves the slice alone when podcast is not the active source', async () => {
+      store.handleSourceEvent(sourceEvent({ current_episode: EPISODE('ep1') }));
+      healMirror({ title: 'Some track' }, 'spotify');
+
+      await store.resync();
+
+      expect(store.currentEpisode.uuid).toBe('ep1');
+    });
+  });
+
   describe('play', () => {
     it('flags the episode pending before the request resolves', async () => {
       apiCall.post.mockResolvedValueOnce(ok({ success: true }));
@@ -364,6 +422,16 @@ describe('podcastStore', () => {
       expect(store.searchResults.podcasts).toEqual([]);
       expect(store.searchCurrentPage.podcasts).toBe(1);
       expect(store.hasSearched).toBe(false);
+    });
+
+    it('clearSearch clears the catalogue-unavailable flag', () => {
+      // Left set, the "catalogue unavailable" panel greets the next visit to
+      // search before a single keystroke, and only a later success clears it.
+      store.apiError = true;
+
+      store.clearSearch();
+
+      expect(store.apiError).toBe(false);
     });
   });
 });
