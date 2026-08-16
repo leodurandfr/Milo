@@ -457,6 +457,14 @@ class MusicLibrarySource(MpvAudioSource):
             self._queue_library_id,
         )
         await self.stop()
+        # Forget the snapshot _do_stop just took: it is a queue this function
+        # has already declared unplayable, and resuming it on the next open
+        # replays a now-playing that points at an absent device — titles
+        # scrolling silently for a second or two. Cleared on the capture side
+        # rather than guarded on the restore side, so opening the library does
+        # not re-check a mount for a session that should never have been
+        # recorded.
+        self._resume = None
         # stop() clears the source but publishes nothing (it is also the reroute
         # path — see release_for_reroute), and the storages event the caller
         # sends next carries full_state.
@@ -524,9 +532,12 @@ class MusicLibrarySource(MpvAudioSource):
     async def _do_stop(self) -> bool:
         """Stop mpv and the service, clearing the queue.
 
-        A stop here is a source switch or routing change (never an explicit
-        Stop), so the live session is snapshotted for resume-on-return before the
-        teardown clears it."""
+        A stop here is a source switch, a routing change, or the queue's storage
+        space going away (`_stop_if_storage_gone`) — never an explicit Stop. So
+        the live session is snapshotted for resume-on-return before the teardown
+        clears it. That third caller drops the snapshot again immediately after,
+        because the queue it describes is exactly what it just declared
+        unplayable."""
         await self._capture_resume_session()
         await self._cleanup()
         self._reset_playback_state()
