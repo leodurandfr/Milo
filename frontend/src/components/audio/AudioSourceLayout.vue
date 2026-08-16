@@ -473,7 +473,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   .content-container {
     width: 100%;
     max-width: none;
-    padding-top: calc(max(24px, env(safe-area-inset-top, 0px)) + 8px);
+    padding-top: calc(max(var(--space-05-fixed), env(safe-area-inset-top, 0px)) + var(--space-02));
     padding-bottom: var(--space-08);
   }
 
@@ -498,7 +498,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
      is no column to offset against — the pill stays centred in both states. */
   .scroll-top-anchor,
   .scroll-top-anchor.has-player {
-    top: calc(max(24px, env(safe-area-inset-top, 0px)) + 8px);
+    top: calc(max(var(--space-05-fixed), env(safe-area-inset-top, 0px)) + var(--space-02));
     transform: translateX(-50%);
   }
 }

@@ -461,12 +461,12 @@ onUnmounted(() => {
 }
 
 .connection-badge--connected {
-  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  background: var(--color-success-subtle);
   color: var(--color-success);
 }
 
 .connection-badge--disconnected {
-  background: color-mix(in srgb, var(--color-error) 16%, transparent);
+  background: var(--color-error-subtle);
   color: var(--color-error);
 }
 

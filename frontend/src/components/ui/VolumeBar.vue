@@ -110,7 +110,7 @@ const volumeFillStyle = computed(() => ({
 @media (max-aspect-ratio: 4/3) {
   .volume-bar {
     width: calc(100% - 2*(var(--space-04)));
-    top: max(16px, env(safe-area-inset-top, 0px));
+    top: max(var(--space-05), env(safe-area-inset-top, 0px));
   }
 }
 </style>

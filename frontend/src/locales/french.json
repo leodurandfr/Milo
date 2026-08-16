@@ -409,7 +409,8 @@
     "settings": "Paramètres",
     "deleting": "Suppression en cours...",
     "close": "Fermer",
-    "backToTop": "Retour en haut"
+    "backToTop": "Retour en haut",
+    "selectOption": "Sélectionner une option"
   },
   "radio": {
     "country": "Pays",
@@ -716,6 +717,7 @@
       "accessHint": "Après le redémarrage, connectez-vous au réseau {ssid} et ouvrez milo.local dans votre navigateur pour accéder à Milō.",
       "rebooting": "Redémarrage en cours...",
       "rebootingDescription": "Veuillez patienter pendant le redémarrage du système.",
+      "rebootTimeout": "Le redémarrage a expiré. Veuillez actualiser la page.",
       "volumeNotManaged": "Volume non géré par Milō"
     }
   },

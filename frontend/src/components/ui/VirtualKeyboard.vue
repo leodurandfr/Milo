@@ -696,7 +696,7 @@ onUnmounted(() => {
 
 .accent-selected {
   background: var(--color-brand);
-  color: white;
+  color: var(--color-text-contrast);
   border-radius: var(--radius-02);
 }
 

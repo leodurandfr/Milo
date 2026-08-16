@@ -409,7 +409,8 @@
     "settings": "Configurações",
     "deleting": "A eliminar...",
     "close": "Fechar",
-    "backToTop": "Voltar ao topo"
+    "backToTop": "Voltar ao topo",
+    "selectOption": "Selecione uma opção"
   },
   "radio": {
     "country": "País",
@@ -715,6 +716,7 @@
       "confirmReboot": "Confirmar reinício",
       "rebooting": "A reiniciar...",
       "rebootingDescription": "Aguarde enquanto o sistema reinicia.",
+      "rebootTimeout": "O tempo de espera do reinício expirou. Atualize a página.",
       "accessHint": "Após o reinício, ligue-se à rede {ssid} e abra milo.local no seu navegador para aceder ao Milō.",
       "volumeNotManaged": "Volume não gerido pelo Milō"
     }

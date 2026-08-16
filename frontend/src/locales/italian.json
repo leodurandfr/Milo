@@ -409,7 +409,8 @@
     "settings": "Impostazioni",
     "deleting": "Eliminazione in corso...",
     "close": "Chiudi",
-    "backToTop": "Torna su"
+    "backToTop": "Torna su",
+    "selectOption": "Seleziona un'opzione"
   },
   "radio": {
     "country": "Paese",
@@ -715,6 +716,7 @@
       "confirmReboot": "Conferma riavvio",
       "rebooting": "Riavvio in corso...",
       "rebootingDescription": "Attendi il riavvio del sistema.",
+      "rebootTimeout": "Riavvio scaduto. Aggiorna la pagina.",
       "accessHint": "Dopo il riavvio, connettiti a {ssid} e apri milo.local nel tuo browser per accedere a Milō.",
       "volumeNotManaged": "Volume non gestito da Milō"
     }

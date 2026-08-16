@@ -409,7 +409,8 @@
     "settings": "设置",
     "deleting": "删除中...",
     "close": "关闭",
-    "backToTop": "返回顶部"
+    "backToTop": "返回顶部",
+    "selectOption": "选择一个选项"
   },
   "radio": {
     "country": "国家",
@@ -715,6 +716,7 @@
       "confirmReboot": "确认重启",
       "rebooting": "正在重启...",
       "rebootingDescription": "请等待系统重启。",
+      "rebootTimeout": "重启超时。请刷新页面。",
       "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。",
       "volumeNotManaged": "音量未由 Milō 管理"
     }
