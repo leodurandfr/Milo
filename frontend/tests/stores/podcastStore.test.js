@@ -434,4 +434,98 @@ describe('podcastStore', () => {
       expect(store.apiError).toBe(false);
     });
   });
+
+  // Two uncached iTunes queries can invert, so the response for a term the user
+  // has already replaced must not land. The store cancels the previous request
+  // and identifies the one it gets back; an in-flight search losing that
+  // identity is the whole contract.
+  describe('search supersession', () => {
+    /** A response the test lands by hand, to drive two searches out of order. */
+    const deferred = () => {
+      let settle;
+      const promise = new Promise((resolve) => { settle = resolve; });
+      return { promise, settle };
+    };
+
+    const page = (uuid) => ok({
+      podcasts: [{ uuid }],
+      pagination: { podcasts: { total: 1, pages: 1 } },
+    });
+
+    it('aborts the request the previous term left in flight', async () => {
+      const first = deferred();
+      const second = deferred();
+      apiCall.get.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+      store.searchTerm = 'beat';
+      const stale = store.search();
+      store.searchTerm = 'beatles';
+      const fresh = store.search();
+
+      expect(apiCall.get.mock.calls[0][1].signal.aborted).toBe(true);
+      expect(apiCall.get.mock.calls[1][1].signal.aborted).toBe(false);
+
+      second.settle(page('beatles-1'));
+      await fresh;
+      first.settle(page('beat-1'));
+      await stale;
+    });
+
+    it('keeps the newer results when the older response lands last', async () => {
+      const first = deferred();
+      const second = deferred();
+      apiCall.get.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+      store.searchTerm = 'beat';
+      const stale = store.search();
+      store.searchTerm = 'beatles';
+      const fresh = store.search();
+
+      second.settle(page('beatles-1'));
+      await fresh;
+      first.settle(page('beat-1'));
+      await stale;
+
+      expect(store.searchResults.podcasts.map(p => p.uuid)).toEqual(['beatles-1']);
+      expect(store.lastSearchTerm).toBe('beatles');
+      expect(store.searchLoading).toBe(false);
+    });
+
+    it('ignores a superseded api_error instead of raising the unavailable panel', async () => {
+      // The part that actually hurts: the stale response is a *failed* one, so
+      // it replaces a fresh result list with "catalogue unavailable".
+      const first = deferred();
+      const second = deferred();
+      apiCall.get.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+      store.searchTerm = 'beat';
+      const stale = store.search();
+      store.searchTerm = 'beatles';
+      const fresh = store.search();
+
+      second.settle(page('beatles-1'));
+      await fresh;
+      first.settle(ok({ api_error: true }));
+      await stale;
+
+      expect(store.apiError).toBe(false);
+      expect(store.searchResults.podcasts.map(p => p.uuid)).toEqual(['beatles-1']);
+    });
+
+    it('drops a response that lands after clearSearch', async () => {
+      const inFlight = deferred();
+      apiCall.get.mockReturnValueOnce(inFlight.promise);
+
+      store.searchTerm = 'beat';
+      const stale = store.search();
+      store.clearSearch();
+
+      inFlight.settle(page('beat-1'));
+      await stale;
+
+      expect(store.searchResults.podcasts).toEqual([]);
+      expect(store.hasSearched).toBe(false);
+      expect(store.searchLoading).toBe(false);
+    });
+  });
 });
