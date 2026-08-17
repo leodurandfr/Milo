@@ -18,14 +18,18 @@ HARDWARE_FILE = "/var/lib/milo-client/hardware.json"
 MILO_SETTINGS_FILE = "/var/lib/milo/settings.json"
 APPLY_HARDWARE_SCRIPT = "/usr/local/bin/milo-client-apply-hardware"
 
-# Must match the allowlist in milo-client-apply-hardware
+# Exactly the overlay set of backend/hardware/registry.py::AUDIO_CARDS, restated
+# here because the satellite has no access to it — and pinned by
+# backend/tests/architecture/test_audio_overlay_allowlist.py, along with the same
+# list in /usr/local/lib/milo/hardware-helpers.sh that the apply script reads.
 VALID_OVERLAYS = {
     "hifiberry-dacplus-std",
+    "hifiberry-dacplus-pro",
+    "hifiberry-dacplusadcpro",
     "hifiberry-amp4pro",
     "hifiberry-amp100",
     "hifiberry-dac",
     "hifiberry-dacplushd",
-    "hifiberry-dacplus",
 }
 
 
