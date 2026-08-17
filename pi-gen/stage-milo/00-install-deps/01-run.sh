@@ -24,7 +24,10 @@ CHROOT
 # Note: PulseAudio/PipeWire removal is done after compilation in 01-install-audio/01-run.sh
 # because libpulse-dev (needed by roc-toolkit) pulls in pulseaudio as a dependency.
 
-# Add milo user to required groups (pi-gen creates the user via FIRST_USER_NAME)
+# Add milo user to required groups (pi-gen creates the user via FIRST_USER_NAME).
+# Same list as install/base.sh::MILO_USER_GROUPS — each entry is a device node
+# Milō opens; see the comment there. This list is what the appliance needs, not
+# what the base image happens to grant its first user.
 on_chroot << 'CHROOT'
-usermod -aG audio,video,bluetooth,input milo
+usermod -aG audio,video,render,bluetooth,input,cdrom,gpio milo
 CHROOT

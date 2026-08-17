@@ -66,15 +66,30 @@ setup_hostname() {
     fi
 }
 
+# Every group here is a device node Milō opens, measured rather than assumed:
+# audio -> ALSA, video -> /dev/dri/card* + /run/seatd.sock (the kiosk),
+# render -> /dev/dri/renderD128 (cage and chromium both hold it open; the unit's
+# SupplementaryGroups=video does not cover it), bluetooth -> BlueZ,
+# input -> /dev/input/event* (IR + BT remote), cdrom -> /dev/sr0,
+# gpio -> /dev/gpiochip0, which rotary.py opens via lgpio.
+MILO_USER_GROUPS="audio,video,render,bluetooth,input,cdrom,gpio"
+
 create_milo_user() {
     if id "$MILO_USER" &>/dev/null; then
         log_info "User '$MILO_USER' already exists"
     else
         log_info "Creating user '$MILO_USER'..."
         sudo useradd -m -s /bin/bash "$MILO_USER"
-        sudo usermod -aG audio,video,bluetooth,input,cdrom "$MILO_USER"
         log_success "User '$MILO_USER' created"
     fi
+
+    # Outside the branch on purpose. Following the README the user pre-exists —
+    # it is the image's first user, renamed by userconf-pi, and Raspberry Pi OS
+    # already grants it all of these. That is the only reason a rotary encoder
+    # ever worked: the useradd branch above never granted gpio or render, so a
+    # deviating install got hardware that fails silently. usermod -aG is additive
+    # and idempotent, so both paths now end up in the same place.
+    sudo usermod -aG "$MILO_USER_GROUPS" "$MILO_USER"
 
     sudo mkdir -p "$MILO_DATA_DIR"
     sudo mkdir -p "$MILO_DATA_DIR/cd_covers"

@@ -64,17 +64,24 @@ Build time is approximately 1-2 hours due to ARM64 cross-compilation via QEMU.
 
 ## Dependency Versions
 
-All dependency versions are pinned as variables at the top of the stage scripts for easy updates:
+All dependency versions are pinned as variables at the top of the stage scripts.
+The numbers are deliberately **not** repeated here — this table restated them
+once and went stale on two rows while the scripts moved on. Read the variable:
 
-| Dependency | Version | Location |
+| Dependency | Variable | Location |
 |---|---|---|
-| go-librespot | 0.7.3 | `01-install-audio/00-run.sh` |
-| CamillaDSP | 3.0.1 | `01-install-audio/00-run.sh` |
-| Snapcast | 0.35.0 | `01-install-audio/00-run.sh` |
-| NQPTP | 1.2.4 | `01-install-audio/01-run.sh` |
-| shairport-sync | 4.3.7 | `01-install-audio/01-run.sh` |
-| bluez-alsa | 4.3.1 | `01-install-audio/01-run.sh` |
-| roc-toolkit | 0.4.0 | `01-install-audio/01-run.sh` |
+| go-librespot | `GO_LIBRESPOT_VERSION` | `01-install-audio/00-run.sh` |
+| CamillaDSP | `CAMILLADSP_VERSION` | `01-install-audio/00-run.sh` |
+| Snapcast | `SNAPCAST_VERSION` | `01-install-audio/00-run.sh` |
+| Navidrome | `NAVIDROME_VERSION` | `01-install-audio/00-run.sh` |
+| NQPTP | `NQPTP_VERSION` | `01-install-audio/01-run.sh` |
+| shairport-sync | `SHAIRPORT_SYNC_VERSION` | `01-install-audio/01-run.sh` |
+| bluez-alsa | `BLUEZ_ALSA_VERSION` | `01-install-audio/01-run.sh` |
+| roc-toolkit | `ROC_TOOLKIT_VERSION` | `01-install-audio/01-run.sh` |
+
+`install/airplay.sh` (NQPTP, shairport-sync), `install/bluez-alsa.sh` and
+`install/roc-toolkit.sh` build the same four from source and must carry the same
+tags — a script-installed unit and a flashed one are the same appliance.
 
 ## Output
 
