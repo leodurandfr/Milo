@@ -8,7 +8,15 @@
 #   HARDWARE_FILE  — path to hardware.json
 #   CONFIG_FILE    — path to config.txt (set by resolve_config_file)
 
-VALID_AUDIO_OVERLAYS="hifiberry-dacplus-std hifiberry-amp4pro hifiberry-amp100 hifiberry-dac hifiberry-dacplushd hifiberry-dacplus"
+# Exactly the overlay set of backend/hardware/registry.py::AUDIO_CARDS — pinned by
+# backend/tests/architecture/test_audio_overlay_allowlist.py, because a card added
+# there and not here is rejected right before the reboot that would apply it.
+VALID_AUDIO_OVERLAYS="hifiberry-dacplus-std hifiberry-dacplus-pro hifiberry-dacplusadcpro hifiberry-amp4pro hifiberry-amp100 hifiberry-dac hifiberry-dacplushd"
+
+# What remove_legacy_overlays clears out of config.txt: the allowlist plus the
+# pre-6.1.77 "hifiberry-dacplus" alias, which no card selects any more but which
+# units installed before the overlay split still carry.
+LEGACY_SWEEP_OVERLAYS="$VALID_AUDIO_OVERLAYS hifiberry-dacplus"
 
 # --- JSON reader ---
 read_json() {
@@ -57,7 +65,9 @@ validate_hardware_json() {
 validate_audio_overlay() {
     local overlay="$1"
     if [[ -n "$overlay" ]]; then
-        if ! echo "$VALID_AUDIO_OVERLAYS" | grep -qw "$overlay"; then
+        # Whole-word match, not `grep -w`: a dash is a word boundary to grep, so
+        # -w accepted "hifiberry-dacplus" against "hifiberry-dacplus-std".
+        if [[ " $VALID_AUDIO_OVERLAYS " != *" $overlay "* ]]; then
             echo "ERROR: Unknown audio overlay '$overlay'" >&2
             exit 1
         fi
@@ -100,7 +110,7 @@ disable_vc4_audio() {
 # --- Remove legacy (non-managed) hifiberry overlays ---
 remove_legacy_overlays() {
     local legacy_comment="${1:-# Milo - HiFiBerry Audio}"
-    for overlay in $VALID_AUDIO_OVERLAYS; do
+    for overlay in $LEGACY_SWEEP_OVERLAYS; do
         sed -i "/^dtoverlay=$overlay$/d" "$CONFIG_FILE"
     done
     sed -i "/^${legacy_comment}$/d" "$CONFIG_FILE"
