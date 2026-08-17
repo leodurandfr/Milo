@@ -633,6 +633,24 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return result.ok ? result.data?.playlist || null : null;
   }
 
+  // Which playlists already hold every one of these songs, for the picker's
+  // checkmarks. One request: the backend owns the fan-out, so the storage scope
+  // is resolved once instead of once per playlist. Nothing is cached — the
+  // answer must be fresh, and a stale checkmark re-adds a track.
+  async function fetchPlaylistsContaining(songIds) {
+    if (!songIds?.length) return new Set();
+    // URLSearchParams rather than a plain object: axios encodes an array value
+    // as `song_id[]=`, which FastAPI's repeated-Query binding rejects with 422.
+    const params = new URLSearchParams(scoped());
+    songIds.forEach((id) => params.append('song_id', id));
+    const result = await apiCall.get(`${BASE}/playlists/containing`, {
+      category: 'musicLibrary',
+      message: 'Error checking playlist membership',
+      params,
+    });
+    return new Set(result.ok ? result.data?.playlist_ids || [] : []);
+  }
+
   // =========================================================================
   // SEARCH (search3 across artists/albums/songs), state persisted across nav
   // =========================================================================
@@ -1056,6 +1074,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     fetchGenreSongs,
     fetchGenreAlbums,
     fetchPlaylist,
+    fetchPlaylistsContaining,
 
     // Search
     searchTerm,

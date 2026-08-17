@@ -141,14 +141,7 @@ function setCreateOpen(next) {
 
 async function refreshAddedIds() {
   checkingExisting.value = true;
-  const matches = await Promise.all(
-    store.playlists.map(async (pl) => {
-      const playlist = await store.fetchPlaylist(pl.id);
-      const entryIds = new Set((playlist?.entry || []).map((song) => song.id));
-      return props.songIds.every((id) => entryIds.has(id)) ? pl.id : null;
-    })
-  );
-  addedIds.value = new Set(matches.filter(Boolean));
+  addedIds.value = await store.fetchPlaylistsContaining(props.songIds);
   checkingExisting.value = false;
 }
 
