@@ -140,12 +140,14 @@ main() {
     install_dependencies
     suppress_pulseaudio
     discover_milo_principal
-    configure_journald
     setup_hostname
 
     # User and application
     create_milo_client_user
     clone_milo_client_repo
+    # After the clone: the journald drop-in lives in the satellite's own rootfs tree,
+    # which does not exist on disk until the sparse checkout has run.
+    configure_journald "$MILO_CLIENT_ROOTFS_DIR/etc/systemd/journald.conf.d/99-milo-journald.conf"
     install_snapclient
     install_camilladsp
     install_milo_client_application

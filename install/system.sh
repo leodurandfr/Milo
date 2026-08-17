@@ -254,7 +254,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     install_apply_hardware_script
     install_polkit_rules
     create_systemd_services
-    configure_journald
+    configure_journald "$MILO_APP_DIR/rootfs/etc/systemd/journald.conf.d/99-milo-journald.conf"
     configure_fan_control
     optimize_boot_performance
     enable_services
