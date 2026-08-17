@@ -21,9 +21,19 @@ if ! type log_info &>/dev/null; then
 fi
 
 save_hardware_config() {
-    log_info "Saving hardware configuration..."
-
     sudo mkdir -p "$MILO_CLIENT_DATA_DIR"
+
+    # Create-only. Re-running the installer on a paired satellite used to `tee`
+    # `"id": "none"` over the card the pairing wizard had chosen, and
+    # finalize_installation then rebooted — so the speaker came back silent with
+    # nothing to say why. Same idempotence milo-first-boot::_apply_client_filesystem
+    # already documents for its own half.
+    if [[ -f "$MILO_CLIENT_DATA_DIR/hardware.json" ]]; then
+        log_info "Hardware config already present, keeping it"
+        return 0
+    fi
+
+    log_info "Saving hardware configuration..."
 
     sudo tee "$MILO_CLIENT_DATA_DIR/hardware.json" > /dev/null << 'EOF'
 {

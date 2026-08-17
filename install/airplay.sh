@@ -25,7 +25,10 @@ install_nqptp() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    git clone https://github.com/mikebrady/nqptp.git
+    # Pinned to the tag pi-gen declares (NQPTP_VERSION in
+    # pi-gen/stage-milo/01-install-audio/01-run.sh): the AirPlay 2 clock must be
+    # one version across both install paths, and HEAD is not a version.
+    git clone --branch 1.2.4 --depth 1 https://github.com/mikebrady/nqptp.git
     cd nqptp
     autoreconf -fi
     ./configure --with-systemd-startup
@@ -88,58 +91,15 @@ configure_shairport_sync() {
     sudo mkfifo /tmp/shairport-sync-metadata 2>/dev/null || true
     sudo chown "$MILO_USER:audio" /tmp/shairport-sync-metadata
 
-    # Deploy configuration
-    sudo tee /etc/shairport-sync.conf > /dev/null << 'CONF'
-// Milo AirPlay 2 Configuration
-general = {
-    name = "Milō · AirPlay";
-    interpolation = "auto";
-    output_backend = "alsa";
-    mdns_backend = "avahi";
-    ignore_volume_control = "yes";
-};
-
-alsa = {
-    output_device = "milo_airplay";
-    // Match the bit depth CamillaDSP captures (S32_LE) instead of letting
-    // "auto" settle on S16_LE, so the ALSA `plug` no longer truncates to 16 bits
-    // on the way in. The rate stays on "auto": pinning output_rate = 48000 —
-    // which would also remove the 44.1 -> 48 kHz `plug` conversion — needs
-    // shairport-sync >= 5, and we are pinned to 4.3.7 (4.x accepts only 44.1 kHz
-    // multiples). Revisit together with the version ceiling.
-    output_format = "S32_LE";
-};
-
-metadata = {
-    enabled = "yes";
-    include_cover_art = "yes";
-    pipe_name = "/tmp/shairport-sync-metadata";
-    pipe_timeout = 5000;
-};
-CONF
+    # Deploy configuration from rootfs/ — pi-gen copies the same two files, so
+    # neither installer restates their content (the S32_LE capture format below
+    # reached script-installed units only, for as long as pi-gen inlined its own
+    # copy of this config).
+    sudo cp "$MILO_APP_DIR/rootfs/etc/shairport-sync.conf" /etc/shairport-sync.conf
 
     # D-Bus policy: allow milo user to own the ShairportSync bus name
-    sudo tee /etc/dbus-1/system.d/shairport-sync-dbus.conf > /dev/null << 'DBUS'
-<!-- D-Bus policy for shairport-sync (Milo AirPlay) -->
-<!DOCTYPE busconfig PUBLIC
-          "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
-          "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig>
-  <policy user="root">
-    <allow own="org.gnome.ShairportSync"/>
-  </policy>
-  <policy user="shairport-sync">
-    <allow own="org.gnome.ShairportSync"/>
-  </policy>
-  <policy user="milo">
-    <allow own="org.gnome.ShairportSync"/>
-  </policy>
-  <policy context="default">
-    <allow send_destination="org.gnome.ShairportSync"/>
-    <allow receive_sender="org.gnome.ShairportSync"/>
-  </policy>
-</busconfig>
-DBUS
+    sudo cp "$MILO_APP_DIR/rootfs/etc/dbus-1/system.d/shairport-sync-dbus.conf" \
+        /etc/dbus-1/system.d/shairport-sync-dbus.conf
 
     # Disable default shairport-sync service (Milo manages its own)
     sudo systemctl stop shairport-sync.service 2>/dev/null || true

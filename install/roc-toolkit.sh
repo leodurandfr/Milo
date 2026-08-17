@@ -24,7 +24,10 @@ install_roc_toolkit() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    git clone https://github.com/roc-streaming/roc-toolkit.git
+    # Pinned to the tag pi-gen declares (ROC_TOOLKIT_VERSION in
+    # pi-gen/stage-milo/01-install-audio/01-run.sh): the Mac transport is a wire
+    # protocol, so both install paths must build the same version of it.
+    git clone --branch v0.4.0 --depth 1 https://github.com/roc-streaming/roc-toolkit.git
     cd roc-toolkit
     scons -Q --build-3rdparty=openfec
     sudo scons -Q --build-3rdparty=openfec install

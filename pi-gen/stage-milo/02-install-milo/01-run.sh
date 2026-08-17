@@ -135,51 +135,13 @@ CHROOT
 
 # ── shairport-sync configuration ─────────────────────────────────────────────
 
+# Both files come from rootfs/ — inlining them here is what let this image ship
+# an AirPlay config without the S32_LE capture format install/airplay.sh sets.
 on_chroot << 'CHROOT'
-tee /etc/shairport-sync.conf > /dev/null << 'CONF'
-// Milo AirPlay 2 Configuration
-general = {
-    name = "Milō · AirPlay";
-    interpolation = "auto";
-    output_backend = "alsa";
-    mdns_backend = "avahi";
-    ignore_volume_control = "yes";
-};
-
-alsa = {
-    output_device = "milo_airplay";
-};
-
-metadata = {
-    enabled = "yes";
-    include_cover_art = "yes";
-    pipe_name = "/tmp/shairport-sync-metadata";
-    pipe_timeout = 5000;
-};
-CONF
-
-# D-Bus policy for shairport-sync
-tee /etc/dbus-1/system.d/shairport-sync-dbus.conf > /dev/null << 'DBUS'
-<!-- D-Bus policy for shairport-sync (Milo AirPlay) -->
-<!DOCTYPE busconfig PUBLIC
-          "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
-          "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig>
-  <policy user="root">
-    <allow own="org.gnome.ShairportSync"/>
-  </policy>
-  <policy user="shairport-sync">
-    <allow own="org.gnome.ShairportSync"/>
-  </policy>
-  <policy user="milo">
-    <allow own="org.gnome.ShairportSync"/>
-  </policy>
-  <policy context="default">
-    <allow send_destination="org.gnome.ShairportSync"/>
-    <allow receive_sender="org.gnome.ShairportSync"/>
-  </policy>
-</busconfig>
-DBUS
+cp /home/milo/milo/rootfs/etc/shairport-sync.conf /etc/shairport-sync.conf
+mkdir -p /etc/dbus-1/system.d
+cp /home/milo/milo/rootfs/etc/dbus-1/system.d/shairport-sync-dbus.conf \
+    /etc/dbus-1/system.d/shairport-sync-dbus.conf
 CHROOT
 
 # ── Nginx configuration ──────────────────────────────────────────────────────
