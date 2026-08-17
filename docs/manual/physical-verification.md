@@ -58,7 +58,8 @@ git status --porcelain
 
 **Known state, so you do not chase it:** `ANTICATER_MINI` (the BT remote) reconnects in a loop
 — see [F3](#f3--the-bt-remote-reconnects-in-a-loop) — and a disc (*The Best of Sade*) is
-already in the drive, so the CD group needs no hardware brought in.
+already in the drive, so the CD group needs no hardware brought in **except F-CD7**, which needs
+a disc no lookup identifies and is the reason that group is not self-contained.
 
 ---
 
@@ -165,6 +166,16 @@ but a real power cut reproduces it.
 | F-CD4 | Let the **auto-stop** timeout fire, then press play → the disc resumes the same track at the same position |
 | F-CD5 | Insert a disc → it becomes playable (the TOC latch now retries 3×; a disc that used to stick on the spinner should not) |
 | F-CD6 | Transport: play/pause, next; **previous** early in a track goes back, late in a track restarts it. Eject releases the disc and leaves the source cleanly |
+| F-CD7 | ⚠ **needs a disc no lookup identifies** — a burned CD or an obscure pressing. The player's big title reads the track (`Track 1`, then `Track 2` on skip) instead of "Unknown Title", with "Unknown Artist" underneath and the disc placeholder as the cover |
+
+**F-CD7 is the one line in this group that the disc already in the drive cannot answer.** *The
+Best of Sade* is identified, as are all three discs in `cd_data.json`, so it renders the path
+that already worked. The scenario covers `02ee1526`, which accepted a title-only metadata
+snapshot for `cd` alone: before it, an unidentified disc left the player's cache on its empty
+seed, so the title never changed between tracks. "Unknown Artist" is **correct** here and is not
+what the fix is about — the artist genuinely is unknown, and `CDSource.vue` shows the same in its
+header. The owner waived this check on 2026-08-17 rather than hold the plan for it, so the fix
+ships unobserved: if the CD player ever shows a wrong title, this is the first suspect.
 
 ---
 
