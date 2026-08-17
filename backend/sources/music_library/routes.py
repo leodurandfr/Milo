@@ -5,8 +5,9 @@ REST surface for the indexed catalog served by the Navidrome sidecar:
 - Browse   — artists (A–Z index), a single artist/album, album lists, genres.
 - Search   — fuzzy search3 across artists/albums/songs.
 - Genres   — the genre list plus songs-by-genre (a play context).
-- Playlists — list, a single playlist with its entries, and create/rename/
-             add-tracks/reorder/remove/delete (Subsonic create/update/delete).
+- Playlists — list, a single playlist with its entries, which playlists already
+             hold a given set of songs, and create/rename/add-tracks/reorder/
+             remove/delete (Subsonic create/update/delete).
 - Cover    — a localhost-only proxy for Navidrome getCoverArt bytes, so the
              frontend never talks to Navidrome (or sees its credentials) directly.
 - Favorites — star/unstar a song/album/artist.
@@ -39,9 +40,10 @@ Playback (play_context/transport) is NOT here — it goes through the generic
 reads go through the source's shared NavidromeClient; a missing cred file (daemon
 not provisioned yet) surfaces as 503 on browse routes.
 """
+import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -341,6 +343,50 @@ async def get_playlists(
         client = await _require_client(source)
         playlists = await client.get_playlists()
         return {"playlists": await source.playlists_in_scope(playlists, library_id)}
+
+
+@router.get("/playlists/containing")
+async def get_playlists_containing(
+    source: MusicLibrarySource = Depends(get_source),
+    song_id: List[str] = Query(..., description="Song ids that must ALL be present"),
+    library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
+) -> Dict[str, Any]:
+    """The in-scope playlists that already hold **every** one of these songs.
+
+    Answers the "add to playlist" picker's one question in one request. Subsonic
+    has no membership query — ``getPlaylists`` carries counts, not entries — so
+    the fan-out is unavoidable; what matters is where it happens. Done from the
+    browser it was one request per playlist, each re-resolving the storage scope
+    (``storages()``, five JSON reads) and each shipping a full entry payload over
+    the LAN to compute one boolean. Here the scope is resolved **once**, by
+    ``playlists_in_scope``, and only the ids the caller asked about cross the wire.
+
+    Entries are read raw, without ``_keep_playable``: the question is whether the
+    playlist *contains* the song, which is what a second add would duplicate,
+    and that is true whether or not its storage space is mounted right now. The
+    filter would answer "absent" for a track on an unplugged key and hand the
+    user a button that silently re-adds it.
+    """
+    async with _catalog_errors("Error resolving playlist membership", source):
+        client = await _require_client(source)
+        # get_playlists() first, so the shared aiohttp session exists before the
+        # fan-out rather than being raced into being by it.
+        playlists = await source.playlists_in_scope(
+            await client.get_playlists(), library_id
+        )
+        wanted = set(song_id)
+        entries = await asyncio.gather(
+            *(client.get_playlist(playlist["id"]) for playlist in playlists)
+        )
+        return {
+            "playlist_ids": [
+                playlist["id"]
+                for playlist, detail in zip(playlists, entries)
+                if wanted <= {
+                    entry.get("id") for entry in (detail or {}).get("entry") or []
+                }
+            ]
+        }
 
 
 @router.get("/playlist/{playlist_id}")
