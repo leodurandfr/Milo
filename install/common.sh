@@ -116,12 +116,21 @@ configure_hostname() {
 # Raspberry Pi OS ships /usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf
 # (Storage=volatile), and any drop-in overrides the main config file, so a
 # main-file edit would be silently ignored. An /etc/ drop-in outranks /usr/lib/.
+#
+# Usage: configure_journald <config_source>
+#   configure_journald "$MILO_APP_DIR/rootfs/etc/systemd/journald.conf.d/99-milo-journald.conf"
+#   configure_journald "$MILO_CLIENT_ROOTFS_DIR/etc/systemd/journald.conf.d/99-milo-journald.conf"
+#
+# The source is a parameter, not a caller-scoped global: the satellite installer
+# sources this file but defines no MILO_APP_DIR, and each half ships its own copy
+# of the drop-in in its own rootfs tree.
 configure_journald() {
+    local config_source="$1"
+
     log_info "Configuring journald (persistent, 100MB, 7 days)..."
 
     sudo mkdir -p /etc/systemd/journald.conf.d
-    sudo cp "$MILO_APP_DIR/rootfs/etc/systemd/journald.conf.d/99-milo-journald.conf" \
-        /etc/systemd/journald.conf.d/99-milo-journald.conf
+    sudo cp "$config_source" /etc/systemd/journald.conf.d/99-milo-journald.conf
 
     # Create the persistent journal directory and apply immediately so logs
     # start being kept on disk without waiting for the next boot.
