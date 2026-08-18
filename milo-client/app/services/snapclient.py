@@ -126,6 +126,8 @@ class SnapclientService:
         if self._update_in_progress:
             return {"success": False, "error": "Update already in progress"}
 
+        service_stopped = False
+
         try:
             self._update_in_progress = True
             self.logger.info(f"Starting snapclient update to version {target_version}")
@@ -142,6 +144,7 @@ class SnapclientService:
             stop_result = await self._stop_snapclient_service()
             if not stop_result:
                 return {"success": False, "error": "Failed to stop snapclient service"}
+            service_stopped = True
 
             # 3. Install the .deb with APT (which resolves dependencies automatically)
             install_result = await self._install_deb_with_apt(download_result["deb_path"])
@@ -152,6 +155,7 @@ class SnapclientService:
             start_result = await self._start_snapclient_service()
             if not start_result:
                 return {"success": False, "error": "Failed to start snapclient service"}
+            service_stopped = False
 
             # 5. Verify the update
             await asyncio.sleep(3)  # Wait for the service to stabilize
@@ -177,9 +181,26 @@ class SnapclientService:
 
         finally:
             self._update_in_progress = False
+            if service_stopped:
+                await self._restore_stopped_service()
             # Clean up temporary files
             if 'download_result' in locals() and download_result.get("temp_dir"):
                 shutil.rmtree(download_result["temp_dir"], ignore_errors=True)
+
+    async def _restore_stopped_service(self):
+        """Starts snapclient back after an update that failed with it stopped.
+
+        `Restart=on-failure` does not undo an explicit `systemctl stop`, so
+        without this the room stays silent until someone walks up to the
+        speaker — and nothing in the UI says why. Same shape as
+        CamillaDSPUpdateService._rollback, minus the binary: apt either
+        installed the package or left the old one, there is nothing to restore
+        but the unit itself. `start` is what the policy grants for this unit,
+        `restart` is not.
+        """
+        self.logger.warning("Snapclient update failed with the service stopped, starting it back")
+        if not await self._start_snapclient_service():
+            self.logger.error("Could not start snapclient back after the failed update")
 
     async def _download_snapclient_deb(self, version: str) -> Dict[str, Any]:
         """Downloads the snapclient .deb package from GitHub with auto Debian detection."""
