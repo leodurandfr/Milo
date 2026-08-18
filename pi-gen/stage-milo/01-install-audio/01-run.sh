@@ -6,7 +6,7 @@
 
 # ── Version pins ─────────────────────────────────────────────────────────────
 NQPTP_VERSION="1.2.4"
-SHAIRPORT_SYNC_VERSION="4.3.7"
+SHAIRPORT_SYNC_VERSION="5.2.1"
 BLUEZ_ALSA_VERSION="4.3.1"
 ROC_TOOLKIT_VERSION="0.4.0"
 # ─────────────────────────────────────────────────────────────────────────────
@@ -35,6 +35,7 @@ autoreconf -fi
     --with-ssl=openssl \
     --with-soxr \
     --with-metadata \
+    --with-metadata-pipe \
     --with-airplay-2 \
     --with-dbus-interface
 make -j\$(nproc)

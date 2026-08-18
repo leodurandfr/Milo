@@ -59,9 +59,9 @@ install_shairport_sync() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    # Pinned, not HEAD: 5.0/5.1 deliver no AirPlay metadata (fixed in 5.2). Bump
-    # to 5.2 once it ships stable.
-    git clone --branch 4.3.7 --depth 1 https://github.com/mikebrady/shairport-sync.git
+    # Pinned, not HEAD: 5.0/5.1 delivered no AirPlay metadata (fixed upstream
+    # in 5.2).
+    git clone --branch 5.2.1 --depth 1 https://github.com/mikebrady/shairport-sync.git
     cd shairport-sync
     autoreconf -fi
     ./configure --sysconfdir=/etc \
@@ -73,8 +73,8 @@ install_shairport_sync() {
         --with-metadata-pipe \
         --with-airplay-2 \
         --with-dbus-interface
-    # --with-metadata-pipe is inert on 4.x (configure just warns it is
-    # unrecognized); it is what keeps the pipe when the 5.x pin is lifted.
+    # --with-metadata already implies the pipe on 5.2.x, but the pipe is the
+    # channel Milo reads AirPlay metadata from — name it rather than inherit it.
     make -j$(nproc)
     sudo make install
 
