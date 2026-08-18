@@ -6,6 +6,7 @@ serve is the only way to repair it remotely. A sync that fails after it has
 already started overwriting the live tree therefore takes the repair path down
 with it, and the unit needs a hand on the machine.
 """
+import logging
 import os
 import tarfile
 import shutil
@@ -244,3 +245,37 @@ class TestDeployUpdateSuccess:
         assert version_file.read_text() == "v0.1.0-new"
         assert not (repo_dir / "app.old").exists()
         assert not (repo_dir / "app.new").exists()
+
+
+class TestRestartOutcome:
+    """Which systemctl exits mean the restart did not happen.
+
+    A restart that works kills this process, and systemd kills the whole cgroup
+    — the `systemctl` child included — so signalled death is the success case.
+    Measured on canapé: -15 with an empty stderr, 150 ms in. Treating any
+    non-zero code as a failure logged an ERROR on every applied update, which on
+    a satellite means the one log surface it has cries wolf.
+    """
+
+    async def _restart_with(self, returncode, caplog):
+        proc = AsyncMock()
+        proc.returncode = returncode
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec",
+                          AsyncMock(return_value=proc)):
+            with caplog.at_level(logging.ERROR):
+                await AppUpdateService()._restart_service()
+        return caplog.records
+
+    @pytest.mark.asyncio
+    async def test_a_restart_that_killed_us_is_not_a_failure(self, caplog):
+        assert await self._restart_with(-15, caplog) == []
+
+    @pytest.mark.asyncio
+    async def test_a_systemctl_that_refused_is(self, caplog):
+        """A masked unit, or one the deploy step just made invalid."""
+        records = await self._restart_with(1, caplog)
+
+        assert len(records) == 1
+        assert "Exit code 1" in records[0].message
