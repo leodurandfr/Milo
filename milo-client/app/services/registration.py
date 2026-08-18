@@ -7,8 +7,10 @@ Sends a heartbeat every HEARTBEAT_INTERVAL seconds so the server
 can detect when this client goes offline.
 """
 import asyncio
+import ipaddress
 import json
 import logging
+import os
 import socket
 
 import aiohttp
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 HARDWARE_FILE = "/var/lib/milo-client/hardware.json"
 IDENTITY_FILE = "/var/lib/milo-client/identity.json"
+MILO_PRINCIPAL_HOST = "milo.local"
 MILO_PRINCIPAL_PORT = 8000
 REGISTER_ENDPOINT = "/api/multiroom/register-client"
 RETRY_INTERVAL = 30  # seconds (before first successful registration)
@@ -44,14 +47,25 @@ def _get_local_ip(remote_ip: str, remote_port: int) -> str:
 
 
 def _resolve_milo_principal() -> str:
-    """Resolve milo.local to an IP address."""
+    """Resolve the main Milo to an IPv4 address.
+
+    MILO_PRINCIPAL_IP comes from the unit's EnvironmentFile and carries either a
+    literal IP (`install-client.sh --server`, for a LAN where mDNS does not work)
+    or the string "milo.local" (discovery succeeded) — both forms are accepted.
+    A flashed unit has no env entry and falls back to mDNS.
+    """
+    target = os.environ.get("MILO_PRINCIPAL_IP") or MILO_PRINCIPAL_HOST
     try:
-        results = socket.getaddrinfo("milo.local", MILO_PRINCIPAL_PORT, socket.AF_INET)
+        return str(ipaddress.IPv4Address(target))
+    except ipaddress.AddressValueError:
+        pass  # a hostname — resolve it below
+    try:
+        results = socket.getaddrinfo(target, MILO_PRINCIPAL_PORT, socket.AF_INET)
         if results:
             return results[0][4][0]
     except socket.gaierror:
         pass
-    raise RuntimeError("Cannot resolve milo.local")
+    raise RuntimeError(f"Cannot resolve {target}")
 
 
 def _read_hardware_config() -> dict:
