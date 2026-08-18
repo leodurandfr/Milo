@@ -146,11 +146,23 @@ async def _send_audio_config_and_reboot(
                         detail=f"Client rejected audio configuration: {resp.status}",
                     )
 
-            # Step 2: Reboot
+            # Step 2: Reboot. A non-200 is fatal like step 1's: the satellite
+            # answered and refused, so the overlay written just above never
+            # takes effect and the card does not change. Warning here is how a
+            # fleet where every script-installed satellite answered 500 — its
+            # apply-hardware helper missing from its own rootfs tree — still
+            # reported a successful pairing, for as long as one flashed unit
+            # worked. A dropped connection stays a warning: that is what a
+            # satellite that *is* rebooting looks like.
             try:
                 async with session.post(f"http://{client_ip}:{CLIENT_API_PORT}/api/hardware/reboot") as resp:
                     if resp.status != 200:
-                        logger.warning(f"Client {mac_id} reboot returned {resp.status}")
+                        body = await resp.text()
+                        logger.error(f"Client {mac_id} refused to reboot: {resp.status} {body}")
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Client accepted the audio configuration but refused to reboot: {resp.status}",
+                        )
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"Reboot request to {mac_id} failed (may already be rebooting): {e}")
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
