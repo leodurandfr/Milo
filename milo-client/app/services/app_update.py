@@ -259,7 +259,16 @@ class AppUpdateService:
         self.logger.info("Python dependencies installed successfully")
 
     async def _restart_service(self):
-        """Restarts milo-client.service."""
+        """Restarts milo-client.service.
+
+        A successful restart kills this process before systemctl returns, so a
+        return code that arrives at all is a restart that did not happen — a
+        unit file the deploy step made invalid, a masked unit, a policy that no
+        longer grants the verb. There is nobody left to tell: the HTTP response
+        went out two seconds ago. Logging it is what a `sat logs` can find, and
+        the started_at the server compares stays put, so the update is reported
+        failed rather than succeeded on a satellite still running the old code.
+        """
         self.logger.info("Restarting milo-client.service...")
 
         proc = await asyncio.create_subprocess_exec(
@@ -268,4 +277,9 @@ class AppUpdateService:
             stderr=asyncio.subprocess.PIPE
         )
 
-        await proc.communicate()
+        _, stderr = await proc.communicate()
+
+        if proc.returncode != 0:
+            self.logger.error(
+                f"Restart failed, still running the previous code: {stderr.decode().strip()}"
+            )

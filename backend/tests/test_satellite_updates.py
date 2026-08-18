@@ -53,9 +53,10 @@ class _FakeSatellite:
     waiters must not mistake for a successful one.
     """
 
-    def __init__(self, status_payload, post_payload=None):
+    def __init__(self, status_payload, post_payload=None, status_after_post=None):
         self.status_payload = status_payload
         self.post_payload = post_payload
+        self.status_after_post = status_after_post
         self.posts = []
 
     async def __aenter__(self):
@@ -71,6 +72,10 @@ class _FakeSatellite:
 
     def post(self, url, **kwargs):
         self.posts.append(url)
+        if self.status_after_post is not None:
+            # What the push does to the unit: from here /status answers as the
+            # satellite does once it has deployed the tarball.
+            self.status_payload = self.status_after_post
         return _FakeResponse(200, self.post_payload)
 
 
@@ -286,3 +291,79 @@ class TestAppUpdateAvailableFlag:
         satellites[0]["app_version"] = "v0.1.0-1573-g0ae3872d"
 
         assert self._flag(client, None) is False
+
+
+class TestAppUpdateOutcome:
+    """What counts as "the satellite is running the new app".
+
+    Not the version it reports: the satellite writes that file at step 5 of its
+    own deployment and only schedules the restart at step 6. A restart that
+    never lands — a unit file the same update just made invalid, a masked unit —
+    leaves it answering the new version out of the old process. `started_at` is
+    the process, so it is the half the satellite cannot write ahead of itself.
+    """
+
+    @pytest.fixture
+    def client_tree(self, tmp_path):
+        """Enough of milo-client/ for the real tarball step to run."""
+        tree = tmp_path / "milo-client"
+        (tree / "app").mkdir(parents=True)
+        (tree / "app" / "main.py").write_text("app\n")
+        return tree
+
+    async def _push(self, service, satellite, client_tree):
+        with _patch_satellite(satellite), \
+             patch("asyncio.sleep", new_callable=AsyncMock), \
+             patch("backend.core.updates.satellite.MILO_CLIENT_DIR", client_tree), \
+             patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode() + b"\n"))):
+            return await service.update_satellite_app("dc:a6:32:7e:d3:43")
+
+    async def test_a_satellite_that_restarted_into_it_is_a_successful_update(
+        self, satellite_service, client_tree
+    ):
+        """Sanity floor: without this the failure test below passes on any bug."""
+        satellite = _FakeSatellite(
+            status_payload={"app": {"version": "v0.1.0-1600-gold", "started_at": 1000},
+                            "snapclient": {"version": "0.28.0"}},
+            status_after_post={"app": {"version": SERVER_VERSION, "started_at": 1200},
+                               "snapclient": {"version": "0.28.0"}},
+        )
+
+        result = await self._push(satellite_service, satellite, client_tree)
+
+        assert satellite.posts == ["http://192.168.1.153:8001/app/update"]
+        assert result["success"] is True
+        assert result["new_version"] == SERVER_VERSION
+
+    async def test_a_version_file_written_by_a_process_that_never_restarted_is_not(
+        self, satellite_service, client_tree
+    ):
+        """The defect: the deploy landed, the restart did not, and the satellite
+        keeps serving the old code while the fleet view calls it current."""
+        satellite = _FakeSatellite(
+            status_payload={"app": {"version": "v0.1.0-1600-gold", "started_at": 1000},
+                            "snapclient": {"version": "0.28.0"}},
+            status_after_post={"app": {"version": SERVER_VERSION, "started_at": 1000},
+                               "snapclient": {"version": "0.28.0"}},
+        )
+
+        result = await self._push(satellite_service, satellite, client_tree)
+
+        assert result["success"] is False
+        assert "never restarted" in result["error"]
+
+    async def test_a_satellite_that_answers_nothing_is_a_timeout(
+        self, satellite_service, client_tree
+    ):
+        """The two failures read differently in the UI: one needs a retry, the
+        other needs somebody to look at why the unit will not come back."""
+        satellite = _FakeSatellite(
+            status_payload={"app": {"version": "v0.1.0-1600-gold", "started_at": 1000},
+                            "snapclient": {"version": "0.28.0"}},
+        )
+
+        result = await self._push(satellite_service, satellite, client_tree)
+
+        assert result["success"] is False
+        assert "timeout" in result["error"]

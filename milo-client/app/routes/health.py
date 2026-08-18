@@ -14,6 +14,13 @@ from services.camilladsp_update import CamillaDSPUpdateService
 
 logger = logging.getLogger(__name__)
 
+# The moment this process came up. `app.version` is a file the update writes
+# before it schedules the restart, so it attests that an update ran, never that
+# the code it shipped is the code answering — nothing an update does can move
+# this without the process having actually been replaced. The server compares it
+# across a push; see SatelliteUpdateService._wait_for_app_update_completion.
+APP_STARTED_AT = int(time.time())
+
 
 def get_system_uptime() -> int:
     """Gets the system uptime in seconds."""
@@ -73,6 +80,7 @@ def create_health_router(
                 },
                 "app": {
                     "version": app_update_service.get_app_version(),
+                    "started_at": APP_STARTED_AT,
                     "update_in_progress": app_update_service.update_in_progress
                 },
                 "camilladsp": {
