@@ -84,7 +84,10 @@ case "$INTERFACE" in
                 disable_eee eth0
                 apply_avahi_target
                 ;;
-            down)
+            # dhcp4-change matters on its own: NM activates eth0 as soon as IPv6
+            # is up and fires `up` then, so the IPv4 lease — the thing has_ip
+            # tests — often lands after the only event we would otherwise see.
+            dhcp4-change|down)
                 apply_avahi_target
                 ;;
         esac
