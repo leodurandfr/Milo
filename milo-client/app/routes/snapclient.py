@@ -35,7 +35,8 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
             current_version = await snapclient_service.get_installed_version()
             if current_version == latest_version:
                 return {
-                    "success": False,
+                    "status": "success",
+                    "started": False,
                     "message": "Already up to date",
                     "current_version": current_version,
                     "latest_version": latest_version
@@ -49,7 +50,8 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
             background_tasks.add_task(do_update)
 
             return {
-                "success": True,
+                "status": "success",
+                "started": True,
                 "message": f"Update started: {current_version} -> {latest_version}",
                 "current_version": current_version,
                 "target_version": latest_version
@@ -109,7 +111,7 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
 
             # Skip write and restart if values are already current
             if current_buffer_time == str(buffer_time) and current_fragments == str(fragments):
-                return {"success": True, "buffer_time": buffer_time, "fragments": fragments, "changed": False}
+                return {"status": "success", "buffer_time": buffer_time, "fragments": fragments, "changed": False}
 
             new_content = '\n'.join(updated_lines)
             if not new_content.endswith('\n'):
@@ -129,7 +131,7 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
                     raise HTTPException(status_code=500, detail=f"Failed to {action} snapclient: {stderr.decode()}")
 
             logger.info(f"Snapclient config updated: buffer_time={buffer_time}ms, fragments={fragments}")
-            return {"success": True, "buffer_time": buffer_time, "fragments": fragments, "changed": True}
+            return {"status": "success", "buffer_time": buffer_time, "fragments": fragments, "changed": True}
 
         except HTTPException:
             raise

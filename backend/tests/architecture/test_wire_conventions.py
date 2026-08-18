@@ -12,6 +12,12 @@ These tests derive the surface from the live FastAPI app and from the AST of
 output is non-trivial before anything is asserted about it: a broken scan must
 fail loudly, not pass on an empty surface.
 
+Two apps sit on this wire. `milo-client/app/` is the second one — the agent on
+every satellite — and the same conventions bind it: the server is its only
+client, the surface is unversioned, and a satellite that answers in a shape the
+server does not read is a command that did nothing. It went uncovered because
+this file's root was `backend/`, so every check below stopped at the server.
+
 Scope note: they check what is mechanically decidable. Whether a verb *matches
 its semantics*, or whether an endpoint is `/status`-style enough to earn the
 HTTP-200-error resilience pattern, is a judgement call and stays a review
@@ -23,7 +29,11 @@ from pathlib import Path
 import pytest
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_ROOT.parent
+SATELLITE_ROOT = REPO_ROOT / "milo-client" / "app"
+SATELLITE_ROUTES_DIR = SATELLITE_ROOT / "routes"
 HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+WIRE_ROOTS = (BACKEND_ROOT, SATELLITE_ROOT)
 
 
 # --------------------------------------------------------------------------- #
@@ -53,23 +63,72 @@ ROUTES = _route_table()
 assert len(ROUTES) > 150, f"only {len(ROUTES)} API routes found — extractor broken?"
 
 
-@pytest.mark.parametrize("method,path", ROUTES, ids=[f"{m} {p}" for m, p in ROUTES])
-def test_path_segments_are_kebab_case(method, path):
+def _satellite_handlers():
+    """(method, path, handler AST node) for every route the satellite serves.
+
+    AST, where the backend half above uses the live app: `milo-client/app`
+    imports `services`/`routes`/`models` as top-level names and builds its four
+    services at module scope, so importing it inside a backend pytest run needs
+    sys.path surgery and shadows this tree's own module names. Nothing is lost —
+    each satellite router is built by a factory that passes its prefix as a
+    literal, which is exactly what the live app would resolve.
+    """
+    found = []
+    for py in sorted(SATELLITE_ROUTES_DIR.glob("*.py")):
+        tree = ast.parse(py.read_text(), str(py))
+        prefix = ""
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "APIRouter"):
+                continue
+            for kw in node.keywords:
+                if kw.arg == "prefix" and isinstance(kw.value, ast.Constant):
+                    prefix = kw.value.value
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for dec in node.decorator_list:
+                if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)):
+                    continue
+                method = dec.func.attr.upper()
+                if method not in HTTP_METHODS or not dec.args:
+                    continue
+                arg = dec.args[0]
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    found.append((method, prefix + arg.value, node))
+    return found
+
+
+SATELLITE_HANDLERS = _satellite_handlers()
+SATELLITE_ROUTES = sorted({(m, p) for m, p, _ in SATELLITE_HANDLERS})
+assert len(SATELLITE_ROUTES) > 25, (
+    f"only {len(SATELLITE_ROUTES)} satellite routes found — extractor broken?"
+)
+
+# Both apps, tagged, for the checks that govern the wire rather than one tree.
+WIRE_ROUTES = (
+    [("backend", m, p) for m, p in ROUTES]
+    + [("satellite", m, p) for m, p in SATELLITE_ROUTES]
+)
+
+
+@pytest.mark.parametrize(
+    "app,method,path", WIRE_ROUTES, ids=[f"{a}: {m} {p}" for a, m, p in WIRE_ROUTES]
+)
+def test_path_segments_are_kebab_case(app, method, path):
     """A `_` in a path is the one casing slip that is invisible until a client
     404s on the wrong guess. All 167 routes are kebab-case; keep it that way."""
     literal = [s for s in path.strip("/").split("/") if not s.startswith("{")]
     offenders = [s for s in literal if "_" in s]
-    assert not offenders, f"{method} {path}: use kebab-case, not {offenders}"
+    assert not offenders, f"{app} {method} {path}: use kebab-case, not {offenders}"
 
 
-def test_a_resource_has_one_spelling():
-    """`GET /server-config` + `POST /server/config` was one resource under two
-    names — the read and the write drifted apart because nothing tied them.
+def _two_spellings_of_one_resource(paths):
+    """Pairs where one path is the other with its last kebab word split off.
 
-    Heuristic: no path may be the parent of another that differs only by turning
-    the last kebab word into a segment (`a/b-c` vs `a/b/c`).
+    Heuristic for `a/b-c` vs `a/b/c`. Applied per app: the two surfaces are
+    served by different processes, so a backend path and a satellite path that
+    collide this way are not one resource.
     """
-    paths = {p for _, p in ROUTES}
     collisions = []
     for path in paths:
         head, _, last = path.rpartition("/")
@@ -80,7 +139,19 @@ def test_a_resource_has_one_spelling():
             alias = f"{head}/{'-'.join(parts[:split])}/{'-'.join(parts[split:])}"
             if alias in paths:
                 collisions.append((path, alias))
-    assert not collisions, f"same resource under two spellings: {collisions}"
+    return collisions
+
+
+def test_a_resource_has_one_spelling():
+    """`GET /server-config` + `POST /server/config` was one resource under two
+    names — the read and the write drifted apart because nothing tied them.
+    """
+    collisions = {
+        "backend": _two_spellings_of_one_resource({p for _, p in ROUTES}),
+        "satellite": _two_spellings_of_one_resource({p for _, p in SATELLITE_ROUTES}),
+    }
+    offenders = {app: pairs for app, pairs in collisions.items() if pairs}
+    assert not offenders, f"same resource under two spellings: {offenders}"
 
 
 def test_no_source_status_or_restart_routes():
@@ -106,35 +177,41 @@ def test_no_source_status_or_restart_routes():
 # --------------------------------------------------------------------------- #
 
 def _pydantic_fields():
-    """(file, class, field) for every annotated field on a BaseModel subclass.
+    """(repo-relative file, class, field) for every annotated field on a BaseModel.
 
     AST rather than imports so it covers models in modules the test never loads,
-    including ones no route references yet.
+    including ones no route references yet. Both apps: the satellite declares its
+    request bodies the same way, and `List[dict]` aside, its field names are what
+    the server has to spell.
     """
     out = []
-    for py in sorted(BACKEND_ROOT.rglob("*.py")):
-        if "/tests/" in str(py) or "__pycache__" in str(py):
-            continue
-        try:
-            tree = ast.parse(py.read_text())
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef):
+    for root in WIRE_ROOTS:
+        for py in sorted(root.rglob("*.py")):
+            if "/tests/" in str(py) or "__pycache__" in str(py):
                 continue
-            if not any("BaseModel" in ast.unparse(b) for b in node.bases):
+            try:
+                tree = ast.parse(py.read_text())
+            except SyntaxError:
                 continue
-            rel = str(py.relative_to(BACKEND_ROOT))
-            for stmt in node.body:
-                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                    name = stmt.target.id
-                    if not name.isupper():  # ClassVar constants are not wire fields
-                        out.append((rel, node.name, name))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                if not any("BaseModel" in ast.unparse(b) for b in node.bases):
+                    continue
+                rel = str(py.relative_to(REPO_ROOT))
+                for stmt in node.body:
+                    if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                        name = stmt.target.id
+                        if not name.isupper():  # ClassVar constants are not wire fields
+                            out.append((rel, node.name, name))
     return out
 
 
 PYDANTIC_FIELDS = _pydantic_fields()
 assert len(PYDANTIC_FIELDS) > 300, f"only {len(PYDANTIC_FIELDS)} model fields found — extractor broken?"
+assert any(f.startswith("milo-client/") for f, _, _ in PYDANTIC_FIELDS), (
+    "no satellite model fields found — the second root is not being walked"
+)
 
 
 def test_no_pydantic_field_is_camel_case():
@@ -161,7 +238,7 @@ def test_settings_category_shapes_live_in_one_module():
     two. `core/models/settings_config.py` is now the single home; a second
     declaration of the same name anywhere else is that drift coming back.
     """
-    home = "core/models/settings_config.py"
+    home = "backend/core/models/settings_config.py"
     canonical = {cls for f, cls, _ in PYDANTIC_FIELDS if f == home}
     assert len(canonical) > 10, f"settings_config.py holds only {canonical} — moved or renamed?"
 
@@ -179,14 +256,14 @@ def test_settings_category_shapes_live_in_one_module():
 # Router placement and prefix ownership.
 # --------------------------------------------------------------------------- #
 
-def _declared_routers():
-    """(repo-relative file, prefix) for every APIRouter constructed in backend/.
+def _declared_routers(root):
+    """(repo-relative file, prefix) for every APIRouter constructed under `root`.
 
     AST, not the live app: an unmounted router is still a router someone will
     mount, and the point is where the file lives.
     """
     found = []
-    for path in sorted(BACKEND_ROOT.rglob("*.py")):
+    for path in sorted(root.rglob("*.py")):
         if "tests" in path.parts:
             continue
         for node in ast.walk(ast.parse(path.read_text(), str(path))):
@@ -196,12 +273,17 @@ def _declared_routers():
             for kw in node.keywords:
                 if kw.arg == "prefix" and isinstance(kw.value, ast.Constant):
                     prefix = kw.value.value
-            found.append((str(path.relative_to(BACKEND_ROOT.parent)), prefix))
+            found.append((str(path.relative_to(REPO_ROOT)), prefix))
     return found
 
 
-ROUTERS = _declared_routers()
+ROUTERS = _declared_routers(BACKEND_ROOT)
 assert len(ROUTERS) > 20, f"only {len(ROUTERS)} routers found — extractor broken?"
+
+SATELLITE_ROUTERS = _declared_routers(SATELLITE_ROOT)
+assert len(SATELLITE_ROUTERS) >= 6, (
+    f"only {len(SATELLITE_ROUTERS)} satellite routers found — extractor broken?"
+)
 
 
 def test_routers_live_in_api_or_beside_their_subsystem():
@@ -228,6 +310,20 @@ def test_routers_live_in_api_or_beside_their_subsystem():
     )
 
 
+def test_satellite_routers_live_in_its_routes_package():
+    """The satellite has one home, `milo-client/app/routes/`.
+
+    It is what `routes/__init__.py` exports and what `main.py` mounts, and it is
+    also the only directory the two contract tests read: a router declared in
+    `services/` or inline in `main.py` would serve a live endpoint that every
+    guardrail over this surface is blind to.
+    """
+    strays = [f for f, _ in SATELLITE_ROUTERS if not f.startswith("milo-client/app/routes/")]
+    assert not strays, (
+        f"satellite routers outside milo-client/app/routes/: {sorted(set(strays))}"
+    )
+
+
 def test_no_two_routers_split_one_prefix():
     """One prefix, one owner.
 
@@ -237,13 +333,22 @@ def test_no_two_routers_split_one_prefix():
 
     `/api` itself is exempt: the health router deliberately sits at the root.
     """
-    prefixes = {p for _, p in ROUTERS if p and p != "/api"}
-    nested = sorted(
-        (child, parent)
-        for parent in prefixes
-        for child in prefixes
-        if child != parent and child.startswith(parent + "/")
-    )
+    def _nested(routers):
+        prefixes = {p for _, p in routers if p and p != "/api"}
+        return sorted(
+            (child, parent)
+            for parent in prefixes
+            for child in prefixes
+            if child != parent and child.startswith(parent + "/")
+        )
+
+    # Per app: the two run in different processes, so a backend prefix and a
+    # satellite one that nest are not one namespace edited from two files.
+    nested = {
+        app: pairs
+        for app, pairs in (("backend", _nested(ROUTERS)), ("satellite", _nested(SATELLITE_ROUTERS)))
+        if pairs
+    }
     assert not nested, (
         f"one router's prefix is nested inside another's: {nested} — merge them "
         f"into the file that owns the namespace."
@@ -311,30 +416,32 @@ def _success_dict_producers():
     laxer — and that is the right direction for a guardrail.
     """
     producers = set()
-    for path in BACKEND_ROOT.rglob("*.py"):
-        if "tests" in path.parts:
-            continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _returns_a_success_dict(node):
-                producers.add(node.name)
+    for root in WIRE_ROOTS:
+        for path in root.rglob("*.py"):
+            if "tests" in path.parts:
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _returns_a_success_dict(node):
+                    producers.add(node.name)
     return producers
 
 
 SUCCESS_PRODUCERS = _success_dict_producers()
 assert "add_custom_station" in SUCCESS_PRODUCERS, "producer scan broken?"
+# The satellite's services answer their own callers with a `success` dict, which
+# is internal and stays. Pinned here so the second root going unwalked shows up
+# as a broken scan rather than as a route that suddenly looks clean.
+assert "deploy_update" in SUCCESS_PRODUCERS, "satellite producer scan broken?"
 
 
-def _handler_success_flag(src: str) -> str | None:
-    """Describe how `src` answers with a `success` flag, or None if it doesn't.
+def _handler_success_flag(fn: ast.AST) -> str | None:
+    """Describe how handler `fn` answers with a `success` flag, or None if it doesn't.
 
     Two ways a route can do it: build the dict itself, or hand back one a
     service built. The second is the one the string-matching version missed —
     `return result` reads as clean at the route and is the forbidden envelope on
     the wire.
     """
-    import textwrap
-
-    fn = ast.parse(textwrap.dedent(src)).body[0]
     if _returns_a_success_dict(fn):
         return "builds it"
 
@@ -359,6 +466,17 @@ def _handler_success_flag(src: str) -> str | None:
         if name in SUCCESS_PRODUCERS:
             return f"returns {name}()'s dict"
     return None
+
+
+def _flag_of_source(src: str) -> str | None:
+    """`_handler_success_flag` on a handler read back as text.
+
+    The backend half reaches its handlers through `inspect.getsource`, which
+    hands back a nested `def` still carrying its indentation.
+    """
+    import textwrap
+
+    return _handler_success_flag(ast.parse(textwrap.dedent(src)).body[0])
 
 
 def test_the_success_flag_extractor_discriminates():
@@ -387,11 +505,11 @@ def test_the_success_flag_extractor_discriminates():
         ),
     }
 
-    assert {k: bool(_handler_success_flag(v)) for k, v in caught.items()} == {
+    assert {k: bool(_flag_of_source(v)) for k, v in caught.items()} == {
         "literal": True,
         "via a service": True,
     }
-    assert {k: _handler_success_flag(v) for k, v in allowed.items()} == {
+    assert {k: _flag_of_source(v) for k, v in allowed.items()} == {
         "envelope": None,
         "command result": None,
     }
@@ -412,10 +530,20 @@ def test_no_route_returns_a_bare_success_flag():
     `POST /api/radio/custom/add` answered `{"success": True, "station": …}` for
     a year under a literal-only extractor, because the route said `return
     result`.
+
+    Both apps. The satellite's four update routes were the whole population when
+    this reached them, and one of the four carried real information in the flag:
+    `POST /update` answered `success: false` for *already up to date*, a no-op
+    the server had to read as a failure. That outcome is now `started`, next to
+    the envelope, and the server reads it there — the two halves ship together,
+    so there is no shim.
     """
     offenders = [
-        f"{m} {p} ({how})" for m, p, src in HANDLERS
-        if (how := _handler_success_flag(src))
+        f"backend {m} {p} ({how})" for m, p, src in HANDLERS
+        if (how := _flag_of_source(src))
+    ] + [
+        f"satellite {m} {p} ({how})" for m, p, fn in SATELLITE_HANDLERS
+        if (how := _handler_success_flag(fn))
     ]
     assert not offenders, (
         f"routes answering with a success flag: {offenders} — use "

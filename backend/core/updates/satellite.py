@@ -131,7 +131,11 @@ class SatelliteUpdateService:
                     if response.status == 200:
                         data = await response.json()
 
-                        if data.get("success"):
+                        # `started` is the satellite's answer to "did I begin
+                        # one" — false is the legitimate already-up-to-date
+                        # branch, not a failure, and only the true one carries a
+                        # target_version to wait for.
+                        if data.get("started"):
                             if progress_callback:
                                 await progress_callback(
                                     "updates.progress.updateInitiated",
@@ -387,7 +391,7 @@ class SatelliteUpdateService:
                     if response.status == 200:
                         data = await response.json()
 
-                        if data.get("success"):
+                        if data.get("started"):
                             if progress_callback:
                                 await progress_callback(
                                     "updates.progress.updateInitiated",

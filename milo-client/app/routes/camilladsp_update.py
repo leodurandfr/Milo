@@ -28,7 +28,8 @@ def create_camilladsp_update_router(camilladsp_update_service: CamillaDSPUpdateS
             current_version = await camilladsp_update_service.get_installed_version()
             if current_version == latest_version:
                 return {
-                    "success": False,
+                    "status": "success",
+                    "started": False,
                     "message": "Already up to date",
                     "current_version": current_version,
                     "latest_version": latest_version
@@ -41,7 +42,8 @@ def create_camilladsp_update_router(camilladsp_update_service: CamillaDSPUpdateS
             background_tasks.add_task(do_update)
 
             return {
-                "success": True,
+                "status": "success",
+                "started": True,
                 "message": f"Update started: {current_version} -> {latest_version}",
                 "current_version": current_version,
                 "target_version": latest_version

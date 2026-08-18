@@ -166,7 +166,7 @@ class TestSnapclientUpdateOutcome:
     async def test_a_version_that_did_not_move_is_a_failed_update(self, satellite_service):
         satellite = _FakeSatellite(
             status_payload={"snapclient": {"version": "0.27.0", "running": True}},
-            post_payload={"success": True, "target_version": "0.28.0"},
+            post_payload={"status": "success", "started": True, "target_version": "0.28.0"},
         )
 
         with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
@@ -181,7 +181,7 @@ class TestSnapclientUpdateOutcome:
         knows which snapclient release GitHub offered it."""
         satellite = _FakeSatellite(
             status_payload={"snapclient": {"version": "0.28.0", "running": True}},
-            post_payload={"success": True, "target_version": "0.28.0"},
+            post_payload={"status": "success", "started": True, "target_version": "0.28.0"},
         )
 
         with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
@@ -198,7 +198,7 @@ class TestCamillaDspUpdateOutcome:
     async def test_a_version_that_did_not_move_is_a_failed_update(self, satellite_service):
         satellite = _FakeSatellite(
             status_payload={"camilladsp": {"version": "3.0.0"}, "snapclient": {"version": "0.28.0"}},
-            post_payload={"success": True, "target_version": "3.1.0"},
+            post_payload={"status": "success", "started": True, "target_version": "3.1.0"},
         )
 
         with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
@@ -210,7 +210,7 @@ class TestCamillaDspUpdateOutcome:
     async def test_a_version_that_moved_is_a_successful_update(self, satellite_service):
         satellite = _FakeSatellite(
             status_payload={"camilladsp": {"version": "3.1.0"}, "snapclient": {"version": "0.28.0"}},
-            post_payload={"success": True, "target_version": "3.1.0"},
+            post_payload={"status": "success", "started": True, "target_version": "3.1.0"},
         )
 
         with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
