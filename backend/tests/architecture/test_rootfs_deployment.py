@@ -24,6 +24,10 @@ machine CI never touches, there is no import to fail and no route to 404, and
 `test_milo_client_contract.py` checks the HTTP surface, not what the satellite
 carries on disk.
 
+The installers that *populate* these trees are governed by its sibling,
+`test_install_deployment.py`: the relative `source` every `install/` module uses
+is invisible to the absolute-path rule here.
+
 Doctrine note (same as the Milo-Mac / milo-client contract tests): every
 extractor asserts its own output is non-trivial first, so a broken parse fails
 loudly instead of passing on an empty surface.
