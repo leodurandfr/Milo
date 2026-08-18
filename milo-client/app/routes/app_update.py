@@ -39,7 +39,7 @@ def create_app_update_router(app_update_service: AppUpdateService) -> APIRouter:
             raise HTTPException(status_code=500, detail=result.get("error", "Update failed"))
 
         return {
-            "success": True,
+            "status": "success",
             "version": version,
             "message": "Update deployed, service restarting...",
             "timestamp": int(time.time())
