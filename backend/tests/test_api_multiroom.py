@@ -1456,3 +1456,67 @@ class TestVolumeControlPush:
         assert satellite.gets == []
         assert satellite.puts == []
         mock_registry_service.update_client.assert_awaited_once()
+
+
+class TestRebootAfterAudioChange:
+    """A satellite that refuses the reboot has not changed its audio card.
+
+    The overlay is written to hardware.json and applied by the reboot; without
+    the reboot the unit keeps playing through the old card. This was documented
+    inside the tree before it was fixed — test_rootfs_deployment.py names it as
+    the reason a two-unit fleet hid a missing rootfs helper: every
+    script-installed satellite answered 500 here, and the pairing wizard
+    reported success anyway because a non-200 was only a warning.
+    """
+
+    class _RebootingSatellite:
+        """Answers the audio write, and the reboot with whatever it is given."""
+
+        def __init__(self, reboot_status=200):
+            self.reboot_status = reboot_status
+            self.puts = []
+            self.posts = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def put(self, url, json=None, **kwargs):
+            self.puts.append((url, json))
+            return TestVolumeControlPush._FakeResponse(200, {})
+
+        def post(self, url, **kwargs):
+            self.posts.append(url)
+            return TestVolumeControlPush._FakeResponse(self.reboot_status, "no such helper")
+
+    @staticmethod
+    def _patch_session(satellite):
+        return patch("backend.api.multiroom.aiohttp.ClientSession", return_value=satellite)
+
+    def _configure(self, client, satellite):
+        with self._patch_session(satellite):
+            return client.put(
+                "/api/multiroom/clients/dc:a6:32:7e:d3:43/audio",
+                json={"audio_id": "hifiberry_amp2"},
+            )
+
+    def test_a_refused_reboot_is_a_failed_configuration(self, client, mock_registry_service):
+        satellite = self._RebootingSatellite(reboot_status=500)
+
+        response = self._configure(client, satellite)
+
+        assert response.status_code == 502
+        assert satellite.posts == ["http://192.168.1.100:8001/api/hardware/reboot"]
+        assert mock_registry_service.update_client.await_count == 0, \
+            "the registry must not record a card the satellite never booted into"
+
+    def test_an_accepted_reboot_is_a_successful_configuration(self, client, mock_registry_service):
+        """Sanity floor: the assertion above must be about the reboot's status."""
+        satellite = self._RebootingSatellite(reboot_status=200)
+
+        response = self._configure(client, satellite)
+
+        assert response.status_code == 200
+        mock_registry_service.update_client.assert_awaited_once()
