@@ -70,6 +70,7 @@ class SatelliteUpdateService:
                 "ip": client.ip,
                 "snapclient_version": result.get("version"),
                 "app_version": result.get("app_version"),
+                "app_started_at": result.get("app_started_at"),
                 "camilladsp_version": result.get("camilladsp_version"),
                 "online": True,
                 "uptime": result.get("uptime"),
@@ -96,6 +97,7 @@ class SatelliteUpdateService:
                         "running": data.get("snapclient", {}).get("running", False),
                         "uptime": data.get("uptime"),
                         "app_version": data.get("app", {}).get("version"),
+                        "app_started_at": data.get("app", {}).get("started_at"),
                         "camilladsp_version": data.get("camilladsp", {}).get("version")
                     }
 
@@ -310,6 +312,9 @@ class SatelliteUpdateService:
                 }
 
             ip = satellite["ip"]
+            # Read before the push: the satellite cannot move this without
+            # restarting, which is the one step the version file cannot attest.
+            started_at_before = satellite.get("app_started_at")
 
             if progress_callback:
                 await progress_callback("updates.progress.startingUpdate", 5)
@@ -341,7 +346,7 @@ class SatelliteUpdateService:
                 await progress_callback("updates.progress.waitingForRestart", 50)
 
             result = await self._wait_for_app_update_completion(
-                mac_id, ip, version, progress_callback
+                mac_id, ip, version, started_at_before, progress_callback
             )
             return result
 
@@ -489,12 +494,22 @@ class SatelliteUpdateService:
         mac_id: str,
         ip: str,
         expected_version: str,
+        started_at_before: Optional[int],
         progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
-        """Polls satellite /status until it's back online with the expected app version."""
+        """Polls satellite /status until the new app version is the one *running*.
+
+        The version alone cannot say that. The satellite writes it to a file at
+        step 5 of its own deployment and only schedules the restart at step 6,
+        so a restart that never lands — an invalid unit file the same update
+        just deployed, a masked unit — leaves a satellite answering with the new
+        version out of the old process, forever. `app.started_at` is the process
+        itself, and only a real restart moves it.
+        """
         max_wait_time = 90
         check_interval = 5
         elapsed = 0
+        version_seen = False
 
         while elapsed < max_wait_time:
             await asyncio.sleep(check_interval)
@@ -516,9 +531,13 @@ class SatelliteUpdateService:
                     async with session.get(url) as response:
                         if response.status == 200:
                             data = await response.json()
-                            app_version = data.get("app", {}).get("version")
+                            app = data.get("app", {})
+                            app_version = app.get("version")
 
                             if app_version == expected_version:
+                                version_seen = True
+
+                            if app_version == expected_version and app.get("started_at") != started_at_before:
                                 if progress_callback:
                                     await progress_callback(
                                         "updates.progress.completed",
@@ -534,6 +553,15 @@ class SatelliteUpdateService:
             except Exception as e:
                 self.logger.debug(f"Waiting for satellite {mac_id} restart: {e}")
                 continue
+
+        if version_seen:
+            self.logger.error(
+                f"Satellite {mac_id} deployed {expected_version} but never restarted into it"
+            )
+            return {
+                "success": False,
+                "error": f"Satellite {mac_id} deployed the update but never restarted into it"
+            }
 
         return {
             "success": False,

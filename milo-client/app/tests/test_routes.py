@@ -126,6 +126,17 @@ class TestHealthRoutes:
         assert "snapclient" in data
         assert "update_in_progress" in data
 
+    def test_status_carries_the_process_start(self, client):
+        """The server compares app.started_at across an app push to tell a
+        satellite that restarted into the new code from one that only wrote the
+        version file. Drop the field and every app update reports "deployed but
+        never restarted", because both sides of that comparison become None."""
+        data = client.get("/status").json()
+
+        started_at = data["app"]["started_at"]
+        assert isinstance(started_at, int)
+        assert started_at > 1_700_000_000, "must be an epoch, not an uptime or a counter"
+
 
 class TestSnapclientRoutes:
     """Test snapclient management routes."""
