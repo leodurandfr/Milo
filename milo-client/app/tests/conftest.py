@@ -47,12 +47,17 @@ def mock_camilla_client():
 
 
 @pytest.fixture
-def equalizer_service(mock_camilla_client):
-    """EqualizerService with mocked CamillaDSP client."""
+def equalizer_service(mock_camilla_client, tmp_path):
+    """EqualizerService with mocked CamillaDSP client, persisting under tmp_path.
+
+    config_file is redirected because a setter now fails when the persist leg
+    fails: pointed at the real /var/lib path these tests would assert success on
+    a write that never happened, which is the bug they are meant to cover.
+    """
     with patch("services.equalizer.CAMILLADSP_AVAILABLE", True), \
          patch("services.equalizer.CamillaClient", return_value=mock_camilla_client):
         from services.equalizer import EqualizerService
-        service = EqualizerService()
+        service = EqualizerService(config_file=str(tmp_path / "config.yml"))
         service._client = mock_camilla_client
         service._connected = True
         return service
