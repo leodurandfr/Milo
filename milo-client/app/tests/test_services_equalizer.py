@@ -1,8 +1,12 @@
 """
 Unit tests for EqualizerService.
 """
+import asyncio
+import copy
+from pathlib import Path
+
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, Mock, patch
 
 
 class TestEqualizerServiceProperties:
@@ -345,3 +349,86 @@ class TestEqualizerServiceFilterTuning:
         assert config["filters"]["eq_band_1"]["parameters"]["gain"] == 4.0
         assert "eq_band_1" not in config["pipeline"][0]["names"]
         assert equalizer_service.equalizer_enabled is False
+
+
+class TestEqualizerServiceConfigPersistence:
+    """The DSP config is the satellite's only durable state.
+
+    Three ways it used to be lost, none of them visible from the server: a write
+    that never landed but answered success, a truncated file after a power cut,
+    and one of two concurrent mutations dropped.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_persist_failure_is_not_reported_as_success(self, equalizer_service, tmp_path):
+        """A setter that could not write must answer False, so the route raises.
+
+        The server has no other way to learn the push did nothing: the satellite
+        would come back on its old EQ at the next reboot.
+        """
+        equalizer_service.config_file = str(tmp_path / "absent-dir" / "config.yml")
+
+        assert await equalizer_service.set_filter("eq_band_1", gain=3.0) is False
+
+    @pytest.mark.asyncio
+    async def test_the_live_config_survives_a_write_that_dies(self, equalizer_service, tmp_path):
+        """New bytes must reach the live path only through the rename.
+
+        CamillaDSP re-reads this file on the recovery path, so a truncated one is
+        a room that stays silent.
+        """
+        await equalizer_service.set_filter("eq_band_1", gain=1.0)
+        persisted = Path(equalizer_service.config_file).read_text()
+        assert "eq_band_1" in persisted
+
+        with patch("services.equalizer.os.replace", side_effect=OSError("power cut")):
+            result = await equalizer_service.set_filter("eq_band_1", gain=9.0)
+
+        assert result is False
+        assert Path(equalizer_service.config_file).read_text() == persisted
+
+    @pytest.mark.asyncio
+    async def test_concurrent_setters_do_not_lose_a_mutation(self, tmp_path):
+        """Two setters running at once must both reach the config.
+
+        Reachable in production: the server pushes a whole record from a
+        background task (the reconnection sync) while a targeted write from the
+        UI lands at the same moment. Each setter reads the config, mutates its
+        own corner and writes the whole document back, so without the lock the
+        slower one overwrites the other with a document read before it existed.
+
+        The client here hands out a snapshot per call, as CamillaDSP does over
+        the WebSocket — the shared-dict fixture would hide the interleaving.
+        """
+        device = {
+            "filters": {
+                "eq_band_1": {
+                    "type": "Biquad",
+                    "parameters": {"type": "Peaking", "freq": 100, "gain": 0.0, "q": 1.0},
+                },
+            },
+            "processors": {},
+            "pipeline": [{"type": "Filter", "channels": [0, 1], "names": ["eq_band_1"]}],
+        }
+        client = MagicMock()
+        client.config.active.side_effect = lambda: copy.deepcopy(device)
+        client.config.set_active = Mock(
+            side_effect=lambda cfg: device.update(copy.deepcopy(cfg))
+        )
+
+        with patch("services.equalizer.CAMILLADSP_AVAILABLE", True), \
+             patch("services.equalizer.CamillaClient", return_value=client):
+            from services.equalizer import EqualizerService
+            service = EqualizerService(config_file=str(tmp_path / "config.yml"))
+            service._client = client
+            service._connected = True
+
+            applied = await asyncio.gather(
+                service.set_compressor(enabled=True, threshold=-18.0),
+                service.set_filter("eq_band_1", gain=6.0),
+            )
+            await service.stop_connection_loop()
+
+        assert device["filters"]["eq_band_1"]["parameters"]["gain"] == 6.0
+        assert "compressor" in device["processors"]
+        assert applied == [True, True]

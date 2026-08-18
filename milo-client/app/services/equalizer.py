@@ -10,8 +10,9 @@ Controls local CamillaDSP daemon via WebSocket for:
 - Crossover filters (highpass/lowpass)
 """
 import asyncio
-import aiofiles
+import functools
 import logging
+import os
 import time
 import yaml
 from concurrent.futures import ThreadPoolExecutor
@@ -30,6 +31,23 @@ CAMILLADSP_PORT = 1234
 CONFIG_FILE = "/var/lib/milo-client/camilladsp/config.yml"
 RECONNECT_DELAY = 5.0
 MAX_RECONNECT_DELAY = 30.0
+
+
+def serialised_config_write(method):
+    """Hold the config lock for a whole read-modify-write.
+
+    Every setter below reads the live config, mutates its own corner of it and
+    writes the whole document back, so two of them running at once lose one
+    mutation silently — reachable because the server pushes a record from a
+    background task (the reconnection sync) while a targeted write from the UI
+    can land at the same moment. Decorated methods must never call each other:
+    the lock is not reentrant.
+    """
+    @functools.wraps(method)
+    async def wrapper(self, *args, **kwargs):
+        async with self._config_lock:
+            return await method(self, *args, **kwargs)
+    return wrapper
 
 
 class EqualizerService:
@@ -54,6 +72,7 @@ class EqualizerService:
         self._client = None
         self._connected = False
         self._reconnect_lock = asyncio.Lock()
+        self._config_lock = asyncio.Lock()
         self._reconnect_task: Optional[asyncio.Task] = None
         self._running = True
 
@@ -398,23 +417,38 @@ class EqualizerService:
         return config
 
     async def _apply_config(self, config: Dict[str, Any]) -> None:
-        """Apply config to CamillaDSP and save to disk."""
+        """Apply config to CamillaDSP, then persist it.
+
+        set_active first — the audible effect must not wait on the disk — and the
+        persist leg raises rather than reporting success: a satellite that
+        answered 200 with nothing written comes back on its old EQ at the next
+        reboot, and only a second physical unit shows it.
+        """
         await self._exec(lambda: self._client.config.set_active(config))
         await self._save_config_to_file(config)
 
-    async def _save_config_to_file(self, config: Dict[str, Any]) -> bool:
-        """Save config to disk for persistence."""
-        try:
-            config_yaml = yaml.dump(config, default_flow_style=False, allow_unicode=True)
+    async def _save_config_to_file(self, config: Dict[str, Any]) -> None:
+        """Persist config to disk atomically. Raises if it did not land."""
+        config_yaml = yaml.dump(config, default_flow_style=False, allow_unicode=True)
+        await asyncio.get_running_loop().run_in_executor(
+            None, self._write_atomic, self.config_file, config_yaml
+        )
+        self.logger.info("Config saved to disk")
 
-            async with aiofiles.open(self.config_file, 'w') as f:
-                await f.write(config_yaml)
+    @staticmethod
+    def _write_atomic(path: str, content: str) -> None:
+        """tmp + fsync + rename.
 
-            self.logger.info("Config saved to disk")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to save config to disk: {e}")
-            return False
+        A power cut during a plain overwrite leaves a truncated config.yml, and
+        the recovery path re-reads that same file (_get_config falls back to
+        read_and_parse_file), so the room stays silent until someone deletes it.
+        """
+        tmp_path = f"{path}.tmp"
+        with open(tmp_path, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
 
     async def get_filters(self) -> List[Dict[str, Any]]:
         """Get current EQ filter configuration."""
@@ -449,6 +483,7 @@ class EqualizerService:
             self.logger.error(f"Error getting filters: {e}")
             return self._filters
 
+    @serialised_config_write
     async def set_filter(self, filter_id: str, gain: float,
                          freq: float = None, q: float = None,
                          filter_type: str = None) -> bool:
@@ -481,6 +516,7 @@ class EqualizerService:
             self.logger.error(f"Error setting filter {filter_id}: {e}")
             return False
 
+    @serialised_config_write
     async def set_filters_batch(self, filters: List[dict]) -> dict:
         """
         Update multiple filters in one operation with a single disk save.
@@ -521,6 +557,7 @@ class EqualizerService:
             self.logger.error(f"Error in batch filter update: {e}")
             return {"success": False, "applied": 0, "error": str(e)}
 
+    @serialised_config_write
     async def set_compressor(self, enabled: bool = None, threshold: float = None,
                              ratio: float = None, attack: float = None,
                              release: float = None, makeup_gain: float = None) -> bool:
@@ -570,6 +607,7 @@ class EqualizerService:
             self.logger.error(f"Error setting compressor: {e}")
             return False
 
+    @serialised_config_write
     async def set_loudness(self, enabled: bool = None,
                            high_boost: float = None, low_boost: float = None) -> bool:
         """Update loudness settings."""
@@ -621,6 +659,7 @@ class EqualizerService:
             self.logger.error(f"Error setting loudness: {e}")
             return False
 
+    @serialised_config_write
     async def set_mono(self, enabled: bool) -> bool:
         """Switch between stereo passthrough and mono summing in CamillaDSP."""
         self._mono = enabled
@@ -661,6 +700,7 @@ class EqualizerService:
             self.logger.error(f"Error setting mono: {e}")
             return False
 
+    @serialised_config_write
     async def set_delay(self, left: float = None, right: float = None) -> bool:
         """Set channel delay in milliseconds."""
         if left is not None:
@@ -760,6 +800,7 @@ class EqualizerService:
             self.logger.error(f"Error setting mute: {e}")
             return False
 
+    @serialised_config_write
     async def set_crossover(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
         """
         Set crossover highpass filter for subwoofer integration.
@@ -813,6 +854,7 @@ class EqualizerService:
             self.logger.error(f"Error setting crossover: {e}")
             return False
 
+    @serialised_config_write
     async def set_lowpass(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
         """
         Set lowpass filter for subwoofer.
@@ -910,6 +952,7 @@ class EqualizerService:
             if not (step.get("type") == "Processor" and step.get("name") == processor_name)
         ]
 
+    @serialised_config_write
     async def set_equalizer_enabled(self, enabled: bool) -> bool:
         """
         Master toggle for equalizer effects (EQ bands + compressor + loudness).
