@@ -6,6 +6,7 @@ import copy
 from pathlib import Path
 
 import pytest
+import yaml
 from unittest.mock import MagicMock, Mock, patch
 
 
@@ -432,3 +433,167 @@ class TestEqualizerServiceConfigPersistence:
         assert device["filters"]["eq_band_1"]["parameters"]["gain"] == 6.0
         assert "compressor" in device["processors"]
         assert applied == [True, True]
+
+
+class TestEqualizerWholeRecordPush:
+    """The two setters only a whole-record push ever calls.
+
+    `EqualizerClientProxyService.apply_record` is the single path by which a
+    complete `EqualizerSettings` reaches a satellite — the live write, the
+    reconnection sync and the pending crossover replay all go through it — and
+    two of its five legs land here: `PUT /equalizer/filters` on
+    `set_filters_batch`, `PUT /equalizer/mono` on `set_mono`. Measured
+    2026-08-18: gutting both to constants left the whole satellite suite green,
+    so a client that silently applied none of its EQ on reconnect would have
+    reached the fleet with CI clean.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_batch_applies_every_tuning_key(self, equalizer_service, mock_camilla_client):
+        """The keys are the wire contract with apply_record, which sends id, gain,
+        freq, q and filter_type for each band of the record."""
+        config = mock_camilla_client.config.active.return_value
+
+        result = await equalizer_service.set_filters_batch([
+            {"id": "eq_band_1", "gain": 4.5, "freq": 250.0, "q": 1.4, "filter_type": "Lowshelf"},
+            {"id": "eq_band_2", "gain": -3.0, "freq": 4000.0, "q": 0.8, "filter_type": "Peaking"},
+        ])
+
+        assert result == {"success": True, "applied": 2}
+        assert config["filters"]["eq_band_1"]["parameters"] == {
+            "type": "Lowshelf", "freq": 250.0, "gain": 4.5, "q": 1.4
+        }
+        assert config["filters"]["eq_band_2"]["parameters"] == {
+            "type": "Peaking", "freq": 4000.0, "gain": -3.0, "q": 0.8
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_whole_batch_costs_one_save(self, equalizer_service, mock_camilla_client):
+        """What the batch route exists for. A satellite writes its config to an SD
+        card and re-pushes it to CamillaDSP on every save, so a per-band save on a
+        ten-band record is ten rewrites and ten reloads for one user gesture."""
+        await equalizer_service.set_filters_batch([
+            {"id": "eq_band_1", "gain": 1.0},
+            {"id": "eq_band_2", "gain": 2.0},
+        ])
+
+        assert mock_camilla_client.config.set_active.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_the_batch_reaches_the_disk(self, equalizer_service, mock_camilla_client):
+        """set_active alone is the live DSP; a satellite that answered 200 without
+        writing comes back on its old EQ at the next reboot, and only a second
+        physical unit shows it."""
+        await equalizer_service.set_filters_batch([{"id": "eq_band_1", "gain": 6.0}])
+
+        persisted = yaml.safe_load(Path(equalizer_service.config_file).read_text())
+        assert persisted["filters"]["eq_band_1"]["parameters"]["gain"] == 6.0
+
+    @pytest.mark.asyncio
+    async def test_a_band_the_config_does_not_define_is_not_created(self, equalizer_service, mock_camilla_client):
+        """A stray definition would sit in filters/ doing nothing until the master
+        toggle re-piped the bands it finds, and then be audible."""
+        config = mock_camilla_client.config.active.return_value
+
+        result = await equalizer_service.set_filters_batch([
+            {"id": "eq_band_1", "gain": 1.0},
+            {"id": "eq_band_99", "gain": 12.0},
+        ])
+
+        assert result["applied"] == 1, "an unknown band is not applied"
+        assert "eq_band_99" not in config["filters"]
+
+    @pytest.mark.asyncio
+    async def test_a_batch_does_not_repipe_a_bypassed_client(self, equalizer_service, mock_camilla_client):
+        """Bands carry tuning only, on a satellite exactly as locally — the master
+        toggle owns pipeline membership. If a batch regained that power, the
+        reconnection sync would un-bypass every client it re-synced."""
+        config = mock_camilla_client.config.active.return_value
+        await equalizer_service.set_equalizer_enabled(False)
+
+        await equalizer_service.set_filters_batch([{"id": "eq_band_1", "gain": 5.0}])
+
+        assert config["filters"]["eq_band_1"]["parameters"]["gain"] == 5.0
+        assert "eq_band_1" not in config["pipeline"][0]["names"]
+        assert equalizer_service.equalizer_enabled is False
+
+    @pytest.mark.asyncio
+    async def test_a_batch_leaves_a_band_exactly_as_a_single_push_would(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """set_filters_batch's own docstring's claim. The two paths are reached by
+        different callers — a slider goes through set_filter, a reconnect through
+        the batch — so a drift between them shows up as a client that tunes
+        correctly under the hand and wrongly after a power cut."""
+        config = mock_camilla_client.config.active.return_value
+
+        await equalizer_service.set_filter("eq_band_1", gain=4.5, freq=250.0, q=1.4, filter_type="Lowshelf")
+        after_single_push = copy.deepcopy(config["filters"]["eq_band_1"])
+
+        await equalizer_service.set_filter("eq_band_1", gain=0.0, freq=100.0, q=1.0, filter_type="Peaking")
+        await equalizer_service.set_filters_batch([
+            {"id": "eq_band_1", "gain": 4.5, "freq": 250.0, "q": 1.4, "filter_type": "Lowshelf"},
+        ])
+
+        assert config["filters"]["eq_band_1"] == after_single_push
+
+
+class TestEqualizerMono:
+    """`PUT /equalizer/mono`, the fourth leg of apply_record.
+
+    Mono is a Mixer step swap in the CamillaDSP pipeline, not an ALSA route: the
+    satellite sums the two channels itself. A record whose mono leg does nothing
+    leaves one speaker in a mono zone playing a stereo half.
+    """
+
+    @staticmethod
+    def _with_mixer(mock_camilla_client, name="stereo"):
+        config = mock_camilla_client.config.active.return_value
+        config["pipeline"].append({"type": "Mixer", "name": name})
+        return config
+
+    @pytest.mark.asyncio
+    async def test_enabling_swaps_the_pipeline_to_the_mono_mixer(self, equalizer_service, mock_camilla_client):
+        config = self._with_mixer(mock_camilla_client)
+
+        assert await equalizer_service.set_mono(True) is True
+
+        mixer = [s for s in config["pipeline"] if s["type"] == "Mixer"]
+        assert [s["name"] for s in mixer] == ["mono"]
+        assert equalizer_service.mono is True
+
+    @pytest.mark.asyncio
+    async def test_disabling_swaps_it_back_to_stereo(self, equalizer_service, mock_camilla_client):
+        config = self._with_mixer(mock_camilla_client, name="mono")
+
+        assert await equalizer_service.set_mono(False) is True
+
+        mixer = [s for s in config["pipeline"] if s["type"] == "Mixer"]
+        assert [s["name"] for s in mixer] == ["stereo"]
+        assert equalizer_service.mono is False
+
+    @pytest.mark.asyncio
+    async def test_the_mono_mixer_is_defined_when_the_config_lacks_it(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """The pipeline names a mixer that must exist in `mixers`, or CamillaDSP
+        refuses the whole config and the satellite goes silent — so the definition
+        is written before the step is pointed at it."""
+        config = self._with_mixer(mock_camilla_client)
+        assert "mixers" not in config
+
+        await equalizer_service.set_mono(True)
+
+        assert "mono" in config["mixers"]
+        assert config["mixers"]["mono"]["channels"] == {"in": 2, "out": 2}
+
+    @pytest.mark.asyncio
+    async def test_mono_reaches_the_disk(self, equalizer_service, mock_camilla_client):
+        """Same reason as the batch: the record has to survive a reboot."""
+        self._with_mixer(mock_camilla_client)
+
+        await equalizer_service.set_mono(True)
+
+        persisted = yaml.safe_load(Path(equalizer_service.config_file).read_text())
+        mixer = [s for s in persisted["pipeline"] if s["type"] == "Mixer"]
+        assert [s["name"] for s in mixer] == ["mono"]

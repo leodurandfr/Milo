@@ -6,8 +6,10 @@ serve is the only way to repair it remotely. A sync that fails after it has
 already started overwriting the live tree therefore takes the repair path down
 with it, and the unit needs a hand on the machine.
 """
+import io
 import logging
 import os
+import stat
 import tarfile
 import shutil
 
@@ -279,3 +281,139 @@ class TestRestartOutcome:
 
         assert len(records) == 1
         assert "Exit code 1" in records[0].message
+
+
+def _tarball_of(tmp_path, members) -> str:
+    """Writes a tarball holding exactly the members given, as (TarInfo, payload) pairs.
+
+    Hand-built rather than produced by `tar.add()`: an arcname is derived from a
+    path that exists, so a traversing name or a link escaping the destination
+    cannot be produced from a real tree — only by an attacker writing the archive
+    directly, which is precisely the case the guard exists for.
+    """
+    tarball = tmp_path / "unsafe.tar.gz"
+    with tarfile.open(tarball, "w:gz") as tar:
+        for info, payload in members:
+            if payload is None:
+                tar.addfile(info)
+            else:
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+    return str(tarball)
+
+
+def _dir(name):
+    info = tarfile.TarInfo(name)
+    info.type = tarfile.DIRTYPE
+    info.mode = 0o755
+    return info
+
+
+class TestExtractTarballRefusesUnsafeMembers:
+    """The satellite's only validation of an unauthenticated upload.
+
+    `POST /app/update` takes a tarball from anything that can reach port 8001 and
+    hands it straight to tarfile — there is no token, no signature and no peer
+    check, only the LAN. The extraction runs as the account that owns the app and
+    the `milo-client-deploy-update` sudo wrapper, so a member landing outside the
+    temp dir is a write into a home directory, a unit file or a crontab on a
+    machine nobody looks at.
+
+    The rejection has to happen before the first member is written: a guard that
+    fires halfway leaves a partial tree behind on the very disk it was defending.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_absolute_member_name_is_refused(self, tmp_path):
+        tarball = _tarball_of(tmp_path, [
+            (tarfile.TarInfo("/etc/cron.d/milo-client"), b"* * * * * root id\n"),
+        ])
+        dest = tmp_path / "dest"
+        dest.mkdir()
+
+        with pytest.raises(ValueError, match="Unsafe path"):
+            await AppUpdateService()._extract_tarball(tarball, str(dest))
+
+        assert list(dest.iterdir()) == [], "a refused tarball must leave nothing behind"
+
+    @pytest.mark.asyncio
+    async def test_a_traversing_member_name_is_refused(self, tmp_path):
+        tarball = _tarball_of(tmp_path, [
+            (_dir("milo-client"), None),
+            (tarfile.TarInfo("milo-client/../../../.ssh/authorized_keys"), b"ssh-rsa AAAA\n"),
+        ])
+        dest = tmp_path / "dest"
+        dest.mkdir()
+
+        with pytest.raises(ValueError, match="Unsafe path"):
+            await AppUpdateService()._extract_tarball(tarball, str(dest))
+
+        assert list(dest.iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_a_symlink_pointing_out_of_the_destination_is_refused(self, tmp_path):
+        """The hole a name check alone leaves open, reproduced before the fix:
+        every member name here is clean and the escape lives in a link target the
+        guard never read. The third member then writes *through* the second."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "authorized_keys").write_text("the real one\n")
+
+        link = tarfile.TarInfo("milo-client/app")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../../outside"
+
+        tarball = _tarball_of(tmp_path, [
+            (_dir("milo-client"), None),
+            (link, None),
+            (tarfile.TarInfo("milo-client/app/authorized_keys"), b"pwned\n"),
+        ])
+        dest = tmp_path / "dest"
+        dest.mkdir()
+
+        with pytest.raises(ValueError, match="Unsafe path"):
+            await AppUpdateService()._extract_tarball(tarball, str(dest))
+
+        assert (outside / "authorized_keys").read_text() == "the real one\n"
+
+    @pytest.mark.asyncio
+    async def test_a_setuid_member_lands_without_its_setuid_bit(self, tmp_path):
+        """`_deploy_system_files` copies this tree to /usr/local/bin as root, so a
+        mode the extraction honoured is a mode the fleet installs. Names cannot
+        express this one — it is what the `data` extraction filter is there for."""
+        payload = b"#!/bin/bash\nexec bash\n"
+        info = tarfile.TarInfo("milo-client/rootfs/usr/local/bin/milo-client-shell")
+        info.mode = 0o4755
+
+        tarball = _tarball_of(tmp_path, [(_dir("milo-client"), None), (info, payload)])
+        dest = tmp_path / "dest"
+        dest.mkdir()
+
+        await AppUpdateService()._extract_tarball(tarball, str(dest))
+
+        mode = (dest / info.name).stat().st_mode
+        assert not mode & stat.S_ISUID, "a setuid bit must not survive the extraction"
+
+    @pytest.mark.asyncio
+    async def test_the_release_tarball_still_extracts(self, tmp_path):
+        """The floor under the four above: a guard that refuses everything blocks
+        the fleet instead of an attacker. The executable bit is part of the
+        contract — the deploy wrapper installs the milo-client-* helpers from
+        this tree, and a non-executable one denies the *next* update."""
+        src = tmp_path / "src" / "milo-client" / "rootfs" / "usr" / "local" / "bin"
+        src.mkdir(parents=True)
+        helper = src / "milo-client-deploy-update"
+        helper.write_text("#!/bin/bash\n")
+        helper.chmod(0o755)
+
+        tarball = tmp_path / "release.tar.gz"
+        with tarfile.open(tarball, "w:gz") as tar:
+            tar.add(str(tmp_path / "src" / "milo-client"), arcname="milo-client")
+
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        await AppUpdateService()._extract_tarball(str(tarball), str(dest))
+
+        deployed = dest / "milo-client" / "rootfs" / "usr" / "local" / "bin" / "milo-client-deploy-update"
+        assert deployed.is_file()
+        assert os.access(deployed, os.X_OK), "the sudoers helpers ship executable"
