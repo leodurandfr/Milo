@@ -5,6 +5,17 @@ set -euo pipefail
 
 error_exit() { echo "ERROR: $1" >&2; exit 1; }
 
+# An update that changed nothing on disk and one that replaced every unit file
+# read identically in the journal, and the journal is the only surface this
+# machine has. Everything installed below is compared before it is overwritten,
+# and what actually moved is listed at the end.
+CHANGED=()
+would_change() {
+    # $1 source, $2 destination — true when copying would alter the destination.
+    [ -f "$2" ] || return 0
+    ! cmp -s "$1" "$2"
+}
+
 # Install this very script, which a plain `cp` cannot do: bash reads a script
 # lazily by byte offset, so overwriting it mid-run makes the shell resume at the
 # same offset in different bytes and die on a syntax error in whatever token it
@@ -24,6 +35,7 @@ error_exit() { echo "ERROR: $1" >&2; exit 1; }
 # overwrite this avoids.
 install_self() {
     local rel_path="$1"
+    would_change "$MILO_DIR/rootfs/$rel_path" "/$rel_path" && CHANGED+=("/$rel_path")
     cp "$MILO_DIR/rootfs/$rel_path" "/$rel_path.new"
     chmod +x "/$rel_path.new"
     mv -f "/$rel_path.new" "/$rel_path"
@@ -52,22 +64,44 @@ MILO_DIR="$UPDATE_DIR/milo-client"
 echo "Deploying systemd service files..."
 for service_file in "$MILO_DIR"/system/*.service; do
     [ -f "$service_file" ] || continue
+    unit=$(basename "$service_file")
+    would_change "$service_file" "/etc/systemd/system/$unit" && CHANGED+=("$unit")
     cp "$service_file" /etc/systemd/system/
-    echo "  Installed $(basename "$service_file")"
+    echo "  Installed $unit"
 done
 
 # Deploy avahi override if present. One spelling, the one pi-gen and
 # milo-first-boot use — a second file is a drop-in nothing ever removes, and
 # systemd reads them alphabetically, so the stale one would win.
+AVAHI_OVERRIDE=/etc/systemd/system/avahi-daemon.service.d/milo-client-override.conf
+avahi_changed=0
 if [ -f "$MILO_DIR/system/avahi-daemon-override.conf" ]; then
     mkdir -p /etc/systemd/system/avahi-daemon.service.d/
-    cp "$MILO_DIR/system/avahi-daemon-override.conf" /etc/systemd/system/avahi-daemon.service.d/milo-client-override.conf
+    if would_change "$MILO_DIR/system/avahi-daemon-override.conf" "$AVAHI_OVERRIDE"; then
+        avahi_changed=1
+        CHANGED+=("avahi-daemon override")
+    fi
+    cp "$MILO_DIR/system/avahi-daemon-override.conf" "$AVAHI_OVERRIDE"
     rm -f /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
     echo "  Installed avahi-daemon override"
 fi
 
 systemctl daemon-reload
 echo "  systemctl daemon-reload done"
+
+# avahi-daemon is the only consumer of anything deployed here that nothing else
+# brings back. The app update restarts milo-client.service as its last step and
+# systemd propagates that to milo-client-camilladsp and milo-client-snapclient —
+# measured on a unit: both go inactive with it and return with it, NRestarts
+# untouched — so the unit files above and /etc/asound.conf take effect on their
+# own. This drop-in would sit reloaded-but-unapplied until the next boot, which
+# is how a satellite kept announcing itself on the wrong interface after the fix
+# for it had already been deployed. Only on a real change: a restart re-registers
+# every mDNS name on the unit, and that is how the server finds it.
+if [ "$avahi_changed" -eq 1 ]; then
+    systemctl restart avahi-daemon.service
+    echo "  Restarted avahi-daemon (its drop-in changed)"
+fi
 
 # --- Deploy rootfs files ---
 echo "Deploying rootfs files..."
@@ -92,6 +126,7 @@ while read -r rel_path; do
     mkdir -p "$target_dir"
 
     # Copy file
+    would_change "$MILO_DIR/rootfs/$rel_path" "$target" && CHANGED+=("$target")
     cp "$MILO_DIR/rootfs/$rel_path" "$target"
     echo "  Installed $target"
 
@@ -109,5 +144,11 @@ while read -r rel_path; do
             ;;
     esac
 done < <(find . -type f)
+
+if [ ${#CHANGED[@]} -eq 0 ]; then
+    echo "Changed nothing: every deployed file already matched"
+else
+    echo "Changed ${#CHANGED[@]} file(s): ${CHANGED[*]}"
+fi
 
 echo "Update deployment complete"
