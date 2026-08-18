@@ -196,35 +196,32 @@ class TestSnapclientConfigBounds:
 
 
 class TestEqualizerRoutes:
-    """Test Equalizer control routes."""
+    """What the equalizer routes decide, as opposed to what they pass through.
 
-    def test_equalizer_enabled_get(self, client):
-        """GET /equalizer/enabled should return enabled state."""
-        response = client.get("/equalizer/enabled")
-        assert response.status_code == 200
-        assert response.json() == {"enabled": True}
+    The GET handlers here hand back whatever the service returned; a test feeding
+    the service a dict and finding its keys in the response asserts the fixture,
+    not the route. Eight such tests were removed 2026-08-18 — none of them could
+    fail — and replaced by the smoke below plus assertions on the two things the
+    routes genuinely do: unwrap a request model into the service's keyword
+    arguments, and forward an absent field as None.
+    """
 
-    def test_equalizer_status_endpoint(self, client):
-        """GET /equalizer/status should return Equalizer status."""
-        response = client.get("/equalizer/status")
-        assert response.status_code == 200
-        data = response.json()
-        assert "available" in data
-
-    def test_equalizer_filters_endpoint(self, client):
-        """GET /equalizer/filters should return filter list."""
-        response = client.get("/equalizer/filters")
-        assert response.status_code == 200
-        data = response.json()
-        assert "filters" in data
-
-    def test_equalizer_volume_get(self, client):
-        """GET /equalizer/volume should return volume state."""
-        response = client.get("/equalizer/volume")
-        assert response.status_code == 200
-        data = response.json()
-        assert "main" in data
-        assert "mute" in data
+    @pytest.mark.parametrize("path", [
+        "/equalizer/enabled",
+        "/equalizer/status",
+        "/equalizer/filters",
+        "/equalizer/volume",
+        "/equalizer/compressor",
+        "/equalizer/loudness",
+        "/equalizer/delay",
+        "/equalizer/levels",
+    ])
+    def test_every_read_route_answers(self, client, path):
+        """A floor, and only a floor: it catches a handler that raises or a router
+        that no longer wires the service in. It says nothing about the payload,
+        deliberately — the payloads come straight from the service, which has its
+        own tests, and re-asserting them here would only pin the fixture."""
+        assert client.get(path).status_code == 200
 
     def test_equalizer_volume_put(self, client, mock_equalizer_service):
         """PUT /equalizer/volume should update volume."""
@@ -238,38 +235,32 @@ class TestEqualizerRoutes:
         assert response.status_code == 200
         mock_equalizer_service.set_mute.assert_called_once_with(True)
 
-    def test_equalizer_compressor_get(self, client):
-        """GET /equalizer/compressor should return compressor state."""
-        response = client.get("/equalizer/compressor")
-        assert response.status_code == 200
-        data = response.json()
-        assert "enabled" in data
-        assert "threshold" in data
+    def test_every_compressor_field_reaches_the_service_under_its_own_name(
+        self, client, mock_equalizer_service
+    ):
+        """Six optional fields, forwarded one by one as keyword arguments — the
+        one place a crossed wire (threshold taking ratio's value) is visible at
+        all. The backend contract test proves the satellite *reads* each key the
+        server sends; it cannot see which argument the key ends up in, and the
+        route reports success either way."""
+        response = client.put("/equalizer/compressor", json={
+            "enabled": True, "threshold": -15.0, "ratio": 3.0,
+            "attack": 5.0, "release": 120.0, "makeup_gain": 2.0,
+        })
 
-    def test_equalizer_compressor_put(self, client, mock_equalizer_service):
-        """PUT /equalizer/compressor should update compressor."""
-        response = client.put("/equalizer/compressor", json={"enabled": True, "threshold": -15.0})
         assert response.status_code == 200
-        mock_equalizer_service.set_compressor.assert_called_once()
+        mock_equalizer_service.set_compressor.assert_called_once_with(
+            enabled=True, threshold=-15.0, ratio=3.0,
+            attack=5.0, release=120.0, makeup_gain=2.0,
+        )
 
-    def test_equalizer_loudness_get(self, client):
-        """GET /equalizer/loudness should return loudness state."""
-        response = client.get("/equalizer/loudness")
-        assert response.status_code == 200
-        data = response.json()
-        assert "enabled" in data
+    def test_a_compressor_field_the_body_omits_arrives_as_none(self, client, mock_equalizer_service):
+        """None is what the service reads as "leave this one alone". A default
+        substituted here would reset the other five on every partial push, and the
+        UI sends exactly one field when a single control moves."""
+        client.put("/equalizer/compressor", json={"enabled": True})
 
-    def test_equalizer_delay_get(self, client):
-        """GET /equalizer/delay should return delay state."""
-        response = client.get("/equalizer/delay")
-        assert response.status_code == 200
-        data = response.json()
-        assert "left" in data
-        assert "right" in data
-
-    def test_equalizer_levels_get(self, client):
-        """GET /equalizer/levels should return audio levels."""
-        response = client.get("/equalizer/levels")
-        assert response.status_code == 200
-        data = response.json()
-        assert "available" in data
+        mock_equalizer_service.set_compressor.assert_called_once_with(
+            enabled=True, threshold=None, ratio=None,
+            attack=None, release=None, makeup_gain=None,
+        )

@@ -127,14 +127,28 @@ class AppUpdateService:
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
     async def _extract_tarball(self, tarball_path: str, dest_dir: str):
-        """Extracts tarball with security validation (no path traversal)."""
+        """Extracts tarball with security validation (no path traversal).
+
+        Nothing authenticates the upload this unpacks: `POST /app/update` takes a
+        tarball from anything that can reach port 8001, and it is extracted by the
+        account that owns the app and the deploy sudo wrapper.
+
+        Two layers, and both are needed. The name pass runs over every member
+        before a single one is written, so a refused tarball leaves no partial
+        tree behind — and it reads `linkname` as well as `name`, because a member
+        whose own name is clean can still be a symlink resolving outside the
+        destination, which a later member then writes *through*. The `data`
+        filter is the backstop for what a path cannot express: setuid bits,
+        device nodes, and links Python resolves against members it has already
+        extracted. Without an explicit filter Python 3.13 extracts fully trusted.
+        """
         def _do_extract():
             with tarfile.open(tarball_path, "r:gz") as tar:
-                # Security: check for path traversal
                 for member in tar.getmembers():
-                    if member.name.startswith("/") or ".." in member.name:
-                        raise ValueError(f"Unsafe path in tarball: {member.name}")
-                tar.extractall(path=dest_dir)
+                    for path in (member.name, member.linkname):
+                        if path.startswith("/") or ".." in path:
+                            raise ValueError(f"Unsafe path in tarball: {member.name}")
+                tar.extractall(path=dest_dir, filter="data")
 
         await asyncio.get_event_loop().run_in_executor(None, _do_extract)
 
