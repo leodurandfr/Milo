@@ -270,13 +270,16 @@ class AppUpdateService:
     async def _restart_service(self):
         """Restarts milo-client.service.
 
-        A successful restart kills this process before systemctl returns, so a
-        return code that arrives at all is a restart that did not happen — a
-        unit file the deploy step made invalid, a masked unit, a policy that no
-        longer grants the verb. There is nobody left to tell: the HTTP response
-        went out two seconds ago. Logging it is what a `sat logs` can find, and
-        the started_at the server compares stays put, so the update is reported
-        failed rather than succeeded on a satellite still running the old code.
+        A successful restart kills this process, and systemd kills the whole
+        cgroup — this `systemctl` child included — so the *expected* outcome is
+        a negative return code, signalled death. Measured on canapé: -15, with
+        an empty stderr, 150 ms in. Only a positive code is a restart that did
+        not happen: a unit file the deploy step made invalid, a masked unit, a
+        policy that no longer grants the verb. There is nobody left to tell —
+        the HTTP response went out two seconds ago — so the log is what a
+        `sat logs` can find, and the started_at the server compares stays put,
+        so the update reads as failed rather than succeeded on a satellite still
+        running the old code. Same distinction the reboot route already draws.
         """
         self.logger.info("Restarting milo-client.service...")
 
@@ -288,7 +291,6 @@ class AppUpdateService:
 
         _, stderr = await proc.communicate()
 
-        if proc.returncode != 0:
-            self.logger.error(
-                f"Restart failed, still running the previous code: {stderr.decode().strip()}"
-            )
+        if proc.returncode is not None and proc.returncode > 0:
+            error_msg = stderr.decode().strip() or f"Exit code {proc.returncode}"
+            self.logger.error(f"Restart failed, still running the previous code: {error_msg}")
