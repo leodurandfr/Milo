@@ -237,7 +237,16 @@ class AppUpdateService:
             error_msg = stderr.decode().strip() or stdout.decode().strip()
             raise RuntimeError(f"Deploy script failed: {error_msg}")
 
-        self.logger.info(f"System files deployed: {stdout.decode().strip()}")
+        output = stdout.decode().strip()
+        self.logger.info(f"System files deployed: {output}")
+
+        # The script compares every file before overwriting it and ends on one
+        # line saying what actually moved. Worth its own journal entry: the rest
+        # of that output is the same forty "Installed /path" lines every time,
+        # and `sat logs` is the only place a satellite says anything at all.
+        for line in output.splitlines():
+            if line.startswith("Changed"):
+                self.logger.info(f"Deploy: {line[0].lower()}{line[1:]}")
 
     async def _install_dependencies(self, requirements_file: Path):
         """Installs Python dependencies from requirements.txt."""
