@@ -82,9 +82,9 @@ PROGRAMS = {
         "configure_flags": [
             "--sysconfdir=/etc", "--with-alsa", "--with-avahi",
             "--with-ssl=openssl", "--with-soxr", "--with-metadata",
-            # Inert on the pinned 4.3.7 (configure warns it is unrecognized),
-            # but 5.x stopped bundling the pipe interface into --with-metadata —
-            # this is what keeps the pipe the day the ceiling is lifted.
+            # --with-metadata already implies the pipe on 5.2.x, but the pipe
+            # is the channel Milo reads AirPlay metadata from — name it rather
+            # than inherit it.
             "--with-metadata-pipe",
             "--with-airplay-2", "--with-dbus-interface"
         ]
