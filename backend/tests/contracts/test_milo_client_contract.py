@@ -20,7 +20,9 @@ code bases already in the checkout:
   * assert the first set is a subset of the second;
   * then the same for what crosses the wire in each direction — every key the
     backend puts in a request body is one the handler reads, and every key it
-    reads back off a response is one the handler returns.
+    reads back off a response is one the handler returns;
+  * and the one call that goes the other way: the satellite's boot-and-heartbeat
+    registration, whose body is checked against the server handler receiving it.
 
 Both extractors assert their own output is non-trivial first: a parse that
 breaks must fail loudly, not pass on an empty surface (same doctrine as the
@@ -913,3 +915,260 @@ def test_snapclient_bounds_agree_across_the_two_trees():
         "case the satellite accepts anything the server sends and this check is blind."
     )
     assert bounds == {k: tuple(v) for k, v in SNAPCLIENT_LIMITS.items()}
+
+
+# --------------------------------------------------------------------------- #
+# Side E: the one call that goes the other way.
+#
+# Everything above is the server driving a satellite. The satellite calls back
+# exactly once — `POST /api/multiroom/register-client`, at boot and then every
+# 15 s as its heartbeat — and that call is what decides whether a speaker is
+# ever seen at all. It fails silently in both directions. A key the server's
+# model does not declare is dropped by Pydantic and replaced by the field
+# default: a DAC satellite whose `volume_control` never lands registers as
+# volume-capable, so the server attenuates a card that must stay at unity, with
+# nothing logged on either side. A field the model requires and the satellite
+# stops sending is a 422 the satellite logs as one warning and then retries
+# forever, so the fleet simply never gains that speaker.
+#
+# Measured 2026-08-18 before this section existed: renaming `volume_control` in
+# the satellite's payload left the whole gate green — 3543 backend + 86
+# satellite tests, ruff clean.
+# --------------------------------------------------------------------------- #
+
+REGISTRATION_MODULE = CLIENT_APP_DIR / "services" / "registration.py"
+SERVER_MULTIROOM = BACKEND_ROOT / "api" / "multiroom.py"
+_BODY_VERBS = {"post", "put", "patch"}
+
+
+def _payload_keys(tree, var: str) -> tuple[set[str], set[str]]:
+    """Keys of the body dict `var`: those in the literal, those added under a test.
+
+    The two are kept apart because only the first are always on the wire. The
+    identity pair is written by `milo-first-boot` when it applies a wifi-adoption
+    marker and is absent on every other satellite, so a server field made
+    required over one of them would 422 each registration a plain install sends.
+    """
+    always, conditional = set(), set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if (isinstance(target, ast.Name) and target.id == var
+                    and isinstance(node.value, ast.Dict)):
+                always |= {
+                    k.value for k in node.value.keys
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str)
+                }
+            elif (isinstance(target, ast.Subscript)
+                  and isinstance(target.value, ast.Name) and target.value.id == var
+                  and isinstance(target.slice, ast.Constant)
+                  and isinstance(target.slice.value, str)):
+                conditional.add(target.slice.value)
+    return always, conditional
+
+
+def _registration_call() -> tuple[str, str, set[str], set[str]]:
+    """(METHOD, path, keys always sent, keys sent conditionally).
+
+    Derived from the call, not restated beside it: the verb is the aiohttp
+    method invoked, the body is whatever variable it hands to `json=`, and the
+    path is the constant interpolated into the URL that call posts to. A
+    satellite that starts posting somewhere else therefore fails the route check
+    below instead of silently having its keys checked against the old endpoint.
+    """
+    tree = ast.parse(REGISTRATION_MODULE.read_text())
+    constants = {
+        target.id: node.value.value
+        for node in tree.body
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    # `url = f"http://{milo_ip}:{PORT}{REGISTER_ENDPOINT}"` → the names it interpolates.
+    interpolated = {}
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.JoinedStr)
+                and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+            interpolated[node.targets[0].id] = {
+                part.value.id for part in node.value.values
+                if isinstance(part, ast.FormattedValue) and isinstance(part.value, ast.Name)
+            }
+
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr not in _BODY_VERBS or not node.args:
+            continue
+        body = next((kw.value for kw in node.keywords if kw.arg == "json"), None)
+        if not (isinstance(body, ast.Name) and isinstance(node.args[0], ast.Name)):
+            continue
+        paths = {
+            constants[name] for name in interpolated.get(node.args[0].id, set())
+            if constants.get(name, "").startswith("/")
+        }
+        always, conditional = _payload_keys(tree, body.id)
+        return node.func.attr.upper(), (paths.pop() if len(paths) == 1 else ""), always, conditional
+    return "", "", set(), set()  # the vacuity test below is what reports this
+
+
+def _server_registration_handler(method: str, path: str) -> tuple[str | None, set[str], str]:
+    """(request-model name, the body fields the handler actually reads, why not).
+
+    The handler is read as well as the model on purpose: a field the model
+    declares and the handler never touches is a value the satellite computes,
+    sends and watches be discarded — the same silent class the request-body
+    check above catches in the other direction.
+
+    Returns a note instead of raising when it finds nothing: a route the backend
+    renamed is a failure of the tests below, not a collection error that takes
+    every other check in this file down with it.
+    """
+    source = SERVER_MULTIROOM.read_text()
+    prefix_match = re.search(r'APIRouter\((?:[^)]*?)prefix\s*=\s*"([^"]*)"', source, re.S)
+    prefix = prefix_match.group(1) if prefix_match else ""
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for dec in node.decorator_list:
+            if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) and dec.args):
+                continue
+            if dec.func.attr.upper() != method or not isinstance(dec.args[0], ast.Constant):
+                continue
+            if prefix + dec.args[0].value != path:
+                continue
+            # Two parameters here are annotated `*Request`: the Pydantic body
+            # and Starlette's own `raw_request: Request`, which the handler
+            # reads for the caller IP. The bare name is the framework's.
+            candidates = [
+                (getattr(arg.annotation, "id", None), arg.arg) for arg in node.args.args
+                if getattr(arg.annotation, "id", "").endswith("Request")
+                and getattr(arg.annotation, "id", None) != "Request"
+            ]
+            if len(candidates) != 1:
+                return None, set(), f"{method} {path} takes {len(candidates)} body models: {candidates}"
+            model_name, param = candidates[0]
+            reads = {
+                sub.attr for sub in ast.walk(node)
+                if isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name)
+                and sub.value.id == param
+            }
+            return model_name, reads, ""
+    return None, set(), f"no {method} {path} handler in {SERVER_MULTIROOM.name}"
+
+
+_REG_METHOD, _REG_PATH, _REG_ALWAYS, _REG_CONDITIONAL = _registration_call()
+_REG_SENT = _REG_ALWAYS | _REG_CONDITIONAL
+_REG_MODEL_NAME, _REG_READS, _REG_NOTE = _server_registration_handler(_REG_METHOD, _REG_PATH)
+
+
+def _registration_model():
+    """The server's request model for the registration route, by the name it uses."""
+    from backend.api import models
+
+    assert _REG_MODEL_NAME, _REG_NOTE
+    return getattr(models, _REG_MODEL_NAME)
+
+
+def test_registration_extractors_are_not_vacuous():
+    """A payload the walk stops resolving must fail here, not shrink to nothing."""
+    assert _REG_PATH.startswith("/api/"), (
+        f"the registration URL no longer interpolates exactly one path constant: {_REG_PATH!r}"
+    )
+    assert len(_REG_ALWAYS) >= 5, f"registration payload extraction looks broken: {_REG_ALWAYS}"
+    assert "mac_id" in _REG_ALWAYS, (
+        f"the dict resolved is not the registration payload — no mac_id in {_REG_ALWAYS}"
+    )
+    assert not _REG_NOTE, _REG_NOTE
+    assert _REG_READS, (
+        f"nothing read off the {_REG_MODEL_NAME} body in the {_REG_METHOD} {_REG_PATH} handler"
+    )
+
+
+def test_the_registration_endpoint_is_served_by_the_backend():
+    """The satellite retries a 404 forever, in silence, at 15 s intervals.
+
+    Nothing else pins this path: no frontend code and no Milo-Mac manifest entry
+    calls it, so renaming the route breaks the whole fleet's arrival path while
+    every other test in the repo stays green.
+    """
+    from backend.main import app
+
+    served = {
+        (method.upper(), path)
+        for path, operations in app.openapi()["paths"].items()
+        for method in operations
+        if method.upper() in _HTTP_METHODS
+    }
+    assert (_REG_METHOD, _REG_PATH) in served, (
+        f"the satellite posts its registration to {_REG_METHOD} {_REG_PATH}, "
+        f"which the backend does not serve"
+    )
+
+
+@pytest.mark.parametrize("key", sorted(_REG_SENT))
+def test_every_key_the_satellite_registers_with_is_read_by_the_server(key):
+    """A key the server does not name is dropped, and its default is used instead."""
+    fields = _registration_model().model_fields
+    assert key in fields, (
+        f"the satellite sends `{key}` when it registers, but {_REG_MODEL_NAME} does "
+        f"not declare it — Pydantic drops it and the server uses the field default. "
+        f"It declares {sorted(fields)}"
+    )
+    assert key in _REG_READS, (
+        f"{_REG_MODEL_NAME} declares `{key}` but the {_REG_METHOD} {_REG_PATH} handler "
+        f"never reads it: the satellite computes and sends a value nothing consumes"
+    )
+
+
+def test_every_field_the_server_requires_is_always_sent():
+    """A required field the satellite omits is a 422 logged once, then retried forever.
+
+    Measured against `_REG_ALWAYS` alone: a key added under an `if` is on the
+    wire only for a wifi-adopted unit, so making one required strands every
+    satellite installed by script or flashed from pi-gen.
+    """
+    required = {
+        name for name, field in _registration_model().model_fields.items()
+        if field.is_required()
+    }
+    assert required, f"{_REG_MODEL_NAME} declares no required field — the check is blind"
+    assert required <= _REG_ALWAYS, (
+        f"{_REG_MODEL_NAME} requires {sorted(required - _REG_ALWAYS)}, which the satellite "
+        f"does not send unconditionally. It always sends {sorted(_REG_ALWAYS)}"
+    )
+
+
+def test_the_server_declares_no_registration_field_the_satellite_never_sends():
+    """The satellite is the only producer of this body — a field it never fills is dead.
+
+    Not a style rule: the route exists for `milo-client` and nothing else calls
+    it, so a field added here without the matching send is a value the server
+    reads as its default on every unit in the fleet, forever.
+    """
+    declared = set(_registration_model().model_fields)
+    assert declared <= _REG_SENT, (
+        f"{_REG_MODEL_NAME} declares {sorted(declared - _REG_SENT)}, which no satellite "
+        f"ever sends. Fill it in milo-client/app/services/registration.py or drop it"
+    )
+
+
+def test_the_satellite_reads_nothing_off_the_registration_response():
+    """Side D has no mirror here, and this is what keeps that true.
+
+    The satellite reads only the HTTP status (plus the body as text, for the
+    failure log). The day it reads a key out of the response, that key needs the
+    same check side D applies in the other direction — and this test is where
+    that is noticed.
+    """
+    tree = ast.parse(REGISTRATION_MODULE.read_text())
+    json_reads = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "json"
+    ]
+    assert not json_reads, (
+        "milo-client now decodes the registration response; extend this side to "
+        "check the keys it reads against what the server's handler returns"
+    )
