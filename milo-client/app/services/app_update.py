@@ -59,6 +59,7 @@ class AppUpdateService:
             return {"success": False, "error": "Update already in progress"}
 
         temp_dir = None
+        app_swapped = False
         try:
             self._update_in_progress = True
             self.logger.info(f"Starting app update deployment (version: {version})")
@@ -78,6 +79,7 @@ class AppUpdateService:
             extracted_app = extracted_root / "app"
             if extracted_app.is_dir():
                 await self._sync_app_files(extracted_app)
+                app_swapped = True
             else:
                 self.logger.warning("No app/ directory in tarball, skipping app sync")
 
@@ -94,6 +96,13 @@ class AppUpdateService:
             VERSION_FILE.write_text(version)
             self.logger.info(f"Version file updated: {version}")
 
+            # Everything that can still fail has now succeeded, so the tree kept
+            # for the rollback is dead weight — one app/ of disk on a device
+            # nobody watches. Past this point the restart is the only step left.
+            if app_swapped:
+                await self._drop_previous_app()
+                app_swapped = False
+
             # 6. Schedule restart (2s delay so HTTP response is sent first)
             asyncio.get_event_loop().call_later(2, lambda: asyncio.ensure_future(self._restart_service()))
 
@@ -101,6 +110,8 @@ class AppUpdateService:
 
         except Exception as e:
             self.logger.error(f"App update deployment failed: {e}")
+            if app_swapped:
+                await self._restore_previous_app()
             return {"success": False, "error": str(e)}
 
         finally:
@@ -136,6 +147,12 @@ class AppUpdateService:
         while the live tree is untouched, and reduces the window to two renames.
         Both staging dirs sit inside REPO_DIR so the renames never cross a
         filesystem and stay atomic.
+
+        The tree that was live stays behind as app.old: two steps of the update
+        can still fail after this one, and a satellite that restarts into a tree
+        pip never finished installing crashloops with its own repair API down.
+        deploy_update owns that copy — _drop_previous_app once the update is
+        committed, _restore_previous_app if it is not.
         """
         target_app = REPO_DIR / "app"
         staging = REPO_DIR / "app.new"
@@ -157,13 +174,52 @@ class AppUpdateService:
 
             # The unit's WorkingDirectory is this very path, so the running
             # process is now holding the renamed-away inode as its cwd. pip runs
-            # two steps later and calls getcwd(); re-anchor before app.old goes.
+            # two steps later and calls getcwd(); re-anchor now.
             os.chdir(target_app)
-
-            shutil.rmtree(previous, ignore_errors=True)
 
         await asyncio.get_event_loop().run_in_executor(None, _do_sync)
         self.logger.info("App files synced successfully")
+
+    async def _drop_previous_app(self):
+        """Deletes the tree kept by _sync_app_files, once it can no longer be needed."""
+        previous = REPO_DIR / "app.old"
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: shutil.rmtree(previous, ignore_errors=True)
+        )
+
+    async def _restore_previous_app(self):
+        """Puts the tree kept by _sync_app_files back as the live app/.
+
+        Three renames inside REPO_DIR, so nothing crosses a filesystem and no
+        step copies: the new tree steps aside into the staging name (which the
+        next sync clears anyway), the previous one takes its place, and the cwd
+        is re-anchored exactly as the swap did.
+        """
+        target_app = REPO_DIR / "app"
+        staging = REPO_DIR / "app.new"
+        previous = REPO_DIR / "app.old"
+
+        def _do_restore():
+            if not previous.is_dir():
+                return False
+            shutil.rmtree(staging, ignore_errors=True)
+            if target_app.exists():
+                os.rename(target_app, staging)
+            os.rename(previous, target_app)
+            os.chdir(target_app)
+            shutil.rmtree(staging, ignore_errors=True)
+            return True
+
+        try:
+            restored = await asyncio.get_event_loop().run_in_executor(None, _do_restore)
+        except OSError as e:
+            self.logger.error(f"Rollback failed, app/ is left as the update wrote it: {e}")
+            return
+
+        if restored:
+            self.logger.warning("Update failed after the swap: previous app/ tree restored")
+        else:
+            self.logger.error("Update failed after the swap and no previous tree was kept")
 
     async def _deploy_system_files(self, temp_dir: str):
         """Runs the sudo deploy script for system and rootfs files."""
@@ -197,10 +253,10 @@ class AppUpdateService:
         stdout, stderr = await proc.communicate()
 
         if proc.returncode != 0:
-            error_msg = stderr.decode().strip()
-            self.logger.warning(f"pip install had issues: {error_msg}")
-        else:
-            self.logger.info("Python dependencies installed successfully")
+            error_msg = stderr.decode().strip() or stdout.decode().strip()
+            raise RuntimeError(f"pip install failed: {error_msg}")
+
+        self.logger.info("Python dependencies installed successfully")
 
     async def _restart_service(self):
         """Restarts milo-client.service."""
