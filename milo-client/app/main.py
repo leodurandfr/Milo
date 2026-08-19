@@ -7,7 +7,6 @@ import asyncio
 import logging
 import os
 import socket
-import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -52,40 +51,21 @@ async def lifespan(app: FastAPI):
     """
     Application lifecycle management.
 
-    CamillaDSP starts MUTED (-m flag in systemd service).
-    This lifespan just connects - the backend will push
-    the correct volume and unmute when ready.
+    CamillaDSP starts MUTED (-m flag in systemd service) and stays muted until
+    the backend pushes the correct volume.
     """
     logger.info("Milo Client API starting up...")
 
-    # Connect to CamillaDSP (stays muted until backend pushes correct volume)
-    if equalizer_service.available:
-        max_retries = 10
-        retry_delay = 0.5  # seconds
-
-        for attempt in range(max_retries):
-            connected = await equalizer_service.connect()
-            if connected:
-                logger.info(
-                    f"[{time.time():.3f}] STARTUP: CamillaDSP connected on attempt {attempt + 1}, "
-                    "MUTED, waiting for backend"
-                )
-                break
-            else:
-                if attempt < max_retries - 1:
-                    logger.warning(
-                        f"CamillaDSP connection attempt {attempt + 1}/{max_retries} failed, "
-                        f"retrying in {retry_delay}s..."
-                    )
-                    await asyncio.sleep(retry_delay)
-                else:
-                    logger.error("Failed to connect to CamillaDSP after all retries")
-    else:
-        logger.warning("CamillaDSP client library not available")
-
-    # Start background connection monitor (handles reconnection if CamillaDSP restarts)
+    # No connect attempt here on purpose. milo-client-camilladsp.service is ordered
+    # After=milo-client.service, and this unit is Type=notify — so CamillaDSP does
+    # not even start until the READY=1 sent a few lines below. A cold-boot connect
+    # can therefore never succeed; it only bought ~4.5 s of sleeps and an ERROR in
+    # the journal on every boot. The loop owns every attempt, the first included,
+    # and it also restores volume/mute, which the startup connect never did.
     if equalizer_service.available:
         equalizer_service.start_connection_loop()
+    else:
+        logger.warning("CamillaDSP client library not available")
 
     logger.info("Milo Client API startup complete")
 

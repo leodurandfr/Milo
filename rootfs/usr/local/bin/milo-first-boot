@@ -302,6 +302,19 @@ EOF
     done
     log "Server services disabled"
 
+    # 8a. Drop the server's sudoers policies. The image is unified, so a flashed
+    # device carries both roles' policies; a client has no backend to use them and
+    # they grant the milo user far more than the satellite's own argument-scoped
+    # policy does (milo-backend alone carries an unrestricted `systemctl` verb).
+    # configure_server copies them back from the repo tree on the revert path.
+    local policy
+    for policy in milo-backend milo-ir-remote; do
+        if [[ -f "/etc/sudoers.d/$policy" ]]; then
+            rm -f "/etc/sudoers.d/$policy"
+            log "Server sudoers policy $policy removed"
+        fi
+    done
+
     # 8b. Switch mDNS interface selection to the client mechanism
     apply_avahi_role client
 
@@ -480,6 +493,27 @@ configure_server() {
         systemctl enable "$svc.service" 2>/dev/null || log "Warning: could not enable $svc"
     done
     log "Server services enabled"
+
+    # 4a. Restore the sudoers policies _apply_client_filesystem removed. Validated
+    # before the mode change, as install/system.sh and pi-gen do: a policy that
+    # cannot parse is skipped by sudo, which would silently leave the backend
+    # unable to reach systemd on a device that just reverted.
+    local policy src
+    for policy in milo-backend milo-ir-remote; do
+        src="$MILO_APP_DIR/rootfs/etc/sudoers.d/$policy"
+        if [[ -f "$src" ]]; then
+            cp "$src" "/etc/sudoers.d/$policy"
+            if visudo -c -f "/etc/sudoers.d/$policy" >/dev/null; then
+                chmod 0440 "/etc/sudoers.d/$policy"
+                log "Server sudoers policy $policy restored"
+            else
+                rm -f "/etc/sudoers.d/$policy"
+                log "Warning: $policy failed visudo — not installed"
+            fi
+        else
+            log "Warning: server sudoers policy $policy not found at $src"
+        fi
+    done
 
     # 4b. Switch mDNS interface selection back to the server mechanism
     apply_avahi_role server
