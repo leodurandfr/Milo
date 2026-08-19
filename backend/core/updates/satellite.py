@@ -136,6 +136,16 @@ class SatelliteUpdateService:
                         # branch, not a failure, and only the true one carries a
                         # target_version to wait for.
                         if data.get("started"):
+                            # Named rather than subscripted: the version is what
+                            # the completion wait polls for, and a KeyError here
+                            # reaches the UI as the error string `'target_version'`.
+                            target_version = data.get("target_version")
+                            if not target_version:
+                                return {
+                                    "success": False,
+                                    "error": "Satellite started an update without a target_version"
+                                }
+
                             if progress_callback:
                                 await progress_callback(
                                     "updates.progress.updateInitiated",
@@ -145,7 +155,7 @@ class SatelliteUpdateService:
                             update_result = await self._wait_for_update_completion(
                                 mac_id,
                                 ip,
-                                data["target_version"],
+                                target_version,
                                 progress_callback
                             )
 
@@ -392,6 +402,13 @@ class SatelliteUpdateService:
                         data = await response.json()
 
                         if data.get("started"):
+                            target_version = data.get("target_version")
+                            if not target_version:
+                                return {
+                                    "success": False,
+                                    "error": "Satellite started an update without a target_version"
+                                }
+
                             if progress_callback:
                                 await progress_callback(
                                     "updates.progress.updateInitiated",
@@ -399,7 +416,7 @@ class SatelliteUpdateService:
                                 )
 
                             return await self._wait_for_camilladsp_update_completion(
-                                mac_id, ip, data["target_version"], progress_callback
+                                mac_id, ip, target_version, progress_callback
                             )
                         else:
                             return {

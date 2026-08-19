@@ -35,6 +35,26 @@ install_self() {
     echo "  Installed /$rel_path (renamed into place)"
 }
 
+# A sudoers policy is validated before it can take effect, and swapped in by
+# rename. sudo >= 1.9.3 does not refuse to run over a policy file with a syntax
+# error — it skips that file — so a malformed one silently drops every grant it
+# holds, and the failure surfaces later as a helper that no longer runs. The
+# staging name ends in `.new`: sudo ignores any file in sudoers.d whose name
+# contains a dot, so the half-installed copy is never read as a policy.
+install_sudoers() {
+    local rel_path="$1"
+    local target="/$rel_path"
+
+    cp "$REPO_PATH/rootfs/$rel_path" "$target.new"
+    chmod 0440 "$target.new"
+    visudo -c -f "$target.new" >/dev/null || {
+        rm -f "$target.new"
+        error_exit "sudoers syntax error in $rel_path -- not installed"
+    }
+    mv -f "$target.new" "$target"
+    echo "  Installed $target (validated)"
+}
+
 # --- Input validation helpers ---
 
 validate_absolute_path() {
@@ -97,6 +117,7 @@ cmd_sync_system_files() {
         case "$rel_path" in
             var/lib/milo/camilladsp/*) echo "  Skipping /$rel_path (user config)"; continue ;;
             usr/local/bin/milo-deploy-update) install_self "$rel_path"; continue ;;
+            etc/sudoers.d/*) install_sudoers "$rel_path"; continue ;;
         esac
 
         target="/$rel_path"
