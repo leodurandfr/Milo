@@ -30,11 +30,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
             logger.error(f"Error getting equalizer status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.get("/enabled")
-    async def get_equalizer_enabled():
-        """Get equalizer effects enabled state."""
-        return {"enabled": equalizer_service.equalizer_enabled}
-
     @router.put("/enabled")
     async def set_equalizer_enabled(update: EqualizerEnabledUpdate):
         """Enable or disable equalizer effects (compressor, loudness)."""
@@ -48,16 +43,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
             raise
         except Exception as e:
             logger.error(f"Error setting equalizer enabled: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.get("/filters")
-    async def get_equalizer_filters():
-        """Get current EQ filter configuration."""
-        try:
-            filters = await equalizer_service.get_filters()
-            return {"filters": filters}
-        except Exception as e:
-            logger.error(f"Error getting filters: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/levels")
@@ -142,11 +127,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
 
     # === Compressor ===
 
-    @router.get("/compressor")
-    async def get_compressor():
-        """Get compressor settings."""
-        return equalizer_service.compressor
-
     @router.put("/compressor")
     async def update_compressor(update: CompressorUpdate):
         """Update compressor settings."""
@@ -171,11 +151,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
 
     # === Loudness ===
 
-    @router.get("/loudness")
-    async def get_loudness():
-        """Get loudness compensation settings."""
-        return equalizer_service.loudness
-
     @router.put("/loudness")
     async def update_loudness(update: LoudnessUpdate):
         """Update loudness compensation settings."""
@@ -197,11 +172,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
 
     # === Mono ===
 
-    @router.get("/mono")
-    async def get_mono():
-        """Get mono mixing settings."""
-        return {"enabled": equalizer_service.mono}
-
     @router.put("/mono")
     async def update_mono(update: MonoUpdate):
         """Update mono mixing settings."""
@@ -218,11 +188,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
             raise HTTPException(status_code=500, detail=str(e))
 
     # === Delay ===
-
-    @router.get("/delay")
-    async def get_delay():
-        """Get channel delay settings."""
-        return equalizer_service.delay
 
     @router.put("/delay")
     async def update_delay(update: DelayUpdate):

@@ -100,7 +100,11 @@ def _satellite_handlers():
 
 SATELLITE_HANDLERS = _satellite_handlers()
 SATELLITE_ROUTES = sorted({(m, p) for m, p, _ in SATELLITE_HANDLERS})
-assert len(SATELLITE_ROUTES) > 25, (
+# A floor, not a count: it exists so a broken extractor fails loudly instead of
+# passing over an empty surface. Deliberately well under the real number (25 as of
+# 2026-08-19, after six uncalled equalizer GETs were dropped) so that pruning dead
+# surface does not trip it, while a parser that matched nothing still does.
+assert len(SATELLITE_ROUTES) > 15, (
     f"only {len(SATELLITE_ROUTES)} satellite routes found — extractor broken?"
 )
 

@@ -204,16 +204,16 @@ class TestEqualizerRoutes:
     fail — and replaced by the smoke below plus assertions on the two things the
     routes genuinely do: unwrap a request model into the service's keyword
     arguments, and forward an absent field as None.
+
+    Six of those eight routes then went too (2026-08-19): the server reads only
+    `/status`, `/volume` and `/levels` from a satellite, and each of the six was a
+    strict subset of `/status`, which stays. The list below is therefore the whole
+    satellite read surface — a route added belongs in it, a route lost turns it red.
     """
 
     @pytest.mark.parametrize("path", [
-        "/equalizer/enabled",
         "/equalizer/status",
-        "/equalizer/filters",
         "/equalizer/volume",
-        "/equalizer/compressor",
-        "/equalizer/loudness",
-        "/equalizer/delay",
         "/equalizer/levels",
     ])
     def test_every_read_route_answers(self, client, path):
