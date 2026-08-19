@@ -103,18 +103,6 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
             logger.error(f"Error in batch filter update: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.post("/reset")
-    async def reset_equalizer_filters():
-        """Reset all EQ filters to flat (0 dB gain)."""
-        try:
-            filters = await equalizer_service.get_filters()
-            for f in filters:
-                await equalizer_service.set_filter(f["id"], gain=0.0)
-            return {"status": "success", "message": "All filters reset to flat"}
-        except Exception as e:
-            logger.error(f"Error resetting filters: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     # === Volume ===
 
     @router.get("/volume")

@@ -116,7 +116,7 @@ WIRE_ROUTES = (
 )
 def test_path_segments_are_kebab_case(app, method, path):
     """A `_` in a path is the one casing slip that is invisible until a client
-    404s on the wrong guess. All 167 routes are kebab-case; keep it that way."""
+    404s on the wrong guess. Both surfaces are kebab-case; keep it that way."""
     literal = [s for s in path.strip("/").split("/") if not s.startswith("{")]
     offenders = [s for s in literal if "_" in s]
     assert not offenders, f"{app} {method} {path}: use kebab-case, not {offenders}"
