@@ -287,7 +287,13 @@ EOF
         log "Client loopback config deployed"
     fi
 
-    # 8. Disable server-only services
+    # 8. Disable server-only services. milo-navidrome and milo-ir-keytable are here
+    # for the same reason as the rest and not by symmetry: the first is the Music
+    # Library catalog engine a satellite never serves (measured on a flashed unit:
+    # 38 MB resident, indexing nothing, on the one machine whose only job is to
+    # decode a stream in real time), the second says so itself — it exists to run
+    # `Before=milo-backend.service`, and there is no backend here. milo-navidrome-config
+    # needs no entry: milo-navidrome pulls it with Wants=, so it follows.
     local server_services=(
         milo-backend
         milo-kiosk
@@ -295,6 +301,8 @@ EOF
         milo-bluealsa
         milo-bluealsa-aplay
         milo-camilladsp
+        milo-navidrome
+        milo-ir-keytable
         nginx
     )
     for svc in "${server_services[@]}"; do
@@ -479,7 +487,8 @@ configure_server() {
     done
     log "Client services disabled"
 
-    # 4. Re-enable server services
+    # 4. Re-enable server services — the same list step 8 of _apply_client_filesystem
+    # disables, and it has to stay the same list or a revert leaves a server short.
     local server_services=(
         milo-backend
         milo-kiosk
@@ -487,6 +496,8 @@ configure_server() {
         milo-bluealsa
         milo-bluealsa-aplay
         milo-camilladsp
+        milo-navidrome
+        milo-ir-keytable
         nginx
     )
     for svc in "${server_services[@]}"; do
