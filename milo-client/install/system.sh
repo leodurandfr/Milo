@@ -112,8 +112,12 @@ install_wrapper_scripts() {
 configure_sudoers() {
     log_info "Configuring sudo permissions for milo-client..."
 
-    # Copy sudoers file from repo
+    # Copy sudoers file from repo, validated as install/system.sh:101 validates
+    # the server's: sudo skips a file with a syntax error rather than refusing
+    # to run, so a malformed policy drops every grant in it without saying so.
     sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/sudoers.d/milo-client" /etc/sudoers.d/
+    sudo visudo -c -f /etc/sudoers.d/milo-client \
+        || { log_error "sudoers syntax error in milo-client"; exit 1; }
     sudo chmod 0440 /etc/sudoers.d/milo-client
 
     log_success "Sudo permissions configured"

@@ -142,9 +142,12 @@ cp /home/milo/milo/rootfs/etc/sudoers.d/milo-backend /etc/sudoers.d/milo-backend
 visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
 chmod 0440 /etc/sudoers.d/milo-backend
 
-# Client sudoers (if exists)
+# Client sudoers (if exists). Validated like the server policy above: sudo
+# skips a file with a syntax error rather than refusing to run, so a malformed
+# policy drops every grant in it without saying so.
 if [ -f /home/milo/milo/milo-client/rootfs/etc/sudoers.d/milo-client ]; then
     cp /home/milo/milo/milo-client/rootfs/etc/sudoers.d/milo-client /etc/sudoers.d/
+    visudo -c -f /etc/sudoers.d/milo-client || { echo "FATAL: sudoers syntax error"; exit 1; }
     chmod 0440 /etc/sudoers.d/milo-client
 fi
 CHROOT
