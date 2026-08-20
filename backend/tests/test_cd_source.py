@@ -1336,3 +1336,42 @@ class TestPlaybackFlagMatrix:
             f"{state_name} + {command}: left _is_paused with nothing loaded"
         )
         assert not (source._is_playing and source._is_paused)
+
+
+class TestMpvRefusesTheTransportCommand:
+    """mpv answers False whenever its IPC socket is down, and says so only at
+    debug level.
+
+    If these fail, a pause or resume the daemon never took is answered with
+    `success` and the source flips its own flags: the UI draws a play button
+    over a disc that is still spinning, and `_is_paused` parks the source in a
+    state `_handle_resume` will try to un-pause in place.
+    """
+
+    @pytest.mark.asyncio
+    async def test_pause_refused_keeps_the_disc_playing(self, source):
+        source._mpv = _mpv(pause=AsyncMock(return_value=False))
+        source._is_playing = True
+        _with_state_machine(source)
+
+        result = await source._handle_pause()
+
+        assert result["success"] is False
+        assert source._is_playing is True
+        assert source._is_paused is False
+        source._bg.spawn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resume_refused_leaves_the_source_paused(self, source):
+        source._mpv = _mpv(resume=AsyncMock(return_value=False))
+        source._is_paused = True
+        _with_state_machine(source)
+
+        result = await source._handle_resume()
+
+        assert result["success"] is False
+        assert source._is_playing is False
+        assert source._is_paused is True
+        # The bar was frozen before the refusal; it must not stay frozen.
+        assert source._is_buffering is False
+        source._mpv.wait_until_advancing.assert_not_called()
