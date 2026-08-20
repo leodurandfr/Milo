@@ -3,7 +3,7 @@
 Pydantic models for API request validation
 """
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, Dict, Any, List, Literal
+from typing import Annotated, Optional, Dict, Any, List, Literal
 
 from backend.config.constants import (
     BT_REMOTE_ACTIONS,
@@ -367,12 +367,15 @@ class ZoneAddClient(BaseModel):
 # =============================================================================
 
 class ZoneCrossoverRequest(BaseModel):
-    """Zone crossover frequency configuration"""
-    frequency: float = Field(
-        default=80.0,
-        ge=40,
-        le=200,
-        description="Crossover frequency in Hz (highpass cutoff for speakers)"
+    """Zone crossover frequency configuration.
+
+    `null` — or an omitted field — is *auto*: the frequency is derived from the
+    zone members' speaker types. A number pins it until the caller asks for auto
+    again, so the request has to be able to say "auto" at all.
+    """
+    frequency: Optional[Annotated[float, Field(ge=40, le=200)]] = Field(
+        default=None,
+        description="Crossover frequency in Hz (highpass cutoff), or null for auto"
     )
 
 

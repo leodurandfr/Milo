@@ -114,6 +114,7 @@
       "highpassActive": "Passa-alto attivo",
       "highpassDescription": "Bassi sotto {freq} Hz reindirizzati al subwoofer.",
       "crossoverFrequency": "Frequenza di taglio",
+      "autoFrequency": "Frequenza automatica",
       "badgeActive": "Crossover attivo",
       "badgeInactive": "Crossover inattivo",
       "subwooferOffline": "Subwoofer offline"

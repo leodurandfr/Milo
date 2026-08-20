@@ -13,7 +13,7 @@ Architecture:
 import asyncio
 import contextlib
 import logging
-from typing import Dict, List, Optional, Callable, Awaitable, Any, Type
+from typing import Dict, List, Optional, Callable, Awaitable, Any, Type, Union
 
 from backend.shared.background import BackgroundTaskSet
 
@@ -34,6 +34,7 @@ from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_VOLUME_DB,
     DEFAULT_CROSSOVER_FREQUENCIES,
+    DEFAULT_CROSSOVER_FREQUENCY,
 )
 
 # Map registry event types to the typed multiroom WS event classes; each
@@ -50,6 +51,24 @@ REGISTRY_EVENT_CLASSES: Dict[str, Type[WsEvent]] = {
     RegistryEventType.ZONE_CLIENT_REMOVED: MultiroomZoneChanged,
     RegistryEventType.EQUALIZER_SETTINGS_CHANGED: MultiroomEqualizerChanged,
 }
+
+
+
+class _Unset:
+    """Sentinel for "argument not supplied".
+
+    `None` is a value for the crossover fields — it means *auto* — so it cannot
+    double as "not supplied" the way it does for `name`. Without this, a zone
+    that had ever been given an explicit frequency could never be handed back
+    to auto: `update_zone` skipped every None it was passed.
+    """
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+_UNSET = _Unset()
 
 
 class ClientRegistryService:
@@ -559,17 +578,19 @@ class ClientRegistryService:
         self,
         zone_id: str,
         name: Optional[str] = None,
-        crossover_frequency: Optional[int] = None,
-        crossover_enabled: Optional[bool] = None
+        crossover_frequency: Union[int, None, _Unset] = _UNSET,
+        crossover_enabled: Union[bool, None, _Unset] = _UNSET
     ) -> Optional[Zone]:
         """
         Update zone properties.
 
         Args:
             zone_id: The zone's ID
-            name: New name (optional)
-            crossover_frequency: Crossover frequency in Hz (optional)
-            crossover_enabled: Whether crossover is enabled (optional, None = auto)
+            name: New name (omit to leave unchanged)
+            crossover_frequency: Frequency in Hz, or None for auto (omit to
+                leave unchanged — None is a value here, not an absence)
+            crossover_enabled: Whether crossover is enabled, or None for auto
+                (omit to leave unchanged)
 
         Returns:
             The updated zone or None if not found
@@ -581,9 +602,9 @@ class ClientRegistryService:
 
             if name is not None:
                 zone.name = name
-            if crossover_frequency is not None:
+            if crossover_frequency is not _UNSET:
                 zone.crossover_frequency = crossover_frequency
-            if crossover_enabled is not None:
+            if crossover_enabled is not _UNSET:
                 zone.crossover_enabled = crossover_enabled
 
             zone_dict = self.zone_to_enriched_dict(zone)
@@ -936,6 +957,27 @@ class ClientRegistryService:
 
         return sum(online_volumes) / len(online_volumes)
 
+    def auto_crossover_frequency(self, zone: Zone) -> int:
+        """The crossover frequency a zone's own speakers imply.
+
+        The *highest* of the members' declared frequencies, not the lowest. One
+        highpass serves every non-subwoofer member, so it has to sit at or above
+        what the weakest speaker can reproduce: taking the minimum hands a
+        satellite (120 Hz) the tower's 50 Hz and asks it for a band its speaker
+        type declares it cannot deliver — and the subwoofer, cut at that same
+        50 Hz, does not fill it either, so the band is simply missing.
+
+        Subwoofers contribute nothing: the table gives them None because they
+        receive the lowpass, not the highpass.
+        """
+        frequencies = [
+            freq
+            for mac_id in zone.client_ids
+            if (client := self._clients.get(mac_id))
+            and (freq := DEFAULT_CROSSOVER_FREQUENCIES.get(client.speaker_type))
+        ]
+        return max(frequencies) if frequencies else DEFAULT_CROSSOVER_FREQUENCY
+
     def zone_to_enriched_dict(self, zone: Zone) -> Dict[str, Any]:
         """
         Convert zone to dict with computed fields for API responses.
@@ -962,21 +1004,14 @@ class ClientRegistryService:
         # Compute derived fields
         online_count = 0
         has_subwoofer = False
-        speaker_frequencies = []
 
         for mac_id in sorted_client_ids:
             client = self._clients.get(mac_id)
             if client:
                 if client.online:
                     online_count += 1
-                if client.speaker_type == 'subwoofer':
-                    if client.online:
-                        has_subwoofer = True
-                else:
-                    # Collect crossover frequencies from non-subwoofer speakers
-                    freq = DEFAULT_CROSSOVER_FREQUENCIES.get(client.speaker_type)
-                    if freq:
-                        speaker_frequencies.append(freq)
+                if client.speaker_type == 'subwoofer' and client.online:
+                    has_subwoofer = True
 
         base['online_client_count'] = online_count
         base['has_subwoofer'] = has_subwoofer
@@ -989,9 +1024,11 @@ class ClientRegistryService:
         ) if sorted_client_ids else False
         base['all_external_volume'] = all_external_volume
 
-        # Use auto-calculated crossover frequency only if zone has no custom value
-        if speaker_frequencies and zone.crossover_frequency is None:
-            base['crossover_frequency'] = min(speaker_frequencies)
+        # The wire always carries a usable number plus the flag saying where it
+        # came from, so the UI shows "auto" without re-deriving anything.
+        base['crossover_auto'] = zone.crossover_frequency is None
+        if zone.crossover_frequency is None:
+            base['crossover_frequency'] = self.auto_crossover_frequency(zone)
 
         # Crossover is enabled when: zone.crossover_enabled is explicitly True,
         # OR when it's None (auto) and there's an online subwoofer in the zone

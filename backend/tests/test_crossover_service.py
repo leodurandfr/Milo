@@ -18,9 +18,10 @@ from backend.core.multiroom.models import (
     Client,
     Zone,
     RegistryEventType,
-    DEFAULT_CROSSOVER_FREQUENCIES,
+    DEFAULT_CROSSOVER_FREQUENCY,
 )
 from backend.core.multiroom.crossover import CrossoverService
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.equalizer.client_proxy import is_ip_address
 
 
@@ -94,6 +95,9 @@ def mock_registry():
     registry.get_zone_for_client = MagicMock(side_effect=get_zone_for_client)
     registry.is_client_online = MagicMock(side_effect=is_client_online)
     registry.zone_to_enriched_dict = MagicMock(side_effect=zone_to_enriched_dict)
+    registry.auto_crossover_frequency = MagicMock(
+        side_effect=lambda zone: ClientRegistryService.auto_crossover_frequency(registry, zone)
+    )
     registry.subscribe = MagicMock()
     registry.update_zone = AsyncMock()
     registry._emit_event = AsyncMock()
@@ -152,9 +156,6 @@ class TestCrossoverFilterCalculation:
         speaker_type = service.get_client_speaker_type("satellite-1")
         assert speaker_type == "satellite"
 
-        # Verify default crossover frequency for satellite
-        assert DEFAULT_CROSSOVER_FREQUENCIES['satellite'] == 120
-
     def test_bookshelf_speaker_returns_highpass_80hz(self, crossover_service_with_registry):
         """Test bookshelf speaker gets highpass at 80Hz (THX standard)."""
         service, registry = crossover_service_with_registry
@@ -171,7 +172,6 @@ class TestCrossoverFilterCalculation:
 
         speaker_type = service.get_client_speaker_type("bookshelf-1")
         assert speaker_type == "bookshelf"
-        assert DEFAULT_CROSSOVER_FREQUENCIES['bookshelf'] == 80
 
     def test_tower_speaker_returns_highpass_50hz(self, crossover_service_with_registry):
         """Test tower speaker gets highpass at 50Hz."""
@@ -189,7 +189,6 @@ class TestCrossoverFilterCalculation:
 
         speaker_type = service.get_client_speaker_type("tower-1")
         assert speaker_type == "tower"
-        assert DEFAULT_CROSSOVER_FREQUENCIES['tower'] == 50
 
     def test_subwoofer_returns_lowpass_at_zone_frequency(self, crossover_service_with_registry):
         """Test subwoofer gets lowpass (no highpass)."""
@@ -205,8 +204,6 @@ class TestCrossoverFilterCalculation:
         )
         registry._clients["subwoofer-1"] = client
 
-        # Subwoofer should have None as crossover frequency (receives lowpass instead)
-        assert DEFAULT_CROSSOVER_FREQUENCIES['subwoofer'] is None
         assert service.is_client_subwoofer("subwoofer-1") is True
 
 # =============================================================================
@@ -644,10 +641,14 @@ class TestHelperFunctions:
 class TestZoneCrossoverFields:
     """Tests for Zone model crossover fields."""
 
-    def test_zone_default_crossover_frequency(self):
-        """Test zone has default crossover frequency of 80Hz."""
+    def test_zone_default_crossover_frequency_is_auto(self):
+        """A new zone is in auto: its members' speaker types decide.
+
+        Born at a literal 80, the auto branch behind `crossover_frequency is
+        None` was unreachable from every direction — and `from_dict` put the 80
+        back on every load, so no zone could ever leave it."""
         zone = Zone(name="Test Zone")
-        assert zone.crossover_frequency == 80
+        assert zone.crossover_frequency is None
 
     def test_zone_crossover_enabled_defaults_to_none(self):
         """Test zone crossover_enabled defaults to None (auto mode)."""
@@ -682,77 +683,79 @@ class TestZoneCrossoverFields:
         assert zone.crossover_frequency == 120
         assert zone.crossover_enabled is False
 
+    def test_zone_from_dict_keeps_auto_auto(self):
+        """A zone persisted in auto must load in auto. `from_dict` defaulted the
+        missing key to 80, which silently pinned every zone on every restart."""
+        zone = Zone.from_dict({"id": "zone-1", "name": "Test Zone", "client_ids": []})
+
+        assert zone.crossover_frequency is None
+
 
 # =============================================================================
 # Auto Crossover Calculation Tests
 # =============================================================================
 
 class TestAutoCrossoverCalculation:
-    """Tests for automatic crossover frequency calculation."""
+    """`ClientRegistryService.auto_crossover_frequency` — the single derivation.
 
-    @pytest.mark.asyncio
-    async def test_get_zone_auto_crossover_uses_minimum_frequency(self, crossover_service_with_registry):
-        """Test auto crossover uses minimum frequency from non-subwoofer speakers."""
-        service, registry = crossover_service_with_registry
+    One highpass serves every non-subwoofer member of a zone, so the frequency
+    has to protect the *weakest* speaker. This is the only implementation: the
+    enriched zone dict and `CrossoverService` both read it, after a period where
+    each carried its own copy and the two disagreed on the edges.
+    """
 
-        # Create zone with satellite (120Hz) and tower (50Hz)
-        satellite = Client(mac_id="sat-1", name="Satellite", ip="192.168.1.10",
-                          speaker_type="satellite", online=True, zone_id="zone-1")
-        tower = Client(mac_id="tower-1", name="Tower", ip="192.168.1.11",
-                      speaker_type="tower", online=True, zone_id="zone-1")
-        subwoofer = Client(mac_id="sub-1", name="Subwoofer", ip="192.168.1.12",
-                          speaker_type="subwoofer", online=True, zone_id="zone-1")
-
-        zone = Zone(
-            id="zone-1",
-            name="Living Room",
-            client_ids=["sat-1", "tower-1", "sub-1"]
-        )
-
-        registry._clients["sat-1"] = satellite
-        registry._clients["tower-1"] = tower
-        registry._clients["sub-1"] = subwoofer
+    @staticmethod
+    def _zone(registry, **types):
+        for mac_id, speaker_type in types.items():
+            registry._clients[mac_id] = Client(
+                mac_id=mac_id, name=mac_id, ip="192.168.1.10",
+                speaker_type=speaker_type, online=True, zone_id="zone-1",
+            )
+        zone = Zone(id="zone-1", name="Living Room", client_ids=list(types))
         registry._zones["zone-1"] = zone
+        return zone
 
-        freq = await service.get_zone_auto_crossover("zone-1")
+    def test_a_mixed_zone_protects_the_weakest_speaker(self, crossover_service_with_registry):
+        """Satellite (120) + tower (50) must cross at 120, not 50.
 
-        # Should return minimum: tower=50Hz
-        assert freq == 50
+        Taking the minimum hands the satellite a 50 Hz highpass and asks it for
+        50-120 Hz — the band its own speaker type declares it cannot deliver —
+        while the subwoofer, cut at that same 50 Hz, does not fill it either.
+        """
+        _, registry = crossover_service_with_registry
+        zone = self._zone(registry, sat="satellite", tower="tower", sub="subwoofer")
 
-    @pytest.mark.asyncio
-    async def test_get_zone_auto_crossover_ignores_subwoofer(self, crossover_service_with_registry):
-        """Test auto crossover ignores subwoofer speaker type."""
-        service, registry = crossover_service_with_registry
+        assert registry.auto_crossover_frequency(zone) == 120
 
-        # Create zone with only subwoofer (should use default)
-        subwoofer = Client(mac_id="sub-1", name="Subwoofer", ip="192.168.1.12",
-                          speaker_type="subwoofer", online=True, zone_id="zone-1")
+    def test_a_uniform_zone_uses_its_own_speakers_frequency(self, crossover_service_with_registry):
+        """Not merely "the biggest number wins" — bookshelves cross at 80."""
+        _, registry = crossover_service_with_registry
+        zone = self._zone(registry, a="bookshelf", b="bookshelf", sub="subwoofer")
 
-        zone = Zone(
-            id="zone-1",
-            name="Sub Only",
-            client_ids=["sub-1"]
-        )
+        assert registry.auto_crossover_frequency(zone) == 80
 
-        registry._clients["sub-1"] = subwoofer
-        registry._zones["zone-1"] = zone
+    def test_towers_alone_cross_low(self, crossover_service_with_registry):
+        """And the derivation really reads the table rather than a constant."""
+        _, registry = crossover_service_with_registry
+        zone = self._zone(registry, a="tower", b="tower", sub="subwoofer")
 
-        freq = await service.get_zone_auto_crossover("zone-1")
+        assert registry.auto_crossover_frequency(zone) == 50
 
-        # Should return default (80Hz) since no non-subwoofer speakers
-        assert freq == service.DEFAULT_CROSSOVER_FREQUENCY
+    def test_subwoofers_contribute_nothing(self, crossover_service_with_registry):
+        """A subwoofer receives the lowpass, so it must not raise or lower the
+        highpass the others get. With only subwoofers there is nothing to
+        derive from and the THX default stands."""
+        _, registry = crossover_service_with_registry
+        zone = self._zone(registry, sub="subwoofer")
 
-    @pytest.mark.asyncio
-    async def test_get_zone_auto_crossover_empty_zone(self, crossover_service_with_registry):
-        """Test auto crossover returns default for empty zone."""
-        service, registry = crossover_service_with_registry
+        assert registry.auto_crossover_frequency(zone) == DEFAULT_CROSSOVER_FREQUENCY
 
+    def test_an_empty_zone_falls_back_to_the_default(self, crossover_service_with_registry):
+        _, registry = crossover_service_with_registry
         zone = Zone(id="zone-1", name="Empty Zone", client_ids=[])
         registry._zones["zone-1"] = zone
 
-        freq = await service.get_zone_auto_crossover("zone-1")
-
-        assert freq == service.DEFAULT_CROSSOVER_FREQUENCY
+        assert registry.auto_crossover_frequency(zone) == DEFAULT_CROSSOVER_FREQUENCY
 
 
 # =============================================================================
@@ -1237,9 +1240,9 @@ class TestSpeakerTypeCrossoverFrequencies:
         # Apply zone crossover - should use satellite's 120Hz
         await service.apply_zone_crossover("zone-1")
 
-        # Auto crossover frequency should be 120Hz (from satellite)
-        freq = await service.get_zone_auto_crossover("zone-1")
-        assert freq == 120
+        # The zone pins nothing, so the derivation decides what the DSP is told.
+        mock_camilladsp_service.set_crossover_filter.assert_awaited_once()
+        assert mock_camilladsp_service.set_crossover_filter.await_args.kwargs["frequency"] == 120
 
 
 # =============================================================================

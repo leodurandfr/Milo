@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 
 from backend.core.multiroom.models import (
     RegistryEventType,
+    Zone,
 )
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.crossover import CrossoverService
@@ -294,23 +295,27 @@ class TestCrossoverRecalculation:
         # Apply initial crossover
         await crossover.apply_zone_crossover(zone.id)
 
+        # `local` defaults to bookshelf, so the zone starts at 80 Hz.
+        assert registry.auto_crossover_frequency(registry.get_zone(zone.id)) == 80
+
         # Reset mock
         mock_camilladsp_service.reset_mock()
 
-        # Register new client with tower speaker type (50Hz)
-        await registry.register_client("tower-1", "Tower", "192.168.1.101")
-        await registry.update_client("tower-1", speaker_type="tower")
-        await registry.set_client_online("tower-1", True)
+        # Register new client with satellite speaker type (120Hz)
+        await registry.register_client("sat-1", "Satellite", "192.168.1.101")
+        await registry.update_client("sat-1", speaker_type="satellite")
+        await registry.set_client_online("sat-1", True)
 
         # Add to zone
-        await registry.add_client_to_zone(zone.id, "tower-1")
+        await registry.add_client_to_zone(zone.id, "sat-1")
 
         # Recalculate crossover
         await crossover.apply_zone_crossover(zone.id)
 
-        # Auto crossover should now be 50Hz (minimum of all speakers)
-        freq = await crossover.get_zone_auto_crossover(zone.id)
-        assert freq == 50  # Tower's default
+        # A weaker speaker joining raises the zone's highpass to protect it —
+        # and the DSP is told the new number, not the one it started with.
+        assert registry.auto_crossover_frequency(registry.get_zone(zone.id)) == 120
+        assert mock_camilladsp_service.set_crossover_filter.call_args.kwargs['frequency'] == 120
 
     @pytest.mark.asyncio
     async def test_e2e_client_leave_zone_triggers_recalculation(self, crossover_with_registry, mock_camilladsp_service):
@@ -322,26 +327,25 @@ class TestCrossoverRecalculation:
         await registry.update_client("local", speaker_type="bookshelf")
         await registry.set_client_online("local", True)
 
-        await registry.register_client("tower-1", "Tower", "192.168.1.101")
-        await registry.update_client("tower-1", speaker_type="tower")
-        await registry.set_client_online("tower-1", True)
+        await registry.register_client("sat-1", "Satellite", "192.168.1.101")
+        await registry.update_client("sat-1", speaker_type="satellite")
+        await registry.set_client_online("sat-1", True)
 
         await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
         await registry.update_client("sub-1", speaker_type="subwoofer")
         await registry.set_client_online("sub-1", True)
 
-        zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "tower-1", "sub-1"])
+        zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sat-1", "sub-1"])
 
-        # Initial auto crossover should be 50Hz (tower's frequency)
-        freq = await crossover.get_zone_auto_crossover(zone.id)
-        assert freq == 50
+        # Bookshelf (80) + satellite (120): the satellite is the weaker, so it
+        # sets the zone's highpass.
+        assert registry.auto_crossover_frequency(registry.get_zone(zone.id)) == 120
 
-        # Remove tower from zone
-        await registry.remove_client_from_zone(zone.id, "tower-1")
+        # Remove satellite from zone
+        await registry.remove_client_from_zone(zone.id, "sat-1")
 
-        # Recalculate - now should be 80Hz (bookshelf only)
-        freq = await crossover.get_zone_auto_crossover(zone.id)
-        assert freq == 80
+        # Gone, so the bookshelf's own 80 Hz stands again.
+        assert registry.auto_crossover_frequency(registry.get_zone(zone.id)) == 80
 
 
 # =============================================================================
@@ -745,8 +749,6 @@ class TestFilterApplicationE2E:
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sub-1"])
-        # Enable auto-frequency mode (zone default is 80Hz, override to None for auto-calc)
-        zone.crossover_frequency = None
 
         mock_camilladsp_service.reset_mock()
 
@@ -757,7 +759,7 @@ class TestFilterApplicationE2E:
         mock_camilladsp_service.set_crossover_filter.assert_called()
         call = mock_camilladsp_service.set_crossover_filter.call_args
         assert call.kwargs.get('enabled') is True or call[1].get('enabled') is True
-        # Frequency should be satellite's default (120Hz) - calculated by get_zone_auto_crossover
+        # Frequency is the satellite's 120 Hz, derived because the zone pins nothing
         freq = call.kwargs.get('frequency', call[1].get('frequency'))
         assert freq == 120, f"Expected 120Hz for satellite, got {freq}"
 
@@ -898,7 +900,7 @@ class TestMixedSpeakerTypeZones:
     """Tests for zones with mixed speaker types."""
 
     @pytest.mark.asyncio
-    async def test_e2e_mixed_speakers_use_minimum_frequency(self, crossover_with_registry, mock_camilladsp_service):
+    async def test_e2e_mixed_speakers_protect_the_weakest_speaker(self, crossover_with_registry, mock_camilladsp_service):
         """E2E Test: Zone with satellite + tower uses minimum frequency (tower's 50Hz)."""
         crossover, registry = crossover_with_registry
 
@@ -916,22 +918,20 @@ class TestMixedSpeakerTypeZones:
         await registry.set_client_online("sub-1", True)
 
         zone = await registry.create_zone(generate_zone_id(), "Mixed Zone", ["sat-1", "local", "sub-1"])
-        # Enable auto-frequency mode (zone default is 80Hz, override to None for auto-calc)
-        zone.crossover_frequency = None
 
-        # Auto crossover should be 50Hz (minimum of satellite=120, tower=50)
-        freq = await crossover.get_zone_auto_crossover(zone.id)
-        assert freq == 50, f"Expected minimum 50Hz, got {freq}"
+        # Satellite (120) + tower (50): the satellite is the weaker, so it sets
+        # the zone's highpass. 50 would ask it for a band it cannot deliver.
+        assert registry.auto_crossover_frequency(registry.get_zone(zone.id)) == 120
 
         mock_camilladsp_service.reset_mock()
 
         # Apply crossover
         await crossover.apply_zone_crossover(zone.id)
 
-        # Local (tower) should receive highpass at 50Hz
+        # Local (tower) shares the zone's single highpass
         call = mock_camilladsp_service.set_crossover_filter.call_args
         freq = call.kwargs.get('frequency', call[1].get('frequency'))
-        assert freq == 50, f"Expected 50Hz crossover frequency, got {freq}"
+        assert freq == 120, f"Expected 120Hz crossover frequency, got {freq}"
 
     @pytest.mark.asyncio
     async def test_e2e_all_bookshelf_zone_uses_80hz(self, crossover_with_registry, mock_camilladsp_service):
@@ -954,8 +954,7 @@ class TestMixedSpeakerTypeZones:
         zone = await registry.create_zone(generate_zone_id(), "Bookshelf Zone", ["local", "book-2", "sub-1"])
 
         # Auto crossover should be 80Hz (all bookshelves are 80Hz)
-        freq = await crossover.get_zone_auto_crossover(zone.id)
-        assert freq == 80
+        assert registry.auto_crossover_frequency(registry.get_zone(zone.id)) == 80
 
         mock_camilladsp_service.reset_mock()
 
@@ -965,3 +964,108 @@ class TestMixedSpeakerTypeZones:
         call = mock_camilladsp_service.set_crossover_filter.call_args
         freq = call.kwargs.get('frequency', call[1].get('frequency'))
         assert freq == 80
+
+
+# =============================================================================
+# Auto is a reachable state, not just a declared one
+# =============================================================================
+
+class TestAutoIsReachable:
+    """A zone must be able to reach auto, leave it, and come back.
+
+    Every branch behind `crossover_frequency is None` was dead: the field was
+    born at 80, `from_dict` re-imposed 80 on load, `update_zone` skipped a None
+    as "not supplied", and the request model could not carry one. The derivation
+    existed and was covered by tests that assigned the attribute by hand — which
+    is exactly why nothing noticed.
+
+    Consumer: `ClientEdit.vue`'s auto toggle → `PUT /api/equalizer/target/zone:<id>/crossover`.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_new_zone_starts_in_auto(self, crossover_with_registry):
+        crossover, registry = crossover_with_registry
+        await registry.register_client("local", "Main", "127.0.0.1")
+        await registry.register_client("sat-1", "Satellite", "192.168.1.10")
+        await registry.update_client("sat-1", speaker_type="satellite")
+
+        zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sat-1"])
+
+        assert registry.get_zone(zone.id).crossover_frequency is None
+        assert (await crossover.get_zone_crossover(zone.id))["auto"] is True
+
+    @pytest.mark.asyncio
+    async def test_pinning_then_releasing_returns_to_the_derived_value(self, crossover_with_registry):
+        """The round trip the old `update_zone` made impossible: it ignored the
+        None, so a zone given an explicit frequency kept it for ever."""
+        crossover, registry = crossover_with_registry
+        await registry.register_client("local", "Main", "127.0.0.1")
+        await registry.register_client("sat-1", "Satellite", "192.168.1.10")
+        await registry.update_client("sat-1", speaker_type="satellite")
+        await registry.set_client_online("sat-1", True)
+        zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sat-1"])
+
+        await crossover.set_zone_crossover_frequency(zone.id, 65)
+        pinned = await crossover.get_zone_crossover(zone.id)
+        assert (pinned["frequency"], pinned["auto"]) == (65, False)
+
+        await crossover.set_zone_crossover_frequency(zone.id, None)
+        released = await crossover.get_zone_crossover(zone.id)
+
+        assert released["auto"] is True
+        # 120, the satellite's — not the 65 it was pinned at, and not the 80 the
+        # field used to be born with.
+        assert released["frequency"] == 120
+
+    @pytest.mark.asyncio
+    async def test_a_pinned_zone_ignores_its_speaker_types(self, crossover_with_registry, mock_camilladsp_service):
+        """Auto must not quietly win back: an explicit value is what the DSP gets."""
+        crossover, registry = crossover_with_registry
+        await registry.register_client("local", "Main", "127.0.0.1")
+        await registry.set_client_online("local", True)
+        await registry.register_client("sat-1", "Satellite", "192.168.1.10")
+        await registry.update_client("sat-1", speaker_type="satellite")
+        await registry.set_client_online("sat-1", True)
+        await registry.register_client("sub-1", "Subwoofer", "192.168.1.100")
+        await registry.update_client("sub-1", speaker_type="subwoofer")
+        await registry.set_client_online("sub-1", True)
+        zone = await registry.create_zone(
+            generate_zone_id(), "Living Room", ["local", "sat-1", "sub-1"]
+        )
+
+        mock_camilladsp_service.reset_mock()
+        await crossover.set_zone_crossover_frequency(zone.id, 65)
+
+        assert mock_camilladsp_service.set_crossover_filter.call_args.kwargs['frequency'] == 65
+
+    @pytest.mark.asyncio
+    async def test_the_enriched_zone_carries_both_the_number_and_the_mode(self, crossover_with_registry):
+        """The UI cannot tell "auto, resolved to 80" from "pinned at 80" unless
+        the wire says which — and it must never have to re-derive the number."""
+        crossover, registry = crossover_with_registry
+        await registry.register_client("local", "Main", "127.0.0.1")
+        await registry.register_client("sat-1", "Satellite", "192.168.1.10")
+        await registry.update_client("sat-1", speaker_type="satellite")
+        zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sat-1"])
+
+        auto = registry.zone_to_enriched_dict(registry.get_zone(zone.id))
+        assert (auto["crossover_auto"], auto["crossover_frequency"]) == (True, 120)
+
+        await crossover.set_zone_crossover_frequency(zone.id, 120)
+        pinned = registry.zone_to_enriched_dict(registry.get_zone(zone.id))
+
+        assert (pinned["crossover_auto"], pinned["crossover_frequency"]) == (False, 120)
+
+    @pytest.mark.asyncio
+    async def test_auto_survives_a_persistence_round_trip(self, crossover_with_registry):
+        """`from_dict` used to default the missing key to 80, so a zone in auto
+        came back pinned on the next boot."""
+        _, registry = crossover_with_registry
+        await registry.register_client("local", "Main", "127.0.0.1")
+        await registry.register_client("sat-1", "Satellite", "192.168.1.10")
+        await registry.update_client("sat-1", speaker_type="satellite")
+        zone = await registry.create_zone(generate_zone_id(), "Living Room", ["local", "sat-1"])
+
+        reloaded = Zone.from_dict(registry.get_zone(zone.id).to_dict())
+
+        assert reloaded.crossover_frequency is None

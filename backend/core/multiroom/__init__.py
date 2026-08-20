@@ -19,6 +19,7 @@ from backend.core.multiroom.models import (
     SPEAKER_TYPES,
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCIES,
+    DEFAULT_CROSSOVER_FREQUENCY,
     DEFAULT_VOLUME_DB,
 )
 from backend.core.multiroom.client_registry import ClientRegistryService
@@ -41,6 +42,7 @@ __all__ = [
     "SPEAKER_TYPES",
     "DEFAULT_SPEAKER_TYPE",
     "DEFAULT_CROSSOVER_FREQUENCIES",
+    "DEFAULT_CROSSOVER_FREQUENCY",
     "DEFAULT_VOLUME_DB",
     # Services
     "ClientRegistryService",

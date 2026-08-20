@@ -21,7 +21,7 @@ from backend.shared.decorators import handle_errors
 from backend.core.models.ws_events import MultiroomZoneChanged
 from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
-    DEFAULT_CROSSOVER_FREQUENCIES,
+    DEFAULT_CROSSOVER_FREQUENCY,
 )
 
 if TYPE_CHECKING:
@@ -54,7 +54,6 @@ class CrossoverService:
     - Queue pending settings for offline clients
     """
 
-    DEFAULT_CROSSOVER_FREQUENCY = 80  # Hz (THX/Dolby recommended)
     DEFAULT_Q = 0.707  # Butterworth (flattest passband)
 
     def __init__(self, settings_service: Optional["SettingsService"] = None, camilladsp_service=None,
@@ -149,8 +148,8 @@ class CrossoverService:
                 try:
                     self.logger.info(f"Zone {zone_id} deleted, disabling filters for {len(client_ids)} clients")
                     for client_id in client_ids:
-                        await self._set_client_filter(client_id, "crossover", False, self.DEFAULT_CROSSOVER_FREQUENCY)
-                        await self._set_client_filter(client_id, "lowpass", False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                        await self._set_client_filter(client_id, "crossover", False, DEFAULT_CROSSOVER_FREQUENCY)
+                        await self._set_client_filter(client_id, "lowpass", False, DEFAULT_CROSSOVER_FREQUENCY)
                 except Exception as e:
                     self.logger.error(f"Error disabling filters after zone {zone_id} deletion: {e}")
 
@@ -161,8 +160,8 @@ class CrossoverService:
             try:
                 if mac_id:
                     self.logger.info(f"Client {mac_id} removed from zone {zone_id}, disabling filters")
-                    await self._set_client_filter(mac_id, "crossover", False, self.DEFAULT_CROSSOVER_FREQUENCY)
-                    await self._set_client_filter(mac_id, "lowpass", False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                    await self._set_client_filter(mac_id, "crossover", False, DEFAULT_CROSSOVER_FREQUENCY)
+                    await self._set_client_filter(mac_id, "lowpass", False, DEFAULT_CROSSOVER_FREQUENCY)
                 if zone_id and isinstance(zone_id, str):
                     await self.apply_zone_crossover(zone_id)
             except Exception as e:
@@ -189,59 +188,58 @@ class CrossoverService:
 
     # === Zone Crossover Management ===
 
-    @handle_errors(default={"frequency": 80, "enabled": False, "has_subwoofer": False})
+    @handle_errors(default={"frequency": DEFAULT_CROSSOVER_FREQUENCY, "auto": True,
+                            "enabled": False, "has_subwoofer": False})
     async def get_zone_crossover(self, zone_id: str) -> Dict[str, Any]:
-        """Get crossover settings for a zone."""
+        """Get crossover settings for a zone.
+
+        `frequency` is always the number the DSP will actually use; `auto` says
+        whether it was derived from the members' speaker types or pinned by the
+        user. Answering a bare None for auto would leave every consumer to
+        re-derive it — which is how the derivation came to exist twice.
+        """
+        unknown = {
+            "frequency": DEFAULT_CROSSOVER_FREQUENCY,
+            "auto": True,
+            "enabled": False,
+            "has_subwoofer": False
+        }
         if not self._registry:
-            return {
-                "frequency": self.DEFAULT_CROSSOVER_FREQUENCY,
-                "enabled": False,
-                "has_subwoofer": False
-            }
+            return unknown
 
         zone = self._registry.get_zone(zone_id)
         if not zone:
-            return {
-                "frequency": self.DEFAULT_CROSSOVER_FREQUENCY,
-                "enabled": False,
-                "has_subwoofer": False
-            }
+            return unknown
 
         has_subwoofer = any(self.is_client_subwoofer(cid) for cid in zone.client_ids)
 
         return {
-            "frequency": zone.crossover_frequency,
+            "frequency": self._resolve_frequency(zone),
+            "auto": zone.crossover_frequency is None,
             "enabled": zone.crossover_enabled if zone.crossover_enabled is not None else has_subwoofer,
             "has_subwoofer": has_subwoofer
         }
 
-    @handle_errors(default=80)
-    async def get_zone_auto_crossover(self, zone_id: str) -> int:
-        """Calculate automatic crossover frequency for a zone."""
-        if not self._registry:
-            return self.DEFAULT_CROSSOVER_FREQUENCY
-
-        zone = self._registry.get_zone(zone_id)
-        if not zone:
-            return self.DEFAULT_CROSSOVER_FREQUENCY
-
-        frequencies = []
-        for client_id in zone.client_ids:
-            speaker_type = self.get_client_speaker_type(client_id)
-            if speaker_type != "subwoofer":
-                freq = DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
-                if freq:
-                    frequencies.append(freq)
-
-        return min(frequencies) if frequencies else self.DEFAULT_CROSSOVER_FREQUENCY
+    def _resolve_frequency(self, zone) -> int:
+        """The zone's pinned frequency, or the one its speakers imply."""
+        if zone.crossover_frequency is not None:
+            return zone.crossover_frequency
+        return self._registry.auto_crossover_frequency(zone)
 
     @handle_errors(default=False)
-    async def set_zone_crossover_frequency(self, zone_id: str, frequency: float) -> bool:
-        """Set the crossover frequency for a zone."""
+    async def set_zone_crossover_frequency(
+        self, zone_id: str, frequency: Optional[float]
+    ) -> bool:
+        """Pin the crossover frequency for a zone, or hand it back to auto.
+
+        `None` is not "no change" here — it is the request to stop pinning and
+        let the members' speaker types decide again.
+        """
         if not self._registry:
             return False
 
-        frequency = max(20, min(200, frequency))
+        if frequency is not None:
+            frequency = int(max(20, min(200, frequency)))
 
         zone = self._registry.get_zone(zone_id)
         if not zone:
@@ -251,9 +249,12 @@ class CrossoverService:
         # update_zone emits ZONE_UPDATED, so the enriched zone (carrying the new
         # crossover_frequency) reaches the UI on multiroom/zone_changed — no
         # second event for the same change.
-        await self._registry.update_zone(zone_id, crossover_frequency=int(frequency))
+        await self._registry.update_zone(zone_id, crossover_frequency=frequency)
 
-        self.logger.info(f"Zone {zone_id} crossover frequency set to {frequency} Hz")
+        self.logger.info(
+            f"Zone {zone_id} crossover frequency set to "
+            f"{'auto' if frequency is None else f'{frequency} Hz'}"
+        )
 
         # Apply the updated crossover filters to all zone clients
         await self.apply_zone_crossover(zone_id)
@@ -272,7 +273,7 @@ class CrossoverService:
             return False
 
         client_ids = zone.client_ids
-        frequency = zone.crossover_frequency or await self.get_zone_auto_crossover(zone_id)
+        frequency = self._resolve_frequency(zone)
 
         available_clients = {
             cid for cid in client_ids
@@ -478,7 +479,7 @@ class CrossoverService:
             result = await self._set_client_filter(
                 client_id, filter_name,
                 queued.get("enabled", False),
-                queued.get("frequency", self.DEFAULT_CROSSOVER_FREQUENCY)
+                queued.get("frequency", DEFAULT_CROSSOVER_FREQUENCY)
             )
             if not result:
                 success = False

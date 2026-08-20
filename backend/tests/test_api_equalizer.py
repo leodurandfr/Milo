@@ -91,12 +91,22 @@ def mock_registry():
 
 
 @pytest.fixture
-def client(mock_camilladsp, mock_mre, mock_equalizer_router, mock_registry):
+def mock_crossover():
+    cross = Mock()
+    cross.set_zone_crossover_frequency = AsyncMock(return_value=True)
+    cross.get_zone_crossover = AsyncMock(return_value={
+        "frequency": 120, "auto": True, "enabled": True, "has_subwoofer": True,
+    })
+    return cross
+
+
+@pytest.fixture
+def client(mock_camilladsp, mock_mre, mock_equalizer_router, mock_registry, mock_crossover):
     app = FastAPI()
     router = create_equalizer_router(
         camilladsp_service=mock_camilladsp,
         routing_service=Mock(),
-        crossover_service=Mock(),
+        crossover_service=mock_crossover,
         client_registry_service=mock_registry,
         equalizer_router_service=mock_equalizer_router,
         multiroom_equalizer_service=mock_mre,
@@ -353,3 +363,59 @@ class TestPresetsCatalog:
         assert body["presets"] == [{"id": "flat", "gains": [0] * 10}]
         assert body["active_preset"] == "flat"
         assert body["custom_gains"] == [0] * 10
+
+
+# =============================================================================
+# PUT /api/equalizer/target/zone:<id>/crossover
+# =============================================================================
+
+class TestTargetCrossover:
+    """The request has to be able to say "auto", or the zone can never go back.
+
+    `frequency` was a non-nullable float defaulting to 80, so no HTTP request
+    could express the None the rest of the crossover code branches on. The route
+    is the only way in, which is what made the derivation unreachable in
+    production while its unit tests, assigning the attribute directly, stayed
+    green.
+
+    Consumer: `equalizerStore.setZoneCrossoverFrequency()` → ClientEdit.vue.
+    """
+
+    def test_a_number_pins_the_zone(self, client, mock_crossover):
+        resp = client.put("/api/equalizer/target/zone:z1/crossover", json={"frequency": 65})
+
+        assert resp.status_code == 200
+        assert mock_crossover.set_zone_crossover_frequency.await_args.args == ("z1", 65.0)
+
+    def test_null_hands_the_zone_back_to_auto(self, client, mock_crossover):
+        resp = client.put("/api/equalizer/target/zone:z1/crossover", json={"frequency": None})
+
+        assert resp.status_code == 200
+        assert mock_crossover.set_zone_crossover_frequency.await_args.args == ("z1", None)
+
+    def test_an_omitted_frequency_means_auto_too(self, client, mock_crossover):
+        """There is no third state to fall into — the field's absence is auto,
+        not "keep whatever was there"."""
+        resp = client.put("/api/equalizer/target/zone:z1/crossover", json={})
+
+        assert resp.status_code == 200
+        assert mock_crossover.set_zone_crossover_frequency.await_args.args == ("z1", None)
+
+    def test_the_response_reports_the_resolved_frequency_and_the_mode(self, client):
+        """A bare null would leave every consumer to re-derive the number."""
+        body = client.put("/api/equalizer/target/zone:z1/crossover",
+                          json={"frequency": None}).json()
+
+        assert body["frequency"] == 120
+        assert body["auto"] is True
+
+    def test_an_out_of_range_frequency_is_still_refused(self, client, mock_crossover):
+        """Nullable must not mean unvalidated."""
+        assert client.put("/api/equalizer/target/zone:z1/crossover",
+                          json={"frequency": 10}).status_code == 422
+        mock_crossover.set_zone_crossover_frequency.assert_not_awaited()
+
+    def test_a_non_zone_target_is_refused(self, client, mock_crossover):
+        assert client.put("/api/equalizer/target/local/crossover",
+                          json={"frequency": 80}).status_code == 400
+        mock_crossover.set_zone_crossover_frequency.assert_not_awaited()
