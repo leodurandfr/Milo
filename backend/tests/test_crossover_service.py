@@ -11,6 +11,7 @@ Tests:
 - Automatic crossover activation/deactivation
 - WebSocket event broadcasting for crossover changes
 """
+import logging
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -1617,3 +1618,162 @@ class TestCrossoverIndependenceFromDspBypass:
         mock_camilladsp_service.set_lowpass_filter.assert_called_with(
             enabled=True, frequency=80, q=0.707
         )
+
+
+# =============================================================================
+# The zone fan-out answers for what its members did (sweep S1/S2)
+# =============================================================================
+
+class TestZoneFanoutVerdict:
+    """A zone crossover apply that a member refused must not report success.
+
+    When these fail, `PUT /api/equalizer/target/zone:<id>/crossover` is back to
+    answering 200 with the new frequency while a satellite keeps the old filter
+    and nothing names it anywhere — the whole point of the finding.
+    """
+
+    REFUSING = "192.168.1.51"
+
+    @staticmethod
+    def _two_remote_members(registry, proxy, refuses: bool):
+        """A two-member zone, both remote and online; the second may refuse."""
+        registry._clients["aa:bb"] = Client(
+            mac_id="aa:bb", name="Good", ip="192.168.1.50",
+            speaker_type="bookshelf", online=True, zone_id="zone-1")
+        registry._clients["cc:dd"] = Client(
+            mac_id="cc:dd", name="Bad", ip=TestZoneFanoutVerdict.REFUSING,
+            speaker_type="bookshelf", online=True, zone_id="zone-1")
+        registry._zones["zone-1"] = Zone(
+            id="zone-1", name="Salon", client_ids=["aa:bb", "cc:dd"],
+            crossover_frequency=80, crossover_enabled=True,
+        )
+
+        async def answer(ip, *args, **kwargs):
+            return 500 if refuses and ip == TestZoneFanoutVerdict.REFUSING else 200
+
+        proxy.try_request.side_effect = answer
+
+    @pytest.mark.asyncio
+    async def test_a_member_that_refused_fails_the_zone_apply(
+        self, crossover_service_with_registry, mock_proxy_service, caplog
+    ):
+        """The refusing member decides the verdict, and is named at error."""
+        service, registry = crossover_service_with_registry
+        self._two_remote_members(registry, mock_proxy_service, refuses=True)
+
+        with caplog.at_level(logging.ERROR):
+            result = await service.apply_zone_crossover("zone-1")
+
+        assert result is False
+        assert "cc:dd" in caplog.text
+        assert "aa:bb" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_every_member_taking_it_still_reports_success(
+        self, crossover_service_with_registry, mock_proxy_service, caplog
+    ):
+        """The happy path is unchanged — no verdict, no noise."""
+        service, registry = crossover_service_with_registry
+        self._two_remote_members(registry, mock_proxy_service, refuses=False)
+
+        with caplog.at_level(logging.ERROR):
+            result = await service.apply_zone_crossover("zone-1")
+
+        assert result is True
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_a_member_that_went_offline_mid_loop_is_not_a_failure(
+        self, crossover_service_with_registry, mock_proxy_service
+    ):
+        """Its setting is queued and CLIENT_CONNECTED replays it — that is a skip.
+
+        Only a member the registry still calls online is a failure: nothing
+        drains the pending queue for a client that never disconnects.
+        """
+        service, registry = crossover_service_with_registry
+        self._two_remote_members(registry, mock_proxy_service, refuses=True)
+
+        async def drop_off(ip, *args, **kwargs):
+            if ip == self.REFUSING:
+                registry._clients["cc:dd"].online = False
+                return 0
+            return 200
+
+        mock_proxy_service.try_request.side_effect = drop_off
+
+        assert await service.apply_zone_crossover("zone-1") is True
+        assert service.has_pending_settings("cc:dd") is True
+
+    @pytest.mark.asyncio
+    async def test_set_zone_crossover_frequency_carries_the_fanout_verdict(
+        self, crossover_service_with_registry, mock_proxy_service
+    ):
+        """The route's 500 check is handed the fan-out's answer, not a literal."""
+        service, registry = crossover_service_with_registry
+        self._two_remote_members(registry, mock_proxy_service, refuses=True)
+
+        assert await service.set_zone_crossover_frequency("zone-1", 90) is False
+        # The pin is persisted anyway: it is what the reconnection sync replays.
+        registry.update_zone.assert_awaited_once_with("zone-1", crossover_frequency=90)
+
+    @pytest.mark.asyncio
+    async def test_set_zone_crossover_frequency_succeeds_when_the_zone_took_it(
+        self, crossover_service_with_registry, mock_proxy_service
+    ):
+        """The happy path still answers True, so the route still answers 200."""
+        service, registry = crossover_service_with_registry
+        self._two_remote_members(registry, mock_proxy_service, refuses=False)
+
+        assert await service.set_zone_crossover_frequency("zone-1", 90) is True
+
+
+# =============================================================================
+# A refusal from a client the registry calls online is not a debug line
+# =============================================================================
+
+class TestProxyRefusalLevel:
+    """Which refusals reach the operator's banner (sweep S1, step 1.3).
+
+    An online client that refuses is the case nothing else recovers from: the
+    pending queue only drains on CLIENT_CONNECTED, so the queued filter sits
+    there until the client disconnects — possibly never.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_online_client_refusing_is_an_error(
+        self, crossover_service_with_registry, mock_proxy_service, caplog
+    ):
+        service, registry = crossover_service_with_registry
+        registry._clients["aa:bb"] = Client(
+            mac_id="aa:bb", name="Canape", ip="192.168.1.50", online=True
+        )
+        mock_proxy_service.try_request.return_value = 500
+
+        with caplog.at_level(logging.ERROR):
+            result = await service._proxy_filter_to_client(
+                "crossover", "192.168.1.50", True, 80, client_id="aa:bb"
+            )
+
+        assert result is False
+        assert "aa:bb" in caplog.text
+        assert "HTTP 500" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_an_offline_client_stays_quiet(
+        self, crossover_service_with_registry, mock_proxy_service, caplog
+    ):
+        """Unreachable-while-offline is the expected case — queue it and move on."""
+        service, registry = crossover_service_with_registry
+        registry._clients["aa:bb"] = Client(
+            mac_id="aa:bb", name="Canape", ip="192.168.1.50", online=False
+        )
+        mock_proxy_service.try_request.return_value = 0
+
+        with caplog.at_level(logging.ERROR):
+            result = await service._proxy_filter_to_client(
+                "crossover", "192.168.1.50", True, 80, client_id="aa:bb"
+            )
+
+        assert result is False
+        assert caplog.text == ""

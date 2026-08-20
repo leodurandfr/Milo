@@ -514,12 +514,9 @@ def test_no_subprocess_outcome_goes_unread():
 # --------------------------------------------------------------------------- #
 
 # One line per entry, and each must still match something (asserted below).
-EXEMPT_MANUFACTURED: dict[str, str] = {
-    "backend/core/multiroom/crossover.py::set_zone_crossover_frequency":
-        "S2 of the 2026-08-20 sweep, open — the fix is a ⚠⚠ behaviour change",
-    "backend/core/multiroom/crossover.py::apply_zone_crossover":
-        "S1 of the 2026-08-20 sweep, open — the fix is a ⚠⚠ behaviour change",
-}
+# Empty since 2026-08-20: the three sites this rule was written against are all
+# fixed, so it now holds on merit rather than by exemption.
+EXEMPT_MANUFACTURED: dict[str, str] = {}
 
 
 def _sealed_false(fn) -> bool:
@@ -564,7 +561,7 @@ def _manufactures_verdict(fn, parents) -> bool:
     """True if every `return` in `fn` is a bool literal and at least one is True.
 
     A function that derives its answer — ``return applied``, ``return not
-    self._failed_members(...)`` — is reading something, whatever it reads. One
+    failed_members(...)`` — is reading something, whatever it reads. One
     whose every exit is a literal has decided its answer before doing the work,
     and the ``True`` branch is the claim this rule is about.
     """
@@ -638,13 +635,14 @@ MANUFACTURED = _manufactured_verdicts()
 def test_no_verdict_is_manufactured_over_a_discarded_sibling():
     """A function must not answer True over a sibling's dropped answer.
 
-    ``apply_zone_crossover`` calls ``_set_client_filter`` six times, drops all
-    six and returns a hardcoded True; ``set_zone_crossover_frequency`` drops
-    *that* and returns True in turn; the route tests the bool it gets and answers
-    200 with the new frequency. The subwoofer that refused the lowpass keeps
-    playing full-range, and the only trace is a ``debug`` line inside
-    ``_proxy_filter_to_client`` — the exact outcome of occurrence 5.1, on the
-    path 5.1 did not cover.
+    The shape this was written against: ``apply_zone_crossover`` called
+    ``_set_client_filter`` six times, dropped all six and returned a hardcoded
+    True; ``set_zone_crossover_frequency`` dropped *that* and returned True in
+    turn; the route tested the bool it got and answered 200 with the new
+    frequency. The subwoofer that refused the lowpass kept playing full-range,
+    and the only trace was a ``debug`` line inside ``_proxy_filter_to_client`` —
+    the exact outcome of occurrence 5.1, on the path 5.1 did not cover. Both are
+    fixed; this keeps the shape from coming back.
 
     The rule is sound because both halves are local. ``@handle_errors(default=
     False)`` proves the callee cannot raise, so its bool is its only failure
@@ -868,15 +866,24 @@ def test_every_exemption_is_still_reached():
     """
     fanout_sites = {_site(p, n, par) for p, n, par in FANOUTS}
     spawn_sites = {_site(p, n, par) for p, n, par, _ in SPAWNS}
+    # Rule 3 collects only the functions that *do* manufacture, so an exemption
+    # whose site was fixed drops out of MANUFACTURED and reads as stale here.
+    manufactured_sites = {f"{_rel(p)}::{fn.name}" for p, fn, _ in MANUFACTURED}
 
     stale = sorted(
         [f"EXEMPT_FANOUTS[{k!r}]" for k in EXEMPT_FANOUTS if k not in fanout_sites]
         + [f"EXEMPT_SPAWNS[{k!r}]" for k in EXEMPT_SPAWNS if k not in spawn_sites]
+        + [f"EXEMPT_MANUFACTURED[{k!r}]" for k in EXEMPT_MANUFACTURED
+           if k not in manufactured_sites]
     )
     assert not stale, f"exemptions matching no call site: {stale} — delete them."
 
     unexplained = sorted(
-        k for k, why in list(EXEMPT_FANOUTS.items()) + list(EXEMPT_SPAWNS.items())
+        k for k, why in (
+            list(EXEMPT_FANOUTS.items())
+            + list(EXEMPT_SPAWNS.items())
+            + list(EXEMPT_MANUFACTURED.items())
+        )
         if not why.strip()
     )
     assert not unexplained, f"exemptions with no reason: {unexplained}"

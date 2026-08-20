@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
+from backend.shared.fanout import failed_members
 from backend.core.models.ws_events import MultiroomZoneChanged
 from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
@@ -256,14 +257,21 @@ class CrossoverService:
             f"{'auto' if frequency is None else f'{frequency} Hz'}"
         )
 
-        # Apply the updated crossover filters to all zone clients
-        await self.apply_zone_crossover(zone_id)
-
-        return True
+        # Apply the updated crossover filters to all zone clients. Its verdict is
+        # this method's: the route raises a 500 on False, and the pin above stays
+        # persisted either way — it is what the reconnection sync replays.
+        return await self.apply_zone_crossover(zone_id)
 
     @handle_errors(default=False)
     async def apply_zone_crossover(self, zone_id: str) -> bool:
-        """Apply crossover settings to all clients in a zone."""
+        """Apply crossover settings to all clients in a zone.
+
+        False when a member that is *still online* refused one of its filters,
+        each named at error level. A member that went offline mid-apply is not
+        one: _set_client_filter queued its setting and CLIENT_CONNECTED replays
+        it, while nothing at all drains that queue for a client that keeps
+        answering — which is exactly the case the operator has to be told about.
+        """
         if not self._registry:
             return False
 
@@ -301,6 +309,9 @@ class CrossoverService:
             f"available_clients={list(available_clients)}"
         )
 
+        members: list = []
+        results: list = []
+
         for client_id in client_ids:
             if client_id not in available_clients:
                 self.logger.debug(f"Skipping unavailable client {client_id}")
@@ -308,18 +319,30 @@ class CrossoverService:
 
             is_sub = self.is_client_subwoofer(client_id)
 
-            if should_apply_crossover:
-                if is_sub:
-                    await self._set_client_filter(client_id, "lowpass", True, frequency)
-                    await self._set_client_filter(client_id, "crossover", False, frequency)
-                else:
-                    await self._set_client_filter(client_id, "crossover", True, frequency)
-                    await self._set_client_filter(client_id, "lowpass", False, frequency)
+            # The filter the member keeps is enabled before the one it drops is
+            # removed, so it never runs full-range between the two pushes.
+            if should_apply_crossover and is_sub:
+                wanted = (("lowpass", True), ("crossover", False))
+            elif should_apply_crossover:
+                wanted = (("crossover", True), ("lowpass", False))
             else:
-                await self._set_client_filter(client_id, "crossover", False, frequency)
-                await self._set_client_filter(client_id, "lowpass", False, frequency)
+                wanted = (("crossover", False), ("lowpass", False))
 
-        return True
+            took = all([
+                await self._set_client_filter(client_id, name, enabled, frequency)
+                for name, enabled in wanted
+            ])
+
+            if not took and not self._registry.is_client_online(client_id):
+                self.logger.debug(
+                    f"Client {client_id} went offline mid-apply, crossover queued as pending"
+                )
+                continue
+
+            members.append(client_id)
+            results.append(took)
+
+        return not failed_members(self.logger, f"Zone {zone_id} crossover", members, results)
 
     @handle_errors(default=False)
     async def _set_client_filter(
@@ -404,9 +427,18 @@ class CrossoverService:
             # status 0 = unreachable; non-200 = rejected (e.g. CamillaDSP not
             # ready after reboot). Either way queue as pending for the next sync.
             reason = "unreachable" if status == 0 else f"HTTP {status}"
-            self.logger.debug(
+            message = (
                 f"Client {identifier} did not apply {filter_name} ({reason}), queued as pending"
             )
+            # A client the registry still calls online is the case nothing
+            # recovers from: the pending queue drains on CLIENT_CONNECTED only,
+            # so a client that refuses without ever disconnecting sits on the old
+            # filter forever. Error, so it reaches the banner. Offline is the
+            # expected case and stays quiet.
+            if client_id and self._registry and self._registry.is_client_online(client_id):
+                self.logger.error(message)
+            else:
+                self.logger.debug(message)
             await self.queue_pending_settings(identifier, filter_name, {
                 "enabled": enabled,
                 "frequency": frequency
