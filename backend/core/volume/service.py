@@ -655,12 +655,17 @@ class VolumeService:
         """Did a client that is *still online* refuse the command?
 
         EqualizerController answers False for two opposite reasons: the router
-        short-circuited an offline client — a skip whose stored value the
-        admission re-push replays on reconnection — or the client answered and
-        refused. The registry, read *after* the call, separates them: a client
-        that is still online and did not take the command is the one nothing
-        will ever replay it to, and the only one the operator has to be told
-        about. The level is error, so the banner fires.
+        short-circuited an offline client — a skip, since a switched-off speaker
+        refusing nothing is not a failure anyone can act on — or the client
+        answered and refused. The registry, read *after* the call, separates
+        them: a client that is still online and did not take the command is the
+        one nothing will ever replay it to, and the only one the operator has to
+        be told about. The level is error, so the banner fires.
+
+        What becomes of the stored value afterwards is not this decision's
+        business, and it differs per command: the reconnect replays the stored
+        *mute* and re-derives the *volume* from the client's peers. Neither
+        makes this call a failure.
         """
         if applied or not self._client_registry:
             return False
