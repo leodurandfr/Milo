@@ -233,6 +233,9 @@ DEFAULT_CROSSOVER_FREQUENCIES = {
     'subwoofer': None   # No highpass for subwoofer (receives lowpass)
 }
 
+# Fallback when a zone's own speakers imply nothing (all subwoofers, or empty).
+DEFAULT_CROSSOVER_FREQUENCY = 80  # Hz (THX/Dolby recommended)
+
 
 @dataclass
 class EqualizerSettings:
@@ -471,13 +474,14 @@ class Zone:
         id: Unique zone identifier (UUID v4, auto-generated if not provided)
         name: Display name for UI (max 15 characters, validated at API boundary)
         client_ids: List of mac_ids belonging to this zone
-        crossover_frequency: Crossover frequency in Hz (default 80Hz THX standard)
+        crossover_frequency: Crossover frequency in Hz, or None for auto — the
+            frequency the members' own speaker types imply
         crossover_enabled: Whether crossover filtering is active for this zone
     """
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     client_ids: List[str] = field(default_factory=list)
-    crossover_frequency: Optional[int] = 80  # Default THX standard
+    crossover_frequency: Optional[int] = None  # None = auto (from speaker types)
     crossover_enabled: Optional[bool] = None  # None = auto (depends on subwoofer presence)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -497,7 +501,7 @@ class Zone:
             name=data.get("name", data["id"]),
             id=data["id"],
             client_ids=data.get("client_ids", []).copy(),
-            crossover_frequency=data.get("crossover_frequency", 80),
+            crossover_frequency=data.get("crossover_frequency"),
             crossover_enabled=data.get("crossover_enabled")
         )
 

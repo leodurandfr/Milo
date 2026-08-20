@@ -114,6 +114,7 @@
       "highpassActive": "Passe-haut actif",
       "highpassDescription": "Basses sous {freq} Hz redirigées vers le caisson.",
       "crossoverFrequency": "Fréquence de coupure",
+      "autoFrequency": "Fréquence automatique",
       "badgeActive": "Crossover actif",
       "badgeInactive": "Crossover inactif",
       "subwooferOffline": "Caisson hors ligne"

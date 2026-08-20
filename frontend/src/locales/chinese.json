@@ -114,6 +114,7 @@
       "highpassActive": "高通已启用",
       "highpassDescription": "{freq} Hz以下的低音已重定向至低音炮。",
       "crossoverFrequency": "分频频率",
+      "autoFrequency": "自动分频频率",
       "badgeActive": "分频器已启用",
       "badgeInactive": "分频器未启用",
       "subwooferOffline": "低音炮离线"

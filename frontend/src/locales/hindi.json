@@ -114,6 +114,7 @@
       "highpassActive": "हाई-पास सक्रिय",
       "highpassDescription": "{freq} Hz से नीचे की बेस सबवूफ़र पर भेजी जाती हैं।",
       "crossoverFrequency": "क्रॉसओवर फ़्रीक्वेंसी",
+      "autoFrequency": "स्वचालित फ़्रीक्वेंसी",
       "badgeActive": "क्रॉसओवर सक्रिय",
       "badgeInactive": "क्रॉसओवर निष्क्रिय",
       "subwooferOffline": "सबवूफ़र ऑफ़लाइन"

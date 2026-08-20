@@ -83,10 +83,15 @@
           <!-- Case 2: Subwoofer in zone -->
           <template v-else-if="isSubwoofer && isInZone">
             <h3 class="info-title heading-4">{{ t('multiroom.crossover.lowpassActive') }}</h3>
-            <SettingItem :label="t('multiroom.crossover.crossoverFrequency')">
+            <ListItemButton :title="t('multiroom.crossover.autoFrequency')" variant="background" action="toggle"
+              :model-value="crossoverAuto" @click="toggleCrossoverAuto" />
+            <SettingItem v-if="!crossoverAuto" :label="t('multiroom.crossover.crossoverFrequency')">
               <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" value-unit="Hz"
                 @change="handleCrossoverChange" />
             </SettingItem>
+            <p v-else class="text-mono">
+              {{ t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }) }}
+            </p>
             <p class="crossover-warning text-mono">{{ t('multiroom.crossover.disablePhysicalCrossover') }}</p>
           </template>
 
@@ -265,6 +270,10 @@ const zoneHasSubwoofer = computed(() => {
   return multiroomClientStore.hasOnlineSubwoofer(clientZone.value.id);
 });
 
+// A zone with no pinned frequency is in auto; the backend still sends the
+// resolved number alongside, so nothing here re-derives it.
+const crossoverAuto = computed(() => clientZone.value?.crossover_auto !== false);
+
 // Get zone crossover frequency for display (non-subwoofer clients)
 const zoneCrossoverFrequency = computed(() => {
   return clientZone.value?.crossover_frequency || 80;
@@ -428,6 +437,20 @@ async function handleCrossoverChange(frequency) {
     await equalizerStore.setZoneCrossoverFrequency(clientZone.value.id, frequency);
   } catch (error) {
     logger.error('multiroom', 'Error updating crossover frequency', error);
+  }
+}
+
+// Leaving auto pins whatever auto had just resolved to, so the sound does not
+// jump on the toggle; entering it sends null and lets the speaker types decide.
+async function toggleCrossoverAuto() {
+  if (!clientZone.value?.id) return;
+  try {
+    await equalizerStore.setZoneCrossoverFrequency(
+      clientZone.value.id,
+      crossoverAuto.value ? zoneCrossoverFrequency.value : null,
+    );
+  } catch (error) {
+    logger.error('multiroom', 'Error updating crossover mode', error);
   }
 }
 

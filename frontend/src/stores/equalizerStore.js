@@ -566,7 +566,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * on the zone itself: the backend writes it through the registry, which
    * broadcasts `multiroom.zone_changed` with the enriched zone.
    * @param {string} zoneId - Zone ID
-   * @param {number} frequency - Crossover frequency in Hz (40-200)
+   * @param {number|null} frequency - Crossover frequency in Hz (40-200), or
+   *   null to hand the zone back to auto (derived from its speaker types)
    * @returns {Promise<boolean>} Success status
    */
   async function setZoneCrossoverFrequency(zoneId, frequency) {

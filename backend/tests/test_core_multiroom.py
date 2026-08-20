@@ -26,7 +26,6 @@ from backend.core.multiroom.models import (
     ReconnectionContext,
     SPEAKER_TYPES,
     DEFAULT_SPEAKER_TYPE,
-    DEFAULT_CROSSOVER_FREQUENCIES,
     CompressorSettings,
     LoudnessSettings,
 )
@@ -2006,6 +2005,7 @@ class TestAutoCrossover:
         zone.client_ids = ["speaker-1", "speaker-2", "subwoofer-1"]
         zone.crossover_enabled = True
 
+        registry._clients = clients
         registry.get_zone.return_value = zone
         registry.get_zone_for_client.return_value = zone
         registry.get_client.side_effect = get_client
@@ -2067,14 +2067,17 @@ class TestAutoCrossover:
         assert crossover_service.is_client_subwoofer("speaker-1") is False
 
     def test_crossover_frequency_calculation(self, crossover_service, mock_registry_with_subwoofer):
-        """Frequency determined by speaker_type of zone members."""
+        """Frequency determined by speaker_type of zone members.
 
-        crossover_service.set_registry(mock_registry_with_subwoofer)
+        Bookshelf (80) + satellite (120) + subwoofer: the satellite is the
+        weakest, so it sets the zone's single highpass. Restating the table
+        instead — which is what this test used to do — cannot fail.
+        """
+        registry = mock_registry_with_subwoofer
+        crossover_service.set_registry(registry)
+        zone = registry.get_zone("zone-1")
 
-        # Verify default frequencies
-        assert DEFAULT_CROSSOVER_FREQUENCIES["satellite"] == 120
-        assert DEFAULT_CROSSOVER_FREQUENCIES["bookshelf"] == 80
-        assert DEFAULT_CROSSOVER_FREQUENCIES["tower"] == 50
+        assert ClientRegistryService.auto_crossover_frequency(registry, zone) == 120
 
     def test_no_crossover_without_subwoofer(self, crossover_service, mock_registry_no_subwoofer):
         """No crossover when zone has no subwoofer."""
