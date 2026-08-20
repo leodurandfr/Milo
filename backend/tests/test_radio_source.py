@@ -171,30 +171,6 @@ class TestRadioSourceCommands:
         assert radio_source._current_station is None
         assert radio_source._is_playing is False
 
-    @pytest.mark.asyncio
-    async def test_add_favorite_command(self, radio_source):
-        """Test add_favorite command."""
-        radio_source._station_data = Mock()
-        radio_source._station_data.add_favorite = AsyncMock(return_value=True)
-        radio_source._radio_api = Mock()
-        radio_source._radio_api.get_station_by_id = AsyncMock(return_value={
-            "id": "test-id",
-            "name": "Test Station"
-        })
-
-        result = await radio_source.command("add_favorite", {"station_id": "test-id"})
-
-        assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_remove_favorite_command(self, radio_source):
-        """Test remove_favorite command."""
-        radio_source._station_data = Mock()
-        radio_source._station_data.remove_favorite = AsyncMock(return_value=True)
-
-        result = await radio_source.command("remove_favorite", {"station_id": "test-id"})
-
-        assert result["success"] is True
 
 class TestStationDataService:
     """Test StationDataService."""

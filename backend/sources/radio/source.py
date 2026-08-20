@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 from backend.core.models.audio_state import NetworkRequirement, SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
-from backend.sources.radio.models import PlayStationParams, RemoveFavoriteParams
+from backend.sources.radio.models import PlayStationParams
 from backend.shared.artwork_resolver import ArtworkResolver
 from backend.sources.radio.data import StationDataService
 from backend.sources.radio.shazam import ShazamRecognitionService
@@ -231,8 +231,6 @@ class RadioSource(MpvAudioSource):
         "play_station": PlayStationParams,
         "stop": None,
         "resume_playback": None,
-        "add_favorite": PlayStationParams,
-        "remove_favorite": RemoveFavoriteParams,
     }
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
@@ -245,12 +243,6 @@ class RadioSource(MpvAudioSource):
 
         if cmd == "resume_playback":
             return await self._handle_resume_playback()
-
-        if cmd == "add_favorite":
-            return await self._handle_add_favorite(params)
-
-        if cmd == "remove_favorite":
-            return await self._handle_remove_favorite(params)
 
         return self.error_response(f"Unhandled command: {cmd}")
 
@@ -390,33 +382,6 @@ class RadioSource(MpvAudioSource):
             return self.error_response("Last station has no id, cannot resume")
         return await self._handle_play_station(
             PlayStationParams(station_id=station_id, station=self._last_station)
-        )
-
-    async def _handle_add_favorite(self, params: PlayStationParams) -> Dict[str, Any]:
-        """Add station to favorites."""
-        station_id = params.station_id
-
-        station = params.station
-        if not station:
-            station = await self._radio_api.get_station_by_id(station_id)
-
-        if not station:
-            return self.error_response(f"Station {station_id} not found")
-
-        success = await self._station_data.add_favorite(station_id, station)
-        return (
-            self.success_response("Station added to favorites")
-            if success else self.error_response("Add favorite failed")
-        )
-
-    async def _handle_remove_favorite(self, params: RemoveFavoriteParams) -> Dict[str, Any]:
-        """Remove station from favorites."""
-        station_id = params.station_id
-
-        success = await self._station_data.remove_favorite(station_id)
-        return (
-            self.success_response("Station removed from favorites")
-            if success else self.error_response("Remove favorite failed")
         )
 
     # === Helpers ===

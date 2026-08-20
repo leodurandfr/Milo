@@ -386,11 +386,11 @@ export const useRadioStore = defineStore('radio', () => {
     let station = searchResults.value.find(s => s.id === stationId);
     if (!station) station = favoriteStations.value.find(s => s.id === stationId);
     const payload = station ? { station_id: stationId, station } : { station_id: stationId };
-    const result = await apiCall.post('/api/radio/favorites/add', payload, {
+    const result = await apiCall.post('/api/radio/favorites', payload, {
       category: 'radio',
       message: 'Error adding favorite',
     });
-    return result.ok && result.data.success;
+    return result.ok;
   }
 
   /**
@@ -401,7 +401,7 @@ export const useRadioStore = defineStore('radio', () => {
       category: 'radio',
       message: 'Error removing favorite',
     });
-    return result.ok && result.data.success;
+    return result.ok;
   }
 
   /**

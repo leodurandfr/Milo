@@ -395,7 +395,7 @@ describe('radioStore', () => {
 
     it('toggleFavorite removes a station that is already a favorite', async () => {
       await seedFavorites(store, [STATION('s1')]);
-      apiCall.delete.mockResolvedValueOnce(ok({ success: true }));
+      apiCall.delete.mockResolvedValueOnce(ok({ status: 'success' }));
 
       await store.toggleFavorite('s1');
 
@@ -404,12 +404,12 @@ describe('radioStore', () => {
     });
 
     it('toggleFavorite adds a station that is not yet a favorite', async () => {
-      apiCall.post.mockResolvedValueOnce(ok({ success: true }));
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
 
       await store.toggleFavorite('s1');
 
       expect(apiCall.post).toHaveBeenCalledWith(
-        '/api/radio/favorites/add',
+        '/api/radio/favorites',
         { station_id: 's1' },
         expect.anything(),
       );

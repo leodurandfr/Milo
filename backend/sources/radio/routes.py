@@ -163,7 +163,7 @@ async def get_countries(source: RadioSource = Depends(get_source)):
 
 # === Favorites Routes ===
 
-@router.post("/favorites/add")
+@router.post("/favorites")
 async def add_favorite(
     request: FavoriteRequest,
     source: RadioSource = Depends(get_source)
@@ -172,15 +172,25 @@ async def add_favorite(
     Add station to favorites.
 
     Args:
-        request: Request with station_id
+        request: Request with station_id, and the station record when the caller
+            already holds one (a bare id is resolved through RadioBrowser)
 
     Returns:
-        Operation result
+        Success envelope
     """
-    command_data = {"station_id": request.station_id}
-    if request.station:
-        command_data["station"] = request.station
-    return await run_source_command(source, "add_favorite", command_data, "Add favorite")
+    async with api_error_handler("Add favorite error", logger):
+        station = request.station
+        if not station:
+            station = await source.radio_api.get_station_by_id(request.station_id)
+        if not station:
+            logger.error("Station %s not found, cannot favorite it", request.station_id)
+            raise HTTPException(status_code=404, detail=f"Station {request.station_id} not found")
+
+        if not await source.station_data.add_favorite(request.station_id, station):
+            logger.error("Failed to persist favorite %s", request.station_id)
+            raise HTTPException(status_code=500, detail="Failed to add favorite")
+
+        return {"status": "success", "station_id": request.station_id}
 
 
 @router.delete("/favorites/{station_id}")
@@ -195,11 +205,14 @@ async def remove_favorite(
         station_id: Station UUID
 
     Returns:
-        Operation result
+        Success envelope
     """
-    return await run_source_command(
-        source, "remove_favorite", {"station_id": station_id}, "Remove favorite"
-    )
+    async with api_error_handler("Remove favorite error", logger):
+        if not await source.station_data.remove_favorite(station_id):
+            logger.error("Failed to persist removal of favorite %s", station_id)
+            raise HTTPException(status_code=500, detail="Failed to remove favorite")
+
+        return {"status": "success", "station_id": station_id}
 
 
 @router.post("/favorites/modify-metadata")

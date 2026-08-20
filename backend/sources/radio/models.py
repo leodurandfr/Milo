@@ -25,14 +25,9 @@ class FavoriteRequest(BaseModel):
 # === Command-parameter models (validated at the command() boundary) ===
 
 class PlayStationParams(BaseModel):
-    """Params for `play_station` / `add_favorite` (station is opaque passthrough)."""
+    """Params for `play_station` (station is an opaque passthrough)."""
     station_id: str = Field(min_length=1)
     station: Optional[dict] = None
-
-
-class RemoveFavoriteParams(BaseModel):
-    """Params for `remove_favorite`."""
-    station_id: str = Field(min_length=1)
 
 
 class StationSearchResult(BaseModel):
