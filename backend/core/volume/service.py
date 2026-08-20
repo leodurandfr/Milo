@@ -651,21 +651,52 @@ class VolumeService:
         await self.broadcast_volume_state(show_bar=False)
         return len(failures) == 0
 
-    @handle_errors(default=None)
-    async def update_client_volume_db(self, client_id: str, volume_db: float, broadcast: bool = True) -> None:
-        """Update client volume in dB (called from API routes)."""
-        await self._state_store.set_client_volume(client_id, volume_db)
-        await self._equalizer_controller.set_equalizer_volume(client_id, volume_db)
+    def _refused(self, client_id: str, applied: bool, what: str) -> bool:
+        """Did a client that is *still online* refuse the command?
+
+        EqualizerController answers False for two opposite reasons: the router
+        short-circuited an offline client — a skip whose stored value the
+        admission re-push replays on reconnection — or the client answered and
+        refused. The registry, read *after* the call, separates them: a client
+        that is still online and did not take the command is the one nothing
+        will ever replay it to, and the only one the operator has to be told
+        about. The level is error, so the banner fires.
+        """
+        if applied or not self._client_registry:
+            return False
+        if not self._client_registry.is_client_online(client_id):
+            return False
+        self.logger.error(f"{what} not applied to {client_id} — the stored value is unchanged")
+        return True
+
+    @handle_errors(default=False)
+    async def update_client_volume_db(self, client_id: str, volume_db: float, broadcast: bool = True) -> bool:
+        """Update client volume in dB (called from API routes).
+
+        False when an online client refused the level. The store is written
+        only for a client that holds it, so the broadcast — and the UI reading
+        it — keeps agreeing with the hardware rather than with the request.
+        """
+        applied = await self._equalizer_controller.set_equalizer_volume(client_id, volume_db)
+        refused = self._refused(client_id, applied, f"Volume {volume_db:.1f}dB")
+
+        if not refused:
+            await self._state_store.set_client_volume(client_id, volume_db)
         if broadcast and self._is_multiroom_enabled():
             await self.broadcast_volume_state(show_bar=False)
+        return not refused
 
-    @handle_errors(default=None)
-    async def set_client_mute(self, client_id: str, mute: bool, broadcast: bool = True) -> None:
-        """Set mute state for a client."""
-        await self._state_store.set_client_mute(client_id, mute)
-        await self._equalizer_controller.set_equalizer_mute(client_id, mute)
+    @handle_errors(default=False)
+    async def set_client_mute(self, client_id: str, mute: bool, broadcast: bool = True) -> bool:
+        """Set mute state for a client. False when an online client refused it."""
+        applied = await self._equalizer_controller.set_equalizer_mute(client_id, mute)
+        refused = self._refused(client_id, applied, f"Mute {mute}")
+
+        if not refused:
+            await self._state_store.set_client_mute(client_id, mute)
         if broadcast:
             await self.broadcast_volume_state(show_bar=False)
+        return not refused
 
     # ============================================================================
     # ATOMIC ZONE OPERATIONS
