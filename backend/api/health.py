@@ -16,6 +16,17 @@ if TYPE_CHECKING:
     from backend.core.state import AudioStateMachine
 
 
+# Health only ever gets worse across one response: each probe reports the worst
+# it saw, and a later probe finding a milder fault must not erase a harder one
+# already posted. Ordering, not assignment, is what makes the verdict correct.
+_SEVERITY = {"healthy": 0, "degraded": 1, "unhealthy": 2}
+
+
+def _escalate(current: str, level: str) -> str:
+    """Return the worse of the two verdicts."""
+    return level if _SEVERITY[level] > _SEVERITY[current] else current
+
+
 def create_health_router(state_machine: "AudioStateMachine",
                          routing_service: "AudioRoutingService",
                          settings_service: "SettingsService",
@@ -46,7 +57,11 @@ def create_health_router(state_machine: "AudioStateMachine",
                 "healthy": False,
                 "error": str(e)
             }
-            checks["status"] = "unhealthy"
+            checks["status"] = _escalate(checks["status"], "unhealthy")
+
+        # Read by the snapcast probe below, which must not die on an unbound
+        # name — and blame snapcast — when this probe is the one that failed.
+        routing_state: Dict[str, Any] = {}
 
         try:
             routing_state = routing_service.get_state()
@@ -59,7 +74,7 @@ def create_health_router(state_machine: "AudioStateMachine",
                 "healthy": False,
                 "error": str(e)
             }
-            checks["status"] = "unhealthy"
+            checks["status"] = _escalate(checks["status"], "unhealthy")
 
         try:
             if routing_state.get('multiroom_enabled', False):
@@ -73,7 +88,7 @@ def create_health_router(state_machine: "AudioStateMachine",
                 }
 
                 if not snapcast_status.get("multiroom_available", False) or not ws_connected:
-                    checks["status"] = "degraded"
+                    checks["status"] = _escalate(checks["status"], "degraded")
             else:
                 checks["services"]["snapcast"] = {
                     "healthy": True,
@@ -84,7 +99,7 @@ def create_health_router(state_machine: "AudioStateMachine",
                 "healthy": False,
                 "error": str(e)
             }
-            checks["status"] = "degraded"
+            checks["status"] = _escalate(checks["status"], "degraded")
 
         # CamillaDSP is always in the audio path (volume + EQ), so a down daemon
         # is a hard failure — not merely degraded. wait_for guards against a
@@ -92,7 +107,7 @@ def create_health_router(state_machine: "AudioStateMachine",
         try:
             if not camilladsp_service.connected:
                 checks["services"]["camilladsp"] = {"healthy": False, "state": "disconnected"}
-                checks["status"] = "unhealthy"
+                checks["status"] = _escalate(checks["status"], "unhealthy")
             else:
                 cd_status = await asyncio.wait_for(camilladsp_service.get_status(), timeout=2.0)
                 available = cd_status.get("available", False)
@@ -101,10 +116,10 @@ def create_health_router(state_machine: "AudioStateMachine",
                     "state": cd_status.get("state")
                 }
                 if not available:
-                    checks["status"] = "unhealthy"
+                    checks["status"] = _escalate(checks["status"], "unhealthy")
         except Exception as e:
             checks["services"]["camilladsp"] = {"healthy": False, "error": str(e)}
-            checks["status"] = "unhealthy"
+            checks["status"] = _escalate(checks["status"], "unhealthy")
 
         source_status = {}
         for source, instance in state_machine.sources.items():
