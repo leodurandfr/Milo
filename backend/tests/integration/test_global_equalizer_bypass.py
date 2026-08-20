@@ -436,28 +436,6 @@ class TestZonePropagationBypass:
         assert result is True
         mock_camilladsp.restore_effects.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_zone_propagation_skips_offline_clients(self):
-        """Zone propagation should skip OFFLINE clients gracefully"""
-        # This validates the frontend propagateToLinkedClients behavior pattern
-        # where offline clients are filtered out before making requests
-
-        # Mock client registry with mixed online/offline clients
-        online_clients = ["local", "milo-client-01"]
-        offline_clients = ["milo-client-02"]
-        all_clients = online_clients + offline_clients
-
-        # Simulate the filtering logic used in frontend dspStore.js
-        # propagateToLinkedClients filters by registryStore.isClientOnline()
-        propagated_to = [c for c in all_clients if c in online_clients]
-
-        # Verify only online clients would receive the propagation
-        assert "local" in propagated_to
-        assert "milo-client-01" in propagated_to
-        assert "milo-client-02" not in propagated_to
-        assert len(propagated_to) == 2
-
-
 # =============================================================================
 # Crossover filters NOT affected by bypass
 # =============================================================================
