@@ -17,6 +17,8 @@ failure *off* that channel:
   * ``asyncio.gather(return_exceptions=True)`` promises no exception will be
     raised; it hands them back as ordinary return values instead.
   * a subprocess reports by exit status, which is not an exception at all.
+  * ``@handle_errors(default=False)`` catches every Exception, so a function
+    wearing it *cannot* raise: its bool is the only failure channel it has.
 
 So the documented best-effort markers are exempt here *by construction, and
 by construction they exempt nothing*: they cannot see either outcome. That is
@@ -25,13 +27,21 @@ not asserted: `ScreenController._screen_cmd`, occurrence 6.7, carried
 `@handle_errors(default=None)` while ignoring the exit code of the very command
 whose success it reported.
 
-Two rules, each decidable from one function's AST with no call graph:
+Three rules, each decidable without a call graph — the first two from one
+function's AST, the third from one class's:
 
   1. A parallel fan-out must not discard what it collected (occurrences 5.1,
      5.2 — `set_zone_eq` returned a hardcoded True over a discarded gather).
   2. A spawned process must have either its exit status or its output read
      (occurrences 6.2 and 6.7 — the rollback's two npm steps, and the backlight
      write whose exit code decided nothing).
+  3. A sealed function must not answer with a literal over a *sibling's*
+     discarded answer (the 2026-08-20 sweep's S1/S2 — `apply_zone_crossover`
+     dropped six `_set_client_filter` verdicts and returned True, and
+     `set_zone_crossover_frequency` dropped that one and returned True in turn,
+     so the crossover route answered 200 with a frequency the subwoofer never
+     took). Added by that sweep; verified red against the real tree with its
+     exemptions removed, and both ways on hand-written source below.
 
 Four of the eleven, all four re-checked red by restoring the pre-fix code on
 2026-08-20. The fifth subprocess occurrence, 6.8, is deliberately outside rule 2
@@ -61,6 +71,15 @@ not here, because it has no sound static form in this codebase.** Measured on
     `@handle_errors(default=False)`, whose return value is provably the only
     failure channel it has — gives 38 sites, because that decorator is this
     repo's marker for legitimate fail-open, not for a verdict worth reading.
+
+Rule 3 is the fifth narrowing, and the one that holds: it keeps the sealed-callee
+half (which is sound) and drops the resolution problem entirely by looking only
+at `self.<m>()`, which binds inside its own class with nothing to guess. It then
+asks about the *caller* rather than the call — does this function claim success
+with a literal, having dropped a verdict its sibling computed? — which is what
+turns 38 judgement calls into three sites and no judgement. What it deliberately
+does not reach is a dropped verdict from another service, which stays a review
+concern for the same reason as the rest of this paragraph.
 
 The blocker is structural, not effort: services are reached through instance
 attributes under dict-based DI (`source.station_data.add_custom_station`), so
@@ -491,7 +510,239 @@ def test_no_subprocess_outcome_goes_unread():
 
 
 # --------------------------------------------------------------------------- #
-# Both rules, in both directions, on hand-written source.
+# Rule 3 — a verdict must not be manufactured over a discarded sibling verdict.
+# --------------------------------------------------------------------------- #
+
+# One line per entry, and each must still match something (asserted below).
+EXEMPT_MANUFACTURED: dict[str, str] = {
+    "backend/core/multiroom/crossover.py::set_zone_crossover_frequency":
+        "S2 of the 2026-08-20 sweep, open — the fix is a ⚠⚠ behaviour change",
+    "backend/core/multiroom/crossover.py::apply_zone_crossover":
+        "S1 of the 2026-08-20 sweep, open — the fix is a ⚠⚠ behaviour change",
+    "backend/hardware/screen.py::initialize":
+        "S8 of the 2026-08-20 sweep, open — the boot backlight write needs a panel",
+}
+
+
+def _sealed_false(fn) -> bool:
+    """True if `fn` carries ``@handle_errors(default=False)``.
+
+    That decorator catches **every** Exception and returns the default, so a
+    function wearing it cannot signal failure by raising: its bool is provably
+    the only failure channel it has. This is the same "off the exception
+    channel" property rules 1 and 2 turn on, and the reason this rule is
+    decidable where the general "a bool nobody tested" is not.
+    """
+    for dec in fn.decorator_list:
+        if not isinstance(dec, ast.Call):
+            continue
+        target = dec.func
+        name = (
+            target.id if isinstance(target, ast.Name)
+            else target.attr if isinstance(target, ast.Attribute)
+            else None
+        )
+        if name != "handle_errors":
+            continue
+        for kw in dec.keywords:
+            if (
+                kw.arg == "default"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is False
+            ):
+                return True
+    return False
+
+
+def _owns(fn, node, parents) -> bool:
+    """True if `node` belongs to `fn` itself and not to a function nested in it."""
+    cursor = parents.get(node)
+    while cursor is not None and not isinstance(cursor, _FUNC):
+        cursor = parents.get(cursor)
+    return cursor is fn or cursor is None
+
+
+def _manufactures_verdict(fn, parents) -> bool:
+    """True if every `return` in `fn` is a bool literal and at least one is True.
+
+    A function that derives its answer — ``return applied``, ``return not
+    self._failed_members(...)`` — is reading something, whatever it reads. One
+    whose every exit is a literal has decided its answer before doing the work,
+    and the ``True`` branch is the claim this rule is about.
+    """
+    returns = [
+        node for node in ast.walk(fn)
+        if isinstance(node, ast.Return) and _owns(fn, node, parents)
+    ]
+    if not returns:
+        return False
+    literals = [
+        r for r in returns
+        if isinstance(r.value, ast.Constant) and isinstance(r.value.value, bool)
+    ]
+    return len(literals) == len(returns) and any(r.value.value is True for r in literals)
+
+
+def _discarded_sealed_siblings(fn, parents, sealed: set):
+    """`(line, method)` for each `await self.<m>(...)` statement `fn` drops.
+
+    ``self.<m>()`` inside class C binds to ``C.m`` exactly — no dict-based DI to
+    see through, no homonym to guess between. That is the whole reason this rule
+    exists while the general consumer check does not: the 289-name ambiguity
+    documented above never arises for a sibling call.
+    """
+    found = []
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Expr) and _owns(fn, node, parents)):
+            continue
+        value = node.value
+        if not (isinstance(value, ast.Await) and isinstance(value.value, ast.Call)):
+            continue
+        func = value.value.func
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "self"
+            and func.attr in sealed
+            and func.attr != fn.name  # a sealed method recursing into itself
+        ):
+            found.append((node.lineno, func.attr))
+    return sorted(found)
+
+
+def _manufactured_verdicts():
+    """Every function that claims success over a discarded sealed sibling."""
+    found = []
+    for path, tree in _TREES.items():
+        for cls in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
+            sealed = {
+                m.name for m in cls.body if isinstance(m, _FUNC) and _sealed_false(m)
+            }
+            if not sealed:
+                continue
+            for fn in (m for m in cls.body if isinstance(m, _FUNC)):
+                fn_parents = _parents(fn)
+                if not _manufactures_verdict(fn, fn_parents):
+                    continue
+                dropped = _discarded_sealed_siblings(fn, fn_parents, sealed)
+                if dropped:
+                    found.append((path, fn, dropped))
+    return found
+
+
+MANUFACTURED = _manufactured_verdicts()
+# No floor here: unlike the two rules above this one measures an *absence*, and
+# an empty result is the goal state rather than a broken parser. The extractor's
+# own liveness is pinned by the discriminator test below, which feeds it source
+# it must classify both ways.
+
+
+def test_no_verdict_is_manufactured_over_a_discarded_sibling():
+    """A function must not answer True over a sibling's dropped answer.
+
+    ``apply_zone_crossover`` calls ``_set_client_filter`` six times, drops all
+    six and returns a hardcoded True; ``set_zone_crossover_frequency`` drops
+    *that* and returns True in turn; the route tests the bool it gets and answers
+    200 with the new frequency. The subwoofer that refused the lowpass keeps
+    playing full-range, and the only trace is a ``debug`` line inside
+    ``_proxy_filter_to_client`` — the exact outcome of occurrence 5.1, on the
+    path 5.1 did not cover.
+
+    The rule is sound because both halves are local. ``@handle_errors(default=
+    False)`` proves the callee cannot raise, so its bool is its only failure
+    channel; ``self.<m>()`` binds inside the class with no resolver. Neither
+    half needs the call graph this file records as unavailable.
+
+    A callee that signals by *raising* is out of scope by construction: the
+    decorator would catch it and turn the caller's hardcoded True into False on
+    its own, which is why ``_save_data`` and ``bypass_effects`` — sealed
+    functions that drop an awaited write — are not flagged.
+    """
+    offenders = []
+    for path, fn, dropped in MANUFACTURED:
+        site = f"{_rel(path)}::{fn.name}"
+        if site in EXEMPT_MANUFACTURED:
+            continue
+        calls = ", ".join(f"self.{m}() at line {ln}" for ln, m in dropped)
+        offenders.append(f"{site}:{fn.lineno}: returns a literal over {calls}")
+
+    assert not offenders, (
+        "verdict(s) manufactured over a discarded sibling verdict:\n  "
+        + "\n  ".join(sorted(offenders))
+        + "\nCollect what the sibling answered, name what failed at error level, "
+          "and return that instead of a literal."
+    )
+
+
+def test_the_manufactured_verdict_extractor_discriminates():
+    """Both directions, on the shape the crossover pair actually has.
+
+    ``manufactured`` is ``apply_zone_crossover`` reduced to its skeleton — the
+    guard returning False, the loop dropping the sibling, the hardcoded True.
+    The four negatives are the shapes that must stay silent: reading the
+    sibling's answer, deriving the verdict from it, calling a sibling that is
+    *not* sealed (its failure travels by exception, which the decorator turns
+    into False for free), and a sealed method recursing into itself.
+    """
+    source = (
+        "class C:\n"
+        "    @handle_errors(default=False)\n"
+        "    async def _set_client_filter(self, cid, name, on, freq):\n"
+        "        return await self._proxy(cid, name, on, freq)\n"
+        "    async def _plain_helper(self, cid):\n"
+        "        return await self._proxy(cid)\n"
+        "    @handle_errors(default=False)\n"
+        "    async def manufactured(self, zone_id):\n"
+        "        if not self._registry:\n"
+        "            return False\n"
+        "        for cid in zone_id:\n"
+        "            await self._set_client_filter(cid, 'crossover', True, 80)\n"
+        "        return True\n"
+        "    @handle_errors(default=False)\n"
+        "    async def inspected(self, zone_id):\n"
+        "        ok = True\n"
+        "        for cid in zone_id:\n"
+        "            if not await self._set_client_filter(cid, 'crossover', True, 80):\n"
+        "                ok = False\n"
+        "        return ok\n"
+        "    @handle_errors(default=False)\n"
+        "    async def derived(self, zone_id):\n"
+        "        return await self._set_client_filter(zone_id, 'lowpass', True, 80)\n"
+        "    @handle_errors(default=False)\n"
+        "    async def drops_an_unsealed_sibling(self, zone_id):\n"
+        "        await self._plain_helper(zone_id)\n"
+        "        return True\n"
+        "    @handle_errors(default=False)\n"
+        "    async def _set_client_filter_retry(self, cid):\n"
+        "        await self._set_client_filter_retry(cid)\n"
+        "        return True\n"
+    )
+    tree = ast.parse(source)
+    cls = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef))
+    sealed = {m.name for m in cls.body if isinstance(m, _FUNC) and _sealed_false(m)}
+    verdicts = {}
+    for fn in (m for m in cls.body if isinstance(m, _FUNC)):
+        fn_parents = _parents(fn)
+        verdicts[fn.name] = (
+            _discarded_sealed_siblings(fn, fn_parents, sealed)
+            if _manufactures_verdict(fn, fn_parents) else []
+        )
+
+    assert verdicts["manufactured"] == [(12, "_set_client_filter")]
+    assert verdicts["inspected"] == []
+    assert verdicts["derived"] == []
+    assert verdicts["drops_an_unsealed_sibling"] == []
+    assert verdicts["_set_client_filter_retry"] == []
+    # The sealed set is what makes the negative above meaningful: if nothing
+    # parsed as sealed, every case would come back empty for the wrong reason.
+    assert sealed == {
+        "_set_client_filter", "manufactured", "inspected", "derived",
+        "drops_an_unsealed_sibling", "_set_client_filter_retry",
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Rules 1 and 2, in both directions, on hand-written source.
 # --------------------------------------------------------------------------- #
 
 def _classify(source: str, rule: str):
