@@ -13,6 +13,8 @@ Tests cover:
 - WebSocket broadcasting, and which categories carry full_state
 - `network_unavailable`: the NM level crossed with the source's own requirement
 """
+import logging
+
 import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock
@@ -573,6 +575,47 @@ class TestFailedTransition:
 
         assert result is False
         old_source.stop.assert_awaited_once()
+
+
+class TestASourceThatWillNotStop:
+    """`stop()` reporting False is journal-only, and the transition proceeds.
+
+    The next source is then started over one still holding the ALSA device, and
+    the silence that follows had no trace at banner level. The transition is not
+    refused — `_start_source` fails on its own when the device is genuinely held,
+    and refusing here would make the source unselectable — so the log IS the fix.
+    """
+
+    async def test_a_refused_stop_is_reported_at_error(self, state_machine, caplog):
+        stubborn = Mock()
+        stubborn.stop = AsyncMock(return_value=False)
+        state_machine.sources[AudioSource.SPOTIFY] = stubborn
+
+        with caplog.at_level(logging.ERROR):
+            await state_machine._stop_source(AudioSource.SPOTIFY)
+
+        assert "would not stop" in caplog.text
+        assert AudioSource.SPOTIFY.value in caplog.text
+
+    async def test_a_clean_stop_says_nothing(self, state_machine, mock_source, caplog):
+        state_machine.sources[AudioSource.SPOTIFY] = mock_source
+
+        with caplog.at_level(logging.ERROR):
+            await state_machine._stop_source(AudioSource.SPOTIFY)
+
+        assert caplog.text == ""
+
+    async def test_the_transition_still_proceeds_over_it(self, state_machine, mock_source):
+        """Refusing would turn an unclean stop into a source the user cannot
+        select — worse than the failure it guards."""
+        stubborn = Mock()
+        stubborn.stop = AsyncMock(return_value=False)
+        state_machine.sources[AudioSource.SPOTIFY] = stubborn
+        state_machine.sources[AudioSource.BLUETOOTH] = mock_source
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
+
+        assert await state_machine.transition_to_source(AudioSource.BLUETOOTH) is True
+        mock_source.start.assert_awaited_once()
 
 
 class TestGetCurrentState:

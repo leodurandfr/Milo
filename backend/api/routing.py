@@ -198,11 +198,16 @@ def create_routing_router(
             if snapclient_buffer_time is not None:
                 # 1. Persist to settings.json (source of truth) — buffer_time and
                 # fragments land together so a crash can't split the pair.
+                # Strict, because the three steps below push these values to
+                # every satellite and to the local snapclient: a swallowed write
+                # would leave the whole fleet running a buffer_time settings.json
+                # never took, and losing it on the next boot — the split-brain
+                # set_settings_strict exists for.
                 if settings_service:
                     updates = {'multiroom.snapclient_buffer_time': snapclient_buffer_time}
                     if snapclient_fragments is not None:
                         updates['multiroom.snapclient_fragments'] = snapclient_fragments
-                    await settings_service.set_settings(updates)
+                    await settings_service.set_settings_strict(updates)
 
                 # Resolve the effective fragments through the one clamped read
                 # path. An explicit value was validated above; a *stored* one

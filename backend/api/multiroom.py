@@ -322,10 +322,17 @@ def create_multiroom_router(
             updated_client = await registry_service.set_client_eq_independent(mac_id, request.enabled)
 
             if zone_eq is not None:
+                # A satellite that refuses the push answers False rather than
+                # raising, so the except below never sees it. Warning, not
+                # error: the record is persisted either way and the client's
+                # next reconnection sync re-pushes it.
                 try:
-                    await multiroom_equalizer_service.set_client_eq(mac_id, zone_eq)
+                    adopted = await multiroom_equalizer_service.set_client_eq(mac_id, zone_eq)
+                    refusal = None if adopted else "the client refused the push"
                 except Exception as e:
-                    logger.warning(f"Failed to re-adopt zone equalizer for {mac_id}: {e}")
+                    refusal = str(e)
+                if refusal:
+                    logger.warning(f"Failed to re-adopt zone equalizer for {mac_id}: {refusal}")
 
             return {"status": "success", "client": _client_with_online(updated_client)}
 
@@ -354,7 +361,9 @@ def create_multiroom_router(
 
             updated_client = await registry_service.set_client_delay(mac_id, request.delay_ms)
 
-            # Apply to snapserver now (best-effort — set_latency is fail-open). The
+            # Apply to snapserver now. set_latency looks fail-open (it returns
+            # True unconditionally) but _request raises SnapcastRequestError, so
+            # a refusal reaches api_error_handler as a 500 — not best-effort. The
             # snapcast client id is the mac_id by construction (see compute_mac_id);
             # an offline client recovers the value via the admission re-push.
             if snapcast_service and client.online:
@@ -621,10 +630,16 @@ def create_multiroom_router(
             if multiroom_equalizer_service and existing_member:
                 try:
                     zone_eq = await multiroom_equalizer_service.get_client_eq(existing_member)
-                    await multiroom_equalizer_service.set_client_eq(request.mac_id, zone_eq)
+                    applied = await multiroom_equalizer_service.set_client_eq(
+                        request.mac_id, zone_eq
+                    )
+                    refusal = None if applied else "the client refused the push"
                 except Exception as e:
+                    refusal = str(e)
+                if refusal:
                     logger.warning(
-                        f"Failed to apply zone equalizer to new member {request.mac_id}: {e}"
+                        f"Failed to apply zone equalizer to new member "
+                        f"{request.mac_id}: {refusal}"
                     )
 
             zone = registry_service.get_zone(zone_id)
@@ -805,7 +820,15 @@ def create_multiroom_router(
             # 3. Shield the entry from heartbeat expiry — it holds the only copy
             # of the name/speaker_type until the snapclient reconnects, and the
             # reboot it is about to take is longer than STALE_TIMEOUT.
-            await pending_clients_service.mark_configuring(mac_id)
+            # False means the sweep already expired it between the lookup above
+            # and here. The reboot still goes ahead — it is addressed by IP and
+            # is what the caller asked for — but the name is now lost, so this
+            # has to be said rather than swallowed under a "configured" answer.
+            if not await pending_clients_service.mark_configuring(mac_id):
+                logger.error(
+                    f"Pending entry for {mac_id} vanished before it could be shielded — "
+                    f"the client will come back unnamed"
+                )
 
             # 4. Send config + reboot to client
             await _send_audio_config_and_reboot(mac_id, client_ip, request.audio_id, overlay, volume_control)

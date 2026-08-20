@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock
 from backend.api.routing import create_routing_router
 from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG, SNAPCLIENT_LIMITS
+from backend.core.settings import SettingsWriteError
 
 
 class TestSnapcastRoutes:
@@ -128,7 +129,7 @@ class TestSnapclientBufferSetting:
         store = {}
         svc = Mock()
         svc.get_setting = AsyncMock(side_effect=lambda key: store.get(key))
-        svc.set_settings = AsyncMock(side_effect=lambda updates: store.update(updates))
+        svc.set_settings_strict = AsyncMock(side_effect=lambda updates: store.update(updates))
         svc.store = store
         return svc
 
@@ -187,8 +188,32 @@ class TestSnapclientBufferSetting:
         response = client.put("/api/routing/snapcast/server-config", json={"config": payload})
 
         assert response.status_code == 400
-        settings_service.set_settings.assert_not_called()
+        settings_service.set_settings_strict.assert_not_called()
         regenerate.assert_not_called()
+        client.snapcast_service.update_server_config.assert_not_called()
+        client.routing_service.service_manager.restart.assert_not_called()
+
+    def test_a_refused_settings_write_is_not_a_200(
+        self, client, settings_service, monkeypatch
+    ):
+        """The route pushes the pair to every satellite and restarts snapserver.
+
+        A swallowed settings.json write leaves the fleet on values the file
+        never took — and losing them on the next boot. `set_settings` returned
+        False here and the route answered 200; the strict variant raises and
+        `api_error_handler` turns it into a 500.
+        """
+        monkeypatch.setattr("backend.api.routing.SnapclientEnv.regenerate", AsyncMock())
+        settings_service.set_settings_strict = AsyncMock(
+            side_effect=SettingsWriteError("disk full")
+        )
+
+        response = client.put(
+            "/api/routing/snapcast/server-config",
+            json={"config": {"snapclient_buffer_time": 120, "snapclient_fragments": 4}},
+        )
+
+        assert response.status_code == 500
         client.snapcast_service.update_server_config.assert_not_called()
         client.routing_service.service_manager.restart.assert_not_called()
 
@@ -274,7 +299,7 @@ class TestStoredFragmentsReachBothSidesClamped:
         store = {'multiroom.snapclient_fragments': TestStoredFragmentsReachBothSidesClamped.OUT_OF_RANGE}
         svc = Mock()
         svc.get_setting = AsyncMock(side_effect=lambda key: store.get(key))
-        svc.set_settings = AsyncMock(side_effect=lambda updates: store.update(updates))
+        svc.set_settings_strict = AsyncMock(side_effect=lambda updates: store.update(updates))
         svc.store = store
         return svc
 

@@ -270,6 +270,32 @@ class TestEqIndependentEndpoint:
         resp = client.put("/api/multiroom/clients/nope/eq-independent", json={"enabled": True})
         assert resp.status_code == 404
 
+    def test_a_refused_readoption_is_warned(self, tuning_client, caplog):
+        """`set_client_eq` answers False when the satellite refused the push —
+        it never raises, so the route's `except Exception` could not see it and
+        the member kept its own curve while the UI showed it back on the zone's.
+
+        Warning, not error: the record is persisted either way and the client's
+        next reconnection sync re-pushes it.
+        """
+        client, _, eq, _ = tuning_client
+        eq.set_client_eq = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.WARNING):
+            resp = client.put(
+                "/api/multiroom/clients/mac-1/eq-independent", json={"enabled": False}
+            )
+
+        assert resp.status_code == 200
+        assert "Failed to re-adopt zone equalizer for mac-1" in caplog.text
+
+    def test_an_accepted_readoption_says_nothing(self, tuning_client, caplog):
+        client, _, _, _ = tuning_client
+        with caplog.at_level(logging.WARNING):
+            client.put("/api/multiroom/clients/mac-1/eq-independent", json={"enabled": False})
+
+        assert "Failed to re-adopt" not in caplog.text
+
 
 class TestClientDelayEndpoint:
     """PATCH /api/multiroom/clients/{mac_id}/delay."""
@@ -1047,6 +1073,71 @@ class TestNewZoneMemberEqDonor:
         assert resp.status_code == 200
         eq.get_client_eq.assert_awaited_once_with("mac-shared")
         assert eq.set_client_eq.await_args.args[0] == "mac-new"
+
+    def test_a_refused_adoption_is_warned(self, eq_donor_client, caplog):
+        """Same dropped verdict as the re-attach path: False never enters the
+        route's `except`, so a new member silently kept whatever curve it had."""
+        client, eq = eq_donor_client
+        eq.set_client_eq = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.WARNING):
+            resp = client.post("/api/multiroom/zones/z1/clients", json={"mac_id": "mac-new"})
+
+        assert resp.status_code == 200
+        assert "Failed to apply zone equalizer to new member mac-new" in caplog.text
+
+
+@pytest.fixture
+def pending_client():
+    """The configure route wired with a pending entry and a stubbed reboot push."""
+    pending = Mock()
+    pending.get_client = Mock(return_value={"ip": "192.168.1.60", "mac_id": "aa:bb"})
+    pending.update_client = AsyncMock(return_value={"mac_id": "aa:bb"})
+    pending.mark_configuring = AsyncMock(return_value=True)
+
+    app = FastAPI()
+    app.include_router(create_multiroom_router(Mock(), None, pending))
+    return TestClient(app), pending
+
+
+class TestConfigurePendingClient:
+    """POST /api/multiroom/pending-clients/{mac}/configure.
+
+    `mark_configuring` shields the entry from the heartbeat sweep across a reboot
+    that outlasts STALE_TIMEOUT. It answers False when the sweep already expired
+    the entry — and that entry holds the only copy of the name and speaker type
+    the user just typed, so a client comes back unnamed with nobody told why.
+    """
+
+    def test_a_vanished_entry_is_reported_at_error(self, pending_client, caplog):
+        client, pending = pending_client
+        pending.mark_configuring = AsyncMock(return_value=False)
+
+        with patch("backend.api.multiroom._send_audio_config_and_reboot", AsyncMock()) as reboot, \
+                caplog.at_level(logging.ERROR):
+            resp = client.post(
+                "/api/multiroom/pending-clients/aa:bb/configure",
+                json={"name": "Bureau", "speaker_type": "bookshelf", "audio_id": "hifiberry_amp2"},
+            )
+
+        assert resp.status_code == 200
+        assert "will come back unnamed" in caplog.text
+        # The reboot is what the caller asked for and is addressed by IP, so it
+        # still goes ahead — only the name is lost.
+        reboot.assert_awaited_once()
+
+    def test_a_shielded_entry_says_nothing(self, pending_client, caplog):
+        client, _ = pending_client
+
+        with patch("backend.api.multiroom._send_audio_config_and_reboot", AsyncMock()), \
+                caplog.at_level(logging.ERROR):
+            resp = client.post(
+                "/api/multiroom/pending-clients/aa:bb/configure",
+                json={"name": "Bureau", "speaker_type": "bookshelf", "audio_id": "hifiberry_amp2"},
+            )
+
+        assert resp.status_code == 200
+        assert caplog.text == ""
 
 
 class TestRemoveClientFromZone:

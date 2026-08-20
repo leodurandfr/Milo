@@ -333,9 +333,18 @@ class FanController:
         # target mode ramps from the current duty, so nothing to apply here.
 
     async def _take_control(self) -> None:
-        """Stop the kernel governor and switch pwm-fan to manual so our writes stick."""
-        await self._write_sysfs(f"{THERMAL_ZONE}/mode", "disabled")
-        await self._write_sysfs(self._pwm_enable_path, "1")
+        """Stop the kernel governor and switch pwm-fan to manual so our writes stick.
+
+        Both writes are the precondition for everything after them: with the
+        governor still driving pwm1, every duty cycle we write is overwritten and
+        the configured curve silently does not apply. _write_sysfs only warns, so
+        the failure that makes the whole controller decorative was the quietest
+        thing in the file.
+        """
+        if not await self._write_sysfs(f"{THERMAL_ZONE}/mode", "disabled"):
+            logger.error("Kernel thermal governor still active — the fan curve will not apply")
+        if not await self._write_sysfs(self._pwm_enable_path, "1"):
+            logger.error("pwm-fan not switched to manual — the fan curve will not apply")
 
     async def _release_to_governor(self) -> None:
         """Re-enable the kernel governor so the config.txt curve resumes.
@@ -345,7 +354,8 @@ class FanController:
         state had pwm1_enable=1 with the governor active), so we leave
         pwm1_enable untouched rather than guess a driver-specific 'auto' value.
         """
-        await self._write_sysfs(f"{THERMAL_ZONE}/mode", "enabled")
+        if not await self._write_sysfs(f"{THERMAL_ZONE}/mode", "enabled"):
+            logger.error("Kernel thermal governor not restored — the fan is left on our last duty")
 
     async def _set_pwm_percent(self, percent: int) -> None:
         percent = _clamp_pct(percent)

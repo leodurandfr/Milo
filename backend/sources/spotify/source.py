@@ -146,8 +146,15 @@ class SpotifySource(BaseAudioSource):
                 timeout=aiohttp.ClientTimeout(total=3.0)
             )
 
-            # 5. Wait until the daemon's API is reachable before connecting
-            await self._wait_for_playback_ready()
+            # 5. Wait until the daemon's API is reachable before connecting.
+            # Not fatal — the WS loop reconnects on its own — but the source is
+            # about to report ACTIVE over a daemon that never answered, so the
+            # timeout has to leave a trace at banner level. _wait_for_playback_ready
+            # only warns.
+            if not await self._wait_for_playback_ready():
+                self._logger.error(
+                    "go-librespot never answered; starting anyway — playback may not work"
+                )
 
             # 6. Start WebSocket
             await self._start_websocket()

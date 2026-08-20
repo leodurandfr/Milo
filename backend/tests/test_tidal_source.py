@@ -20,6 +20,7 @@ Two things are covered, both invisible to every other guardrail:
 import asyncio
 import contextlib
 import json
+import logging
 import struct
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock
@@ -224,6 +225,46 @@ class TestFramingAndHandshakes:
             await socket.stop()
 
             assert await socket.send("stopService") is False
+
+
+class TestRefusedHandshakes:
+    """A handshake the daemon never receives is silence with no explanation.
+
+    `send` answers False and only warns — journal-only. But a frame just
+    arrived on this socket, so a refused write is the wedged daemon (it stops
+    reading without closing), not a routine disconnection: ungranted, the
+    session opens and stalls, and Tidal sits ACTIVE and mute.
+    """
+
+    @pytest.fixture
+    def socket(self):
+        return TidalControllerSocket("/nonexistent.sock", AsyncMock())
+
+    async def test_a_refused_grant_is_reported_at_error(self, socket, caplog):
+        socket.send = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.ERROR):
+            await socket._dispatch({"command": "requestResources"})
+
+        assert "active and silent" in caplog.text
+
+    async def test_a_refused_revoke_is_reported_at_error(self, socket, caplog):
+        socket.send = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.ERROR):
+            await socket._dispatch({"command": "releaseResources"})
+
+        assert "keep holding it" in caplog.text
+
+    async def test_a_delivered_grant_says_nothing(self, socket, caplog):
+        """The positive control: the handshake is answered on every session, so
+        an unconditional error here would banner every phone that connects."""
+        socket.send = AsyncMock(return_value=True)
+
+        with caplog.at_level(logging.ERROR):
+            await socket._dispatch({"command": "requestResources"})
+
+        assert caplog.text == ""
 
 
 class TestEventMapping:
