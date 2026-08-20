@@ -318,7 +318,8 @@ class PodcastSource(MpvAudioSource):
         """Pause playback."""
         try:
             if self._is_playing:
-                await self._mpv.pause()
+                if not await self._mpv.pause():
+                    return self.mpv_refused("pause")
                 self._is_playing = False
 
                 await self._save_progress()
@@ -334,7 +335,8 @@ class PodcastSource(MpvAudioSource):
         """Resume playback."""
         try:
             if not self._is_playing and self._current_episode:
-                await self._mpv.resume()
+                if not await self._mpv.resume():
+                    return self.mpv_refused("resume")
                 self._is_playing = True
 
                 self._update_connection_state()
@@ -349,7 +351,8 @@ class PodcastSource(MpvAudioSource):
         position = params.seconds
 
         try:
-            await self._mpv.seek(int(position))
+            if not await self._mpv.seek(int(position)):
+                return self.mpv_refused(f"seek to {int(position)}s")
             self._position = int(position)
 
             # Save progress immediately after seek
@@ -400,7 +403,8 @@ class PodcastSource(MpvAudioSource):
                 self._logger.info(f"Invalid speed {speed}, using nearest valid")
                 speed = min(VALID_PLAYBACK_SPEEDS, key=lambda x: abs(x - speed))
 
-            await self._mpv.set_property("speed", speed)
+            if not await self._mpv.set_property("speed", speed):
+                return self.mpv_refused(f"speed {speed}x")
             self._playback_speed = speed
 
             await self._podcast_data.set_setting("playback_speed", speed)

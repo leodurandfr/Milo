@@ -734,3 +734,90 @@ class TestRescanOnOpen:
 
         assert await source._do_start() is False
         source.shares.request_scan.assert_not_awaited()
+
+
+class TestMpvRefusesTheTransportCommand:
+    """mpv answers False whenever its IPC socket is down, and says so only at
+    debug level.
+
+    If these fail, a transport command the daemon never took is answered with
+    `success` and the source flips its own flags: the UI draws a play button
+    over a track that is still playing, or moves its now-playing to a track mpv
+    never switched to.
+    """
+
+    async def _playing(self, source):
+        """A loaded queue, then an mpv that refuses every transport command.
+
+        The refusal is installed after play_context so the setup itself still
+        succeeds, and the state_machine/_bg spy is attached last so only the
+        refused command's broadcasts are observed.
+        """
+        source._mpv = _mpv()
+        await source.command("play_context", {"tracks": TRACKS, "start_index": 1})
+        source._mpv.pause = AsyncMock(return_value=False)
+        source._mpv.resume = AsyncMock(return_value=False)
+        source._mpv.seek = AsyncMock(return_value=False)
+        source._mpv.set_playlist_pos = AsyncMock(return_value=False)
+        source.state_machine = Mock()
+        source._bg = Mock()
+        source._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
+        return source
+
+    @pytest.mark.asyncio
+    async def test_pause_refused_keeps_the_track_playing(self, source):
+        await self._playing(source)
+
+        result = await source.command("pause", {})
+
+        assert result["success"] is False
+        assert source._is_playing is True
+        source._bg.spawn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resume_refused_keeps_the_track_paused(self, source):
+        await self._playing(source)
+        source._is_playing = False
+
+        result = await source.command("resume", {})
+
+        assert result["success"] is False
+        assert source._is_playing is False
+        source._bg.spawn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_seek_refused_keeps_the_position(self, source):
+        await self._playing(source)
+        source._position = 12
+
+        result = await source.command("seek", {"position_ms": 42000})
+
+        assert result["success"] is False
+        assert source._position == 12
+        source._bg.spawn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_track_switch_refused_keeps_the_queue_index(self, source):
+        """next/play_index/prev-to-previous all land in _switch_to_index."""
+        await self._playing(source)
+
+        result = await source.command("next", {})
+
+        assert result["success"] is False
+        assert source._queue_index == 1
+        assert source._loading is False  # the switch cleared its own guard
+        source._bg.spawn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_prev_restart_refused_keeps_the_playhead(self, source):
+        """Past the threshold, prev restarts the current track in place."""
+        await self._playing(source)
+        source._mpv.get_property = AsyncMock(return_value=5)  # 5s in → restart
+        source._position = 5
+
+        result = await source.command("prev", {})
+
+        assert result["success"] is False
+        assert source._position == 5
+        assert source._queue_index == 1
+        source._bg.spawn.assert_not_called()

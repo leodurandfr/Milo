@@ -10,7 +10,7 @@ Hooks:
     _on_monitor_tick(): Called each monitor cycle when mpv is connected
 """
 import asyncio
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import SourceState
@@ -61,6 +61,17 @@ class MpvAudioSource(BaseAudioSource):
             self._position_ticks = 0
             return True
         return False
+
+    def mpv_refused(self, action: str) -> Dict[str, Any]:
+        """Error response for a transport command mpv did not take.
+
+        MpvController answers False (and logs at debug) whenever the IPC link is
+        down, so the bool is the only channel this failure has. Return this
+        *before* flipping any playback flag: the flip is what makes the UI draw
+        a play button over audio that is still running.
+        """
+        self._logger.error(f"mpv did not take '{action}' (IPC link down?)")
+        return self.error_response(f"mpv did not take: {action}")
 
     # === Monitor skeleton ===
 

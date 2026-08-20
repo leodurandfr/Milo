@@ -600,3 +600,73 @@ class TestProperties:
         """Test playback_speed property."""
         podcast_source._playback_speed = 1.5
         assert podcast_source.playback_speed == 1.5
+
+
+class TestMpvRefusesTheTransportCommand:
+    """mpv answers False whenever its IPC socket is down, and says so only at
+    debug level.
+
+    If these fail, a pause/resume/seek/speed the daemon never took is answered
+    with `success`, the source flips its own flags and broadcasts them: the UI
+    draws a play button over an episode that is still playing, and the progress
+    saved on that pause is written for a stream that kept advancing.
+    """
+
+    @pytest.fixture
+    def refusing(self, podcast_source):
+        """A playing episode over an mpv that refuses every transport command."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.pause = AsyncMock(return_value=False)
+        podcast_source._mpv.resume = AsyncMock(return_value=False)
+        podcast_source._mpv.seek = AsyncMock(return_value=False)
+        podcast_source._mpv.set_property = AsyncMock(return_value=False)
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._is_playing = True
+        podcast_source._position = 300
+        podcast_source._playback_speed = 1.0
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
+        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
+        # Broadcasts go through set_state -> _bg.spawn; spy it so "nothing was
+        # published" is observable, and close the coroutine so none leaks.
+        podcast_source.state_machine = Mock()
+        podcast_source._bg = Mock()
+        podcast_source._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
+        return podcast_source
+
+    @pytest.mark.asyncio
+    async def test_pause_refused_keeps_the_episode_playing(self, refusing):
+        result = await refusing.command("pause", {})
+
+        assert result["success"] is False
+        assert refusing._is_playing is True
+        refusing._podcast_data.update_playback_progress.assert_not_called()
+        refusing._bg.spawn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resume_refused_keeps_the_episode_paused(self, refusing):
+        refusing._is_playing = False
+
+        result = await refusing.command("resume", {})
+
+        assert result["success"] is False
+        assert refusing._is_playing is False
+        refusing._bg.spawn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_seek_refused_keeps_the_position(self, refusing):
+        result = await refusing.command("seek", {"position": 42})
+
+        assert result["success"] is False
+        assert refusing._position == 300
+        refusing._podcast_data.update_playback_progress.assert_not_called()
+        refusing._bg.spawn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_set_speed_refused_keeps_the_speed_unpersisted(self, refusing):
+        result = await refusing.command("set_speed", {"speed": 1.5})
+
+        assert result["success"] is False
+        assert refusing._playback_speed == 1.0
+        refusing._podcast_data.set_setting.assert_not_called()
+        refusing._bg.spawn.assert_not_called()

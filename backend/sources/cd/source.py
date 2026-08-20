@@ -809,7 +809,8 @@ class CdSource(MpvAudioSource):
                 # exactly where the disc stopped — _track_position from the monitor
                 # tick can be up to ~1s stale, which snaps the progress bar back.
                 await self._sync_position_from_mpv()
-                await self._mpv.pause()
+                if not await self._mpv.pause():
+                    return self.mpv_refused("pause")
                 self._is_playing = False
                 self._is_paused = True
                 self._handle_pause_change(True)
@@ -835,7 +836,12 @@ class CdSource(MpvAudioSource):
                 if self._is_paused:
                     self._is_buffering = True
                     self._update_connection_state()
-                    await self._mpv.resume()
+                    if not await self._mpv.resume():
+                        # Unfreeze the bar the announce above froze: the disc is
+                        # still where it was paused, not about to advance.
+                        self._is_buffering = False
+                        self._update_connection_state()
+                        return self.mpv_refused("resume")
                     if not await self._mpv.wait_until_advancing(timeout=3.0):
                         self._logger.warning("Resume: mpv playback did not advance in time")
                     await self._sync_position_from_mpv()

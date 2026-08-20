@@ -674,11 +674,12 @@ class MusicLibrarySource(MpvAudioSource):
         await self._sync_position_from_mpv()
         if self._position >= PREV_RESTART_THRESHOLD_S or self._queue_index == 0:
             try:
-                await self._mpv.seek(0)
-                await self._mpv.resume()
+                restarted = await self._mpv.seek(0) and await self._mpv.resume()
             except Exception as e:
                 self._logger.error(f"Prev (restart) error: {e}")
                 return self.error_response(str(e))
+            if not restarted:
+                return self.mpv_refused("restart track")
             self._position = 0
             self._is_playing = True
             self._handle_pause_change(False)
@@ -691,12 +692,16 @@ class MusicLibrarySource(MpvAudioSource):
         play_index / next / prev-to-previous."""
         self._loading = True
         try:
-            await self._mpv.set_playlist_pos(index)
-            await self._mpv.resume()
+            switched = (
+                await self._mpv.set_playlist_pos(index) and await self._mpv.resume()
+            )
         except Exception as e:
             self._loading = False
             self._logger.error(f"Track switch error: {e}")
             return self.error_response(str(e))
+        if not switched:
+            self._loading = False
+            return self.mpv_refused(f"switch to track {index + 1}")
 
         self._queue_index = index
         self._position = 0
@@ -716,7 +721,8 @@ class MusicLibrarySource(MpvAudioSource):
             # Snapshot the exact playhead before pausing so the broadcast lands
             # where playback stopped, not on the last (possibly stale) tick.
             await self._sync_position_from_mpv()
-            await self._mpv.pause()
+            if not await self._mpv.pause():
+                return self.mpv_refused("pause")
             self._is_playing = False
             self._handle_pause_change(True)
             self._update_connection_state()
@@ -726,7 +732,8 @@ class MusicLibrarySource(MpvAudioSource):
         if not self._mpv:
             return self.error_response("Music library not active")
         if not self._is_playing and self._queue:
-            await self._mpv.resume()
+            if not await self._mpv.resume():
+                return self.mpv_refused("resume")
             self._is_playing = True
             self._handle_pause_change(False)
             self._update_connection_state()
@@ -737,10 +744,12 @@ class MusicLibrarySource(MpvAudioSource):
             return self.error_response("No active queue")
         position = int(params.position_ms / 1000)
         try:
-            await self._mpv.seek(position)
+            sought = await self._mpv.seek(position)
         except Exception as e:
             self._logger.error(f"Seek error: {e}")
             return self.error_response(str(e))
+        if not sought:
+            return self.mpv_refused(f"seek to {position}s")
         self._position = position
         self._update_connection_state()
         return self.success_response(f"Seeked to {position}s")
