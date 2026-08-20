@@ -337,16 +337,26 @@ class CamillaDSPService:
                 await self._on_reconnect_callback()
 
             # Check if equalizer effects are enabled or bypassed
+            # Each of the three refuses by returning False, never by raising, so
+            # the enclosing except cannot see them. A refusal here means the
+            # daemon came back and would not take its own state: the pipeline is
+            # then whatever CamillaDSP restarted with, not what the user set —
+            # error level, so it reaches the banner rather than only the journal.
             if self._effects_enabled:
                 self.logger.info("Reconnected: restoring equalizer effects from settings")
-                await self.restore_effects()
+                applied = await self.restore_effects()
+                effect = "restore equalizer effects"
             else:
                 self.logger.info("Reconnected: effects disabled, bypassing")
-                await self.bypass_effects()
+                applied = await self.bypass_effects()
+                effect = "bypass equalizer effects"
+
+            if not applied:
+                self.logger.error(f"Reconnected but CamillaDSP refused to {effect}")
 
             # Mono is a spatial setting, not an effect — restore independently of bypass
-            if self._mono:
-                await self.set_mono(enabled=True, persist=False)
+            if self._mono and not await self.set_mono(enabled=True, persist=False):
+                self.logger.error("Reconnected but CamillaDSP refused to restore mono")
 
         except Exception as e:
             self.logger.error(f"Error restoring state after reconnect: {e}")

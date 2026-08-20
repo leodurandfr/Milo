@@ -409,10 +409,22 @@ class AudioStateMachine:
 
     @handle_errors(default=None)
     async def _stop_source(self, source: AudioSource) -> None:
-        """Stop specified source."""
+        """Stop specified source, and say so when it refuses.
+
+        `stop()` reports its own refusal at warning — journal-only — and the
+        transition then started the next source over one still holding the ALSA
+        device, with nothing in the banner to explain the silence that follows.
+
+        The verdict is deliberately *not* propagated. Refusing the transition
+        would turn every unclean stop into a source selection the user cannot
+        make, while `_start_source` already fails on its own when the device is
+        genuinely still held — and that path settles with a message. The two
+        unwind callers could not act on it either. So the trace is the whole
+        fix; a bool nobody reads would just move this finding up one frame.
+        """
         instance = self.sources.get(source)
-        if instance:
-            await instance.stop()
+        if instance and not await instance.stop():
+            logger.error("%s would not stop; starting over it", source.value)
 
     @handle_errors(default=False)
     async def _start_source(self, source: AudioSource) -> bool:

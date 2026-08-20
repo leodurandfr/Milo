@@ -236,10 +236,20 @@ class TidalControllerSocket:
             self._ready.set()
         elif command == "requestResources":
             # The daemon is asking the controller for the audio device. It
-            # decodes nothing until this is granted.
-            await self.send("grantResources")
+            # decodes nothing until this is granted, so a dropped answer is not
+            # cosmetic — and send() only warns. A frame just arrived on this
+            # socket, so a refused write here is the wedged daemon the send()
+            # docstring describes (it stops reading without closing), not a
+            # routine disconnection: error level, to reach the banner.
+            if not await self.send("grantResources"):
+                self._logger.error(
+                    "Could not grant the audio device — Tidal stays active and silent"
+                )
         elif command == "releaseResources":
-            await self.send("revokeResources")
+            if not await self.send("revokeResources"):
+                self._logger.error(
+                    "Could not acknowledge the device release — the daemon may keep holding it"
+                )
 
         try:
             await self._on_event(message)

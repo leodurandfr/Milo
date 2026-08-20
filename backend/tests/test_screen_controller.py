@@ -8,6 +8,7 @@ stderr — and neither was consulted, so a panel that took nothing reported the
 same success as one that took everything.
 """
 import asyncio
+from time import monotonic
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -101,3 +102,112 @@ class TestApplyScreenConfig:
             await controller.apply_screen_config(8)
 
         assert "-b 8" in shell.call_args.args[0]
+
+
+class TestSleepStateFollowsThePanel:
+    """The four callers that used to broadcast a literal after a dropped verdict.
+
+    `_screen_cmd` already reports its own refusal at error level, so the banner
+    fires — what was wrong is what happened next: the UI was told the panel had
+    entered a state it had just refused, and the kiosk then renders a sleeping
+    screen over a lit one (or the reverse) until something else moves.
+    """
+
+    @pytest.fixture
+    def broadcasts(self, controller):
+        controller._broadcast_sleep_state = AsyncMock()
+        return controller._broadcast_sleep_state
+
+    async def test_a_refused_wake_is_not_announced_as_awake(self, controller, broadcasts):
+        controller.screen_on = False
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode=1)):
+            await controller.on_touch_detected()
+        broadcasts.assert_not_called()
+
+    async def test_a_successful_wake_is_announced(self, controller, broadcasts):
+        controller.screen_on = False
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc()):
+            await controller.on_touch_detected()
+        broadcasts.assert_awaited_once_with(False)
+
+    async def test_a_refused_sleep_is_not_announced_as_asleep(self, controller, broadcasts):
+        controller.screen_on = True
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode=1)):
+            await controller.force_sleep()
+        broadcasts.assert_not_called()
+
+    async def test_a_successful_sleep_is_announced(self, controller, broadcasts):
+        controller.screen_on = True
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc()):
+            await controller.force_sleep()
+        broadcasts.assert_awaited_once_with(True)
+
+    async def test_the_inactivity_timeout_does_not_announce_a_refused_sleep(
+        self, controller, broadcasts
+    ):
+        """One pass of the timeout loop, driven to the should_turn_off branch."""
+        controller.screen_on = True
+        controller.running = True
+        controller.timeout_seconds = 1
+        controller.boot_time = None
+        controller.last_activity_time = monotonic() - 60
+        controller.current_source_state = "ready"
+
+        async def stop_after_first_pass(_delay):
+            controller.running = False
+
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode=1)), \
+                patch("asyncio.sleep", new=AsyncMock(side_effect=stop_after_first_pass)):
+            await controller._monitor_timeout()
+
+        broadcasts.assert_not_called()
+
+    async def test_the_source_monitor_does_not_announce_a_refused_wake(
+        self, controller, broadcasts
+    ):
+        """A source going active wakes the panel; a refused wake stays unannounced."""
+        controller.screen_on = False
+        controller.running = True
+        controller.current_source_state = "ready"
+        controller.state_machine.get_current_state = Mock(
+            return_value={"source_state": "active"}
+        )
+
+        async def stop_after_first_pass(_delay):
+            controller.running = False
+
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode=1)), \
+                patch("asyncio.sleep", new=AsyncMock(side_effect=stop_after_first_pass)):
+            await controller._monitor_source_state()
+
+        broadcasts.assert_not_called()
+
+
+class TestInitializeReportsThePanel:
+    """`initialize` used to answer True over a dropped `_screen_cmd`.
+
+    It is the shape rule 3 of test_silent_failure.py forbids — a sealed method
+    manufacturing a verdict over a sealed sibling's discarded one — and its
+    EXEMPT_MANUFACTURED entry was deleted with this fix.
+    """
+
+    async def test_a_refused_boot_backlight_is_reported(self, controller):
+        controller.settings_service.invalidate_cache = Mock()
+        controller.settings_service.load_settings = AsyncMock(
+            return_value={"screen": controller.settings_service.defaults["screen"]}
+        )
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode=1)):
+            assert await controller.initialize() is False
+
+        assert controller.running is True, "monitoring must start whatever the panel did"
+        await controller.cleanup()
+
+    async def test_a_screenless_unit_still_initializes_cleanly(self, controller):
+        """False must mean "a panel refused", never "this unit has no screen"."""
+        controller.screen_type = "none"
+        controller.settings_service.invalidate_cache = Mock()
+        controller.settings_service.load_settings = AsyncMock(
+            return_value={"screen": controller.settings_service.defaults["screen"]}
+        )
+        assert await controller.initialize() is True
+        await controller.cleanup()

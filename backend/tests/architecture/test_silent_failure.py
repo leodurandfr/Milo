@@ -519,8 +519,6 @@ EXEMPT_MANUFACTURED: dict[str, str] = {
         "S2 of the 2026-08-20 sweep, open — the fix is a ⚠⚠ behaviour change",
     "backend/core/multiroom/crossover.py::apply_zone_crossover":
         "S1 of the 2026-08-20 sweep, open — the fix is a ⚠⚠ behaviour change",
-    "backend/hardware/screen.py::initialize":
-        "S8 of the 2026-08-20 sweep, open — the boot backlight write needs a panel",
 }
 
 

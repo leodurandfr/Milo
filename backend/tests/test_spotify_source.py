@@ -11,6 +11,7 @@ Tests cover:
 - Auto-stop timer
 """
 import asyncio
+import logging
 
 import pytest
 import yaml
@@ -225,6 +226,43 @@ class TestSpotifySourceLifecycle:
 
         assert result is True
         assert spotify_source._session.get.call_args.args[0].endswith("/")
+
+    @pytest.mark.asyncio
+    async def test_a_daemon_that_never_answers_is_reported_at_error(
+        self, spotify_source, caplog
+    ):
+        """The poll only warns, and `_do_start` dropped its verdict — so the
+        source went on to report itself up over a daemon that never answered,
+        with nothing above warning to say why the first phone finds nothing.
+
+        Not fatal: the WS loop reconnects on its own, so the start still succeeds.
+        """
+        with patch('aiohttp.ClientSession') as mock_session_class:
+            mock_session_class.return_value = AsyncMock()
+
+            with patch.object(spotify_source, '_wait_for_playback_ready',
+                              new_callable=AsyncMock, return_value=False), \
+                    patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock), \
+                    patch.object(spotify_source, '_start_log_monitor'), \
+                    caplog.at_level(logging.ERROR):
+                result = await spotify_source.start()
+
+        assert result is True
+        assert "never answered" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_daemon_that_answers_says_nothing(self, spotify_source, caplog):
+        with patch('aiohttp.ClientSession') as mock_session_class:
+            mock_session_class.return_value = AsyncMock()
+
+            with patch.object(spotify_source, '_wait_for_playback_ready',
+                              new_callable=AsyncMock, return_value=True), \
+                    patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock), \
+                    patch.object(spotify_source, '_start_log_monitor'), \
+                    caplog.at_level(logging.ERROR):
+                await spotify_source.start()
+
+        assert caplog.text == ""
 
 
 class TestSpotifySourceCommands:

@@ -8,6 +8,7 @@ loop's write decision (hysteresis around a stable target, rails always written).
 """
 import asyncio
 import contextlib
+import logging
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -226,6 +227,46 @@ class TestDisableRacesTheMonitorLoop:
         await TestMonitorLoopTargetMode().run_one_tick(c)
 
         c._set_pwm_percent.assert_not_awaited()
+
+
+class TestGovernorHandover:
+    """Taking control from the kernel governor is the precondition for everything.
+
+    With `thermal_zone0/mode` still `enabled`, the governor keeps driving pwm1
+    and every duty we write is overwritten — the configured curve simply does
+    not apply. `_write_sysfs` only warns, so the failure that makes the whole
+    controller decorative was the quietest thing in the file.
+    """
+
+    async def test_a_governor_that_will_not_stop_is_reported_at_error(self, caplog):
+        c = make_controller()
+        c._write_sysfs = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.ERROR):
+            await c._take_control()
+
+        assert "governor still active" in caplog.text
+        assert "not switched to manual" in caplog.text
+
+    async def test_a_clean_handover_says_nothing(self, caplog):
+        c = make_controller()
+        c._write_sysfs = AsyncMock(return_value=True)
+
+        with caplog.at_level(logging.ERROR):
+            await c._take_control()
+
+        assert caplog.text == ""
+
+    async def test_a_governor_that_will_not_resume_is_reported_at_error(self, caplog):
+        """The fan is then stuck on whatever duty we last wrote, with nothing
+        left watching the temperature."""
+        c = make_controller()
+        c._write_sysfs = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.ERROR):
+            await c._release_to_governor()
+
+        assert "governor not restored" in caplog.text
 
 
 class TestSettingsSanitization:

@@ -157,14 +157,20 @@ class ScreenController:
 
     @handle_errors(default=False)
     async def initialize(self) -> bool:
-        """Initializes the controller"""
+        """Initialize the controller; answers whether the boot backlight write took.
+
+        Monitoring starts either way — a panel that refused the first write is
+        still worth watching. False therefore means "there is a panel and it
+        refused", never "no screen": _screen_cmd answers True when there is
+        nothing to drive.
+        """
         await self._load_config()
 
         # Calculate grace period: max between 30s and configured timeout
         # This ensures we always see at least 30s of boot, even if timeout is short
         self.boot_grace_period = max(30, self.timeout_seconds if self.timeout_seconds != 0 else 30)
 
-        await self._screen_cmd(self.screen_on_cmd)
+        lit = await self._screen_cmd(self.screen_on_cmd)
         self.boot_time = monotonic()
         self.last_activity_time = monotonic()
         self.running = True
@@ -177,7 +183,7 @@ class ScreenController:
         # Touch-event monitoring intentionally not started here — touch wake is
         # handled in the frontend.
 
-        return True
+        return lit
 
     @handle_errors(default=False)
     async def _screen_cmd(self, cmd) -> bool:
@@ -227,9 +233,13 @@ class ScreenController:
 
                 if self.current_source_state != "active" and new_state == "active":
                     was_sleeping = not self.screen_on
-                    await self._screen_cmd(self.screen_on_cmd)
+                    woke = await self._screen_cmd(self.screen_on_cmd)
                     self.last_activity_time = monotonic()
-                    if was_sleeping:
+                    # Only the panel's own verdict may be broadcast: _screen_cmd
+                    # leaves screen_on untouched when the write is refused, so
+                    # announcing the state we asked for would tell the UI the
+                    # panel woke while it is still dark.
+                    if was_sleeping and woke:
                         await self._broadcast_sleep_state(False)
                 elif self.current_source_state == "active" and new_state == "ready":
                     self.last_activity_time = monotonic()
@@ -275,8 +285,8 @@ class ScreenController:
 
                 if should_turn_off:
                     self.logger.info(f"Screen turning OFF after {time_since_activity:.1f}s (timeout: {self.timeout_seconds}s)")
-                    await self._screen_cmd(self.screen_off_cmd)
-                    await self._broadcast_sleep_state(True)
+                    if await self._screen_cmd(self.screen_off_cmd):
+                        await self._broadcast_sleep_state(True)
 
                 await asyncio.sleep(1)
 
@@ -287,9 +297,9 @@ class ScreenController:
     async def on_touch_detected(self):
         """Public interface for external touch"""
         was_sleeping = not self.screen_on
-        await self._screen_cmd(self.screen_on_cmd)
+        woke = await self._screen_cmd(self.screen_on_cmd)
         self.last_activity_time = monotonic()
-        if was_sleeping:
+        if was_sleeping and woke:
             await self._broadcast_sleep_state(False)
 
     async def force_sleep(self):
@@ -301,8 +311,8 @@ class ScreenController:
         """
         if not self.screen_on:
             return
-        await self._screen_cmd(self.screen_off_cmd)
-        await self._broadcast_sleep_state(True)
+        if await self._screen_cmd(self.screen_off_cmd):
+            await self._broadcast_sleep_state(True)
 
     async def cleanup(self):
         """Cleans up resources"""

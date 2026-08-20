@@ -7,6 +7,8 @@ Tests cover:
 - EqualizerClientProxyService
 - Presets
 """
+import logging
+
 import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 
@@ -667,6 +669,70 @@ class TestCamillaDSPService:
 # =============================================================================
 # Equalizer State Tests
 # =============================================================================
+
+class TestRestoreAfterReconnect:
+    """A reconnected daemon that refuses its own state must say so.
+
+    `restore_effects` / `bypass_effects` / `set_mono` all answer False without
+    raising, so the enclosing `except` in `_restore_after_reconnect` never sees
+    them. Silently dropped, the daemon keeps whatever pipeline it restarted with
+    while Milō and the UI still report the user's settings — audible, and the
+    only trace was an info line saying the restore had begun.
+    """
+
+    @pytest.fixture
+    def service(self):
+        settings = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_setting = AsyncMock()
+        svc = CamillaDSPService(settings_service=settings)
+        svc._connected = True
+        return svc
+
+    async def test_a_refused_restore_is_reported_at_error(self, service, caplog):
+        service._effects_enabled = True
+        service.restore_effects = AsyncMock(return_value=False)
+        service.bypass_effects = AsyncMock()
+
+        with caplog.at_level(logging.ERROR):
+            await service._restore_after_reconnect()
+
+        assert "refused to restore equalizer effects" in caplog.text
+
+    async def test_a_refused_bypass_is_reported_at_error(self, service, caplog):
+        service._effects_enabled = False
+        service.bypass_effects = AsyncMock(return_value=False)
+        service.restore_effects = AsyncMock()
+
+        with caplog.at_level(logging.ERROR):
+            await service._restore_after_reconnect()
+
+        assert "refused to bypass equalizer effects" in caplog.text
+
+    async def test_a_refused_mono_is_reported_at_error(self, service, caplog):
+        service._effects_enabled = True
+        service._mono = True
+        service.restore_effects = AsyncMock(return_value=True)
+        service.set_mono = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.ERROR):
+            await service._restore_after_reconnect()
+
+        assert "refused to restore mono" in caplog.text
+
+    async def test_a_daemon_that_took_everything_logs_no_error(self, service, caplog):
+        """The positive control — without it the three above would pass on any
+        error line the reconnect path happens to emit."""
+        service._effects_enabled = True
+        service._mono = True
+        service.restore_effects = AsyncMock(return_value=True)
+        service.set_mono = AsyncMock(return_value=True)
+
+        with caplog.at_level(logging.ERROR):
+            await service._restore_after_reconnect()
+
+        assert caplog.text == ""
+
 
 class TestCamillaDspState:
     """Test Equalizer state enum"""
