@@ -216,6 +216,9 @@ def create_volume_router(
             - MAC format in URL: no colons (dca6327ed343)
             - MAC format in response: with colons (dc:a6:32:7e:d3:43)
             - A WebSocket event `volume_changed` is broadcast after the update
+            - A client that answered and refused the level answers 502, never a
+              200 carrying a dB it is not playing. An offline client keeps its
+              200: the level is stored and replayed on reconnection.
         """
         async with api_error_handler("Error setting client volume by MAC", logger):
             mac_id = _mac_from_url(mac_url)
@@ -225,7 +228,12 @@ def create_volume_router(
             if hasattr(client, 'online') and not client.online:
                 logger.info(f"Setting volume for offline client {mac_id}: will be applied on reconnection")
 
-            await volume_service.update_client_volume_db(mac_id, request.volume_db)
+            if not await volume_service.update_client_volume_db(mac_id, request.volume_db):
+                logger.error(f"Client {mac_id} did not take volume {request.volume_db:.1f} dB")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Volume not applied to client {mac_id}",
+                )
 
             return {
                 "status": "success",
@@ -249,12 +257,19 @@ def create_volume_router(
             - MAC format in URL: no colons (dca6327ed343)
             - MAC format in response: with colons (dc:a6:32:7e:d3:43)
             - A WebSocket event is broadcast after the update
+            - Same verdict as the volume route: an online client that refused
+              answers 502, an offline one keeps its 200.
         """
         async with api_error_handler("Error setting client mute by MAC", logger):
             mac_id = _mac_from_url(mac_url)
             _validate_mac_exists(mac_id)
 
-            await volume_service.set_client_mute(mac_id, request.mute)
+            if not await volume_service.set_client_mute(mac_id, request.mute):
+                logger.error(f"Client {mac_id} did not take mute={request.mute}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Mute not applied to client {mac_id}",
+                )
 
             return {
                 "status": "success",

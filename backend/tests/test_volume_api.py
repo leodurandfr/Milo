@@ -73,8 +73,8 @@ class TestMacAddressClientVolume:
     def mock_volume_service(self):
         """Create a mock VolumeService for MAC tests."""
         service = MagicMock()
-        service.update_client_volume_db = AsyncMock(return_value=None)
-        service.set_client_mute = AsyncMock(return_value=None)
+        service.update_client_volume_db = AsyncMock(return_value=True)
+        service.set_client_mute = AsyncMock(return_value=True)
         service.get_client_volume = AsyncMock(return_value={
             "main": -25.0,
             "mute": False
@@ -195,6 +195,34 @@ class TestMacAddressClientVolume:
         assert response.status_code == 200
         data = response.json()
         assert data["mute"] is False
+
+    def test_a_refused_volume_answers_502(self, test_client, mock_volume_service):
+        """A client that answered and refused must not get a 200 carrying the dB.
+
+        The service reports the refusal; when this fails the route is back to
+        answering success for a level the speaker is not playing (sweep S4).
+        """
+        mock_volume_service.update_client_volume_db.return_value = False
+
+        response = test_client.patch(
+            "/api/volume/client/mac/dca6327ed343",
+            json={"volume_db": -25.0}
+        )
+
+        assert response.status_code == 502
+        assert "dc:a6:32:7e:d3:43" in response.json()["detail"]
+
+    def test_a_refused_mute_answers_502(self, test_client, mock_volume_service):
+        """Mute carries the same verdict as the volume."""
+        mock_volume_service.set_client_mute.return_value = False
+
+        response = test_client.patch(
+            "/api/volume/client/mac/dca6327ed343/mute",
+            json={"mute": True}
+        )
+
+        assert response.status_code == 502
+        assert "dc:a6:32:7e:d3:43" in response.json()["detail"]
 
 
 class TestZoneVolumeDelta:

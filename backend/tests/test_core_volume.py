@@ -5,6 +5,7 @@ Unit tests for core.volume module.
 Tests the migrated VolumeService, VolumeStateStore,
 and EqualizerController in the new core/volume/ location.
 """
+import logging
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, call
 import asyncio
@@ -1772,3 +1773,167 @@ class TestVolumeLockNoTimeout:
         # Zone delta returns float (new average), adjust returns bool
         assert isinstance(results[0], float)
         assert results[1] is True
+
+
+# ============================================================================
+# Per-client volume and mute answer for what the speaker did (sweep S4)
+# ============================================================================
+
+class TestPerClientApplyVerdict:
+    """A level an online client refused must not be stored, broadcast or reported.
+
+    When these fail, `PATCH /api/volume/client/mac/{mac}` is back to answering
+    200 with a dB the speaker never took: the store was written before the
+    apply, so Milō, the WS event and the UI all agreed on a value only the
+    hardware disagreed with, and the sole trace was a warning.
+    """
+
+    ACCEPTING = "aa:bb:cc:dd:ee:01"
+    REFUSING = "aa:bb:cc:dd:ee:02"
+
+    @pytest.fixture
+    def mock_state_machine(self):
+        sm = Mock()
+        sm.broadcast = AsyncMock()
+        sm.routing_service = Mock()
+        sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': True})
+        return sm
+
+    @pytest.fixture
+    def mock_settings(self):
+        settings = Mock()
+        settings.invalidate_cache = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_setting = AsyncMock()
+        return settings
+
+    @pytest.fixture
+    def mock_registry(self):
+        """Registry standing for the outside world's answer to "is it online?"."""
+        registry = Mock()
+        registry.is_client_online = Mock(return_value=True)
+        registry.get_online_client_ids = Mock(
+            return_value=[TestPerClientApplyVerdict.ACCEPTING, TestPerClientApplyVerdict.REFUSING]
+        )
+        return registry
+
+    @pytest.fixture
+    def mock_equalizer_controller(self):
+        """The refusing client answers False to both volume and mute."""
+        controller = Mock()
+
+        async def apply(mac_id, _value, **kwargs):
+            return mac_id != TestPerClientApplyVerdict.REFUSING
+
+        controller.set_equalizer_volume = AsyncMock(side_effect=apply)
+        controller.set_equalizer_mute = AsyncMock(side_effect=apply)
+        return controller
+
+    @pytest.fixture
+    def service(self, mock_state_machine, mock_settings, mock_registry,
+                mock_equalizer_controller):
+        svc = VolumeService(
+            state_machine=mock_state_machine,
+            snapcast_service=Mock(get_clients=AsyncMock(return_value=[])),
+            settings_service=mock_settings,
+            camilladsp_service=Mock(
+                set_volume=AsyncMock(return_value=True),
+                set_mute=AsyncMock(return_value=True),
+                is_volume_control_available=Mock(return_value=True),
+            ),
+        )
+        svc._volume_config = VolumeConfig(
+            limit_min_db=-80.0, limit_max_db=0.0,
+            startup_volume_db=-40.0, restore_last_volume=True,
+        )
+        svc._state_store.set_volume_config(svc._volume_config)
+        svc._routing_service = mock_state_machine.routing_service
+        svc._equalizer_controller = mock_equalizer_controller
+        svc._client_registry = mock_registry
+        svc._state_store._mode = "multiroom"
+        svc._state_store._clients = {
+            self.ACCEPTING: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
+            self.REFUSING: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
+        }
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_a_client_that_took_the_volume_stores_and_reports_it(self, service, caplog):
+        """The happy path is unchanged — the level is stored, no noise."""
+        with caplog.at_level(logging.ERROR):
+            assert await service.update_client_volume_db(self.ACCEPTING, -25.0) is True
+
+        assert service.state_store.get_client_volume(self.ACCEPTING) == -25.0
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_an_online_client_that_refused_keeps_its_stored_volume(self, service, caplog):
+        """The refusal decides the verdict, and the store keeps what the speaker holds."""
+        with caplog.at_level(logging.ERROR):
+            assert await service.update_client_volume_db(self.REFUSING, -25.0) is False
+
+        assert service.state_store.get_client_volume(self.REFUSING) == -40.0
+        assert self.REFUSING in caplog.text
+        assert self.ACCEPTING not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_the_broadcast_carries_the_level_the_speaker_holds(
+        self, service, mock_state_machine
+    ):
+        """A refused dB must not reach the UI through volume_changed."""
+        await service.update_client_volume_db(self.REFUSING, -25.0)
+
+        mock_state_machine.broadcast.assert_awaited()
+        event = mock_state_machine.broadcast.await_args_list[-1].args[0]
+        assert event.state["clients"][self.REFUSING]["volume_db"] == -40.0
+
+    @pytest.mark.asyncio
+    async def test_an_offline_client_stores_the_level_for_the_reconnection_replay(
+        self, service, mock_registry, caplog
+    ):
+        """An offline client is a skip, not a refusal.
+
+        EqualizerRouter short-circuits it and the admission re-push replays the
+        stored value on reconnection, so the store must be written and the
+        route must keep its 200.
+        """
+        mock_registry.is_client_online.return_value = False
+
+        with caplog.at_level(logging.ERROR):
+            assert await service.update_client_volume_db(self.REFUSING, -25.0) is True
+
+        assert service.state_store.get_client_volume(self.REFUSING) == -25.0
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_an_online_client_that_refused_the_mute_keeps_its_stored_state(
+        self, service, caplog
+    ):
+        """Mute travels the same path and answers the same way."""
+        with caplog.at_level(logging.ERROR):
+            assert await service.set_client_mute(self.REFUSING, True) is False
+
+        assert service.state_store.get_client_mute(self.REFUSING) is False
+        assert self.REFUSING in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_client_that_took_the_mute_stores_and_reports_it(self, service, caplog):
+        """The happy path is unchanged for mute too."""
+        with caplog.at_level(logging.ERROR):
+            assert await service.set_client_mute(self.ACCEPTING, True) is True
+
+        assert service.state_store.get_client_mute(self.ACCEPTING) is True
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_an_offline_client_stores_the_mute_for_the_reconnection_replay(
+        self, service, mock_registry, caplog
+    ):
+        """Same skip rule as the volume: _do_sync_reconnecting_client_volume replays it."""
+        mock_registry.is_client_online.return_value = False
+
+        with caplog.at_level(logging.ERROR):
+            assert await service.set_client_mute(self.REFUSING, True) is True
+
+        assert service.state_store.get_client_mute(self.REFUSING) is True
+        assert caplog.text == ""
