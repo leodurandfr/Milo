@@ -31,6 +31,7 @@ from backend.core.multiroom.models import (
     EqFilter,
     FilterType,
 )
+from backend.shared.fanout import failed_members
 
 
 # The local device is addressable as this sentinel — no registry entry required.
@@ -215,25 +216,6 @@ class MultiroomEqualizerService:
         copy.enabled = existing.enabled if existing else EqualizerSettings.default().enabled
         return copy
 
-    def _failed_members(self, context: str, members: list, results: list) -> list:
-        """Name the members a parallel fan-out did not reach, one log line each.
-
-        ``asyncio.gather(return_exceptions=True)`` hands back a mix of return
-        values and exceptions, and both directions are silent unless read — the
-        whole point of this phase. The level is error: this line is what tells
-        the operator which speaker kept the old curve, and it is what raises the
-        UI's backend-error banner through WebSocketLogHandler.
-        """
-        failed = []
-        for mac_id, result in zip(members, results):
-            if isinstance(result, BaseException):
-                self.logger.error(f"{context} not applied to {mac_id}: {result}")
-                failed.append(mac_id)
-            elif not result:
-                self.logger.error(f"{context} not applied to {mac_id}")
-                failed.append(mac_id)
-        return failed
-
     async def set_zone_eq(self, zone_id: str, settings: EqualizerSettings) -> bool:
         """Apply one EQ record to every zone member, keeping them identical.
 
@@ -260,7 +242,7 @@ class MultiroomEqualizerService:
             ],
             return_exceptions=True,
         )
-        return not self._failed_members(f"Zone {zone_id} equalizer", members, results)
+        return not failed_members(self.logger, f"Zone {zone_id} equalizer", members, results)
 
     # =========================================================================
     # Zone / Client Equalizer Methods — route-facing wrappers over the access layer
@@ -617,7 +599,8 @@ class MultiroomEqualizerService:
                         r if isinstance(r, BaseException) else r.get("status") != "error"
                         for r in results
                     ]
-                    self._failed_members(
+                    failed_members(
+                        self.logger,
                         f"Zone {target_id} {router_method}",
                         [c.mac_id for c in online_clients],
                         outcomes,
