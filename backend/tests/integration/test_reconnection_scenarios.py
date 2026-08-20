@@ -1028,3 +1028,111 @@ class TestStandaloneReconnectionSyncIntegration:
         applied = ws_service._volume_service.equalizer_controller.set_equalizer_volume
         assert applied.await_args.args[1] == -30.0
 
+
+
+class TestWhatAReconnectReplays:
+    """Which of a client's stored values survive its reconnection, and which do not.
+
+    The pair matters because the two commands travel the same route family and
+    behave oppositely: `PATCH /api/volume/client/mac/{mac}` on an offline client
+    records a level nothing will ever apply, while `/mute` records one the
+    reconnect does re-apply. That asymmetry is what made the route's old log
+    line — *"will be applied on reconnection"* — false for half of what it
+    covered (sweep finding S17).
+
+    If the first test goes red, someone made the store the reconnection target.
+    That is a deliberate design change, not a bug fix: a member rejoining a zone
+    would stop matching its room. Change this test consciously, with the plan's
+    phase 6 branch 2, or revert.
+    """
+
+    @pytest.fixture
+    def mock_settings_service(self):
+        service = AsyncMock()
+        service.get_setting = AsyncMock(return_value=None)
+        service.set_setting = AsyncMock()
+        return service
+
+    @pytest.fixture
+    def mock_state_machine(self):
+        sm = MagicMock()
+        sm.broadcast = AsyncMock()
+        sm.snapcast_service = None
+        sm.crossover_service = None
+        sm.equalizer_client_proxy_service = None
+        sm.equalizer_settings_sync_service = None
+        sm.camilladsp_service = None
+
+        volume_service = AsyncMock()
+        volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
+        volume_service.broadcast_volume_state = AsyncMock()
+        # The stored per-client values, deliberately unlike every peer level
+        # below so a resolver that read them could not coincide with one.
+        volume_service.state_store.get_client_volume = MagicMock(return_value=-70.0)
+        volume_service.state_store.get_client_mute = MagicMock(return_value=True)
+        volume_service.state_store.set_client_volume = AsyncMock()
+        volume_service.equalizer_controller = AsyncMock()
+        volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
+        volume_service.equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
+        sm.volume_service = volume_service
+        return sm
+
+    async def _zone_with_two_peers_online(self, mock_settings_service, mock_state_machine):
+        """client-1 reconnecting into a zone whose two online members sit at -30/-40."""
+        from backend.core.multiroom.client_registry import ClientRegistryService
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        registry = ClientRegistryService(settings_service=mock_settings_service)
+        await registry.initialize()
+        attach_registry_broadcaster(registry, mock_state_machine)
+
+        for i, ip in enumerate(("192.168.1.1", "192.168.1.2", "192.168.1.3"), start=1):
+            await registry.register_client(f"client-{i}", f"Client {i}", ip)
+        await registry.update_volume("client-2", volume_db=-30.0)
+        await registry.update_volume("client-3", volume_db=-40.0)
+        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2", "client-3"])
+        await registry.set_client_online("client-1", False)
+        await registry.set_client_online("client-2", True)
+        await registry.set_client_online("client-3", True)
+
+        ws_service = SnapcastWebSocketService(
+            state_machine=mock_state_machine,
+            routing_service=MagicMock(),
+        )
+        ws_service.set_registry(registry)
+        ws_service._volume_service = mock_state_machine.volume_service
+        return registry, ws_service
+
+    @pytest.mark.asyncio
+    async def test_the_stored_volume_is_not_what_a_reconnect_applies(
+        self, mock_settings_service, mock_state_machine
+    ):
+        """A level set while the client was offline is discarded, not replayed."""
+        registry, ws_service = await self._zone_with_two_peers_online(
+            mock_settings_service, mock_state_machine
+        )
+
+        context = registry.get_reconnection_context("client-1")
+        target = ws_service._resolve_target_volume("client-1", context)
+
+        assert target == -35.0, "the peers' average is the target"
+        assert target != -70.0, "the client's own stored level is not"
+        mock_state_machine.volume_service.state_store.get_client_volume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_the_stored_mute_is_what_a_reconnect_applies(
+        self, mock_settings_service, mock_state_machine
+    ):
+        """Mute is the exception, and the reason the route's old line was half true.
+
+        It is also load-bearing on its own: CamillaDSP starts muted from its -m
+        flag, so the reconnect is what decides whether the speaker makes sound.
+        """
+        _, ws_service = await self._zone_with_two_peers_online(
+            mock_settings_service, mock_state_machine
+        )
+
+        assert await ws_service._apply_target_volume_to_client("client-1", -35.0) is True
+
+        eq = mock_state_machine.volume_service.equalizer_controller
+        eq.set_equalizer_mute.assert_awaited_once_with("client-1", True, force=True)
