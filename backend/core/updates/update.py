@@ -61,14 +61,60 @@ class UpdateService(VersionService):
             return {"success": False, "error": str(e)}
 
     async def _get_current_commit(self, git_path: str) -> str:
-        """Get current HEAD commit hash"""
+        """Get current HEAD commit hash, or "" when it cannot be read.
+
+        The empty string is what `_update_milo_app`'s `if original_commit:`
+        guard reads as "nothing to roll back to", and it then skips the
+        automatic rollback entirely — rightly, since `git reset --hard ""`
+        would be worse. So the failure is logged at error here: an update with
+        no rollback point must say so before it starts, not disappear into an
+        update that fails quietly at the end.
+        """
         proc = await asyncio.create_subprocess_exec(
             "git", "-C", git_path, "rev-parse", "HEAD",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, _ = await proc.communicate()
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode != 0:
+            self.update_logger.error(
+                f"Cannot read HEAD in {git_path}: {stderr.decode().strip()} - "
+                "this update will have no automatic rollback"
+            )
+            return ""
+
         return stdout.decode().strip()
+
+    @staticmethod
+    def _failure_after_rollback(error: str, rolled_back: bool) -> Dict[str, Any]:
+        """The failure envelope of a path that restored the previous version.
+
+        `success` is False either way — what the two outcomes distinguish is
+        whether the program is running again, which is the only half the owner
+        can act on. The route logs `error` at error level, so both reach the
+        UI's banner.
+        """
+        outcome = (
+            "Rolled back to previous version."
+            if rolled_back
+            else "Rollback also failed - manual intervention required."
+        )
+        return {"success": False, "error": f"{error} {outcome}"}
+
+    @staticmethod
+    def _failure_after_restore(error: str, restored: bool) -> Dict[str, Any]:
+        """Same, for multiroom: nothing is reinstalled, only the units go back.
+
+        A snapcast unit that did not come back leaves the appliance mute, so it
+        is worth a different sentence than a binary that was not restored.
+        """
+        outcome = (
+            "Multiroom services restored."
+            if restored
+            else "Some multiroom services did not come back - manual intervention required."
+        )
+        return {"success": False, "error": f"{error} {outcome}"}
 
     async def _rollback_milo_to_commit(self, commit_hash: str, progress_callback: Optional[Callable] = None) -> bool:
         """Rollback Milo to a specific commit and rebuild"""
@@ -127,7 +173,12 @@ class UpdateService(VersionService):
             # Restart services. Kiosk first (observable); milo-backend LAST and
             # fire-and-forget — restarting our own unit tears this process down
             # mid-call, so anything after it would not run.
-            await self._restart_service("milo-kiosk.service")
+            if not await self._restart_service("milo-kiosk.service"):
+                # Logged, not fatal: the tree is back on the previous commit and
+                # the backend restart below is what puts it back in service. A
+                # kiosk that stayed down is a black screen the owner has to be
+                # told about, not a reason to call the rollback failed.
+                self.update_logger.error("Kiosk failed to restart after the rollback")
             await self._systemd.restart_self(config["service_name"])
 
             self.update_logger.info("Milo rollback completed successfully")
@@ -152,7 +203,8 @@ class UpdateService(VersionService):
 
             # 2. Save current commit for potential rollback
             original_commit = await self._get_current_commit(config["git_path"])
-            self.update_logger.info(f"Current commit before update: {original_commit[:8]}")
+            if original_commit:
+                self.update_logger.info(f"Current commit before update: {original_commit[:8]}")
 
             if progress_callback:
                 await progress_callback("updates.progress.fetchingUpdates", 10)
@@ -182,6 +234,11 @@ class UpdateService(VersionService):
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await proc.communicate()
+
+            # An unread exit code makes a failed status indistinguishable from a
+            # clean tree: both give empty stdout, and the pull would proceed.
+            if proc.returncode != 0:
+                return {"success": False, "error": f"Git status failed: {stderr.decode()}"}
 
             if stdout.decode().strip():
                 return {"success": False, "error": "Local changes detected. Please commit or stash them first."}
@@ -277,18 +334,10 @@ class UpdateService(VersionService):
 
                 rollback_success = await self._rollback_milo_to_commit(original_commit, progress_callback)
 
-                if rollback_success:
-                    if progress_callback:
-                        await progress_callback("updates.progress.rollbackComplete", 100)
-                    return {
-                        "success": False,
-                        "error": f"Update failed: {str(e)}. Rolled back to previous version.",
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": f"Update failed: {str(e)}. Rollback also failed - manual intervention required.",
-                    }
+                if rollback_success and progress_callback:
+                    await progress_callback("updates.progress.rollbackComplete", 100)
+
+                return self._failure_after_rollback(f"Update failed: {e}.", rollback_success)
 
             return {"success": False, "error": str(e)}
 
@@ -416,8 +465,8 @@ class UpdateService(VersionService):
             )
             if not success:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
-                await self._rollback_binary_program(config, run_service)
-                return {"success": False, "error": f"Failed to install binary: {output}"}
+                rolled_back = await self._rollback_binary_program(config, run_service)
+                return self._failure_after_rollback(f"Failed to install binary: {output}.", rolled_back)
 
             if run_service:
                 if progress_callback:
@@ -425,8 +474,10 @@ class UpdateService(VersionService):
 
                 if not await self._start_service(config["service_name"]):
                     await self._cleanup_temp_files(download_result.get("temp_dir"))
-                    await self._rollback_binary_program(config, run_service)
-                    return {"success": False, "error": f"Failed to start {display_name} after update"}
+                    rolled_back = await self._rollback_binary_program(config, run_service)
+                    return self._failure_after_rollback(
+                        f"Failed to start {display_name} after update.", rolled_back
+                    )
 
             if progress_callback:
                 await progress_callback("updates.progress.verifyingUpdate", 95)
@@ -434,8 +485,8 @@ class UpdateService(VersionService):
             verify_result = await self._verify_binary_program(config, run_service)
             if not verify_result["success"]:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
-                await self._rollback_binary_program(config, run_service)
-                return verify_result
+                rolled_back = await self._rollback_binary_program(config, run_service)
+                return self._failure_after_rollback(f"{verify_result['error']}.", rolled_back)
 
             if progress_callback:
                 await progress_callback("updates.progress.completed", 100)
@@ -448,9 +499,12 @@ class UpdateService(VersionService):
             self.update_logger.error(f"{display_name} update failed: {e}")
             if download_result:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
-            if service_stopped:
-                await self._rollback_binary_program(config, run_service)
-            return {"success": False, "error": str(e)}
+            if not service_stopped:
+                # Nothing was replaced yet, so there is nothing to restore and no
+                # rollback outcome to report.
+                return {"success": False, "error": str(e)}
+            rolled_back = await self._rollback_binary_program(config, run_service)
+            return self._failure_after_rollback(f"{e}.", rolled_back)
 
     async def _backup_binary_program(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Backs up the program's binary, plus its config file when it has one.
@@ -551,7 +605,13 @@ class UpdateService(VersionService):
                 self.update_logger.error("No backup found for rollback")
                 return False
 
-            await self._stop_service(config["service_name"])
+            # A unit that refuses to stop keeps its image loaded: install-binary
+            # either hits "Text file busy" or writes a file nothing is running,
+            # and the start below would report the *new* binary still up. Neither
+            # is a rollback, so it does not claim one.
+            if not await self._stop_service(config["service_name"]):
+                self.update_logger.error(f"{display_name} did not stop, cannot restore its binary")
+                return False
             await asyncio.sleep(0.5)
 
             # Copy backup to /tmp for install-binary (requires temp path)
@@ -567,8 +627,9 @@ class UpdateService(VersionService):
             finally:
                 tmp_backup.unlink(missing_ok=True)
 
-            if restart_service:
-                await self._start_service(config["service_name"])
+            if restart_service and not await self._start_service(config["service_name"]):
+                self.update_logger.error(f"{display_name} binary restored but the service did not start")
+                return False
 
             self.update_logger.info(f"{display_name} rollback completed (service {'restarted' if restart_service else 'left stopped'})")
             return True
@@ -577,7 +638,7 @@ class UpdateService(VersionService):
             self.update_logger.error(f"{display_name} rollback failed: {e}")
             return False
 
-    async def _restore_multiroom_services(self, services_were_active: Dict[str, bool]) -> None:
+    async def _restore_multiroom_services(self, services_were_active: Dict[str, bool]) -> bool:
         """Starts back only the multiroom units that were running before the update.
 
         The two snapcast units have no `WantedBy`: their lifecycle is owned solely
@@ -586,13 +647,21 @@ class UpdateService(VersionService):
         was inactive leaves snapclient holding hw:Loopback,0,0, so the next
         direct-mode source opens a busy device and plays silence until a reboot or a
         manual multiroom toggle.
+
+        Returns whether every unit that was running before the update is running
+        again. The recovery branches report it; the success path does not, on
+        purpose — there the caller has nothing better to say than the per-unit
+        error already logged here.
         """
+        restored = True
         for service, was_active in services_were_active.items():
             if not was_active:
                 self.update_logger.info(f"Leaving {service} stopped (it was inactive before the update)")
                 continue
             if not await self._start_service(service):
                 self.update_logger.error(f"Failed to start {service}")
+                restored = False
+        return restored
 
     async def _update_multiroom(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Updates both snapserver and snapclient atomically"""
@@ -636,10 +705,12 @@ class UpdateService(VersionService):
 
             server_install = await self._install_deb_package(server_download["deb_path"])
             if not server_install["success"]:
-                await self._restore_multiroom_services(services_were_active)
+                restored = await self._restore_multiroom_services(services_were_active)
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
                 await self._cleanup_temp_files(client_download.get("temp_dir"))
-                return {"success": False, "error": f"Failed to install snapserver: {server_install.get('error')}"}
+                return self._failure_after_restore(
+                    f"Failed to install snapserver: {server_install.get('error')}.", restored
+                )
 
             # Phase 4: Install snapclient (60-80%)
             if progress_callback:
@@ -648,13 +719,12 @@ class UpdateService(VersionService):
             client_install = await self._install_deb_package(client_download["deb_path"])
             if not client_install["success"]:
                 self.update_logger.warning(f"Snapclient installation failed after snapserver succeeded: {client_install.get('error')}")
-                await self._restore_multiroom_services(services_were_active)
+                restored = await self._restore_multiroom_services(services_were_active)
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
                 await self._cleanup_temp_files(client_download.get("temp_dir"))
-                return {
-                    "success": False,
-                    "error": f"Snapserver updated but snapclient failed: {client_install.get('error')}",
-                }
+                return self._failure_after_restore(
+                    f"Snapserver updated but snapclient failed: {client_install.get('error')}.", restored
+                )
 
             # Phase 5: Restart services (80-95%)
             if progress_callback:
@@ -678,12 +748,16 @@ class UpdateService(VersionService):
 
         except Exception as e:
             self.update_logger.error(f"Multiroom update failed: {e}")
-            await self._restore_multiroom_services(services_were_active)
+            restored = await self._restore_multiroom_services(services_were_active)
             if server_download:
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
             if client_download:
                 await self._cleanup_temp_files(client_download.get("temp_dir"))
-            return {"success": False, "error": str(e)}
+            # Nothing was stopped before phase 2, so there is nothing to restore
+            # and no outcome to report — services_were_active is still empty.
+            if not services_were_active:
+                return {"success": False, "error": str(e)}
+            return self._failure_after_restore(f"{e}.", restored)
 
     # === SHAIRPORT-SYNC (compile from source) ===
 
@@ -751,9 +825,9 @@ class UpdateService(VersionService):
 
             install_result = await self._install_shairport_sync(source_dir)
             if not install_result["success"]:
-                await self._rollback_shairport_sync(config, service_was_active)
+                rolled_back = await self._rollback_shairport_sync(config, service_was_active)
                 await self._cleanup_temp_files(temp_dir)
-                return install_result
+                return self._failure_after_rollback(f"{install_result['error']}.", rolled_back)
 
             # Phase 7: Restart service if it was active (85%)
             if service_was_active:
@@ -762,9 +836,11 @@ class UpdateService(VersionService):
 
                 start_result = await self._start_service(config["service_name"])
                 if not start_result:
-                    await self._rollback_shairport_sync(config, service_was_active)
+                    rolled_back = await self._rollback_shairport_sync(config, service_was_active)
                     await self._cleanup_temp_files(temp_dir)
-                    return {"success": False, "error": "Failed to start service after update"}
+                    return self._failure_after_rollback(
+                        "Failed to start service after update.", rolled_back
+                    )
 
             # Phase 8: Verify (90%)
             if progress_callback:
@@ -772,9 +848,9 @@ class UpdateService(VersionService):
 
             verify_result = await self._verify_shairport_sync_update(config, service_was_active)
             if not verify_result["success"]:
-                await self._rollback_shairport_sync(config, service_was_active)
+                rolled_back = await self._rollback_shairport_sync(config, service_was_active)
                 await self._cleanup_temp_files(temp_dir)
-                return verify_result
+                return self._failure_after_rollback(f"{verify_result['error']}.", rolled_back)
 
             # Write version file for reliable version tracking
             try:
@@ -796,10 +872,10 @@ class UpdateService(VersionService):
 
         except Exception as e:
             self.update_logger.error(f"shairport-sync update failed: {e}")
-            await self._rollback_shairport_sync(config, service_was_active)
+            rolled_back = await self._rollback_shairport_sync(config, service_was_active)
             if temp_dir:
                 await self._cleanup_temp_files(temp_dir)
-            return {"success": False, "error": str(e)}
+            return self._failure_after_rollback(f"{e}.", rolled_back)
 
     async def _backup_shairport_sync(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Backs up the shairport-sync binary"""
@@ -1019,7 +1095,11 @@ class UpdateService(VersionService):
                 self.update_logger.error("No backup found for rollback")
                 return False
 
-            await self._stop_service(config["service_name"])
+            # Same as _rollback_binary_program: a unit that will not stop makes
+            # the restore unverifiable, so it is not claimed.
+            if not await self._stop_service(config["service_name"]):
+                self.update_logger.error("shairport-sync did not stop, cannot restore its binary")
+                return False
 
             # Copy backup to /tmp for install-binary (requires temp path)
             tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
@@ -1034,8 +1114,9 @@ class UpdateService(VersionService):
             finally:
                 tmp_backup.unlink(missing_ok=True)
 
-            if service_was_active:
-                await self._start_service(config["service_name"])
+            if service_was_active and not await self._start_service(config["service_name"]):
+                self.update_logger.error("shairport-sync binary restored but the service did not start")
+                return False
 
             self.update_logger.info(f"shairport-sync rollback completed (service {'restarted' if service_was_active else 'left stopped'})")
             return True
@@ -1092,6 +1173,10 @@ class UpdateService(VersionService):
         service_was_active = await self._is_service_active(service)
         self.update_logger.info(f"Service {service} was {'active' if service_was_active else 'inactive'} before update")
 
+        # Nothing to roll back to before phase 1 completes, so a failure above
+        # that line reports no rollback outcome at all.
+        backed_up = False
+
         try:
             # Phase 1: Back up the venv (10%)
             if progress_callback:
@@ -1100,6 +1185,7 @@ class UpdateService(VersionService):
             backup_result = await self._backup_qobuz_venv(config)
             if not backup_result["success"]:
                 return backup_result
+            backed_up = True
 
             # Phase 2: Stop the sidecar before touching the venv (50%).
             # Normally already stopped (the route deactivates Qobuz pre-update),
@@ -1109,8 +1195,8 @@ class UpdateService(VersionService):
                     await progress_callback("updates.progress.stoppingService", 50)
 
                 if not await self._stop_service(service):
-                    await self._rollback_qobuz_venv(config, service_was_active)
-                    return {"success": False, "error": "Failed to stop service"}
+                    rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
+                    return self._failure_after_rollback("Failed to stop service.", rolled_back)
 
             # Phase 3: pip upgrade to the pinned tag (70%) — unprivileged
             if progress_callback:
@@ -1123,8 +1209,8 @@ class UpdateService(VersionService):
             )
             if not pip_ok:
                 self.update_logger.error(f"qobuz-proxy pip upgrade failed: {pip_out}")
-                await self._rollback_qobuz_venv(config, service_was_active)
-                return {"success": False, "error": f"pip install failed: {pip_out}"}
+                rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
+                return self._failure_after_rollback(f"pip install failed: {pip_out}.", rolled_back)
 
             # Phase 4: re-apply our vendored patches (85%) — the fragile step
             if progress_callback:
@@ -1135,8 +1221,10 @@ class UpdateService(VersionService):
             )
             if not patch_ok:
                 self.update_logger.error(f"qobuz-proxy patches failed: {patch_out}")
-                await self._rollback_qobuz_venv(config, service_was_active)
-                return {"success": False, "error": f"Patching failed (upstream sources may have changed): {patch_out}"}
+                rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
+                return self._failure_after_rollback(
+                    f"Patching failed (upstream sources may have changed): {patch_out}.", rolled_back
+                )
 
             # Phase 5: verify import + version (95%)
             if progress_callback:
@@ -1144,13 +1232,21 @@ class UpdateService(VersionService):
 
             verify_result = await self._verify_qobuz_update(config, latest_version)
             if not verify_result["success"]:
-                await self._rollback_qobuz_venv(config, service_was_active)
-                return verify_result
+                rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
+                return self._failure_after_rollback(f"{verify_result['error']}.", rolled_back)
 
             # Restart only if it was active; otherwise the sidecar stays stopped
             # and starts on demand when the user next selects Qobuz.
-            if service_was_active:
-                await self._start_service(service)
+            if service_was_active and not await self._start_service(service):
+                # No rollback: the venv is upgraded and verified — it is the
+                # restart that did not happen, and undoing a good update over
+                # that would be worse. Same call as the refused reboot in
+                # _update_milo_app, and the backup is kept for the same reason.
+                self.update_logger.error("qobuz-proxy updated but its service did not restart")
+                return {
+                    "success": False,
+                    "error": "qobuz-proxy updated but its service did not restart. Restart it manually.",
+                }
 
             if progress_callback:
                 await progress_callback("updates.progress.completed", 100)
@@ -1161,8 +1257,10 @@ class UpdateService(VersionService):
 
         except Exception as e:
             self.update_logger.error(f"qobuz-proxy update failed: {e}")
-            await self._rollback_qobuz_venv(config, service_was_active)
-            return {"success": False, "error": str(e)}
+            if not backed_up:
+                return {"success": False, "error": str(e)}
+            rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
+            return self._failure_after_rollback(f"{e}.", rolled_back)
 
     async def _backup_qobuz_venv(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Copies the whole venv to backup_path/venv so a failed upgrade can roll back."""
@@ -1193,7 +1291,13 @@ class UpdateService(VersionService):
                 self.update_logger.error("No qobuz-proxy venv backup found for rollback")
                 return False
 
-            await self._stop_service(config["service_name"])
+            # Refusing to touch the venv of a unit that would not stop is the
+            # point: the rm below would pull it out from under a running
+            # process, and the start further down would report the *new* code
+            # still up as a successful restore.
+            if not await self._stop_service(config["service_name"]):
+                self.update_logger.error("qobuz-proxy did not stop, cannot restore its venv")
+                return False
 
             ok, out = await self._run_local("rm", "-rf", config["venv_path"], timeout=120)
             if not ok:
@@ -1205,8 +1309,9 @@ class UpdateService(VersionService):
                 self.update_logger.error(f"qobuz-proxy rollback (mv) failed: {out}")
                 return False
 
-            if service_was_active:
-                await self._start_service(config["service_name"])
+            if service_was_active and not await self._start_service(config["service_name"]):
+                self.update_logger.error("qobuz-proxy venv restored but the service did not start")
+                return False
 
             self.update_logger.info(f"qobuz-proxy rollback completed (service {'restarted' if service_was_active else 'left stopped'})")
             return True
