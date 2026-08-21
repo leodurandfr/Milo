@@ -23,7 +23,6 @@ from backend.core.multiroom.models import (
     EqualizerSettings,
     RegistryState,
     RegistryEventType,
-    ReconnectionContext,
     SPEAKER_TYPES,
     DEFAULT_SPEAKER_TYPE,
     CompressorSettings,
@@ -63,8 +62,6 @@ class TestClient:
         assert client.online is False
         assert client.zone_id is None
         assert client.speaker_type == DEFAULT_SPEAKER_TYPE
-        assert client.volume_db == DEFAULT_VOLUME_DB
-        assert client.mute is False
         assert client.eq_independent is False
         assert client.delay_ms == 0
 
@@ -78,8 +75,6 @@ class TestClient:
             speaker_type="satellite",
             online=True,
             zone_id="zone-123",
-            volume_db=-25.0,
-            mute=True,
             eq_independent=True,
             delay_ms=40
         )
@@ -93,8 +88,6 @@ class TestClient:
         assert data["ip"] == "192.168.1.100"
         assert data["speaker_type"] == "satellite"
         assert data["zone_id"] == "zone-123"
-        assert data["volume_db"] == -25.0
-        assert data["mute"] is True
         assert data["eq_independent"] is True
         assert data["delay_ms"] == 40
         # Runtime fields are now included by default for complete WebSocket events
@@ -102,7 +95,7 @@ class TestClient:
 
         # Verify all expected fields are present (including is_local, host, volume_control)
         expected_fields = {"mac_id", "name", "ip", "host", "speaker_type", "zone_id",
-                          "volume_db", "mute", "online", "is_local", "volume_control",
+                          "online", "is_local", "volume_control",
                           "eq_independent", "delay_ms"}
         assert set(data.keys()) == expected_fields
 
@@ -110,7 +103,7 @@ class TestClient:
         # runtime owner, and what it writes reloads into the same client.
         data_persist = client.to_dict(include_runtime=False)
         assert set(data_persist) <= set(data)
-        for runtime_owned in ("online", "is_local", "host", "volume_db", "mute"):
+        for runtime_owned in ("online", "is_local", "host"):
             assert runtime_owned not in data_persist
         reloaded = Client.from_dict(data_persist)
         for name in data_persist:
@@ -926,9 +919,7 @@ class TestNoDanglingZoneReference:
     A dangling reference is not cosmetic: MultiroomEqualizerService raises
     ValueError("client is in zone X") for a client that is actually standalone,
     so PUT /api/equalizer/target/<mac> fails for that speaker permanently — the
-    reference is persisted — and get_reconnection_context reads it as
-    IN_ZONE_ALL_OFFLINE, reconnecting at startup volume instead of the peer
-    average.
+    reference is persisted.
 
     Every mutation that can drop a zone below its 2-member minimum is driven
     here; unregister_client was the one that did not detach the survivors.
@@ -1030,373 +1021,6 @@ class TestNoDanglingZoneReference:
 
         assert survivor.zone_id is None
         assert registry.get_zone_for_client(macs[1]) is None
-        assert registry.get_reconnection_context(macs[1]) in (
-            ReconnectionContext.STANDALONE_ALONE,
-            ReconnectionContext.STANDALONE_OTHERS_ONLINE,
-        )
-
-
-class TestZoneAverageVolume:
-    """Tests for get_zone_average_volume() method."""
-
-    @pytest.fixture
-    def mock_settings_service(self):
-        """Create a mock settings service."""
-        service = AsyncMock()
-        service.get_setting = AsyncMock(return_value=None)
-        service.set_setting = AsyncMock()
-        return service
-
-    @pytest.fixture
-    def registry(self, mock_settings_service):
-        """Create a ClientRegistryService instance."""
-        return ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-
-    @pytest.mark.asyncio
-    async def test_get_zone_average_volume_multiple_online_clients(self, registry):
-        """Test zone average with multiple ONLINE clients returns correct average."""
-        await registry.initialize()
-
-        # Register 3 clients with different volumes
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        # Set different volumes
-        await registry.update_volume("client-1", volume_db=-20.0)
-        await registry.update_volume("client-2", volume_db=-30.0)
-        await registry.update_volume("client-3", volume_db=-40.0)
-
-        # Set all online
-        await registry.set_client_online("client-1", True)
-        await registry.set_client_online("client-2", True)
-        await registry.set_client_online("client-3", True)
-
-        # Create zone with all 3 clients
-        await registry.create_zone(
-            zone_id="zone-1",
-            name="Test Zone",
-            client_ids=["client-1", "client-2", "client-3"]
-        )
-
-        # Test zone average (excluding none - all clients included)
-        avg = registry.get_zone_average_volume("zone-1")
-
-        # Average of -20, -30, -40 = -30
-        assert avg == -30.0
-
-    @pytest.mark.asyncio
-    async def test_get_zone_average_volume_excludes_reconnecting_client(self, registry):
-        """Test zone average excludes the reconnecting client."""
-        await registry.initialize()
-
-        # Register 3 clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        # Set volumes: client-1=-20, client-2=-30, client-3=-40
-        await registry.update_volume("client-1", volume_db=-20.0)
-        await registry.update_volume("client-2", volume_db=-30.0)
-        await registry.update_volume("client-3", volume_db=-40.0)
-
-        # Set all online
-        await registry.set_client_online("client-1", True)
-        await registry.set_client_online("client-2", True)
-        await registry.set_client_online("client-3", True)
-
-        # Create zone
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2", "client-3"])
-
-        # Test zone average excluding client-1 (simulating reconnection)
-        avg = registry.get_zone_average_volume("zone-1", exclude_mac_id="client-1")
-
-        # Average of -30, -40 = -35
-        assert avg == -35.0
-
-    @pytest.mark.asyncio
-    async def test_get_zone_average_volume_single_online_client(self, registry):
-        """Test zone average with only one ONLINE client returns that client's volume."""
-        await registry.initialize()
-
-        # Register 2 clients (minimum for zone)
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-
-        await registry.update_volume("client-1", volume_db=-25.0)
-        await registry.update_volume("client-2", volume_db=-40.0)
-
-        # Only client-1 is online
-        await registry.set_client_online("client-1", True)
-        await registry.set_client_online("client-2", False)
-
-        # Create zone
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"])
-
-        # Test zone average (only client-1 is online)
-        avg = registry.get_zone_average_volume("zone-1")
-
-        assert avg == -25.0
-
-    @pytest.mark.asyncio
-    async def test_get_zone_average_volume_no_online_clients(self, registry):
-        """Test zone average with NO online clients returns None (trigger)."""
-        await registry.initialize()
-
-        # Register 2 clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-
-        # Both offline
-        await registry.set_client_online("client-1", False)
-        await registry.set_client_online("client-2", False)
-
-        # Create zone
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"])
-
-        # Test zone average
-        avg = registry.get_zone_average_volume("zone-1")
-
-        # Should return None because no ONLINE clients
-        assert avg is None
-
-    @pytest.mark.asyncio
-    async def test_get_zone_average_volume_all_excluded(self, registry):
-        """Test zone average when all clients are excluded returns None."""
-        await registry.initialize()
-
-        # Register 2 clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-
-        await registry.update_volume("client-1", volume_db=-20.0)
-        await registry.update_volume("client-2", volume_db=-30.0)
-
-        # Only client-1 is online
-        await registry.set_client_online("client-1", True)
-        await registry.set_client_online("client-2", False)
-
-        # Create zone
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"])
-
-        # Exclude the only online client
-        avg = registry.get_zone_average_volume("zone-1", exclude_mac_id="client-1")
-
-        # Should return None because no other ONLINE clients
-        assert avg is None
-
-    @pytest.mark.asyncio
-    async def test_get_zone_average_volume_invalid_zone(self, registry):
-        """Test zone average with invalid zone_id returns None."""
-        await registry.initialize()
-
-        avg = registry.get_zone_average_volume("nonexistent-zone")
-
-        assert avg is None
-
-    @pytest.mark.asyncio
-    async def test_get_zone_average_volume_excludes_offline_clients(self, registry):
-        """Test zone average only includes ONLINE clients, excludes offline."""
-        await registry.initialize()
-
-        # Register 3 clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        # Set volumes
-        await registry.update_volume("client-1", volume_db=-10.0)  # ONLINE
-        await registry.update_volume("client-2", volume_db=-50.0)  # OFFLINE (should be excluded)
-        await registry.update_volume("client-3", volume_db=-30.0)  # ONLINE
-
-        # Set online status
-        await registry.set_client_online("client-1", True)
-        await registry.set_client_online("client-2", False)  # OFFLINE
-        await registry.set_client_online("client-3", True)
-
-        # Create zone
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2", "client-3"])
-
-        # Test zone average (should only include client-1 and client-3)
-        avg = registry.get_zone_average_volume("zone-1")
-
-        # Average of -10 and -30 = -20 (client-2's -50 is excluded)
-        assert avg == -20.0
-
-
-class TestGlobalAverageVolume:
-    """Tests for get_global_average_volume() method."""
-
-    @pytest.fixture
-    def mock_settings_service(self):
-        """Create a mock settings service."""
-        service = AsyncMock()
-        service.get_setting = AsyncMock(return_value=None)
-        service.set_setting = AsyncMock()
-        return service
-
-    @pytest.fixture
-    def registry(self, mock_settings_service):
-        """Create a ClientRegistryService instance."""
-        return ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-
-    @pytest.mark.asyncio
-    async def test_global_average_multiple_online_clients(self, registry):
-        """Test global average with multiple ONLINE clients returns correct average."""
-        await registry.initialize()
-
-        # Register 3 clients with different volumes - mix of standalone and zoned
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        # Set all online with different volumes
-        await registry.set_client_online("client-1", True)
-        await registry.set_client_online("client-2", True)
-        await registry.set_client_online("client-3", True)
-        await registry.update_volume("client-1", volume_db=-20.0)
-        await registry.update_volume("client-2", volume_db=-30.0)
-        await registry.update_volume("client-3", volume_db=-40.0)
-
-        # Test global average (all clients included)
-        avg = registry.get_global_average_volume()
-
-        # Average of -20, -30, -40 = -30
-        assert avg == -30.0
-
-    @pytest.mark.asyncio
-    async def test_global_average_excludes_reconnecting_client(self, registry):
-        """Test global average excludes the reconnecting client."""
-        await registry.initialize()
-
-        # Register 3 clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        # Set all online
-        await registry.set_client_online("client-1", True)
-        await registry.set_client_online("client-2", True)
-        await registry.set_client_online("client-3", True)
-        await registry.update_volume("client-1", volume_db=-20.0)
-        await registry.update_volume("client-2", volume_db=-30.0)
-        await registry.update_volume("client-3", volume_db=-40.0)
-
-        # Test global average excluding client-1 (simulating reconnection)
-        avg = registry.get_global_average_volume(exclude_mac_id="client-1")
-
-        # Average of -30, -40 = -35
-        assert avg == -35.0
-
-    @pytest.mark.asyncio
-    async def test_global_average_single_online_client(self, registry):
-        """Test global average with only one ONLINE client returns that client's volume."""
-        await registry.initialize()
-
-        # Register 2 clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-
-        # Only client-1 is online
-        await registry.set_client_online("client-1", True)
-        await registry.update_volume("client-1", volume_db=-25.0)
-
-        # Test global average (only client-1 is online)
-        avg = registry.get_global_average_volume()
-
-        assert avg == -25.0
-
-    @pytest.mark.asyncio
-    async def test_global_average_no_online_clients(self, registry):
-        """Test global average with NO online clients returns None (trigger)."""
-        await registry.initialize()
-
-        # Register 2 clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-
-        # Neither is online
-
-        # Test global average
-        avg = registry.get_global_average_volume()
-
-        # Should return None because no ONLINE clients
-        assert avg is None
-
-    @pytest.mark.asyncio
-    async def test_global_average_all_excluded(self, registry):
-        """Test global average when all clients are excluded returns None."""
-        await registry.initialize()
-
-        # Register 1 client
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.set_client_online("client-1", True)
-        await registry.update_volume("client-1", volume_db=-25.0)
-
-        # Exclude the only online client
-        avg = registry.get_global_average_volume(exclude_mac_id="client-1")
-
-        # Should return None because no other ONLINE clients
-        assert avg is None
-
-    @pytest.mark.asyncio
-    async def test_global_average_includes_both_zoned_and_standalone(self, registry):
-        """Test global average includes clients in zones AND standalone clients."""
-        await registry.initialize()
-
-        # Register 4 clients
-        await registry.register_client("zone-client-1", "Zone Client 1", "192.168.1.1")
-        await registry.register_client("zone-client-2", "Zone Client 2", "192.168.1.2")
-        await registry.register_client("standalone-1", "Standalone 1", "192.168.1.3")
-        await registry.register_client("standalone-2", "Standalone 2", "192.168.1.4")
-
-        # Create zone with 2 clients
-        await registry.create_zone("zone-1", "Test Zone", ["zone-client-1", "zone-client-2"])
-
-        # Set all online with volumes
-        await registry.set_client_online("zone-client-1", True)
-        await registry.set_client_online("zone-client-2", True)
-        await registry.set_client_online("standalone-1", True)
-        await registry.set_client_online("standalone-2", True)
-        await registry.update_volume("zone-client-1", volume_db=-10.0)
-        await registry.update_volume("zone-client-2", volume_db=-20.0)
-        await registry.update_volume("standalone-1", volume_db=-30.0)
-        await registry.update_volume("standalone-2", volume_db=-40.0)
-
-        # Test global average (all 4 clients)
-        avg = registry.get_global_average_volume()
-
-        # Average of -10, -20, -30, -40 = -25
-        assert avg == -25.0
-
-    @pytest.mark.asyncio
-    async def test_global_average_excludes_offline_clients(self, registry):
-        """Test global average only includes ONLINE clients, excludes offline."""
-        await registry.initialize()
-
-        # Register 3 clients
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        # Only client-1 and client-3 are online
-        await registry.set_client_online("client-1", True)
-        # client-2 stays offline
-        await registry.set_client_online("client-3", True)
-
-        await registry.update_volume("client-1", volume_db=-10.0)
-        await registry.update_volume("client-2", volume_db=-50.0)  # This should be excluded
-        await registry.update_volume("client-3", volume_db=-30.0)
-
-        # Test global average (should only include client-1 and client-3)
-        avg = registry.get_global_average_volume()
-
-        # Average of -10 and -30 = -20 (client-2's -50 is excluded)
-        assert avg == -20.0
 
 
 # =============================================================================
@@ -2437,7 +2061,6 @@ class TestSnapcastClientDetection:
 
         # Verify default values
         assert client.speaker_type == DEFAULT_SPEAKER_TYPE  # 'bookshelf'
-        assert client.volume_db == DEFAULT_VOLUME_DB  # -45.0
         assert client.online is True
         assert client.zone_id is None  # standalone
 
@@ -2601,7 +2224,6 @@ class TestSnapcastClientDetection:
         await registry.set_client_online("aa:bb:cc:dd:ee:01", True)
         await registry.update_client("aa:bb:cc:dd:ee:01", name="A2")
         await registry.update_client("aa:bb:cc:dd:ee:01", speaker_type="subwoofer")
-        await registry.update_volume("aa:bb:cc:dd:ee:01", volume_db=-30.0, mute=True)
         await registry.set_client_equalizer(
             "aa:bb:cc:dd:ee:03", EqualizerSettings.default_for_zone()
         )
@@ -2615,333 +2237,6 @@ class TestSnapcastClientDetection:
 
         # state_machine never touched.
         mock_state_machine.broadcast.assert_not_called()
-
-
-# =============================================================================
-# Reconnection Context Detection Tests
-# =============================================================================
-
-
-class TestReconnectionContextEnum:
-    """Tests for ReconnectionContext enum."""
-
-    def test_enum_values_defined(self):
-        """Test that all 4 context values are defined."""
-        assert ReconnectionContext.IN_ZONE_OTHERS_ONLINE == "in_zone_others_online"
-        assert ReconnectionContext.IN_ZONE_ALL_OFFLINE == "in_zone_all_offline"
-        assert ReconnectionContext.STANDALONE_OTHERS_ONLINE == "standalone_others_online"
-        assert ReconnectionContext.STANDALONE_ALONE == "standalone_alone"
-
-    def test_enum_is_string(self):
-        """Test that enum values are strings (for JSON serialization)."""
-        assert isinstance(ReconnectionContext.IN_ZONE_OTHERS_ONLINE.value, str)
-        assert isinstance(ReconnectionContext.IN_ZONE_ALL_OFFLINE.value, str)
-        assert isinstance(ReconnectionContext.STANDALONE_OTHERS_ONLINE.value, str)
-        assert isinstance(ReconnectionContext.STANDALONE_ALONE.value, str)
-
-    def test_enum_count(self):
-        """Test that exactly 4 context values exist."""
-        assert len(ReconnectionContext) == 4
-
-
-class TestReconnectionContextDetection:
-    """
-    Tests for reconnection context detection.
-
-    Tests cover: - Zone membership detection
-    - IN_ZONE context detection (others online/offline)
-    - STANDALONE context detection (others online/alone)
-    - Context enum implementation
-    - Context used for sync dispatch
-    """
-
-    @pytest.fixture
-    def mock_settings_service(self):
-        """Create a mock settings service."""
-        service = AsyncMock()
-        service.get_setting = AsyncMock(return_value=None)
-        service.set_setting = AsyncMock()
-        return service
-
-    @pytest.fixture
-    def registry(self, mock_settings_service):
-        """Create a ClientRegistryService instance."""
-        return ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-
-    # === Zone Membership Detection ===
-
-    @pytest.mark.asyncio
-    async def test_zone_membership_detected_correctly(self, registry):
-        """System correctly determines if client is IN_ZONE or STANDALONE."""
-        await registry.initialize()
-
-        # Register clients
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-
-        # Create zone with local and client-1
-        await registry.create_zone("zone-1", "Test Zone", ["local", "client-1"])
-
-        # local is IN_ZONE
-        local_client = registry.get_client("local")
-        assert local_client.zone_id == "zone-1"
-
-        # client-2 is STANDALONE
-        client2 = registry.get_client("client-2")
-        assert client2.zone_id is None
-
-    # === IN_ZONE Context Detection ===
-
-    @pytest.mark.asyncio
-    async def test_in_zone_others_online_context(self, registry):
-        """IN_ZONE client with others ONLINE returns IN_ZONE_OTHERS_ONLINE."""
-        await registry.initialize()
-
-        # Setup: Zone with 3 clients, 2 online
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-        await registry.create_zone("zone-1", "Test Zone", ["local", "client-1", "client-2"])
-
-        # Set online status: client-1 online, client-2 offline
-        await registry.set_client_online("local", False)  # Reconnecting client
-        await registry.set_client_online("client-1", True)  # Online zone member
-        await registry.set_client_online("client-2", False)  # Offline zone member
-
-        # Test: local reconnects - should detect IN_ZONE_OTHERS_ONLINE
-        context = registry.get_reconnection_context("local")
-        assert context == ReconnectionContext.IN_ZONE_OTHERS_ONLINE
-
-    @pytest.mark.asyncio
-    async def test_in_zone_all_offline_context(self, registry):
-        """IN_ZONE client with all others OFFLINE returns IN_ZONE_ALL_OFFLINE."""
-        await registry.initialize()
-
-        # Setup: Zone with 3 clients, all offline except reconnecting
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-        await registry.create_zone("zone-1", "Test Zone", ["local", "client-1", "client-2"])
-
-        # All clients offline (simulating backend restart scenario)
-        await registry.set_client_online("local", False)
-        await registry.set_client_online("client-1", False)
-        await registry.set_client_online("client-2", False)
-
-        # Test: local reconnects first - no other zone members online
-        context = registry.get_reconnection_context("local")
-        assert context == ReconnectionContext.IN_ZONE_ALL_OFFLINE
-
-    # === STANDALONE Context Detection ===
-
-    @pytest.mark.asyncio
-    async def test_standalone_others_online_context(self, registry):
-        """STANDALONE client with others ONLINE returns STANDALONE_OTHERS_ONLINE."""
-        await registry.initialize()
-
-        # Setup: 3 standalone clients
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-
-        # Set online status: local reconnecting, others online
-        await registry.set_client_online("local", False)
-        await registry.set_client_online("client-1", True)
-        await registry.set_client_online("client-2", True)
-
-        # Test: local reconnects - other clients are online
-        context = registry.get_reconnection_context("local")
-        assert context == ReconnectionContext.STANDALONE_OTHERS_ONLINE
-
-    @pytest.mark.asyncio
-    async def test_standalone_alone_context(self, registry):
-        """STANDALONE client with no others ONLINE returns STANDALONE_ALONE."""
-        await registry.initialize()
-
-        # Setup: 3 standalone clients, all offline
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-
-        # All offline
-        await registry.set_client_online("local", False)
-        await registry.set_client_online("client-1", False)
-        await registry.set_client_online("client-2", False)
-
-        # Test: local reconnects as first client
-        context = registry.get_reconnection_context("local")
-        assert context == ReconnectionContext.STANDALONE_ALONE
-
-    # === Edge Cases ===
-
-    @pytest.mark.asyncio
-    async def test_unknown_client_returns_standalone_alone(self, registry):
-        """Edge case: Unknown client defaults to STANDALONE_ALONE (safest)."""
-        await registry.initialize()
-
-        # Query for client that doesn't exist
-        context = registry.get_reconnection_context("unknown-client")
-        assert context == ReconnectionContext.STANDALONE_ALONE
-
-    @pytest.mark.asyncio
-    async def test_zone_with_single_member_edge_case(self, registry):
-        """Edge case: Zone with only 1 member (after removal) returns IN_ZONE_ALL_OFFLINE."""
-        await registry.initialize()
-
-        # Setup: Create zone then remove a client
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-        await registry.create_zone("zone-1", "Test Zone", ["local", "client-1", "client-2"])
-
-        # Remove 2 clients - zone still exists with 1 client
-        # Note: Zone should be deleted when < 2 clients, but let's test the edge case
-        # by directly manipulating state (zone not deleted but has 1 member)
-        # In practice, ClientRegistryService.remove_client_from_zone handles this
-
-        # Set online status
-        await registry.set_client_online("local", False)
-        await registry.set_client_online("client-1", False)
-        await registry.set_client_online("client-2", False)
-
-        # local is in zone but all others offline
-        context = registry.get_reconnection_context("local")
-        assert context == ReconnectionContext.IN_ZONE_ALL_OFFLINE
-
-    @pytest.mark.asyncio
-    async def test_only_one_client_in_system(self, registry):
-        """Edge case: Single client in entire system returns STANDALONE_ALONE."""
-        await registry.initialize()
-
-        # Only one client registered
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.set_client_online("local", False)
-
-        context = registry.get_reconnection_context("local")
-        assert context == ReconnectionContext.STANDALONE_ALONE
-
-
-class TestReconnectionHelperMethods:
-    """Tests for helper methods used in context detection."""
-
-    @pytest.fixture
-    def mock_settings_service(self):
-        """Create a mock settings service."""
-        service = AsyncMock()
-        service.get_setting = AsyncMock(return_value=None)
-        service.set_setting = AsyncMock()
-        return service
-
-    @pytest.fixture
-    def registry(self, mock_settings_service):
-        """Create a ClientRegistryService instance."""
-        return ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-
-    @pytest.mark.asyncio
-    async def test_get_other_online_zone_clients_excludes_self(self, registry):
-        """Test _other_online_zone_clients excludes the queried client."""
-        await registry.initialize()
-
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.create_zone("zone-1", "Test Zone", ["local", "client-1"])
-
-        await registry.set_client_online("local", True)
-        await registry.set_client_online("client-1", True)
-
-        # Get other online zone clients for local
-        others = registry._other_online_zone_clients("local")
-
-        # Should only contain client-1, not local
-        assert len(others) == 1
-        assert others[0].mac_id == "client-1"
-
-    @pytest.mark.asyncio
-    async def test_get_other_online_zone_clients_empty_when_not_in_zone(self, registry):
-        """Test _other_online_zone_clients returns empty for standalone client."""
-        await registry.initialize()
-
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.set_client_online("local", True)
-
-        # local is standalone
-        others = registry._other_online_zone_clients("local")
-        assert others == []
-
-    @pytest.mark.asyncio
-    async def test_get_other_online_zone_clients_only_online(self, registry):
-        """Test _other_online_zone_clients only returns online members."""
-        await registry.initialize()
-
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-        await registry.create_zone("zone-1", "Test Zone", ["local", "client-1", "client-2"])
-
-        await registry.set_client_online("local", True)
-        await registry.set_client_online("client-1", True)  # Online
-        await registry.set_client_online("client-2", False)  # Offline
-
-        others = registry._other_online_zone_clients("local")
-
-        # Should only contain client-1 (online), not client-2 (offline)
-        assert len(others) == 1
-        assert others[0].mac_id == "client-1"
-
-    @pytest.mark.asyncio
-    async def test_get_other_online_clients_excludes_self(self, registry):
-        """Test _other_online_clients excludes the queried client."""
-        await registry.initialize()
-
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-
-        await registry.set_client_online("local", True)
-        await registry.set_client_online("client-1", True)
-
-        others = registry._other_online_clients("local")
-
-        # Should only contain client-1
-        assert len(others) == 1
-        assert others[0].mac_id == "client-1"
-
-    @pytest.mark.asyncio
-    async def test_get_other_online_clients_only_online(self, registry):
-        """Test _other_online_clients only returns online clients."""
-        await registry.initialize()
-
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-        await registry.register_client("client-2", "Client 2", "192.168.1.101")
-
-        await registry.set_client_online("local", True)
-        await registry.set_client_online("client-1", True)  # Online
-        await registry.set_client_online("client-2", False)  # Offline
-
-        others = registry._other_online_clients("local")
-
-        # Should only contain client-1 (online)
-        assert len(others) == 1
-        assert others[0].mac_id == "client-1"
-
-    @pytest.mark.asyncio
-    async def test_get_other_online_clients_empty_when_alone(self, registry):
-        """Test _other_online_clients returns empty when no other clients online."""
-        await registry.initialize()
-
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("client-1", "Client 1", "192.168.1.100")
-
-        await registry.set_client_online("local", True)
-        await registry.set_client_online("client-1", False)
-
-        others = registry._other_online_clients("local")
-        assert others == []
 
 
 class TestSyncStandaloneDspToClient:
@@ -3129,14 +2424,19 @@ class TestResolveTargetVolume:
     One rule since the volume-ownership plan's phase 1: a client's level changes
     only when someone changes it, so what a reconnection applies is the client's
     own stored level, gated by `restore_last_volume`, with `startup_volume_db`
-    for a client the store has never seen. The peer averages this used to read
-    (zone or global, by `ReconnectionContext`) are what made a member rejoining
-    a zone adopt its neighbours' level and lose its own.
+    for a client the store has never seen. The peer average this used to read
+    (the zone's or the fleet's) is what made a member rejoining a zone adopt
+    its neighbours' level and lose its own.
     """
 
     @pytest.fixture
     def mock_state_machine(self):
-        """A state machine whose volume service knows client-1 at -70 dB."""
+        """A volume store holding client-1 at -70 dB and two peers at -20/-30.
+
+        The peers are here so the peer average (-25) is a distinct number the
+        resolver could land on: the store is the only place levels live now, so
+        it is also the only place a re-introduced average could read them from.
+        """
         state_machine = MagicMock()
 
         volume_service = MagicMock()
@@ -3145,7 +2445,7 @@ class TestResolveTargetVolume:
         )
         volume_service.state_store = MagicMock()
         volume_service.state_store.get_client_volume = MagicMock(
-            side_effect={"client-1": -70.0}.get
+            side_effect={"client-1": -70.0, "client-2": -20.0, "client-3": -30.0}.get
         )
         state_machine.volume_service = volume_service
 
@@ -3153,13 +2453,11 @@ class TestResolveTargetVolume:
 
     @pytest.fixture
     def mock_registry(self):
-        """A registry that would answer both averages, so a resolver reading one shows."""
+        """A registry that answers anything, so a resolver consulting one shows."""
         registry = MagicMock()
         client = MagicMock()
         client.zone_id = "zone-1"
         registry.get_client = MagicMock(return_value=client)
-        registry.get_zone_average_volume = MagicMock(return_value=-25.0)
-        registry.get_global_average_volume = MagicMock(return_value=-25.0)
         return registry
 
     def _ws(self, state_machine, registry):
@@ -3182,7 +2480,7 @@ class TestResolveTargetVolume:
         target = ws_service._resolve_target_volume("client-1")
 
         assert target == -70.0
-        mock_registry.get_zone_average_volume.assert_not_called()
+        assert target != -25.0, "its zone peers' average is not the target"
 
     def test_a_standalone_client_returns_its_own_level_not_the_global_average(
         self, mock_state_machine, mock_registry
@@ -3194,7 +2492,7 @@ class TestResolveTargetVolume:
         target = ws_service._resolve_target_volume("client-1")
 
         assert target == -70.0
-        mock_registry.get_global_average_volume.assert_not_called()
+        assert target != -25.0, "the fleet's average is not the target either"
 
     def test_restore_last_volume_off_returns_startup_volume(
         self, mock_state_machine, mock_registry
@@ -3263,23 +2561,15 @@ class TestApplyTargetVolumeToClient:
         state_machine.volume_service = volume_service
         return state_machine
 
-    @pytest.fixture
-    def mock_registry(self):
-        """Create a mock registry."""
-        registry = MagicMock()
-        registry.update_volume = AsyncMock()
-        return registry
-
     @pytest.mark.asyncio
-    async def test_apply_volume_updates_service_and_registry(self, mock_state_machine, mock_registry):
-        """Test that applying volume updates state store, registry, and hardware."""
+    async def test_apply_volume_updates_the_store_and_the_hardware(self, mock_state_machine):
+        """Test that applying volume updates the state store and the hardware."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         ws_service = SnapcastWebSocketService(
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
-        ws_service._registry = mock_registry
         ws_service._volume_service = mock_state_machine.volume_service
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
@@ -3288,13 +2578,12 @@ class TestApplyTargetVolumeToClient:
         mock_state_machine.volume_service.state_store.set_client_volume.assert_called_once_with(
             "client-1", -30.0
         )
-        mock_registry.update_volume.assert_called_once_with("client-1", volume_db=-30.0)
         mock_state_machine.volume_service.equalizer_controller.set_equalizer_volume.assert_called_once_with(
             "client-1", -30.0, force=True
         )
 
     @pytest.mark.asyncio
-    async def test_apply_volume_reports_a_failed_unmute(self, mock_state_machine, mock_registry):
+    async def test_apply_volume_reports_a_failed_unmute(self, mock_state_machine):
         """A client whose unmute never reached CamillaDSP is not an applied client.
 
         CamillaDSP starts muted (-m) and the admission sync announces a client
@@ -3313,7 +2602,6 @@ class TestApplyTargetVolumeToClient:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
-        ws_service._registry = mock_registry
         ws_service._volume_service = mock_state_machine.volume_service
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
@@ -3322,7 +2610,7 @@ class TestApplyTargetVolumeToClient:
         eq.set_equalizer_mute.assert_awaited_once_with("client-1", False, force=True)
 
     @pytest.mark.asyncio
-    async def test_apply_volume_still_unmutes_after_a_failed_volume(self, mock_state_machine, mock_registry):
+    async def test_apply_volume_still_unmutes_after_a_failed_volume(self, mock_state_machine):
         """The unmute is attempted whatever the volume call returned.
 
         A muted client at the wrong volume is worse than an unmuted one: with the
@@ -3340,7 +2628,6 @@ class TestApplyTargetVolumeToClient:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
-        ws_service._registry = mock_registry
         ws_service._volume_service = mock_state_machine.volume_service
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
@@ -3349,7 +2636,7 @@ class TestApplyTargetVolumeToClient:
         eq.set_equalizer_mute.assert_awaited_once_with("client-1", False, force=True)
 
     @pytest.mark.asyncio
-    async def test_apply_volume_without_volume_service_returns_false(self, mock_registry):
+    async def test_apply_volume_without_volume_service_returns_false(self):
         """Test that apply fails gracefully without volume_service."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -3359,34 +2646,14 @@ class TestApplyTargetVolumeToClient:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
-        ws_service._registry = mock_registry
         ws_service._volume_service = None
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
         assert result is False
-        mock_registry.update_volume.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_apply_volume_works_without_registry(self, mock_state_machine):
-        """Test that apply works even without registry (updates only state store and hardware)."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        # Test without registry
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._volume_service = mock_state_machine.volume_service
-
-        result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
-
-        assert result is True
-        mock_state_machine.volume_service.state_store.set_client_volume.assert_called_once()
-        mock_state_machine.volume_service.equalizer_controller.set_equalizer_volume.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_apply_volume_handles_volume_service_exception(self, mock_registry):
+    async def test_apply_volume_handles_volume_service_exception(self):
         """Test that apply returns False when state_store raises an exception."""
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
@@ -3401,38 +2668,11 @@ class TestApplyTargetVolumeToClient:
             state_machine=mock_state_machine,
             routing_service=MagicMock()
         )
-        ws_service._registry = mock_registry
         ws_service._volume_service = volume_service
 
         result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
 
-        # Should return False due to exception, registry should NOT be updated
-        assert result is False
-        mock_registry.update_volume.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_apply_volume_returns_false_when_registry_update_fails(self, mock_state_machine):
-        """Test that apply returns False if registry.update_volume raises an exception."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        mock_registry = MagicMock()
-        mock_registry.update_volume = AsyncMock(side_effect=Exception("Registry error"))
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._volume_service = mock_state_machine.volume_service
-
-        # The method returns False on any exception (including registry errors)
-        result = await ws_service._apply_target_volume_to_client("client-1", -30.0)
-
-        # state_store was called successfully before registry failed
-        mock_state_machine.volume_service.state_store.set_client_volume.assert_called_once()
-        # registry was attempted but failed
-        mock_registry.update_volume.assert_called_once()
-        # Result is False due to exception handling
+        # Should return False due to exception
         assert result is False
 
 

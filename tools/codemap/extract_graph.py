@@ -47,8 +47,8 @@ REPORT_UNRESOLVED_FOR = ("websocket.py", "client_registry.py")
 PATH_CHECK: List[Tuple[str, str]] = [
     ("_handle_client_connect", "_register_snapclient"),
     ("_register_snapclient", "register_client"),
-    ("register_client", "get_reconnection_context"),
-    ("get_reconnection_context", "_resolve_target_volume"),
+    ("_handle_client_connect", "_sync_reconnecting_client_volume"),
+    ("_sync_reconnecting_client_volume", "_resolve_target_volume"),
     ("_resolve_target_volume", "_apply_target_volume_to_client"),
     ("_apply_target_volume_to_client", "set_client_online"),
 ]

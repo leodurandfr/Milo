@@ -29,10 +29,8 @@ from backend.core.multiroom.models import (
     EqualizerSettings,
     RegistryState,
     RegistryEventType,
-    ReconnectionContext,
     SpeakerType,
     DEFAULT_SPEAKER_TYPE,
-    DEFAULT_VOLUME_DB,
     DEFAULT_CROSSOVER_FREQUENCIES,
     DEFAULT_CROSSOVER_FREQUENCY,
 )
@@ -181,8 +179,6 @@ class ClientRegistryService:
                     host=host,
                     online=False,
                     zone_id=None,
-                    volume_db=DEFAULT_VOLUME_DB,
-                    mute=False,
                     speaker_type=speaker_type,
                     volume_control=volume_control if volume_control is not None else True
                 )
@@ -403,36 +399,6 @@ class ClientRegistryService:
             "client": client_dict
         })
         return client
-
-    async def update_volume(
-        self,
-        mac_id: str,
-        volume_db: Optional[float] = None,
-        mute: Optional[bool] = None
-    ) -> None:
-        """
-        Mirror a client's volume/mute into the registry.
-
-        State only, no event: the registry copy exists for the zone averages and
-        the reconnection context. What the UI renders comes from VolumeStateStore
-        over the `volume` category — `client_state_changed` strips volume_db and
-        mute on arrival, so announcing a volume here would be a full client frame
-        carrying nothing its consumer keeps.
-
-        Args:
-            mac_id: The client's mac_id
-            volume_db: New volume in dB (optional)
-            mute: New mute status (optional)
-        """
-        async with self._lock:
-            client = self._clients.get(mac_id)
-            if not client:
-                return
-
-            if volume_db is not None:
-                client.volume_db = volume_db
-            if mute is not None:
-                client.mute = mute
 
     # === CLIENT QUERIES ===
 
@@ -785,177 +751,6 @@ class ClientRegistryService:
             for cid in zone.client_ids
             if cid in self._clients and self._clients[cid].online
         ]
-
-    def _other_online_zone_clients(self, mac_id: str) -> List[Client]:
-        """
-        Get online clients in the same zone, excluding the specified client.
-
-        Used for IN_ZONE reconnection context detection.
-
-        Args:
-            mac_id: The client's mac_id to exclude from results
-
-        Returns:
-            List of online zone members excluding the specified client.
-            Empty list if client is not in a zone or no other members online.
-        """
-        client = self._clients.get(mac_id)
-        if not client or not client.zone_id:
-            return []
-
-        zone = self._zones.get(client.zone_id)
-        if not zone:
-            return []
-
-        return [
-            self._clients[cid]
-            for cid in zone.client_ids
-            if cid != mac_id and cid in self._clients and self._clients[cid].online
-        ]
-
-    def _other_online_clients(self, mac_id: str) -> List[Client]:
-        """
-        Get all online clients globally, excluding the specified client.
-
-        Used for STANDALONE reconnection context detection.
-
-        Args:
-            mac_id: The client's mac_id to exclude from results
-
-        Returns:
-            List of all online clients excluding the specified client.
-        """
-        return [
-            c for c in self._clients.values()
-            if c.mac_id != mac_id and c.online
-        ]
-
-    def get_reconnection_context(self, mac_id: str) -> ReconnectionContext:
-        """
-        Determine the reconnection context for a client.
-
-        This is the first step of the reconnection sync process. The context
-        determines which volume and equalizer sources to use when syncing a
-        reconnecting client.
-
-        The 4 possible contexts are:
-        - IN_ZONE_OTHERS_ONLINE: Client in zone, other zone members online
-        - IN_ZONE_ALL_OFFLINE: Client in zone, all other zone members offline
-        - STANDALONE_OTHERS_ONLINE: Standalone client, other clients online
-        - STANDALONE_ALONE: Standalone client, no other clients online
-
-        Args:
-            mac_id: The reconnecting client's mac_id
-
-        Returns:
-            One of the 4 ReconnectionContext enum values
-        """
-        client = self._clients.get(mac_id)
-
-        if not client:
-            # Unknown client - treat as standalone alone (safest default)
-            self.logger.warning(f"Unknown client {mac_id} - treating as STANDALONE_ALONE")
-            return ReconnectionContext.STANDALONE_ALONE
-
-        if client.zone_id:
-            # Client is in a zone - check for other online zone members
-            other_online_zone_clients = self._other_online_zone_clients(mac_id)
-
-            if other_online_zone_clients:
-                # Other zone members are online
-                self.logger.debug(
-                    f"Client {mac_id} reconnection context: IN_ZONE_OTHERS_ONLINE "
-                    f"({len(other_online_zone_clients)} other zone members online)"
-                )
-                return ReconnectionContext.IN_ZONE_OTHERS_ONLINE
-            else:
-                # All other zone members are offline
-                self.logger.debug(
-                    f"Client {mac_id} reconnection context: IN_ZONE_ALL_OFFLINE "
-                    f"(no other zone members online)"
-                )
-                return ReconnectionContext.IN_ZONE_ALL_OFFLINE
-
-        # Client is standalone - check for any other online clients globally
-        other_online_clients = self._other_online_clients(mac_id)
-
-        if other_online_clients:
-            # Other clients are online globally
-            self.logger.debug(
-                f"Client {mac_id} reconnection context: STANDALONE_OTHERS_ONLINE "
-                f"({len(other_online_clients)} other clients online)"
-            )
-            return ReconnectionContext.STANDALONE_OTHERS_ONLINE
-        else:
-            # No other clients online - this is the first/only client
-            self.logger.debug(
-                f"Client {mac_id} reconnection context: STANDALONE_ALONE "
-                f"(no other clients online)"
-            )
-            return ReconnectionContext.STANDALONE_ALONE
-
-    def get_zone_average_volume(
-        self,
-        zone_id: str,
-        exclude_mac_id: Optional[str] = None
-    ) -> Optional[float]:
-        """
-        Calculate average volume of ONLINE zone clients.
-
-        Used for IN_ZONE_OTHERS_ONLINE reconnection sync.
-        Only includes clients that are currently ONLINE.
-
-        Args:
-            zone_id: The zone ID
-            exclude_mac_id: Client to exclude (typically the reconnecting client)
-
-        Returns:
-            Average volume in dB, or None if no ONLINE clients
-        """
-        zone = self._zones.get(zone_id)
-        if not zone:
-            return None
-
-        online_volumes = []
-        for mac_id in zone.client_ids:
-            if mac_id == exclude_mac_id:
-                continue
-            client = self._clients.get(mac_id)
-            if client and client.online:
-                online_volumes.append(client.volume_db)
-
-        if not online_volumes:
-            return None
-
-        return sum(online_volumes) / len(online_volumes)
-
-    def get_global_average_volume(
-        self,
-        exclude_mac_id: Optional[str] = None
-    ) -> Optional[float]:
-        """
-        Calculate average volume of ALL ONLINE clients globally.
-
-        Used for STANDALONE_OTHERS_ONLINE reconnection sync.
-        Includes all online clients regardless of zone membership.
-
-        Args:
-            exclude_mac_id: Client to exclude (typically the reconnecting client)
-
-        Returns:
-            Average volume in dB, or None if no ONLINE clients
-        """
-        online_volumes = []
-        for mac_id, client in self._clients.items():
-            if mac_id == exclude_mac_id:
-                continue
-            if client.online:
-                online_volumes.append(client.volume_db)
-
-        if not online_volumes:
-            return None
-
-        return sum(online_volumes) / len(online_volumes)
 
     def auto_crossover_frequency(self, zone: Zone) -> int:
         """The crossover frequency a zone's own speakers imply.

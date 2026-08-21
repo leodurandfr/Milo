@@ -13,8 +13,6 @@ from typing import Dict, List, Optional, Literal, Any, get_args
 from enum import Enum
 import uuid
 
-from backend.config.constants import DEFAULT_VOLUME_DB
-
 
 # =============================================================================
 # Equalizer Types and Constants
@@ -367,8 +365,6 @@ class Client:
         ip: IP address (127.0.0.1 for local client)
         online: Connection status (True if connected to Snapcast)
         zone_id: ID of zone membership (None if standalone)
-        volume_db: Current volume in dB
-        mute: Mute status
         speaker_type: Type of speaker for crossover configuration
         eq_independent: Override flag — when a zone member sets this, its
             CamillaDSP EQ is detached from the zone (addressed as its own client)
@@ -387,8 +383,6 @@ class Client:
     host: str = ""  # Hostname from Snapcast
     online: bool = False
     zone_id: Optional[str] = None
-    volume_db: float = DEFAULT_VOLUME_DB
-    mute: bool = False
     speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE
     volume_control: bool = True  # False = DAC card, external amp manages volume
     eq_independent: bool = False  # True = zone member with its own EQ (still in zone for audio)
@@ -397,7 +391,8 @@ class Client:
     # The only fields that outlive a reboot, and the single declaration of the
     # settings.json shape (ClientRegistryService persists exactly this). The
     # rest is runtime state with another owner: host and online come from
-    # Snapcast on registration, volume_db/mute from the volume store.
+    # Snapcast on registration. Volume and mute are not here at all — they
+    # belong to VolumeStateStore, which is the only place they live.
     PERSISTED_FIELDS = (
         "mac_id", "name", "ip", "zone_id", "speaker_type", "volume_control",
         "eq_independent", "delay_ms",
@@ -424,8 +419,6 @@ class Client:
             "ip": self.ip,
             "host": self.host,
             "zone_id": self.zone_id,
-            "volume_db": self.volume_db,
-            "mute": self.mute,
             "speaker_type": self.speaker_type,
             "volume_control": self.volume_control,
             "eq_independent": self.eq_independent,
@@ -446,8 +439,6 @@ class Client:
             host=data.get("host", ""),
             online=data.get("online", False),
             zone_id=data.get("zone_id"),
-            volume_db=data.get("volume_db", DEFAULT_VOLUME_DB),
-            mute=data.get("mute", False),
             speaker_type=data.get("speaker_type", DEFAULT_SPEAKER_TYPE),
             volume_control=data.get("volume_control", True),
             eq_independent=data.get("eq_independent", False),
@@ -553,32 +544,6 @@ class RegistryState:
             for k, v in data.get("client_equalizer", {}).items()
         }
         return cls(clients=clients, zones=zones, client_equalizer=client_equalizer)
-
-
-class ReconnectionContext(str, Enum):
-    """
-    Context for client reconnection sync strategy selection.
-
-    Determines the VOLUME sync strategy to apply when a client reconnects.
-    Equalizer no longer branches on context: every client recovers its own one
-    EQ record (zone members hold identical records).
-
-    Attributes:
-        IN_ZONE_OTHERS_ONLINE: Client in zone with other zone members ONLINE
-            - Volume: zone average from online members
-        IN_ZONE_ALL_OFFLINE: Client in zone but all other zone members OFFLINE
-            - Volume: startup_volume_db (DEFAULT_VOLUME_DB)
-        STANDALONE_OTHERS_ONLINE: Standalone client with other clients ONLINE globally
-            - Volume: global average from all online clients
-        STANDALONE_ALONE: Standalone client with no other clients ONLINE
-            - Volume: startup_volume_db (DEFAULT_VOLUME_DB)
-
-    Equalizer (all contexts): client_equalizer[mac_id] (remote) / equalizer.json (local).
-    """
-    IN_ZONE_OTHERS_ONLINE = "in_zone_others_online"
-    IN_ZONE_ALL_OFFLINE = "in_zone_all_offline"
-    STANDALONE_OTHERS_ONLINE = "standalone_others_online"
-    STANDALONE_ALONE = "standalone_alone"
 
 
 class RegistryEventType:

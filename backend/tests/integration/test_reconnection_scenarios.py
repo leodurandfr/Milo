@@ -2,258 +2,22 @@
 Integration tests for reconnection scenarios.
 
 When a snapclient reconnects, the backend must decide which volume and which EQ
-to push to it, and the answer depends on the client's context: in a zone or
-standalone, with other members online or alone. These tests drive
-SnapcastWebSocketService end to end for each of the four contexts — detection,
-the volume it resolves, the EQ it re-pushes, and the pending-settings queue for
-a client that was offline when a change was made.
+to push to it. The volume is the client's own stored level whoever else is
+online — the rule the volume-ownership plan installed — so these tests drive
+SnapcastWebSocketService end to end with the peers deliberately elsewhere: the
+volume it resolves in a zone and off one, the EQ it re-pushes, and the
+pending-settings queue for a client that was offline when a change was made.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from backend.tests.conftest import attach_registry_broadcaster
 from backend.core.models.volume import VolumeConfig
-from backend.core.multiroom.models import ReconnectionContext
-
-
-class TestReconnectionContextDetectionIntegration:
-    """
-    Integration tests for reconnection context detection.
-
-    These tests validate the end-to-end flow of context detection when
-    a client reconnects via Snapcast WebSocket events.
-    """
-
-    @pytest.fixture
-    def mock_settings_service(self):
-        """Create a mock settings service."""
-        service = AsyncMock()
-        service.get_setting = AsyncMock(return_value=None)
-        service.set_setting = AsyncMock()
-        return service
-
-    @pytest.fixture
-    def mock_state_machine(self):
-        """Create a mock state machine."""
-        sm = MagicMock()
-        sm.broadcast = AsyncMock()
-        sm.snapcast_service = None
-        sm.volume_service = None
-        sm.crossover_service = None
-        sm.equalizer_client_proxy_service = None
-        sm.equalizer_settings_sync_service = None
-        sm.camilladsp_service = None
-        return sm
-
-    @pytest.mark.asyncio
-    async def test_context_detection_e2e_in_zone_others_online(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: Client in zone reconnects with others online - detects IN_ZONE_OTHERS_ONLINE.
-
-        Scenario:
-        1. Zone with 3 clients: local, client-1 (online), client-2 (offline)
-        2. local reconnects
-        3. Context should be IN_ZONE_OTHERS_ONLINE
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
-        # Setup registry with zone
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-        attach_registry_broadcaster(registry, mock_state_machine)
-
-        # Register clients and create zone
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("milo-client-01", "Client 1", "192.168.1.100")
-        await registry.register_client("milo-client-02", "Client 2", "192.168.1.101")
-        await registry.create_zone("zone-1", "Test Zone", ["local", "milo-client-01", "milo-client-02"])
-
-        # Set online status: client-1 online, others offline
-        await registry.set_client_online("local", False)  # Reconnecting
-        await registry.set_client_online("milo-client-01", True)  # Online zone member
-        await registry.set_client_online("milo-client-02", False)  # Offline
-
-        # Detect context
-        context = registry.get_reconnection_context("local")
-
-        # Should be IN_ZONE_OTHERS_ONLINE
-        assert context == ReconnectionContext.IN_ZONE_OTHERS_ONLINE
-
-    @pytest.mark.asyncio
-    async def test_context_detection_e2e_in_zone_all_offline(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: Client in zone reconnects with all others offline - detects IN_ZONE_ALL_OFFLINE.
-
-        Scenario:
-        1. Zone with 3 clients, all offline (e.g., after backend restart)
-        2. local reconnects first
-        3. Context should be IN_ZONE_ALL_OFFLINE
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-        attach_registry_broadcaster(registry, mock_state_machine)
-
-        # Register clients and create zone
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("milo-client-01", "Client 1", "192.168.1.100")
-        await registry.register_client("milo-client-02", "Client 2", "192.168.1.101")
-        await registry.create_zone("zone-1", "Test Zone", ["local", "milo-client-01", "milo-client-02"])
-
-        # All clients offline
-        await registry.set_client_online("local", False)
-        await registry.set_client_online("milo-client-01", False)
-        await registry.set_client_online("milo-client-02", False)
-
-        # Detect context - local reconnects first
-        context = registry.get_reconnection_context("local")
-
-        # Should be IN_ZONE_ALL_OFFLINE
-        assert context == ReconnectionContext.IN_ZONE_ALL_OFFLINE
-
-    @pytest.mark.asyncio
-    async def test_context_detection_e2e_standalone_others_online(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: Standalone client reconnects with others online - detects STANDALONE_OTHERS_ONLINE.
-
-        Scenario:
-        1. 3 standalone clients (no zones)
-        2. client-1, client-2 online
-        3. local reconnects
-        4. Context should be STANDALONE_OTHERS_ONLINE
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-        attach_registry_broadcaster(registry, mock_state_machine)
-
-        # Register standalone clients (no zones)
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("milo-client-01", "Client 1", "192.168.1.100")
-        await registry.register_client("milo-client-02", "Client 2", "192.168.1.101")
-
-        # Set online status: others online
-        await registry.set_client_online("local", False)  # Reconnecting
-        await registry.set_client_online("milo-client-01", True)
-        await registry.set_client_online("milo-client-02", True)
-
-        # Detect context
-        context = registry.get_reconnection_context("local")
-
-        # Should be STANDALONE_OTHERS_ONLINE
-        assert context == ReconnectionContext.STANDALONE_OTHERS_ONLINE
-
-    @pytest.mark.asyncio
-    async def test_context_detection_e2e_standalone_alone(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: Standalone client reconnects alone - detects STANDALONE_ALONE.
-
-        Scenario:
-        1. 3 standalone clients, all offline (e.g., after backend restart)
-        2. local reconnects first
-        3. Context should be STANDALONE_ALONE
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-        attach_registry_broadcaster(registry, mock_state_machine)
-
-        # Register standalone clients (no zones)
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("milo-client-01", "Client 1", "192.168.1.100")
-        await registry.register_client("milo-client-02", "Client 2", "192.168.1.101")
-
-        # All offline
-        await registry.set_client_online("local", False)
-        await registry.set_client_online("milo-client-01", False)
-        await registry.set_client_online("milo-client-02", False)
-
-        # Detect context - local reconnects first
-        context = registry.get_reconnection_context("local")
-
-        # Should be STANDALONE_ALONE
-        assert context == ReconnectionContext.STANDALONE_ALONE
-
-    @pytest.mark.asyncio
-    async def test_zone_member_transition_context_change(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: Context changes when client joins/leaves zone.
-
-        Validates that context detection is dynamic based on current state.
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-        attach_registry_broadcaster(registry, mock_state_machine)
-
-        # Register 3 clients
-        await registry.register_client("local", "Main", "127.0.0.1")
-        await registry.register_client("milo-client-01", "Client 1", "192.168.1.100")
-        await registry.register_client("milo-client-02", "Client 2", "192.168.1.101")
-
-        # All offline initially
-        await registry.set_client_online("local", False)
-        await registry.set_client_online("milo-client-01", True)
-        await registry.set_client_online("milo-client-02", False)
-
-        # Step 1: local is standalone, client-1 online
-        context1 = registry.get_reconnection_context("local")
-        assert context1 == ReconnectionContext.STANDALONE_OTHERS_ONLINE
-
-        # Step 2: Create zone - local joins with client-1
-        await registry.create_zone("zone-1", "Test Zone", ["local", "milo-client-01"])
-
-        # Step 3: local is now IN_ZONE with client-1 online
-        context2 = registry.get_reconnection_context("local")
-        assert context2 == ReconnectionContext.IN_ZONE_OTHERS_ONLINE
-
-        # Step 4: client-1 goes offline
-        await registry.set_client_online("milo-client-01", False)
-
-        # Step 5: local is still IN_ZONE but all others offline
-        context3 = registry.get_reconnection_context("local")
-        assert context3 == ReconnectionContext.IN_ZONE_ALL_OFFLINE
-
-        # Step 6: Remove local from zone
-        await registry.remove_client_from_zone("zone-1", "local")
-
-        # Step 7: local is back to STANDALONE_ALONE (no one online)
-        context4 = registry.get_reconnection_context("local")
-        assert context4 == ReconnectionContext.STANDALONE_ALONE
-
-
-# =============================================================================
-# IN_ZONE Reconnection Sync Integration Tests
-# =============================================================================
 
 
 class TestInZoneReconnectionSyncIntegration:
     """
-    Integration tests for IN_ZONE reconnection volume sync.
+    Integration tests for a zone member's reconnection volume sync.
 
     These tests validate the end-to-end flow of volume sync when
     a client in a zone reconnects via Snapcast WebSocket events.
@@ -332,10 +96,6 @@ class TestInZoneReconnectionSyncIntegration:
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
         await registry.register_client("client-2", "Client 2", "192.168.1.2")
         await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        await registry.update_volume("client-1", volume_db=-20.0)
-        await registry.update_volume("client-2", volume_db=-30.0)
-        await registry.update_volume("client-3", volume_db=-40.0)
 
         # Create zone
         await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2", "client-3"])
@@ -425,51 +185,6 @@ class TestInZoneReconnectionSyncIntegration:
         store.get_client_volume.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_zone_average_excludes_reconnecting_client(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: Zone average calculation excludes the reconnecting client.
-
-        Validates that the reconnecting client's old volume doesn't influence
-        the average they receive on reconnection.
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-
-        # Register clients with volumes
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        await registry.update_volume("client-1", volume_db=-10.0)  # Reconnecting
-        await registry.update_volume("client-2", volume_db=-30.0)  # Online
-        await registry.update_volume("client-3", volume_db=-50.0)  # Online
-
-        # Create zone
-        await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2", "client-3"])
-
-        # client-1 reconnecting, others online
-        await registry.set_client_online("client-1", True)  # Marked online for test
-        await registry.set_client_online("client-2", True)
-        await registry.set_client_online("client-3", True)
-
-        # Get zone average excluding client-1 (simulating reconnection scenario)
-        avg = registry.get_zone_average_volume("zone-1", exclude_mac_id="client-1")
-
-        # Should be average of client-2 and client-3 only
-        # (-30 + -50) / 2 = -40
-        assert avg == -40.0
-
-        # Without exclusion, would be (-10 + -30 + -50) / 3 = -30
-        avg_all = registry.get_zone_average_volume("zone-1")
-        assert avg_all == -30.0
-
-    @pytest.mark.asyncio
     async def test_websocket_broadcast_after_sync(
         self, mock_settings_service, mock_state_machine
     ):
@@ -489,7 +204,6 @@ class TestInZoneReconnectionSyncIntegration:
         # Register client in zone
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
         await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.update_volume("client-2", volume_db=-30.0)
 
         await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2"])
         await registry.set_client_online("client-1", False)
@@ -714,13 +428,13 @@ class TestPendingSettingsQueue:
 
 
 # =============================================================================
-# STANDALONE Reconnection Sync Integration Tests
+# Standalone Reconnection Sync Integration Tests
 # =============================================================================
 
 
 class TestStandaloneReconnectionSyncIntegration:
     """
-    Integration tests for STANDALONE reconnection volume sync.
+    Integration tests for a standalone client's reconnection volume sync.
 
     These tests validate the end-to-end flow of volume sync when
     a standalone client reconnects via Snapcast WebSocket events.
@@ -797,14 +511,10 @@ class TestStandaloneReconnectionSyncIntegration:
         await registry.initialize()
         attach_registry_broadcaster(registry, mock_state_machine)
 
-        # Register standalone clients with volumes (no zone)
+        # Register standalone clients (no zone)
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
         await registry.register_client("client-2", "Client 2", "192.168.1.2")
         await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        await registry.update_volume("client-1", volume_db=-20.0)
-        await registry.update_volume("client-2", volume_db=-30.0)
-        await registry.update_volume("client-3", volume_db=-40.0)
 
         # Set online status: client-1 reconnecting, others online
         await registry.set_client_online("client-1", False)
@@ -873,128 +583,11 @@ class TestStandaloneReconnectionSyncIntegration:
         assert target_volume == -45.0
 
     @pytest.mark.asyncio
-    async def test_global_average_excludes_reconnecting_client(
+    async def test_a_full_sync_applies_the_clients_own_stored_level(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: Global average calculation excludes the reconnecting client.
-
-        Validates that the reconnecting client's old volume doesn't influence
-        the average they receive on reconnection.
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-
-        # Register standalone clients with volumes
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        await registry.update_volume("client-1", volume_db=-10.0)  # Reconnecting
-        await registry.update_volume("client-2", volume_db=-30.0)  # Online
-        await registry.update_volume("client-3", volume_db=-50.0)  # Online
-
-        # client-1 reconnecting, others online
-        await registry.set_client_online("client-1", True)  # Marked online for test
-        await registry.set_client_online("client-2", True)
-        await registry.set_client_online("client-3", True)
-
-        # Get global average excluding client-1 (simulating reconnection scenario)
-        avg = registry.get_global_average_volume(exclude_mac_id="client-1")
-
-        # Should be average of client-2 and client-3 only
-        # (-30 + -50) / 2 = -40
-        assert avg == -40.0
-
-        # Without exclusion, would be (-10 + -30 + -50) / 3 = -30
-        avg_all = registry.get_global_average_volume()
-        assert avg_all == -30.0
-
-    @pytest.mark.asyncio
-    async def test_global_average_includes_both_zoned_and_standalone(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: Global average includes BOTH zoned and standalone clients.
-
-        Validates requirement that global average considers all online
-        clients regardless of zone membership.
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-
-        # Register 4 clients
-        await registry.register_client("zone-client-1", "Zone Client 1", "192.168.1.1")
-        await registry.register_client("zone-client-2", "Zone Client 2", "192.168.1.2")
-        await registry.register_client("standalone-1", "Standalone 1", "192.168.1.3")
-        await registry.register_client("standalone-reconnecting", "Reconnecting", "192.168.1.4")
-
-        # Create zone with 2 clients
-        await registry.create_zone("zone-1", "Test Zone", ["zone-client-1", "zone-client-2"])
-
-        # Set all online with volumes
-        await registry.set_client_online("zone-client-1", True)
-        await registry.set_client_online("zone-client-2", True)
-        await registry.set_client_online("standalone-1", True)
-        await registry.set_client_online("standalone-reconnecting", False)  # Reconnecting
-
-        await registry.update_volume("zone-client-1", volume_db=-10.0)
-        await registry.update_volume("zone-client-2", volume_db=-20.0)
-        await registry.update_volume("standalone-1", volume_db=-30.0)
-        await registry.update_volume("standalone-reconnecting", volume_db=-50.0)  # Old volume
-
-        # Get global average for reconnecting standalone client
-        # Should include zone-client-1, zone-client-2, standalone-1
-        avg = registry.get_global_average_volume(exclude_mac_id="standalone-reconnecting")
-
-        # Average of -10, -20, -30 = -20
-        assert avg == -20.0
-
-    @pytest.mark.asyncio
-    async def test_standalone_equalizer_sync_uses_client_settings(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: a lone reconnecting client is detected as STANDALONE — the context that
-        drives its per-client EQ restore (the EQ push itself is covered end-to-end by
-        test_multiroom_sync.py::TestReconnectSyncAppliesMonoAndEnabled).
-        """
-        from backend.core.multiroom.client_registry import ClientRegistryService
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-
-        registry = ClientRegistryService(
-            settings_service=mock_settings_service
-        )
-        await registry.initialize()
-
-        # Register standalone client
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-
-        # Create websocket service
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock(),
-        )
-        ws_service.set_registry(registry)
-
-        # Verify context is STANDALONE
-        context = registry.get_reconnection_context("client-1")
-        assert context == ReconnectionContext.STANDALONE_ALONE
-
-    @pytest.mark.asyncio
-    async def test_websocket_broadcast_includes_sync_context(
-        self, mock_settings_service, mock_state_machine
-    ):
-        """
-        E2E: WebSocket broadcast includes sync_context after sync.
+        E2E: the whole admission, not just the resolver, lands on the client's level.
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -1011,7 +604,6 @@ class TestStandaloneReconnectionSyncIntegration:
         await registry.register_client("client-1", "Client 1", "192.168.1.1")
         await registry.set_client_online("local-main", False)
         await registry.set_client_online("client-1", True)
-        await registry.update_volume("client-1", volume_db=-30.0)
 
         # Setup mocks
         mock_snapcast = AsyncMock()
@@ -1032,7 +624,7 @@ class TestStandaloneReconnectionSyncIntegration:
         )
 
         # The admission resolves to local-main's own stored level, not to
-        # client-1's -30 dB and not to the startup volume.
+        # client-1's -20 dB and not to the startup volume.
         applied = ws_service._volume_service.equalizer_controller.set_equalizer_volume
         assert applied.await_args.args[1] == -55.0
 
@@ -1074,9 +666,13 @@ class TestWhatAReconnectReplays:
         volume_service = AsyncMock()
         volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
         volume_service.broadcast_volume_state = AsyncMock()
-        # The stored per-client values, deliberately unlike every peer level
-        # below so a resolver that read them could not coincide with one.
-        volume_service.state_store.get_client_volume = MagicMock(return_value=-70.0)
+        # The stored per-client values. The two peers are here rather than in
+        # the registry because the store is now the only place a level lives —
+        # so it is also the only place a re-introduced peer average could read
+        # one from, and -70 stays unlike the -35 such an average would give.
+        volume_service.state_store.get_client_volume = MagicMock(
+            side_effect={"client-1": -70.0, "client-2": -30.0, "client-3": -40.0}.get
+        )
         volume_service.state_store.get_client_mute = MagicMock(return_value=True)
         volume_service.state_store.set_client_volume = AsyncMock()
         volume_service.equalizer_controller = AsyncMock()
@@ -1096,8 +692,6 @@ class TestWhatAReconnectReplays:
 
         for i, ip in enumerate(("192.168.1.1", "192.168.1.2", "192.168.1.3"), start=1):
             await registry.register_client(f"client-{i}", f"Client {i}", ip)
-        await registry.update_volume("client-2", volume_db=-30.0)
-        await registry.update_volume("client-3", volume_db=-40.0)
         await registry.create_zone("zone-1", "Test Zone", ["client-1", "client-2", "client-3"])
         await registry.set_client_online("client-1", False)
         await registry.set_client_online("client-2", True)

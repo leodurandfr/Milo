@@ -774,9 +774,9 @@ class SnapcastWebSocketService:
         """
         Apply a specific volume to a client's equalizer and update state.
 
-        Always updates state store and registry (so the UI shows the correct
-        target volume). Applies to hardware on best-effort — returns False if
-        the hardware call fails so callers can retry.
+        Always updates the state store (so the UI shows the correct target
+        volume). Applies to hardware on best-effort — returns False if the
+        hardware call fails so callers can retry.
 
         Args:
             mac_id: Client identifier
@@ -784,7 +784,7 @@ class SnapcastWebSocketService:
 
         Returns:
             True only if BOTH the volume and the mute reached the hardware.
-            State/registry are updated regardless. The caller's retry loop is
+            The state store is updated regardless. The caller's retry loop is
             what recovers a False, so reporting one is the whole mechanism.
         """
         try:
@@ -792,10 +792,8 @@ class SnapcastWebSocketService:
                 self.logger.warning(f"No volume_service available to apply volume for {mac_id}")
                 return False
 
-            # Always update state store and registry first (UI correctness)
+            # Always update the state store first (UI correctness)
             await self._volume_service.state_store.set_client_volume(mac_id, target_volume_db)
-            if self.registry:
-                await self.registry.update_volume(mac_id, volume_db=target_volume_db)
 
             # Apply to hardware — force=True bypasses the online check in the
             # router so we can sync clients that are registered but not yet

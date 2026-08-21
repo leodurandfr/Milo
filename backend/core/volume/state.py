@@ -496,10 +496,6 @@ class VolumeStateStore:
                 )
                 self.logger.info(f"Auto-registered client: {mac_id} at {volume_db:.1f}dB")
 
-        # Sync to ClientRegistry for reconnection context
-        if self._registry:
-            await self._registry.update_volume(mac_id, volume_db=volume_db)
-
         return volume_db
 
     def get_client_volume(self, mac_id: str) -> Optional[float]:
@@ -602,11 +598,6 @@ class VolumeStateStore:
 
             self._schedule_persist()
             self.logger.debug(f"Applied {len(updates)} volume updates")
-
-        # Sync to ClientRegistry for reconnection context
-        if self._registry:
-            for mac_id, volume_db in updates.items():
-                await self._registry.update_volume(mac_id, volume_db=volume_db)
 
     def compute_zone_average(self, zone_id: str) -> float:
         """

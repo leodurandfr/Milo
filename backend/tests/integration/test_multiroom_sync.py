@@ -34,9 +34,15 @@ def _make_volume_service(startup_volume_db: float = DEFAULT_VOLUME_DB,
     every admission falls back to startup_volume_db.
     """
     stored = stored_volumes or {}
+
+    async def _write(mac_id, volume_db):
+        # The real store reads back what it was given; a write-only mock would
+        # let an admission "apply" a level the next resolution never sees.
+        stored[mac_id] = volume_db
+
     vs = MagicMock()
     vs.state_store = MagicMock()
-    vs.state_store.set_client_volume = AsyncMock()
+    vs.state_store.set_client_volume = AsyncMock(side_effect=_write)
     vs.state_store.get_client_mute = MagicMock(return_value=False)
     vs.state_store.has_client = MagicMock(side_effect=lambda mac_id: mac_id in stored)
     vs.state_store.get_client_volume = MagicMock(side_effect=stored.get)
@@ -74,24 +80,26 @@ def _make_ws_service(registry, volume_service=None, snapcast_service=None):
 async def _setup_registry(settings_service, state_machine, clients, zones=None):
     """Register clients and optionally create zones.
 
+    The registry holds no level: a client's volume lives in VolumeStateStore
+    alone, so a test states it through `_make_volume_service(stored_volumes=…)`.
+
     Args:
-        clients: list of (mac_id, name, ip, volume_db, online) tuples
+        clients: list of (mac_id, name, ip, online) tuples
         zones: list of (zone_id, zone_name, [mac_ids]) tuples
     """
     registry = ClientRegistryService(settings_service=settings_service)
     await registry.initialize()
     attach_registry_broadcaster(registry, state_machine)
 
-    for mac_id, name, ip, volume_db, online in clients:
+    for mac_id, name, ip, _online in clients:
         await registry.register_client(mac_id, name, ip)
-        await registry.update_volume(mac_id, volume_db=volume_db)
 
     if zones:
         for zone_id, zone_name, mac_ids in zones:
             await registry.create_zone(zone_id, zone_name, mac_ids)
 
     # Set online status AFTER zone creation so events fire correctly
-    for mac_id, _, _, _, online in clients:
+    for mac_id, _, _, online in clients:
         await registry.set_client_online(mac_id, online)
 
     return registry
@@ -130,7 +138,7 @@ class TestSyncReconnectRetryLoop:
         """Hardware confirms on first try — no retry needed."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
 
@@ -145,7 +153,7 @@ class TestSyncReconnectRetryLoop:
         """Hardware fails twice then succeeds on third attempt."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         eq = ws._volume_service.equalizer_controller
@@ -161,7 +169,7 @@ class TestSyncReconnectRetryLoop:
         """Hardware never responds — gives up after max_retries+1 attempts."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         eq = ws._volume_service.equalizer_controller
@@ -177,7 +185,7 @@ class TestSyncReconnectRetryLoop:
         """An exception during apply is caught and retried."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         eq = ws._volume_service.equalizer_controller
@@ -193,7 +201,7 @@ class TestSyncReconnectRetryLoop:
         """State store and registry always receive the target volume, even when hardware fails."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         eq = ws._volume_service.equalizer_controller
@@ -209,7 +217,7 @@ class TestSyncReconnectRetryLoop:
         """Volume state is broadcast only after a successful hardware apply."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         eq = ws._volume_service.equalizer_controller
@@ -224,7 +232,7 @@ class TestSyncReconnectRetryLoop:
         """Missing volume service returns False immediately without crash."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         ws._volume_service = None
@@ -247,7 +255,7 @@ class TestSetOnlineAfterGate:
         """With set_online_after=True, client becomes online only after hardware success."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, False)],
+            clients=[("client-a", "A", "192.168.1.1", False)],
         )
         ws = _make_ws_service(registry)
 
@@ -265,7 +273,7 @@ class TestSetOnlineAfterGate:
         """With set_online_after=True and hardware failure, client remains offline."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, False)],
+            clients=[("client-a", "A", "192.168.1.1", False)],
         )
         ws = _make_ws_service(registry)
         ws._volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
@@ -283,7 +291,7 @@ class TestSetOnlineAfterGate:
         """Default path (set_online_after=False) does not touch online status."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, False)],
+            clients=[("client-a", "A", "192.168.1.1", False)],
         )
         ws = _make_ws_service(registry)
 
@@ -309,7 +317,7 @@ class TestProcessOnlineStatusChanges:
         """A client transitioning offline→online spawns a sync task with set_online_after=True."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, False)],
+            clients=[("client-a", "A", "192.168.1.1", False)],
         )
         ws = _make_ws_service(registry)
         ws._sync_reconnecting_client_volume = AsyncMock(return_value=True)
@@ -336,7 +344,7 @@ class TestProcessOnlineStatusChanges:
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         ws._sync_reconnecting_client_volume = AsyncMock(return_value=True)
@@ -352,9 +360,9 @@ class TestProcessOnlineStatusChanges:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -30.0, False),
-                ("client-b", "B", "192.168.1.2", -40.0, False),
-                ("client-c", "C", "192.168.1.3", -50.0, False),
+                ("client-a", "A", "192.168.1.1", False),
+                ("client-b", "B", "192.168.1.2", False),
+                ("client-c", "C", "192.168.1.3", False),
             ],
         )
         ws = _make_ws_service(registry)
@@ -404,9 +412,9 @@ class TestReconnectsRestoreEachClientsOwnLevel:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -20.0, False),
-                ("client-b", "B", "192.168.1.2", -30.0, False),
-                ("client-c", "C", "192.168.1.3", -40.0, False),
+                ("client-a", "A", "192.168.1.1", False),
+                ("client-b", "B", "192.168.1.2", False),
+                ("client-c", "C", "192.168.1.3", False),
             ],
             zones=[("zone-1", "Living Room", ["client-a", "client-b", "client-c"])],
         )
@@ -416,12 +424,10 @@ class TestReconnectsRestoreEachClientsOwnLevel:
 
         # Client A reconnects first, alone.
         assert ws._resolve_target_volume("client-a") == -20.0
-        await registry.update_volume("client-a", volume_db=-20.0)
         await registry.set_client_online("client-a", True)
 
         # B and C follow, with the room now non-empty and its average moving.
         assert ws._resolve_target_volume("client-b") == -30.0
-        await registry.update_volume("client-b", volume_db=-30.0)
         await registry.set_client_online("client-b", True)
 
         assert ws._resolve_target_volume("client-c") == -40.0
@@ -437,9 +443,9 @@ class TestReconnectsRestoreEachClientsOwnLevel:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -20.0, True),
-                ("client-b", "B", "192.168.1.2", -40.0, True),
-                ("client-c", "C", "192.168.1.3", -60.0, False),  # offline, reconnecting
+                ("client-a", "A", "192.168.1.1", True),
+                ("client-b", "B", "192.168.1.2", True),
+                ("client-c", "C", "192.168.1.3", False),  # offline, reconnecting
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b", "client-c"])],
         )
@@ -464,9 +470,9 @@ class TestReconnectsRestoreEachClientsOwnLevel:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -20.0, True),
-                ("client-b", "B", "192.168.1.2", -40.0, True),
-                ("client-c", "C", "192.168.1.3", -5.0, True),
+                ("client-a", "A", "192.168.1.1", True),
+                ("client-b", "B", "192.168.1.2", True),
+                ("client-c", "C", "192.168.1.3", True),
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b", "client-c"])],
         )
@@ -487,9 +493,9 @@ class TestReconnectsRestoreEachClientsOwnLevel:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -20.0, True),
-                ("client-b", "B", "192.168.1.2", -40.0, True),
-                ("client-c", "C", "192.168.1.3", -60.0, False),
+                ("client-a", "A", "192.168.1.1", True),
+                ("client-b", "B", "192.168.1.2", True),
+                ("client-c", "C", "192.168.1.3", False),
             ],
         )
         ws = _make_ws_service(registry, volume_service=_make_volume_service(
@@ -524,8 +530,8 @@ class TestConcurrentReconnectRaceConditions:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -30.0, False),
-                ("client-b", "B", "192.168.1.2", -50.0, False),
+                ("client-a", "A", "192.168.1.1", False),
+                ("client-b", "B", "192.168.1.2", False),
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b"])],
         )
@@ -593,9 +599,9 @@ class TestConcurrentReconnectRaceConditions:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -30.0, True),   # already online
-                ("client-b", "B", "192.168.1.2", -99.0, False),  # reconnecting
-                ("client-c", "C", "192.168.1.3", -99.0, False),  # reconnecting
+                ("client-a", "A", "192.168.1.1", True),   # already online
+                ("client-b", "B", "192.168.1.2", False),  # reconnecting
+                ("client-c", "C", "192.168.1.3", False),  # reconnecting
             ],
         )
         ws = _make_ws_service(registry, volume_service=_make_volume_service(
@@ -638,7 +644,7 @@ class TestFireAndForgetTaskRecovery:
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, False)],
+            clients=[("client-a", "A", "192.168.1.1", False)],
         )
         ws = _make_ws_service(registry)
         # Hardware always fails
@@ -721,7 +727,7 @@ class TestApplyTargetVolumeToClient:
         """On success: volume set, mute restored, state store updated."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         ws._volume_service.state_store.get_client_mute = MagicMock(return_value=True)
@@ -737,16 +743,17 @@ class TestApplyTargetVolumeToClient:
         ws._volume_service.equalizer_controller.set_equalizer_mute.assert_called_once_with(
             "client-a", True, force=True
         )
-        # Registry updated
-        client = registry.get_client("client-a")
-        assert client.volume_db == -25.0
+        # The store took the applied level — it is where the next admission reads
+        ws._volume_service.state_store.set_client_volume.assert_called_once_with(
+            "client-a", -25.0
+        )
 
     @pytest.mark.asyncio
     async def test_hardware_failure_still_updates_state(self, mock_settings_service, mock_state_machine):
         """On hardware failure: state store still updated, returns False."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         ws._volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=False)
@@ -767,7 +774,7 @@ class TestApplyTargetVolumeToClient:
         """Missing volume service returns False without crash."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -30.0, True)],
+            clients=[("client-a", "A", "192.168.1.1", True)],
         )
         ws = _make_ws_service(registry)
         ws._volume_service = None
@@ -799,9 +806,9 @@ class TestEndToEndReconnectionSync:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -20.0, True),
-                ("client-b", "B", "192.168.1.2", -40.0, True),
-                ("client-c", "C", "192.168.1.3", -60.0, False),
+                ("client-a", "A", "192.168.1.1", True),
+                ("client-b", "B", "192.168.1.2", True),
+                ("client-c", "C", "192.168.1.3", False),
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b", "client-c"])],
         )
@@ -834,7 +841,7 @@ class TestEndToEndReconnectionSync:
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("client-a", "A", "192.168.1.1", -99.0, False)],
+            clients=[("client-a", "A", "192.168.1.1", False)],
         )
         # No stored_volumes: this speaker has no level of its own yet.
         ws = _make_ws_service(registry)
@@ -865,8 +872,8 @@ class TestEndToEndReconnectionSync:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -30.0, True),
-                ("client-b", "B", "192.168.1.2", -99.0, False),
+                ("client-a", "A", "192.168.1.1", True),
+                ("client-b", "B", "192.168.1.2", False),
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b"])],
         )
@@ -897,35 +904,36 @@ class TestEndToEndReconnectionSync:
         """
         Full E2E: Three zone clients reconnect sequentially, each at its own level.
 
-        The real flow: every sync writes the level back to the registry, so
-        under the old rule each admission moved the target of the next one.
-        The room ends up as it was left, whatever the order.
+        The real flow: every sync writes the level back to the store, so under
+        the old rule each admission moved the target of the next one. The room
+        ends up as it was left, whatever the order.
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -10.0, False),
-                ("client-b", "B", "192.168.1.2", -20.0, False),
-                ("client-c", "C", "192.168.1.3", -30.0, False),
+                ("client-a", "A", "192.168.1.1", False),
+                ("client-b", "B", "192.168.1.2", False),
+                ("client-c", "C", "192.168.1.3", False),
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b", "client-c"])],
         )
         ws = _make_ws_service(registry, volume_service=_make_volume_service(
             stored_volumes={"client-a": -10.0, "client-b": -20.0, "client-c": -30.0},
         ))
+        store = ws._volume_service.state_store
 
         for mac_id, level in (("client-a", -10.0), ("client-b", -20.0), ("client-c", -30.0)):
             assert await ws._sync_reconnecting_client_volume(
                 mac_id, max_retries=0, retry_delay=0
             ) is True
             # _apply_target_volume_to_client writes the applied level back
-            assert registry.get_client(mac_id).volume_db == level
+            assert store.get_client_volume(mac_id) == level
             await registry.set_client_online(mac_id, True)
 
         # Nothing an earlier admission did moved a later one, or the reverse.
-        assert registry.get_client("client-a").volume_db == -10.0
-        assert registry.get_client("client-b").volume_db == -20.0
-        assert registry.get_client("client-c").volume_db == -30.0
+        assert store.get_client_volume("client-a") == -10.0
+        assert store.get_client_volume("client-b") == -20.0
+        assert store.get_client_volume("client-c") == -30.0
 
 
 # =============================================================================
@@ -942,8 +950,8 @@ class TestProcessDisconnectedClients:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -30.0, True),
-                ("client-b", "B", "192.168.1.2", -30.0, True),
+                ("client-a", "A", "192.168.1.1", True),
+                ("client-b", "B", "192.168.1.2", True),
             ],
         )
         ws = _make_ws_service(registry)
@@ -962,8 +970,8 @@ class TestProcessDisconnectedClients:
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
-                ("client-a", "A", "192.168.1.1", -30.0, True),
-                ("client-b", "B", "192.168.1.2", -30.0, True),
+                ("client-a", "A", "192.168.1.1", True),
+                ("client-b", "B", "192.168.1.2", True),
             ],
         )
         ws = _make_ws_service(registry)
@@ -1012,7 +1020,7 @@ class TestReconnectSyncAppliesMonoAndEnabled:
     async def test_standalone_sync_pushes_saved_mono_and_enabled(self, mock_settings_service, mock_state_machine):
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("cc:dd", "Speaker2", "192.168.1.51", -20.0, True)],
+            clients=[("cc:dd", "Speaker2", "192.168.1.51", True)],
         )
         ws, proxy = _make_ws_with_proxy(registry)
         # Standalone EQ now lives in the registry standalone-equalizer store (SoT).
@@ -1032,7 +1040,7 @@ class TestReconnectSyncAppliesMonoAndEnabled:
         """No persisted standalone EQ → nothing is pushed (defaults stay on the satellite)."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
-            clients=[("ee:ff", "Speaker3", "192.168.1.52", -20.0, True)],
+            clients=[("ee:ff", "Speaker3", "192.168.1.52", True)],
         )
         ws, proxy = _make_ws_with_proxy(registry)
         # No set_client_equalizer → get_client_equalizer returns None.
