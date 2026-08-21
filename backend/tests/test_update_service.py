@@ -3,6 +3,7 @@
 Tests for UpdateService — update orchestration, backup/restore, service management.
 """
 import asyncio
+import logging
 import tempfile
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -420,6 +421,40 @@ class TestRollbackBinaryProgram:
         assert result is True
         mock_start.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_a_service_that_will_not_restart_is_not_a_rollback(self, update_service, tmp_path):
+        """The binary is back but nothing is running it. Answering True here is
+        what let the caller announce a restored program to a silent room.
+        """
+        config = _rollback_config(tmp_path)
+        (tmp_path / "backups").mkdir()
+        (tmp_path / "backups" / "go-librespot.backup").write_text("old binary")
+
+        proc = _make_mock_proc()
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            with patch.object(update_service, "_stop_service", return_value=True):
+                with patch.object(update_service, "_start_service", return_value=False):
+                    result = await update_service._rollback_binary_program(config, restart_service=True)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_a_service_that_will_not_stop_leaves_the_binary_alone(self, update_service, tmp_path):
+        """install-binary over a running image either fails with "Text file busy"
+        or writes a file nothing is executing; either way the restore cannot be
+        claimed, so it is not attempted.
+        """
+        config = _rollback_config(tmp_path)
+        (tmp_path / "backups").mkdir()
+        (tmp_path / "backups" / "go-librespot.backup").write_text("old binary")
+
+        with patch.object(update_service, "_stop_service", return_value=False):
+            with patch.object(update_service, "_run_deploy") as mock_deploy:
+                result = await update_service._rollback_binary_program(config, restart_service=True)
+
+        assert result is False
+        mock_deploy.assert_not_called()
+
 
 class TestRunDeploy:
     """Tests for _run_deploy() — the privileged milo-deploy-update wrapper.
@@ -503,6 +538,22 @@ class TestGetCurrentCommit:
             result = await update_service._get_current_commit("/home/milo/milo")
         assert result == "abc123def456"
 
+    @pytest.mark.asyncio
+    async def test_an_unreadable_head_is_reported_at_error(self, update_service, caplog):
+        """The empty string is what _update_milo_app reads as "no commit to roll
+        back to", and it then skips the automatic rollback in silence. The log is
+        the only thing that says the update started without a rollback point.
+        """
+        proc = _make_mock_proc(returncode=128, stderr=b"fatal: not a git repository")
+
+        with caplog.at_level(logging.ERROR):
+            with patch("asyncio.create_subprocess_exec", return_value=proc):
+                result = await update_service._get_current_commit("/home/milo/milo")
+
+        assert result == ""
+        assert "rollback" in caplog.text.lower()
+        assert "not a git repository" in caplog.text
+
 
 class TestCleanupTempFiles:
     """Tests for _cleanup_temp_files()"""
@@ -584,7 +635,8 @@ class TestUpdateBinaryProgram:
 
     @staticmethod
     @contextmanager
-    def _flow(service, *, service_active, backup=None, download=None, deploy=(True, ""), stop=True):
+    def _flow(service, *, service_active, backup=None, download=None, deploy=(True, ""), stop=True,
+              rollback=True):
         """Stack the collaborators, leaving the flow under test real."""
         returns = {
             "_is_service_active": service_active,
@@ -596,7 +648,7 @@ class TestUpdateBinaryProgram:
             "_verify_binary_program": {"success": True},
             "_stop_service": stop,
             "_start_service": True,
-            "_rollback_binary_program": True,
+            "_rollback_binary_program": rollback,
             "_cleanup_temp_files": None,
         }
         with ExitStack() as stack:
@@ -708,6 +760,28 @@ class TestUpdateBinaryProgram:
         mocks["_rollback_binary_program"].assert_awaited_once()
         mocks["_cleanup_temp_files"].assert_awaited()
 
+    @pytest.mark.asyncio
+    async def test_a_rollback_that_failed_reads_differently_from_one_that_worked(self, update_service):
+        """The update failure is reported truthfully either way; whether the
+        previous binary is running again is the half the owner can act on, and
+        it used to be dropped. The route logs this string at error level, so it
+        is what reaches the UI banner.
+        """
+        status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
+
+        with self._flow(update_service, service_active=True, deploy=(False, "install failed"),
+                        rollback=True):
+            restored = await update_service._update_binary_program("camilladsp", status)
+
+        with self._flow(update_service, service_active=True, deploy=(False, "install failed"),
+                        rollback=False):
+            stranded = await update_service._update_binary_program("camilladsp", status)
+
+        assert restored["success"] is stranded["success"] is False
+        assert restored["error"] != stranded["error"]
+        assert "manual intervention" in stranded["error"].lower()
+        assert "manual intervention" not in restored["error"].lower()
+
 
 class TestUpdateMultiroom:
     """Tests for _update_multiroom() orchestration"""
@@ -809,6 +883,26 @@ class TestUpdateMultiroom:
         assert self._started(mocks) == []
 
     @pytest.mark.asyncio
+    async def test_a_unit_that_did_not_come_back_reads_differently(self, update_service):
+        """A snapcast unit that stayed down after a failed install leaves the
+        appliance mute — the opposite of the recovery the error claimed.
+        """
+        active = dict.fromkeys(self.SERVICES, True)
+        install = [{"success": False, "error": "dpkg"}]
+
+        with self._flow(update_service, active=active, install=install) as mocks:
+            mocks["_start_service"].return_value = True
+            restored = await update_service._update_multiroom(self.STATUS)
+
+        with self._flow(update_service, active=active, install=install) as mocks:
+            mocks["_start_service"].return_value = False
+            stranded = await update_service._update_multiroom(self.STATUS)
+
+        assert restored["success"] is stranded["success"] is False
+        assert restored["error"] != stranded["error"]
+        assert "manual intervention" in stranded["error"].lower()
+
+    @pytest.mark.asyncio
     async def test_server_download_failure(self, update_service):
         status = {
             "installed": {"versions": {"main": "0.27.0"}},
@@ -903,6 +997,36 @@ class TestUpdateMiloApp:
 
         assert result["success"] is False
         assert "local changes" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_git_status_aborts_before_the_pull(self, update_service):
+        """A non-zero `git status --porcelain` yields the same empty stdout as a
+        clean tree. Reading only stdout let the update pull over local changes it
+        never managed to look for.
+        """
+        status = {
+            "installed": {"versions": {"main": "0.0.1"}},
+            "latest": {"version": "1.0.0"}
+        }
+
+        procs = {
+            "rev-parse": _make_mock_proc(stdout=b"abc123\n"),
+            "fetch": _make_mock_proc(returncode=0),
+            "status": _make_mock_proc(returncode=128, stderr=b"fatal: bad object"),
+        }
+        spawned = []
+
+        async def mock_exec(*args, **kwargs):
+            spawned.append(args)
+            return procs[next(a for a in args if a in procs)]
+
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+                result = await update_service._update_milo_app(status)
+
+        assert result["success"] is False
+        assert "git status" in result["error"].lower()
+        assert not any("pull" in args for args in spawned)
 
     @pytest.mark.asyncio
     async def test_git_fetch_timeout(self, update_service):
@@ -1338,6 +1462,154 @@ class TestRollbackShairportSync:
 
         assert result is True
         mock_start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_service_that_will_not_restart_is_not_a_rollback(self, update_service, tmp_path):
+        config = {
+            "backup_path": str(tmp_path / "backups"),
+            "binary_path": "/usr/local/bin/shairport-sync",
+            "service_name": "milo-airplay.service"
+        }
+        (tmp_path / "backups").mkdir()
+        (tmp_path / "backups" / "shairport-sync.backup").write_text("old")
+
+        proc = _make_mock_proc()
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            with patch.object(update_service, "_stop_service", return_value=True):
+                with patch.object(update_service, "_start_service", return_value=False):
+                    result = await update_service._rollback_shairport_sync(config, service_was_active=True)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_a_service_that_will_not_stop_leaves_the_binary_alone(self, update_service, tmp_path):
+        config = {
+            "backup_path": str(tmp_path / "backups"),
+            "binary_path": "/usr/local/bin/shairport-sync",
+            "service_name": "milo-airplay.service"
+        }
+        (tmp_path / "backups").mkdir()
+        (tmp_path / "backups" / "shairport-sync.backup").write_text("old")
+
+        with patch.object(update_service, "_stop_service", return_value=False):
+            with patch.object(update_service, "_run_deploy") as mock_deploy:
+                result = await update_service._rollback_shairport_sync(config, service_was_active=True)
+
+        assert result is False
+        mock_deploy.assert_not_called()
+
+
+class TestUpdateShairportSync:
+    """The compile-from-source path, on its recovery branches.
+
+    Nothing is compiled here: the mocks stand for the outside world the flow
+    drives (systemd, the tarball, configure/make, the deploy wrapper) and the
+    assertion is what the flow told the caller once its rollback had run.
+    """
+
+    STATUS = {
+        "installed": {"versions": {"main": "4.3.7"}},
+        "latest": {"version": "4.3.8", "tag_name": "4.3.8"},
+    }
+
+    @staticmethod
+    @contextmanager
+    def _flow(service, *, install=None, rollback=True):
+        returns = {
+            "_is_service_active": True,
+            "_backup_shairport_sync": {"success": True},
+            "_download_shairport_sync_source": {
+                "success": True, "temp_dir": "/tmp/sps", "source_dir": "/tmp/sps/src"
+            },
+            "_configure_shairport_sync": {"success": True},
+            "_compile_shairport_sync": {"success": True},
+            "_install_shairport_sync": install or {"success": True},
+            "_verify_shairport_sync_update": {"success": True},
+            "_stop_service": True,
+            "_start_service": True,
+            "_rollback_shairport_sync": rollback,
+            "_cleanup_temp_files": None,
+        }
+        with ExitStack() as stack:
+            yield {
+                name: stack.enter_context(patch.object(service, name, return_value=value))
+                for name, value in returns.items()
+            }
+
+    @pytest.mark.asyncio
+    async def test_a_rollback_that_failed_reads_differently_from_one_that_worked(self, update_service):
+        install = {"success": False, "error": "Installation failed: install-binary refused"}
+
+        with self._flow(update_service, install=install, rollback=True):
+            restored = await update_service._update_shairport_sync(self.STATUS)
+
+        with self._flow(update_service, install=install, rollback=False):
+            stranded = await update_service._update_shairport_sync(self.STATUS)
+
+        assert restored["success"] is stranded["success"] is False
+        assert "install-binary refused" in restored["error"]
+        assert restored["error"] != stranded["error"]
+        assert "manual intervention" in stranded["error"].lower()
+
+
+class TestUpdateQobuzProxy:
+    """The venv-upgrade path, on its recovery branches."""
+
+    STATUS = {
+        "installed": {"versions": {"main": "0.4.0"}},
+        "latest": {"version": "0.5.0", "tag_name": "v0.5.0"},
+    }
+
+    @staticmethod
+    @contextmanager
+    def _flow(service, *, pip=(True, ""), start=True, rollback=True):
+        """_run_local serves the pip upgrade then the patch script, in that order."""
+        with ExitStack() as stack:
+            mocks = {
+                "_run_local": stack.enter_context(patch.object(
+                    service, "_run_local", side_effect=[pip, (True, "")]
+                )),
+                "_start_service": stack.enter_context(patch.object(
+                    service, "_start_service", return_value=start
+                )),
+            }
+            for name, value in (
+                ("_is_service_active", True),
+                ("_backup_qobuz_venv", {"success": True}),
+                ("_verify_qobuz_update", {"success": True}),
+                ("_stop_service", True),
+                ("_rollback_qobuz_venv", rollback),
+                ("_cleanup_qobuz_backup", None),
+            ):
+                mocks[name] = stack.enter_context(patch.object(service, name, return_value=value))
+            yield mocks
+
+    @pytest.mark.asyncio
+    async def test_a_rollback_that_failed_reads_differently_from_one_that_worked(self, update_service):
+        pip = (False, "No matching distribution")
+
+        with self._flow(update_service, pip=pip, rollback=True):
+            restored = await update_service._update_qobuz_proxy(self.STATUS)
+
+        with self._flow(update_service, pip=pip, rollback=False):
+            stranded = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert restored["success"] is stranded["success"] is False
+        assert restored["error"] != stranded["error"]
+        assert "manual intervention" in stranded["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_a_sidecar_that_does_not_come_back_is_not_a_successful_update(self, update_service):
+        """The venv is upgraded, patched and verified — only the restart failed.
+        Reporting success left Qobuz selectable and dead, and rolling a verified
+        venv back over a systemd refusal would be worse, so it is not done.
+        """
+        with self._flow(update_service, start=False) as mocks:
+            result = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert result["success"] is False
+        assert "restart" in result["error"].lower()
+        mocks["_rollback_qobuz_venv"].assert_not_awaited()
 
 
 class TestSnapcastComponentDownloadTempDir:
