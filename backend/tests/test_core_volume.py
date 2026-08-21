@@ -5,6 +5,7 @@ Unit tests for core.volume module.
 Tests the migrated VolumeService, VolumeStateStore,
 and EqualizerController in the new core/volume/ location.
 """
+import contextlib
 import logging
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, call
@@ -1389,15 +1390,60 @@ class TestStartupVolumeOnRestart:
 # Volume Lock Regression Tests
 # ============================================================================
 
-class TestVolumeLockNoTimeout:
-    """
-    Regression tests for volume lock timeout issue.
+class _FanOutGate:
+    """Holds the satellite fan-out open until every expected caller is inside it.
 
-    Reproduces the scenario: rapid BT remote volume changes in multiroom mode
-    with a slow satellite client. Before the fix, _apply_global_volume ran
-    HTTP fan-out inside the lock, causing subsequent callers to timeout.
-    After the fix, only in-memory state updates happen under the lock.
+    This is what makes "the lock is released before the fan-out" observable
+    without a clock: several callers can only be inside apply_volumes_parallel
+    at the same moment if each of them let go of _volume_lock on its way there.
+    `peak` is the assertion. RENDEZVOUS_TIMEOUT_S is a liveness guard, never an
+    assertion — a fan-out that serialised under the lock never reaches the
+    rendezvous, and the guard is what turns that into a failed assert instead
+    of a hung test.
     """
+
+    RENDEZVOUS_TIMEOUT_S = 5.0
+
+    def __init__(self, expected: int):
+        self.expected = expected
+        self.inside = 0
+        self.peak = 0
+        self._all_inside = asyncio.Event()
+        self._release = asyncio.Event()
+
+    async def enter(self) -> None:
+        """Called from inside the mocked fan-out; blocks until the gate opens."""
+        self.inside += 1
+        self.peak = max(self.peak, self.inside)
+        if self.inside >= self.expected:
+            self._all_inside.set()
+        await self._release.wait()
+        self.inside -= 1
+
+    async def open_when_full(self) -> None:
+        """Gathered alongside the volume calls; opens once they have all arrived."""
+        with contextlib.suppress(asyncio.TimeoutError):
+            async with asyncio.timeout(self.RENDEZVOUS_TIMEOUT_S):
+                await self._all_inside.wait()
+        self._release.set()
+
+
+class TestVolumeLockNoTimeout:
+    """The volume lock is not held across the satellite HTTP fan-out.
+
+    Scenario: rapid BT remote presses in multiroom mode with a slow satellite.
+    Before the fix, _apply_global_volume ran the fan-out inside the lock, so the
+    next caller sat on `asyncio.timeout(2.0)` and gave up with
+    "Timeout waiting for volume lock (>2s)".
+
+    Every test here drives its callers concurrently and asserts they were all
+    inside the fan-out at once — the only way that happens is if each released
+    the lock before getting there. What the callers must NOT do is reach the
+    fan-out one at a time: that is the regression, and `peak` is what states it.
+    """
+
+    LOCAL = "local-mac"
+    SATELLITE = "satellite-mac"
 
     @pytest.fixture
     def mock_state_machine(self):
@@ -1408,15 +1454,6 @@ class TestVolumeLockNoTimeout:
         return sm
 
     @pytest.fixture
-    def mock_snapcast_service(self):
-        service = Mock()
-        service.get_clients = AsyncMock(return_value=[
-            {"camilladsp_id": "local-mac", "available": True},
-            {"camilladsp_id": "satellite-mac", "available": True},
-        ])
-        return service
-
-    @pytest.fixture
     def mock_settings(self):
         settings = Mock()
         settings.invalidate_cache = Mock()
@@ -1425,23 +1462,28 @@ class TestVolumeLockNoTimeout:
         return settings
 
     @pytest.fixture
-    def slow_equalizer_controller(self):
-        """Simulate a slow satellite: apply_volumes_parallel takes 3 seconds."""
-        controller = Mock()
+    def mock_registry(self):
+        """The registry answers "which clients are online".
 
-        async def slow_apply(updates):
-            await asyncio.sleep(3.0)  # Simulate slow satellite HTTP
-            return {mac_id: True for mac_id in updates}
-
-        controller.apply_volumes_parallel = AsyncMock(side_effect=slow_apply)
-        return controller
+        _get_controllable_client_ids() reads it, and nothing else does — with no
+        registry attached it returns [], _compute_multiroom_updates returns {}
+        and _apply_volume_to_hardware leaves on `if not updates` without ever
+        reaching the satellite. That is what made two of these three tests inert.
+        """
+        registry = Mock()
+        registry.get_online_client_ids = Mock(
+            return_value=[TestVolumeLockNoTimeout.LOCAL, TestVolumeLockNoTimeout.SATELLITE]
+        )
+        registry.get_client = Mock(return_value=Mock(volume_control=True))
+        registry.get_all_zones = Mock(return_value={})
+        registry.subscribe = Mock()
+        return registry
 
     @pytest.fixture
-    def service(self, mock_state_machine, mock_snapcast_service, mock_settings,
-                slow_equalizer_controller):
+    def service(self, mock_state_machine, mock_settings, mock_registry):
         svc = VolumeService(
             state_machine=mock_state_machine,
-            snapcast_service=mock_snapcast_service,
+            snapcast_service=Mock(),
             settings_service=mock_settings,
             camilladsp_service=Mock(
                 set_volume=AsyncMock(return_value=True),
@@ -1452,88 +1494,105 @@ class TestVolumeLockNoTimeout:
             limit_min_db=-80.0, limit_max_db=0.0,
             startup_volume_db=-40.0, restore_last_volume=False,
         )
+        svc._state_store.set_volume_config(svc._volume_config)
         svc._routing_service = mock_state_machine.routing_service
-        svc._equalizer_controller = slow_equalizer_controller
+        svc._equalizer_controller = Mock()
+        svc._client_registry = mock_registry
+        svc._state_store.set_registry(mock_registry)
         svc._state_store._mode = "multiroom"
         svc._state_store._clients = {
-            "local-mac": ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
-            "satellite-mac": ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
+            self.LOCAL: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
+            self.SATELLITE: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
         }
         return svc
 
-    @pytest.mark.asyncio
-    async def test_rapid_volume_changes_no_lock_timeout(self, service):
-        """
-        Simulate rapid BT remote volume presses while satellite is slow.
+    @pytest.fixture
+    def fan_out_gate(self, service):
+        """Factory: make the satellite fan-out block until `expected` callers are in it."""
+        def _install(expected: int) -> _FanOutGate:
+            gate = _FanOutGate(expected)
 
-        Before the fix: second adjust_volume_db would timeout waiting for
-        the lock (held during 3s HTTP fan-out) and log:
-            "Timeout waiting for volume lock (>2s)"
+            async def gated_apply(updates):
+                await gate.enter()
+                return {mac_id: True for mac_id in updates}
 
-        After the fix: lock is only held for in-memory computation (~µs),
-        so all calls acquire it instantly. The slow HTTP fan-out happens
-        outside the lock.
-        """
-        # Simulate 5 rapid volume adjustments (like holding BT remote button)
-        results = []
-        for _ in range(5):
-            result = await service.adjust_volume_db(2.0)
-            results.append(result)
-
-        # All 5 should succeed (no timeouts)
-        assert all(results), f"Expected all True, got {results}"
-
-    @pytest.mark.asyncio
-    async def test_concurrent_volume_sources_no_lock_timeout(self, service):
-        """
-        Simulate concurrent volume changes from different sources
-        (BT remote + frontend slider) while satellite is slow.
-
-        Before the fix: one source holding the lock during HTTP fan-out
-        would block the other source for >2s, causing timeout.
-
-        After the fix: both acquire the lock in microseconds (state-only),
-        then fan out to hardware concurrently.
-        """
-        # Launch 3 concurrent volume changes (simulating BT + rotary + frontend)
-        tasks = [
-            asyncio.create_task(service.adjust_volume_db(2.0)),
-            asyncio.create_task(service.adjust_volume_db(2.0)),
-            asyncio.create_task(service.set_volume_db(-35.0)),
-        ]
-        results = await asyncio.gather(*tasks)
-
-        # All should succeed (no lock timeouts)
-        assert all(results), f"Expected all True, got {results}"
-
-    @pytest.mark.asyncio
-    async def test_zone_delta_no_lock_timeout(self, service):
-        """
-        apply_zone_volume_delta previously had NO timeout at all on the lock,
-        meaning it could block all other volume operations indefinitely.
-
-        After the fix: lock is only held for state computation, and has
-        a 2s timeout on acquisition.
-        """
-        # Setup zone
-        from backend.core.volume.state import ZoneConfig
-        service._state_store._zones = {
-            "zone-1": ZoneConfig(
-                zone_id="zone-1", name="Test",
-                client_ids=["local-mac", "satellite-mac"]
+            service._equalizer_controller.apply_volumes_parallel = AsyncMock(
+                side_effect=gated_apply
             )
-        }
+            return gate
+        return _install
 
-        # Zone delta + concurrent adjust should both succeed
-        tasks = [
-            asyncio.create_task(service.apply_zone_volume_delta("zone-1", 3.0)),
-            asyncio.create_task(service.adjust_volume_db(2.0)),
-        ]
-        results = await asyncio.gather(*tasks)
+    @pytest.mark.asyncio
+    async def test_rapid_volume_changes_no_lock_timeout(self, service, fan_out_gate):
+        """Five BT-remote presses in flight at once all get through the lock.
+
+        Launched concurrently on purpose: five sequential `await`s cannot
+        contend for a lock at all, so the sequential version this replaces could
+        not fail on the regression its own docstring names.
+        """
+        gate = fan_out_gate(5)
+
+        results = await asyncio.gather(
+            *[service.adjust_volume_db(2.0) for _ in range(5)],
+            gate.open_when_full(),
+        )
+
+        assert all(results[:5]), f"Expected all True, got {results[:5]}"
+        assert gate.peak == 5, (
+            f"only {gate.peak} of 5 callers reached the satellite fan-out at once — "
+            "the volume lock is being held across it"
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_volume_sources_no_lock_timeout(self, service, fan_out_gate):
+        """BT remote + rotary + frontend slider, all three in flight together."""
+        gate = fan_out_gate(3)
+
+        results = await asyncio.gather(
+            service.adjust_volume_db(2.0),
+            service.adjust_volume_db(2.0),
+            service.set_volume_db(-35.0),
+            gate.open_when_full(),
+        )
+
+        assert all(results[:3]), f"Expected all True, got {results[:3]}"
+        assert gate.peak == 3, (
+            f"only {gate.peak} of 3 callers reached the satellite fan-out at once — "
+            "the volume lock is being held across it"
+        )
+
+    @pytest.mark.asyncio
+    async def test_zone_delta_no_lock_timeout(self, service, mock_registry, fan_out_gate):
+        """A zone delta and a global adjust reach the satellites together.
+
+        apply_zone_volume_delta once took the lock with no timeout at all, so it
+        could block every other volume operation for as long as the fan-out ran.
+        """
+        from backend.core.volume.state import ZoneConfig
+        zone = ZoneConfig(
+            zone_id="zone-1", name="Test",
+            client_ids=[self.LOCAL, self.SATELLITE],
+        )
+        service._state_store._zones = {"zone-1": zone}
+        # get_complete_state() reloads zones from the registry, wiping any the
+        # test planted directly; the concurrent adjust below goes through it.
+        mock_registry.get_all_zones.return_value = {"zone-1": zone}
+
+        gate = fan_out_gate(2)
+
+        results = await asyncio.gather(
+            service.apply_zone_volume_delta("zone-1", 3.0),
+            service.adjust_volume_db(2.0),
+            gate.open_when_full(),
+        )
 
         # Zone delta returns float (new average), adjust returns bool
         assert isinstance(results[0], float)
         assert results[1] is True
+        assert gate.peak == 2, (
+            f"only {gate.peak} of 2 callers reached the satellite fan-out at once — "
+            "the volume lock is being held across it"
+        )
 
 
 # ============================================================================
