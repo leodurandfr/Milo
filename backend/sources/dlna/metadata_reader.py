@@ -7,7 +7,9 @@ UPnP control point *toward the local gmediarender*: it builds a DmrDevice from t
 fixed description URL, subscribes (GENA) to the AVTransport/RenderingControl
 LastChange events, and polls GetPositionInfo for progress. It exposes the same
 callback shape as AirPlay's MetadataReader (on_metadata / on_play_state /
-on_artwork / on_progress / on_connection) so DlnaSource mirrors AirPlaySource.
+on_artwork / on_progress / on_connection) so DlnaSource mirrors AirPlaySource,
+plus on_media_origin — the URL the content is served from, which is the only
+thing UPnP gives the renderer that identifies anything upstream of it.
 
 async-upnp-client (the library Home Assistant uses) does the GENA plumbing.
 """
@@ -60,6 +62,7 @@ class DlnaBridge:
         on_metadata: Callable[[Dict[str, Any]], Any],
         on_play_state: Callable[[str], Any],
         on_artwork: Callable[[str], Any],
+        on_media_origin: Callable[[str], Any],
         on_progress: Callable[[int, int], Any],
         on_connection: Callable[[str], Any],
         poll_interval: float = 10.0,
@@ -69,6 +72,7 @@ class DlnaBridge:
         self._on_metadata = on_metadata
         self._on_play_state = on_play_state
         self._on_artwork = on_artwork
+        self._on_media_origin = on_media_origin
         self._on_progress = on_progress
         self._on_connection = on_connection
         self._poll_interval = poll_interval
@@ -83,6 +87,7 @@ class DlnaBridge:
         self._last_state: Optional[str] = None
         self._last_meta: Optional[Tuple[str, str, str]] = None
         self._last_art: Optional[str] = None
+        self._last_origin: Optional[str] = None
 
     async def start(self) -> None:
         """Spawn the supervise loop (connect + subscribe + poll, with retry)."""
@@ -175,6 +180,16 @@ class DlnaBridge:
             self._last_art = art
             self._bg.spawn(self._on_artwork(art), label="artwork")
 
+        # Where the audio came from. CurrentTrackURI is the content itself and
+        # is the right answer; the art URL is the standby for a renderer that
+        # publishes no track URI, since DIDL-Lite art is served by that same
+        # media server. Only the host is used downstream — the consumer resolves
+        # it to a name and caches it, so re-emitting per track costs nothing.
+        origin = dmr.current_track_uri or art
+        if origin and origin != self._last_origin:
+            self._last_origin = origin
+            self._bg.spawn(self._on_media_origin(origin), label="media_origin")
+
     def forget_last_seen(self) -> None:
         """Drop the change-detection memory, so the next event re-emits it all.
 
@@ -185,6 +200,7 @@ class DlnaBridge:
         self._last_state = None
         self._last_meta = None
         self._last_art = None
+        self._last_origin = None
 
     async def _poll_once(self) -> None:
         dmr = self._dmr

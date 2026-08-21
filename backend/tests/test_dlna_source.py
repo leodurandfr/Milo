@@ -8,7 +8,12 @@ Covers the pure, non-trivial logic that has no other guard:
 - DlnaBridge._dispatch_state: GENA resends the FULL state on every event, so the
   bridge must emit each field only when it actually changed (title/artist/album,
   transport state, artwork).
-- DlnaSource: passive (rejects every command) + artwork helpers.
+- DlnaBridge: the media-origin URL it derives for server identification.
+- MediaServerResolver: which SSDP responses count as a media server, and what
+  makes a host ambiguous — both measured against a live LAN, both invisible to
+  any other guard here.
+- DlnaSource: passive (rejects every command) + artwork helpers + the
+  source-bar label.
 
 Artwork dimension decoding itself lives in backend.shared.artwork and is
 covered by test_artwork.py.
@@ -17,13 +22,16 @@ import asyncio
 import datetime
 from io import BytesIO
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 from PIL import Image
 
+from async_upnp_client.utils import CaseInsensitiveDict
+
 from backend.sources.dlna.metadata_reader import DlnaBridge, _to_ms
-from backend.sources.dlna.source import DlnaSource
+from backend.sources.dlna.server_resolver import MediaServerResolver, host_of
+from backend.sources.dlna.source import DLNA_CLIENT_NAME, DlnaSource
 
 
 def _png() -> bytes:
@@ -70,6 +78,7 @@ def _make_dmr(**overrides):
         media_album_artist="",
         media_album_name="",
         media_image_url=None,
+        current_track_uri=None,
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -81,6 +90,7 @@ def _make_bridge():
         on_metadata=AsyncMock(),
         on_play_state=AsyncMock(),
         on_artwork=AsyncMock(),
+        on_media_origin=AsyncMock(),
         on_progress=AsyncMock(),
         on_connection=AsyncMock(),
     )
@@ -300,3 +310,246 @@ def test_get_artwork_returns_data_and_mime():
     assert src.get_artwork() == (b"bytes", "image/png")
 
 
+# === DlnaBridge: the media-origin URL ========================================
+
+def test_origin_prefers_the_track_uri_over_the_art_url():
+    """The track URI is the content itself; the art URL is only a standby. A
+    server that hosts covers elsewhere would otherwise name the wrong host."""
+    bridge = _make_bridge()
+    bridge._dmr = _make_dmr(
+        media_title="Says",
+        current_track_uri="http://192.168.1.254:52424/track/1.flac",
+        media_image_url="http://cdn.example/art.jpg",
+    )
+    bridge._dispatch_state()
+    bridge._on_media_origin.assert_called_once_with("http://192.168.1.254:52424/track/1.flac")
+
+
+def test_origin_falls_back_to_the_art_url_without_a_track_uri():
+    """CurrentTrackURI is optional in what a renderer publishes; DIDL-Lite art
+    comes from the same media server, so it answers the same question."""
+    bridge = _make_bridge()
+    bridge._dmr = _make_dmr(media_title="Says", media_image_url="http://nas:8200/art.jpg")
+    bridge._dispatch_state()
+    bridge._on_media_origin.assert_called_once_with("http://nas:8200/art.jpg")
+
+
+def test_origin_is_silent_when_the_renderer_offers_neither():
+    bridge = _make_bridge()
+    bridge._dmr = _make_dmr(media_title="Says")
+    bridge._dispatch_state()
+    bridge._on_media_origin.assert_not_called()
+
+
+# === MediaServerResolver =====================================================
+
+def _response(location, st="urn:schemas-upnp-org:device:MediaServer:1", usn=None):
+    """An SSDP search response as async-upnp-client hands it over."""
+    return CaseInsensitiveDict({
+        "LOCATION": location,
+        "ST": st,
+        "USN": usn or f"uuid:abc::{st}",
+    })
+
+
+def _patch_search(*responses):
+    """Stand in for the network: async_search replies with these, once."""
+    async def _fake_search(async_callback, **kwargs):
+        for headers in responses:
+            await async_callback(headers)
+    return patch("backend.sources.dlna.server_resolver.async_search", _fake_search)
+
+
+def _patch_description(**by_location):
+    """Stand in for the device-description fetch (UpnpFactory + HTTP)."""
+    def _factory(_requester, **_kwargs):
+        async def _create(location):
+            if location not in by_location:
+                raise RuntimeError(f"unreachable: {location}")
+            return SimpleNamespace(friendly_name=by_location[location])
+        return SimpleNamespace(async_create_device=_create)
+    return patch("backend.sources.dlna.server_resolver.UpnpFactory", _factory)
+
+
+@pytest.mark.asyncio
+async def test_resolver_names_the_media_server():
+    with _patch_search(_response("http://192.168.1.254:52424/device.xml")), \
+            _patch_description(**{"http://192.168.1.254:52424/device.xml": "Freebox Server"}):
+        assert await MediaServerResolver().resolve("192.168.1.254") == "Freebox Server"
+
+
+@pytest.mark.asyncio
+async def test_resolver_ignores_a_responder_that_is_not_a_media_server():
+    """Measured on the test LAN: a Hue bridge answers a MediaServer M-SEARCH
+    with ST upnp:rootdevice. Trusting the search target instead of the response
+    labels DLNA playback 'Hue Bridge'."""
+    with _patch_search(
+        _response("http://192.168.1.29:80/description.xml", st="upnp:rootdevice",
+                  usn="uuid:2f402f80::upnp:rootdevice"),
+        _response("http://192.168.1.29:80/description.xml",
+                  st="urn:schemas-upnp-org:device:basic:1", usn="uuid:2f402f80"),
+    ), _patch_description(**{"http://192.168.1.29:80/description.xml": "Hue Bridge"}):
+        assert await MediaServerResolver().resolve("192.168.1.29") is None
+
+
+@pytest.mark.asyncio
+async def test_resolver_treats_repeated_answers_as_one_server():
+    """Also measured: one device answers an M-SEARCH several times for a single
+    LOCATION. Counting responses instead of LOCATIONs reads that as ambiguity
+    and throws away a name it had."""
+    location = "http://192.168.1.254:52424/device.xml"
+    with _patch_search(_response(location), _response(location), _response(location)), \
+            _patch_description(**{location: "Freebox Server"}):
+        assert await MediaServerResolver().resolve("192.168.1.254") == "Freebox Server"
+
+
+@pytest.mark.asyncio
+async def test_resolver_declines_a_host_running_two_servers():
+    """Two media servers on one host (a NAS running minidlna next to Plex):
+    nothing in the track URL says which one served it, so there is no name to
+    give — only a guess, which is worse than the static label."""
+    with _patch_search(
+        _response("http://nas:8200/rootDesc.xml", usn="uuid:aaa::urn:schemas-upnp-org:device:MediaServer:1"),
+        _response("http://nas:32469/description.xml", usn="uuid:bbb::urn:schemas-upnp-org:device:MediaServer:1"),
+    ), _patch_description(**{
+        "http://nas:8200/rootDesc.xml": "minidlna",
+        "http://nas:32469/description.xml": "Plex Media Server",
+    }):
+        assert await MediaServerResolver().resolve("nas") is None
+
+
+@pytest.mark.asyncio
+async def test_resolver_sweeps_once_per_host_hit_or_miss():
+    """A sweep costs the full MX wait whether or not anything replies, and the
+    answer does not change between tracks — so neither answer may re-sweep."""
+    sweeps = 0
+
+    async def _counting_search(async_callback, **kwargs):
+        nonlocal sweeps
+        sweeps += 1
+        await async_callback(_response("http://nas:8200/rootDesc.xml"))
+
+    with patch("backend.sources.dlna.server_resolver.async_search", _counting_search), \
+            _patch_description(**{"http://nas:8200/rootDesc.xml": "minidlna"}):
+        resolver = MediaServerResolver()
+        assert await resolver.resolve("nas") == "minidlna"
+        assert await resolver.resolve("nas") == "minidlna"
+        assert await resolver.resolve("192.168.1.99") is None
+        assert await resolver.resolve("192.168.1.99") is None
+
+    # One for the hit, one for the host nothing claimed. The second lookup of
+    # each is served from cache.
+    assert sweeps == 2
+
+
+@pytest.mark.asyncio
+async def test_resolver_retries_after_a_failed_sweep():
+    """A miss is cached, a failure is not: caching the network being down would
+    pin the static label for the rest of the session."""
+    attempts = 0
+
+    async def _flaky_search(async_callback, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OSError("network unreachable")
+        await async_callback(_response("http://nas:8200/rootDesc.xml"))
+
+    with patch("backend.sources.dlna.server_resolver.async_search", _flaky_search), \
+            _patch_description(**{"http://nas:8200/rootDesc.xml": "minidlna"}):
+        resolver = MediaServerResolver()
+        assert await resolver.resolve("nas") is None
+        assert await resolver.resolve("nas") == "minidlna"
+
+
+@pytest.mark.asyncio
+async def test_resolver_declines_a_server_whose_description_is_unreachable():
+    """Answering SSDP is not serving HTTP; a device that stops there has no
+    friendlyName to read."""
+    with _patch_search(_response("http://nas:8200/rootDesc.xml")), _patch_description():
+        assert await MediaServerResolver().resolve("nas") is None
+
+
+def test_host_of_survives_a_malformed_url():
+    """urlparse raises on a broken IPv6 literal, and the URL comes from whatever
+    control point pushed the track — an exception here would kill the callback."""
+    assert host_of("http://[not-an-address/track.flac") is None
+    assert host_of("http://192.168.1.254:52424/track.flac") == "192.168.1.254"
+
+
+# === DlnaSource: the source-bar label ========================================
+
+@pytest.mark.asyncio
+async def test_label_is_the_static_one_until_the_server_is_named():
+    """Resolution takes seconds; the player renders immediately and must show
+    something in the meantime."""
+    src = DlnaSource()
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm"})
+    assert src.metadata["client_name"] == DLNA_CLIENT_NAME
+
+
+@pytest.mark.asyncio
+async def test_label_becomes_the_resolved_server_name():
+    src = DlnaSource()
+    src._server_resolver.resolve = AsyncMock(return_value="Freebox Server")
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm"})
+
+    await src._on_media_origin("http://192.168.1.254:52424/track/1.flac")
+
+    src._server_resolver.resolve.assert_awaited_once_with("192.168.1.254")
+    assert src.metadata["client_name"] == "Freebox Server"
+
+
+@pytest.mark.asyncio
+async def test_a_second_track_from_the_same_server_does_not_resolve_again():
+    src = DlnaSource()
+    src._server_resolver.resolve = AsyncMock(return_value="Freebox Server")
+    await src._on_media_origin("http://192.168.1.254:52424/track/1.flac")
+    await src._on_media_origin("http://192.168.1.254:52424/track/2.flac")
+    src._server_resolver.resolve.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_an_unresolved_server_falls_back_silently():
+    src = DlnaSource()
+    src._server_resolver.resolve = AsyncMock(return_value=None)
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm"})
+
+    await src._on_media_origin("http://192.168.1.99:8200/track/1.flac")
+
+    assert src.metadata["client_name"] == DLNA_CLIENT_NAME
+
+
+@pytest.mark.asyncio
+async def test_a_new_server_drops_the_previous_name_before_resolving():
+    """The old server's name is wrong for the new host the moment the host
+    changes, and the sweep that replaces it takes seconds — long enough to
+    caption a whole track with the wrong source."""
+    src = DlnaSource()
+    src._server_resolver.resolve = AsyncMock(return_value="Freebox Server")
+    await src._on_media_origin("http://192.168.1.254:52424/track/1.flac")
+    assert src.metadata["client_name"] == "Freebox Server"
+
+    labels = []
+    src._server_resolver.resolve = AsyncMock(
+        side_effect=lambda host: labels.append(src.metadata["client_name"]) or "minidlna"
+    )
+    await src._on_media_origin("http://nas:8200/track/9.flac")
+
+    assert labels == [DLNA_CLIENT_NAME]
+    assert src.metadata["client_name"] == "minidlna"
+
+
+@pytest.mark.asyncio
+async def test_going_idle_returns_the_label_to_the_static_one():
+    """An idle renderer is serving nobody, so it names nobody. The bridge
+    re-emits the origin on resume, which the resolver answers from cache."""
+    src = DlnaSource()
+    src._server_resolver.resolve = AsyncMock(return_value="Freebox Server")
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm"})
+    await src._on_media_origin("http://192.168.1.254:52424/track/1.flac")
+    assert src.metadata["client_name"] == "Freebox Server"
+
+    await src._on_auto_stop()
+
+    assert src.metadata["client_name"] == DLNA_CLIENT_NAME
