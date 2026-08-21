@@ -16,7 +16,7 @@ python main.py                                   # dev server on :8000
 python -m pytest                                 # full suite (asyncio_mode=auto, -v by default)
 python -m pytest tests/test_radio_source.py      # one file
 python -m pytest -k "test_start_success"          # one test by substring
-python -m pytest -m "not integration"            # markers: unit / integration / slow
+python -m pytest tests/integration/               # one directory (no markers: none is applied)
 
 # Frontend (from frontend/)
 npm run dev                                      # :5173, proxies /api to the backend
