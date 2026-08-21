@@ -12,6 +12,11 @@ Tests cover:
 
 These tests verify the complete flow:
 API → CamillaDSP → WebSocket → Frontend state update
+
+CamillaDSP itself is mocked at the boundary the service actually talks to:
+`mock_camilla_client` (backend/tests/conftest.py) is injected as `service._client`,
+so `_get_config` / `_set_config` run for real and `camilla_daemon` is what the
+daemon holds — seed it with `load()`, read the write back with `last_pushed`.
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -45,7 +50,7 @@ def mock_state_machine():
 
 
 @pytest.fixture
-def connected_camilladsp_service(mock_settings_service, mock_state_machine):
+def connected_camilladsp_service(mock_settings_service, mock_state_machine, mock_camilla_client):
     """Create connected Equalizer service with mocked CamillaClient"""
     service = CamillaDSPService(
         settings_service=mock_settings_service
@@ -53,6 +58,7 @@ def connected_camilladsp_service(mock_settings_service, mock_state_machine):
     service.set_state_machine(mock_state_machine)
 
     # Simulate connected state
+    service._client = mock_camilla_client
     service._connected = True
     service._state = CamillaDspState.RUNNING
     return service
@@ -74,76 +80,60 @@ class TestCompressorEnableDisable:
     """Compressor enable/disable with WebSocket broadcast"""
 
     @pytest.mark.asyncio
-    async def test_enable_compressor_adds_processor_to_camilladsp(self, connected_camilladsp_service):
+    async def test_enable_compressor_adds_processor_to_camilladsp(self, connected_camilladsp_service, camilla_daemon):
         """Should add compressor processor to CamillaDSP pipeline when enabled"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
-        captured_config = None
+        camilla_daemon.load({"filters": {}, "processors": {}, "pipeline": []})
 
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
+        result = await connected_camilladsp_service.set_compressor(enabled=True)
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                result = await connected_camilladsp_service.set_compressor(enabled=True)
-
-                assert result is True
-                assert "compressor" in captured_config["processors"]
-                assert captured_config["processors"]["compressor"]["type"] == "Compressor"
-                # Verify processor in pipeline
-                assert any(s.get("type") == "Processor" and s.get("name") == "compressor"
-                          for s in captured_config["pipeline"])
+        assert result is True
+        assert "compressor" in camilla_daemon.last_pushed["processors"]
+        assert camilla_daemon.last_pushed["processors"]["compressor"]["type"] == "Compressor"
+        # Verify processor in pipeline
+        assert any(s.get("type") == "Processor" and s.get("name") == "compressor"
+                  for s in camilla_daemon.last_pushed["pipeline"])
 
     @pytest.mark.asyncio
-    async def test_disable_compressor_removes_processor(self, connected_camilladsp_service):
+    async def test_disable_compressor_removes_processor(self, connected_camilladsp_service, camilla_daemon):
         """Should remove compressor processor from CamillaDSP when disabled"""
-        mock_config = {
+        daemon_config = {
             "filters": {},
             "processors": {
                 "compressor": {"type": "Compressor", "parameters": {}}
             },
             "pipeline": [{"type": "Processor", "name": "compressor"}]
         }
-        captured_config = None
-
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
 
         connected_camilladsp_service._compressor["enabled"] = True  # Was enabled
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                result = await connected_camilladsp_service.set_compressor(enabled=False)
+        camilla_daemon.load(daemon_config)
 
-                assert result is True
-                assert "compressor" not in captured_config.get("processors", {})
-                assert not any(s.get("type") == "Processor" and s.get("name") == "compressor"
-                              for s in captured_config.get("pipeline", []))
+        result = await connected_camilladsp_service.set_compressor(enabled=False)
+
+        assert result is True
+        assert "compressor" not in camilla_daemon.last_pushed.get("processors", {})
+        assert not any(s.get("type") == "Processor" and s.get("name") == "compressor"
+                      for s in camilla_daemon.last_pushed.get("pipeline", []))
 
     @pytest.mark.asyncio
-    async def test_compressor_broadcasts_websocket_event(self, connected_camilladsp_service, mock_state_machine):
+    async def test_compressor_broadcasts_websocket_event(self, connected_camilladsp_service, mock_state_machine, camilla_daemon):
         """Should broadcast compressor_changed WebSocket event"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "processors": {}, "pipeline": []})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service.set_compressor(enabled=True, threshold=-25)
+        await connected_camilladsp_service.set_compressor(enabled=True, threshold=-25)
 
-                # The service broadcasts through its own _broadcast method
-                assert connected_camilladsp_service._compressor["enabled"] is True
-                assert connected_camilladsp_service._compressor["threshold"] == -25
+        # The service broadcasts through its own _broadcast method
+        assert connected_camilladsp_service._compressor["enabled"] is True
+        assert connected_camilladsp_service._compressor["threshold"] == -25
 
     @pytest.mark.asyncio
-    async def test_compressor_persists_to_settings(self, connected_camilladsp_service):
+    async def test_compressor_persists_to_settings(self, connected_camilladsp_service, camilla_daemon):
         """Should schedule a persist to equalizer.json after a compressor change."""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "processors": {}, "pipeline": []})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                with patch.object(connected_camilladsp_service, '_schedule_persist') as mock_persist:
-                    await connected_camilladsp_service.set_compressor(enabled=True)
-                    mock_persist.assert_called()
+        with patch.object(connected_camilladsp_service, '_schedule_persist') as mock_persist:
+            await connected_camilladsp_service.set_compressor(enabled=True)
+            mock_persist.assert_called()
 
     @pytest.mark.asyncio
     async def test_compressor_fails_when_disconnected(self, disconnected_camilladsp_service):
@@ -161,63 +151,52 @@ class TestCompressorParameterValidation:
     """Compressor parameter validation and application within 200ms"""
 
     @pytest.mark.asyncio
-    async def test_compressor_threshold_range(self, connected_camilladsp_service):
+    async def test_compressor_threshold_range(self, connected_camilladsp_service, camilla_daemon):
         """Should accept threshold in range -60 to 0 dB"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "processors": {}, "pipeline": []})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Test minimum
-                result = await connected_camilladsp_service.set_compressor(threshold=-60)
-                assert result is True
-                assert connected_camilladsp_service._compressor["threshold"] == -60
+        # Test minimum
+        result = await connected_camilladsp_service.set_compressor(threshold=-60)
+        assert result is True
+        assert connected_camilladsp_service._compressor["threshold"] == -60
 
-                # Test maximum
-                result = await connected_camilladsp_service.set_compressor(threshold=0)
-                assert result is True
-                assert connected_camilladsp_service._compressor["threshold"] == 0
+        # Test maximum
+        result = await connected_camilladsp_service.set_compressor(threshold=0)
+        assert result is True
+        assert connected_camilladsp_service._compressor["threshold"] == 0
 
     @pytest.mark.asyncio
-    async def test_compressor_ratio_range(self, connected_camilladsp_service):
+    async def test_compressor_ratio_range(self, connected_camilladsp_service, camilla_daemon):
         """Should accept ratio in range 1 to 20"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "processors": {}, "pipeline": []})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Test minimum
-                result = await connected_camilladsp_service.set_compressor(ratio=1)
-                assert result is True
-                assert connected_camilladsp_service._compressor["ratio"] == 1
+        # Test minimum
+        result = await connected_camilladsp_service.set_compressor(ratio=1)
+        assert result is True
+        assert connected_camilladsp_service._compressor["ratio"] == 1
 
-                # Test maximum
-                result = await connected_camilladsp_service.set_compressor(ratio=20)
-                assert result is True
-                assert connected_camilladsp_service._compressor["ratio"] == 20
+        # Test maximum
+        result = await connected_camilladsp_service.set_compressor(ratio=20)
+        assert result is True
+        assert connected_camilladsp_service._compressor["ratio"] == 20
 
     @pytest.mark.asyncio
-    async def test_compressor_attack_release_conversion(self, connected_camilladsp_service):
+    async def test_compressor_attack_release_conversion(self, connected_camilladsp_service, camilla_daemon):
         """Should convert attack/release from ms to seconds for CamillaDSP API"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
-        captured_config = None
+        camilla_daemon.load({"filters": {}, "processors": {}, "pipeline": []})
 
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
+        # Set attack=10ms, release=100ms
+        await connected_camilladsp_service.set_compressor(enabled=True, attack=10, release=100)
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                # Set attack=10ms, release=100ms
-                await connected_camilladsp_service.set_compressor(enabled=True, attack=10, release=100)
-
-                params = captured_config["processors"]["compressor"]["parameters"]
-                # Should be converted to seconds: 10ms = 0.01s, 100ms = 0.1s
-                assert params["attack"] == 0.01  # 10 / 1000.0
-                assert params["release"] == 0.1  # 100 / 1000.0
+        params = camilla_daemon.last_pushed["processors"]["compressor"]["parameters"]
+        # Should be converted to seconds: 10ms = 0.01s, 100ms = 0.1s
+        assert params["attack"] == 0.01  # 10 / 1000.0
+        assert params["release"] == 0.1  # 100 / 1000.0
 
     @pytest.mark.asyncio
-    async def test_compressor_partial_update(self, connected_camilladsp_service):
+    async def test_compressor_partial_update(self, connected_camilladsp_service, camilla_daemon):
         """Should support partial updates (only changed parameters)"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        daemon_config = {"filters": {}, "processors": {}, "pipeline": []}
 
         # Initialize with defaults
         connected_camilladsp_service._compressor = {
@@ -229,33 +208,31 @@ class TestCompressorParameterValidation:
             "makeup_gain": 0
         }
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Only update threshold
-                result = await connected_camilladsp_service.set_compressor(threshold=-30)
+        camilla_daemon.load(daemon_config)
 
-                assert result is True
-                # Threshold updated
-                assert connected_camilladsp_service._compressor["threshold"] == -30
-                # Others unchanged
-                assert connected_camilladsp_service._compressor["ratio"] == 4
-                assert connected_camilladsp_service._compressor["attack"] == 10
+        # Only update threshold
+        result = await connected_camilladsp_service.set_compressor(threshold=-30)
+
+        assert result is True
+        # Threshold updated
+        assert connected_camilladsp_service._compressor["threshold"] == -30
+        # Others unchanged
+        assert connected_camilladsp_service._compressor["ratio"] == 4
+        assert connected_camilladsp_service._compressor["attack"] == 10
 
     @pytest.mark.asyncio
-    async def test_compressor_makeup_gain_range(self, connected_camilladsp_service):
+    async def test_compressor_makeup_gain_range(self, connected_camilladsp_service, camilla_daemon):
         """Should accept makeup_gain in range 0 to 30 dB"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "processors": {}, "pipeline": []})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Test minimum
-                result = await connected_camilladsp_service.set_compressor(makeup_gain=0)
-                assert result is True
+        # Test minimum
+        result = await connected_camilladsp_service.set_compressor(makeup_gain=0)
+        assert result is True
 
-                # Test maximum
-                result = await connected_camilladsp_service.set_compressor(makeup_gain=30)
-                assert result is True
-                assert connected_camilladsp_service._compressor["makeup_gain"] == 30
+        # Test maximum
+        result = await connected_camilladsp_service.set_compressor(makeup_gain=30)
+        assert result is True
+        assert connected_camilladsp_service._compressor["makeup_gain"] == 30
 
 
 # =============================================================================
@@ -266,68 +243,56 @@ class TestLoudnessEnableDisable:
     """Loudness enable/disable with shelf filters"""
 
     @pytest.mark.asyncio
-    async def test_enable_loudness_creates_shelf_filters(self, connected_camilladsp_service):
+    async def test_enable_loudness_creates_shelf_filters(self, connected_camilladsp_service, camilla_daemon):
         """Should create loudness_low and loudness_high shelf filters when enabled"""
-        mock_config = {"filters": {}, "pipeline": []}
-        captured_config = None
+        camilla_daemon.load({"filters": {}, "pipeline": []})
 
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
+        result = await connected_camilladsp_service.set_loudness(enabled=True)
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                result = await connected_camilladsp_service.set_loudness(enabled=True)
+        assert result is True
+        pushed_filters = camilla_daemon.last_pushed["filters"]
 
-                assert result is True
-                # Verify loudness_low filter (Lowshelf at 100Hz)
-                assert "loudness_low" in captured_config["filters"]
-                assert captured_config["filters"]["loudness_low"]["type"] == "Biquad"
-                assert captured_config["filters"]["loudness_low"]["parameters"]["type"] == "Lowshelf"
-                assert captured_config["filters"]["loudness_low"]["parameters"]["freq"] == 100
+        # Verify loudness_low filter (Lowshelf at 100Hz)
+        assert "loudness_low" in pushed_filters
+        assert pushed_filters["loudness_low"]["type"] == "Biquad"
+        assert pushed_filters["loudness_low"]["parameters"]["type"] == "Lowshelf"
+        assert pushed_filters["loudness_low"]["parameters"]["freq"] == 100
 
-                # Verify loudness_high filter (Highshelf at 8000Hz)
-                assert "loudness_high" in captured_config["filters"]
-                assert captured_config["filters"]["loudness_high"]["type"] == "Biquad"
-                assert captured_config["filters"]["loudness_high"]["parameters"]["type"] == "Highshelf"
-                assert captured_config["filters"]["loudness_high"]["parameters"]["freq"] == 8000
+        # Verify loudness_high filter (Highshelf at 8000Hz)
+        assert "loudness_high" in pushed_filters
+        assert pushed_filters["loudness_high"]["type"] == "Biquad"
+        assert pushed_filters["loudness_high"]["parameters"]["type"] == "Highshelf"
+        assert pushed_filters["loudness_high"]["parameters"]["freq"] == 8000
 
     @pytest.mark.asyncio
-    async def test_disable_loudness_removes_shelf_filters(self, connected_camilladsp_service):
+    async def test_disable_loudness_removes_shelf_filters(self, connected_camilladsp_service, camilla_daemon):
         """Should remove loudness shelf filters when disabled"""
-        mock_config = {
+        daemon_config = {
             "filters": {
                 "loudness_low": {"type": "Biquad", "parameters": {"type": "Lowshelf", "freq": 100, "gain": 5, "slope": 6}},
                 "loudness_high": {"type": "Biquad", "parameters": {"type": "Highshelf", "freq": 8000, "gain": 5, "slope": 6}}
             },
             "pipeline": [{"type": "Filter", "names": ["loudness_low", "loudness_high"]}]
         }
-        captured_config = None
-
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
 
         connected_camilladsp_service._loudness["enabled"] = True  # Was enabled
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                result = await connected_camilladsp_service.set_loudness(enabled=False)
+        camilla_daemon.load(daemon_config)
 
-                assert result is True
-                assert "loudness_low" not in captured_config["filters"]
-                assert "loudness_high" not in captured_config["filters"]
+        result = await connected_camilladsp_service.set_loudness(enabled=False)
+
+        assert result is True
+        assert "loudness_low" not in camilla_daemon.last_pushed["filters"]
+        assert "loudness_high" not in camilla_daemon.last_pushed["filters"]
 
     @pytest.mark.asyncio
-    async def test_loudness_persists_to_settings(self, connected_camilladsp_service):
+    async def test_loudness_persists_to_settings(self, connected_camilladsp_service, camilla_daemon):
         """Should schedule a persist to equalizer.json after a loudness change."""
-        mock_config = {"filters": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "pipeline": []})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                with patch.object(connected_camilladsp_service, '_schedule_persist') as mock_persist:
-                    await connected_camilladsp_service.set_loudness(enabled=True)
-                    mock_persist.assert_called()
+        with patch.object(connected_camilladsp_service, '_schedule_persist') as mock_persist:
+            await connected_camilladsp_service.set_loudness(enabled=True)
+            mock_persist.assert_called()
 
     @pytest.mark.asyncio
     async def test_loudness_fails_when_disconnected(self, disconnected_camilladsp_service):
@@ -345,43 +310,34 @@ class TestLoudnessParameterAdjustment:
     """Loudness boost adjustment with WebSocket broadcast"""
 
     @pytest.mark.asyncio
-    async def test_loudness_boost_range(self, connected_camilladsp_service):
+    async def test_loudness_boost_range(self, connected_camilladsp_service, camilla_daemon):
         """Should accept high_boost and low_boost in range 0 to 15 dB"""
-        mock_config = {"filters": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "pipeline": []})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Test low_boost minimum
-                result = await connected_camilladsp_service.set_loudness(low_boost=0)
-                assert result is True
+        # Test low_boost minimum
+        result = await connected_camilladsp_service.set_loudness(low_boost=0)
+        assert result is True
 
-                # Test high_boost maximum
-                result = await connected_camilladsp_service.set_loudness(high_boost=15)
-                assert result is True
-                assert connected_camilladsp_service._loudness["high_boost"] == 15
+        # Test high_boost maximum
+        result = await connected_camilladsp_service.set_loudness(high_boost=15)
+        assert result is True
+        assert connected_camilladsp_service._loudness["high_boost"] == 15
 
     @pytest.mark.asyncio
-    async def test_loudness_boost_updates_filter_gain(self, connected_camilladsp_service):
+    async def test_loudness_boost_updates_filter_gain(self, connected_camilladsp_service, camilla_daemon):
         """Should update shelf filter gains when boost values change"""
-        mock_config = {"filters": {}, "pipeline": []}
-        captured_config = None
+        camilla_daemon.load({"filters": {}, "pipeline": []})
 
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
+        await connected_camilladsp_service.set_loudness(enabled=True, low_boost=10, high_boost=8)
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                await connected_camilladsp_service.set_loudness(enabled=True, low_boost=10, high_boost=8)
-
-                # Verify filter gains match boost values
-                assert captured_config["filters"]["loudness_low"]["parameters"]["gain"] == 10
-                assert captured_config["filters"]["loudness_high"]["parameters"]["gain"] == 8
+        # Verify filter gains match boost values
+        assert camilla_daemon.last_pushed["filters"]["loudness_low"]["parameters"]["gain"] == 10
+        assert camilla_daemon.last_pushed["filters"]["loudness_high"]["parameters"]["gain"] == 8
 
     @pytest.mark.asyncio
-    async def test_loudness_partial_update(self, connected_camilladsp_service):
+    async def test_loudness_partial_update(self, connected_camilladsp_service, camilla_daemon):
         """Should support partial updates (only changed parameters)"""
-        mock_config = {"filters": {}, "pipeline": []}
+        daemon_config = {"filters": {}, "pipeline": []}
 
         # Initialize
         connected_camilladsp_service._loudness = {
@@ -390,15 +346,15 @@ class TestLoudnessParameterAdjustment:
             "high_boost": 5
         }
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Only update low_boost
-                result = await connected_camilladsp_service.set_loudness(low_boost=10)
+        camilla_daemon.load(daemon_config)
 
-                assert result is True
-                assert connected_camilladsp_service._loudness["low_boost"] == 10
-                # Others unchanged
-                assert connected_camilladsp_service._loudness["high_boost"] == 5
+        # Only update low_boost
+        result = await connected_camilladsp_service.set_loudness(low_boost=10)
+
+        assert result is True
+        assert connected_camilladsp_service._loudness["low_boost"] == 10
+        # Others unchanged
+        assert connected_camilladsp_service._loudness["high_boost"] == 5
 
 
 # =============================================================================
@@ -415,54 +371,51 @@ class TestZonePropagationCompressorLoudness:
     """
 
     @pytest.fixture
-    def camilladsp_service_with_preset(self, mock_settings_service, mock_state_machine):
+    def camilladsp_service_with_preset(self, mock_settings_service, mock_state_machine, mock_camilla_client):
         """Create Equalizer service with active preset"""
         service = CamillaDSPService(
             settings_service=mock_settings_service
         )
         service.set_state_machine(mock_state_machine)
+        service._client = mock_camilla_client
         service._connected = True
         service._state = CamillaDspState.RUNNING
         service._active_preset = "rock"  # Active preset
         return service
 
     @pytest.mark.asyncio
-    async def test_compressor_proxy_route_callable(self, camilladsp_service_with_preset):
+    async def test_compressor_proxy_route_callable(self, camilladsp_service_with_preset, camilla_daemon):
         """Compressor proxy route should forward settings to remote clients"""
         # Import the router to verify route exists
 
         # Verify the route pattern exists by checking router creation doesn't fail
         # and the service can handle compressor updates that would be proxied
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "processors": {}, "pipeline": []})
 
-        with patch.object(camilladsp_service_with_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(camilladsp_service_with_preset, '_set_config', new_callable=AsyncMock):
-                # Service should handle compressor settings that proxy routes forward
-                result = await camilladsp_service_with_preset.set_compressor(
-                    enabled=True,
-                    threshold=-25,
-                    ratio=4
-                )
-                assert result is True
-                assert camilladsp_service_with_preset._compressor["enabled"] is True
-                assert camilladsp_service_with_preset._compressor["threshold"] == -25
+        # Service should handle compressor settings that proxy routes forward
+        result = await camilladsp_service_with_preset.set_compressor(
+            enabled=True,
+            threshold=-25,
+            ratio=4
+        )
+        assert result is True
+        assert camilladsp_service_with_preset._compressor["enabled"] is True
+        assert camilladsp_service_with_preset._compressor["threshold"] == -25
 
     @pytest.mark.asyncio
-    async def test_loudness_proxy_route_callable(self, camilladsp_service_with_preset):
+    async def test_loudness_proxy_route_callable(self, camilladsp_service_with_preset, camilla_daemon):
         """Loudness proxy route should forward settings to remote clients"""
-        mock_config = {"filters": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "pipeline": []})
 
-        with patch.object(camilladsp_service_with_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(camilladsp_service_with_preset, '_set_config', new_callable=AsyncMock):
-                # Service should handle loudness settings that proxy routes forward
-                result = await camilladsp_service_with_preset.set_loudness(
-                    enabled=True,
-                    low_boost=10,
-                    high_boost=8
-                )
-                assert result is True
-                assert camilladsp_service_with_preset._loudness["enabled"] is True
-                assert camilladsp_service_with_preset._loudness["low_boost"] == 10
+        # Service should handle loudness settings that proxy routes forward
+        result = await camilladsp_service_with_preset.set_loudness(
+            enabled=True,
+            low_boost=10,
+            high_boost=8
+        )
+        assert result is True
+        assert camilladsp_service_with_preset._loudness["enabled"] is True
+        assert camilladsp_service_with_preset._loudness["low_boost"] == 10
 
 
 # =============================================================================
@@ -482,62 +435,61 @@ class TestPresetAutoSwitchOnManualEdit:
     """
 
     @pytest.fixture
-    def camilladsp_service_with_preset(self, mock_settings_service, mock_state_machine):
+    def camilladsp_service_with_preset(self, mock_settings_service, mock_state_machine, mock_camilla_client):
         """Create Equalizer service with active preset"""
         service = CamillaDSPService(
             settings_service=mock_settings_service
         )
         service.set_state_machine(mock_state_machine)
+        service._client = mock_camilla_client
         service._connected = True
         service._state = CamillaDspState.RUNNING
         service._active_preset = "rock"  # Simulate active preset
         return service
 
     @pytest.mark.asyncio
-    async def test_compressor_change_preserves_active_preset(self, camilladsp_service_with_preset):
+    async def test_compressor_change_preserves_active_preset(self, camilladsp_service_with_preset, camilla_daemon):
         """Changing compressor should NOT change the active EQ preset"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        daemon_config = {"filters": {}, "processors": {}, "pipeline": []}
         initial_preset = camilladsp_service_with_preset._active_preset
 
-        with patch.object(camilladsp_service_with_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(camilladsp_service_with_preset, '_set_config', new_callable=AsyncMock):
-                # Change compressor settings
-                await camilladsp_service_with_preset.set_compressor(enabled=True, threshold=-30)
+        camilla_daemon.load(daemon_config)
 
-                # Preset should remain unchanged
-                assert camilladsp_service_with_preset._active_preset == initial_preset
-                assert camilladsp_service_with_preset._active_preset == "rock"
+        # Change compressor settings
+        await camilladsp_service_with_preset.set_compressor(enabled=True, threshold=-30)
+
+        # Preset should remain unchanged
+        assert camilladsp_service_with_preset._active_preset == initial_preset
+        assert camilladsp_service_with_preset._active_preset == "rock"
 
     @pytest.mark.asyncio
-    async def test_loudness_change_preserves_active_preset(self, camilladsp_service_with_preset):
+    async def test_loudness_change_preserves_active_preset(self, camilladsp_service_with_preset, camilla_daemon):
         """Changing loudness should NOT change the active EQ preset"""
-        mock_config = {"filters": {}, "pipeline": []}
+        daemon_config = {"filters": {}, "pipeline": []}
         initial_preset = camilladsp_service_with_preset._active_preset
 
-        with patch.object(camilladsp_service_with_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(camilladsp_service_with_preset, '_set_config', new_callable=AsyncMock):
-                # Change loudness settings
-                await camilladsp_service_with_preset.set_loudness(enabled=True, low_boost=12)
+        camilla_daemon.load(daemon_config)
 
-                # Preset should remain unchanged
-                assert camilladsp_service_with_preset._active_preset == initial_preset
-                assert camilladsp_service_with_preset._active_preset == "rock"
+        # Change loudness settings
+        await camilladsp_service_with_preset.set_loudness(enabled=True, low_boost=12)
+
+        # Preset should remain unchanged
+        assert camilladsp_service_with_preset._active_preset == initial_preset
+        assert camilladsp_service_with_preset._active_preset == "rock"
 
     @pytest.mark.asyncio
-    async def test_multiple_compressor_loudness_changes_preserve_preset(self, camilladsp_service_with_preset):
+    async def test_multiple_compressor_loudness_changes_preserve_preset(self, camilladsp_service_with_preset, camilla_daemon):
         """Multiple compressor/loudness changes should preserve preset"""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "processors": {}, "pipeline": []})
 
-        with patch.object(camilladsp_service_with_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(camilladsp_service_with_preset, '_set_config', new_callable=AsyncMock):
-                # Multiple changes
-                await camilladsp_service_with_preset.set_compressor(enabled=True)
-                await camilladsp_service_with_preset.set_loudness(enabled=True)
-                await camilladsp_service_with_preset.set_compressor(threshold=-25)
-                await camilladsp_service_with_preset.set_loudness(high_boost=10)
+        # Multiple changes
+        await camilladsp_service_with_preset.set_compressor(enabled=True)
+        await camilladsp_service_with_preset.set_loudness(enabled=True)
+        await camilladsp_service_with_preset.set_compressor(threshold=-25)
+        await camilladsp_service_with_preset.set_loudness(high_boost=10)
 
-                # Preset should still be unchanged
-                assert camilladsp_service_with_preset._active_preset == "rock"
+        # Preset should still be unchanged
+        assert camilladsp_service_with_preset._active_preset == "rock"
 
 
 # =============================================================================
@@ -656,12 +608,13 @@ class TestEffectsBypassRestore:
     """
 
     @pytest.fixture
-    def connected_camilladsp_with_effects(self, mock_settings_service, mock_state_machine):
+    def connected_camilladsp_with_effects(self, mock_settings_service, mock_state_machine, mock_camilla_client):
         """Create connected Equalizer service with compressor and loudness enabled"""
         service = CamillaDSPService(
             settings_service=mock_settings_service
         )
         service.set_state_machine(mock_state_machine)
+        service._client = mock_camilla_client
         service._connected = True
         service._state = CamillaDspState.RUNNING
 
@@ -683,43 +636,38 @@ class TestEffectsBypassRestore:
         return service
 
     @pytest.mark.asyncio
-    async def test_bypass_removes_compressor_from_pipeline_without_touching_cache(self, connected_camilladsp_with_effects, mock_settings_service):
+    async def test_bypass_removes_compressor_from_pipeline_without_touching_cache(self, connected_camilladsp_with_effects, mock_settings_service, camilla_daemon):
         """Bypass should remove compressor from pipeline while leaving cache enabled flag intact."""
-        mock_config = {
+        daemon_config = {
             "filters": {},
             "processors": {"compressor": {}},
             "pipeline": [{"type": "Processor", "name": "compressor"}],
         }
-        captured_config = None
-
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
 
         mock_settings_service.set_setting.reset_mock()
 
-        with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                await connected_camilladsp_with_effects.bypass_effects()
+        camilla_daemon.load(daemon_config)
 
-                # Compressor processor no longer referenced in pipeline
-                pipeline_procs = [s.get("name") for s in captured_config["pipeline"] if s.get("type") == "Processor"]
-                assert "compressor" not in pipeline_procs
+        await connected_camilladsp_with_effects.bypass_effects()
 
-                # Cache untouched — user's intent survives
-                assert connected_camilladsp_with_effects._compressor["enabled"] is True
+        # Compressor processor no longer referenced in pipeline
+        pipeline_procs = [s.get("name") for s in camilla_daemon.last_pushed["pipeline"] if s.get("type") == "Processor"]
+        assert "compressor" not in pipeline_procs
 
-                # No persistence side-effects on bypass
-                compressor_calls = [
-                    call for call in mock_settings_service.set_setting.call_args_list
-                    if call[0][0] == "equalizer.compressor"
-                ]
-                assert len(compressor_calls) == 0
+        # Cache untouched — user's intent survives
+        assert connected_camilladsp_with_effects._compressor["enabled"] is True
+
+        # No persistence side-effects on bypass
+        compressor_calls = [
+            call for call in mock_settings_service.set_setting.call_args_list
+            if call[0][0] == "equalizer.compressor"
+        ]
+        assert len(compressor_calls) == 0
 
     @pytest.mark.asyncio
-    async def test_bypass_removes_loudness_from_pipeline_without_touching_cache(self, connected_camilladsp_with_effects, mock_settings_service):
+    async def test_bypass_removes_loudness_from_pipeline_without_touching_cache(self, connected_camilladsp_with_effects, mock_settings_service, camilla_daemon):
         """Bypass should remove loudness from pipeline while leaving cache enabled flag intact."""
-        mock_config = {
+        daemon_config = {
             "filters": {"loudness_low": {}, "loudness_high": {}},
             "processors": {},
             "pipeline": [
@@ -727,40 +675,34 @@ class TestEffectsBypassRestore:
                 {"type": "Filter", "channels": [1], "names": ["loudness_low", "loudness_high"]},
             ],
         }
-        captured_config = None
-
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
 
         mock_settings_service.set_setting.reset_mock()
 
-        with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                await connected_camilladsp_with_effects.bypass_effects()
+        camilla_daemon.load(daemon_config)
 
-                # Loudness filters no longer referenced in any Filter step
-                pipeline_names = []
-                for step in captured_config["pipeline"]:
-                    if step.get("type") == "Filter":
-                        pipeline_names.extend(step.get("names", []))
-                assert "loudness_low" not in pipeline_names
-                assert "loudness_high" not in pipeline_names
+        await connected_camilladsp_with_effects.bypass_effects()
 
-                # Cache untouched
-                assert connected_camilladsp_with_effects._loudness["enabled"] is True
+        # Loudness filters no longer referenced in any Filter step
+        pipeline_names = []
+        for step in camilla_daemon.last_pushed["pipeline"]:
+            if step.get("type") == "Filter":
+                pipeline_names.extend(step.get("names", []))
+        assert "loudness_low" not in pipeline_names
+        assert "loudness_high" not in pipeline_names
 
-                loudness_calls = [
-                    call for call in mock_settings_service.set_setting.call_args_list
-                    if call[0][0] == "equalizer.loudness"
-                ]
-                assert len(loudness_calls) == 0
+        # Cache untouched
+        assert connected_camilladsp_with_effects._loudness["enabled"] is True
+
+        loudness_calls = [
+            call for call in mock_settings_service.set_setting.call_args_list
+            if call[0][0] == "equalizer.loudness"
+        ]
+        assert len(loudness_calls) == 0
 
     @pytest.mark.asyncio
-    async def test_restore_adds_compressor_to_pipeline_from_cache(self, connected_camilladsp_with_effects):
+    async def test_restore_adds_compressor_to_pipeline_from_cache(self, connected_camilladsp_with_effects, camilla_daemon):
         """Restore should add compressor processor + pipeline reference from cached settings."""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
-        captured_config = None
+        daemon_config = {"filters": {}, "processors": {}, "pipeline": []}
 
         connected_camilladsp_with_effects._filters = []
         connected_camilladsp_with_effects._compressor = {
@@ -768,29 +710,24 @@ class TestEffectsBypassRestore:
         }
         connected_camilladsp_with_effects._loudness = {"enabled": False, "low_boost": 5.0, "high_boost": 5.0}
 
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
+        camilla_daemon.load(daemon_config)
 
-        with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                await connected_camilladsp_with_effects.restore_effects()
+        await connected_camilladsp_with_effects.restore_effects()
 
-                # Compressor definition written from cache and added to pipeline
-                assert "compressor" in captured_config["processors"]
-                assert captured_config["processors"]["compressor"]["parameters"]["threshold"] == -25
-                pipeline_procs = [s.get("name") for s in captured_config["pipeline"] if s.get("type") == "Processor"]
-                assert "compressor" in pipeline_procs
+        # Compressor definition written from cache and added to pipeline
+        assert "compressor" in camilla_daemon.last_pushed["processors"]
+        assert camilla_daemon.last_pushed["processors"]["compressor"]["parameters"]["threshold"] == -25
+        pipeline_procs = [s.get("name") for s in camilla_daemon.last_pushed["pipeline"] if s.get("type") == "Processor"]
+        assert "compressor" in pipeline_procs
 
-                # Cache values unchanged by restore
-                assert connected_camilladsp_with_effects._compressor["enabled"] is True
-                assert connected_camilladsp_with_effects._compressor["threshold"] == -25
+        # Cache values unchanged by restore
+        assert connected_camilladsp_with_effects._compressor["enabled"] is True
+        assert connected_camilladsp_with_effects._compressor["threshold"] == -25
 
     @pytest.mark.asyncio
-    async def test_restore_adds_loudness_to_pipeline_from_cache(self, connected_camilladsp_with_effects):
+    async def test_restore_adds_loudness_to_pipeline_from_cache(self, connected_camilladsp_with_effects, camilla_daemon):
         """Restore should add loudness filter defs + pipeline references from cached settings."""
-        mock_config = {"filters": {}, "processors": {}, "pipeline": []}
-        captured_config = None
+        daemon_config = {"filters": {}, "processors": {}, "pipeline": []}
 
         connected_camilladsp_with_effects._filters = []
         connected_camilladsp_with_effects._compressor = {
@@ -798,24 +735,20 @@ class TestEffectsBypassRestore:
         }
         connected_camilladsp_with_effects._loudness = {"enabled": True, "low_boost": 10, "high_boost": 8}
 
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
+        camilla_daemon.load(daemon_config)
 
-        with patch.object(connected_camilladsp_with_effects, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_with_effects, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                await connected_camilladsp_with_effects.restore_effects()
+        await connected_camilladsp_with_effects.restore_effects()
 
-                # Loudness defs written from cache and added to pipeline
-                assert captured_config["filters"]["loudness_low"]["parameters"]["gain"] == 10
-                assert captured_config["filters"]["loudness_high"]["parameters"]["gain"] == 8
-                pipeline_names = []
-                for step in captured_config["pipeline"]:
-                    if step.get("type") == "Filter":
-                        pipeline_names.extend(step.get("names", []))
-                assert "loudness_low" in pipeline_names
-                assert "loudness_high" in pipeline_names
+        # Loudness defs written from cache and added to pipeline
+        assert camilla_daemon.last_pushed["filters"]["loudness_low"]["parameters"]["gain"] == 10
+        assert camilla_daemon.last_pushed["filters"]["loudness_high"]["parameters"]["gain"] == 8
+        pipeline_names = []
+        for step in camilla_daemon.last_pushed["pipeline"]:
+            if step.get("type") == "Filter":
+                pipeline_names.extend(step.get("names", []))
+        assert "loudness_low" in pipeline_names
+        assert "loudness_high" in pipeline_names
 
-                # Cache values unchanged
-                assert connected_camilladsp_with_effects._loudness["enabled"] is True
-                assert connected_camilladsp_with_effects._loudness["low_boost"] == 10
+        # Cache values unchanged
+        assert connected_camilladsp_with_effects._loudness["enabled"] is True
+        assert connected_camilladsp_with_effects._loudness["low_boost"] == 10

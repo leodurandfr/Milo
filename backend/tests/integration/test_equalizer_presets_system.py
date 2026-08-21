@@ -12,9 +12,14 @@ Tests cover:
 
 These tests verify the complete preset flow:
 API → CamillaDSPService → WebSocket → Frontend state update
+
+CamillaDSP itself is mocked at the boundary the service actually talks to:
+`mock_camilla_client` (backend/tests/conftest.py) is injected as `service._client`,
+so `_get_config` / `_set_config` run for real and `camilla_daemon` is what the
+daemon holds — seed it with `load()`, read the write back with `last_pushed`.
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 
 from backend.core.equalizer import CamillaDSPService, CamillaDspState
 from backend.core.equalizer.presets import (
@@ -72,12 +77,13 @@ def mock_multiroom_equalizer_service():
 
 
 @pytest.fixture
-def connected_camilladsp_service(mock_settings_service, mock_state_machine):
+def connected_camilladsp_service(mock_settings_service, mock_state_machine, mock_camilla_client):
     """Create connected Equalizer service"""
     service = CamillaDSPService(
         settings_service=mock_settings_service
     )
     service.set_state_machine(mock_state_machine)
+    service._client = mock_camilla_client
     service._connected = True
     service._state = CamillaDspState.RUNNING
 
@@ -111,54 +117,50 @@ class TestNoAutoSwitchOnPresetEdit:
     """Modifying filter while on preset does NOT auto-switch to custom"""
 
     @pytest.mark.asyncio
-    async def test_manual_modification_does_not_switch_preset(self, camilladsp_service_with_jazz_preset, mock_settings_service):
+    async def test_manual_modification_does_not_switch_preset(self, camilladsp_service_with_jazz_preset, mock_settings_service, camilla_daemon):
         """Should NOT switch preset when modifying filter while on builtin preset"""
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
             "equalizer.active_preset": "jazz",
             "equalizer.custom_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         }.get(key))
 
-        mock_config = {"filters": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "pipeline": []})
 
-        with patch.object(camilladsp_service_with_jazz_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(camilladsp_service_with_jazz_preset, '_set_config', new_callable=AsyncMock):
-                await camilladsp_service_with_jazz_preset.set_filter(
-                    filter_id="eq_band_00",
-                    freq=32,
-                    gain=6.0,
-                    q=1.41,
-                    filter_type="Peaking"
-                )
+        await camilladsp_service_with_jazz_preset.set_filter(
+            filter_id="eq_band_00",
+            freq=32,
+            gain=6.0,
+            q=1.41,
+            filter_type="Peaking"
+        )
 
-                # Should NOT switch active_preset
-                preset_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                               if c[0][0] == "equalizer.active_preset"]
-                assert len(preset_calls) == 0, "Should NOT switch preset on manual filter edit"
+        # Should NOT switch active_preset
+        preset_calls = [c for c in mock_settings_service.set_setting.call_args_list
+                       if c[0][0] == "equalizer.active_preset"]
+        assert len(preset_calls) == 0, "Should NOT switch preset on manual filter edit"
 
     @pytest.mark.asyncio
-    async def test_manual_modification_does_not_save_custom_gains(self, camilladsp_service_with_jazz_preset, mock_settings_service):
+    async def test_manual_modification_does_not_save_custom_gains(self, camilladsp_service_with_jazz_preset, mock_settings_service, camilla_daemon):
         """Should NOT save custom gains when modifying filter"""
         mock_settings_service.get_setting = AsyncMock(side_effect=lambda key: {
             "equalizer.active_preset": "jazz",
             "equalizer.custom_gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         }.get(key))
 
-        mock_config = {"filters": {}, "pipeline": []}
+        camilla_daemon.load({"filters": {}, "pipeline": []})
 
-        with patch.object(camilladsp_service_with_jazz_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(camilladsp_service_with_jazz_preset, '_set_config', new_callable=AsyncMock):
-                await camilladsp_service_with_jazz_preset.set_filter(
-                    filter_id="eq_band_00",
-                    freq=32,
-                    gain=6.0,
-                    q=1.41,
-                    filter_type="Peaking"
-                )
+        await camilladsp_service_with_jazz_preset.set_filter(
+            filter_id="eq_band_00",
+            freq=32,
+            gain=6.0,
+            q=1.41,
+            filter_type="Peaking"
+        )
 
-                # Should NOT save custom gains
-                save_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                              if c[0][0] == "equalizer.custom_gains"]
-                assert len(save_calls) == 0, "Should NOT save custom gains on manual filter edit"
+        # Should NOT save custom gains
+        save_calls = [c for c in mock_settings_service.set_setting.call_args_list
+                      if c[0][0] == "equalizer.custom_gains"]
+        assert len(save_calls) == 0, "Should NOT save custom gains on manual filter edit"
 
 
 # =============================================================================
