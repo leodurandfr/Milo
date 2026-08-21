@@ -41,6 +41,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, relative } from 'node:path';
+import { stripComments } from '../helpers/stripComments.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
@@ -95,10 +96,19 @@ function topLevelFunctions() {
   }));
 }
 
-/** Comments are stripped: a rule must read code, never the prose above it. */
-function stripComments(body) {
-  return body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-}
+
+// The two anchors the last rule reads out of EQBand.vue's template.
+const PRINTED_GAIN_CLASS = 'gain-value';
+const GAIN_SLIDER_CLASS = 'gain-slider';
+
+/** What to do when a class rename, not a regression, is what broke the rule. */
+const ANCHOR_LOST = (className, shape) =>
+  `EQBand.vue has no .${className} element ${shape ? `${shape} ` : ''}any more. `
+  + `If it was renamed, update ${className === PRINTED_GAIN_CLASS ? 'PRINTED_GAIN_CLASS' : 'GAIN_SLIDER_CLASS'} `
+  + 'here and the comment in EQBand.vue that names it — nothing has regressed. '
+  + 'If the gain moved out of the template instead, this rule has to be rewritten '
+  + 'against wherever it is rendered now: it exists because a band drawing 0.0 dB '
+  + 'before the store answers is a lie about the hardware.';
 
 const FUNCTIONS = topLevelFunctions();
 const WS_HANDLERS = FUNCTIONS.filter(f => /^handle[A-Z]/.test(f.name));
@@ -180,10 +190,17 @@ describe('equalizerStore target scoping', () => {
     // The printed figure is the `{{ }}` interpolation alone: a `:class` on the
     // same element mentioning `loaded` must not satisfy this (a surviving mutation
     // proved it would).
-    const printed = band.match(/<div class="gain-value[\s\S]*?>\s*(\{\{[\s\S]*?\}\})/);
-    const gainSlider = band.match(/<div class="gain-slider"[^>]*>/);
-    expect(printed, 'no interpolation inside .gain-value — the extractor is broken').not.toBeNull();
-    expect(gainSlider, 'no .gain-slider element in EQBand — the extractor is broken').not.toBeNull();
+    //
+    // Both are anchored on class names, which in a UI this repo refactors often
+    // is a red waiting to happen for no regression at all. Renaming either class
+    // is legal — it lands here with the message below, and EQBand.vue carries a
+    // comment saying the two names are read from here.
+    const printed = band.match(
+      new RegExp(`<div class="${PRINTED_GAIN_CLASS}[\\s\\S]*?>\\s*(\\{\\{[\\s\\S]*?\\}\\})`),
+    );
+    const gainSlider = band.match(new RegExp(`<div class="${GAIN_SLIDER_CLASS}"[^>]*>`));
+    expect(printed, ANCHOR_LOST(PRINTED_GAIN_CLASS, 'with an interpolation in it')).not.toBeNull();
+    expect(gainSlider, ANCHOR_LOST(GAIN_SLIDER_CLASS, '')).not.toBeNull();
     expect(printed[1]).toMatch(/\bloaded\b/);
     expect(gainSlider[0]).toMatch(/\bloaded\b/);
   });

@@ -149,7 +149,20 @@ async def live_mpv(tmp_path):
 
 
 class TestConnectBudget:
-    """connect() must give up inside its timeout, whatever mpv is doing."""
+    """connect() must give up inside its timeout, whatever mpv is doing.
+
+    On the margin these budgets carry, since a wall-clock assertion on the
+    appliance is a fair thing to be suspicious of: `can_retry` refuses to start
+    an attempt it cannot afford to finish, so the loop returns at least
+    `retry_delay + PROBE_TIMEOUT` -- 1.1s -- before the deadline, by
+    construction and not by luck. Both tests below measure 0.90s against a 2.0s
+    bound. Failing one would take losing more than a second of scheduling
+    inside a 0.9s window, and by then the appliance has worse problems.
+
+    The bound is still the weaker half of what is asserted, so the case that
+    matters -- an attempt-counter implementation, which is the regression these
+    were written for -- is also pinned without the clock, on the probe count.
+    """
 
     @pytest.mark.asyncio
     async def test_missing_socket_gives_up_within_timeout(self, controller):
@@ -192,7 +205,11 @@ class TestConnectBudget:
         # An attempt-counter implementation would have run 10 × probe_cost = 4s
         # here regardless of the 2s budget.
         assert elapsed < 2.0
-        assert mock_cmd.await_count > 1
+        # And the same thing without the clock: more than one probe proves the
+        # loop retried at all, fewer than five proves it stopped on the deadline
+        # rather than on an attempt count. The 2s budget affords two probes; the
+        # counter this replaced took ten whatever the caller asked for.
+        assert 1 < mock_cmd.await_count < 5
 
     @pytest.mark.asyncio
     async def test_probe_uses_short_timeout(self, controller):

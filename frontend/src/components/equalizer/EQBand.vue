@@ -1,5 +1,9 @@
 <!-- frontend/src/components/equalizer/EQBand.vue -->
 <!-- Individual EQ band control: band label and gain slider -->
+<!-- The class names .gain-slider and .gain-value are read as anchors by
+     tests/architecture/equalizerTargetScope.test.js, which pins that neither
+     renders a figure before the store has loaded one. Renaming either is fine;
+     update PRINTED_GAIN_CLASS / GAIN_SLIDER_CLASS there in the same commit. -->
 <template>
   <div class="eq-band" :class="{ 'horizontal': orientation === 'horizontal', 'compact': compact }">
     <div class="band-label text-mono-small">{{ displayName }}</div>
