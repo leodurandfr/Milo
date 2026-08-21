@@ -517,6 +517,11 @@ class VolumeStateStore:
         """Check if a client is registered in the volume state."""
         return mac_id in self._clients
 
+    def is_client_available(self, mac_id: str) -> bool:
+        """Whether a client is currently reachable. Unknown clients are not."""
+        client = self._clients.get(mac_id)
+        return client.available if client else False
+
     @property
     def local_volume_db(self) -> float:
         """Current local volume in dB (direct mode).
@@ -545,17 +550,24 @@ class VolumeStateStore:
 
     async def apply_zone_delta(self, zone_id: str, delta_db: float) -> Dict[str, float]:
         """
-        Calculate volume updates for all clients in a zone.
+        Calculate volume updates for every member of a zone.
 
         This is ATOMIC: calculates delta and returns all updates at once.
         Caller must apply these to hardware in parallel.
+
+        An unavailable member is included. A delta is relative, so applying it
+        to the stored level needs no hardware and no queue: the value is simply
+        right when the client comes back, at the level its room moved to rather
+        than the one it left. The caller splits this dict on
+        is_client_available() — hardware for the reachable ones, store for all.
 
         Args:
             zone_id: Zone identifier
             delta_db: Volume change in dB
 
         Returns:
-            Dict mapping mac_id -> new_volume_db for all available clients
+            Dict mapping mac_id -> new_volume_db for every member with volume
+            control, available or not
 
         Raises:
             ValueError: If zone not found
@@ -567,14 +579,11 @@ class VolumeStateStore:
             zone = self._zones[zone_id]
             updates = {}
 
-            # Apply delta to each available client with volume control (skip DAC clients)
+            # Every member with volume control (skip DAC clients), reachable or not
             for client_id in zone.client_ids:
-                if client_id in self._clients:
+                if client_id in self._clients and self.has_volume_control(client_id):
                     client = self._clients[client_id]
-
-                    if client.available and self.has_volume_control(client_id):
-                        new_volume = self._clamp_db(client.volume_db + delta_db)
-                        updates[client_id] = new_volume
+                    updates[client_id] = self._clamp_db(client.volume_db + delta_db)
 
             self.logger.debug(f"Zone delta: {zone_id} +{delta_db:+.1f}dB -> {len(updates)} clients")
             return updates

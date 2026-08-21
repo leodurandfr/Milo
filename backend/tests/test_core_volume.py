@@ -547,7 +547,7 @@ class TestVolumeService:
         mock_camilladsp_service.is_volume_control_available.return_value = False
         service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"  # intent recordable
 
-        result = await service._apply_volume_to_hardware(-40.0, None)
+        result = await service._apply_volume_to_hardware(-40.0, None, [])
 
         assert result is True  # deferred, not failed → no HTTP 500
         mock_camilladsp_service.set_volume.assert_not_called()  # nothing pushed while down
@@ -559,7 +559,7 @@ class TestVolumeService:
         mock_camilladsp_service.is_volume_control_available.return_value = False
         service._state_store._local_mac_id = None  # truly-fresh first boot
 
-        result = await service._apply_volume_to_hardware(-40.0, None)
+        result = await service._apply_volume_to_hardware(-40.0, None, [])
 
         assert result is False  # honest failure — nothing was recorded to reconcile
         mock_camilladsp_service.set_volume.assert_not_called()
@@ -570,7 +570,7 @@ class TestVolumeService:
         mock_camilladsp_service.is_volume_control_available.return_value = True
         mock_camilladsp_service.set_volume = AsyncMock(return_value=False)
 
-        result = await service._apply_volume_to_hardware(-40.0, None)
+        result = await service._apply_volume_to_hardware(-40.0, None, [])
 
         assert result is False  # real failure is surfaced (route → 500)
         mock_camilladsp_service.set_volume.assert_called_once()
@@ -1698,3 +1698,153 @@ class TestPerClientApplyVerdict:
 
         assert service.state_store.get_client_mute(self.REFUSING) is True
         assert caplog.text == ""
+
+
+# ============================================================================
+# A relative adjustment reaches a client that was absent for it (plan phase 3)
+# ============================================================================
+
+class TestAbsentClientKeepsItsPlaceInTheRoom:
+    """A zone or global delta made while a client is away must be in its level.
+
+    When these fail, a satellite that was off during an adjustment comes back at
+    the level it left — right in absolute terms, wrong relative to the room it
+    plays in, and nothing ever corrects it. The delta is relative, so the store
+    can carry it with no hardware and no replay queue; what must not happen is
+    the store being written for a *reachable* client that refused the level,
+    which is the other half of each test here.
+    """
+
+    ONLINE = "aa:bb:cc:dd:ee:01"
+    REFUSING = "aa:bb:cc:dd:ee:02"
+    OFFLINE = "aa:bb:cc:dd:ee:03"
+
+    @pytest.fixture
+    def mock_state_machine(self):
+        sm = Mock()
+        sm.broadcast = AsyncMock()
+        sm.routing_service = Mock()
+        sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': True})
+        return sm
+
+    @pytest.fixture
+    def mock_settings(self):
+        settings = Mock()
+        settings.invalidate_cache = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_setting = AsyncMock()
+        return settings
+
+    @pytest.fixture
+    def mock_registry(self):
+        """The registry answers "is it online?" for the global path."""
+        registry = Mock()
+        registry.is_client_online = Mock(
+            side_effect=lambda cid: cid != TestAbsentClientKeepsItsPlaceInTheRoom.OFFLINE
+        )
+        registry.get_online_client_ids = Mock(return_value=[
+            TestAbsentClientKeepsItsPlaceInTheRoom.ONLINE,
+            TestAbsentClientKeepsItsPlaceInTheRoom.REFUSING,
+        ])
+        registry.get_client = Mock(return_value=None)
+        return registry
+
+    @pytest.fixture
+    def mock_equalizer_controller(self):
+        """The refusing client answers False; the absent one is never called."""
+        controller = Mock()
+        attempted = {}
+
+        async def apply(mac_id, volume, **kwargs):
+            attempted[mac_id] = volume
+            return mac_id != TestAbsentClientKeepsItsPlaceInTheRoom.REFUSING
+
+        async def apply_parallel(updates):
+            return {cid: await apply(cid, vol) for cid, vol in updates.items()}
+
+        controller.set_equalizer_volume = AsyncMock(side_effect=apply)
+        controller.apply_volumes_parallel = AsyncMock(side_effect=apply_parallel)
+        controller.attempted = attempted
+        return controller
+
+    @pytest.fixture
+    def service(self, mock_state_machine, mock_settings, mock_registry,
+                mock_equalizer_controller):
+        svc = VolumeService(
+            state_machine=mock_state_machine,
+            snapcast_service=Mock(get_clients=AsyncMock(return_value=[])),
+            settings_service=mock_settings,
+            camilladsp_service=Mock(
+                set_volume=AsyncMock(return_value=True),
+                is_volume_control_available=Mock(return_value=True),
+            ),
+        )
+        svc._volume_config = VolumeConfig(
+            limit_min_db=-80.0, limit_max_db=0.0,
+            startup_volume_db=-40.0, restore_last_volume=True,
+        )
+        svc._state_store.set_volume_config(svc._volume_config)
+        svc._routing_service = mock_state_machine.routing_service
+        svc._equalizer_controller = mock_equalizer_controller
+        svc._client_registry = mock_registry
+        svc._state_store._mode = "multiroom"
+        svc._state_store._schedule_persist = Mock()
+        svc._state_store._clients = {
+            self.ONLINE: ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
+            self.REFUSING: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True),
+            self.OFFLINE: ClientVolume(volume_db=-50.0, offset_db=0.0, mute=False, available=False),
+        }
+        return svc
+
+    @pytest.fixture
+    def zoned(self, service):
+        """The three clients as one zone."""
+        from backend.core.volume.state import ZoneConfig
+        service._state_store._zones = {
+            'salon': ZoneConfig(zone_id='salon', name='Salon',
+                                client_ids=[self.ONLINE, self.REFUSING, self.OFFLINE])
+        }
+        service._state_store._load_zones = AsyncMock()
+        return service
+
+    # ---- 3.1 the zone delta ----
+
+    @pytest.mark.asyncio
+    async def test_a_zone_delta_lands_in_an_absent_member_s_stored_level(self, zoned):
+        """The absent member's level moves by the delta with no call made for it."""
+        await zoned.apply_zone_volume_delta('salon', -6.0)
+
+        assert zoned.state_store.get_client_volume(self.OFFLINE) == -56.0
+        assert self.OFFLINE not in zoned.equalizer_controller.attempted
+
+    @pytest.mark.asyncio
+    async def test_a_zone_delta_is_still_gated_on_a_reachable_member_s_verdict(self, zoned):
+        """Reaching a speaker and being refused is not the same as not reaching it."""
+        await zoned.apply_zone_volume_delta('salon', -6.0)
+
+        assert zoned.state_store.get_client_volume(self.ONLINE) == -36.0
+        assert zoned.state_store.get_client_volume(self.REFUSING) == -40.0
+        assert zoned.equalizer_controller.attempted[self.REFUSING] == -46.0
+
+    # ---- 3.2 the global delta ----
+
+    @pytest.mark.asyncio
+    async def test_a_global_delta_lands_in_an_absent_client_s_stored_level(self, service):
+        """Same rule on the global path, whose liveness comes from the registry.
+
+        The global average counts the two available clients (-35), so a -6 dB
+        target shifts everything by -6.
+        """
+        await service.set_volume_db(-41.0)
+
+        assert service.state_store.get_client_volume(self.OFFLINE) == -56.0
+        assert self.OFFLINE not in service.equalizer_controller.attempted
+
+    @pytest.mark.asyncio
+    async def test_a_global_delta_is_still_gated_on_a_reachable_client_s_verdict(self, service):
+        """A client the fan-out reached and that refused keeps its stored level."""
+        await service.set_volume_db(-41.0)
+
+        assert service.state_store.get_client_volume(self.ONLINE) == -36.0
+        assert service.state_store.get_client_volume(self.REFUSING) == -40.0
+        assert service.equalizer_controller.attempted[self.REFUSING] == -46.0
