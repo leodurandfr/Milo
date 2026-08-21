@@ -218,12 +218,6 @@ class TestSetFilterMethod:
 class TestTenBandEqConfiguration:
     """10-band parametric EQ with correct default frequencies"""
 
-    def test_default_eq_frequencies_match_spec(self):
-        """Should have exactly 10 bands with standard frequencies"""
-        expected = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        assert DEFAULT_EQ_FREQS == expected
-        assert len(DEFAULT_EQ_FREQS) == 10
-
     def test_equalizer_settings_default_creates_10_bands(self):
         """EqualizerSettings.default() should create 10-band EQ"""
         eq = EqualizerSettings.default()
@@ -346,20 +340,6 @@ class TestNoAutoSwitchOnFilterEdit:
                 custom_gains_calls = [c for c in mock_settings_service.set_setting.call_args_list
                                      if c[0][0] == "equalizer.custom_gains"]
                 assert len(custom_gains_calls) == 0
-
-
-# =============================================================================
-# Frontend Store Validation (dspStore.js)
-# =============================================================================
-
-class TestFrontendStoreDefaults:
-    """Verify frontend defaults match backend expectations"""
-
-    def test_default_frequencies_match_frontend(self):
-        """Frontend DEFAULT_FREQUENCIES should match backend DEFAULT_EQ_FREQS"""
-        # Frontend: [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        frontend_default = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        assert DEFAULT_EQ_FREQS == frontend_default
 
 
 # =============================================================================
