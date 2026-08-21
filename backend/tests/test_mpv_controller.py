@@ -1,8 +1,7 @@
 # backend/tests/test_mpv_controller.py
 """
-Unit tests for MpvController's connect budget and for who owns the IPC link.
-
-Two subjects, both about a link nobody is answering:
+Unit tests for MpvController: its connect budget, who owns the IPC link, and
+the frames its commands put on that link.
 
 - connect() runs inside _do_start for the four mpv sources, which itself runs
   under AudioStateMachine.TRANSITION_TIMEOUT. It used to retry a fixed number of
@@ -13,6 +12,13 @@ Two subjects, both about a link nobody is answering:
 - A property read used to re-open the link on its own. TestLinkOwnership guards
   that it no longer does, that a stale link is *visible* without a round-trip,
   and that starting playback still re-attaches.
+- This is the only file that drives the real controller: Radio, Podcast, CD and
+  Music Library all swap it for a Mock, which is right for a collaborator but
+  leaves its command surface unwatched — eleven public methods could each be
+  replaced by a constant with the whole backend suite green. The classes from
+  TestTransportCommands down pin what every one of them sends, against the same
+  Unix-socket fake, because a renamed property or an inverted boolean here is
+  wrong audio on four sources at once and on nothing else.
 """
 import asyncio
 import json
@@ -49,8 +55,32 @@ class FakeMpv:
         self.path = str(path)
         self.connections = 0
         self.received = []
+        self.properties = {}
+        self.fail_commands = set()
         self._server = None
         self._peers = []
+
+    def _reply(self, command):
+        """What mpv answers for one command frame."""
+        if command[0] in self.fail_commands:
+            return {"error": "unsupported format"}
+        if command[0] == "get_property":
+            return {"error": "success", "data": self._read(command[1])}
+        return {"error": "success", "data": 0}
+
+    def _read(self, name):
+        """The value mpv holds for a property.
+
+        A list is a *script*: one value per read, sticking on the last, which is
+        how a playhead that only starts moving on the third poll is expressed.
+        No property under test is genuinely list-valued.
+        """
+        if name not in self.properties:
+            return 0
+        value = self.properties[name]
+        if isinstance(value, list):
+            return value.pop(0) if len(value) > 1 else value[0]
+        return value
 
     async def start(self):
         self._server = await asyncio.start_unix_server(self._serve, self.path)
@@ -65,18 +95,9 @@ class FakeMpv:
                     return
                 request = json.loads(line)
                 self.received.append(request["command"])
-                writer.write(
-                    (
-                        json.dumps(
-                            {
-                                "error": "success",
-                                "data": 0,
-                                "request_id": request["request_id"],
-                            }
-                        )
-                        + "\n"
-                    ).encode()
-                )
+                reply = self._reply(request["command"])
+                reply["request_id"] = request["request_id"]
+                writer.write((json.dumps(reply) + "\n").encode())
                 await writer.drain()
         except (ConnectionError, asyncio.IncompleteReadError):
             return
@@ -112,6 +133,19 @@ def _first(frames, name):
         if frame and frame[0] == name:
             return index
     return -1
+
+
+@pytest.fixture
+async def live_mpv(tmp_path):
+    """A connected controller and the mpv it talks to, with connect()'s own
+    frames cleared so a test sees only what its command sent."""
+    fake = FakeMpv(tmp_path / "ipc.sock")
+    await fake.start()
+    controller = MpvController(ipc_socket_path=fake.path)
+    assert await controller.connect(timeout=2.0, retry_delay=0.1) is True
+    fake.received.clear()
+    yield controller, fake
+    await fake.stop()
 
 
 class TestConnectBudget:
@@ -304,3 +338,206 @@ class TestLinkOwnership:
         assert _first(restarted.received, "loadfile") >= 0
 
         await restarted.stop()
+
+
+class TestTransportCommands:
+    """The frame each transport command puts on the socket.
+
+    Every one of these could be replaced by `return False` with the whole
+    backend suite green: the four mpv sources swap the controller for a Mock
+    (correct — it is a collaborator), so nothing else exercises the real one. A
+    renamed property, an inverted boolean or a swapped argument shows up only
+    as wrong audio, on four sources at once.
+    """
+
+    @pytest.mark.asyncio
+    async def test_pause_sets_the_pause_property(self, live_mpv):
+        controller, fake = live_mpv
+        assert await controller.pause() is True
+        assert fake.received == [["set_property", "pause", True]]
+
+    @pytest.mark.asyncio
+    async def test_resume_clears_it(self, live_mpv):
+        """The one bit that separates the two commands."""
+        controller, fake = live_mpv
+        assert await controller.resume() is True
+        assert fake.received == [["set_property", "pause", False]]
+
+    @pytest.mark.asyncio
+    async def test_seek_is_absolute(self, live_mpv):
+        """mpv reads the flag as the second argument: swapped, a jump to 42s
+        becomes a 42s jump *forward* from wherever the playhead was."""
+        controller, fake = live_mpv
+        assert await controller.seek(42.5) is True
+        assert fake.received == [["seek", 42.5, "absolute"]]
+
+    @pytest.mark.asyncio
+    async def test_stop_is_one_frame(self, live_mpv):
+        controller, fake = live_mpv
+        assert await controller.stop() is True
+        assert fake.received == [["stop"]]
+
+    @pytest.mark.asyncio
+    async def test_an_mpv_error_is_a_failure_not_a_success(self, live_mpv):
+        """The frame left the process and mpv refused it. Callers gate state on
+        the return value, so a refusal that reads as success is a UI showing a
+        transport that never happened."""
+        controller, fake = live_mpv
+        fake.fail_commands.add("stop")
+
+        assert await controller.stop() is False
+        assert fake.received == [["stop"]]
+
+
+class TestPropertyReads:
+    """What a read gives back, and what it refuses to invent."""
+
+    @pytest.mark.asyncio
+    async def test_get_property_returns_what_mpv_holds(self, live_mpv):
+        controller, fake = live_mpv
+        fake.properties["volume"] = 87.5
+
+        assert await controller.get_property("volume") == 87.5
+        assert fake.received == [["get_property", "volume"]]
+
+    @pytest.mark.asyncio
+    async def test_a_refused_read_is_not_a_dead_link(self, live_mpv):
+        """mpv refuses a property it does not currently have — `chapter` on a
+        stream, `playlist-count` before a queue exists — several times a minute
+        on the monitor tick. That is an answer, not a socket failure: tearing the
+        link down here would drop every later command until a play command
+        re-attached, on a link that was never broken."""
+        controller, fake = live_mpv
+        fake.fail_commands.add("get_property")
+
+        assert await controller.get_property("chapter") is None
+        assert controller.is_connected is True
+
+        fake.fail_commands.clear()
+        fake.properties["volume"] = 12.0
+        assert await controller.get_property("volume") == 12.0
+
+    @pytest.mark.asyncio
+    async def test_is_playing_is_the_existence_of_a_playhead(self, live_mpv):
+        """playback-time exists from the first decoded frame and stays at 0 for a
+        whole buffer's worth of it, then disappears when playback ends. Both
+        edges matter: `> 0` calls a just-started stream stopped, and anything
+        looser calls a finished one playing — the four mpv sources hang their
+        auto-stop off this."""
+        controller, fake = live_mpv
+        fake.properties["playback-time"] = 0.0
+
+        assert await controller.is_playing() is True
+        assert fake.received == [["get_property", "playback-time"]]
+
+        fake.properties["playback-time"] = None
+        assert await controller.is_playing() is False
+
+    @pytest.mark.asyncio
+    async def test_metadata_keys_are_lowercased_and_values_are_strings(self, live_mpv):
+        """Readers index `icy-title` / `icy-name`; mpv's casing follows the
+        stream's tags, and HLS surfaces numeric tags the readers would choke on."""
+        controller, fake = live_mpv
+        fake.properties["metadata"] = {
+            "icy-title": "Artist - Song",
+            "ICY-NAME": "Some Radio",
+            "track": 7,
+        }
+
+        assert await controller.get_metadata() == {
+            "icy-title": "Artist - Song",
+            "icy-name": "Some Radio",
+        }
+        assert fake.received == [["get_property", "metadata"]]
+
+    @pytest.mark.asyncio
+    async def test_metadata_is_empty_when_mpv_reports_none(self, live_mpv):
+        """A stream with no tags answers None, not a dict — callers iterate the
+        result without checking."""
+        controller, fake = live_mpv
+        fake.properties["metadata"] = None
+
+        assert await controller.get_metadata() == {}
+
+
+class TestWaitUntilAdvancing:
+    """A loaded file is not a moving playhead."""
+
+    @pytest.mark.asyncio
+    async def test_it_waits_for_the_playhead_to_move(self, live_mpv):
+        """mpv's audio output takes up to ~1s to start after an unpause, and
+        time-pos sits at 0 throughout: returning on the first read is what let a
+        progress bar run ahead of silence."""
+        controller, fake = live_mpv
+        fake.properties["time-pos"] = [0, 0, 2.5]
+
+        assert await controller.wait_until_advancing(timeout=2.0, poll_interval=0.01) is True
+        assert len(fake.received) >= 3
+
+    @pytest.mark.asyncio
+    async def test_it_gives_up_on_a_stalled_source(self, live_mpv):
+        """Bounded, so a source that never starts cannot hang the caller."""
+        controller, fake = live_mpv
+        fake.properties["time-pos"] = 0
+
+        assert await controller.wait_until_advancing(timeout=0.2, poll_interval=0.01) is False
+
+
+class TestPlaylistEdits:
+    """The gapless queue: what a jump and a re-shuffle put on the socket."""
+
+    @pytest.mark.asyncio
+    async def test_set_playlist_pos_jumps_by_index(self, live_mpv):
+        controller, fake = live_mpv
+        assert await controller.set_playlist_pos(3) is True
+        assert fake.received == [["set_property", "playlist-pos", 3]]
+
+    @pytest.mark.asyncio
+    async def test_replacing_the_tail_leaves_the_head_and_appends_in_order(self, live_mpv):
+        """Removal runs from the end down so the indices it is walking do not
+        shift under it, and the entry playing (inside the kept head) is never
+        reloaded — that is what makes the live shuffle toggle inaudible.
+        """
+        controller, fake = live_mpv
+        fake.properties["playlist-count"] = 5
+
+        assert await controller.replace_playlist_tail(
+            2, ["http://example.test/x", "http://example.test/y"]
+        ) is True
+
+        assert fake.received == [
+            ["get_property", "playlist-count"],
+            ["playlist-remove", 4],
+            ["playlist-remove", 3],
+            ["playlist-remove", 2],
+            ["loadfile", "http://example.test/x", "append"],
+            ["loadfile", "http://example.test/y", "append"],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_playlist_removes_nothing(self, live_mpv):
+        """Without the length there is no tail to identify; guessing would drop
+        entries the user is still queued to hear."""
+        controller, fake = live_mpv
+        fake.properties["playlist-count"] = None
+
+        assert await controller.replace_playlist_tail(2, ["http://example.test/x"]) is False
+        assert fake.received == [["get_property", "playlist-count"]]
+
+
+class TestDisconnect:
+    """disconnect() ends the link, it does not merely forget it."""
+
+    @pytest.mark.asyncio
+    async def test_the_link_is_down_and_commands_stop_leaving(self, live_mpv):
+        """Called from _send_command's own error paths and from source cleanup.
+        A disconnect that left the state half-set would leave is_connected True,
+        and every later command would be written into a dead socket instead of
+        being dropped for ensure_connected() to repair."""
+        controller, fake = live_mpv
+
+        await controller.disconnect()
+
+        assert controller.is_connected is False
+        assert await controller.stop() is False
+        assert fake.received == []
