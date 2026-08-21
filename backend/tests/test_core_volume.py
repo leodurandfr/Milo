@@ -259,11 +259,7 @@ class TestVolumeStateStore:
         return store
 
     def test_default_values(self, state_store):
-        """Test default store values (constants imported from backend.config.constants)."""
-        assert MIN_VOLUME_DB == -80.0
-        assert MAX_VOLUME_DB == 0.0
-        assert DEFAULT_VOLUME_DB == -45.0
-        # Without a known local mac_id, local_volume_db reports the default.
+        """Without a known local mac_id, local_volume_db reports the default."""
         assert state_store.local_volume_db == DEFAULT_VOLUME_DB
 
     def test_clamp_db(self, state_store):

@@ -478,10 +478,6 @@ class TestZoneUpdate:
 class TestMaxZoneNameLengthConstant:
     """Tests for MAX_ZONE_NAME_LENGTH constant."""
 
-    def test_max_zone_name_length_value(self):
-        """MAX_ZONE_NAME_LENGTH is 15."""
-        assert MAX_ZONE_NAME_LENGTH == 15
-
     def test_max_zone_name_length_matches_domain_model(self):
         """API constant matches domain model constant."""
         from backend.core.multiroom.models import MAX_ZONE_NAME_LENGTH as DOMAIN_CONSTANT

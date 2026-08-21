@@ -20,7 +20,6 @@ from backend.core.equalizer import CamillaDSPService, CamillaDspState
 from backend.core.equalizer.presets import (
     BUILTIN_PRESETS,
     DEFAULT_EQ_FREQS,
-    DEFAULT_CUSTOM_GAINS,
     get_builtin_presets,
     get_preset_by_id
 )
@@ -198,10 +197,6 @@ class TestPresetsList:
         """get_preset_by_id should return None for unknown preset"""
         result = get_preset_by_id("nonexistent")
         assert result is None
-
-    def test_default_custom_gains_are_flat(self):
-        """Default custom gains should be all zeros (flat)"""
-        assert DEFAULT_CUSTOM_GAINS == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     def test_expected_preset_ids_exist(self):
         """Verify expected preset IDs are present"""

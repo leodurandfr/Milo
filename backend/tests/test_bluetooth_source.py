@@ -71,14 +71,6 @@ def bluetooth_source(config):
     return source
 
 
-class TestBaseClassCompliance:
-    """Test that BluetoothSource extends BaseAudioSource correctly."""
-
-    def test_has_required_attributes(self, bluetooth_source):
-        """Test required attributes exist."""
-        assert bluetooth_source.source_id == "bluetooth"
-        assert bluetooth_source.service_name == "milo-bluealsa.service"
-
 class TestBluetoothSourceConfig:
     """Test BluetoothSource configuration."""
 

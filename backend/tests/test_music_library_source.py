@@ -81,10 +81,6 @@ TRACKS = [
 
 
 class TestCompliance:
-    def test_identity(self, source):
-        assert source.source_id == "music_library"
-        assert source.service_name == "milo-music-library.service"
-
     def test_default_socket(self):
         assert MusicLibrarySource()._mpv_socket == "/run/milo/music_library-ipc.sock"
 

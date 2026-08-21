@@ -89,6 +89,15 @@ class TestUpdateHandlerCoverage:
         assert len(called) == 1, f"{program_key} reached {called or 'no handler'}"
         assert result["success"] is True
 
+        # The three tarball programs share one handler, so reaching it is not
+        # enough -- it has to be told which program it is downloading.
+        shared = handlers["_update_binary_program"]
+        if shared.await_count:
+            assert shared.await_args.args[0] == program_key, (
+                f"{program_key} reached the shared binary flow as "
+                f"{shared.await_args.args[0]!r}"
+            )
+
 
 class TestUpdateProgram:
     """Tests for update_program() dispatch"""
@@ -107,57 +116,6 @@ class TestUpdateProgram:
             result = await update_service.update_program("go-librespot")
         assert result["success"] is False
         assert "No update available" in result["error"]
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("program_key", BINARY_PROGRAMS)
-    async def test_dispatches_to_binary_program(self, update_service, program_key):
-        """The three tarball-binary programs must all reach the shared flow.
-
-        A missing "asset_url" in the catalog would silently fall through to
-        "Update handler not implemented" instead.
-        """
-        status = {"update_available": True, "latest": {"version": "0.7.0"}}
-        expected_result = {"success": True, "message": "updated"}
-
-        with patch.object(update_service, "get_program_full_status", return_value=status):
-            with patch.object(update_service, "_update_binary_program", return_value=expected_result) as mock_update:
-                result = await update_service.update_program(program_key)
-
-        assert mock_update.await_args.args[0] == program_key
-        assert result["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_dispatches_to_multiroom(self, update_service):
-        status = {"update_available": True, "latest": {"version": "0.29.0"}}
-        expected_result = {"success": True}
-
-        with patch.object(update_service, "get_program_full_status", return_value=status):
-            with patch.object(update_service, "_update_multiroom", return_value=expected_result) as mock_update:
-                await update_service.update_program("multiroom")
-
-        mock_update.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_dispatches_to_shairport_sync(self, update_service):
-        status = {"update_available": True, "latest": {"version": "4.3.4"}}
-        expected_result = {"success": True}
-
-        with patch.object(update_service, "get_program_full_status", return_value=status):
-            with patch.object(update_service, "_update_shairport_sync", return_value=expected_result) as mock_update:
-                await update_service.update_program("shairport-sync")
-
-        mock_update.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_dispatches_to_milo(self, update_service):
-        status = {"update_available": True, "latest": {"version": "1.0.0"}}
-        expected_result = {"success": True}
-
-        with patch.object(update_service, "get_program_full_status", return_value=status):
-            with patch.object(update_service, "_update_milo_app", return_value=expected_result) as mock_update:
-                await update_service.update_program("milo")
-
-        mock_update.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_exception_caught(self, update_service):
