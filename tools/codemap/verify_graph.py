@@ -30,7 +30,8 @@ VERDICTS
 What this oracle cannot see, by construction: whether a type annotation tells the
 truth about the object actually injected at runtime. `getattr` proves the method
 exists on the declared class; it cannot prove the declared class is what arrives.
-That residue is audited by hand against the injection point — see PLAN.md.
+That residue is audited by hand against the injection point; its size and what
+the audit found are in CLAUDE.md.
 
 Usage:
     venv/bin/python tools/codemap/verify_graph.py [--graph output/backend_graph.json]

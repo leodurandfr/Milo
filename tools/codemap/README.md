@@ -5,9 +5,9 @@ construction**, so a feature's real path through the code can be read instead of
 reconstructed from memory and grep. Project-agnostic by design — Milō is the first
 subject, not the target.
 
-For the current numbers and how to run it, see [CLAUDE.md](CLAUDE.md). For what is
-being built next and why, see [PLAN.md](PLAN.md). This file is the front door: what the
-tool *is*, and what it lets you ask.
+For the current numbers, how to run it, and what the audits established, see
+[CLAUDE.md](CLAUDE.md). This file is the front door: what the tool *is*, and what it
+lets you ask.
 
 ## The one rule
 
@@ -31,9 +31,9 @@ zero undecidable, before any change to the resolver is considered done.
    *Built and audited.*
 2. **Annotator** — an LLM description per node (`does` = observed, `should` = intent),
    keyed by node id + body hash so a changed function flags its annotation stale rather
-   than letting it lie. *Not started.*
+   than letting it lie. *Designed, never started — the build-out was closed 2026-08-21.*
 3. **Viewer** — a generic page that reads the JSON and unfolds it as an explorable tree.
-   Knows nothing about Milō. *Not started.*
+   Knows nothing about Milō. *Designed, never started — same decision.*
 
 Keeping them separate is what makes layer 1's guarantee meaningful: the interpretation
 lives one layer up and can never contaminate the structure.
