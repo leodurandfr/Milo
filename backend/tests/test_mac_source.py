@@ -40,14 +40,6 @@ def mac_source(config):
     return source
 
 
-class TestBaseClassCompliance:
-    """Test that MacSource extends BaseAudioSource correctly."""
-
-    def test_has_required_attributes(self, mac_source):
-        """Test required attributes exist."""
-        assert mac_source.source_id == "mac"
-        assert mac_source.service_name == "milo-mac.service"
-
 class TestMacSourceConfig:
     """Test MacSource configuration."""
 

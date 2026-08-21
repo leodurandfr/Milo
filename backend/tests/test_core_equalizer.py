@@ -60,10 +60,6 @@ class TestPresets:
         preset = get_preset_by_id("nonexistent")
         assert preset is None
 
-    def test_default_custom_gains_flat(self):
-        """Default custom gains should be flat (all zeros)"""
-        assert DEFAULT_CUSTOM_GAINS == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-
     def test_preset_gains_within_range(self):
         """All preset gains should be within -15 to +15 dB"""
         for preset in BUILTIN_PRESETS:

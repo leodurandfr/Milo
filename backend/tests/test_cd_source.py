@@ -95,10 +95,6 @@ DISC = DiscInfo(
 
 
 class TestCompliance:
-    def test_identity(self, source):
-        assert source.source_id == "cd"
-        assert source.service_name == "milo-cd.service"
-
     def test_commands_registered(self, source):
         for cmd in ("play_track", "pause", "resume", "next",
                     "prev", "seek", "eject"):

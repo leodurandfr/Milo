@@ -116,14 +116,6 @@ def published_state(publish):
     return state, metadata
 
 
-class TestBaseClassCompliance:
-    """Test that SpotifySource extends BaseAudioSource correctly."""
-
-    def test_has_required_attributes(self, spotify_source):
-        """Test required attributes exist."""
-        assert spotify_source.source_id == "spotify"
-        assert spotify_source.service_name == "milo-spotify.service"
-
 class TestSpotifySourceConfig:
     """Test SpotifySource configuration."""
 

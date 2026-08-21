@@ -9,7 +9,6 @@ Tests cover:
 - EqualizerSettings model with typed sub-models
 - Backward compatibility with existing settings.json format
 """
-from backend.core.equalizer.presets import DEFAULT_EQ_FREQS
 from backend.core.multiroom.models import (
     EqFilter,
     CompressorSettings,
@@ -571,14 +570,3 @@ class TestFilterTypeEnum:
         assert str(FilterType.LOWSHELF) == "FilterType.LOWSHELF"
 
 
-# =============================================================================
-# Constants Tests
-# =============================================================================
-
-class TestDspConstants:
-    """Test Equalizer-related constants"""
-
-    def test_default_eq_frequencies(self):
-        """Should have standard 10-band EQ frequencies"""
-        assert DEFAULT_EQ_FREQS == [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        assert len(DEFAULT_EQ_FREQS) == 10

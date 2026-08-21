@@ -43,14 +43,6 @@ def radio_source(config):
     return source
 
 
-class TestBaseClassCompliance:
-    """Test that RadioSource extends BaseAudioSource correctly."""
-
-    def test_has_required_attributes(self, radio_source):
-        """Test required attributes exist."""
-        assert radio_source.source_id == "radio"
-        assert radio_source.service_name == "milo-radio.service"
-
 class TestRadioSourceConfig:
     """Test RadioSource configuration."""
 

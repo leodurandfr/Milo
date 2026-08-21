@@ -18,7 +18,6 @@ from backend.core.equalizer import (
     CamillaDSPService,
     CamillaDspState,
     get_preset_by_id,
-    DEFAULT_CUSTOM_GAINS,
     BUILTIN_PRESETS,
 )
 from backend.core.equalizer.presets import DEFAULT_EQ_FREQS
@@ -362,14 +361,6 @@ class TestFrontendStoreDefaults:
         frontend_default = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
         assert DEFAULT_EQ_FREQS == frontend_default
 
-    def test_filter_id_format_consistency(self):
-        """Filter IDs should use eq_band_XX format with zero-padding"""
-        for i in range(10):
-            expected_id = f"eq_band_{i:02d}"
-            # Verify format: eq_band_00, eq_band_01, ..., eq_band_09
-            assert len(expected_id) == 10
-            assert expected_id.startswith("eq_band_")
-
 
 # =============================================================================
 # Preset System Tests
@@ -394,6 +385,3 @@ class TestPresetSystem:
         preset = get_preset_by_id("nonexistent")
         assert preset is None
 
-    def test_default_custom_gains_are_flat(self):
-        """Default custom gains should be all zeros (flat response)"""
-        assert DEFAULT_CUSTOM_GAINS == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]

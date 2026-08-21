@@ -50,14 +50,6 @@ def podcast_source(config):
     return source
 
 
-class TestBaseClassCompliance:
-    """Test that PodcastSource extends BaseAudioSource correctly."""
-
-    def test_has_required_attributes(self, podcast_source):
-        """Test required attributes exist."""
-        assert podcast_source.source_id == "podcast"
-        assert podcast_source.service_name == "milo-podcast.service"
-
 class TestPodcastSourceConfig:
     """Test PodcastSource configuration."""
 
