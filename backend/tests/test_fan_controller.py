@@ -1,10 +1,17 @@
 # backend/tests/test_fan_controller.py
 """
-Unit tests for the fan target mode (temperature setpoint controller).
+Unit tests for the runtime PWM fan controller.
 
-Hardware writes are mocked — these exercise the pure proportional control law,
-the config validation surface (Pydantic + settings sanitization) and the monitor
-loop's write decision (hysteresis around a stable target, rails always written).
+Hardware writes are mocked and the two sysfs roots are redirected at a tmp tree
+— the machine this suite runs on IS a Pi whose `thermal_zone0/mode` is
+writable, so a test that reached the real node would disable the kernel thermal
+governor on a live appliance.
+
+What is exercised: the pure proportional control law, the config validation
+surface (Pydantic + settings sanitization), the monitor loop's write decision
+(hysteresis around a stable target, rails always written), the governor
+handover, and the four boundary methods the rest of the appliance calls into —
+`initialize`, `read_status`, `test_speed`, `cleanup`.
 """
 import asyncio
 import contextlib
@@ -16,6 +23,7 @@ from pydantic import ValidationError
 
 from backend.api.models import FanConfigRequest
 from backend.core.settings import SettingsService
+from backend.hardware import fan
 from backend.hardware.fan import (
     SAFETY_OVERRIDE_TEMP_C,
     TARGET_FULL_ABOVE_C,
@@ -335,3 +343,206 @@ class TestConfigLoadIsAProjection:
 
         assert service._cache['fan']['curve'][0]['percent'] != 99
         assert len(service._cache['fan']['curve']) != len(controller.curve)
+
+
+class TestInitializeDetection:
+    """What `initialize()` decides at boot: whether Milō owns the fan at all.
+
+    `available` gates the settings page, the monitor loop and every sysfs
+    write. Wrong in one direction, the kernel governor keeps overwriting our
+    duty and the configured curve silently does not apply; wrong in the other,
+    a box with no fan spams permission errors. It must return True either way —
+    fan control is opt-in and a dev host has no cooling_fan node.
+
+    Both sysfs roots are redirected at a tmp tree on purpose: the machine this
+    suite runs on IS a Pi whose `thermal_zone0/mode` is writable, and a test
+    that reached the real one would disable the kernel thermal governor on a
+    live appliance.
+    """
+
+    @pytest.fixture
+    def sysfs(self, tmp_path, monkeypatch):
+        device = tmp_path / "cooling_fan"
+        hwmon = device / "hwmon" / "hwmon3"
+        hwmon.mkdir(parents=True)
+        zone = tmp_path / "thermal_zone0"
+        zone.mkdir()
+        monkeypatch.setattr(fan, "COOLING_FAN_DEVICE", str(device))
+        monkeypatch.setattr(fan, "THERMAL_ZONE", str(zone))
+        return hwmon, zone
+
+    def _controller(self, cfg):
+        controller = make_controller()
+        controller.settings_service.get_setting = AsyncMock(return_value=cfg)
+        controller._write_sysfs = AsyncMock(return_value=True)
+        return controller
+
+    CONFIG = {
+        "enabled": True,
+        "mode": "manual",
+        "manual_percent": 40,
+        "target_temp_c": 70,
+        "curve": [{"temp_c": 55, "percent": 0}, {"temp_c": 82, "percent": 100}],
+    }
+
+    async def test_a_writable_fan_is_detected_configured_and_taken_over(self, sysfs):
+        """The whole boot chain in one: hwmon resolved under the stable platform
+        device, config adopted from settings, hardware taken from the governor,
+        the mode's duty asserted and the monitor loop running."""
+        hwmon, zone = sysfs
+        (hwmon / "pwm1").write_text("0")
+        (zone / "mode").write_text("enabled")
+        controller = self._controller(self.CONFIG)
+
+        assert await controller.initialize() is True
+
+        assert controller.available is True
+        assert controller.mode == "manual"
+        assert controller.manual_percent == 40
+        assert controller._pwm_percent == 40
+        assert controller._monitor_task is not None
+        await controller._stop_monitor()
+
+    async def test_a_fan_whose_governor_toggle_is_not_writable_is_left_to_the_kernel(
+        self, sysfs
+    ):
+        """Owning pwm1 without owning `thermal_zone0/mode` is worse than owning
+        nothing: the governor keeps driving the fan and overwrites every duty we
+        write, so the curve the user configured quietly does nothing. Both nodes
+        or neither — and the udev rule (99-milo-fan.rules) is what grants them.
+        """
+        hwmon, _zone = sysfs
+        (hwmon / "pwm1").write_text("0")  # writable — but no thermal_zone0/mode
+        controller = self._controller(self.CONFIG)
+
+        assert await controller.initialize() is True
+
+        assert controller.available is False
+        assert controller._monitor_task is None
+        controller._write_sysfs.assert_not_awaited()
+
+
+class TestReadStatus:
+    """`GET /api/settings/fan/status` samples the hardware before answering.
+
+    What breaks when this fails: the fan page reports the temperature and RPM
+    of whenever the monitor loop last ticked — up to LOOP_INTERVAL stale, and
+    arbitrarily stale when the fan is disabled and no loop runs at all.
+
+    The sysfs files ARE the outside world here, so they are the only thing
+    stood in for: `_sample` and `_read_int` run for real.
+    """
+
+    async def test_the_answer_carries_what_the_sample_just_read(self, tmp_path, monkeypatch):
+        zone = tmp_path / "thermal_zone0"
+        zone.mkdir()
+        (zone / "temp").write_text("61400")  # sysfs reports millidegrees
+        hwmon = tmp_path / "hwmon3"
+        hwmon.mkdir()
+        (hwmon / "fan1_input").write_text("2900")
+        monkeypatch.setattr(fan, "THERMAL_ZONE", str(zone))
+
+        controller = make_controller()
+        controller.available = True
+        controller._hwmon_dir = str(hwmon)
+
+        status = await controller.read_status()
+
+        assert status["temp_c"] == 61.4
+        assert status["rpm"] == 2900
+
+    async def test_a_box_with_no_fan_is_not_sampled(self):
+        """Off-Pi the sysfs nodes do not exist; reading them would log a warning
+        pair on every poll of a page that has nothing to show anyway."""
+        controller = make_controller()
+        controller.available = False
+        controller._sample = AsyncMock()
+
+        status = await controller.read_status()
+
+        controller._sample.assert_not_awaited()
+        assert status["available"] is False
+
+
+class TestTestSpeed:
+    """The speed preview (`POST /api/settings/fan/test`).
+
+    What breaks when this fails: the preview does nothing — or spins a fan the
+    user switched off, with no monitor loop running to bring it back to 0 %.
+    """
+
+    def _controller(self, monkeypatch, *, enabled):
+        monkeypatch.setattr(fan, "THERMAL_ZONE", "/sys/stand-in/thermal_zone0")
+        controller = make_controller()
+        controller.available = True
+        controller.enabled = enabled
+        controller._hwmon_dir = "/sys/stand-in/hwmon3"
+        controller._write_sysfs = AsyncMock(return_value=True)
+        return controller
+
+    async def test_control_is_taken_before_the_duty_is_written(self, monkeypatch):
+        """Order is the point. A duty written while the governor still drives
+        pwm1 is overwritten before it is ever heard."""
+        controller = self._controller(monkeypatch, enabled=True)
+
+        await controller.test_speed(80)
+
+        paths = [call.args[0] for call in controller._write_sysfs.await_args_list]
+        assert paths.index(f"{controller._hwmon_dir}/pwm1") > paths.index(
+            f"{fan.THERMAL_ZONE}/mode"
+        )
+        assert paths.index(f"{controller._hwmon_dir}/pwm1") > paths.index(
+            f"{controller._hwmon_dir}/pwm1_enable"
+        )
+        assert controller._pwm_percent == 80
+        controller.state_machine.broadcast.assert_awaited_once()
+
+    async def test_a_fan_the_user_switched_off_is_not_spun(self, monkeypatch):
+        """Nothing would bring it back down: `_apply_mode` holds a disabled fan
+        at 0 % and then stops the loop, so a preview duty written here stays on
+        the fan until the next config write."""
+        controller = self._controller(monkeypatch, enabled=False)
+
+        await controller.test_speed(80)
+
+        controller._write_sysfs.assert_not_awaited()
+        controller.state_machine.broadcast.assert_not_awaited()
+
+
+class TestCleanupHandsTheFanBack:
+    """Shutdown returns the fan to the kernel governor.
+
+    What breaks when this fails: the backend exits with `thermal_zone0`
+    disabled and pwm-fan still in manual on whatever duty we last wrote — so
+    nothing watches the SoC temperature, and the config.txt curve that is meant
+    to be the safety fallback never resumes. Only the SoC hard-throttle is
+    left. `architecture/test_service_wiring.py` checks that main.py *calls*
+    this cleanup; nothing checked what it does.
+    """
+
+    async def test_the_governor_is_re_enabled_and_the_loop_is_gone(self, monkeypatch):
+        monkeypatch.setattr(fan, "THERMAL_ZONE", "/sys/stand-in/thermal_zone0")
+        controller = make_controller()
+        controller.available = True
+        controller.enabled = False  # so a tick in flight writes no duty of its own
+        controller._hwmon_dir = "/sys/stand-in/hwmon3"
+        controller._write_sysfs = AsyncMock(return_value=True)
+        controller._sample = AsyncMock()
+        controller._start_monitor()
+
+        await controller.cleanup()
+
+        assert controller._monitor_task is None
+        writes = [call.args for call in controller._write_sysfs.await_args_list]
+        assert (f"{fan.THERMAL_ZONE}/mode", "enabled") in writes
+
+    async def test_a_box_with_no_fan_writes_nothing(self):
+        """`available` False means we never took the fan over, so there is no
+        ownership to hand back — and off-Pi the node does not exist."""
+        controller = make_controller()
+        controller.available = False
+        controller._write_sysfs = AsyncMock(return_value=True)
+
+        await controller.cleanup()
+
+        controller._write_sysfs.assert_not_awaited()
