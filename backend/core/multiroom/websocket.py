@@ -14,7 +14,6 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 
 import aiohttp
 
-from backend.core.multiroom.models import ReconnectionContext
 from backend.core.multiroom.identity import compute_mac_id
 from backend.core.multiroom.routing import resolve_snapclient_config
 from backend.core.multiroom.snapcast import SnapcastService
@@ -383,9 +382,9 @@ class SnapcastWebSocketService:
                     )
                 elif self.registry:
                     # Known client: the backend restarted, the satellite did not.
-                    # Marking it online is all that is due — a resync would apply a
-                    # reconnection volume (peer average / startup) to a speaker that
-                    # never stopped playing.
+                    # Marking it online is all that is due — a resync would re-apply
+                    # a stored level, and its EQ and buffer config with it, to a
+                    # speaker that never stopped playing.
                     await self.registry.set_client_online(mac_id, True)
 
             client_count = len(self.registry.get_all_clients()) if self.registry else 0
@@ -729,40 +728,41 @@ class SnapcastWebSocketService:
         if self.registry and name:
             await self.registry.update_client(mac_id, name=name)
 
-    def _resolve_target_volume(self, mac_id: str, context: ReconnectionContext) -> float:
+    def _resolve_target_volume(self, mac_id: str) -> float:
         """
-        Resolve target reconnection volume for any context.
+        Resolve the level a client comes back at.
+
+        A client's level changes only when someone changes it — so a client
+        that reappears gets its own last level back, never a reading derived
+        from whoever happens to be online next to it. This is the same rule the
+        boot push (`_do_push_volume_to_all_clients`) and the local startup
+        volume (`_apply_startup_volume`) already apply; the admission used to be
+        the one path that answered differently.
+
+        `restore_last_volume` gates it, and is not optional here: with it off,
+        a fleet configured for a fixed startup level would have the boot push
+        apply startup_volume_db and the admission apply the remembered value —
+        the same split, moved one path over.
 
         Resolution order:
-        1. If others are online: zone average (IN_ZONE) or global average (STANDALONE)
+        1. restore_last_volume on and the store knows this client → its own level
         2. Configured startup_volume_db
-        3. DEFAULT_VOLUME_DB constant
+        3. DEFAULT_VOLUME_DB constant (no volume service at all)
         """
-        # Level 1: peer average when others are online
-        if context == ReconnectionContext.IN_ZONE_OTHERS_ONLINE:
-            client = self.registry.get_client(mac_id) if self.registry else None
-            if client and client.zone_id:
-                avg = self.registry.get_zone_average_volume(client.zone_id, exclude_mac_id=mac_id)
-                if avg is not None:
-                    self.logger.info(f"Using zone average {avg:.1f} dB for {mac_id}")
-                    return avg
-            self.logger.warning(f"Zone average unavailable for {mac_id}, falling back to startup volume")
-
-        elif context == ReconnectionContext.STANDALONE_OTHERS_ONLINE:
-            if self.registry:
-                avg = self.registry.get_global_average_volume(exclude_mac_id=mac_id)
-                if avg is not None:
-                    self.logger.info(f"Using global average {avg:.1f} dB for {mac_id}")
-                    return avg
-            self.logger.warning(f"Global average unavailable for {mac_id}, falling back to startup volume")
-
-        # Level 2: startup_volume_db from VolumeService configuration
         if self._volume_service:
-            startup_volume = self._volume_service.volume_config.startup_volume_db
-            self.logger.info(f"Using startup volume {startup_volume:.1f} dB for {mac_id}")
-            return startup_volume
+            config = self._volume_service.volume_config
+            stored = (
+                self._volume_service.state_store.get_client_volume(mac_id)
+                if config.restore_last_volume else None
+            )
+            if stored is not None:
+                self.logger.info(f"Using stored volume {stored:.1f} dB for {mac_id}")
+                return stored
 
-        # Level 3: constant fallback
+            self.logger.info(f"Using startup volume {config.startup_volume_db:.1f} dB for {mac_id}")
+            return config.startup_volume_db
+
+        # No volume service at all: constant fallback
         self.logger.warning(f"No volume service available, using DEFAULT_VOLUME_DB for {mac_id}")
         return DEFAULT_VOLUME_DB
 
@@ -911,8 +911,8 @@ class SnapcastWebSocketService:
         Bring a client that just (re)appeared to the state Milō holds for it.
 
         The one admission recipe, shared by all four notifications that can see
-        a client arrive: restore the snapserver passthrough, resolve the volume
-        its reconnection context calls for, apply it, re-push its EQ record and
+        a client arrive: restore the snapserver passthrough, resolve the level
+        the client itself last held, apply it, re-push its EQ record and
         its snapclient buffer config, then show it online. Retries because a
         remote client is often still booting when its snapclient connects, its
         API (port 8001) answering seconds after snapserver has it.
@@ -965,13 +965,9 @@ class SnapcastWebSocketService:
             if client:
                 await self._snapcast_service.set_latency(snapcast_id, client.delay_ms)
 
-        context = self.registry.get_reconnection_context(mac_id)
-        target_volume = self._resolve_target_volume(mac_id, context)
+        target_volume = self._resolve_target_volume(mac_id)
 
-        self.logger.info(
-            f"SYNC_RECONNECT: {mac_id} context={context.value}, "
-            f"target={target_volume:.1f} dB"
-        )
+        self.logger.info(f"SYNC_RECONNECT: {mac_id} target={target_volume:.1f} dB")
 
         for attempt in range(max_retries + 1):
             try:

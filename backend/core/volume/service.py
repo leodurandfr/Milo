@@ -663,9 +663,8 @@ class VolumeService:
         be told about. The level is error, so the banner fires.
 
         What becomes of the stored value afterwards is not this decision's
-        business, and it differs per command: the reconnect replays the stored
-        *mute* and re-derives the *volume* from the client's peers. Neither
-        makes this call a failure.
+        business: the reconnect replays both the stored mute and the stored
+        volume. Neither makes this call a failure.
         """
         if applied or not self._client_registry:
             return False

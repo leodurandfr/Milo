@@ -4,7 +4,7 @@ Integration tests for multiroom client synchronization.
 Tests the sync mechanisms that prevent or auto-correct client desynchronization:
 - Retry loop in _sync_reconnecting_client_volume (fire-and-forget)
 - Concurrent reconnections via _process_online_status_changes
-- Zone average stability during rapid sequential reconnects
+- Level restoration during rapid sequential reconnects
 - push_volume_to_all_clients partial failure handling
 - set_online_after gate (client invisible until hardware confirms)
 """
@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from backend.tests.conftest import attach_registry_broadcaster
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
-from backend.core.multiroom.models import ReconnectionContext, EqualizerSettings
+from backend.core.multiroom.models import EqualizerSettings
 from backend.core.volume.state import DEFAULT_VOLUME_DB
 from backend.core.models.volume import VolumeConfig
 
@@ -25,13 +25,21 @@ from backend.core.models.volume import VolumeConfig
 # =============================================================================
 
 
-def _make_volume_service(startup_volume_db: float = DEFAULT_VOLUME_DB):
-    """Create a mock VolumeService wired for sync tests."""
+def _make_volume_service(startup_volume_db: float = DEFAULT_VOLUME_DB,
+                        stored_volumes: dict | None = None):
+    """Create a mock VolumeService wired for sync tests.
+
+    `stored_volumes` stands for VolumeStateStore's per-client levels — what a
+    reconnection now resolves to. Unset means the store knows no client, so
+    every admission falls back to startup_volume_db.
+    """
+    stored = stored_volumes or {}
     vs = MagicMock()
     vs.state_store = MagicMock()
     vs.state_store.set_client_volume = AsyncMock()
     vs.state_store.get_client_mute = MagicMock(return_value=False)
-    vs.state_store.has_client = MagicMock(return_value=True)
+    vs.state_store.has_client = MagicMock(side_effect=lambda mac_id: mac_id in stored)
+    vs.state_store.get_client_volume = MagicMock(side_effect=stored.get)
     vs.equalizer_controller = MagicMock()
     vs.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
     vs.equalizer_controller.set_equalizer_mute = AsyncMock()
@@ -367,24 +375,31 @@ class TestProcessOnlineStatusChanges:
 
 
 # =============================================================================
-# TestZoneAverageStabilityDuringReconnects
+# TestReconnectsRestoreEachClientsOwnLevel
 # =============================================================================
 
 
-class TestZoneAverageStabilityDuringReconnects:
+class TestReconnectsRestoreEachClientsOwnLevel:
     """
-    Tests that zone average calculations remain consistent during rapid
-    sequential reconnections — the core desync prevention mechanism.
+    What a series of reconnections does to the levels in a room.
+
+    These used to assert the opposite: a reconnecting client took the average
+    of its online peers, and the class existed to show that average stayed
+    stable through rapid sequential reconnects. Since the volume-ownership
+    plan's phase 1 no peer is read at all — each client comes back at the level
+    it had — which is what makes the outcome independent of reconnection order
+    instead of merely stable under it.
     """
 
     @pytest.mark.asyncio
-    async def test_sequential_reconnects_converge_to_same_volume(
+    async def test_reconnect_order_does_not_change_any_target(
         self, mock_settings_service, mock_state_machine
     ):
-        """
-        Zone with 3 clients all offline. They reconnect one by one.
-        First gets startup volume, second and third get zone average.
-        After all reconnect, all should have consistent volumes.
+        """Zone of three, all offline, reconnecting one by one at distinct levels.
+
+        Each admission changes what the room averages, so under the old rule
+        each client's target depended on who had already come back. Now none of
+        them moves the others.
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
@@ -395,112 +410,94 @@ class TestZoneAverageStabilityDuringReconnects:
             ],
             zones=[("zone-1", "Living Room", ["client-a", "client-b", "client-c"])],
         )
-        ws = _make_ws_service(registry)
-        startup = ws._volume_service.volume_config.startup_volume_db
+        ws = _make_ws_service(registry, volume_service=_make_volume_service(
+            stored_volumes={"client-a": -20.0, "client-b": -30.0, "client-c": -40.0},
+        ))
 
-        # Client A reconnects first — all others offline →
-        context_a = registry.get_reconnection_context("client-a")
-        assert context_a == ReconnectionContext.IN_ZONE_ALL_OFFLINE
-        vol_a = ws._resolve_target_volume("client-a", context_a)
-        assert vol_a == startup
-
-        # Simulate hardware success: update registry and set online
-        await registry.update_volume("client-a", volume_db=vol_a)
+        # Client A reconnects first, alone.
+        assert ws._resolve_target_volume("client-a") == -20.0
+        await registry.update_volume("client-a", volume_db=-20.0)
         await registry.set_client_online("client-a", True)
 
-        # Client B reconnects — A is online → (zone average of A)
-        context_b = registry.get_reconnection_context("client-b")
-        assert context_b == ReconnectionContext.IN_ZONE_OTHERS_ONLINE
-        vol_b = ws._resolve_target_volume("client-b", context_b)
-        assert vol_b == vol_a  # Only A is online, so average == A's volume
-
-        await registry.update_volume("client-b", volume_db=vol_b)
+        # B and C follow, with the room now non-empty and its average moving.
+        assert ws._resolve_target_volume("client-b") == -30.0
+        await registry.update_volume("client-b", volume_db=-30.0)
         await registry.set_client_online("client-b", True)
 
-        # Client C reconnects — A and B are online → (zone average of A+B)
-        context_c = registry.get_reconnection_context("client-c")
-        assert context_c == ReconnectionContext.IN_ZONE_OTHERS_ONLINE
-        vol_c = ws._resolve_target_volume("client-c", context_c)
-        # A and B both have startup volume, so average = startup
-        assert vol_c == startup
+        assert ws._resolve_target_volume("client-c") == -40.0
 
-        # All three clients converged to the same volume
-        assert vol_a == vol_b == vol_c
+        # And A's target is still A's, after the two others came back.
+        assert ws._resolve_target_volume("client-a") == -20.0
 
     @pytest.mark.asyncio
     async def test_reconnect_into_zone_with_divergent_volumes(
         self, mock_settings_service, mock_state_machine
     ):
-        """
-        Zone where online members have different volumes.
-        Reconnecting client gets the exact average — verified numerically.
-        """
+        """Zone whose online members sit far apart: the returning one ignores both."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
                 ("client-a", "A", "192.168.1.1", -20.0, True),
                 ("client-b", "B", "192.168.1.2", -40.0, True),
-                ("client-c", "C", "192.168.1.3", -99.0, False),  # offline, reconnecting
+                ("client-c", "C", "192.168.1.3", -60.0, False),  # offline, reconnecting
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b", "client-c"])],
         )
-        ws = _make_ws_service(registry)
+        ws = _make_ws_service(registry, volume_service=_make_volume_service(
+            stored_volumes={"client-a": -20.0, "client-b": -40.0, "client-c": -60.0},
+        ))
 
-        context = registry.get_reconnection_context("client-c")
-        assert context == ReconnectionContext.IN_ZONE_OTHERS_ONLINE
+        vol = ws._resolve_target_volume("client-c")
 
-        vol = ws._resolve_target_volume("client-c", context)
-        expected = (-20.0 + -40.0) / 2  # -30.0
-        assert vol == expected
+        assert vol == -60.0
+        assert vol != (-20.0 + -40.0) / 2, "the peers' average is not the target"
 
     @pytest.mark.asyncio
-    async def test_reconnecting_client_old_volume_excluded_from_average(
+    async def test_already_marked_online_changes_nothing(
         self, mock_settings_service, mock_state_machine
     ):
-        """
-        The reconnecting client's stale volume must NOT pollute the zone average.
-        Even if the client is already marked online in the registry (path A),
-        _resolve_target_volume uses exclude_mac_id.
+        """Whether the registry already shows the client online is not an input.
+
+        It used to be: the client's own level had to be excluded from the average
+        it was about to receive, which only the admission path knew to do.
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
                 ("client-a", "A", "192.168.1.1", -20.0, True),
                 ("client-b", "B", "192.168.1.2", -40.0, True),
-                # client-c has a stale volume from last session
                 ("client-c", "C", "192.168.1.3", -5.0, True),
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b", "client-c"])],
         )
-        ws = _make_ws_service(registry)
+        ws = _make_ws_service(registry, volume_service=_make_volume_service(
+            stored_volumes={"client-a": -20.0, "client-b": -40.0, "client-c": -5.0},
+        ))
 
-        # Even though client-c is marked online, its old volume is excluded
-        context = registry.get_reconnection_context("client-c")
-        vol = ws._resolve_target_volume("client-c", context)
+        assert ws._resolve_target_volume("client-c") == -5.0
 
-        # Average of A and B only
-        assert vol == (-20.0 + -40.0) / 2
+        await registry.set_client_online("client-c", False)
+        assert ws._resolve_target_volume("client-c") == -5.0
 
     @pytest.mark.asyncio
-    async def test_standalone_reconnect_uses_global_average(
+    async def test_standalone_reconnect_keeps_its_own_level(
         self, mock_settings_service, mock_state_machine
     ):
-        """Standalone client reconnecting with others online gets global average."""
+        """Off-zone the rule is the same — the global average is not a target either."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
                 ("client-a", "A", "192.168.1.1", -20.0, True),
                 ("client-b", "B", "192.168.1.2", -40.0, True),
-                ("client-c", "C", "192.168.1.3", -99.0, False),
+                ("client-c", "C", "192.168.1.3", -60.0, False),
             ],
         )
-        ws = _make_ws_service(registry)
+        ws = _make_ws_service(registry, volume_service=_make_volume_service(
+            stored_volumes={"client-a": -20.0, "client-b": -40.0, "client-c": -60.0},
+        ))
 
-        context = registry.get_reconnection_context("client-c")
-        assert context == ReconnectionContext.STANDALONE_OTHERS_ONLINE
+        assert ws._resolve_target_volume("client-c") == -60.0
 
-        vol = ws._resolve_target_volume("client-c", context)
-        assert vol == (-20.0 + -40.0) / 2
 
 
 # =============================================================================
@@ -510,20 +507,19 @@ class TestZoneAverageStabilityDuringReconnects:
 
 class TestConcurrentReconnectRaceConditions:
     """
-    Tests for race conditions when multiple clients reconnect in the
-    same Server.OnUpdate event. The registry is mutated (set_client_online)
-    sequentially in the loop, which means later clients see earlier clients
-    as already online.
+    Tests for what happens when several clients reconnect in the same
+    Server.OnUpdate event. The registry is mutated (set_client_online)
+    sequentially in the loop, so later clients see earlier ones as already
+    online — which used to decide the level each of them was brought to.
     """
 
     @pytest.mark.asyncio
-    async def test_second_client_sees_first_as_online_in_zone(
+    async def test_both_clients_of_one_event_are_synced_and_shown_online(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        Two zone clients reconnect in the same event. The second client's
-        context detection sees the first as online (because set_client_online
-        is called sequentially in the loop).
+        Two zone clients reconnect in the same event: each gets its own sync
+        task, and neither is shown online before its hardware confirms.
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
@@ -533,15 +529,17 @@ class TestConcurrentReconnectRaceConditions:
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b"])],
         )
-        ws = _make_ws_service(registry)
+        ws = _make_ws_service(registry, volume_service=_make_volume_service(
+            stored_volumes={"client-a": -30.0, "client-b": -50.0},
+        ))
 
-        # Track the contexts detected for each sync call
-        detected_contexts = {}
+        # Track the level each sync resolved to
+        resolved = {}
         original_resolve = ws._resolve_target_volume
 
-        def tracking_resolve(mac_id, context):
-            detected_contexts[mac_id] = context
-            return original_resolve(mac_id, context)
+        def tracking_resolve(mac_id):
+            resolved[mac_id] = original_resolve(mac_id)
+            return resolved[mac_id]
 
         ws._resolve_target_volume = tracking_resolve
 
@@ -577,13 +575,20 @@ class TestConcurrentReconnectRaceConditions:
         assert registry.get_client("client-a").online is True
         assert registry.get_client("client-b").online is True
 
+        # Each was brought to its own level, not to anything the other's
+        # admission put in the room first.
+        assert resolved == {"client-a": -30.0, "client-b": -50.0}
+
     @pytest.mark.asyncio
-    async def test_two_standalone_clients_reconnect_get_consistent_volumes(
+    async def test_two_standalone_clients_reconnect_keep_their_own_levels(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        Two standalone clients reconnect simultaneously when a third is already online.
-        Both should get a volume based on the online client's volume.
+        Two standalone clients reconnect simultaneously with a third already online.
+
+        This is the case the old rule got worst: the second client resolved
+        while the first was already marked online but had not been synced yet,
+        so the first's stale level fed the average the second was given.
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
@@ -593,29 +598,22 @@ class TestConcurrentReconnectRaceConditions:
                 ("client-c", "C", "192.168.1.3", -99.0, False),  # reconnecting
             ],
         )
-        ws = _make_ws_service(registry)
+        ws = _make_ws_service(registry, volume_service=_make_volume_service(
+            stored_volumes={"client-a": -30.0, "client-b": -50.0, "client-c": -60.0},
+        ))
 
         # Simulate what _process_online_status_changes does sequentially:
-        # 1) client-b goes online, context resolved
+        # 1) client-b goes online, its target is resolved
         await registry.set_client_online("client-b", True)
-        ctx_b = registry.get_reconnection_context("client-b")
-        vol_b = ws._resolve_target_volume("client-b", ctx_b)
+        vol_b = ws._resolve_target_volume("client-b")
 
-        # 2) client-c goes online, context resolved (now client-b is also online)
+        # 2) client-c goes online, its target is resolved (client-b now online
+        #    too, and still carrying whatever level it had before)
         await registry.set_client_online("client-c", True)
-        ctx_c = registry.get_reconnection_context("client-c")
-        vol_c = ws._resolve_target_volume("client-c", ctx_c)
+        vol_c = ws._resolve_target_volume("client-c")
 
-        # client-b's target: average of client-a only (client-b excluded)
-        assert vol_b == -30.0
-
-        # client-c's target: average of client-a and client-b (client-c excluded)
-        # client-b's volume is still the stale -99.0 from registry at this point
-        # This is a known characteristic — the stale volume from client-b feeds
-        # into client-c's average. After sync completes, client-b will have -30.0
-        # but at resolution time, client-c sees client-b's old volume.
-        expected_c = (-30.0 + -99.0) / 2
-        assert vol_c == expected_c
+        assert vol_b == -50.0
+        assert vol_c == -60.0
 
 
 # =============================================================================
@@ -791,23 +789,25 @@ class TestEndToEndReconnectionSync:
     """
 
     @pytest.mark.asyncio
-    async def test_e2e_zone_reconnect_applies_zone_average(
+    async def test_e2e_zone_reconnect_applies_the_clients_own_level(
         self, mock_settings_service, mock_state_machine
     ):
         """
         Full E2E: Client in zone reconnects. Verify the volume applied to
-        hardware matches the zone average of online members.
+        hardware is the level the client itself last held, not its room's.
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[
                 ("client-a", "A", "192.168.1.1", -20.0, True),
                 ("client-b", "B", "192.168.1.2", -40.0, True),
-                ("client-c", "C", "192.168.1.3", -99.0, False),
+                ("client-c", "C", "192.168.1.3", -60.0, False),
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b", "client-c"])],
         )
-        ws = _make_ws_service(registry)
+        ws = _make_ws_service(registry, volume_service=_make_volume_service(
+            stored_volumes={"client-a": -20.0, "client-b": -40.0, "client-c": -60.0},
+        ))
 
         # Track the volume sent to hardware
         applied_volumes = []
@@ -823,19 +823,20 @@ class TestEndToEndReconnectionSync:
 
         assert result is True
         assert len(applied_volumes) == 1
-        assert applied_volumes[0] == ("client-c", -30.0)  # avg of -20 and -40
+        assert applied_volumes[0] == ("client-c", -60.0)  # its own, not avg of -20/-40
 
     @pytest.mark.asyncio
     async def test_e2e_standalone_alone_applies_startup_volume(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        Full E2E: Standalone client reconnects alone. Gets startup volume.
+        Full E2E: a client the volume store has never seen gets startup volume.
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[("client-a", "A", "192.168.1.1", -99.0, False)],
         )
+        # No stored_volumes: this speaker has no level of its own yet.
         ws = _make_ws_service(registry)
         startup = ws._volume_service.volume_config.startup_volume_db
 
@@ -869,7 +870,9 @@ class TestEndToEndReconnectionSync:
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b"])],
         )
-        ws = _make_ws_service(registry)
+        ws = _make_ws_service(registry, volume_service=_make_volume_service(
+            stored_volumes={"client-a": -30.0, "client-b": -50.0},
+        ))
 
         attempts = []
         eq = ws._volume_service.equalizer_controller
@@ -883,8 +886,8 @@ class TestEndToEndReconnectionSync:
         result = await ws._sync_reconnecting_client_volume("client-b", max_retries=2, retry_delay=0)
 
         assert result is True
-        # Both attempts used the same target volume (-30.0 = zone avg of client-a)
-        assert all(v == -30.0 for v in attempts)
+        # Both attempts used the same target volume (client-b's own level)
+        assert all(v == -50.0 for v in attempts)
         assert len(attempts) == 2
 
     @pytest.mark.asyncio
@@ -892,9 +895,11 @@ class TestEndToEndReconnectionSync:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        Full E2E: Three zone clients reconnect sequentially.
-        Simulates the real flow where each sync updates the registry,
-        and the next client's average includes the newly synced volume.
+        Full E2E: Three zone clients reconnect sequentially, each at its own level.
+
+        The real flow: every sync writes the level back to the registry, so
+        under the old rule each admission moved the target of the next one.
+        The room ends up as it was left, whatever the order.
         """
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
@@ -905,34 +910,22 @@ class TestEndToEndReconnectionSync:
             ],
             zones=[("zone-1", "Room", ["client-a", "client-b", "client-c"])],
         )
-        ws = _make_ws_service(registry)
-        startup = ws._volume_service.volume_config.startup_volume_db
+        ws = _make_ws_service(registry, volume_service=_make_volume_service(
+            stored_volumes={"client-a": -10.0, "client-b": -20.0, "client-c": -30.0},
+        ))
 
-        # Client A reconnects first (all offline → startup)
-        result_a = await ws._sync_reconnecting_client_volume("client-a", max_retries=0, retry_delay=0)
-        assert result_a is True
-        # _apply_target_volume_to_client updates registry, so client-a now has startup vol
-        assert registry.get_client("client-a").volume_db == startup
-        await registry.set_client_online("client-a", True)
+        for mac_id, level in (("client-a", -10.0), ("client-b", -20.0), ("client-c", -30.0)):
+            assert await ws._sync_reconnecting_client_volume(
+                mac_id, max_retries=0, retry_delay=0
+            ) is True
+            # _apply_target_volume_to_client writes the applied level back
+            assert registry.get_client(mac_id).volume_db == level
+            await registry.set_client_online(mac_id, True)
 
-        # Client B reconnects (A online → zone avg = A's volume = startup)
-        result_b = await ws._sync_reconnecting_client_volume("client-b", max_retries=0, retry_delay=0)
-        assert result_b is True
-        assert registry.get_client("client-b").volume_db == startup
-        await registry.set_client_online("client-b", True)
-
-        # Client C reconnects (A+B online → zone avg = startup)
-        result_c = await ws._sync_reconnecting_client_volume("client-c", max_retries=0, retry_delay=0)
-        assert result_c is True
-        assert registry.get_client("client-c").volume_db == startup
-
-        # All clients converged to the same volume
-        assert (
-            registry.get_client("client-a").volume_db
-            == registry.get_client("client-b").volume_db
-            == registry.get_client("client-c").volume_db
-            == startup
-        )
+        # Nothing an earlier admission did moved a later one, or the reverse.
+        assert registry.get_client("client-a").volume_db == -10.0
+        assert registry.get_client("client-b").volume_db == -20.0
+        assert registry.get_client("client-c").volume_db == -30.0
 
 
 # =============================================================================
