@@ -107,6 +107,10 @@ class FakeBluez:
             stdout = "".join(f"Device {a} {n}\n" for a, n in unique).encode()
         if len(argv) > 1 and argv[1] == "connect" and not self.connect_succeeds:
             proc.returncode = 1
+        if len(argv) > 2 and argv[1] == "remove":
+            # `bluetoothctl remove` drops the bond, so the next `devices Paired`
+            # no longer lists it — what is_paired() reads back after unpairing.
+            self.paired = [row for row in self.paired if row[0] != argv[2]]
         proc.communicate = AsyncMock(return_value=(stdout, b""))
         proc.wait = AsyncMock(return_value=0)
         proc.kill = MagicMock()
@@ -314,6 +318,58 @@ async def test_losing_one_node_drops_every_node_of_the_same_remote(bt):
     # Dropping the sibling has to cancel its monitor task, not merely forget it:
     # a task left reading a node that is gone outlives the remote it monitors.
     assert all(task.done() for task in tasks.values())
+
+
+@pytest.mark.asyncio
+async def test_a_node_that_vanished_from_the_kernel_table_is_announced_by_the_scan(bt):
+    """The remote is switched off or walks out of range; the scan must say so.
+
+    architecture/test_bt_remote_notifications.py cannot reach this branch: it
+    asks whether a method contains a broadcast, and _scan_devices carries a
+    second one for the "a new MAC appeared" branch, so the rule stays satisfied
+    with this one deleted. Without it the Réglages panel — which writes
+    `connected` optimistically and has no other route back to the truth — draws
+    a remote that is gone until something else happens to broadcast.
+    """
+    bt.controller.running = True
+    await connect_remote(bt)
+    assert bt.controller._monitored_paths
+    bt.broadcasts.clear()
+
+    bt.evdev.nodes.clear()          # the kernel node is gone
+    bt.bluez.connected = []
+    await bt.controller._scan_devices()
+
+    assert bt.controller._monitored_paths == set()
+    assert bt.status(), "the scan dropped the node without telling the UI"
+    assert bt.status()[-1].connected_devices == []
+
+
+@pytest.mark.asyncio
+async def test_unpairing_a_sleeping_remote_is_announced(bt):
+    """forget_remote() on a remote with no evdev node still has to broadcast.
+
+    A bonded remote that is asleep is monitored by nothing, so the scan
+    forget_remote() runs first drops nothing and stays silent — the explicit
+    broadcast is the only thing that carries paired=False to the surfaces still
+    offering "unpair". forget_remote() writes none of the three containers
+    NODE_STATE names either, so the notification guardrail does not apply to it
+    at all.
+    """
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+    bt.bluez.connected = []         # bonded, but asleep: no node, no connection
+    assert await bt.controller.is_paired() is True
+    bt.broadcasts.clear()
+
+    result = await bt.controller.forget_remote()
+
+    assert result["status"] == "success"
+    assert "remove" in bt.bluez.argv_names(), "no bond was removed"
+    assert bt.status(), "unpairing an asleep remote broadcast nothing"
+    assert bt.status()[-1].paired is False
+    assert bt.status()[-1].connected_devices == []
 
 
 @pytest.mark.asyncio

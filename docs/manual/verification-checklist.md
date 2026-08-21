@@ -268,6 +268,8 @@ makes this silent.
 | IR remote ⚠ | Pairing detects the remote within the countdown; volume, play/pause, next/prev act on the current source; Menu switches source in dock order, double-press stops, hold turns the screen off | targeted |
 | IR identity ⚠ | A *different* Apple Remote in the room does not control the unit | targeted |
 | BT remote ⚠ | Pairs, shows battery level, buttons act; unpair forgets it | targeted |
+| BT remote lost ⚠ | **Switch a paired, connected remote off.** Settings > BT remote returns to disconnected on its own, with no reload. The panel writes `connected` optimistically and has no other route back to the truth, so only the scan's own broadcast can correct it | targeted |
+| BT remote unpaired asleep ⚠ | **Unpair a remote that is asleep** (bonded, not connected, no evdev node). Every open surface — phone and kiosk at once — shows it unpaired, with no reload. Nothing else broadcasts on this path: the scan drops no node, so the explicit broadcast is the only event | targeted |
 | Fan | Runs and is controlled by temperature (no permanent full speed, no permanent off under load) | targeted |
 
 ## Screen and kiosk

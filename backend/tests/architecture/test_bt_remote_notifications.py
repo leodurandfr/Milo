@@ -31,6 +31,15 @@ whether that broadcast is reachable, so a call left behind a guard that is alway
 false still counts. Proving otherwise needs dataflow. `tests/test_bt_remote.py`
 covers it instead — its toggle tests go red on exactly that mutation.
 
+Two corollaries, measured, both covered by name in `tests/test_bt_remote.py`.
+The rule is *per method*, so a method carrying a broadcast on one branch is not
+guarded branch by branch: `_scan_devices` broadcasts for "a new MAC appeared",
+which keeps Rule 2 satisfied with its "a monitored node vanished" broadcast
+deleted. And the rule only applies to methods that write NODE_STATE directly,
+so `forget_remote` — which writes none of the three containers, and whose
+explicit broadcast is the only thing an asleep remote's unpairing produces — is
+outside it entirely.
+
 Doctrine note (as in the other architecture guardrails): every extractor asserts
 its own output is non-trivial first, so a broken parse fails loudly instead of
 passing on an empty surface.
