@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.core.models.audio_state import AudioSource
+
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_ROOT.parent
 SATELLITE_ROOT = REPO_ROOT / "milo-client" / "app"
@@ -164,10 +166,16 @@ def test_no_source_status_or_restart_routes():
     `/api/system/*` and the hardware routers are exempt — those are the appliance
     and its peripherals, not audio sources.
     """
-    source_prefixes = (
-        "/api/radio", "/api/podcast", "/api/cd", "/api/airplay", "/api/dlna",
-        "/api/qobuz", "/api/music-library", "/api/spotify", "/api/bluetooth",
-        "/api/mac",
+    # Derived from the enum, not hand-listed: the list this replaced named ten
+    # of the eleven sources — `/api/tidal` was missing, and so would every
+    # future source have been. `_` → `-` is the kebab-case rule paths already
+    # follow (music_library → /api/music-library).
+    source_prefixes = tuple(
+        f"/api/{s.value.replace('_', '-')}"
+        for s in AudioSource if s is not AudioSource.NONE
+    )
+    assert len(source_prefixes) >= 10, (
+        f"AudioSource enum yielded only {source_prefixes} — extractor broken?"
     )
     offenders = [
         (m, p) for m, p in ROUTES

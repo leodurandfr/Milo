@@ -191,8 +191,14 @@ describe('wsEventRegistry ↔ App.vue parsedOn() subscriptions', () => {
 
     // Subscribing to (a, b) while validating against the schema for (c, d)
     // logs a bogus validation warning and falls back to the raw payload.
-    // PARSED_EVENTS makes that unrepresentable — it derives the key from the
-    // row — so this now guards the inline parsedOn() shape, still legal.
+    //
+    // Scope, measured: App.vue has no inline `parsedOn('c', 't',
+    // wsEventRegistry['literal'], …)` left. Every subscription now comes from
+    // PARSED_EVENTS, whose key is derived from the row, so a mismatch there is
+    // unrepresentable and this list is empty by construction — not because the
+    // live surface was checked and found sound. The rule is kept as a trap for
+    // the inline form, which is still legal to write: planting one that names
+    // the wrong schema does turn this red. Do not read it as cover for the table.
     expect(mismatched).toEqual([]);
   });
 });
