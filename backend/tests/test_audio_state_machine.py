@@ -737,3 +737,156 @@ class TestBlockedTransitionBanner:
             state_machine, NetworkRequirement.LAN, ConnectivityLevel.FULL
         )
         assert any(isinstance(e, SystemErrorEvent) for e in events)
+
+
+class TestRefreshActiveMetadata:
+    """The metadata pull behind GET /api/audio/state and the WS handshake.
+
+    What breaks when this fails: a client connecting mid-track is handed the
+    record the state machine last stored instead of the one the source holds,
+    so the now-playing card — and Milo-Mac, which reads the same payload —
+    draws a stale or empty track until the source next publishes on its own.
+    """
+
+    def _register(self, state_machine, source):
+        state_machine.register_source(AudioSource.SPOTIFY, source)
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
+        state_machine.system_state.metadata = {"title": "Stored"}
+
+    async def test_the_sources_record_replaces_the_stored_one(self, state_machine):
+        source = Mock(metadata={"title": "Fresh", "artist": "Artist"})
+        source.refresh_metadata = AsyncMock(return_value=True)
+        self._register(state_machine, source)
+
+        assert await state_machine.refresh_active_metadata() is True
+        assert state_machine.get_current_state()["metadata"] == {
+            "title": "Fresh", "artist": "Artist"
+        }
+
+    async def test_a_source_with_nothing_to_report_leaves_the_record_alone(self, state_machine):
+        """Only a hook that says it refreshed may overwrite the record.
+
+        Four of the five sources implementing the hook derive their metadata
+        from a session this call does not touch, so a False verdict means the
+        source could not read — copying its record anyway would publish
+        whatever half-state the failed read left behind.
+        """
+        source = Mock(metadata={"title": "Half-read"})
+        source.refresh_metadata = AsyncMock(return_value=False)
+        self._register(state_machine, source)
+
+        assert await state_machine.refresh_active_metadata() is False
+        assert state_machine.system_state.metadata == {"title": "Stored"}
+
+    async def test_a_hook_that_raises_does_not_take_the_state_route_down(self, state_machine):
+        """This runs on the WS handshake and on every GET /api/audio/state, so a
+        source whose daemon just died must cost a stale record, not a 500."""
+        source = Mock(metadata={})
+        source.refresh_metadata = AsyncMock(side_effect=RuntimeError("daemon gone"))
+        self._register(state_machine, source)
+
+        assert await state_machine.refresh_active_metadata() is False
+        assert state_machine.system_state.metadata == {"title": "Stored"}
+
+
+class TestUpdatePositionMetadata:
+    """The live playhead written into the record a new WS client is handed.
+
+    What breaks when this fails: `initial_state` carries no position/duration,
+    so a client connecting mid-track draws its progress bar at zero until the
+    source's next position tick.
+    """
+
+    async def test_the_playhead_lands_in_the_state_a_new_client_reads(self, state_machine):
+        state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.system_state.metadata = {"title": "Song"}
+
+        await state_machine.update_position_metadata(AudioSource.RADIO, 42, 180)
+
+        metadata = state_machine.get_current_state()["metadata"]
+        assert metadata["position"] == 42
+        assert metadata["duration"] == 180
+        assert metadata["title"] == "Song", "the record is updated, not replaced"
+
+    async def test_a_source_that_is_no_longer_active_cannot_move_the_playhead(
+        self, state_machine
+    ):
+        """A source switched away from can still have a position poll in flight;
+        writing it would drag the visible progress bar to another track's
+        playhead."""
+        state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.system_state.metadata = {"title": "Song", "position": 42, "duration": 180}
+
+        await state_machine.update_position_metadata(AudioSource.PODCAST, 9999, 9999)
+
+        assert state_machine.system_state.metadata == {
+            "title": "Song", "position": 42, "duration": 180
+        }
+
+
+class TestExclusiveTransition:
+    """The lock the multiroom reroute holds while it drives a lifecycle itself.
+
+    `AudioRoutingService._apply_transition` stops and starts sources outside
+    `transition_to_source()`, and takes this context so the two cannot run at
+    once. What breaks when this fails: a user tapping a source while a reroute
+    is in flight has both paths stopping and starting the same units.
+    """
+
+    async def test_it_locks_out_a_concurrent_transition(self, state_machine, mock_source):
+        state_machine.register_source(AudioSource.RADIO, mock_source)
+
+        async with state_machine.exclusive_transition():
+            transition = asyncio.create_task(
+                state_machine.transition_to_source(AudioSource.RADIO)
+            )
+            await asyncio.sleep(0.01)  # let the task run until it blocks
+            mock_source.start.assert_not_awaited()
+
+        assert await transition is True
+        mock_source.start.assert_awaited_once()
+
+    async def test_an_update_inside_the_block_still_reaches_the_ui(self, state_machine):
+        """The block deliberately does NOT set `transitioning`.
+
+        `update_source_state()` drops — never buffers — every update arriving
+        while that flag is set, and the reroute relies on this context leaving
+        it clear to push its own STARTING state out. Setting it here, by
+        symmetry with `transition_to_source()`, would silently swallow that.
+        """
+        state_machine.ws_manager = Mock(broadcast_dict=AsyncMock())
+        state_machine.system_state.active_source = AudioSource.RADIO
+
+        async with state_machine.exclusive_transition():
+            await state_machine.update_source_state(AudioSource.RADIO, SourceState.STARTING)
+
+        assert state_machine.system_state.source_state == SourceState.STARTING
+        assert state_machine.ws_manager.broadcast_dict.await_count == 1
+
+
+class TestReloadAutoStopForAllSources:
+    """The fan-out behind a write to `audio.auto_stop_delay`.
+
+    What breaks when this fails: one source refusing the new delay leaves every
+    source after it on the old one, so the setting applies to part of the
+    appliance only — and the settings route reports success either way.
+    """
+
+    async def test_a_refusing_source_does_not_deny_the_others(self, state_machine):
+        sources = {}
+        for name, effect in (
+            (AudioSource.RADIO, None),
+            (AudioSource.PODCAST, RuntimeError("mpv socket gone")),
+            (AudioSource.SPOTIFY, None),
+        ):
+            source = Mock(reload_auto_stop_config=AsyncMock(side_effect=effect))
+            state_machine.register_source(name, source)
+            sources[name] = source
+
+        assert await state_machine.reload_auto_stop_for_all_sources() is False
+
+        not_reloaded = [
+            name.value for name, source in sources.items()
+            if not source.reload_auto_stop_config.await_count
+        ]
+        assert not not_reloaded, f"sources left on the old delay: {not_reloaded}"
