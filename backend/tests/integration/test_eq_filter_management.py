@@ -10,6 +10,11 @@ Tests cover:
 
 These tests verify the complete filter update flow:
 API → CamillaDSP → WebSocket → Frontend state update
+
+CamillaDSP itself is mocked at the boundary the service actually talks to:
+`mock_camilla_client` (backend/tests/conftest.py) is injected as `service._client`,
+so `_get_config` / `_set_config` run for real and `camilla_daemon` is what the
+daemon holds — seed it with `load()`, read the write back with `last_pushed`.
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -50,7 +55,7 @@ class TestFilterParameterUpdate:
         return sm
 
     @pytest.fixture
-    def connected_camilladsp_service(self, mock_settings_service, mock_state_machine):
+    def connected_camilladsp_service(self, mock_settings_service, mock_state_machine, mock_camilla_client):
         """Create connected Equalizer service with mocked CamillaClient"""
         service = CamillaDSPService(
             settings_service=mock_settings_service
@@ -58,6 +63,7 @@ class TestFilterParameterUpdate:
         service.set_state_machine(mock_state_machine)
 
         # Simulate connected state with filters cache
+        service._client = mock_camilla_client
         service._connected = True
         service._state = CamillaDspState.RUNNING
         service._filters = [
@@ -67,30 +73,26 @@ class TestFilterParameterUpdate:
         return service
 
     @pytest.mark.asyncio
-    async def test_set_filter_updates_local_cache(self, connected_camilladsp_service):
+    async def test_set_filter_updates_local_cache(self, connected_camilladsp_service, camilla_daemon):
         """Should update local filter cache when filter is set"""
-        mock_config = {"filters": {"eq_band_00": {"type": "Biquad", "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41}}}}
+        camilla_daemon.load({"filters": {"eq_band_00": {"type": "Biquad", "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41}}}})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service.set_filter("eq_band_00", freq=200, gain=5.0, q=2.0)
+        await connected_camilladsp_service.set_filter("eq_band_00", freq=200, gain=5.0, q=2.0)
 
-                # Verify local cache was updated
-                filter_00 = next(f for f in connected_camilladsp_service._filters if f["id"] == "eq_band_00")
-                assert filter_00["freq"] == 200
-                assert filter_00["gain"] == 5.0
-                assert filter_00["q"] == 2.0
+        # Verify local cache was updated
+        filter_00 = next(f for f in connected_camilladsp_service._filters if f["id"] == "eq_band_00")
+        assert filter_00["freq"] == 200
+        assert filter_00["gain"] == 5.0
+        assert filter_00["q"] == 2.0
 
     @pytest.mark.asyncio
-    async def test_set_filter_persists_to_settings(self, connected_camilladsp_service):
+    async def test_set_filter_persists_to_settings(self, connected_camilladsp_service, camilla_daemon):
         """Should schedule a persist to equalizer.json after a filter change."""
-        mock_config = {"filters": {"eq_band_00": {"type": "Biquad", "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41}}}}
+        camilla_daemon.load({"filters": {"eq_band_00": {"type": "Biquad", "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41}}}})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                with patch.object(connected_camilladsp_service, '_schedule_persist') as mock_persist:
-                    await connected_camilladsp_service.set_filter("eq_band_00", freq=100, gain=3.0, q=1.41)
-                    mock_persist.assert_called()
+        with patch.object(connected_camilladsp_service, '_schedule_persist') as mock_persist:
+            await connected_camilladsp_service.set_filter("eq_band_00", freq=100, gain=3.0, q=1.41)
+            mock_persist.assert_called()
 
 
 # =============================================================================
@@ -115,11 +117,12 @@ class TestSetFilterMethod:
         )
 
     @pytest.fixture
-    def connected_camilladsp_service(self, mock_settings_service):
+    def connected_camilladsp_service(self, mock_settings_service, mock_camilla_client):
         """Create connected Equalizer service"""
         service = CamillaDSPService(
             settings_service=mock_settings_service
         )
+        service._client = mock_camilla_client
         service._connected = True
         service._state = CamillaDspState.RUNNING
         service._filters = [
@@ -137,78 +140,65 @@ class TestSetFilterMethod:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_set_filter_accepts_valid_frequency_range(self, connected_camilladsp_service):
+    async def test_set_filter_accepts_valid_frequency_range(self, connected_camilladsp_service, camilla_daemon):
         """Should accept frequency in range 20-20000 Hz (requirement)"""
-        mock_config = {"filters": {}}
+        camilla_daemon.load({"filters": {}})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Test minimum frequency (20 Hz)
-                result = await connected_camilladsp_service.set_filter("eq_band_00", freq=20, gain=0, q=1.0)
-                assert result is True
+        # Test minimum frequency (20 Hz)
+        result = await connected_camilladsp_service.set_filter("eq_band_00", freq=20, gain=0, q=1.0)
+        assert result is True
 
-                # Test maximum frequency (20000 Hz)
-                result = await connected_camilladsp_service.set_filter("eq_band_09", freq=20000, gain=0, q=1.0)
-                assert result is True
+        # Test maximum frequency (20000 Hz)
+        result = await connected_camilladsp_service.set_filter("eq_band_09", freq=20000, gain=0, q=1.0)
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_set_filter_accepts_valid_gain_range(self, connected_camilladsp_service):
+    async def test_set_filter_accepts_valid_gain_range(self, connected_camilladsp_service, camilla_daemon):
         """Should accept gain in range -12 to +12 dB (requirement)"""
-        mock_config = {"filters": {}}
+        camilla_daemon.load({"filters": {}})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Test minimum gain (-12 dB, but implementation allows -15)
-                result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=-12, q=1.0)
-                assert result is True
+        # Test minimum gain (-12 dB, but implementation allows -15)
+        result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=-12, q=1.0)
+        assert result is True
 
-                # Test maximum gain (+12 dB, but implementation allows +15)
-                result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=12, q=1.0)
-                assert result is True
+        # Test maximum gain (+12 dB, but implementation allows +15)
+        result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=12, q=1.0)
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_set_filter_accepts_valid_q_range(self, connected_camilladsp_service):
+    async def test_set_filter_accepts_valid_q_range(self, connected_camilladsp_service, camilla_daemon):
         """Should accept Q in range 0.1-10 (requirement)"""
-        mock_config = {"filters": {}}
+        camilla_daemon.load({"filters": {}})
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock):
-                # Test minimum Q (0.1)
-                result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=0, q=0.1)
-                assert result is True
+        # Test minimum Q (0.1)
+        result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=0, q=0.1)
+        assert result is True
 
-                # Test maximum Q (10.0)
-                result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=0, q=10.0)
-                assert result is True
+        # Test maximum Q (10.0)
+        result = await connected_camilladsp_service.set_filter("eq_band_00", freq=1000, gain=0, q=10.0)
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_set_filter_builds_correct_camilladsp_config(self, connected_camilladsp_service):
+    async def test_set_filter_builds_correct_camilladsp_config(self, connected_camilladsp_service, camilla_daemon):
         """Should build correct CamillaDSP configuration format"""
-        mock_config = {"filters": {}}
-        captured_config = None
+        camilla_daemon.load({"filters": {}})
 
-        async def capture_config(config):
-            nonlocal captured_config
-            captured_config = config
+        await connected_camilladsp_service.set_filter(
+            filter_id="eq_band_05",
+            freq=1000,
+            gain=3.0,
+            q=1.41,
+            filter_type="Peaking"
+        )
 
-        with patch.object(connected_camilladsp_service, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service, '_set_config', new_callable=AsyncMock, side_effect=capture_config):
-                await connected_camilladsp_service.set_filter(
-                    filter_id="eq_band_05",
-                    freq=1000,
-                    gain=3.0,
-                    q=1.41,
-                    filter_type="Peaking"
-                )
-
-                # Verify CamillaDSP config format
-                assert "eq_band_05" in captured_config["filters"]
-                filter_config = captured_config["filters"]["eq_band_05"]
-                assert filter_config["type"] == "Biquad"
-                assert filter_config["parameters"]["type"] == "Peaking"
-                assert filter_config["parameters"]["freq"] == 1000
-                assert filter_config["parameters"]["gain"] == 3.0
-                assert filter_config["parameters"]["q"] == 1.41
+        # Verify CamillaDSP config format
+        assert "eq_band_05" in camilla_daemon.last_pushed["filters"]
+        filter_config = camilla_daemon.last_pushed["filters"]["eq_band_05"]
+        assert filter_config["type"] == "Biquad"
+        assert filter_config["parameters"]["type"] == "Peaking"
+        assert filter_config["parameters"]["freq"] == 1000
+        assert filter_config["parameters"]["gain"] == 3.0
+        assert filter_config["parameters"]["q"] == 1.41
 
 
 # =============================================================================
@@ -288,11 +278,12 @@ class TestNoAutoSwitchOnFilterEdit:
         return settings
 
     @pytest.fixture
-    def connected_camilladsp_service_on_preset(self, mock_settings_service):
+    def connected_camilladsp_service_on_preset(self, mock_settings_service, mock_camilla_client):
         """Create connected Equalizer service that's on a predefined preset"""
         service = CamillaDSPService(
             settings_service=mock_settings_service
         )
+        service._client = mock_camilla_client
         service._connected = True
         service._state = CamillaDspState.RUNNING
         service._filters = [
@@ -304,42 +295,38 @@ class TestNoAutoSwitchOnFilterEdit:
         return service
 
     @pytest.mark.asyncio
-    async def test_manual_modification_does_not_switch_preset(self, connected_camilladsp_service_on_preset, mock_settings_service):
+    async def test_manual_modification_does_not_switch_preset(self, connected_camilladsp_service_on_preset, mock_settings_service, camilla_daemon):
         """Should NOT switch preset when filter is manually modified"""
-        mock_config = {"filters": {}}
+        camilla_daemon.load({"filters": {}})
 
-        with patch.object(connected_camilladsp_service_on_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service_on_preset, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service_on_preset.set_filter(
-                    filter_id="eq_band_00",
-                    freq=100,
-                    gain=5.0,
-                    q=1.41,
-                )
+        await connected_camilladsp_service_on_preset.set_filter(
+            filter_id="eq_band_00",
+            freq=100,
+            gain=5.0,
+            q=1.41,
+        )
 
-                # Verify preset was NOT switched
-                preset_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                               if c[0][0] == "equalizer.active_preset"]
-                assert len(preset_calls) == 0
+        # Verify preset was NOT switched
+        preset_calls = [c for c in mock_settings_service.set_setting.call_args_list
+                       if c[0][0] == "equalizer.active_preset"]
+        assert len(preset_calls) == 0
 
     @pytest.mark.asyncio
-    async def test_manual_modification_does_not_save_custom_gains(self, connected_camilladsp_service_on_preset, mock_settings_service):
+    async def test_manual_modification_does_not_save_custom_gains(self, connected_camilladsp_service_on_preset, mock_settings_service, camilla_daemon):
         """Should NOT save custom gains when filter is modified"""
-        mock_config = {"filters": {}}
+        camilla_daemon.load({"filters": {}})
 
-        with patch.object(connected_camilladsp_service_on_preset, '_get_config', new_callable=AsyncMock, return_value=mock_config):
-            with patch.object(connected_camilladsp_service_on_preset, '_set_config', new_callable=AsyncMock):
-                await connected_camilladsp_service_on_preset.set_filter(
-                    filter_id="eq_band_00",
-                    freq=100,
-                    gain=5.0,
-                    q=1.41,
-                )
+        await connected_camilladsp_service_on_preset.set_filter(
+            filter_id="eq_band_00",
+            freq=100,
+            gain=5.0,
+            q=1.41,
+        )
 
-                # Should NOT have saved custom gains
-                custom_gains_calls = [c for c in mock_settings_service.set_setting.call_args_list
-                                     if c[0][0] == "equalizer.custom_gains"]
-                assert len(custom_gains_calls) == 0
+        # Should NOT have saved custom gains
+        custom_gains_calls = [c for c in mock_settings_service.set_setting.call_args_list
+                             if c[0][0] == "equalizer.custom_gains"]
+        assert len(custom_gains_calls) == 0
 
 
 # =============================================================================

@@ -3,10 +3,11 @@
 Pytest configuration - Shared fixtures for all tests
 """
 import asyncio
+import copy
 import logging
 
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, MagicMock
 from backend.config.constants import ERROR_LOG_FILE
 from backend.core.models.audio_state import SourceState
 
@@ -226,3 +227,101 @@ def mock_async_lock():
     lock.__aenter__ = AsyncMock(return_value=None)
     lock.__aexit__ = AsyncMock(return_value=None)
     return lock
+
+
+class CamillaDaemonDouble:
+    """The CamillaDSP daemon's config surface, as pyCamillaDSP exposes it.
+
+    Stands in for the daemon itself so that `CamillaDSPService._get_config` and
+    `_set_config` run for real. Those two are thin wrappers over
+    `client.config.*`, and patching them out replaces the boundary *together
+    with* the logic wrapped around it — notably the fallback that reads the
+    config file when the daemon answers `active()` with None.
+
+    `active()` hands out a deep copy and `set_active()` stores one, the way a
+    WebSocket round-trip does: a caller that mutates the graph it read cannot
+    reach back into the daemon's copy, so a write-then-read assertion means
+    something.
+    """
+
+    FILE_PATH = "/var/lib/milo/camilladsp/config.yml"
+
+    def __init__(self):
+        self._active = {"filters": {}, "processors": {}, "pipeline": []}
+        self._on_disk = None
+        self.pushed_configs: list = []
+
+    # --- test-facing seeding and reading ---
+
+    def load(self, config: dict) -> None:
+        """Seed the graph the daemon is currently running."""
+        self._active = copy.deepcopy(config)
+
+    def go_inactive(self, on_disk: dict = None) -> None:
+        """Stop processing: `active()` answers None and `config.yml` holds `on_disk`.
+
+        This is the state a CamillaDSP daemon sits in between streams, and the
+        only one in which `_get_config` reaches for the file.
+        """
+        self._active = None
+        self._on_disk = copy.deepcopy(on_disk)
+
+    @property
+    def active_config(self) -> dict:
+        """The graph the daemon holds right now."""
+        return copy.deepcopy(self._active)
+
+    @property
+    def last_pushed(self) -> dict:
+        """The most recent graph written to the daemon."""
+        assert self.pushed_configs, "no config was pushed to CamillaDSP"
+        return self.pushed_configs[-1]
+
+    # --- what pyCamillaDSP's client.config serves ---
+
+    def active(self):
+        return copy.deepcopy(self._active)
+
+    def set_active(self, config):
+        self._active = copy.deepcopy(config)
+        self.pushed_configs.append(copy.deepcopy(config))
+
+    def file_path(self):
+        return self.FILE_PATH
+
+    def read_and_parse_file(self, path):
+        return copy.deepcopy(self._on_disk)
+
+
+@pytest.fixture
+def camilla_daemon():
+    """The daemon `mock_camilla_client` talks to. See CamillaDaemonDouble."""
+    return CamillaDaemonDouble()
+
+
+@pytest.fixture
+def mock_camilla_client(camilla_daemon):
+    """Mock of pyCamillaDSP's CamillaClient — the outside world for CamillaDSPService.
+
+    Injected as `service._client`, which is the whole point: the service's own
+    config helpers then run for real instead of being patched away. Modelled on
+    milo-client/app/tests/conftest.py, with the config graph made stateful
+    because the server's tests assert on what was *written*, where the
+    satellite's only read it back.
+    """
+    client = MagicMock()
+
+    client.general.state.return_value = "Running"
+
+    client.config.active.side_effect = camilla_daemon.active
+    client.config.set_active.side_effect = camilla_daemon.set_active
+    client.config.file_path.side_effect = camilla_daemon.file_path
+    client.config.read_and_parse_file.side_effect = camilla_daemon.read_and_parse_file
+
+    client.volume.main_volume.return_value = -20.0
+    client.volume.main_mute.return_value = False
+
+    client.levels.capture_peak.return_value = [-30.0, -30.0]
+    client.levels.playback_peak.return_value = [-25.0, -25.0]
+
+    return client

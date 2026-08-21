@@ -12,7 +12,7 @@ import logging
 
 import aiohttp
 import pytest
-from unittest.mock import Mock, AsyncMock, MagicMock
+from unittest.mock import Mock, AsyncMock
 
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.equalizer import (
@@ -624,7 +624,9 @@ class TestCamillaDSPService:
         assert camilladsp_service._loudness["high_boost"] == 6.0
 
     @pytest.mark.asyncio
-    async def test_disconnected_set_then_reconnect_restores_eq(self, camilladsp_service, monkeypatch):
+    async def test_disconnected_set_then_reconnect_restores_eq(
+        self, camilladsp_service, monkeypatch, mock_camilla_client, camilla_daemon
+    ):
         """End-to-end of the disconnected→reconnect window: update_cache captures the
         intent while CamillaDSP is DISCONNECTED; on reconnect restore_effects() pushes
         those exact cache values to the daemon. Proves equalizer.json never drifts from
@@ -649,22 +651,13 @@ class TestCamillaDSPService:
 
         # 2. Reconnect: restore_effects() re-pushes the cache to the daemon.
         camilladsp_service._connected = True
-        camilladsp_service._client = MagicMock()
-        captured = {}
-
-        async def fake_get_config():
-            return {"filters": {}, "pipeline": [], "processors": {}}
-
-        async def fake_set_config(cfg):
-            captured["cfg"] = cfg
-
-        monkeypatch.setattr(camilladsp_service, "_get_config", fake_get_config)
-        monkeypatch.setattr(camilladsp_service, "_set_config", fake_set_config)
+        camilladsp_service._client = mock_camilla_client
+        camilla_daemon.load({"filters": {}, "pipeline": [], "processors": {}})
 
         ok = await camilladsp_service.restore_effects()
 
         assert ok is True
-        assert captured["cfg"]["filters"]["eq_band_00"]["parameters"]["gain"] == 4.0
+        assert camilla_daemon.last_pushed["filters"]["eq_band_00"]["parameters"]["gain"] == 4.0
 
     @pytest.mark.asyncio
     async def test_get_volume_disconnected(self, camilladsp_service):
@@ -773,76 +766,56 @@ class TestCamillaDSPService:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_concurrent_rmw_does_not_clobber(self, camilladsp_service, monkeypatch):
+    async def test_concurrent_rmw_does_not_clobber(
+        self, camilladsp_service, monkeypatch, mock_camilla_client, camilla_daemon
+    ):
         """A filter drag and a compressor toggle issued concurrently must BOTH land.
 
         The daemon graph is read-modify-written per caller; without serialization the
         two interleave (each reads the pre-change graph, the second write clobbers the
         first → last-writer-wins). `_config_lock` makes each RMW atomic so both survive.
-        The fake config I/O yields between read and write to force the interleave that
-        would clobber if the lock were absent.
+        The interleave needs no staging: every call to the daemon goes through
+        `_run`'s executor, so each read and each write is already a suspension
+        point, and the single worker orders them get/get/set/set.
         """
         import asyncio
-        import copy
 
         camilladsp_service._connected = True
-        camilladsp_service._client = MagicMock()
+        camilladsp_service._client = mock_camilla_client
         monkeypatch.setattr(camilladsp_service, "_schedule_persist", lambda: None)
         monkeypatch.setattr(camilladsp_service, "_broadcast", AsyncMock())
 
-        daemon = {
+        camilla_daemon.load({
             "filters": {"eq_band_00": {"type": "Biquad", "parameters": {
                 "type": "Peaking", "freq": 31.0, "gain": 0.0, "q": 1.41}}},
             "pipeline": [],
             "processors": {},
-        }
-
-        async def fake_get_config():
-            await asyncio.sleep(0)  # yield between read and write
-            return copy.deepcopy(daemon)
-
-        async def fake_set_config(cfg):
-            await asyncio.sleep(0)
-            daemon.clear()
-            daemon.update(copy.deepcopy(cfg))
-
-        monkeypatch.setattr(camilladsp_service, "_get_config", fake_get_config)
-        monkeypatch.setattr(camilladsp_service, "_set_config", fake_set_config)
+        })
 
         await asyncio.gather(
             camilladsp_service.set_filter("eq_band_00", 31.0, 6.0, 1.41),
             camilladsp_service.set_compressor(enabled=True),
         )
 
+        daemon = camilla_daemon.active_config
         assert daemon["filters"]["eq_band_00"]["parameters"]["gain"] == 6.0  # filter change kept
         assert "compressor" in daemon["processors"]  # compressor change kept
 
     @pytest.mark.asyncio
-    async def test_apply_settings_single_round_trip(self, camilladsp_service, monkeypatch):
+    async def test_apply_settings_single_round_trip(
+        self, camilladsp_service, monkeypatch, mock_camilla_client, camilla_daemon
+    ):
         """A full 10-band record applies in ONE set_config, not 13 sequential RMWs."""
-        import asyncio  # noqa: F401 -- parity with sibling tests; kept for clarity
         from backend.core.multiroom.models import (
             EqualizerSettings, EqFilter, FilterType,
         )
 
         camilladsp_service._connected = True
-        camilladsp_service._client = MagicMock()
+        camilladsp_service._client = mock_camilla_client
         monkeypatch.setattr(camilladsp_service, "_schedule_persist", lambda: None)
         monkeypatch.setattr(camilladsp_service, "_broadcast", AsyncMock())
 
-        captured = {}
-        set_calls = 0
-
-        async def fake_get_config():
-            return {"filters": {}, "pipeline": [], "processors": {}}
-
-        async def fake_set_config(cfg):
-            nonlocal set_calls
-            set_calls += 1
-            captured["cfg"] = cfg
-
-        monkeypatch.setattr(camilladsp_service, "_get_config", fake_get_config)
-        monkeypatch.setattr(camilladsp_service, "_set_config", fake_set_config)
+        camilla_daemon.load({"filters": {}, "pipeline": [], "processors": {}})
 
         settings = EqualizerSettings(
             filters=[
@@ -858,15 +831,17 @@ class TestCamillaDSPService:
         ok = await camilladsp_service.apply_settings(settings, persist=False)
 
         assert ok is True
-        assert set_calls == 1  # one graph write for the whole record (was 13)
-        cfg = captured["cfg"]
+        assert len(camilla_daemon.pushed_configs) == 1  # one graph write for the whole record (was 13)
+        cfg = camilla_daemon.last_pushed
         assert cfg["filters"]["eq_band_09"]["parameters"]["gain"] == 9.0
         assert "compressor" in cfg["processors"]
         assert "loudness_low" in cfg["filters"]
         assert camilladsp_service._active_preset == "custom"
 
     @pytest.mark.asyncio
-    async def test_apply_settings_rolls_back_caches_on_daemon_failure(self, camilladsp_service, monkeypatch):
+    async def test_apply_settings_rolls_back_caches_on_daemon_failure(
+        self, camilladsp_service, monkeypatch, mock_camilla_client, camilla_daemon
+    ):
         """A failed daemon write must leave the caches unchanged, not ahead of the DSP.
 
         Otherwise the in-memory cache (and the next persist to equalizer.json,
@@ -878,8 +853,11 @@ class TestCamillaDSPService:
         )
 
         camilladsp_service._connected = True
-        camilladsp_service._client = MagicMock()
+        camilladsp_service._client = mock_camilla_client
         monkeypatch.setattr(camilladsp_service, "_schedule_persist", lambda: None)
+
+        camilla_daemon.load({"filters": {}, "pipeline": [], "processors": {}})
+        mock_camilla_client.config.set_active.side_effect = RuntimeError("daemon connection dropped")
 
         before = (
             camilladsp_service._filters,
@@ -888,15 +866,6 @@ class TestCamillaDSPService:
             camilladsp_service._mono,
             camilladsp_service._active_preset,
         )
-
-        async def fake_get_config():
-            return {"filters": {}, "pipeline": [], "processors": {}}
-
-        async def failing_set_config(cfg):
-            raise RuntimeError("daemon connection dropped")
-
-        monkeypatch.setattr(camilladsp_service, "_get_config", fake_get_config)
-        monkeypatch.setattr(camilladsp_service, "_set_config", failing_set_config)
 
         settings = EqualizerSettings(
             filters=[
@@ -918,6 +887,100 @@ class TestCamillaDSPService:
         assert camilladsp_service._loudness is before[2]
         assert camilladsp_service._mono == before[3]
         assert camilladsp_service._active_preset == before[4]
+
+
+class TestInactiveDaemonConfigFallback:
+    """An EQ write issued while CamillaDSP is inactive must still start from the
+    graph the daemon holds on disk.
+
+    `config.active()` answers None whenever the daemon is not processing (between
+    streams, right after a restart). `_get_config` falls back to
+    `read_and_parse_file(file_path())` for exactly that window. Without the
+    fallback the service would start from an empty graph and push it back,
+    dropping every filter it did not write itself — crossover included — into the
+    config the daemon reloads on its next start. Silent: nothing raises, and the
+    loss is audible only in the room whose lowpass disappeared.
+
+    These four cannot be written while `_get_config` is patched out, which is
+    what the whole EQ suite used to do.
+    """
+
+    @pytest.fixture
+    def service(self, mock_camilla_client, tmp_path, monkeypatch):
+        """Connected service talking to the mocked daemon.
+
+        STORAGE_PATH is redirected because this checkout is also the appliance:
+        `set_filter` schedules a debounced write of the real
+        /var/lib/milo/equalizer.json, and a test must never be the thing that
+        rewrites the operator's EQ.
+        """
+        monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
+        settings = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_setting = AsyncMock()
+        svc = CamillaDSPService(settings_service=settings)
+        svc._client = mock_camilla_client
+        svc._connected = True
+        svc._filters = [
+            {"id": "eq_band_00", "type": "Peaking", "freq": 31.0, "gain": 0.0, "q": 1.41, "enabled": True}
+        ]
+        return svc
+
+    async def test_inactive_daemon_is_read_from_its_config_file(self, service, camilla_daemon):
+        """The band lands on top of what the file already declared, not instead of it."""
+        camilla_daemon.go_inactive({
+            "filters": {
+                "crossover_lowpass": {"type": "Biquad", "parameters": {
+                    "type": "Lowpass", "freq": 80, "q": 0.707}},
+            },
+            "pipeline": [{"type": "Filter", "channels": [0], "names": ["crossover_lowpass"]}],
+        })
+
+        assert await service.set_filter("eq_band_00", freq=100, gain=4.0, q=1.41) is True
+
+        pushed = camilla_daemon.last_pushed
+        assert pushed["filters"]["eq_band_00"]["parameters"]["gain"] == 4.0
+        assert "crossover_lowpass" in pushed["filters"], \
+            "the graph the daemon holds on disk was replaced instead of amended"
+        assert pushed["pipeline"] == [
+            {"type": "Filter", "channels": [0], "names": ["crossover_lowpass"]}
+        ]
+
+    async def test_the_file_read_uses_the_path_the_daemon_reports(
+        self, service, mock_camilla_client, camilla_daemon
+    ):
+        """The path is asked of the daemon, never assumed — a satellite and the
+        server keep their config under different roots."""
+        camilla_daemon.go_inactive({"filters": {}, "pipeline": []})
+
+        await service.set_filter("eq_band_00", freq=100, gain=4.0, q=1.41)
+
+        mock_camilla_client.config.read_and_parse_file.assert_called_once_with(
+            camilla_daemon.file_path()
+        )
+
+    async def test_a_daemon_with_nothing_to_read_still_takes_the_write(self, service, camilla_daemon):
+        """No active config and no parsable file: the write still lands on a
+        well-formed graph instead of raising on a None."""
+        camilla_daemon.go_inactive(None)
+
+        assert await service.set_filter("eq_band_00", freq=100, gain=4.0, q=1.41) is True
+
+        pushed = camilla_daemon.last_pushed
+        assert pushed["filters"]["eq_band_00"]["parameters"]["gain"] == 4.0
+        assert pushed["pipeline"] == []
+
+    async def test_an_active_daemon_is_never_read_from_disk(
+        self, service, mock_camilla_client, camilla_daemon
+    ):
+        """The control. Without it the three above would also pass on a fallback
+        that fires unconditionally, which would answer a stale file while the
+        daemon is running."""
+        camilla_daemon.load({"filters": {}, "pipeline": []})
+
+        await service.set_filter("eq_band_00", freq=100, gain=4.0, q=1.41)
+
+        mock_camilla_client.config.read_and_parse_file.assert_not_called()
 
 
 # =============================================================================
