@@ -173,7 +173,10 @@ def mock_source():
     # mocked as awaitables so _apply_transition can call them on this Mock.
     source.release_for_reroute = AsyncMock(return_value=True)
     source.acquire_after_reroute = AsyncMock(return_value=True)
-    source.status = AsyncMock(return_value={})
+    # No `status` here on purpose: architecture/test_source_conformance.py
+    # forbids one on a real source (status is broadcast over WS, never polled),
+    # and no test read it. The shared mock every reader opens first should not
+    # teach the opposite of the contract.
     source.is_initialized = True
     source.state = SourceState.READY
     source.metadata = {}

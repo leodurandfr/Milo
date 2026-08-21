@@ -22,6 +22,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+import { stripComments } from '../helpers/stripComments.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
@@ -30,6 +31,15 @@ const screensaver = readFileSync(join(SRC_DIR, 'composables/useScreensaver.js'),
 const player = readFileSync(join(SRC_DIR, 'components/audio/AudioPlayerFull.vue'), 'utf8');
 const screensaverView = readFileSync(join(SRC_DIR, 'components/audio/AudioScreensaver.vue'), 'utf8');
 const transition = readFileSync(join(SRC_DIR, 'composables/useArtworkTransition.js'), 'utf8');
+
+// Every rule below that asserts a *name is absent* reads these, not the raw
+// files. Writing `// The helper owns album_art_url; do not read it here.` at the
+// right place in useScreensaver.js used to turn this file red — documenting a
+// rule where it applies is the most natural thing a reader can do, and a red
+// nobody believes is worse than no rule. Measured, twice.
+const screensaverCode = stripComments(screensaver);
+const playerCode = stripComments(player);
+const screensaverViewCode = stripComments(screensaverView);
 
 describe('artwork parity between the player and the screensaver', () => {
   it('extracts a plausible surface first', () => {
@@ -49,7 +59,7 @@ describe('artwork parity between the player and the screensaver', () => {
     // Only asserted on the screensaver: the player legitimately names the field
     // once, caching the raw metadata so its last-valid copy is still something
     // the helper can read.
-    expect(screensaver).not.toMatch(/album_art_url/);
+    expect(screensaverCode).not.toMatch(/album_art_url/);
   });
 
   it('pins every cover the screensaver can show', () => {
@@ -91,8 +101,8 @@ describe('artwork parity between the player and the screensaver', () => {
 
     // And neither may re-roll its own wait: the bounded timeout is the only
     // thing that lifts a veil when a cover never arrives.
-    expect(player).not.toMatch(/setTimeout/);
-    expect(screensaverView).not.toMatch(/setTimeout/);
+    expect(playerCode).not.toMatch(/setTimeout/);
+    expect(screensaverViewCode).not.toMatch(/setTimeout/);
   });
 
   it('lets neither decide on its own what counts as a cover', () => {
@@ -113,7 +123,7 @@ describe('artwork parity between the player and the screensaver', () => {
     // mentions the name everywhere, so matching the name alone stays green
     // through exactly the regression this guards.
     expect(transition).toMatch(/MIN_IMAGE_SIZE/);
-    for (const view of [player, screensaverView]) {
+    for (const view of [playerCode, screensaverViewCode]) {
       expect(view).toMatch(/@load="settleFromLoad"/);
       expect(view).toMatch(/@error="settleFromError"/);
       expect(view).not.toMatch(/MIN_IMAGE_SIZE/);
@@ -123,7 +133,7 @@ describe('artwork parity between the player and the screensaver', () => {
   it('lets neither own a placeholder image', () => {
     // A placeholder imported separately by each file is two chances to pick a
     // different image for the same silence.
-    expect(screensaver).not.toMatch(/placeholder/);
-    expect(player).not.toMatch(/from '@\/assets\//);
+    expect(screensaverCode).not.toMatch(/placeholder/);
+    expect(playerCode).not.toMatch(/from '@\/assets\//);
   });
 });
