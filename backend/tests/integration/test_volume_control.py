@@ -1157,16 +1157,16 @@ class TestZoneVolumeDeltaIntegration:
         assert updates['client_b'] == -27.0  # -30 + 3
 
     @pytest.mark.asyncio
-    async def test_zone_delta_only_updates_online_clients(
+    async def test_zone_delta_covers_offline_clients_but_does_not_commit_them(
         self,
         zone_state_store: VolumeStateStore
     ):
         """
-        Only ONLINE clients updated in zone delta.
+        Zone delta computes for every member, and commits nothing by itself.
 
         Validates:
-        - ONLINE clients receive delta
-        - OFFLINE clients remain unchanged
+        - ONLINE and OFFLINE members both receive the delta in the updates
+        - apply_zone_delta is pure: the store is untouched until apply_zone_updates
         """
         store = zone_state_store
 
@@ -1186,12 +1186,12 @@ class TestZoneVolumeDeltaIntegration:
         # Action: apply delta
         updates = await store.apply_zone_delta('zone_1', 5.0)
 
-        # Assert: only online client in updates
-        assert 'online_client' in updates
-        assert 'offline_client' not in updates
+        # Assert: both members in updates
         assert updates['online_client'] == -25.0  # -30 + 5
+        assert updates['offline_client'] == -25.0  # -30 + 5
 
-        # Verify offline client unchanged in store
+        # Verify nothing is written before apply_zone_updates
+        assert store._clients['online_client'].volume_db == -30.0
         assert store._clients['offline_client'].volume_db == -30.0
 
     def test_zone_average_readonly_computed(
@@ -1335,15 +1335,15 @@ class TestZoneVolumeDeltaIntegration:
         assert updates['client_b'] == -35.0  # -40 + 5
 
     @pytest.mark.asyncio
-    async def test_zone_with_all_offline_clients_returns_empty_updates(
+    async def test_zone_with_all_offline_clients_still_records_the_delta(
         self,
         zone_state_store: VolumeStateStore
     ):
         """
-        Zone with all offline clients returns empty updates.
+        Zone with all offline clients still returns the delta for each member.
 
         Validates:
-        - No updates returned when all clients are OFFLINE
+        - Availability decides the hardware fan-out, never the arithmetic
         """
         store = zone_state_store
 
@@ -1363,8 +1363,8 @@ class TestZoneVolumeDeltaIntegration:
         # Action: apply delta
         updates = await store.apply_zone_delta('zone_1', 5.0)
 
-        # Assert: empty updates
-        assert updates == {}
+        # Assert: every member moved
+        assert updates == {'offline_a': -25.0, 'offline_b': -25.0}
 
     @pytest.mark.asyncio
     async def test_zone_average_returns_default_when_all_offline(
@@ -1742,17 +1742,17 @@ class TestVolumeApiEndpointsIntegration:
         assert local_client is not None
 
     @pytest.mark.asyncio
-    async def test_zone_delta_applies_to_all_online_clients(
+    async def test_zone_delta_applies_to_every_member_of_the_zone(
         self,
         volume_state_store: VolumeStateStore
     ):
         """
-        Zone delta applies to all ONLINE clients and returns correct data.
+        Zone delta applies to every member and returns correct data.
 
         Validates:
-        - apply_zone_delta updates all available clients
+        - apply_zone_delta moves each member with volume control by the delta
         - Returns dict with affected clients and new volumes
-        - Offline clients are not included in updates
+        - An offline member is included, so the delta is in its level on return
         """
         store = volume_state_store
         store._mode = "multiroom"
@@ -1775,14 +1775,13 @@ class TestVolumeApiEndpointsIntegration:
         # Apply zone delta
         updates = await store.apply_zone_delta('test-zone', 5.0)
 
-        # Assert: Only online clients in updates
-        assert 'client-a' in updates
-        assert 'client-b' in updates
-        assert 'client-c' not in updates
+        # Assert: every member is in updates, offline one included
+        assert set(updates) == {'client-a', 'client-b', 'client-c'}
 
         # Assert: Correct new volumes
         assert updates['client-a'] == -25.0  # -30 + 5
         assert updates['client-b'] == -30.0  # -35 + 5
+        assert updates['client-c'] == -35.0  # -40 + 5, applied while away
 
         # Apply updates to verify state change
         store._persist_state = AsyncMock()
@@ -1791,7 +1790,7 @@ class TestVolumeApiEndpointsIntegration:
         # Assert: State updated
         assert store._clients['client-a'].volume_db == -25.0
         assert store._clients['client-b'].volume_db == -30.0
-        assert store._clients['client-c'].volume_db == -40.0  # Unchanged (offline)
+        assert store._clients['client-c'].volume_db == -35.0  # moved while offline
 
     @pytest.mark.asyncio
     async def test_mute_endpoint_updates_client_state(

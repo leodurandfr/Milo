@@ -14,7 +14,7 @@ Architecture:
 import asyncio
 import contextlib
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
@@ -146,6 +146,30 @@ class VolumeService:
         client_ids = self._online_client_ids() if self._is_multiroom_enabled() else []
         return [cid for cid in client_ids if self._state_store.has_volume_control(cid)]
 
+    @staticmethod
+    def _split_on_verdict(updates: Dict[str, float], reachable: Dict[str, float],
+                          results: Dict[str, bool]) -> Tuple[Dict[str, float], list]:
+        """Split a fan-out's updates into what the store keeps and what it drops.
+
+        One rule, shared by the zone delta and the global one: a client the
+        fan-out reached is written only if it accepted the level, while a client
+        it never reached has no verdict to wait for and is written
+        unconditionally — offline is a skip, not a failure, the same rule as
+        _refused. That unconditional write is the whole mechanism by which a
+        relative adjustment reaches a client that was absent when it was made.
+
+        Returns:
+            (to_commit, refused) — refused holds only reachable clients that
+            answered False.
+        """
+        to_commit, refused = {}, []
+        for mac_id, volume_db in updates.items():
+            if mac_id not in reachable or results.get(mac_id, False):
+                to_commit[mac_id] = volume_db
+            else:
+                refused.append(mac_id)
+        return to_commit, refused
+
     async def _compute_multiroom_updates(self, target_db: float,
                                          client_ids: list) -> Optional[Dict[str, float]]:
         """Compute per-client volume updates for multiroom mode.
@@ -162,9 +186,21 @@ class VolumeService:
           daemon is disconnected must survive to be replayed by the reconnect
           callback.
 
+        The shift is computed for every known client with volume control, not
+        only the reachable ones: the operation is relative, so an absent client
+        keeps its place in the room by having its stored level moved too.
+        _apply_volume_to_hardware still fans out to the online ones alone.
+
+        A client held at a limit absorbs less than the full shift, so the
+        resulting average lands slightly off the target. That is accepted and
+        not redistributed — correcting it would move speakers nobody touched.
+
         Args:
             target_db: Target global volume in dB.
             client_ids: Online client IDs (fetched before lock acquisition).
+                Empty means nothing is reachable, and the global average the
+                shift is measured against would then be a fabricated default —
+                so nothing is computed at all.
 
         Returns:
             Dict of {mac_id: volume_db} for multiroom, None for direct mode.
@@ -178,19 +214,21 @@ class VolumeService:
 
         volume_state = await self._state_store.get_complete_state()
         delta = target_db - volume_state.global_volume_db
-        updates = {}
-        for cid in client_ids:
-            current = volume_state.clients.get(cid)
-            if current:
-                updates[cid] = self._volume_config.clamp(current.volume_db + delta)
-        return updates
+        return {
+            cid: self._volume_config.clamp(client.volume_db + delta)
+            for cid, client in volume_state.clients.items()
+            if self._state_store.has_volume_control(cid)
+        }
 
-    async def _apply_volume_to_hardware(self, target_db: float, updates: Optional[Dict[str, float]]) -> bool:
+    async def _apply_volume_to_hardware(self, target_db: float, updates: Optional[Dict[str, float]],
+                                        online_ids: list) -> bool:
         """Apply volume to hardware outside the lock.
 
         Args:
             target_db: Target volume in dB (used for direct mode CamillaDSP call).
             updates: Per-client updates from _compute_multiroom_updates, or None for direct mode.
+            online_ids: The clients the fan-out may reach. An update for a client
+                absent from it is stored without any hardware call.
         """
         if updates is None:
             # Direct mode: record-intent + reconcile. The state store already holds
@@ -222,19 +260,18 @@ class VolumeService:
             return success
         if not updates:
             return True
-        # Multiroom: fan-out to all clients, commit state only on success
-        results = await self._equalizer_controller.apply_volumes_parallel(updates)
-        failed = []
-        for hostname, volume in updates.items():
-            if results.get(hostname, False):
-                await self._state_store.set_client_volume(hostname, volume)
-            else:
-                failed.append(hostname)
+        # Multiroom: fan out to the reachable clients, commit state on the rule
+        online = set(online_ids)
+        reachable = {cid: volume for cid, volume in updates.items() if cid in online}
+        results = await self._equalizer_controller.apply_volumes_parallel(reachable)
+        committed, failed = self._split_on_verdict(updates, reachable, results)
+        for hostname, volume in committed.items():
+            await self._state_store.set_client_volume(hostname, volume)
         if failed:
-            self.logger.warning(f"Multiroom volume update failed for {len(failed)}/{len(results)} clients: {failed}")
+            self.logger.warning(f"Multiroom volume update failed for {len(failed)}/{len(reachable)} clients: {failed}")
         # Local client failure is critical — server audio may be silent
         local_mac = self._state_store.local_mac_id
-        local_failed = local_mac and local_mac in updates and not results.get(local_mac, False)
+        local_failed = local_mac is not None and local_mac in failed
         if local_failed:
             self.logger.error("LOCAL server volume update failed — server audio may be silent")
             return False
@@ -679,7 +716,12 @@ class VolumeService:
     # ============================================================================
 
     async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> float:
-        """Apply volume delta to entire zone atomically. Returns new zone average in dB."""
+        """Apply volume delta to entire zone atomically. Returns new zone average in dB.
+
+        Every member's stored level moves; only the reachable ones are pushed to
+        hardware. A member that was away during the adjustment therefore comes
+        back at the level its room moved to, not the one it left.
+        """
         # Phase A: compute updates under lock (no hardware I/O)
         try:
             async with asyncio.timeout(2.0):
@@ -693,14 +735,18 @@ class VolumeService:
             self.logger.warning(f"No clients to update in zone {zone_id}")
             return self._state_store.compute_zone_average(zone_id)
 
-        # Phase B: hardware fan-out outside lock
-        self.logger.info(f"Applying zone delta: {zone_id} {delta_db:+.1f}dB -> {len(updates)} clients")
-        results = await self._equalizer_controller.apply_volumes_parallel(updates)
+        # Phase B: hardware fan-out outside lock, reachable members only
+        reachable = {h: v for h, v in updates.items()
+                     if self._state_store.is_client_available(h)}
+        self.logger.info(
+            f"Applying zone delta: {zone_id} {delta_db:+.1f}dB -> {len(updates)} clients "
+            f"({len(reachable)} reachable)"
+        )
+        results = await self._equalizer_controller.apply_volumes_parallel(reachable)
 
-        successful = {h: v for h, v in updates.items() if results.get(h, False)}
-        await self._state_store.apply_zone_updates(successful)
+        committed, failures = self._split_on_verdict(updates, reachable, results)
+        await self._state_store.apply_zone_updates(committed)
 
-        failures = [h for h, ok in results.items() if not ok]
         if failures:
             self.logger.warning(f"Failed to update clients: {failures}")
 
@@ -712,7 +758,7 @@ class VolumeService:
         await self.broadcast_volume_state(show_bar=False)
 
         new_avg = self._state_store.compute_zone_average(zone_id)
-        self.logger.info(f"Zone {zone_id} updated: {new_avg:.1f}dB ({len(successful)}/{len(updates)} success)")
+        self.logger.info(f"Zone {zone_id} updated: {new_avg:.1f}dB ({len(committed)}/{len(updates)} stored)")
         return new_avg
 
     # ============================================================================
@@ -925,7 +971,7 @@ class VolumeService:
             self.logger.warning("Timeout waiting for volume lock (>2s)")
             return False
 
-        success = await self._apply_volume_to_hardware(target_db, updates)
+        success = await self._apply_volume_to_hardware(target_db, updates, client_ids)
         if success:
             await self._update_startup_volume_if_needed(target_db)
             await self.broadcast_volume_state(show_bar)
@@ -946,7 +992,7 @@ class VolumeService:
             self.logger.warning("Timeout waiting for volume lock (>2s)")
             return False
 
-        success = await self._apply_volume_to_hardware(target_db, updates)
+        success = await self._apply_volume_to_hardware(target_db, updates, client_ids)
         if success:
             self._schedule_post_volume_tasks(target_db, show_bar)
         return success

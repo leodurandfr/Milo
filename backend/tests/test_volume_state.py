@@ -80,11 +80,13 @@ class TestZoneVolumeDelta:
         assert updates['client-a'] - updates['client-b'] == 5.0
 
     @pytest.mark.asyncio
-    async def test_zone_delta_only_affects_online_clients(self, store):
-        """
-        Only ONLINE clients receive immediate volume change.
+    async def test_zone_delta_covers_an_offline_member_too(self, store):
+        """An OFFLINE member is in the updates: a delta is relative.
 
-        OFFLINE clients should not be included in the updates dict.
+        Was the opposite rule until 2026-08-21. Excluding the absent member made
+        it miss the adjustment permanently and come back at the wrong level for
+        its room. The caller re-splits this dict on availability, so including
+        it costs no hardware call — see apply_zone_volume_delta.
         """
         # Setup: zone with mixed ONLINE/OFFLINE clients
         store._zones = {
@@ -102,15 +104,14 @@ class TestZoneVolumeDelta:
         # Action: apply delta
         updates = await store.apply_zone_delta('zone_1', 3.0)
 
-        # Assert: only online client in updates
-        assert 'online-client' in updates
-        assert 'offline-client' not in updates
+        # Assert: both members moved by the delta
         assert updates['online-client'] == -27.0  # -30 + 3
+        assert updates['offline-client'] == -27.0  # -30 + 3
 
     @pytest.mark.asyncio
-    async def test_zone_delta_returns_empty_when_all_offline(self, store):
+    async def test_zone_delta_covers_a_zone_that_is_entirely_offline(self, store):
         """
-        Zone with all clients OFFLINE returns no updates.
+        A zone whose members are all OFFLINE still records the delta.
         """
         # Setup: zone with all OFFLINE clients
         store._zones = {
@@ -128,8 +129,8 @@ class TestZoneVolumeDelta:
         # Action: apply delta
         updates = await store.apply_zone_delta('zone_1', 5.0)
 
-        # Assert: empty updates dict
-        assert updates == {}
+        # Assert: each member moved by the delta, relative offset kept
+        assert updates == {'client-1': -25.0, 'client-2': -20.0}
 
     @pytest.mark.asyncio
     async def test_zone_delta_clamps_at_min_limit(self, store):
