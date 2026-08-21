@@ -173,9 +173,11 @@ const currentDeviceName = computed(() => {
     case 'airplay':
       return meta.client_name || '';
     case 'dlna':
-      // Passive receiver: client_name is the static "DLNA" label the player's
-      // source bar needs, not a controller identity — UPnP does not expose one.
-      // Keep the status card generic (handled in AudioSourceStatus).
+      // Passive receiver: client_name is the player source bar's label — the
+      // media server the audio comes from, or the static "DLNA" — never a
+      // controller identity, which UPnP does not expose. And an idle renderer
+      // has no server either, so there is nothing to name on the status card.
+      // Keep it generic (handled in AudioSourceStatus).
       return '';
     case 'qobuz':
       // Passive receiver: the proxy exposes no controller identity, only the
