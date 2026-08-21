@@ -329,6 +329,45 @@ class TestAudioRoutingService:
                                  "routing", "multiroom_error")
         assert not error_events
 
+    @staticmethod
+    def _volume_service_stub(volume_control: bool = True):
+        """A VolumeService stand-in for the post-transition volume block."""
+        vs = Mock()
+        vs.volume_control = volume_control
+        vs.update_volume_mode = AsyncMock(return_value=None)
+        vs.push_volume_to_all_clients = AsyncMock(return_value=True)
+        vs.sync_all_clients_from_equalizer = AsyncMock(return_value=True)
+        return vs
+
+    @pytest.mark.asyncio
+    async def test_enabling_multiroom_pushes_no_volume(self, routing_service):
+        """Turning multiroom on changes the mode and nothing else. The push that
+        used to follow flattened every satellite onto the local level, and the
+        equalizer sync is the DAC branch — neither runs on a unit that handles
+        its own volume."""
+        volume_service = self._volume_service_stub()
+        routing_service.set_volume_service(volume_service)
+
+        await routing_service._post_transition_setup_best_effort(True)
+
+        volume_service.update_volume_mode.assert_awaited_once_with(True)
+        volume_service.push_volume_to_all_clients.assert_not_called()
+        volume_service.sync_all_clients_from_equalizer.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_enabling_multiroom_on_a_dac_still_reads_the_clients(self, routing_service):
+        """The DAC branch survives the push removal, and it is now selected on
+        volume_control rather than on a returned target: with no local volume
+        control the clients' own levels are read into the store, which is the
+        direction that moves nobody's speaker."""
+        volume_service = self._volume_service_stub(volume_control=False)
+        routing_service.set_volume_service(volume_service)
+
+        await routing_service._post_transition_setup_best_effort(True)
+
+        volume_service.sync_all_clients_from_equalizer.assert_awaited_once()
+        volume_service.push_volume_to_all_clients.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_detect_initial_state_failure_keeps_flag_false(self, routing_service, mock_settings_service):
         """Init-retry test: a transient failure in _detect_initial_state must NOT

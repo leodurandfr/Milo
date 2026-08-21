@@ -725,9 +725,9 @@ class AudioRoutingService:
 
         Settings + routing.env are already committed by the caller and snapserver
         has been started, so every step here is best-effort and self-healing: a
-        WS-not-ready-yet or a transient volume-push miss is recovered by the
-        delayed sync + client-connect retries. Failures are logged (warning) but
-        never fail the transition — the physical mode has switched regardless.
+        WS-not-ready-yet or a missed client read is recovered by the delayed sync
+        + client-connect retries. Failures are logged (warning) but never fail
+        the transition — the physical mode has switched regardless.
         """
         # WebSocket connection lifecycle + readiness wait
         try:
@@ -747,25 +747,22 @@ class AudioRoutingService:
         except Exception as e:
             self.logger.warning(f"POST_TRANSITION: WS lifecycle failed (non-fatal): {e}")
 
-        # Volume mode update + client sync
+        # Volume mode update. No level is pushed: switching modes changes what
+        # the global figure denotes, not what any speaker plays at — each client
+        # keeps its own, and a satellite re-applies it on admission.
         try:
             if self.volume_service:
-                target_volume = await self.volume_service.update_volume_mode(enabled)
-                if enabled:
-                    if target_volume is not None:
-                        self.logger.info(
-                            f"POST_TRANSITION: Pushing volume ({target_volume:.1f}dB) to all clients..."
-                        )
-                        if not await self.volume_service.push_volume_to_all_clients(target_volume):
-                            self.logger.warning("POST_TRANSITION: push_volume_to_all_clients returned failure")
-                    else:
-                        # DAC mode: sync client volumes from equalizers
-                        await self.volume_service.sync_all_clients_from_equalizer()
+                await self.volume_service.update_volume_mode(enabled)
+                if enabled and not self.volume_service.volume_control:
+                    # DAC mode: read the clients' own levels into the store,
+                    # which is the direction the principle allows.
+                    await self.volume_service.sync_all_clients_from_equalizer()
         except Exception as e:
             self.logger.warning(f"POST_TRANSITION: Volume sync failed (non-fatal): {e}")
 
         # multiroom_ready — clears the UI transition spinner. Fires whenever
-        # enabling (the mode IS up); volumes trail in via the retries above.
+        # enabling (the mode IS up); each client's level arrives with its own
+        # admission, which the spinner never waited for anyway.
         if enabled and self.state_machine:
             try:
                 self.logger.info("POST_TRANSITION: Broadcasting multiroom_ready event")

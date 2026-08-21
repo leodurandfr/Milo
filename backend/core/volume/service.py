@@ -293,54 +293,35 @@ class VolumeService:
             return False
         return self._camilladsp_service.is_volume_control_available()
 
-    async def update_volume_mode(self, multiroom_enabled: bool) -> float:
+    async def update_volume_mode(self, multiroom_enabled: bool) -> None:
+        """Switch the volume mode. No client's level moves, so nothing is pushed.
+
+        A mode switch is not an adjustment — nobody asked for a new level. Each
+        satellite re-applies its own on admission when snapclient joins, and the
+        local client keeps the one it was left at. That last part is why this
+        returns nothing: the direct-mode volume *is*
+        `_clients[local_mac_id].volume_db`, so deriving it from the satellites'
+        average here overwrote the operator's own level with a number nobody
+        chose — local -70 with two satellites at -30 came back to direct at -50,
+        a +20 dB step on the only speaker still playing.
+
+        The unmute on the way to direct is the one exception, and it is
+        load-bearing: direct mode plays on the local speaker alone, so a local
+        client muted during multiroom would return to silence with nothing on
+        screen to explain it.
         """
-        Update volume mode when multiroom state changes.
+        await self._state_store.set_mode("multiroom" if multiroom_enabled else "direct")
 
-        Ensures volume consistency when switching modes:
-        - TO multiroom: returns current local volume to use for all clients
-        - TO direct: sets local volume to current global (average of clients)
-
-        Args:
-            multiroom_enabled: Whether multiroom is now enabled
-
-        Returns:
-            The volume to use for the new mode (for multiroom: local volume to push)
-        """
-        # DAC mode: switch mode and broadcast (any_volume_control depends on mode)
-        if not self._volume_control:
-            await self._state_store.set_mode("multiroom" if multiroom_enabled else "direct")
-            await self.broadcast_volume_state(show_bar=False)
-            return None
-
-        if multiroom_enabled:
-            # Switching TO multiroom: get current local volume BEFORE mode change
-            current_local = self._state_store.local_volume_db
-            self.logger.info(f"Switching to multiroom: using local volume {current_local:.1f} dB for all clients")
-
-            await self._state_store.set_mode("multiroom")
-            return current_local
-        else:
-            # Switching TO direct: get current global volume BEFORE mode change
-            volume_state = await self._state_store.get_complete_state()
-            current_global = volume_state.global_volume_db
-            self.logger.info(f"Switching to direct: using global volume {current_global:.1f} dB for local")
-
-            await self._state_store.set_mode("direct")
-
-            # Set local volume to the previous global
-            self._state_store.set_local_volume(current_global)
-
-            # Apply to CamillaDSP (volume + unmute to ensure sound works after multiroom)
+        # DAC mode makes no CamillaDSP call at all here: reapply_current_volume
+        # pins it at 0 dB and unmuted, and the external amp owns the rest.
+        if self._volume_control and not multiroom_enabled:
             try:
-                await self._camilladsp_service.set_volume(current_global)
                 await self._camilladsp_service.set_mute(False)
-                self.logger.info(f"Applied volume {current_global:.1f} dB to CamillaDSP (unmuted)")
+                self.logger.info("Switched to direct: CamillaDSP unmuted, no level changed")
             except Exception as e:
-                self.logger.warning(f"Failed to apply volume/mute to CamillaDSP: {e}")
+                self.logger.warning(f"Failed to unmute CamillaDSP: {e}")
 
-            await self.broadcast_volume_state(show_bar=False)
-            return current_global
+        await self.broadcast_volume_state(show_bar=False)
 
     # ============================================================================
     # CONFIGURATION LOADING
@@ -570,23 +551,22 @@ class VolumeService:
         return True
 
     @handle_errors(default=False)
-    async def push_volume_to_all_clients(self, target_volume_db: Optional[float] = None) -> bool:
-        """
-        Push volume and mute state to all multiroom clients.
+    async def push_volume_to_all_clients(self) -> bool:
+        """Push each online client's own level and mute state to its hardware.
 
-        Args:
-            target_volume_db: If provided, use this volume for ALL clients (mode switch).
-                             If None, respect startup settings (restore/startup volume).
+        There is no target to force on everyone: a mode switch pushes nothing
+        now, so the boot sync is the only caller and every client is restored to
+        what it owns (restore_last_volume) or to startup_volume_db.
         """
         try:
             async with asyncio.timeout(10.0):
                 async with self._push_lock:
-                    return await self._do_push_volume_to_all_clients(target_volume_db)
+                    return await self._do_push_volume_to_all_clients()
         except asyncio.TimeoutError:
             self.logger.warning("Timeout waiting for push lock (>10s)")
             return False
 
-    async def _do_push_volume_to_all_clients(self, target_volume_db: Optional[float] = None) -> bool:
+    async def _do_push_volume_to_all_clients(self) -> bool:
         """Internal push implementation (called under _push_lock)."""
         client_ids = self._online_client_ids()
         if not client_ids:
@@ -598,31 +578,23 @@ class VolumeService:
         self.logger.info(f"PUSH_VOLUME: Found {len(client_ids)} online clients: {client_ids}")
 
         updates = {}
+        restore_enabled = self._volume_config.restore_last_volume
+        startup_volume = self._volume_config.startup_volume_db
 
-        if target_volume_db is not None:
-            # Mode switch: use target volume for all clients
-            for cid in client_ids:
-                updates[cid] = target_volume_db
-            self.logger.info(f"Pushing mode-switch volume ({target_volume_db:.1f}dB) to {len(updates)} clients")
-        else:
-            # Startup: respect restore/startup settings
-            restore_enabled = self._volume_config.restore_last_volume
-            startup_volume = self._volume_config.startup_volume_db
+        local_volume = None  # Lazy-loaded if needed
+        for cid in client_ids:
+            persisted = self._state_store.get_client_volume(cid) if restore_enabled else None
+            if persisted is not None:
+                updates[cid] = persisted
+            elif restore_enabled:
+                if local_volume is None:
+                    volume_state = await self._camilladsp_service.get_volume()
+                    local_volume = volume_state.get("main", DEFAULT_VOLUME_DB) if volume_state else DEFAULT_VOLUME_DB
+                updates[cid] = local_volume
+            else:
+                updates[cid] = startup_volume
 
-            local_volume = None  # Lazy-loaded if needed
-            for cid in client_ids:
-                persisted = self._state_store.get_client_volume(cid) if restore_enabled else None
-                if persisted is not None:
-                    updates[cid] = persisted
-                elif restore_enabled:
-                    if local_volume is None:
-                        volume_state = await self._camilladsp_service.get_volume()
-                        local_volume = volume_state.get("main", DEFAULT_VOLUME_DB) if volume_state else DEFAULT_VOLUME_DB
-                    updates[cid] = local_volume
-                else:
-                    updates[cid] = startup_volume
-
-            self.logger.info(f"Pushing {'persisted' if restore_enabled else f'startup ({startup_volume:.1f}dB)'} volumes to {len(updates)} clients")
+        self.logger.info(f"Pushing {'persisted' if restore_enabled else f'startup ({startup_volume:.1f}dB)'} volumes to {len(updates)} clients")
 
         if not updates:
             return True
