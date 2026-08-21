@@ -30,12 +30,13 @@ from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_ROOT.parent
+SATELLITE_ROOT = REPO_ROOT / "milo-client" / "app"
 
 
-def _modules(*subdirs):
-    roots = [BACKEND_ROOT / d for d in subdirs] if subdirs else [BACKEND_ROOT]
+def _modules(root, *subdirs):
+    roots = [root / d for d in subdirs] if subdirs else [root]
     return sorted(
-        p for root in roots for p in root.rglob("*.py")
+        p for r in roots for p in r.rglob("*.py")
         if "__pycache__" not in p.parts and "tests" not in p.parts
     )
 
@@ -44,10 +45,18 @@ def _rel(path: Path) -> str:
     return str(path.relative_to(REPO_ROOT))
 
 
-_PRODUCTION = _modules("core", "shared", "sources", "hardware", "ws", "api") + [
-    BACKEND_ROOT / "dependencies.py",
-    BACKEND_ROOT / "main.py",
-]
+# Both applications. The rules below are CLAUDE.md's, and CLAUDE.md writes them
+# for the appliance rather than for one half of it: the satellite obeys the same
+# encapsulation and background-task doctrine and ships in the same commit, which
+# is the argument that put `milo-client/` in the gate. `test_wire_conventions.py`
+# and `test_silent_failure.py` already walk both trees. `config/` is listed for
+# the same reason — it holds only `constants.py` today, so the omission cost
+# nothing, but a module dropped there would have been unwatched.
+_PRODUCTION = (
+    _modules(BACKEND_ROOT, "core", "shared", "sources", "hardware", "ws", "api", "config")
+    + [BACKEND_ROOT / "dependencies.py", BACKEND_ROOT / "main.py"]
+    + _modules(SATELLITE_ROOT)
+)
 _TREES = {}
 for _path in _PRODUCTION:
     try:
@@ -56,10 +65,16 @@ for _path in _PRODUCTION:
         raise AssertionError(f"cannot parse {_path}: {exc}") from exc
 
 
-def test_extractor_sees_the_whole_backend():
+def test_extractor_sees_both_applications():
     """A collection bug must fail here, not silently pass every rule below."""
     assert len(_TREES) >= 100, f"only {len(_TREES)} production modules parsed"
     assert (BACKEND_ROOT / "dependencies.py") in _TREES
+    assert any("milo-client/" in _rel(p) for p in _TREES), (
+        "no satellite module parsed — the second tree is not being walked"
+    )
+    assert any(_rel(p).startswith("backend/config/") for p in _TREES), (
+        "backend/config/ is not being walked"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -71,6 +86,20 @@ def test_extractor_sees_the_whole_backend():
 # `self._collaborator._flag` — is someone else's business.
 _ALLOWED_RECEIVERS = {"self", "cls"}
 
+# The rule is about objects this repo owns: the remedy it names — "expose a
+# public method on the owner" — only exists for those. A third-party client has
+# no owner to extend, so an access it leaves no public route to is exempt, one
+# named site at a time.
+#
+# pyCamillaDSP's client keeps its websocket private and offers no handle on it
+# (`dir(CamillaClient)` has config/volume/levels/… and nothing socket-shaped).
+# The satellite must set a recv timeout there or a CamillaDSP shutdown leaves
+# its connection probe blocked forever, which is the failure this appliance
+# spent a summer on.
+_VENDOR_INTERNALS = {
+    ("milo-client/app/services/equalizer.py", "self._client._ws"),
+}
+
 
 def test_no_cross_object_private_access():
     """Reading another object's `_private` pins a name that is free to change.
@@ -79,6 +108,7 @@ def test_no_cross_object_private_access():
     public API is fine; its underscore-prefixed internals are not.
     """
     violations = []
+    exempted = set()
     for path, tree in _TREES.items():
         for node in ast.walk(tree):
             if not isinstance(node, ast.Attribute):
@@ -91,14 +121,27 @@ def test_no_cross_object_private_access():
             if isinstance(receiver, ast.Attribute) and receiver.attr.startswith("_"):
                 # self._collaborator._flag — the collaborator is not us.
                 if isinstance(receiver.value, ast.Name) and receiver.value.id in _ALLOWED_RECEIVERS:
-                    violations.append(f"{_rel(path)}:{node.lineno}: self.{receiver.attr}.{node.attr}")
+                    access = f"self.{receiver.attr}.{node.attr}"
+                    if (_rel(path), access) in _VENDOR_INTERNALS:
+                        exempted.add((_rel(path), access))
+                        continue
+                    violations.append(f"{_rel(path)}:{node.lineno}: {access}")
                 continue
             if isinstance(receiver, ast.Name):
-                violations.append(f"{_rel(path)}:{node.lineno}: {receiver.id}.{node.attr}")
+                access = f"{receiver.id}.{node.attr}"
+                if (_rel(path), access) in _VENDOR_INTERNALS:
+                    exempted.add((_rel(path), access))
+                    continue
+                violations.append(f"{_rel(path)}:{node.lineno}: {access}")
 
     assert not violations, (
         "cross-object private access (CLAUDE.md § Core code rules — Encapsulation):\n  "
         + "\n  ".join(sorted(violations))
+    )
+    assert exempted == _VENDOR_INTERNALS, (
+        f"_VENDOR_INTERNALS entries that no longer match anything: "
+        f"{sorted(_VENDOR_INTERNALS - exempted)}. An exemption outliving its "
+        f"access is how an allowlist rots — delete the entry."
     )
 
 
@@ -225,11 +268,19 @@ def test_registry_services_with_cleanup_are_called_on_shutdown():
 
 
 def test_no_untracked_fire_and_forget_tasks():
-    """Raw `create_task` is allowed only when the task is kept and awaited.
+    """Raw `create_task` must at least bind its task to something.
 
-    Permitted: stored on `self` (a tracked long-running loop), bound to a local
-    that is later cancelled or gathered, or `BackgroundTaskSet.spawn`'s own
-    primitive. Anything else is fire-and-forget whose exception nobody logs.
+    What is checked, exactly: the call is not in statement position — it is
+    inside an assignment, an annotated assignment, a dict comprehension or a
+    return. That covers `BackgroundTaskSet.spawn`'s own primitive, a loop stored
+    on `self`, and a local the caller goes on to cancel or gather; it also lets
+    through a local that is bound and then dropped.
+
+    The stronger rule -- "the bound name is later cancelled or awaited" -- needs
+    data flow, and the approximations of it are wrong in both directions, so the
+    rule deliberately stops here: a bare `asyncio.create_task(...)` as a
+    statement is fire-and-forget whose exception nobody logs, and that is the
+    regression this file was written for.
     """
     violations = []
     for path, tree in _TREES.items():

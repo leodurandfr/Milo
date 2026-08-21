@@ -8,6 +8,7 @@ a mismatch there fails silently in production (playback_dispatch swallows
 exceptions), so it must be caught here.
 """
 import ast
+import importlib
 import inspect
 import textwrap
 
@@ -16,26 +17,48 @@ from pydantic import BaseModel
 
 from backend.core.models.audio_state import AudioSource
 from backend.hardware import playback_dispatch
-from backend.sources.spotify.source import SpotifySource
-from backend.sources.radio.source import RadioSource
-from backend.sources.podcast.source import PodcastSource
-from backend.sources.cd.source import CdSource
-from backend.sources.mac.source import MacSource
 from backend.sources.bluetooth.source import BluetoothSource
-from backend.sources.airplay.source import AirPlaySource
-from backend.sources.dlna.source import DlnaSource
-from backend.sources.music_library.source import MusicLibrarySource
-from backend.sources.qobuz.source import QobuzSource
 from backend.sources.tidal.source import TidalSource
 
-# QobuzSource and MacSource are listed with an empty COMMANDS registry (playback
-# is driven by the sender, not by us) — the per-command loops below are then
-# no-ops, which is the correct outcome, not a gap.
-ALL_SOURCES = [
-    SpotifySource, RadioSource, PodcastSource, CdSource,
-    MacSource, BluetoothSource, AirPlaySource, DlnaSource,
-    MusicLibrarySource, QobuzSource, TidalSource,
-]
+
+def _source_classes():
+    """Every source class, keyed by enum member, reached through its package.
+
+    Derived from the typed enum rather than hand-listed: a twelfth source added
+    to `AudioSource` with its module and its `dependencies.py` registration used
+    to escape this entire file in silence -- COMMANDS vs the dispatch arm, the
+    hardware dispatcher, the canonical spelling -- because the list here was one
+    someone had to remember to extend. Going through the package (not `.source`)
+    is the same reach `dependencies.py` makes, so it also proves the facade still
+    exports the one name the DI container imports.
+
+    Qobuz and Mac resolve to an empty COMMANDS registry (playback is driven by
+    the sender, not by us) -- the per-command loops below are then no-ops, which
+    is the correct outcome, not a gap.
+    """
+    by_enum = {}
+    for member in AudioSource:
+        if member is AudioSource.NONE:
+            continue
+        package = importlib.import_module(f"backend.sources.{member.value}")
+        exported = getattr(package, "__all__", [])
+        assert len(exported) == 1, (
+            f"backend.sources.{member.value}.__all__ = {exported}; expected "
+            f"exactly one name, the {{Name}}Source class dependencies.py imports"
+        )
+        by_enum[member.name] = getattr(package, exported[0])
+    return by_enum
+
+
+SOURCE_BY_ENUM = _source_classes()
+ALL_SOURCES = list(SOURCE_BY_ENUM.values())
+assert len(ALL_SOURCES) >= 10, (
+    f"only {sorted(SOURCE_BY_ENUM)} resolved to a source class — the extractor "
+    f"is broken"
+)
+assert len(set(ALL_SOURCES)) == len(ALL_SOURCES), (
+    "two enum members resolved to one source class — the extractor is broken"
+)
 
 # Two sources translate each command into a foreign spelling through a table
 # instead of branching on the name — Tidal into the daemon's, Bluetooth into
@@ -48,16 +71,6 @@ MAP_DISPATCH_SOURCES = {
     BluetoothSource: "AVRCP_COMMANDS",
 }
 IF_CHAIN_SOURCES = [cls for cls in ALL_SOURCES if cls not in MAP_DISPATCH_SOURCES]
-
-# The source class behind each AudioSource member, via the package the module
-# lives in — `backend.sources.spotify.source` is AudioSource.SPOTIFY. That is
-# the same identity `BaseAudioSource.source` derives at runtime from source_id.
-SOURCE_BY_ENUM = {
-    AudioSource(cls.__module__.split(".")[2]).name: cls for cls in ALL_SOURCES
-}
-assert len(SOURCE_BY_ENUM) == len(ALL_SOURCES), (
-    "two source classes resolved to one enum member — the extractor is broken"
-)
 
 DISPATCH_TREE = ast.parse(inspect.getsource(playback_dispatch))
 
