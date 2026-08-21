@@ -7,11 +7,14 @@ Tests cover:
 - EqualizerClientProxyService
 - Presets
 """
+import asyncio
 import logging
 
+import aiohttp
 import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 
+from backend.config.constants import CLIENT_API_PORT
 from backend.core.equalizer import (
     CamillaDSPService,
     CamillaDspState,
@@ -112,6 +115,261 @@ class TestEqualizerClientProxyService:
     def test_get_host_with_hostname(self, proxy_service):
         """Should add .local suffix to hostname"""
         assert proxy_service._get_host("milo-client-1") == "milo-client-1.local"
+
+
+# =============================================================================
+# The satellite transport: request() / try_request()
+# =============================================================================
+
+class _FakeResponse:
+    """One satellite answer: an async context manager with a status and a body.
+
+    `error` is raised on entry rather than at call time, which is where aiohttp
+    raises it too — `session.get(...)` only builds the context manager.
+    """
+
+    def __init__(self, status=200, payload=None, error=None, body_error=None):
+        self.status = status
+        self._payload = payload if payload is not None else {}
+        self._error = error
+        self._body_error = body_error
+
+    async def __aenter__(self):
+        if self._error is not None:
+            raise self._error
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def json(self):
+        if self._body_error is not None:
+            raise self._body_error
+        return self._payload
+
+
+class _SatelliteHttp:
+    """Stands in for `aiohttp.ClientSession` — the far end of the pipe.
+
+    Callable, so every session the proxy opens is this same recorder: `opened`
+    counts the constructions (the keep-alive claim), `calls` keeps what actually
+    went out, `close()` counts the closes.
+    """
+
+    def __init__(self):
+        self.opened = 0
+        self.closed = 0
+        self.calls = []
+        self.response = _FakeResponse()
+
+    def __call__(self, *args, **kwargs):
+        self.opened += 1
+        return self
+
+    def answers(self, **kwargs):
+        self.response = _FakeResponse(**kwargs)
+
+    def get(self, url, **kwargs):
+        return self._record("GET", url, kwargs)
+
+    def put(self, url, **kwargs):
+        return self._record("PUT", url, kwargs)
+
+    def post(self, url, **kwargs):
+        return self._record("POST", url, kwargs)
+
+    def _record(self, method, url, kwargs):
+        self.calls.append((method, url, kwargs))
+        return self.response
+
+    async def close(self):
+        self.closed += 1
+
+    @property
+    def last(self):
+        return self.calls[-1]
+
+
+@pytest.fixture
+def satellite(monkeypatch):
+    """Every aiohttp session the proxy opens answers as this one satellite."""
+    http = _SatelliteHttp()
+    monkeypatch.setattr(aiohttp, "ClientSession", http)
+    return http
+
+
+class TestProxyTransport:
+    """The pipe between the two halves of the appliance.
+
+    `request` and `try_request` are the only way a server-side decision reaches a
+    satellite's DSP. Two static contracts sit on either side of them — what the
+    server decides to send (contracts/test_milo_client_contract.py) and what the
+    satellite does with what it receives (milo-client/app/tests/) — and neither
+    watches the pipe itself: both stayed green with each method gutted to a
+    constant. What is pinned here is the distinction the two methods exist for
+    (`request` raises on a failure, `try_request` reports it), which is the
+    "success on failure" class: a satellite silently ignoring a command.
+    """
+
+    @pytest.fixture
+    def proxy(self):
+        return EqualizerClientProxyService()
+
+    # -- what goes out ------------------------------------------------------
+
+    async def test_the_url_is_the_satellite_api(self, proxy, satellite):
+        """An IP is used as-is, a hostname gets the mDNS suffix, and the port is
+        the client API's — the satellite serves nothing on any other."""
+        await proxy.request("192.168.1.100", "GET", "/equalizer/levels")
+        assert satellite.last[1] == f"http://192.168.1.100:{CLIENT_API_PORT}/equalizer/levels"
+
+        await proxy.request("milo-client", "GET", "/equalizer/status")
+        assert satellite.last[1] == f"http://milo-client.local:{CLIENT_API_PORT}/equalizer/status"
+
+    async def test_a_write_carries_its_body(self, proxy, satellite):
+        """PUT and POST are separate branches; a body dropped on either is a
+        command that reached the satellite meaning nothing."""
+        await proxy.request("192.168.1.100", "PUT", "/equalizer/mono", {"enabled": True})
+        method, _, kwargs = satellite.last
+        assert method == "PUT"
+        assert kwargs["json"] == {"enabled": True}
+
+        await proxy.request("192.168.1.100", "POST", "/equalizer/reset", {"target": "all"})
+        method, _, kwargs = satellite.last
+        assert method == "POST"
+        assert kwargs["json"] == {"target": "all"}
+
+    async def test_the_caller_timeout_reaches_aiohttp(self, proxy, satellite):
+        """try_request's timeout is a caller argument, not a constant: the
+        crossover replay picks a short one on purpose."""
+        await proxy.try_request("192.168.1.100", "GET", "/equalizer/crossover", timeout=0.25)
+        assert satellite.last[2]["timeout"].total == 0.25
+
+    # -- what comes back ----------------------------------------------------
+
+    async def test_a_200_gives_the_decoded_body(self, proxy, satellite):
+        satellite.answers(status=200, payload={"volume": 42})
+        assert await proxy.request("192.168.1.100", "GET", "/equalizer/volume") == {"volume": 42}
+
+    async def test_a_non_200_raises_carrying_its_status(self, proxy, satellite):
+        """The api/ layer maps status_code straight onto its HTTPException, so a
+        404 from the satellite must not read as a dead host."""
+        satellite.answers(status=404)
+
+        with pytest.raises(SatelliteUnreachable) as raised:
+            await proxy.request("192.168.1.100", "PUT", "/equalizer/nope", {})
+
+        assert raised.value.status_code == 404
+        assert raised.value.hostname == "192.168.1.100"
+
+    async def test_a_refused_connection_raises_unreachable(self, proxy, satellite):
+        satellite.answers(error=aiohttp.ClientConnectorError(Mock(), OSError("refused")))
+
+        with pytest.raises(SatelliteUnreachable) as raised:
+            await proxy.request("192.168.1.100", "PUT", "/equalizer/mono", {"enabled": True})
+
+        assert raised.value.status_code == 503
+
+    async def test_a_timeout_raises_unreachable(self, proxy, satellite):
+        """A satellite that answers too late has not applied anything."""
+        satellite.answers(error=asyncio.TimeoutError())
+
+        with pytest.raises(SatelliteUnreachable):
+            await proxy.request("192.168.1.100", "PUT", "/equalizer/mono", {"enabled": True})
+
+    async def test_a_200_whose_body_never_arrives_is_not_a_success(self, proxy, satellite):
+        """The status is not the answer — the decode is. A truncated body would
+        otherwise return the header's 200 to a caller that asked for values."""
+        satellite.answers(status=200, body_error=aiohttp.ClientPayloadError("truncated"))
+
+        with pytest.raises(SatelliteUnreachable):
+            await proxy.request("192.168.1.100", "GET", "/equalizer/levels")
+
+    # -- try_request: the non-raising half ----------------------------------
+
+    async def test_try_request_reports_a_refusal_instead_of_raising(self, proxy, satellite):
+        """The whole reason the two methods are separate: background callers own
+        their retry policy and must see the refusal as a value."""
+        satellite.answers(status=500)
+
+        assert await proxy.try_request("192.168.1.100", "PUT", "/equalizer/crossover", {}) == 500
+
+    async def test_try_request_reports_an_unreachable_client_as_zero(self, proxy, satellite):
+        satellite.answers(error=aiohttp.ClientConnectorError(Mock(), OSError("refused")))
+        assert await proxy.try_request("192.168.1.100", "PUT", "/equalizer/crossover", {}) == 0
+
+        satellite.answers(error=asyncio.TimeoutError())
+        assert await proxy.try_request("192.168.1.100", "PUT", "/equalizer/crossover", {}) == 0
+
+    async def test_try_request_never_reports_zero_for_a_reachable_client(self, proxy, satellite):
+        """0 is the sentinel for "no answer"; a real HTTP status must never
+        collapse into it, or a pending record is replayed forever."""
+        satellite.answers(status=200)
+        assert await proxy.try_request("192.168.1.100", "GET", "/equalizer/crossover") == 200
+
+    # -- multiroom gate -----------------------------------------------------
+
+    async def test_multiroom_disabled_never_reaches_the_network(self, proxy, satellite):
+        """With multiroom off the satellite is not receiving audio at all; the
+        request is refused here rather than left to time out."""
+        proxy.routing_service = Mock(multiroom_enabled=False)
+
+        with pytest.raises(SatelliteUnreachable) as raised:
+            await proxy.request("192.168.1.100", "PUT", "/equalizer/mono", {"enabled": True})
+
+        assert raised.value.status_code == 503
+        assert satellite.calls == []
+
+    async def test_skip_multiroom_check_sends_anyway(self, proxy, satellite):
+        """The teardown paths push while multiroom is already down."""
+        proxy.routing_service = Mock(multiroom_enabled=False)
+
+        await proxy.request("192.168.1.100", "PUT", "/equalizer/mono",
+                            {"enabled": True}, skip_multiroom_check=True)
+
+        assert satellite.calls
+
+    # -- the shared session -------------------------------------------------
+
+    async def test_one_session_serves_every_request(self, proxy, satellite):
+        """Keep-alive across the fan-out is the reason the session is held; a
+        per-request session would pay a TCP handshake per satellite per step."""
+        await proxy.request("192.168.1.100", "GET", "/equalizer/status")
+        await proxy.try_request("192.168.1.100", "GET", "/equalizer/status")
+
+        assert satellite.opened == 1
+
+    async def test_cleanup_closes_the_session_and_the_next_request_opens_one(
+        self, proxy, satellite
+    ):
+        """Called from the lifespan teardown: a session left open logs an
+        unclosed-connector error on shutdown."""
+        await proxy.request("192.168.1.100", "GET", "/equalizer/status")
+        await proxy.cleanup()
+        assert satellite.closed == 1
+
+        await proxy.request("192.168.1.100", "GET", "/equalizer/status")
+        assert satellite.opened == 2
+
+    # -- levels polling -----------------------------------------------------
+
+    async def test_levels_come_back_decoded(self, proxy, satellite):
+        satellite.answers(status=200, payload={"playback_rms": [-20.0, -21.0]})
+
+        levels = await proxy.get_equalizer_levels("192.168.1.100")
+
+        assert levels == {"playback_rms": [-20.0, -21.0]}
+        assert satellite.last[1] == f"http://192.168.1.100:{CLIENT_API_PORT}/equalizer/levels"
+
+    async def test_levels_are_none_when_the_satellite_does_not_answer_them(self, proxy, satellite):
+        """The VU meter polls this every frame: a failure is None, never a stale
+        or invented reading, and never a raise into the polling loop."""
+        satellite.answers(status=503)
+        assert await proxy.get_equalizer_levels("192.168.1.100") is None
+
+        satellite.answers(error=asyncio.TimeoutError())
+        assert await proxy.get_equalizer_levels("192.168.1.100") is None
+
 
 
 class TestApplyRecord:
