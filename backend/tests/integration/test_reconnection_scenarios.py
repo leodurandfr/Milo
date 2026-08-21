@@ -291,23 +291,32 @@ class TestInZoneReconnectionSyncIntegration:
             "client-2": mock_client_state,
             "client-3": mock_client_state,
         }
+        # The per-client levels VolumeStateStore holds — what an admission now
+        # resolves to. Mutable so a test can state its own scenario.
+        volume_service.stored_volumes = {
+            "client-1": -20.0, "client-2": -30.0, "client-3": -40.0,
+        }
+        volume_service.state_store.get_client_volume = MagicMock(
+            side_effect=volume_service.stored_volumes.get
+        )
+        volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         volume_service.equalizer_controller = AsyncMock()
         sm.volume_service = volume_service
 
         return sm
 
     @pytest.mark.asyncio
-    async def test_in_zone_others_online_uses_zone_average(
+    async def test_in_zone_others_online_uses_the_clients_own_level(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: IN_ZONE_OTHERS_ONLINE sync uses zone average volume.
+        E2E: a member rejoining a zone comes back at its own level.
 
         Scenario:
         1. Zone with 3 clients at volumes: -20, -30, -40
         2. client-1 offline, client-2 and client-3 online (-30, -40)
         3. client-1 reconnects
-        4. client-1 should receive zone average: (-30 + -40) / 2 = -35
+        4. client-1 receives its own -20, not the room's -35
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -352,25 +361,27 @@ class TestInZoneReconnectionSyncIntegration:
         # Mock Equalizer sync to avoid errors
         ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
-        # Get target volume using the unified method
-        context = registry.get_reconnection_context("client-1")
-        target_volume = ws_service._resolve_target_volume("client-1", context)
+        target_volume = ws_service._resolve_target_volume("client-1")
 
-        # Should use zone average from online clients (client-2, client-3)
-        # Zone average = (-30 + -40) / 2 = -35
-        assert target_volume == -35.0
+        # Its own stored level, whatever the online members average to
+        assert target_volume == -20.0
+        assert target_volume != (-30.0 + -40.0) / 2
 
     @pytest.mark.asyncio
-    async def test_in_zone_all_offline_uses_startup_volume(
+    async def test_in_zone_restore_disabled_uses_startup_volume(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: IN_ZONE_ALL_OFFLINE sync uses startup_volume_db.
+        E2E: with `restore_last_volume` off, a zone member ignores its own level.
+
+        The escape hatch for a fleet that must start at a fixed level: the
+        stored value is not read at all, so the boot push and the admission
+        cannot disagree about what a client comes back at.
 
         Scenario:
         1. Zone with 3 clients, all offline (backend restart)
-        2. client-1 reconnects first
-        3. client-1 should receive startup_volume_db (-45.0)
+        2. restore_last_volume is off, client-1 has a stored -20
+        3. client-1 reconnects and receives startup_volume_db (-45.0)
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -402,15 +413,16 @@ class TestInZoneReconnectionSyncIntegration:
         )
         ws_service.set_registry(registry)
         ws_service._volume_service = mock_state_machine.volume_service
+        ws_service._volume_service.volume_config = VolumeConfig(
+            startup_volume_db=-45.0, restore_last_volume=False
+        )
 
-        # Get target volume using the unified method
-        context = registry.get_reconnection_context("client-1")
-        assert context == ReconnectionContext.IN_ZONE_ALL_OFFLINE
+        target_volume = ws_service._resolve_target_volume("client-1")
 
-        target_volume = ws_service._resolve_target_volume("client-1", context)
-
-        # Should use startup_volume_db from config
+        # Should use startup_volume_db from config, and never read the store
         assert target_volume == -45.0
+        store = mock_state_machine.volume_service.state_store
+        store.get_client_volume.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_zone_average_excludes_reconnecting_client(
@@ -747,23 +759,33 @@ class TestStandaloneReconnectionSyncIntegration:
             "client-2": mock_client_state,
             "client-3": mock_client_state,
         }
+        # The per-client levels VolumeStateStore holds — what an admission now
+        # resolves to. Mutable so a test can state its own scenario.
+        volume_service.stored_volumes = {
+            "local-main": -55.0,
+            "client-1": -20.0, "client-2": -30.0, "client-3": -40.0,
+        }
+        volume_service.state_store.get_client_volume = MagicMock(
+            side_effect=volume_service.stored_volumes.get
+        )
+        volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         volume_service.equalizer_controller = AsyncMock()
         sm.volume_service = volume_service
 
         return sm
 
     @pytest.mark.asyncio
-    async def test_standalone_others_online_uses_global_average(
+    async def test_standalone_others_online_uses_the_clients_own_level(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: STANDALONE_OTHERS_ONLINE sync uses global average volume.
+        E2E: off-zone the rule is the same — the global average is not a target.
 
         Scenario:
         1. 3 standalone clients at volumes: -20, -30, -40
         2. client-1 offline, client-2 and client-3 online (-30, -40)
         3. client-1 reconnects
-        4. client-1 should receive global average: (-30 + -40) / 2 = -35
+        4. client-1 receives its own -20, not the fleet's -35
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -805,27 +827,23 @@ class TestStandaloneReconnectionSyncIntegration:
         # Mock Equalizer sync to avoid errors
         ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
 
-        # Get target volume using the unified method
-        context = registry.get_reconnection_context("client-1")
-        assert context == ReconnectionContext.STANDALONE_OTHERS_ONLINE
+        target_volume = ws_service._resolve_target_volume("client-1")
 
-        target_volume = ws_service._resolve_target_volume("client-1", context)
-
-        # Should use global average from online clients (client-2, client-3)
-        # Global average = (-30 + -40) / 2 = -35
-        assert target_volume == -35.0
+        # Its own stored level, whatever the online clients average to
+        assert target_volume == -20.0
+        assert target_volume != (-30.0 + -40.0) / 2
 
     @pytest.mark.asyncio
-    async def test_standalone_alone_uses_startup_volume(
+    async def test_a_client_the_store_never_saw_uses_startup_volume(
         self, mock_settings_service, mock_state_machine
     ):
         """
-        E2E: STANDALONE_ALONE sync uses startup_volume_db.
+        E2E: a speaker Milō holds no level for gets startup_volume_db.
 
         Scenario:
-        1. 3 standalone clients, all offline (backend restart)
-        2. client-1 reconnects first
-        3. client-1 should receive startup_volume_db (-45.0)
+        1. A standalone client connecting for the first time
+        2. The volume store has no record of it
+        3. It receives startup_volume_db (-45.0)
         """
         from backend.core.multiroom.client_registry import ClientRegistryService
         from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -837,15 +855,9 @@ class TestStandaloneReconnectionSyncIntegration:
         await registry.initialize()
         attach_registry_broadcaster(registry, mock_state_machine)
 
-        # Register standalone clients (no zone)
-        await registry.register_client("client-1", "Client 1", "192.168.1.1")
-        await registry.register_client("client-2", "Client 2", "192.168.1.2")
-        await registry.register_client("client-3", "Client 3", "192.168.1.3")
-
-        # All clients offline
-        await registry.set_client_online("client-1", False)
-        await registry.set_client_online("client-2", False)
-        await registry.set_client_online("client-3", False)
+        # Register a client the volume store has never seen
+        await registry.register_client("brand-new", "Brand New", "192.168.1.9")
+        await registry.set_client_online("brand-new", False)
 
         # Create websocket service
         ws_service = SnapcastWebSocketService(
@@ -855,11 +867,7 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service.set_registry(registry)
         ws_service._volume_service = mock_state_machine.volume_service
 
-        # Get target volume using the unified method
-        context = registry.get_reconnection_context("client-1")
-        assert context == ReconnectionContext.STANDALONE_ALONE
-
-        target_volume = ws_service._resolve_target_volume("client-1", context)
+        target_volume = ws_service._resolve_target_volume("brand-new")
 
         # Should use startup_volume_db from config
         assert target_volume == -45.0
@@ -1023,27 +1031,27 @@ class TestStandaloneReconnectionSyncIntegration:
             "local-main", max_retries=0, retry_delay=0, snapcast_id="local-main"
         )
 
-        # STANDALONE_OTHERS_ONLINE resolves to the average of the online peers,
-        # not the startup volume — client-1 is the only one, at -30 dB.
+        # The admission resolves to local-main's own stored level, not to
+        # client-1's -30 dB and not to the startup volume.
         applied = ws_service._volume_service.equalizer_controller.set_equalizer_volume
-        assert applied.await_args.args[1] == -30.0
+        assert applied.await_args.args[1] == -55.0
 
 
 
 class TestWhatAReconnectReplays:
-    """Which of a client's stored values survive its reconnection, and which do not.
+    """Which of a client's stored values survive its reconnection.
 
-    The pair matters because the two commands travel the same route family and
-    behave oppositely: `PATCH /api/volume/client/mac/{mac}` on an offline client
-    records a level nothing will ever apply, while `/mute` records one the
-    reconnect does re-apply. That asymmetry is what made the route's old log
-    line — *"will be applied on reconnection"* — false for half of what it
-    covered (sweep finding S17).
+    Both of them, since the volume-ownership plan's phase 1 — and the pair is
+    kept together because they used to answer oppositely. `PATCH
+    /api/volume/client/mac/{mac}` on an offline client once recorded a level
+    nothing would ever apply, while `/mute` recorded one the reconnect did
+    re-apply; that asymmetry is what made the route's log line — *"will be
+    applied on reconnection"* — false for half of what it covered (sweep
+    finding S17). The volume now follows the mute.
 
-    If the first test goes red, someone made the store the reconnection target.
-    That is a deliberate design change, not a bug fix: a member rejoining a zone
-    would stop matching its room. Change this test consciously, with the plan's
-    phase 6 branch 2, or revert.
+    If the first test goes red, someone made a peer reading the reconnection
+    target again: a client that comes back at a level nobody set for it is the
+    failure both of these exist to catch.
     """
 
     @pytest.fixture
@@ -1104,20 +1112,21 @@ class TestWhatAReconnectReplays:
         return registry, ws_service
 
     @pytest.mark.asyncio
-    async def test_the_stored_volume_is_not_what_a_reconnect_applies(
+    async def test_the_stored_volume_is_what_a_reconnect_applies(
         self, mock_settings_service, mock_state_machine
     ):
-        """A level set while the client was offline is discarded, not replayed."""
-        registry, ws_service = await self._zone_with_two_peers_online(
+        """A level set while the client was offline is replayed when it returns."""
+        _, ws_service = await self._zone_with_two_peers_online(
             mock_settings_service, mock_state_machine
         )
 
-        context = registry.get_reconnection_context("client-1")
-        target = ws_service._resolve_target_volume("client-1", context)
+        target = ws_service._resolve_target_volume("client-1")
 
-        assert target == -35.0, "the peers' average is the target"
-        assert target != -70.0, "the client's own stored level is not"
-        mock_state_machine.volume_service.state_store.get_client_volume.assert_not_called()
+        assert target == -70.0, "the client's own stored level is the target"
+        assert target != -35.0, "the peers' average is not"
+        mock_state_machine.volume_service.state_store.get_client_volume.assert_called_with(
+            "client-1"
+        )
 
     @pytest.mark.asyncio
     async def test_the_stored_mute_is_what_a_reconnect_applies(

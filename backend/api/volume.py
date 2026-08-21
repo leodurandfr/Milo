@@ -218,14 +218,13 @@ def create_volume_router(
             - A WebSocket event `volume_changed` is broadcast after the update
             - A client that answered and refused the level answers 502, never a
               200 carrying a dB it is not playing.
-            - An **offline** client also answers 200 — nothing failed — but the
-              level is only *recorded*, never applied and never replayed: a
-              reconnecting client re-derives its volume from its online peers,
-              or from `startup_volume_db` when it has none
-              (`SnapcastWebSocketService._resolve_target_volume`), and that
-              overwrites what is stored here. Mute is the one exception: the
-              reconnect does read the stored mute. Do not restate the old
-              *"will be applied on reconnection"* here — it was measured false.
+            - An **offline** client also answers 200 — nothing failed — and the
+              level is *recorded*, then applied when the client comes back: a
+              reconnecting client is brought to its own stored level
+              (`SnapcastWebSocketService._resolve_target_volume`), or to
+              `startup_volume_db` when `restore_last_volume` is off. Mute
+              behaves the same way. Neither is applied *now*, only on the
+              client's next admission.
         """
         async with api_error_handler("Error setting client volume by MAC", logger):
             mac_id = _mac_from_url(mac_url)
@@ -234,8 +233,8 @@ def create_volume_router(
 
             if hasattr(client, 'online') and not client.online:
                 logger.info(
-                    f"Volume recorded for offline client {mac_id}, not applied — a reconnect "
-                    f"re-derives its level from its peers, so this value is not replayed"
+                    f"Volume recorded for offline client {mac_id}, not applied now — "
+                    f"its next admission brings it back at this level"
                 )
 
             if not await volume_service.update_client_volume_db(mac_id, request.volume_db):

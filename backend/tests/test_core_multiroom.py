@@ -2206,6 +2206,7 @@ class TestSnapcastClientDetection:
         mock_volume_service = MagicMock()
         mock_volume_service.state_store = MagicMock()
         mock_volume_service.state_store.set_client_volume = AsyncMock()
+        mock_volume_service.state_store.get_client_volume = MagicMock(return_value=None)
         mock_volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         mock_volume_service.equalizer_controller = MagicMock()
         mock_volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
@@ -2409,6 +2410,7 @@ class TestSnapcastClientDetection:
         mock_volume_service = MagicMock()
         mock_volume_service.state_store = MagicMock()
         mock_volume_service.state_store.set_client_volume = AsyncMock()
+        mock_volume_service.state_store.get_client_volume = MagicMock(return_value=None)
         mock_volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         mock_volume_service.equalizer_controller = MagicMock()
         mock_volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
@@ -3081,12 +3083,10 @@ class TestReconnectRepushesEqualizer:
 
     def _make_ws(self):
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
         sm = MagicMock()
         sm.broadcast = AsyncMock()
         ws = SnapcastWebSocketService(state_machine=sm, routing_service=MagicMock())
         ws._registry = MagicMock()
-        ws._registry.get_reconnection_context = MagicMock(return_value=ReconnectionContext.STANDALONE_ALONE)
         ws._registry.set_client_online = AsyncMock()
         ws._volume_service = MagicMock()
         ws._volume_service.broadcast_volume_state = AsyncMock()
@@ -3120,273 +3120,127 @@ class TestReconnectRepushesEqualizer:
 
 
 # =============================================================================
-# IN_ZONE Volume Sync Strategy Tests
+# Reconnection Volume Resolution Tests
 # =============================================================================
 
-class TestInZoneTargetVolume:
-    """Tests for _resolve_target_volume with IN_ZONE contexts."""
+class TestResolveTargetVolume:
+    """Tests for `_resolve_target_volume` — the level an admission brings a client to.
+
+    One rule since the volume-ownership plan's phase 1: a client's level changes
+    only when someone changes it, so what a reconnection applies is the client's
+    own stored level, gated by `restore_last_volume`, with `startup_volume_db`
+    for a client the store has never seen. The peer averages this used to read
+    (zone or global, by `ReconnectionContext`) are what made a member rejoining
+    a zone adopt its neighbours' level and lose its own.
+    """
 
     @pytest.fixture
     def mock_state_machine(self):
-        """Create a mock state machine with volume_service."""
+        """A state machine whose volume service knows client-1 at -70 dB."""
         state_machine = MagicMock()
 
-        # Mock volume_service with config
         volume_service = MagicMock()
-        volume_service.volume_config = VolumeConfig(startup_volume_db=-40.0)
+        volume_service.volume_config = VolumeConfig(
+            startup_volume_db=-40.0, restore_last_volume=True
+        )
+        volume_service.state_store = MagicMock()
+        volume_service.state_store.get_client_volume = MagicMock(
+            side_effect={"client-1": -70.0}.get
+        )
         state_machine.volume_service = volume_service
 
         return state_machine
 
     @pytest.fixture
     def mock_registry(self):
-        """Create a mock registry with zone average volume method."""
+        """A registry that would answer both averages, so a resolver reading one shows."""
         registry = MagicMock()
+        client = MagicMock()
+        client.zone_id = "zone-1"
+        registry.get_client = MagicMock(return_value=client)
+        registry.get_zone_average_volume = MagicMock(return_value=-25.0)
+        registry.get_global_average_volume = MagicMock(return_value=-25.0)
         return registry
 
-    def test_inzone_others_online_uses_zone_average(self, mock_state_machine, mock_registry):
-        """IN_ZONE_OTHERS_ONLINE context uses zone average volume."""
+    def _ws(self, state_machine, registry):
         from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
-
-        # Setup: client in zone with zone average of -25.0 dB
-        mock_client = MagicMock()
-        mock_client.zone_id = "zone-1"
-        mock_registry.get_client = MagicMock(return_value=mock_client)
-        mock_registry.get_zone_average_volume = MagicMock(return_value=-25.0)
 
         ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
+            state_machine=state_machine,
             routing_service=MagicMock()
         )
-        ws_service._registry = mock_registry
-        ws_service._volume_service = mock_state_machine.volume_service
+        ws_service._registry = registry
+        ws_service._volume_service = state_machine.volume_service
+        return ws_service
 
-        # Test
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_OTHERS_ONLINE)
+    def test_a_zone_member_returns_its_own_level_not_its_peers(
+        self, mock_state_machine, mock_registry
+    ):
+        """A member rejoining a zone keeps the level it had, whatever the room sits at."""
+        ws_service = self._ws(mock_state_machine, mock_registry)
 
-        # Should use zone average
-        assert target == -25.0
-        mock_registry.get_zone_average_volume.assert_called_once_with("zone-1", exclude_mac_id="client-1")
+        target = ws_service._resolve_target_volume("client-1")
 
-    def test_inzone_all_offline_uses_startup_volume(self, mock_state_machine, mock_registry):
-        """IN_ZONE_ALL_OFFLINE context uses startup_volume_db."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
+        assert target == -70.0
+        mock_registry.get_zone_average_volume.assert_not_called()
 
-        # Setup: client in zone, but will use startup volume
-        mock_client = MagicMock()
-        mock_client.zone_id = "zone-1"
-        mock_registry.get_client = MagicMock(return_value=mock_client)
+    def test_a_standalone_client_returns_its_own_level_not_the_global_average(
+        self, mock_state_machine, mock_registry
+    ):
+        """Same rule off-zone: the global average is a reading, never a target."""
+        mock_registry.get_client.return_value.zone_id = None
+        ws_service = self._ws(mock_state_machine, mock_registry)
 
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
+        target = ws_service._resolve_target_volume("client-1")
+
+        assert target == -70.0
+        mock_registry.get_global_average_volume.assert_not_called()
+
+    def test_restore_last_volume_off_returns_startup_volume(
+        self, mock_state_machine, mock_registry
+    ):
+        """The escape hatch: a fleet configured for a fixed level ignores the store.
+
+        Without this gate the boot push would apply startup_volume_db and the
+        admission the remembered value — the split this rule exists to remove.
+        """
+        volume_service = mock_state_machine.volume_service
+        volume_service.volume_config = VolumeConfig(
+            startup_volume_db=-40.0, restore_last_volume=False
         )
-        ws_service._registry = mock_registry
-        ws_service._volume_service = mock_state_machine.volume_service
+        ws_service = self._ws(mock_state_machine, mock_registry)
 
-        # Test
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_ALL_OFFLINE)
+        target = ws_service._resolve_target_volume("client-1")
 
-        # Should use startup_volume_db from config (-40.0)
         assert target == -40.0
+        volume_service.state_store.get_client_volume.assert_not_called()
 
-    def test_inzone_others_online_fallback_to_startup_when_no_average(self, mock_state_machine, mock_registry):
-        """ fallback: If zone average unavailable, use startup_volume_db."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
+    def test_a_client_the_store_never_saw_returns_startup_volume(
+        self, mock_state_machine, mock_registry
+    ):
+        """First connection of a speaker Milō has no level for."""
+        ws_service = self._ws(mock_state_machine, mock_registry)
 
-        # Setup: zone average returns None (no online clients)
-        mock_client = MagicMock()
-        mock_client.zone_id = "zone-1"
-        mock_registry.get_client = MagicMock(return_value=mock_client)
-        mock_registry.get_zone_average_volume = MagicMock(return_value=None)
+        assert ws_service._resolve_target_volume("brand-new-client") == -40.0
 
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._volume_service = mock_state_machine.volume_service
-
-        # Test
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_OTHERS_ONLINE)
-
-        # Should fallback to startup_volume_db
-        assert target == -40.0
-
-    def test_inzone_volume_without_volume_service_uses_default(self, mock_registry):
-        """Edge case: No volume_service uses DEFAULT_VOLUME_DB constant."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
+    def test_without_volume_service_returns_the_default_constant(self, mock_registry):
+        """Edge case: no volume_service at all — neither store nor config to read."""
         from backend.config.constants import DEFAULT_VOLUME_DB
 
-        # Setup: no volume_service
-        mock_state_machine = MagicMock()
-
-        mock_client = MagicMock()
-        mock_client.zone_id = "zone-1"
-        mock_registry.get_client = MagicMock(return_value=mock_client)
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
+        ws_service = self._ws(MagicMock(), mock_registry)
         ws_service._volume_service = None
 
-        # Test
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_ALL_OFFLINE)
+        assert ws_service._resolve_target_volume("client-1") == DEFAULT_VOLUME_DB
 
-        # Should use DEFAULT_VOLUME_DB from constants
-        assert target == DEFAULT_VOLUME_DB
+    def test_resolution_does_not_need_the_registry(self, mock_state_machine):
+        """The client's own record is the whole input — no peer, no zone, no registry.
 
-    def test_inzone_volume_client_not_in_zone(self, mock_state_machine, mock_registry):
-        """Edge case: Client has no zone_id - still returns startup volume."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
+        Structural: this is what makes the resolution independent of which
+        clients happen to be online when the admission runs.
+        """
+        ws_service = self._ws(mock_state_machine, None)
 
-        # Setup: client without zone
-        mock_client = MagicMock()
-        mock_client.zone_id = None
-        mock_registry.get_client = MagicMock(return_value=mock_client)
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._volume_service = mock_state_machine.volume_service
-
-        # Test - calling with IN_ZONE context but client has no zone
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.IN_ZONE_OTHERS_ONLINE)
-
-        # Should fallback to startup_volume_db since zone average not available
-        assert target == -40.0
-
-
-class TestStandaloneTargetVolume:
-    """Tests for _resolve_target_volume with STANDALONE contexts."""
-
-    @pytest.fixture
-    def mock_state_machine(self):
-        """Create a mock state machine with volume_service."""
-        state_machine = MagicMock()
-
-        # Mock volume_service with config
-        volume_service = MagicMock()
-        volume_service.volume_config = VolumeConfig(startup_volume_db=-40.0)
-        state_machine.volume_service = volume_service
-
-        return state_machine
-
-    @pytest.fixture
-    def mock_registry(self):
-        """Create a mock registry with global average volume method."""
-        registry = MagicMock()
-        return registry
-
-    def test_standalone_others_online_uses_global_average(self, mock_state_machine, mock_registry):
-        """STANDALONE_OTHERS_ONLINE context uses global average volume."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
-
-        # Setup: global average of -25.0 dB
-        mock_registry.get_global_average_volume = MagicMock(return_value=-25.0)
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._volume_service = mock_state_machine.volume_service
-
-        # Test
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_OTHERS_ONLINE)
-
-        # Should use global average
-        assert target == -25.0
-        mock_registry.get_global_average_volume.assert_called_once_with(exclude_mac_id="client-1")
-
-    def test_standalone_alone_uses_startup_volume(self, mock_state_machine, mock_registry):
-        """STANDALONE_ALONE context uses startup_volume_db."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._volume_service = mock_state_machine.volume_service
-
-        # Test
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_ALONE)
-
-        # Should use startup_volume_db from config (-40.0)
-        assert target == -40.0
-
-    def test_standalone_others_online_fallback_to_startup_when_no_average(self, mock_state_machine, mock_registry):
-        """ fallback: If global average unavailable, use startup_volume_db."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
-
-        # Setup: global average returns None (no online clients)
-        mock_registry.get_global_average_volume = MagicMock(return_value=None)
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._volume_service = mock_state_machine.volume_service
-
-        # Test
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_OTHERS_ONLINE)
-
-        # Should fallback to startup_volume_db
-        assert target == -40.0
-
-    def test_standalone_volume_without_volume_service_uses_default(self, mock_registry):
-        """Edge case: No volume_service uses DEFAULT_VOLUME_DB constant."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
-        from backend.config.constants import DEFAULT_VOLUME_DB
-
-        # Setup: no volume_service
-        mock_state_machine = MagicMock()
-
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._registry = mock_registry
-        ws_service._volume_service = None
-
-        # Test
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_ALONE)
-
-        # Should use DEFAULT_VOLUME_DB from constants
-        assert target == DEFAULT_VOLUME_DB
-
-    def test_standalone_volume_without_registry_uses_startup(self, mock_state_machine):
-        """Edge case: No registry - still returns startup volume."""
-        from backend.core.multiroom.websocket import SnapcastWebSocketService
-        from backend.core.multiroom.models import ReconnectionContext
-
-        # Setup: no registry
-        ws_service = SnapcastWebSocketService(
-            state_machine=mock_state_machine,
-            routing_service=MagicMock()
-        )
-        ws_service._volume_service = mock_state_machine.volume_service
-
-        # Test - calling with STANDALONE_OTHERS_ONLINE but no registry
-        target = ws_service._resolve_target_volume("client-1", ReconnectionContext.STANDALONE_OTHERS_ONLINE)
-
-        # Should fallback to startup_volume_db since registry not available
-        assert target == -40.0
+        assert ws_service._resolve_target_volume("client-1") == -70.0
 
 
 class TestApplyTargetVolumeToClient:
@@ -3400,6 +3254,7 @@ class TestApplyTargetVolumeToClient:
         # Mock state store (used by _apply_target_volume_to_client)
         volume_service.state_store = MagicMock()
         volume_service.state_store.set_client_volume = AsyncMock()
+        volume_service.state_store.get_client_volume = MagicMock(return_value=None)
         volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         # Mock equalizer controller (used for hardware apply)
         volume_service.equalizer_controller = MagicMock()
@@ -3955,6 +3810,7 @@ class TestAdmissionPathConvergence:
         volume_service = MagicMock()
         volume_service.volume_config = VolumeConfig()
         volume_service.state_store.set_client_volume = AsyncMock()
+        volume_service.state_store.get_client_volume = MagicMock(return_value=None)
         volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
         volume_service.equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
@@ -3983,6 +3839,7 @@ class TestAdmissionPathConvergence:
         volume_service = MagicMock()
         volume_service.volume_config = VolumeConfig()
         volume_service.state_store.set_client_volume = AsyncMock()
+        volume_service.state_store.get_client_volume = MagicMock(return_value=None)
         volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
         volume_service.equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
@@ -4022,6 +3879,7 @@ class TestAdmissionPathConvergence:
         volume_service = MagicMock()
         volume_service.volume_config = VolumeConfig()
         volume_service.state_store.set_client_volume = AsyncMock()
+        volume_service.state_store.get_client_volume = MagicMock(return_value=None)
         volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(
             side_effect=list(hardware_results)

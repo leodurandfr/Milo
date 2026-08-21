@@ -90,6 +90,7 @@ class TestSnapcastDetectionIntegration:
         mock_volume_service = MagicMock()
         mock_volume_service.state_store = MagicMock()
         mock_volume_service.state_store.set_client_volume = AsyncMock()
+        mock_volume_service.state_store.get_client_volume = MagicMock(return_value=None)
         mock_volume_service.state_store.get_client_mute = MagicMock(return_value=False)
         mock_volume_service.equalizer_controller = MagicMock()
         mock_volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
