@@ -253,7 +253,6 @@ class TestSnapcastDetectionIntegration:
         # specified defaults
         assert client.name == "Brand New Speaker"
         assert client.speaker_type == DEFAULT_SPEAKER_TYPE  # 'bookshelf'
-        assert client.volume_db == DEFAULT_VOLUME_DB  # -45.0
         assert client.online is True
         assert client.zone_id is None  # standalone
 

@@ -33,8 +33,6 @@ def mock_registry_service():
         ip="192.168.1.100",
         online=True,
         zone_id=None,
-        volume_db=-30.0,
-        mute=False,
         speaker_type="bookshelf"
     )
 
@@ -45,8 +43,6 @@ def mock_registry_service():
         ip="127.0.0.1",
         online=True,
         zone_id=None,
-        volume_db=-25.0,
-        mute=False,
         speaker_type="tower"
     )
 
@@ -511,8 +507,6 @@ def mock_zone_registry_service():
         ip="127.0.0.1",
         online=True,
         zone_id=None,
-        volume_db=-30.0,
-        mute=False,
         speaker_type="tower"
     )
     client2 = Client(
@@ -521,8 +515,6 @@ def mock_zone_registry_service():
         ip="192.168.1.100",
         online=True,
         zone_id=None,
-        volume_db=-30.0,
-        mute=False,
         speaker_type="bookshelf"
     )
     client3 = Client(
@@ -531,8 +523,6 @@ def mock_zone_registry_service():
         ip="192.168.1.101",
         online=False,
         zone_id=None,
-        volume_db=-30.0,
-        mute=False,
         speaker_type="subwoofer"
     )
 
@@ -827,8 +817,6 @@ def mock_membership_registry_service():
         ip="127.0.0.1",
         online=True,
         zone_id="zone-test-123",
-        volume_db=-30.0,
-        mute=False,
         speaker_type="tower"
     )
     client2 = Client(
@@ -837,8 +825,6 @@ def mock_membership_registry_service():
         ip="192.168.1.100",
         online=True,
         zone_id="zone-test-123",
-        volume_db=-30.0,
-        mute=False,
         speaker_type="bookshelf"
     )
     client3 = Client(
@@ -847,8 +833,6 @@ def mock_membership_registry_service():
         ip="192.168.1.101",
         online=True,
         zone_id=None,  # Standalone client
-        volume_db=-30.0,
-        mute=False,
         speaker_type="satellite"
     )
 
