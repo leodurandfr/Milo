@@ -713,6 +713,73 @@ class TestVolumeService:
 
         assert service._state_store.get_client_volume(remote_mac) == -50.0  # persisted kept, not -45
 
+    # ------------------------------------------------------------------
+    # A mode switch moves no level
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _two_clients_apart(service):
+        """Local at -75 dB, one satellite at -30 dB: an average (-52.5) nobody set."""
+        local_mac = "2c:cf:67:b9:46:6f"
+        remote_mac = "dc:a6:32:7e:d3:43"
+        service._state_store._local_mac_id = local_mac
+        service._state_store._clients = {
+            local_mac: ClientVolume(volume_db=-75.0, offset_db=0.0, mute=False, available=True),
+            remote_mac: ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
+        }
+        return local_mac, remote_mac
+
+    @pytest.mark.asyncio
+    async def test_leaving_multiroom_leaves_the_local_level_alone(self, service, mock_camilladsp_service):
+        """The direct volume IS the local client's level, so deriving it from the
+        satellites' average at the mode switch replaced a level the operator set
+        with one nobody chose — audibly, on the only speaker still playing."""
+        local_mac, remote_mac = self._two_clients_apart(service)
+
+        await service.update_volume_mode(False)
+
+        assert service._state_store.get_client_volume(local_mac) == -75.0
+        assert service._state_store.get_client_volume(remote_mac) == -30.0
+        mock_camilladsp_service.set_volume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_leaving_multiroom_still_unmutes_the_local_client(self, service, mock_camilladsp_service):
+        """The one thing the switch must keep doing: direct mode plays on the local
+        speaker alone, so a client muted during multiroom would come back to
+        silence with nothing on screen to explain it."""
+        self._two_clients_apart(service)
+
+        await service.update_volume_mode(False)
+
+        mock_camilladsp_service.set_mute.assert_awaited_once_with(False)
+
+    @pytest.mark.asyncio
+    async def test_entering_multiroom_returns_no_target_and_moves_nothing(self, service, mock_camilladsp_service):
+        """No target comes back because there is nothing to push: the caller used
+        to flatten every client onto the local level."""
+        local_mac, remote_mac = self._two_clients_apart(service)
+
+        assert await service.update_volume_mode(True) is None
+
+        assert service._state_store.get_client_volume(local_mac) == -75.0
+        assert service._state_store.get_client_volume(remote_mac) == -30.0
+        mock_camilladsp_service.set_volume.assert_not_called()
+        mock_camilladsp_service.set_mute.assert_not_called()
+        assert (await service._state_store.get_complete_state()).mode == "multiroom"
+
+    @pytest.mark.asyncio
+    async def test_a_dac_mode_switch_only_changes_the_mode(self, service, mock_camilladsp_service):
+        """No local volume control: the mode still has to change (any_volume_control
+        reads it), but CamillaDSP stays as reapply_current_volume pinned it."""
+        self._two_clients_apart(service)
+        service._volume_control = False
+
+        await service.update_volume_mode(False)
+
+        assert (await service._state_store.get_complete_state()).mode == "direct"
+        mock_camilladsp_service.set_volume.assert_not_called()
+        mock_camilladsp_service.set_mute.assert_not_called()
+
     def test_volume_config_access(self, service):
         """Test volume_config property access."""
         config = service.volume_config
