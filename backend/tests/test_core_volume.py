@@ -467,7 +467,6 @@ class TestVolumeService:
     def mock_snapcast_service(self):
         """Create mock snapcast service."""
         service = Mock()
-        service.get_clients = AsyncMock(return_value=[])
         return service
 
     @pytest.fixture
@@ -952,6 +951,124 @@ class TestVolumeService:
         )
         assert service._get_controllable_client_ids() == []
 
+    # ------------------------------------------------------------------
+    # Boot sync, availability handshake, DAC mode
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_boot_sync_marks_clients_available_then_pushes_their_level(self, service, mock_settings):
+        """The multiroom boot sync raises availability and pushes each client's level.
+
+        Consumer: initialize() spawns _startup_broadcast_after_websocket_ready, the
+        only path that runs both steps. Three collaborators are wired the way
+        dependencies.py wires them, so this fails if the WebSocket reference stops
+        being stored, if availability stops being raised, or if the push stops
+        reaching the hardware. @handle_errors(default=None) hides a crash here, so
+        both assertions are positive by construction.
+        """
+        mac = "dc:a6:32:7e:d3:43"
+        service._state_store._local_mac_id = mac
+        service._state_store._clients[mac] = ClientVolume(
+            volume_db=-42.0, offset_db=0.0, mute=False, available=False
+        )
+        service._client_registry = Mock()
+        service._client_registry.get_online_client_ids = Mock(return_value=[mac])
+        service._equalizer_controller = Mock()
+        service._equalizer_controller.apply_volumes_parallel = AsyncMock(return_value={mac: True})
+        service._equalizer_controller.set_equalizer_mute = AsyncMock()
+        service.broadcast_volume_state = AsyncMock()
+        mock_settings.get_setting = AsyncMock(return_value=True)  # routing.multiroom_enabled
+        # Injected through the setter, not the attribute: a setter that stops
+        # storing leaves the branch below unreachable.
+        service.set_snapcast_websocket_service(
+            Mock(wait_for_ready=AsyncMock(return_value=True))
+        )
+
+        await service._startup_broadcast_after_websocket_ready()
+
+        assert service._state_store._clients[mac].available is True
+        service._equalizer_controller.apply_volumes_parallel.assert_awaited_once_with({mac: -42.0})
+
+    @pytest.mark.asyncio
+    async def test_push_stores_only_the_levels_the_clients_actually_took(self, service):
+        """A client that refused the boot push keeps its stored level.
+
+        Consumer: the multiroom boot sync. Writing the store for a client whose
+        hardware refused is how Milō, the WS event and the UI come to agree on a
+        level only the speaker disagrees with — the collective twin of the bug
+        TestPerClientApplyVerdict pins on the single-client path. Fails if the
+        push stops splitting on the per-client verdict.
+        """
+        took, refused = "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"
+        service._volume_config = VolumeConfig(restore_last_volume=False, startup_volume_db=-30.0)
+        service._state_store.set_volume_config(service._volume_config)
+        for mac, db in ((took, -42.0), (refused, -50.0)):
+            service._state_store._clients[mac] = ClientVolume(
+                volume_db=db, offset_db=0.0, mute=False, available=True
+            )
+        service._client_registry = Mock()
+        service._client_registry.get_online_client_ids = Mock(return_value=[took, refused])
+        service._equalizer_controller = Mock()
+        service._equalizer_controller.apply_volumes_parallel = AsyncMock(
+            return_value={took: True, refused: False}
+        )
+        service._equalizer_controller.set_equalizer_mute = AsyncMock()
+        service.broadcast_volume_state = AsyncMock()
+
+        result = await service.push_volume_to_all_clients()
+
+        # Non-triviality first: @handle_errors(default=False) makes False the crash
+        # value too, so the refusal below is only meaningful once the push has run.
+        service._equalizer_controller.apply_volumes_parallel.assert_awaited_once()
+        assert result is False                                            # one client refused
+        assert service._state_store.get_client_volume(took) == -30.0      # took the push
+        assert service._state_store.get_client_volume(refused) == -50.0   # kept, not clobbered
+
+    @pytest.mark.asyncio
+    async def test_wait_for_availability_returns_true_once_signalled(self, service):
+        """The WS handshake proceeds as soon as availability is signalled.
+
+        Consumer: ws/manager.py, which blocks the initial volume frame on this.
+        """
+        service._availability_ready.set()
+
+        assert await service.wait_for_availability(timeout=5.0) is True
+
+    @pytest.mark.asyncio
+    async def test_wait_for_availability_gives_up_rather_than_blocking_forever(self, service):
+        """A stalled boot must not hold the WebSocket handshake open.
+
+        Consumer: ws/manager.py — returning False lets it send local state anyway.
+        Fails if the timeout is dropped, which would hang the first frame.
+        """
+        assert service._availability_ready.is_set() is False  # non-triviality
+
+        assert await service.wait_for_availability(timeout=0.01) is False
+
+    @pytest.mark.asyncio
+    async def test_dac_mode_pins_camilladsp_at_unity_and_tells_the_registry(
+        self, service, mock_camilladsp_service
+    ):
+        """Turning volume_control off hands attenuation to the external amp.
+
+        Consumer: PATCH /api/volume-control. CamillaDSP is the only attenuation
+        stage, so leaving it where it was would keep attenuating under an amp that
+        now expects unity. The registry sync is what keeps a zone's
+        all_external_volume honest. Fails if either half is dropped.
+        """
+        mac = "2c:cf:67:b9:46:6f"
+        service._state_store._local_mac_id = mac
+        service._client_registry = Mock()
+        service._client_registry.update_client = AsyncMock()
+        service.broadcast_volume_state = AsyncMock()
+
+        await service.set_local_volume_control(False)
+
+        assert service.volume_control is False
+        mock_camilladsp_service.set_volume.assert_awaited_once_with(0.0)
+        mock_camilladsp_service.set_mute.assert_awaited_once_with(False)
+        service._client_registry.update_client.assert_awaited_once_with(mac, volume_control=False)
+
 
 # ============================================================================
 # Integration Tests
@@ -998,7 +1115,6 @@ class TestStartupVolumeAutoUpdate:
     def mock_snapcast_service(self):
         """Create mock snapcast service."""
         service = Mock()
-        service.get_clients = AsyncMock(return_value=[])
         return service
 
     @pytest.fixture
@@ -1203,7 +1319,6 @@ class TestStartupVolumeAutoUpdate:
         service._state_store.apply_zone_delta = mock_apply_zone_delta
         service._state_store.apply_zone_updates = AsyncMock()
         service._state_store.compute_zone_average = Mock(return_value=-45.0)
-        service._state_store.clear_zone_targets = Mock()
 
         # Act
         service.STARTUP_VOLUME_DEBOUNCE_S = 0
@@ -1267,7 +1382,6 @@ class TestStartupVolumeOnRestart:
     def mock_snapcast_service(self):
         """Create mock snapcast service."""
         service = Mock()
-        service.get_clients = AsyncMock(return_value=[])
         return service
 
     @pytest.fixture
@@ -1716,7 +1830,7 @@ class TestPerClientApplyVerdict:
                 mock_equalizer_controller):
         svc = VolumeService(
             state_machine=mock_state_machine,
-            snapcast_service=Mock(get_clients=AsyncMock(return_value=[])),
+            snapcast_service=Mock(),
             settings_service=mock_settings,
             camilladsp_service=Mock(
                 set_volume=AsyncMock(return_value=True),
@@ -1893,7 +2007,7 @@ class TestAbsentClientKeepsItsPlaceInTheRoom:
                 mock_equalizer_controller):
         svc = VolumeService(
             state_machine=mock_state_machine,
-            snapcast_service=Mock(get_clients=AsyncMock(return_value=[])),
+            snapcast_service=Mock(),
             settings_service=mock_settings,
             camilladsp_service=Mock(
                 set_volume=AsyncMock(return_value=True),
