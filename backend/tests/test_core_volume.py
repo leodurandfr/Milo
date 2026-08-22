@@ -668,11 +668,10 @@ class TestVolumeService:
         local_mac = "2c:cf:67:b9:46:6f"
         service._routing_service = Mock()
         service._routing_service.get_state.return_value = {'multiroom_enabled': True}
-        service.snapcast_service.get_clients = AsyncMock(return_value=[
-            {"mac_id": local_mac, "available": True},
-        ])
         service._client_registry = Mock()
-        service._client_registry.get_client = Mock(return_value=Mock(ip="127.0.0.1"))
+        service._client_registry.get_online_clients = Mock(return_value=[
+            Mock(mac_id=local_mac, ip="127.0.0.1"),
+        ])
         service._equalizer_router = Mock()
         service._equalizer_router.get_volume = AsyncMock(return_value={"main": -10.0})  # would be WRONG
         service.broadcast_volume_state = AsyncMock()
@@ -681,10 +680,15 @@ class TestVolumeService:
             volume_db=-40.0, offset_db=0.0, mute=False, available=True
         )
 
-        await service.sync_all_clients_from_equalizer()
+        result = await service.sync_all_clients_from_equalizer()
 
+        # Non-triviality first: @handle_errors turns any crash inside the loop into
+        # False, so a body that never ran would satisfy every negative below.
+        assert result is True
         service._equalizer_router.get_volume.assert_not_called()  # local never read from hardware
         assert service._state_store.get_client_volume(local_mac) == -40.0  # store value preserved
+        assert service._state_store._clients[local_mac].available is True  # the sync did run
+        service.broadcast_volume_state.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_sync_keeps_persisted_remote_volume_when_proxy_fails(self, service):
@@ -693,11 +697,10 @@ class TestVolumeService:
         remote_mac = "dc:a6:32:7e:d3:43"
         service._routing_service = Mock()
         service._routing_service.get_state.return_value = {'multiroom_enabled': True}
-        service.snapcast_service.get_clients = AsyncMock(return_value=[
-            {"mac_id": remote_mac, "available": True},
-        ])
         service._client_registry = Mock()
-        service._client_registry.get_client = Mock(return_value=Mock(ip="192.168.1.50"))
+        service._client_registry.get_online_clients = Mock(return_value=[
+            Mock(mac_id=remote_mac, ip="192.168.1.50"),
+        ])
         service._equalizer_router = Mock()
         service._equalizer_router.get_volume = AsyncMock(return_value=None)  # proxy unreachable
         service.broadcast_volume_state = AsyncMock()
@@ -706,8 +709,11 @@ class TestVolumeService:
             volume_db=-50.0, offset_db=0.0, mute=False, available=True
         )
 
-        await service.sync_all_clients_from_equalizer()
+        result = await service.sync_all_clients_from_equalizer()
 
+        # Non-triviality first (see the local test above).
+        assert result is True
+        service._equalizer_router.get_volume.assert_awaited_once()  # the remote branch did run
         assert service._state_store.get_client_volume(remote_mac) == -50.0  # persisted kept, not -45
 
     # ------------------------------------------------------------------
@@ -834,21 +840,81 @@ class TestVolumeService:
         assert config.clamp(0.0) == -20.0    # Above max
 
     @pytest.mark.asyncio
-    async def test_reload_volume_limits(self, service, mock_settings, mock_camilladsp_service, mock_state_machine):
-        """Test reloading volume limits."""
-        mock_settings.get_setting = AsyncMock(return_value={
-            "limit_min_db": -60.0,
-            "limit_max_db": -15.0,
-            "step_mobile_db": 3.0,
-            "step_rotary_db": 2.0,
-            "startup_volume_db": -30.0,
-            "restore_last_volume": False
-        })
+    @staticmethod
+    def _volume_section(**overrides):
+        """The complete `volume` settings section.
+
+        `_load_volume_config` reads all eight keys with no fallback operand, and
+        swallows the KeyError of a short dict into a logged error that leaves the
+        old config in place. A test that hands it six keys therefore measures the
+        failure path while looking like it measures a reload.
+        """
+        section = {
+            "limit_min_db": -80.0, "limit_max_db": -20.0,
+            "step_mobile_db": 2.0, "step_rotary_db": 2.0,
+            "step_bt_remote_db": 2.0, "step_ir_remote_db": 2.0,
+            "startup_volume_db": -30.0, "restore_last_volume": False,
+        }
+        section.update(overrides)
+        return section
+
+    async def test_reload_volume_limits_moves_a_stranded_volume_into_the_new_window(
+        self, service, mock_settings, mock_state_machine
+    ):
+        """Tightening the limits past the current level must move that level.
+
+        Consumer: PUT /api/settings (volume section) -> reload_volume_limits. The
+        operator lowers the ceiling while the system plays above it; leaving the
+        level untouched would keep the appliance louder than the limit it now
+        declares. Fails if the reload stops loading, or stops recentring.
+        """
+        local_mac = "2c:cf:67:b9:46:6f"
+        service._state_store._local_mac_id = local_mac
+        service._state_store._clients[local_mac] = ClientVolume(
+            volume_db=-70.0, offset_db=0.0, mute=False, available=True
+        )
+        mock_settings.get_setting = AsyncMock(
+            return_value=self._volume_section(limit_min_db=-60.0, limit_max_db=-15.0)
+        )
         mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
+        service.set_volume_db = AsyncMock()
+        service.broadcast_volume_state = AsyncMock()
 
         result = await service.reload_volume_limits()
 
         assert result is True
+        service.set_volume_db.assert_awaited_once()
+        landed = service.set_volume_db.await_args.args[0]
+        assert -60.0 <= landed <= -15.0, f"recentred to {landed}, outside the new window"
+
+    async def test_reload_volume_limits_is_silent_when_the_limits_did_not_move(
+        self, service, mock_settings, mock_state_machine
+    ):
+        """An unrelated settings save must not broadcast a volume event.
+
+        Consumer: the same PUT, which fires on every settings change. The early
+        return is what keeps a step-size edit from pushing a volume frame to every
+        connected client. Fails if that guard is dropped.
+        """
+        local_mac = "2c:cf:67:b9:46:6f"
+        service._state_store._local_mac_id = local_mac
+        service._state_store._clients[local_mac] = ClientVolume(
+            volume_db=-40.0, offset_db=0.0, mute=False, available=True
+        )
+        # Same limits as the service's current config, a different step size.
+        mock_settings.get_setting = AsyncMock(
+            return_value=self._volume_section(step_mobile_db=6.0)
+        )
+        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
+        service.set_volume_db = AsyncMock()
+        service.broadcast_volume_state = AsyncMock()
+
+        result = await service.reload_volume_limits()
+
+        assert result is True
+        assert service._volume_config.step_mobile_db == 6.0  # the reload did happen
+        service.set_volume_db.assert_not_awaited()
+        service.broadcast_volume_state.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_liveness_comes_from_the_registry_not_snapserver(
