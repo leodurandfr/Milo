@@ -4,7 +4,10 @@ Pytest configuration - Shared fixtures for all tests
 """
 import asyncio
 import copy
+import errno
 import logging
+import os
+import socket
 
 import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
@@ -61,6 +64,78 @@ def keep_the_suite_out_of_the_live_env_files(tmp_path_factory):
         yield
 
 
+_OFF_HOST_CONNECTS: list = []
+
+
+@pytest.fixture(scope="session", autouse=True)
+def keep_the_suite_off_the_network():
+    """Refuse every streaming connect off this host, and record who tried.
+
+    Third of the same family as the two above, one layer further out. Those keep
+    the run out of the appliance's operator log and its env files; this one keeps
+    it off the appliance's *network*, where the same accident is louder. A
+    reconnection sync pushes the snapclient buffer config to whatever IP the
+    registry holds, and more than one fixture holds the address of a live
+    satellite — so a plain `pytest backend/` rewrote that unit's ALSA buffer to
+    the resolved default and restarted its snapclient, twice per run, cutting the
+    sound in an occupied room. Nothing failed here: the push is fire-and-forget.
+
+    Datagram and Unix sockets (mpv, the Tidal daemon, D-Bus) are left alone —
+    only a streaming connect off loopback can carry a command away.
+    """
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+
+    def _refuse(sock, address) -> bool:
+        if sock.type != socket.SOCK_STREAM or not isinstance(address, tuple):
+            return False
+        host = address[0]
+        if host in ("localhost", "::1", "") or host.startswith("127."):
+            return False
+        _OFF_HOST_CONNECTS.append((
+            os.environ.get("PYTEST_CURRENT_TEST", "<unknown test>").removesuffix(" (call)"),
+            f"{host}:{address[1]}",
+        ))
+        return True
+
+    def connect(self, address):
+        if _refuse(self, address):
+            raise ConnectionRefusedError(errno.ECONNREFUSED, "refused by the test suite")
+        return real_connect(self, address)
+
+    def connect_ex(self, address):
+        return errno.ECONNREFUSED if _refuse(self, address) else real_connect_ex(self, address)
+
+    socket.socket.connect = connect
+    socket.socket.connect_ex = connect_ex
+    try:
+        yield
+    finally:
+        socket.socket.connect = real_connect
+        socket.socket.connect_ex = real_connect_ex
+
+
+@pytest.fixture(autouse=True)
+def fail_when_a_test_reaches_off_this_host():
+    """Fail the test that tried, naming it and the address it aimed at.
+
+    Refusing the connect is not enough on its own: every caller of the satellite
+    API logs a warning and returns, so a blocked push leaves the run green and
+    the leak in place — which is how three tests kept a real speaker restarting
+    for a month without a red line anywhere.
+    """
+    already = len(_OFF_HOST_CONNECTS)
+    yield
+    escaped = _OFF_HOST_CONNECTS[already:]
+    if escaped:
+        tried = ", ".join(f"{where} -> {target}" for where, target in escaped)
+        pytest.fail(
+            "reached off this host; stand in for the transport instead "
+            f"(`no_satellite_network` covers the satellite API): {tried}",
+            pytrace=False,
+        )
+
+
 async def drain_background_tasks() -> None:
     """Run to completion every task the unit under test spawned.
 
@@ -102,14 +177,21 @@ def events_of(broadcast_mock, category: str, type_: str) -> list:
 
 @pytest.fixture
 def no_satellite_network(monkeypatch):
-    """Keep fire-and-forget pushes to a satellite's API off the real network.
+    """Stand in for the satellite's HTTP surface, and record what was sent to it.
 
     SnapcastWebSocketService opens its own aiohttp session to reach a client on
-    CLIENT_API_PORT. In a test that IP is unroutable, so the push sits on a TCP
-    connect until it times out — invisible while nothing awaited the task, and
-    seconds of wall clock once ``drain_background_tasks`` does.
+    CLIENT_API_PORT, fire-and-forget. Where that IP is unroutable the push sits
+    on a TCP connect until it times out — seconds of wall clock once
+    ``drain_background_tasks`` awaits it. Where it is not, it arrives: this
+    checkout is also the appliance, so the fixtures naming a live satellite were
+    restarting that unit's snapclient on every run.
+
+    Yields the `(method, url, json)` the unit tried to send, so a test asserting
+    on a push reads this stand-in instead of declaring a second one.
     """
     import aiohttp
+
+    sent = []
 
     class _Response:
         status = 200
@@ -126,6 +208,13 @@ def no_satellite_network(monkeypatch):
         async def json(self):
             return {}
 
+    def _verb(method):
+        def call(self, url, **kwargs):
+            sent.append((method, url, kwargs.get("json")))
+            return _Response()
+
+        return call
+
     class _Session:
         def __init__(self, *args, **kwargs):
             pass
@@ -136,13 +225,12 @@ def no_satellite_network(monkeypatch):
         async def __aexit__(self, *exc):
             return False
 
-        def put(self, *args, **kwargs):
-            return _Response()
-
-        def get(self, *args, **kwargs):
-            return _Response()
+        get = _verb("get")
+        put = _verb("put")
+        post = _verb("post")
 
     monkeypatch.setattr(aiohttp, "ClientSession", _Session)
+    return sent
 
 
 @pytest.fixture
