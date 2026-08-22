@@ -1,6 +1,19 @@
 # backend/tests/test_routing_service.py
 """
 Unit tests for AudioRoutingService
+
+`set_multiroom_enabled` is driven through its real `_apply_transition` and
+`_post_transition_setup_best_effort`: the collaborators those two reach —
+systemd, snapcast, the volume service, the state machine — are already mocked
+by the fixtures, so a failure is injected at the collaborator that would fail
+on a unit rather than by replacing the phase wholesale. Replacing the phase
+also replaces the ordering these tests exist to pin, and it hid the
+`multiroom_ready` broadcast from the whole suite.
+
+`RoutingEnv.regenerate` stays patched in every one of them, without exception:
+it writes /var/lib/milo/routing.env and sets os.environ["MILO_MODE"], and this
+dev host IS the appliance. A test that let it run would flip the live unit's
+audio routing.
 """
 import asyncio
 import pytest
@@ -211,31 +224,36 @@ class TestAudioRoutingService:
         _seed_multiroom(mock_settings_service, False)
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            with patch.object(routing_service, '_apply_transition', new_callable=AsyncMock):
-                with patch.object(routing_service, '_post_transition_setup_best_effort', new_callable=AsyncMock):
-                    first = await routing_service.set_multiroom_enabled(True)
-                    second = await routing_service.set_multiroom_enabled(True)
+            first = await routing_service.set_multiroom_enabled(True)
+            second = await routing_service.set_multiroom_enabled(True)
 
         assert first is True and second is True
         # set_setting_strict only invoked on the first (real) transition
         assert mock_settings_service.set_setting_strict.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_set_multiroom_enabled_success(self, routing_service, mock_settings_service):
+    async def test_set_multiroom_enabled_success(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
         """Successful multiroom activation: persists via set_setting_strict, broadcasts state."""
         _seed_multiroom(mock_settings_service, False)
 
-        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            with patch.object(routing_service, '_apply_transition', new_callable=AsyncMock) as mock_apply:
-                with patch.object(routing_service, '_post_transition_setup_best_effort', new_callable=AsyncMock):
-                    result = await routing_service.set_multiroom_enabled(True)
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate') as mock_regenerate:
+            result = await routing_service.set_multiroom_enabled(True)
 
         assert result is True
         assert routing_service.multiroom_enabled is True
         # Strict (failure-loud) write API used since Phase 3
         mock_settings_service.set_setting_strict.assert_called_once_with('routing.multiroom_enabled', True)
-        # _apply_transition was invoked once with the target
-        mock_apply.assert_awaited_once()
+        # The transition physically ran: both snapcast units started, in that
+        # order, and routing.env was re-derived for the new mode.
+        started = [call.args[0] for call in mock_systemd_manager.start.await_args_list]
+        assert started == [routing_service.snapserver_service, routing_service.snapclient_service]
+        mock_regenerate.assert_awaited_once_with(True)
+        # Post-transition ran: multiroom_ready is what clears the UI spinner,
+        # and the two failure tests below assert only its absence.
+        assert len(events_of(routing_service.state_machine.broadcast,
+                             "routing", "multiroom_ready")) == 1
         # Final state broadcast carries the multiroom_changed discriminator
         broadcast_calls = events_of(routing_service.state_machine.broadcast,
                                     "system", "state_changed")
@@ -243,22 +261,33 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_apply_failure_does_not_persist_settings(
-        self, routing_service, mock_settings_service
+        self, routing_service, mock_settings_service, mock_systemd_manager
     ):
-        """_apply_transition failure aborts before set_setting_strict — settings stays old."""
-        _seed_multiroom(mock_settings_service, False)
+        """A failed transition aborts before set_setting_strict — settings stays old.
 
-        with patch.object(routing_service, '_apply_transition',
-                          AsyncMock(side_effect=RuntimeError("snapcast boom"))):
-            with patch.object(routing_service, '_post_transition_setup_best_effort', new_callable=AsyncMock) as mock_best_effort:
-                result = await routing_service.set_multiroom_enabled(True)
+        The failure is injected where it actually happens on a unit: snapserver
+        refuses to start, so `_start_snapcast` returns False and the transition
+        raises from inside. Faking the whole transition instead would also fake
+        the ordering this test exists to pin.
+        """
+        _seed_multiroom(mock_settings_service, False)
+        mock_systemd_manager.start = AsyncMock(return_value=False)
+        volume_service = self._volume_service_stub()
+        routing_service.set_volume_service(volume_service)
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate') as mock_regenerate:
+            result = await routing_service.set_multiroom_enabled(True)
 
         assert result is False
         # Property still reads False — settings untouched
         assert routing_service.multiroom_enabled is False
         mock_settings_service.set_setting_strict.assert_not_called()
+        # routing.env is derived from the mode: it must not be rewritten either
+        mock_regenerate.assert_not_awaited()
         # PHASE 3 (best-effort post-transition) must be skipped on failure
-        mock_best_effort.assert_not_called()
+        volume_service.update_volume_mode.assert_not_called()
+        assert not events_of(routing_service.state_machine.broadcast,
+                             "routing", "multiroom_ready")
         # multiroom_error event broadcast
         error_events = events_of(routing_service.state_machine.broadcast,
                                  "routing", "multiroom_error")
@@ -278,17 +307,19 @@ class TestAudioRoutingService:
         mock_settings_service.set_setting_strict = AsyncMock(
             side_effect=SettingsWriteError("disk full")
         )
+        volume_service = self._volume_service_stub()
+        routing_service.set_volume_service(volume_service)
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            with patch.object(routing_service, '_apply_transition', new_callable=AsyncMock):
-                with patch.object(routing_service, '_post_transition_setup_best_effort', new_callable=AsyncMock) as mock_best_effort:
-                    result = await routing_service.set_multiroom_enabled(True)
+            result = await routing_service.set_multiroom_enabled(True)
 
         assert result is False
         # Settings was never written successfully — property reads old
         assert routing_service.multiroom_enabled is False
         # Post-transition skipped
-        mock_best_effort.assert_not_called()
+        volume_service.update_volume_mode.assert_not_called()
+        assert not events_of(routing_service.state_machine.broadcast,
+                             "routing", "multiroom_ready")
         # multiroom_error broadcast
         error_events = events_of(routing_service.state_machine.broadcast,
                                  "routing", "multiroom_error")
@@ -312,8 +343,7 @@ class TestAudioRoutingService:
         routing_service.set_snapcast_websocket_service(ws_service)
 
         with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
-            with patch.object(routing_service, '_apply_transition', new_callable=AsyncMock):
-                result = await routing_service.set_multiroom_enabled(True)
+            result = await routing_service.set_multiroom_enabled(True)
 
         # Enable succeeds — the physical mode switched.
         assert result is True

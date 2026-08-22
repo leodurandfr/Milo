@@ -1,6 +1,19 @@
 # backend/tests/test_update_service.py
 """
 Tests for UpdateService — update orchestration, backup/restore, service management.
+
+Deliberate limit, stated because it looks like debt and is not: these tests patch
+the service's own private phases — `_stop_service`, `_run_deploy`,
+`_update_binary_program`, `_rollback_milo_to_commit` and their neighbours —
+rather than only its collaborators. UpdateService *is* an ordering: stop the
+unit, deploy, restart, roll back when the restart fails. The phases are the
+behaviour under test, and what these assert is which one ran, in which order,
+and which did not run at all. Leaving the real phases in and mocking only
+systemd, git, tar and the network would not drop the coupling to names — it
+would move it onto the exact `systemctl` argv sequence, which is more brittle
+still. So this file is out of scope for any sweep that replaces
+`patch.object(service, "_private")` with a collaborator-level failure; the
+sibling files where that migration *is* right say so in their own headers.
 """
 import asyncio
 import logging

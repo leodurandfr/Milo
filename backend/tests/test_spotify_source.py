@@ -9,10 +9,21 @@ Tests cover:
 - Metadata refresh
 - Command handling
 - Auto-stop timer
+
+The start path is driven through its real `_wait_for_playback_ready`,
+`_start_websocket` and `_start_log_monitor`: the `go_librespot` helper below
+stands in for the three things outside the source — the daemon's HTTP API, its
+/events WebSocket and journalctl — and nothing else. Patching those three steps
+out instead removed exactly what a start is for, and the suite could not see a
+Spotify source that opened no WebSocket at all.
 """
 import asyncio
+import contextlib
 import logging
+import time
+from types import SimpleNamespace
 
+import aiohttp
 import pytest
 import yaml
 from pathlib import Path
@@ -50,6 +61,77 @@ def librespot_api(payload, status=200):
     context.__aenter__.return_value = response
     session = Mock()
     session.get = Mock(return_value=context)
+    return session
+
+
+class JournalDouble:
+    """journalctl, as `follow_unit` hands it to the source: a stream of lines.
+
+    Records which unit was followed and yields `lines` (none by default), so a
+    test can state that the monitor watches go-librespot's own unit without a
+    subprocess and without replacing the source's `_start_log_monitor`.
+    """
+
+    def __init__(self, lines=()):
+        self._lines = list(lines)
+        self.units = []
+
+    def __call__(self, unit, **_kwargs):
+        self.units.append(unit)
+        return self._stream()
+
+    async def _stream(self):
+        for line in self._lines:
+            yield line
+
+
+@contextlib.asynccontextmanager
+async def go_librespot(source, session, journal=None):
+    """Everything `_do_start` reaches outside the source, and nothing else.
+
+    Three boundaries: the daemon's HTTP API (`session`), its /events WebSocket
+    (`LibrespotWebSocket`) and journalctl (`follow_unit`). With those three
+    stood in for, the readiness poll, the WS wiring and the monitor start run
+    for real — patching the source's own `_wait_for_playback_ready` /
+    `_start_websocket` / `_start_log_monitor` replaced the steps this asserts
+    the order and the arguments of.
+
+    Yields the patched WebSocket class. On exit the log-monitor task the source
+    spawned is stopped, so it cannot outlive the test's event loop.
+    """
+    with patch('aiohttp.ClientSession', return_value=session), \
+         patch('backend.sources.spotify.source.LibrespotWebSocket', autospec=True) as ws_cls, \
+         patch('backend.sources.spotify.source.follow_unit', journal or JournalDouble()):
+        try:
+            yield ws_cls
+        finally:
+            source._stop_log_monitor()
+
+
+def deaf_daemon_clock():
+    """A monotonic source that expires the readiness poll's cap on the 2nd read.
+
+    `_do_start` calls `_wait_for_playback_ready()` with its production
+    defaults, so a daemon that never answers is 10 s of real polling. Only
+    `backend.sources.spotify.source`'s own module-global `time` is replaced —
+    never the process-wide module, which the event loop reads.
+    """
+    values = iter([0.0, 1.0, 999.0])
+    last = [0.0]
+
+    def monotonic():
+        last[0] = next(values, last[0])
+        return last[0]
+
+    return SimpleNamespace(monotonic=monotonic, time=time.time)
+
+
+def refusing_session():
+    """A session whose every GET is refused, the way a daemon not yet listening
+    refuses one. `_wait_for_playback_ready` suppresses ClientOSError and polls
+    on until its cap."""
+    session = MagicMock()
+    session.get = Mock(side_effect=aiohttp.ClientOSError("connection refused"))
     return session
 
 
@@ -146,19 +228,29 @@ class TestSpotifySourceLifecycle:
 
     @pytest.mark.asyncio
     async def test_start_success(self, spotify_source):
-        """Test successful start."""
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session = AsyncMock()
-            mock_session_class.return_value = mock_session
-            mock_session.close = AsyncMock()
+        """A start over a daemon that answers wires the WS and the journal.
 
-            # Mock WebSocket, log monitor and readiness poll to avoid real I/O
-            with patch.object(spotify_source, '_wait_for_playback_ready', new_callable=AsyncMock, return_value=True):
-                with patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock):
-                    with patch.object(spotify_source, '_start_log_monitor'):
-                        result = await spotify_source.start()
+        The three steps `_do_start` ends on are the ones a start exists for:
+        the /events socket built on the config's URL and the source's own
+        handlers, sharing the HTTP session, and the monitor following
+        go-librespot's unit.
+        """
+        session = librespot_api({"playback_ready": True})
+        journal = JournalDouble()
 
-        assert result is True
+        async with go_librespot(spotify_source, session, journal) as ws_cls:
+            result = await spotify_source.start()
+            await asyncio.sleep(0)  # let the monitor task reach follow_unit
+
+            assert result is True
+            ws_cls.assert_called_once()
+            kwargs = ws_cls.call_args.kwargs
+            assert kwargs["ws_url"] == "ws://localhost:3678/events"
+            assert kwargs["session"] is session
+            assert kwargs["on_event"] == spotify_source._handle_ws_event
+            assert kwargs["on_connect"] == spotify_source._reconcile_on_connect
+            ws_cls.return_value.start.assert_awaited_once()
+            assert journal.units == ["milo-spotify"]
 
     @pytest.mark.asyncio
     async def test_start_no_config_file(self):
@@ -220,6 +312,24 @@ class TestSpotifySourceLifecycle:
         assert spotify_source._session.get.call_args.args[0].endswith("/")
 
     @pytest.mark.asyncio
+    async def test_wait_for_playback_ready_gives_up_after_the_cap(
+        self, spotify_source, caplog
+    ):
+        """A daemon that refuses every connection ends the poll at the cap, with
+        a warning and a False verdict — it must not wedge the start."""
+        spotify_source._api_url = "http://localhost:3678"
+        spotify_source._session = refusing_session()
+
+        with caplog.at_level(logging.WARNING):
+            result = await spotify_source._wait_for_playback_ready(
+                timeout=0.05, interval=0.01
+            )
+
+        assert result is False
+        assert spotify_source._session.get.call_count > 1
+        assert "not reachable" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_a_daemon_that_never_answers_is_reported_at_error(
         self, spotify_source, caplog
     ):
@@ -229,29 +339,26 @@ class TestSpotifySourceLifecycle:
 
         Not fatal: the WS loop reconnects on its own, so the start still succeeds.
         """
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session_class.return_value = AsyncMock()
+        session = refusing_session()
 
-            with patch.object(spotify_source, '_wait_for_playback_ready',
-                              new_callable=AsyncMock, return_value=False), \
-                    patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock), \
-                    patch.object(spotify_source, '_start_log_monitor'), \
+        async with go_librespot(spotify_source, session) as ws_cls:
+            with patch('backend.sources.spotify.source.time', deaf_daemon_clock()), \
                     caplog.at_level(logging.ERROR):
                 result = await spotify_source.start()
 
         assert result is True
+        # The poll really ran against the daemon — the clock only ends its cap.
+        assert session.get.call_count == 1
         assert "never answered" in caplog.text
+        # Still not fatal: the WS was started anyway, which is what recovers.
+        ws_cls.return_value.start.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_a_daemon_that_answers_says_nothing(self, spotify_source, caplog):
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session_class.return_value = AsyncMock()
+        session = librespot_api({"playback_ready": True})
 
-            with patch.object(spotify_source, '_wait_for_playback_ready',
-                              new_callable=AsyncMock, return_value=True), \
-                    patch.object(spotify_source, '_start_websocket', new_callable=AsyncMock), \
-                    patch.object(spotify_source, '_start_log_monitor'), \
-                    caplog.at_level(logging.ERROR):
+        async with go_librespot(spotify_source, session):
+            with caplog.at_level(logging.ERROR):
                 await spotify_source.start()
 
         assert caplog.text == ""
@@ -441,13 +548,18 @@ class TestReconcileOnConnect:
             spotify_source._metadata = {}
             return True
 
-        with patch.object(spotify_source, 'refresh_metadata', side_effect=idle_refresh), \
-             patch.object(spotify_source, '_cancel_pause_timer') as mock_cancel:
+        timer = asyncio.create_task(asyncio.sleep(3600))
+        spotify_source._pause_timer = timer
+
+        with patch.object(spotify_source, 'refresh_metadata', side_effect=idle_refresh):
             await spotify_source._reconcile_on_connect()
 
         assert spotify_source._device_connected is False
         assert spotify_source.state == SourceState.READY
-        mock_cancel.assert_called_once()
+        # The leftover auto-stop is gone, not merely forgotten.
+        assert spotify_source._pause_timer is None
+        with pytest.raises(asyncio.CancelledError):
+            await timer
 
     @pytest.mark.asyncio
     async def test_reconcile_on_connect_live_session_stays_active(self, spotify_source):
@@ -473,14 +585,18 @@ class TestReconcileOnConnect:
         spotify_source._device_connected = True
         spotify_source._metadata = {"title": "Breathe", "is_playing": True}
 
-        with patch.object(spotify_source, 'refresh_metadata', new_callable=AsyncMock, return_value=False), \
-             patch.object(spotify_source, '_cancel_pause_timer') as mock_cancel:
+        timer = asyncio.create_task(asyncio.sleep(3600))
+        spotify_source._pause_timer = timer
+
+        with patch.object(spotify_source, 'refresh_metadata', new_callable=AsyncMock, return_value=False):
             await spotify_source._reconcile_on_connect()
 
         assert spotify_source._device_connected is False
         assert "title" not in spotify_source._metadata  # ghost track cleared
         assert spotify_source.state == SourceState.READY
-        mock_cancel.assert_called_once()
+        assert spotify_source._pause_timer is None
+        with pytest.raises(asyncio.CancelledError):
+            await timer
 
 
 class TestAutoStop:

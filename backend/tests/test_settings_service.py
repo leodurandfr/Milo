@@ -1,12 +1,45 @@
 # backend/tests/test_settings_service.py
 """
 Unit tests for SettingsService
+
+A write that fails is failed at the filesystem (`unwritable_dir` below), not by
+replacing `_write_locked` with one that returns False: the service's write
+boundary is the disk, and the settings file already lives in a directory the
+test owns. Replacing the method also replaced its own except/return-False
+branch — `_write_locked` could report success on a write that raised and the
+whole suite stayed green. How many writes happened is read at the same
+boundary, by wrapping `save_versioned_json`.
 """
 import pytest
+import contextlib
 import json
 import os
 from unittest.mock import patch
 from backend.core.settings import SettingsService, SettingsWriteError
+from backend.shared.persistence import save_versioned_json
+
+
+@contextlib.contextmanager
+def unwritable_dir(path):
+    """Revoke write permission on the directory holding `path`.
+
+    The write boundary of SettingsService is the filesystem, and the settings
+    file already lives in a directory the test owns. Taking write permission
+    away from it is the failure a read-only or full /var/lib/milo produces, and
+    it drives `_write_locked`'s own except/return-False branch instead of
+    replacing the method with one that returns False. Reads still work (r-x),
+    so a test can check what stayed on disk without restoring first.
+
+    Run as root this grants the write anyway — the strict writes then succeed
+    and their `pytest.raises` goes red, which is the safe direction to fail.
+    """
+    directory = os.path.dirname(path)
+    mode = os.stat(directory).st_mode
+    os.chmod(directory, 0o500)
+    try:
+        yield
+    finally:
+        os.chmod(directory, mode)
 
 
 class TestSettingsService:
@@ -390,10 +423,7 @@ class TestSettingsService:
         """set_setting_strict raises SettingsWriteError when the disk write fails."""
         await service.save_settings(service.defaults)
 
-        async def fake_write_locked(_settings):
-            return False
-
-        with patch.object(service, '_write_locked', side_effect=fake_write_locked):
+        with unwritable_dir(service.settings_file):
             with pytest.raises(SettingsWriteError):
                 await service.set_setting_strict(
                     'routing.multiroom_enabled', True
@@ -412,10 +442,7 @@ class TestSettingsService:
         await service.get_setting('routing.multiroom_enabled')
         cache_before = service._cache
 
-        async def fake_write_locked(_settings):
-            return False
-
-        with patch.object(service, '_write_locked', side_effect=fake_write_locked):
+        with unwritable_dir(service.settings_file):
             with pytest.raises(SettingsWriteError):
                 await service.set_setting_strict(
                     'routing.multiroom_enabled', True
@@ -562,16 +589,16 @@ class TestSettingsService:
         await service.save_settings(service.defaults)
         service._cache = None
 
-        with patch.object(
-            service, '_write_locked', wraps=service._write_locked
-        ) as spy:
+        with patch('backend.core.settings.save_versioned_json',
+                   wraps=save_versioned_json) as spy:
             await service.set_settings({
                 'volume.limit_min_db': -55.0,
                 'volume.limit_max_db': -12.0,
                 'volume.restore_last_volume': False,
             })
 
-        assert spy.call_count == 1
+        # One trip to the atomic-write primitive — one os.replace, one payload.
+        assert spy.await_count == 1
 
     @pytest.mark.asyncio
     async def test_set_settings_validation_sees_the_full_pair(self, service):
@@ -600,10 +627,7 @@ class TestSettingsService:
         """The strict variant raises and leaves the file untouched on failure."""
         await service.save_settings(service.defaults)
 
-        async def fake_write_locked(_settings):
-            return False
-
-        with patch.object(service, '_write_locked', side_effect=fake_write_locked):
+        with unwritable_dir(service.settings_file):
             with pytest.raises(SettingsWriteError):
                 await service.set_settings_strict({
                     'volume.limit_min_db': -60.0,
@@ -622,9 +646,10 @@ class TestSettingsService:
         await service.get_setting('language')  # warm the cache
         cache_before = service._cache
 
-        with patch.object(service, '_write_locked') as spy:
+        with patch('backend.core.settings.save_versioned_json',
+                   wraps=save_versioned_json) as spy:
             result = await service.set_settings({})
 
         assert result is True
-        spy.assert_not_called()
+        spy.assert_not_awaited()
         assert service._cache is cache_before
