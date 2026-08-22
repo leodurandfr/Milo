@@ -5,7 +5,6 @@ Tests the sync mechanisms that prevent or auto-correct client desynchronization:
 - Retry loop in _sync_reconnecting_client_volume (fire-and-forget)
 - Concurrent reconnections via _process_online_status_changes
 - Level restoration during rapid sequential reconnects
-- push_volume_to_all_clients partial failure handling
 - set_online_after gate (client invisible until hardware confirms)
 """
 import asyncio
