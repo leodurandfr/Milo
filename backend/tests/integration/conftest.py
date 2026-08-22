@@ -78,6 +78,21 @@ def create_mock_source(source: AudioSource, start_success: bool = True) -> Mock:
     return mock
 
 
+@pytest.fixture(autouse=True)
+def keep_integration_tests_off_the_satellite_api(no_satellite_network):
+    """Stand in for the satellite HTTP surface across the whole directory.
+
+    This file's premise is components "without requiring actual system resources
+    (systemd, ALSA, network)", and the reconnection tests below broke the last of
+    those three: the sync pushes the snapclient buffer config to the client's
+    registry IP, and the addresses used here — 192.168.1.1 through .10 — are on
+    the operator's own LAN. Autouse rather than per-class, because the push is
+    spawned deep inside the sync: a test acquiring one more path to it must not
+    have to know this exists.
+    """
+    return no_satellite_network
+
+
 @pytest.fixture
 def websocket_collector() -> WebSocketEventCollector:
     """

@@ -2898,6 +2898,7 @@ class TestClientReconcileSweep:
         assert len(announced) == 1, [r.getMessage() for r in announced]
 
 
+@pytest.mark.usefixtures("no_satellite_network")
 class TestAdmissionPathConvergence:
     """Every notification that can be the first to see a client must admit it the same way.
 
@@ -3150,7 +3151,9 @@ class TestAdmissionPathConvergence:
         assert registry.get_client(self.MAC).online is True
 
     @pytest.mark.asyncio
-    async def test_a_reconnecting_client_gets_the_current_snapclient_buffer_config(self):
+    async def test_a_reconnecting_client_gets_the_current_snapclient_buffer_config(
+        self, no_satellite_network
+    ):
         """Buffer settings changed while a satellite was away never reached it.
 
         Only Client.OnConnect pushed them, so a client that came back through
@@ -3161,40 +3164,12 @@ class TestAdmissionPathConvergence:
         await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
         service.set_volume_service(self._volume_service([True]))
 
-        pushed = []
+        await service._sync_reconnecting_client_volume(self.MAC, max_retries=0, retry_delay=0)
+        await drain_background_tasks()
 
-        class _Response:
-            status = 200
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *exc):
-                return False
-
-            async def text(self):
-                return ""
-
-        class _Session:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *exc):
-                return False
-
-            def put(self, url, **kwargs):
-                pushed.append((url, kwargs.get("json")))
-                return _Response()
-
-        with patch("aiohttp.ClientSession", _Session):
-            await service._sync_reconnecting_client_volume(self.MAC, max_retries=0, retry_delay=0)
-            await drain_background_tasks()
-
-        assert len(pushed) == 1
-        url, body = pushed[0]
+        assert len(no_satellite_network) == 1
+        method, url, body = no_satellite_network[0]
+        assert method == "put"
         assert url.startswith(f"http://{self.IP}:")
         assert url.endswith("/snapclient/config")
         # Nothing stored here, so the pair must resolve to the one declaration
