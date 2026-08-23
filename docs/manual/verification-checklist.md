@@ -250,6 +250,7 @@ makes this silent.
 | Check | Expected observable | Set |
 |---|---|---|
 | Enable | The main switch activates within a few seconds; audio continues | targeted |
+| Boot with multiroom already on | After a reboot, each satellite comes back **at its own stored level**, not at the local one — the boot-time push (`_delayed_multiroom_sync`) waits on snapserver answering, then re-sends. Nothing in CI executes its body: the suite only ever reaches its give-up branch | targeted |
 | Sync | Two speakers playing the same track show no audible echo or drift over ≥5 min | targeted |
 | Client volume | The per-speaker slider and mute affect only that speaker | targeted |
 | Zone | A zone groups speakers; its global volume and mute act on all members | targeted |
