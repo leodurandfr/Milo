@@ -437,3 +437,83 @@ async def test_wifi_signal_fails_open_when_no_access_point_is_anchored(service):
     assert fake.calls == []
 
 
+
+
+# --------------------------------------------------------------------------- #
+# Which profiles a forget deletes — and which it must not
+# --------------------------------------------------------------------------- #
+
+def _profiles_router(listing, deleted):
+    """Answers `connection show` with a listing, records every delete."""
+    def router(args):
+        if args[:2] == ("connection", "delete"):
+            deleted.append(args[2])
+            return (0, "", "")
+        if "show" in args and "connection" in args:
+            return (0, listing, "")
+        return (0, "", "")
+    return router
+
+
+@pytest.mark.asyncio
+async def test_forgetting_a_network_takes_its_netplan_and_milo_twins_with_it(service):
+    """One SSID can own three profiles, and leaving one behind breaks the next connect.
+
+    A surviving netplan profile is what made `nmcli device wifi connect` fail
+    with 'key-mgmt: property is missing'; the whole delete-then-add shape exists
+    to clear it. Dropping one of the three names silently restores that failure,
+    on the first-boot path nothing else exercises.
+    """
+    deleted = []
+    fake, patcher = with_nmcli(_profiles_router("\n".join([
+        "Livebox:802-11-wireless",
+        "milo-Livebox:802-11-wireless",
+        "netplan-wlan0-Livebox:802-11-wireless",
+        "Maison:802-11-wireless",
+    ]), deleted))
+    with patcher:
+        await service.forget_network("Livebox")
+
+    assert deleted, "nothing was deleted — the listing never reached the filter"
+    assert set(deleted) == {"Livebox", "milo-Livebox", "netplan-wlan0-Livebox"}
+
+
+@pytest.mark.asyncio
+async def test_forgetting_a_network_spares_a_different_ssid_that_ends_with_its_name(service):
+    """`Guest-Livebox` is someone else's network, not a variant of `Livebox`.
+
+    The name arrives free-form — an unvalidated path segment on
+    `DELETE /api/network/wifi/saved/{ssid}`, a `min_length=1` string on
+    WifiConnectRequest — and whatever it selects is handed to `nmcli connection
+    delete`. Selection wide enough to reach a profile it was not given loses
+    credentials the user must retype, which on a wifi-only unit means from the
+    setup AP after a reboot.
+    """
+    deleted = []
+    fake, patcher = with_nmcli(_profiles_router("\n".join([
+        "milo-Livebox:802-11-wireless",
+        "Guest-Livebox:802-11-wireless",
+    ]), deleted))
+    with patcher:
+        await service.forget_network("Livebox")
+
+    assert deleted == ["milo-Livebox"]
+
+
+@pytest.mark.asyncio
+async def test_forgetting_a_network_never_deletes_a_wired_profile(service):
+    """The route is `/wifi/saved/{ssid}` and takes the segment verbatim.
+
+    `DELETE /api/network/wifi/saved/Wired%20connection%201` matches the wired
+    profile by name; the connection-type filter is the only thing between that
+    URL and the ethernet link the appliance is actually reachable on.
+    """
+    deleted = []
+    fake, patcher = with_nmcli(_profiles_router("\n".join([
+        "Wired connection 1:802-3-ethernet",
+        "milo-Wired connection 1:802-11-wireless",
+    ]), deleted))
+    with patcher:
+        await service.forget_network("Wired connection 1")
+
+    assert deleted == ["milo-Wired connection 1"]
