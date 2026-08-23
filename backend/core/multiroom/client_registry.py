@@ -27,7 +27,6 @@ from backend.core.multiroom.models import (
     Client,
     Zone,
     EqualizerSettings,
-    RegistryState,
     RegistryEventType,
     SpeakerType,
     DEFAULT_SPEAKER_TYPE,
@@ -909,16 +908,6 @@ class ClientRegistryService:
                     # Wire shape (freq/type) — the frontend WS handler reads freq/type.
                     "equalizer_settings": settings.to_wire_dict()
                 })
-
-    # === STATE SNAPSHOT ===
-
-    def get_state(self) -> RegistryState:
-        """Get complete registry state snapshot."""
-        return RegistryState(
-            clients=self._clients.copy(),
-            zones=self._zones.copy(),
-            client_equalizer=self._client_equalizer.copy()
-        )
 
     # === EVENT SYSTEM ===
 
