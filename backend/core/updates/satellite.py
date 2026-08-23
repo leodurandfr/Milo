@@ -105,8 +105,7 @@ class SatelliteUpdateService:
 
     async def update_satellite(
         self,
-        mac_id: str,
-        progress_callback: Optional[callable] = None
+        mac_id: str
     ) -> Dict[str, Any]:
         """Launches a satellite snapclient update."""
         try:
@@ -121,9 +120,6 @@ class SatelliteUpdateService:
 
             ip = satellite["ip"]
             url = f"http://{ip}:{self.satellite_api_port}/update"
-
-            if progress_callback:
-                await progress_callback("updates.progress.startingUpdate", 0)
 
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -146,17 +142,10 @@ class SatelliteUpdateService:
                                     "error": "Satellite started an update without a target_version"
                                 }
 
-                            if progress_callback:
-                                await progress_callback(
-                                    "updates.progress.updateInitiated",
-                                    10
-                                )
-
                             update_result = await self._wait_for_update_completion(
                                 mac_id,
                                 ip,
-                                target_version,
-                                progress_callback
+                                target_version
                             )
 
                             return update_result
@@ -182,8 +171,7 @@ class SatelliteUpdateService:
         self,
         mac_id: str,
         ip: str,
-        target_version: str,
-        progress_callback: Optional[callable] = None
+        target_version: str
     ) -> Dict[str, Any]:
         """Waits for update completion on the satellite, then checks it landed.
 
@@ -198,14 +186,6 @@ class SatelliteUpdateService:
         while elapsed < max_wait_time:
             await asyncio.sleep(check_interval)
             elapsed += check_interval
-
-            progress = min(10 + (elapsed / max_wait_time * 80), 90)
-
-            if progress_callback:
-                await progress_callback(
-                    "updates.progress.updateInProgress",
-                    int(progress)
-                )
 
             try:
                 url = f"http://{ip}:{self.satellite_api_port}/update/status"
@@ -232,12 +212,6 @@ class SatelliteUpdateService:
                                                     f"{new_version}, expected {target_version}"
                                                 )
                                             }
-
-                                        if progress_callback:
-                                            await progress_callback(
-                                                "updates.progress.completed",
-                                                100
-                                            )
 
                                         return {
                                             "success": True,
@@ -310,8 +284,7 @@ class SatelliteUpdateService:
 
     async def update_satellite_app(
         self,
-        mac_id: str,
-        progress_callback: Optional[callable] = None
+        mac_id: str
     ) -> Dict[str, Any]:
         """Pushes a milo-client app update to a satellite."""
         tarball_path = None
@@ -330,13 +303,7 @@ class SatelliteUpdateService:
             # restarting, which is the one step the version file cannot attest.
             started_at_before = satellite.get("app_started_at")
 
-            if progress_callback:
-                await progress_callback("updates.progress.startingUpdate", 5)
-
             tarball_path, version = await self._create_client_tarball()
-
-            if progress_callback:
-                await progress_callback("updates.progress.sendingUpdate", 20)
 
             url = f"http://{ip}:{self.satellite_api_port}/app/update"
             timeout = aiohttp.ClientTimeout(total=120)
@@ -356,11 +323,8 @@ class SatelliteUpdateService:
                                 "error": f"Satellite rejected update: HTTP {response.status} - {error_text}"
                             }
 
-            if progress_callback:
-                await progress_callback("updates.progress.waitingForRestart", 50)
-
             result = await self._wait_for_app_update_completion(
-                mac_id, ip, version, started_at_before, progress_callback
+                mac_id, ip, version, started_at_before
             )
             return result
 
@@ -375,8 +339,7 @@ class SatelliteUpdateService:
 
     async def update_satellite_camilladsp(
         self,
-        mac_id: str,
-        progress_callback: Optional[callable] = None
+        mac_id: str
     ) -> Dict[str, Any]:
         """Triggers a CamillaDSP binary update on a satellite."""
         try:
@@ -392,9 +355,6 @@ class SatelliteUpdateService:
             ip = satellite["ip"]
             url = f"http://{ip}:{self.satellite_api_port}/camilladsp/update"
 
-            if progress_callback:
-                await progress_callback("updates.progress.startingUpdate", 0)
-
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url) as response:
@@ -409,14 +369,8 @@ class SatelliteUpdateService:
                                     "error": "Satellite started an update without a target_version"
                                 }
 
-                            if progress_callback:
-                                await progress_callback(
-                                    "updates.progress.updateInitiated",
-                                    10
-                                )
-
                             return await self._wait_for_camilladsp_update_completion(
-                                mac_id, ip, target_version, progress_callback
+                                mac_id, ip, target_version
                             )
                         else:
                             return {
@@ -440,8 +394,7 @@ class SatelliteUpdateService:
         self,
         mac_id: str,
         ip: str,
-        target_version: str,
-        progress_callback: Optional[callable] = None
+        target_version: str
     ) -> Dict[str, Any]:
         """Polls the satellite until the CamillaDSP update completes, then
         checks the version actually moved — same reasoning as the snapclient
@@ -453,14 +406,6 @@ class SatelliteUpdateService:
         while elapsed < max_wait_time:
             await asyncio.sleep(check_interval)
             elapsed += check_interval
-
-            progress = min(10 + (elapsed / max_wait_time * 80), 90)
-
-            if progress_callback:
-                await progress_callback(
-                    "updates.progress.updateInProgress",
-                    int(progress)
-                )
 
             try:
                 url = f"http://{ip}:{self.satellite_api_port}/camilladsp/update/status"
@@ -489,12 +434,6 @@ class SatelliteUpdateService:
                                                 )
                                             }
 
-                                        if progress_callback:
-                                            await progress_callback(
-                                                "updates.progress.completed",
-                                                100
-                                            )
-
                                         return {
                                             "success": True,
                                             "message": f"Satellite {mac_id} CamillaDSP updated successfully",
@@ -515,8 +454,7 @@ class SatelliteUpdateService:
         mac_id: str,
         ip: str,
         expected_version: str,
-        started_at_before: Optional[int],
-        progress_callback: Optional[callable] = None
+        started_at_before: Optional[int]
     ) -> Dict[str, Any]:
         """Polls satellite /status until the new app version is the one *running*.
 
@@ -536,14 +474,6 @@ class SatelliteUpdateService:
             await asyncio.sleep(check_interval)
             elapsed += check_interval
 
-            progress = min(50 + (elapsed / max_wait_time * 45), 95)
-
-            if progress_callback:
-                await progress_callback(
-                    "updates.progress.waitingForRestart",
-                    int(progress)
-                )
-
             try:
                 url = f"http://{ip}:{self.satellite_api_port}/status"
                 timeout = aiohttp.ClientTimeout(total=5)
@@ -559,12 +489,6 @@ class SatelliteUpdateService:
                                 version_seen = True
 
                             if app_version == expected_version and app.get("started_at") != started_at_before:
-                                if progress_callback:
-                                    await progress_callback(
-                                        "updates.progress.completed",
-                                        100
-                                    )
-
                                 return {
                                     "success": True,
                                     "message": f"Satellite {mac_id} app updated successfully",

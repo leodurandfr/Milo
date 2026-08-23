@@ -14,6 +14,7 @@ import pytest
 from fastapi import BackgroundTasks
 
 from backend.api.programs import create_programs_router
+from backend.core.models.ws_events import ProgramUpdateComplete, ProgramUpdateProgress
 
 
 def _endpoint(router, path: str, method: str = "POST"):
@@ -36,6 +37,7 @@ def router():
 
     r = create_programs_router(update_service, MagicMock(), state_machine)
     r.update_service = update_service
+    r.state_machine = state_machine
     return r
 
 
@@ -107,3 +109,33 @@ async def test_the_satellite_routes_claim_their_key_too(router):
         endpoint = _endpoint(router, path)
         assert (await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "success"
         assert (await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "error"
+
+
+async def test_an_update_announces_itself_once(router):
+    """A device that did not click still has to learn an update is running.
+
+    That announcement used to be re-sent at every phase, carrying a message and
+    a percentage that nothing on the wire, in the store or in the UI ever read.
+    What has to survive the removal is the announcement itself: one progress
+    event when the update starts, then the completion event that releases the
+    key. Losing it leaves a second device showing "Update" through the whole
+    run, and re-scattering it puts back a broadcast that says nothing new.
+    """
+    endpoint = _endpoint(router, "/api/programs/{program_key}/update")
+    tasks = BackgroundTasks()
+    assert (await endpoint("go-librespot", tasks))["status"] == "success"
+
+    await tasks()
+
+    events = [call.args[0] for call in router.state_machine.broadcast.await_args_list]
+    progress = [e for e in events if isinstance(e, ProgramUpdateProgress)]
+    complete = [e for e in events if isinstance(e, ProgramUpdateComplete)]
+
+    assert len(progress) == 1, f"expected one announcement, got {len(progress)}"
+    assert progress[0].program == "go-librespot"
+    assert progress[0].status == "updating"
+    assert len(complete) == 1
+    assert complete[0].success is True
+
+    # The key is released, so the same program can be updated again.
+    assert (await endpoint("go-librespot", BackgroundTasks()))["status"] == "success"
