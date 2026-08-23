@@ -431,6 +431,33 @@ class TestAudioRoutingService:
         assert routing_service.equalizer_effects_enabled is True
         mock_settings_service.set_setting.assert_called_with('routing.equalizer_effects_enabled', True)
 
+    @pytest.mark.asyncio
+    async def test_set_equalizer_effects_enabled_reverts_when_camilladsp_refuses(
+        self, routing_service, mock_settings_service
+    ):
+        """A DSP that refuses the bypass leaves the toggle where it was, and says so.
+
+        The rollback half of `_guarded_simple_toggle` — its only consumer is this
+        toggle. Without it the UI switch and the daemon disagree in silence: the
+        toggle reports success, CamillaDSP never bypassed, and nothing surfaces
+        until someone listens. The assertion is on the restored state, not on the
+        return: `set_fn(old_state)` is the step that heals the divergence.
+        """
+        camilla = _CamillaStub(enabled=True)
+        camilla.bypass_effects = AsyncMock(return_value=False)
+        routing_service.camilladsp_service = camilla
+
+        result = await routing_service.set_equalizer_effects_enabled(False)
+
+        assert result is False
+        # The daemon was actually asked — a crash before the call would also
+        # return False, and would revert just as well.
+        camilla.bypass_effects.assert_awaited_once()
+        # Reverted: the effects are back on, as they were before the refusal.
+        assert routing_service.equalizer_effects_enabled is True
+        # A refused transition persists nothing.
+        mock_settings_service.set_setting.assert_not_called()
+
     async def test_regenerate_env_files_writes_routing_env_from_settings(
         self, routing_service, mock_settings_service
     ):
