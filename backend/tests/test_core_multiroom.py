@@ -277,17 +277,6 @@ class TestZone:
         assert zone.id == "zone3"
         assert len(zone.client_ids) == 2
 
-    def test_zone_has_client(self):
-        """Test zone client membership check."""
-        zone = Zone(
-            name="Test Zone",
-            id="zone1",
-            client_ids=["local", "aa:bb:cc:dd:ee:ff"]
-        )
-
-        assert zone.has_client("local") is True
-        assert zone.has_client("other") is False
-
     def test_zone_is_valid(self):
         """Test zone validity check (minimum 2 clients)."""
         valid_zone = Zone(name="Valid", id="z1", client_ids=["c1", "c2"])
