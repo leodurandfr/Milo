@@ -78,7 +78,6 @@ class NetworkService:
         self.settings_service = settings_service
         self._hotspot_active: bool = False
         self._connect_lock = asyncio.Lock()
-        self.hotspot_con_name: str = HOTSPOT_NAME
 
         # D-Bus state
         self._bus: Optional[MessageBus] = None
@@ -240,8 +239,9 @@ class NetworkService:
 
         Removes all existing profiles for this SSID (including broken
         netplan-generated ones), then creates a clean profile with explicit
-        security settings. Broadcasts WebSocket events on success or failure.
-        Timeout: 30 seconds.
+        security settings. Emits no WebSocket event of its own: the status
+        broadcast comes from NM's own property signals, through the D-Bus tier
+        below. Timeout: 30 seconds.
         """
         async with self._connect_lock:
             return await self._connect_impl(ssid, password)
@@ -457,7 +457,7 @@ class NetworkService:
         try:
             await self._activate_hotspot()
             self._hotspot_active = True
-            self.logger.info("Hotspot '%s' activated for first-boot setup", self.hotspot_con_name)
+            self.logger.info("Hotspot '%s' activated for first-boot setup", HOTSPOT_NAME)
             return True
         except Exception as e:
             self.logger.error("Failed to activate hotspot: %s", e)
@@ -499,8 +499,8 @@ class NetworkService:
             "connection", "add",
             "type", "wifi",
             "ifname", self.WIFI_INTERFACE,
-            "con-name", self.hotspot_con_name,
-            "ssid", self.hotspot_con_name,
+            "con-name", HOTSPOT_NAME,
+            "ssid", HOTSPOT_NAME,
             "wifi.mode", "ap",
             "wifi.band", "bg",
             "wifi.channel", "6",
@@ -512,7 +512,7 @@ class NetworkService:
             raise RuntimeError(f"Hotspot profile creation failed: {stderr}")
 
         rc, _, stderr = await self._run_nmcli(
-            "connection", "up", self.hotspot_con_name,
+            "connection", "up", HOTSPOT_NAME,
             timeout=20.0,
         )
         if rc != 0:
@@ -650,7 +650,7 @@ class NetworkService:
     async def _delete_hotspot_profile(self) -> None:
         """Remove the hotspot NM connection profile (ignores if missing)."""
         rc, _, stderr = await self._run_nmcli(
-            "connection", "delete", self.hotspot_con_name
+            "connection", "delete", HOTSPOT_NAME
         )
         if rc != 0:
             self.logger.debug("Hotspot profile cleanup (rc=%d): %s", rc, stderr)
