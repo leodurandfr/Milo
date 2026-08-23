@@ -3,7 +3,7 @@
 Unit tests for the core.multiroom module.
 
 Tests:
-- Models (Client, Zone, EqualizerSettings, RegistryState, RegistryEventType)
+- Models (Client, Zone, EqualizerSettings, RegistryEventType)
 - ClientRegistryService
 - SnapcastService
 - CrossoverService
@@ -21,7 +21,6 @@ from backend.core.multiroom.models import (
     Client,
     Zone,
     EqualizerSettings,
-    RegistryState,
     RegistryEventType,
     SPEAKER_TYPES,
     DEFAULT_SPEAKER_TYPE,
@@ -296,42 +295,6 @@ class TestZone:
 
         assert valid_zone.is_valid() is True
         assert invalid_zone.is_valid() is False
-
-
-class TestRegistryState:
-    """Tests for RegistryState model."""
-
-    def test_empty_state(self):
-        """Test creating empty state."""
-        state = RegistryState()
-
-        assert len(state.clients) == 0
-        assert len(state.zones) == 0
-        assert len(state.client_equalizer) == 0
-
-    def test_state_to_dict(self):
-        """Test converting state to dictionary."""
-        from backend.core.multiroom.models import EqFilter
-
-        client = Client(
-            mac_id="local",
-            name="Main",
-            ip="127.0.0.1"
-        )
-        zone = Zone(name="Zone 1", id="zone1", client_ids=["local", "client2"])
-        client_equalizer = EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
-
-        state = RegistryState(
-            clients={"local": client},
-            zones={"zone1": zone},
-            client_equalizer={"client3": client_equalizer}
-        )
-
-        data = state.to_dict()
-
-        assert "local" in data["clients"]
-        assert "zone1" in data["zones"]
-        assert "client3" in data["client_equalizer"]
 
 
 class TestRegistryEventType:

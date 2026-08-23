@@ -505,43 +505,6 @@ class Zone:
         return len(self.client_ids) >= 2
 
 
-@dataclass
-class RegistryState:
-    """
-    Complete registry state snapshot.
-
-    Used for initial state sync and persistence.
-    """
-    clients: Dict[str, Client] = field(default_factory=dict)
-    zones: Dict[str, Zone] = field(default_factory=dict)
-    client_equalizer: Dict[str, EqualizerSettings] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "clients": {k: v.to_dict() for k, v in self.clients.items()},
-            "zones": {k: v.to_dict() for k, v in self.zones.items()},
-            "client_equalizer": {k: v.to_dict() for k, v in self.client_equalizer.items()}
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'RegistryState':
-        """Create from dictionary."""
-        clients = {
-            k: Client.from_dict(v)
-            for k, v in data.get("clients", {}).items()
-        }
-        zones = {
-            k: Zone.from_dict(v)
-            for k, v in data.get("zones", {}).items()
-        }
-        client_equalizer = {
-            k: EqualizerSettings.from_dict(v)
-            for k, v in data.get("client_equalizer", {}).items()
-        }
-        return cls(clients=clients, zones=zones, client_equalizer=client_equalizer)
-
-
 class RegistryEventType:
     """Registry event type constants."""
     # Client events
