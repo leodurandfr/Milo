@@ -518,3 +518,70 @@ def test_a_name_filter_is_stored_stripped():
 
     payload = BtRemoteConfigRequest(device_name_filter="  ANTICATER  ")
     assert payload.device_name_filter == "ANTICATER"
+
+
+# ------------------------------------- the D-Bus filter, the instant-reconnect gate
+def dbus_signal(path="/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF",
+                member="PropertiesChanged", interface="org.bluez.Device1",
+                props=None, message_type=None):
+    """One BlueZ PropertiesChanged signal, shaped as dbus_next delivers it."""
+    from dbus_next.constants import MessageType
+
+    body = [interface, {} if props is None else props, []]
+    return types.SimpleNamespace(
+        message_type=MessageType.SIGNAL if message_type is None else message_type,
+        member=member, path=path, body=body)
+
+
+def variant(value):
+    return types.SimpleNamespace(value=value)
+
+
+def test_a_connect_signal_queues_the_device_for_an_evdev_rescan(bt):
+    """The whole point of the D-Bus listener: BlueZ auto-connects a trusted
+    remote the moment it wakes, and this is what turns that into a scan. Without
+    it the remote works again only at the next SCAN_INTERVAL — 30 s of a button
+    that does nothing, with no error anywhere to say why."""
+    bt.controller._on_dbus_message(dbus_signal(props={"Connected": variant(True)}))
+
+    assert bt.controller._dbus_reconnect_queue.get_nowait() == \
+        "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+
+
+@pytest.mark.parametrize("msg_kwargs", [
+    {"props": {"Connected": variant(False)}},
+    {"props": {"RSSI": variant(-60)}},
+    {"props": {"ServicesResolved": variant(True)}},
+    {"path": "/org/bluez/hci0", "props": {"Connected": variant(True)}},
+    {"member": "InterfacesAdded", "props": {"Connected": variant(True)}},
+    {"interface": "org.bluez.MediaPlayer1", "props": {"Connected": variant(True)}},
+], ids=["disconnect", "rssi-churn", "services-resolved", "adapter-not-device",
+        "other-member", "other-interface"])
+def test_a_signal_that_is_not_a_device_connecting_queues_nothing(bt, msg_kwargs):
+    """The queue holds one item (maxsize=1) and a hit costs a full evdev scan a
+    second later. BlueZ emits RSSI and ServicesResolved continuously while a
+    device is in range, and the A2DP source shares the adapter — so anything but
+    a Device1 Connected->True must fall through."""
+    bt.controller._on_dbus_message(dbus_signal(**msg_kwargs))
+
+    assert bt.controller._dbus_reconnect_queue.empty()
+
+
+def test_a_method_call_is_not_read_as_a_signal(bt):
+    """`add_message_handler` sees every message on the bus, replies included."""
+    from dbus_next.constants import MessageType
+
+    bt.controller._on_dbus_message(dbus_signal(
+        props={"Connected": variant(True)}, message_type=MessageType.METHOD_CALL))
+
+    assert bt.controller._dbus_reconnect_queue.empty()
+
+
+def test_a_second_connect_before_the_scan_ran_is_dropped_not_raised(bt):
+    """The queue is maxsize=1 and this handler is a synchronous D-Bus callback:
+    a QueueFull escaping it kills the listener session, and with it every instant
+    reconnect until the outer loop notices. One pending scan covers both signals."""
+    for _ in range(3):
+        bt.controller._on_dbus_message(dbus_signal(props={"Connected": variant(True)}))
+
+    assert bt.controller._dbus_reconnect_queue.qsize() == 1
