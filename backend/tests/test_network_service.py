@@ -517,3 +517,73 @@ async def test_forgetting_a_network_never_deletes_a_wired_profile(service):
         await service.forget_network("Wired connection 1")
 
     assert deleted == ["milo-Wired connection 1"]
+
+
+# --------------------------------------------------------------------------- #
+# Saving credentials — the become-client path, run once per unit, over the AP
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_saving_credentials_leaves_the_live_connection_alone(service):
+    """POST /api/setup/become-client calls this while the operator is on the AP.
+
+    It saves, persists setup_completed, then reboots. Bringing the new profile
+    up here would drop the hotspot mid-request: the caller never sees the
+    response, the flag is never written, and the unit comes back still
+    unconfigured with a pending_client_role.json it will act on. `connect()` is
+    the method that may take the link down; this one may not.
+    """
+    fake, patcher = with_nmcli()
+    with patcher:
+        await service.save_network("Maison", "secret")
+
+    assert fake.argv_containing("add"), "no profile was created — the save did nothing"
+    assert not fake.argv_containing("up")
+    assert not fake.argv_containing("disconnect")
+
+
+@pytest.mark.asyncio
+async def test_a_saved_profile_keeps_its_password_in_the_system_file(service):
+    """psk-flags=0 is what makes the profile usable on a headless unit.
+
+    NM's default defers the secret to an agent; there is none here, so the
+    profile would come up asking for a password nobody can type — after the
+    reboot, on a box with no screen and no network to reach it by.
+    """
+    fake, patcher = with_nmcli()
+    with patcher:
+        await service.save_network("Maison", "secret")
+
+    add = fake.argv_containing("add")[0]
+    assert "wifi-sec.psk-flags" in add
+    assert add[add.index("wifi-sec.psk-flags") + 1] == "0"
+
+
+@pytest.mark.asyncio
+async def test_an_open_network_is_saved_with_no_security_settings_at_all(service):
+    """A wpa-psk key-mgmt on an open network makes NM refuse to activate it."""
+    fake, patcher = with_nmcli()
+    with patcher:
+        await service.save_network("Cafe", None)
+
+    add = fake.argv_containing("add")[0]
+    assert "Cafe" in add
+    assert not [a for a in add if a.startswith("wifi-sec.")]
+
+
+@pytest.mark.asyncio
+async def test_a_refused_profile_creation_is_raised_not_swallowed(service):
+    """become-client rolls its marker file back on this exception.
+
+    Returning quietly would let it write setup_completed and reboot into the
+    client role with no wifi profile — a satellite that joins no network and
+    can only be recovered by reflashing the card.
+    """
+    def router(args):
+        if args[:2] == ("connection", "add"):
+            return (1, "", "802-11-wireless-security.psk: property is invalid")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher, pytest.raises(RuntimeError, match="WiFi save failed"):
+        await service.save_network("Maison", "secret")
