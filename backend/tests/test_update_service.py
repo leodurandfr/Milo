@@ -1571,6 +1571,168 @@ class TestUpdateQobuzProxy:
         mocks["_rollback_qobuz_venv"].assert_not_awaited()
 
 
+class TestBinaryProgramDownloadTempDir:
+    """A download that fails must not leave its scratch directory behind.
+
+    Same duty as the snapcast component below, on the path that carries three
+    of the six programs — go-librespot, CamillaDSP and Navidrome — and the one
+    the snapcast docstring cites as its reference ("as _download_binary_program
+    already does"). Only the success path hands `temp_dir` back for
+    _cleanup_temp_files to release; every other exit owns it. On this appliance
+    /tmp is a tmpfs, and an update retried after a network failure grows the
+    leak once per attempt with nothing that ever collects it.
+
+    The mocks stand for the outside world this function talks to — GitHub and
+    tar — and the assertion is what it left on disk afterwards.
+    """
+
+    CONFIG = PROGRAMS["go-librespot"]
+
+    @staticmethod
+    @contextmanager
+    def _sandboxed_tmp(tmp_path):
+        """Redirect mkdtemp into tmp_path and record every directory it creates."""
+        created = []
+        real_mkdtemp = tempfile.mkdtemp
+
+        def fake_mkdtemp(dir=None):  # noqa: A002 -- mirrors tempfile.mkdtemp's kwarg
+            path = real_mkdtemp(dir=str(tmp_path))
+            created.append(Path(path))
+            return path
+
+        with patch("backend.core.updates.update.tempfile.mkdtemp", fake_mkdtemp):
+            yield created
+
+    @staticmethod
+    def _session(status=200, payload=b"tarball-bytes"):
+        """A stand-in for aiohttp serving one response to one GET."""
+
+        class _Content:
+            @staticmethod
+            async def iter_chunked(_size):
+                yield payload
+
+        class _Response:
+            def __init__(self):
+                self.status = status
+                self.content = _Content()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_exc):
+                return False
+
+        class _Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_exc):
+                return False
+
+            @staticmethod
+            def get(_url):
+                return _Response()
+
+        return lambda **_kwargs: _Session()
+
+    @staticmethod
+    def _tar(returncode=0, produces=None):
+        """A stand-in for the tar process; honours -C and can drop a file in it."""
+
+        async def _exec(*args, **_kwargs):
+            if returncode == 0 and produces:
+                dest = Path(args[args.index("-C") + 1])
+                dest.mkdir(parents=True, exist_ok=True)
+                (dest / produces).write_bytes(b"the new binary")
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(return_value=(b"", b""))
+            proc.returncode = returncode
+            return proc
+
+        return _exec
+
+    @pytest.mark.asyncio
+    async def test_a_refused_download_removes_its_temp_dir(self, update_service, tmp_path):
+        with self._sandboxed_tmp(tmp_path) as created:
+            with patch("backend.core.updates.update.aiohttp.ClientSession",
+                       side_effect=RuntimeError("network down")):
+                result = await update_service._download_binary_program(self.CONFIG, "0.7.0")
+
+        assert result["success"] is False
+        assert "network down" in result["error"]
+        assert len(created) == 1
+        assert not created[0].exists(), "the scratch directory outlived the failed download"
+
+    @pytest.mark.asyncio
+    async def test_an_http_error_removes_its_temp_dir(self, update_service, tmp_path):
+        with self._sandboxed_tmp(tmp_path) as created:
+            with patch("backend.core.updates.update.aiohttp.ClientSession", self._session(status=404)):
+                result = await update_service._download_binary_program(self.CONFIG, "0.7.0")
+
+        assert result["success"] is False
+        assert "404" in result["error"]
+        assert len(created) == 1
+        assert not created[0].exists(), "the scratch directory outlived an HTTP error"
+
+    @pytest.mark.asyncio
+    async def test_a_failed_extraction_removes_its_temp_dir(self, update_service, tmp_path):
+        with self._sandboxed_tmp(tmp_path) as created:
+            with ExitStack() as stack:
+                stack.enter_context(patch("backend.core.updates.update.aiohttp.ClientSession",
+                                          self._session()))
+                stack.enter_context(patch(
+                    "backend.core.updates.update.asyncio.create_subprocess_exec",
+                    self._tar(returncode=1)))
+                result = await update_service._download_binary_program(self.CONFIG, "0.7.0")
+
+        assert result["success"] is False
+        assert "extract" in result["error"].lower()
+        assert len(created) == 1
+        assert not created[0].exists(), "the scratch directory outlived a failed extraction"
+
+    @pytest.mark.asyncio
+    async def test_an_archive_without_the_binary_removes_its_temp_dir(self, update_service, tmp_path):
+        """tar succeeded and unpacked something, but not the binary we came for."""
+        with self._sandboxed_tmp(tmp_path) as created:
+            with ExitStack() as stack:
+                stack.enter_context(patch("backend.core.updates.update.aiohttp.ClientSession",
+                                          self._session()))
+                stack.enter_context(patch(
+                    "backend.core.updates.update.asyncio.create_subprocess_exec",
+                    self._tar(produces="README.md")))
+                result = await update_service._download_binary_program(self.CONFIG, "0.7.0")
+
+        assert result["success"] is False
+        assert "Binary not found" in result["error"]
+        assert len(created) == 1
+        assert not created[0].exists(), "the scratch directory outlived an archive we rejected"
+
+    @pytest.mark.asyncio
+    async def test_the_success_path_hands_its_directory_to_the_caller(self, update_service, tmp_path):
+        """The one exit that must NOT clean up: the caller releases it later."""
+        binary_name = Path(self.CONFIG["binary_path"]).name
+
+        with self._sandboxed_tmp(tmp_path) as created:
+            with ExitStack() as stack:
+                stack.enter_context(patch("backend.core.updates.update.aiohttp.ClientSession",
+                                          self._session()))
+                stack.enter_context(patch(
+                    "backend.core.updates.update.asyncio.create_subprocess_exec",
+                    self._tar(produces=binary_name)))
+                result = await update_service._download_binary_program(self.CONFIG, "0.7.0")
+
+        assert result["success"] is True
+        assert Path(result["binary_path"]).is_file(), "the path handed back is not the unpacked binary"
+        assert Path(result["binary_path"]).name == binary_name
+        assert len(created) == 1
+        assert result["temp_dir"] == str(created[0])
+        assert created[0].exists(), "the success path must leave the directory for the caller"
+
+        await update_service._cleanup_temp_files(result["temp_dir"])
+        assert not created[0].exists()
+
+
 class TestSnapcastComponentDownloadTempDir:
     """A download that fails must not leave its scratch directory in /tmp.
 
