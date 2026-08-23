@@ -324,6 +324,63 @@ class TestVolumeStateStore:
         assert mac in state_store._clients
         assert state_store._clients[mac].volume_db == DEFAULT_VOLUME_DB
 
+    @pytest.mark.asyncio
+    async def test_client_going_offline_keeps_its_level(self, state_store):
+        """A client that merely went offline keeps the level it was left at.
+
+        Two producers emit CLIENT_DISCONNECTED and the registry is what tells them
+        apart: set_client_online(False) leaves the client in the registry, so this
+        arm must only lower availability. Dropping the level here would hand the
+        client back at whatever its room drifted to, which is the one thing the
+        volume ownership rule forbids.
+        """
+        from backend.core.multiroom.models import RegistryEventType
+
+        mac = "aa:bb:cc:dd:ee:ff"
+        registry = Mock()
+        registry.subscribe = Mock()
+        registry.get_client = Mock(return_value=Mock(mac_id=mac))
+        state_store.set_registry(registry)
+        state_store._clients[mac] = ClientVolume(
+            volume_db=-22.0, offset_db=0.0, mute=True, available=True,
+        )
+
+        await state_store._handle_registry_event(
+            RegistryEventType.CLIENT_DISCONNECTED, {"mac_id": mac},
+        )
+
+        # The arm ran: availability is what it is allowed to touch...
+        assert state_store._clients[mac].available is False
+        # ...and the level and mute it is not.
+        assert state_store._clients[mac].volume_db == -22.0
+        assert state_store._clients[mac].mute is True
+
+    @pytest.mark.asyncio
+    async def test_client_deleted_from_registry_loses_its_level(self, state_store):
+        """A client the registry no longer knows is dropped from volume state too.
+
+        unregister_client() removes the client before emitting, so get_client()
+        answers None — the same event, the opposite outcome. Keeping the entry would
+        resurrect a deleted speaker's level in every zone average and in the
+        complete-state snapshot.
+        """
+        from backend.core.multiroom.models import RegistryEventType
+
+        mac = "aa:bb:cc:dd:ee:ff"
+        registry = Mock()
+        registry.subscribe = Mock()
+        registry.get_client = Mock(return_value=None)
+        state_store.set_registry(registry)
+        state_store._clients[mac] = ClientVolume(
+            volume_db=-22.0, offset_db=0.0, mute=False, available=True,
+        )
+
+        await state_store._handle_registry_event(
+            RegistryEventType.CLIENT_DISCONNECTED, {"mac_id": mac},
+        )
+
+        assert mac not in state_store._clients
+
     def test_set_volume_config(self, mock_settings):
         """Test setting VolumeConfig updates clamping behavior."""
         store = VolumeStateStore(mock_settings)
@@ -653,6 +710,27 @@ class TestVolumeService:
         must NOT clobber the daemon with DEFAULT_VOLUME_DB — it skips until the local
         client is known (the startup path applies the correct value)."""
         service._state_store._local_mac_id = None
+        service._state_store._clients = {}
+
+        await service.reapply_current_volume()
+
+        mock_camilladsp_service.set_volume.assert_not_called()
+        mock_camilladsp_service.set_mute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_reapply_current_volume_skips_when_local_has_no_entry(
+        self, service, mock_camilladsp_service
+    ):
+        """Same clobber, other half of the guard: the local mac is known but has no
+        volume entry, so local_volume_db would answer DEFAULT_VOLUME_DB.
+
+        The twin above covers `local_mac_id is None`, which short-circuits the `or`
+        before has_client() is ever consulted. This state is the durable one: the
+        registry's client-deleted branch drops _clients[mac] without clearing
+        _local_mac_id, so a CamillaDSP reconnect after a client deletion would push
+        -45 dB at the daemon.
+        """
+        service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"
         service._state_store._clients = {}
 
         await service.reapply_current_volume()
