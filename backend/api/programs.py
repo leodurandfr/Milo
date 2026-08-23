@@ -54,7 +54,10 @@ def create_programs_router(
 
     satellite_service = satellite_update_service
 
-    active_updates = {}
+    # The in-flight update keys. A set, not a map: the only questions asked of
+    # it are membership and which keys are local, and a per-key status/progress
+    # payload lived here unread for as long as it existed.
+    active_updates: set[str] = set()
 
     def _claim_update(update_key: str) -> bool:
         """Reserve an update key, or refuse if one is already in flight.
@@ -69,11 +72,7 @@ def create_programs_router(
         """
         if update_key in active_updates:
             return False
-        active_updates[update_key] = {
-            "status": "starting",
-            "progress": 0,
-            "message": "Initializing update..."
-        }
+        active_updates.add(update_key)
         return True
 
     def _create_background_update(
@@ -84,29 +83,24 @@ def create_programs_router(
         identifier: dict,
         pre_update_fn=None,
     ):
-        """Create a background update task with progress tracking and WS broadcasting.
+        """Create the background task that runs one update and broadcasts it.
 
         The key is already claimed by the route through _claim_update().
         Returns an async do_update coroutine to pass to background_tasks.add_task().
         """
 
-        async def progress_callback(message: str, progress: int):
-            active_updates[update_key] = {
-                "status": "updating",
-                "progress": progress,
-                "message": message
-            }
-            # Broadcast carries status only; progress/message live in
-            # active_updates for the REST reconstruction path (GET /programs).
-            await state_machine.broadcast(progress_event_cls(**identifier))
-
         async def do_update():
             try:
-                if pre_update_fn:
-                    await pre_update_fn(progress_callback)
+                # Announced once, at the start: the event's whole payload is the
+                # identifier plus a constant status, so firing it again at each
+                # phase said nothing a client did not already know.
+                await state_machine.broadcast(progress_event_cls(**identifier))
 
-                result = await update_fn(progress_callback)
-                del active_updates[update_key]
+                if pre_update_fn:
+                    await pre_update_fn()
+
+                result = await update_fn()
+                active_updates.discard(update_key)
 
                 if not result["success"]:
                     logger.error(f"Update {update_key} failed: {result.get('error', 'Update failed')}")
@@ -117,8 +111,7 @@ def create_programs_router(
 
             except Exception as e:
                 logger.error(f"Update {update_key} failed: {e}")
-                if update_key in active_updates:
-                    del active_updates[update_key]
+                active_updates.discard(update_key)
                 await state_machine.broadcast(
                     complete_event_cls(**identifier, success=False)
                 )
@@ -239,7 +232,7 @@ def create_programs_router(
 
         do_update = _create_background_update(
             update_key=satellite_key,
-            update_fn=lambda cb: satellite_service.update_satellite(mac_id, cb),
+            update_fn=lambda: satellite_service.update_satellite(mac_id),
             progress_event_cls=SatelliteUpdateProgress,
             complete_event_cls=SatelliteUpdateComplete,
             identifier={"mac_id": mac_id},
@@ -266,7 +259,7 @@ def create_programs_router(
 
         do_update = _create_background_update(
             update_key=satellite_key,
-            update_fn=lambda cb: satellite_service.update_satellite_app(mac_id, cb),
+            update_fn=lambda: satellite_service.update_satellite_app(mac_id),
             progress_event_cls=SatelliteAppUpdateProgress,
             complete_event_cls=SatelliteAppUpdateComplete,
             identifier={"mac_id": mac_id},
@@ -293,7 +286,7 @@ def create_programs_router(
 
         do_update = _create_background_update(
             update_key=satellite_key,
-            update_fn=lambda cb: satellite_service.update_satellite_camilladsp(mac_id, cb),
+            update_fn=lambda: satellite_service.update_satellite_camilladsp(mac_id),
             progress_event_cls=SatelliteCamillaDspUpdateProgress,
             complete_event_cls=SatelliteCamillaDspUpdateComplete,
             identifier={"mac_id": mac_id},
@@ -339,25 +332,24 @@ def create_programs_router(
         try:
             can_update = await update_service.can_update_program(program_key)
         except Exception:
-            active_updates.pop(program_key, None)
+            active_updates.discard(program_key)
             raise
 
         if not can_update.get("can_update"):
-            active_updates.pop(program_key, None)
+            active_updates.discard(program_key)
             return {
                 "status": "error",
                 "message": can_update.get("reason", "Cannot update")
             }
 
-        async def _deactivate_if_needed(progress_callback):
+        async def _deactivate_if_needed():
             audio_source = PROGRAM_TO_AUDIO_SOURCE.get(program_key)
             if audio_source and state_machine.system_state.active_source == audio_source:
-                await progress_callback("updates.progress.stoppingActiveSource", 2)
                 await state_machine.transition_to_source(AudioSource.NONE)
 
         do_update = _create_background_update(
             update_key=program_key,
-            update_fn=lambda cb: update_service.update_program(program_key, cb),
+            update_fn=lambda: update_service.update_program(program_key),
             progress_event_cls=ProgramUpdateProgress,
             complete_event_cls=ProgramUpdateComplete,
             identifier={"program": program_key},

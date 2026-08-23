@@ -10,7 +10,7 @@ import tempfile
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable, Awaitable
+from typing import Dict, Any, Optional
 from backend.core.updates.version import VersionService
 from backend.config.constants import DEPLOY_UPDATE_CMD
 
@@ -29,8 +29,8 @@ class UpdateService(VersionService):
         self._systemd = systemd_manager
         self.update_logger = logging.getLogger(f"{__name__}.update")
 
-    async def update_program(self, program_key: str, progress_callback: Optional[Callable[[str, int], Awaitable[None]]] = None) -> Dict[str, Any]:
-        """Updates a specific program with progress callback"""
+    async def update_program(self, program_key: str) -> Dict[str, Any]:
+        """Dispatches a program key to the flow that knows how to update it."""
         if program_key not in self.programs:
             return {"success": False, "error": f"Update not supported for {program_key}"}
 
@@ -40,19 +40,16 @@ class UpdateService(VersionService):
             if not status.get("update_available"):
                 return {"success": False, "error": "No update available"}
 
-            if progress_callback:
-                await progress_callback("Initializing update...", 0)
-
             if program_key == "milo":
-                return await self._update_milo_app(status, progress_callback)
+                return await self._update_milo_app(status)
             elif program_key == "multiroom":
-                return await self._update_multiroom(status, progress_callback)
+                return await self._update_multiroom(status)
             elif program_key == "shairport-sync":
-                return await self._update_shairport_sync(status, progress_callback)
+                return await self._update_shairport_sync(status)
             elif program_key == "qobuz-proxy":
-                return await self._update_qobuz_proxy(status, progress_callback)
+                return await self._update_qobuz_proxy(status)
             elif "asset_url" in self.programs[program_key]:
-                return await self._update_binary_program(program_key, status, progress_callback)
+                return await self._update_binary_program(program_key, status)
             else:
                 return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
@@ -116,7 +113,7 @@ class UpdateService(VersionService):
         )
         return {"success": False, "error": f"{error} {outcome}"}
 
-    async def _rollback_milo_to_commit(self, commit_hash: str, progress_callback: Optional[Callable] = None) -> bool:
+    async def _rollback_milo_to_commit(self, commit_hash: str) -> bool:
         """Rollback Milo to a specific commit and rebuild"""
         config = self.programs["milo"]
         try:
@@ -133,9 +130,6 @@ class UpdateService(VersionService):
             if proc.returncode != 0:
                 self.update_logger.error(f"Git reset failed: {stderr.decode()}")
                 return False
-
-            if progress_callback:
-                await progress_callback("updates.progress.rollbackRebuilding", 92)
 
             # Rebuild frontend after rollback. Bounded and checked exactly like
             # the forward path: an npm that hangs here would freeze the rollback
@@ -167,9 +161,6 @@ class UpdateService(VersionService):
             # Sync system files from rolled-back version
             await self._sync_system_files()
 
-            if progress_callback:
-                await progress_callback("updates.progress.rollbackRestarting", 96)
-
             # Restart services. Kiosk first (observable); milo-backend LAST and
             # fire-and-forget — restarting our own unit tears this process down
             # mid-call, so anything after it would not run.
@@ -188,15 +179,12 @@ class UpdateService(VersionService):
             self.update_logger.error(f"Milo rollback failed: {e}")
             return False
 
-    async def _update_milo_app(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+    async def _update_milo_app(self, status: Dict[str, Any]) -> Dict[str, Any]:
         """Updates Milo application via git pull with automatic rollback on failure"""
         config = self.programs["milo"]
         original_commit = None
 
         try:
-            if progress_callback:
-                await progress_callback("updates.progress.checkingRepository", 5)
-
             git_dir = Path(config["git_path"]) / ".git"
             if not git_dir.exists():
                 return {"success": False, "error": "Not a git repository"}
@@ -205,9 +193,6 @@ class UpdateService(VersionService):
             original_commit = await self._get_current_commit(config["git_path"])
             if original_commit:
                 self.update_logger.info(f"Current commit before update: {original_commit[:8]}")
-
-            if progress_callback:
-                await progress_callback("updates.progress.fetchingUpdates", 10)
 
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "fetch", "origin", config["git_branch"],
@@ -223,9 +208,6 @@ class UpdateService(VersionService):
 
             if proc.returncode != 0:
                 return {"success": False, "error": f"Git fetch failed: {stderr.decode()}"}
-
-            if progress_callback:
-                await progress_callback("updates.progress.checkingLocalChanges", 15)
 
             # 4. Check if there are uncommitted local changes
             proc = await asyncio.create_subprocess_exec(
@@ -243,9 +225,6 @@ class UpdateService(VersionService):
             if stdout.decode().strip():
                 return {"success": False, "error": "Local changes detected. Please commit or stash them first."}
 
-            if progress_callback:
-                await progress_callback("updates.progress.pullingChanges", 20)
-
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "pull", "origin", config["git_branch"],
                 stdout=asyncio.subprocess.PIPE,
@@ -262,21 +241,12 @@ class UpdateService(VersionService):
                 error_msg = f"Git pull failed: {stderr.decode()}"
                 raise Exception(error_msg)
 
-            if progress_callback:
-                await progress_callback("updates.progress.installingFrontendDeps", 30)
-
             frontend_dir = Path(config["git_path"]) / "frontend"
             if frontend_dir.exists():
                 await self._run_npm(["install"], frontend_dir)
 
-            if progress_callback:
-                await progress_callback("updates.progress.buildingFrontend", 45)
-
             if frontend_dir.exists():
                 await self._run_npm(["run", "build"], frontend_dir)
-
-            if progress_callback:
-                await progress_callback("updates.progress.installingPythonDeps", 60)
 
             # 8. Install Python dependencies in venv
             requirements_file = Path(config["git_path"]) / "requirements.txt"
@@ -296,14 +266,8 @@ class UpdateService(VersionService):
             if proc.returncode != 0:
                 raise Exception(f"pip install failed: {stderr.decode()}")
 
-            if progress_callback:
-                await progress_callback("updates.progress.syncingSystemFiles", 75)
-
             # 9. Sync system files (services, rootfs)
             await self._sync_system_files()
-
-            if progress_callback:
-                await progress_callback("updates.progress.rebooting", 95)
 
             # 10. Reboot the system to reload all services and configs
             # Small delay to ensure the WebSocket message is sent
@@ -329,13 +293,7 @@ class UpdateService(VersionService):
             # Automatic rollback if we have an original commit
             if original_commit:
                 self.update_logger.info("Initiating automatic rollback...")
-                if progress_callback:
-                    await progress_callback("updates.progress.rollingBack", 90)
-
-                rollback_success = await self._rollback_milo_to_commit(original_commit, progress_callback)
-
-                if rollback_success and progress_callback:
-                    await progress_callback("updates.progress.rollbackComplete", 100)
+                rollback_success = await self._rollback_milo_to_commit(original_commit)
 
                 return self._failure_after_rollback(f"Update failed: {e}.", rollback_success)
 
@@ -405,7 +363,7 @@ class UpdateService(VersionService):
             raise Exception(f"System files sync failed: {output}")
         self.update_logger.info("System files sync completed")
 
-    async def _update_binary_program(self, program_key: str, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+    async def _update_binary_program(self, program_key: str, status: Dict[str, Any]) -> Dict[str, Any]:
         """Updates a program shipped as a single binary inside a release tarball.
 
         go-librespot, CamillaDSP and Navidrome all follow this flow: back the
@@ -430,24 +388,15 @@ class UpdateService(VersionService):
         service_stopped = False
 
         try:
-            if progress_callback:
-                await progress_callback("updates.progress.creatingBackup", 10)
-
             backup_result = await self._backup_binary_program(config)
             if not backup_result["success"]:
                 return backup_result
-
-            if progress_callback:
-                await progress_callback(config["download_progress_key"], 20)
 
             download_result = await self._download_binary_program(config, latest_version)
             if not download_result["success"]:
                 return download_result
 
             if run_service:
-                if progress_callback:
-                    await progress_callback("updates.progress.stoppingService", 60)
-
                 if not await self._stop_service(config["service_name"]):
                     await self._cleanup_temp_files(download_result.get("temp_dir"))
                     return {"success": False, "error": "Failed to stop service"}
@@ -456,9 +405,6 @@ class UpdateService(VersionService):
                 # Let the kernel release the running image before it is
                 # overwritten, otherwise install-binary hits "Text file busy".
                 await asyncio.sleep(0.5)
-
-            if progress_callback:
-                await progress_callback("updates.progress.installingVersion", 70)
 
             success, output = await self._run_deploy(
                 "install-binary", download_result["binary_path"], config["binary_path"]
@@ -469,9 +415,6 @@ class UpdateService(VersionService):
                 return self._failure_after_rollback(f"Failed to install binary: {output}.", rolled_back)
 
             if run_service:
-                if progress_callback:
-                    await progress_callback("updates.progress.startingService", 90)
-
                 if not await self._start_service(config["service_name"]):
                     await self._cleanup_temp_files(download_result.get("temp_dir"))
                     rolled_back = await self._rollback_binary_program(config, run_service)
@@ -479,17 +422,11 @@ class UpdateService(VersionService):
                         f"Failed to start {display_name} after update.", rolled_back
                     )
 
-            if progress_callback:
-                await progress_callback("updates.progress.verifyingUpdate", 95)
-
             verify_result = await self._verify_binary_program(config, run_service)
             if not verify_result["success"]:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
                 rolled_back = await self._rollback_binary_program(config, run_service)
                 return self._failure_after_rollback(f"{verify_result['error']}.", rolled_back)
-
-            if progress_callback:
-                await progress_callback("updates.progress.completed", 100)
 
             await self._cleanup_temp_files(download_result.get("temp_dir"))
 
@@ -663,7 +600,7 @@ class UpdateService(VersionService):
                 restored = False
         return restored
 
-    async def _update_multiroom(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+    async def _update_multiroom(self, status: Dict[str, Any]) -> Dict[str, Any]:
         """Updates both snapserver and snapclient atomically"""
         config = self.programs["multiroom"]
         latest_version = status["latest"]["version"]
@@ -675,15 +612,9 @@ class UpdateService(VersionService):
 
         try:
             # Phase 1: Download both packages (0-30%)
-            if progress_callback:
-                await progress_callback("updates.progress.downloadingSnapserver", 5)
-
             server_download = await self._download_snapcast_component("snapserver", latest_version)
             if not server_download["success"]:
                 return {"success": False, "error": f"Failed to download snapserver: {server_download.get('error')}"}
-
-            if progress_callback:
-                await progress_callback("updates.progress.downloadingSnapclient", 20)
 
             client_download = await self._download_snapcast_component("snapclient", latest_version)
             if not client_download["success"]:
@@ -691,18 +622,12 @@ class UpdateService(VersionService):
                 return {"success": False, "error": f"Failed to download snapclient: {client_download.get('error')}"}
 
             # Phase 2: Stop all services (30-40%)
-            if progress_callback:
-                await progress_callback("updates.progress.stoppingMultiroom", 35)
-
             for service in config["services"]:
                 services_were_active[service] = await self._is_service_active(service)
                 self.update_logger.info(f"Service {service} was {'active' if services_were_active[service] else 'inactive'} before update")
                 await self._stop_service(service)
 
             # Phase 3: Install snapserver (40-60%)
-            if progress_callback:
-                await progress_callback("updates.progress.installingSnapserver", 45)
-
             server_install = await self._install_deb_package(server_download["deb_path"])
             if not server_install["success"]:
                 restored = await self._restore_multiroom_services(services_were_active)
@@ -713,9 +638,6 @@ class UpdateService(VersionService):
                 )
 
             # Phase 4: Install snapclient (60-80%)
-            if progress_callback:
-                await progress_callback("updates.progress.installingSnapclient", 65)
-
             client_install = await self._install_deb_package(client_download["deb_path"])
             if not client_install["success"]:
                 self.update_logger.warning(f"Snapclient installation failed after snapserver succeeded: {client_install.get('error')}")
@@ -727,20 +649,11 @@ class UpdateService(VersionService):
                 )
 
             # Phase 5: Restart services (80-95%)
-            if progress_callback:
-                await progress_callback("updates.progress.startingMultiroom", 85)
-
             await self._restore_multiroom_services(services_were_active)
 
             # Phase 6: Cleanup (95-100%)
-            if progress_callback:
-                await progress_callback("updates.progress.cleaningUp", 95)
-
             await self._cleanup_temp_files(server_download.get("temp_dir"))
             await self._cleanup_temp_files(client_download.get("temp_dir"))
-
-            if progress_callback:
-                await progress_callback("updates.progress.completed", 100)
 
             # A service that failed to come back up is reported by the per-service
             # error log above; the caller only distinguishes success from failure.
@@ -761,7 +674,7 @@ class UpdateService(VersionService):
 
     # === SHAIRPORT-SYNC (compile from source) ===
 
-    async def _update_shairport_sync(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+    async def _update_shairport_sync(self, status: Dict[str, Any]) -> Dict[str, Any]:
         """Updates shairport-sync by compiling from source"""
         config = self.programs["shairport-sync"]
         latest_version = status["latest"]["version"]
@@ -774,17 +687,11 @@ class UpdateService(VersionService):
 
         try:
             # Phase 1: Backup (5%)
-            if progress_callback:
-                await progress_callback("updates.progress.creatingBackup", 5)
-
             backup_result = await self._backup_shairport_sync(config)
             if not backup_result["success"]:
                 return backup_result
 
             # Phase 2: Download source (10%)
-            if progress_callback:
-                await progress_callback("updates.progress.downloadingSource", 10)
-
             download_result = await self._download_shairport_sync_source(tag_name)
             if not download_result["success"]:
                 return download_result
@@ -792,18 +699,12 @@ class UpdateService(VersionService):
             source_dir = download_result["source_dir"]
 
             # Phase 3: Configure (20%)
-            if progress_callback:
-                await progress_callback("updates.progress.configuringSource", 20)
-
             configure_result = await self._configure_shairport_sync(source_dir, config["configure_flags"])
             if not configure_result["success"]:
                 await self._cleanup_temp_files(temp_dir)
                 return configure_result
 
             # Phase 4: Compile (30%)
-            if progress_callback:
-                await progress_callback("updates.progress.compilingSource", 30)
-
             compile_result = await self._compile_shairport_sync(source_dir)
             if not compile_result["success"]:
                 await self._cleanup_temp_files(temp_dir)
@@ -811,18 +712,12 @@ class UpdateService(VersionService):
 
             # Phase 5: Stop service only if active (75%)
             if service_was_active:
-                if progress_callback:
-                    await progress_callback("updates.progress.stoppingService", 75)
-
                 stop_result = await self._stop_service(config["service_name"])
                 if not stop_result:
                     await self._cleanup_temp_files(temp_dir)
                     return {"success": False, "error": "Failed to stop service"}
 
             # Phase 6: Install (80%)
-            if progress_callback:
-                await progress_callback("updates.progress.installingVersion", 80)
-
             install_result = await self._install_shairport_sync(source_dir)
             if not install_result["success"]:
                 rolled_back = await self._rollback_shairport_sync(config, service_was_active)
@@ -831,9 +726,6 @@ class UpdateService(VersionService):
 
             # Phase 7: Restart service if it was active (85%)
             if service_was_active:
-                if progress_callback:
-                    await progress_callback("updates.progress.startingService", 85)
-
                 start_result = await self._start_service(config["service_name"])
                 if not start_result:
                     rolled_back = await self._rollback_shairport_sync(config, service_was_active)
@@ -843,9 +735,6 @@ class UpdateService(VersionService):
                     )
 
             # Phase 8: Verify (90%)
-            if progress_callback:
-                await progress_callback("updates.progress.verifyingUpdate", 90)
-
             verify_result = await self._verify_shairport_sync_update(config, service_was_active)
             if not verify_result["success"]:
                 rolled_back = await self._rollback_shairport_sync(config, service_was_active)
@@ -860,13 +749,7 @@ class UpdateService(VersionService):
                 self.update_logger.warning(f"Failed to write version file: {e}")
 
             # Phase 9: Cleanup (95-100%)
-            if progress_callback:
-                await progress_callback("updates.progress.cleaningUp", 95)
-
             await self._cleanup_temp_files(temp_dir)
-
-            if progress_callback:
-                await progress_callback("updates.progress.completed", 100)
 
             return {"success": True}
 
@@ -1151,7 +1034,7 @@ class UpdateService(VersionService):
         except Exception as e:
             return False, str(e)
 
-    async def _update_qobuz_proxy(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+    async def _update_qobuz_proxy(self, status: Dict[str, Any]) -> Dict[str, Any]:
         """Updates the qobuz-proxy sidecar (a pip package installed from a git tag).
 
         Unlike the binary programs, the "install" is a pip upgrade inside the
@@ -1179,9 +1062,6 @@ class UpdateService(VersionService):
 
         try:
             # Phase 1: Back up the venv (10%)
-            if progress_callback:
-                await progress_callback("updates.progress.creatingBackup", 10)
-
             backup_result = await self._backup_qobuz_venv(config)
             if not backup_result["success"]:
                 return backup_result
@@ -1191,17 +1071,11 @@ class UpdateService(VersionService):
             # Normally already stopped (the route deactivates Qobuz pre-update),
             # so this is defensive against a file lock (Restart=always).
             if service_was_active:
-                if progress_callback:
-                    await progress_callback("updates.progress.stoppingService", 50)
-
                 if not await self._stop_service(service):
                     rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
                     return self._failure_after_rollback("Failed to stop service.", rolled_back)
 
             # Phase 3: pip upgrade to the pinned tag (70%) — unprivileged
-            if progress_callback:
-                await progress_callback("updates.progress.installingVersion", 70)
-
             pip_ok, pip_out = await self._run_local(
                 f"{venv}/bin/pip", "install", "--upgrade",
                 f"qobuz-proxy[local] @ git+{QOBUZ_PROXY_REPO_URL}@{tag_name}",
@@ -1213,9 +1087,6 @@ class UpdateService(VersionService):
                 return self._failure_after_rollback(f"pip install failed: {pip_out}.", rolled_back)
 
             # Phase 4: re-apply our vendored patches (85%) — the fragile step
-            if progress_callback:
-                await progress_callback("updates.progress.installingVersion", 85)
-
             patch_ok, patch_out = await self._run_local(
                 f"{venv}/bin/python", QOBUZ_PROXY_PATCHES_SCRIPT, timeout=60
             )
@@ -1227,9 +1098,6 @@ class UpdateService(VersionService):
                 )
 
             # Phase 5: verify import + version (95%)
-            if progress_callback:
-                await progress_callback("updates.progress.verifyingUpdate", 95)
-
             verify_result = await self._verify_qobuz_update(config, latest_version)
             if not verify_result["success"]:
                 rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
@@ -1247,9 +1115,6 @@ class UpdateService(VersionService):
                     "success": False,
                     "error": "qobuz-proxy updated but its service did not restart. Restart it manually.",
                 }
-
-            if progress_callback:
-                await progress_callback("updates.progress.completed", 100)
 
             await self._cleanup_qobuz_backup(config)
 

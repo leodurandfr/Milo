@@ -139,17 +139,6 @@ class TestUpdateProgram:
         assert result["success"] is False
         assert "boom" in result["error"]
 
-    @pytest.mark.asyncio
-    async def test_progress_callback_called(self, update_service):
-        callback = AsyncMock()
-        status = {"update_available": True, "latest": {"version": "0.7.0"}}
-
-        with patch.object(update_service, "get_program_full_status", return_value=status):
-            with patch.object(update_service, "_update_binary_program", return_value={"success": True}):
-                await update_service.update_program("go-librespot", progress_callback=callback)
-
-        callback.assert_called_with("Initializing update...", 0)
-
 
 class TestServiceManagement:
     """Tests for _is_service_active, _stop_service, _start_service, _restart_service"""
@@ -635,10 +624,9 @@ class TestUpdateBinaryProgram:
     @pytest.mark.parametrize("program_key", BINARY_PROGRAMS)
     async def test_successful_update_with_active_service(self, update_service, program_key):
         status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
-        callback = AsyncMock()
 
         with self._flow(update_service, service_active=True) as mocks:
-            result = await update_service._update_binary_program(program_key, status, callback)
+            result = await update_service._update_binary_program(program_key, status)
 
         assert result["success"] is True
         mocks["_stop_service"].assert_awaited_once()

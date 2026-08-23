@@ -65,8 +65,7 @@ PROGRAMS = {
         "config_path": "/var/lib/milo/go-librespot/config.yml",
         "service_name": "milo-spotify.service",
         "backup_path": "/var/lib/milo/backups/go-librespot",
-        "asset_url": "https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz",
-        "download_progress_key": "updates.progress.downloadingGoLibrespot"
+        "asset_url": "https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz"
     },
     "shairport-sync": {
         "name": "AirPlay",
@@ -117,7 +116,6 @@ PROGRAMS = {
         "service_name": "milo-camilladsp.service",
         "backup_path": "/var/lib/milo/backups/camilladsp",
         "asset_url": "https://github.com/HEnquist/camilladsp/releases/download/v{version}/camilladsp-linux-aarch64.tar.gz",
-        "download_progress_key": "updates.progress.downloadingCamillaDSP",
         "always_on": True
     },
     "qobuz-proxy": {
@@ -152,7 +150,6 @@ PROGRAMS = {
         "service_name": "milo-navidrome.service",
         "backup_path": "/var/lib/milo/backups/navidrome",
         "asset_url": "https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_arm64.tar.gz",
-        "download_progress_key": "updates.progress.downloadingNavidrome",
         # The tarball ships README/LICENSE next to the binary.
         "tar_member": "navidrome",
         "always_on": True
