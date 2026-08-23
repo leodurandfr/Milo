@@ -55,6 +55,21 @@ class ConcreteAudioSource(BaseAudioSource):
         return self.error_response(f"Unhandled command: {cmd}")
 
 
+class SilentStartSource(ConcreteAudioSource):
+    """A source whose `_do_start()` succeeds without announcing a state.
+
+    Not a contrived case: `_do_start` is only *expected* to publish READY or
+    ACTIVE, nothing enforces it, and a source that hands back True after
+    launching its unit has done its job. `ConcreteAudioSource` always publishes
+    ACTIVE, which is why the default below was reached by no test.
+    """
+
+    async def _do_start(self) -> bool:
+        self.start_called = True
+        return True
+
+
+
 class TestBaseAudioSourceLifecycle:
     """Test BaseAudioSource lifecycle methods."""
 
@@ -68,6 +83,28 @@ class TestBaseAudioSourceLifecycle:
         assert result is True
         assert source.start_called
         assert source.state == SourceState.ACTIVE
+
+
+    @pytest.mark.asyncio
+    async def test_a_start_that_announced_no_state_lands_on_ready(self):
+        """`start()` owes every source a resting state, and READY is it.
+
+        What breaks when this fails: a source whose `_do_start()` succeeded
+        without publishing a state stays in STARTING for good — `start()`
+        answered True, the unit is running, and the source never becomes
+        selectable. This is the state contract `BaseAudioSource` holds for all
+        twelve sources, and `audio_source.py:186` is the whole of it.
+
+        The complement is already pinned by `test_start_success`: a `_do_start`
+        that published ACTIVE keeps it, which is why the default is guarded by
+        `== STARTING` rather than applied unconditionally.
+        """
+        source = SilentStartSource()
+
+        result = await source.start()
+
+        assert result is True
+        assert source.state == SourceState.READY
 
     @pytest.mark.asyncio
     async def test_start_failure(self):
