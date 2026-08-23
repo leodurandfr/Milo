@@ -374,6 +374,86 @@ class TestErrorMechanismsStaySeparate:
         assert state_machine.system_state.source_state != SourceState.ERROR
         assert state_machine.system_state.error is None
 
+    @pytest.mark.asyncio
+    async def test_broadcast_error_cleared_dismisses_the_banner(self, wired):
+        """broadcast_error_cleared() emits source/error_cleared after a banner,
+        and stays silent when no banner is up.
+
+        The count of envelopes is asserted before their content: the
+        `not self._error_active` guard makes a method that does nothing
+        indistinguishable from one that cleared correctly, so a no-op passes
+        any assertion written on the last envelope alone.
+        """
+        source, state_machine = wired
+        spawned = []
+        source._bg.spawn = Mock(
+            side_effect=lambda coro, **kw: spawned.append(asyncio.ensure_future(coro))
+        )
+
+        # Nothing was broadcast, so clearing must produce no wire noise at all.
+        source.broadcast_error_cleared()
+        assert spawned == []
+
+        source.broadcast_error("Unable to load stream: FIP")
+        source.broadcast_error_cleared()
+        await asyncio.gather(*spawned)
+
+        envelopes = [
+            call.args[0]
+            for call in state_machine.ws_manager.broadcast_dict.call_args_list
+        ]
+        assert len(envelopes) == 2
+        assert (envelopes[1]["category"], envelopes[1]["type"]) == (
+            "source", "error_cleared",
+        )
+        assert envelopes[1]["data"]["source"] == AudioSource.RADIO.value
+
+
+class TestPositionUpdateReachesBothSinks:
+    """broadcast_position_update() has two effects, and losing either one is
+    invisible from the other.
+
+    The wire event is the frontend's drift correction; the write into
+    system_state.metadata is what a WebSocket connecting mid-track receives in
+    its initial_state. A method that only broadcast would hand every freshly
+    opened tab the position the track started from.
+    """
+
+    @pytest.fixture
+    def wired(self):
+        """A real state machine with the source registered and active."""
+        state_machine = AudioStateMachine()
+        state_machine.ws_manager = Mock()
+        state_machine.ws_manager.broadcast_dict = AsyncMock()
+        source = ConcreteAudioSource()
+        source.source_id = AudioSource.RADIO.value
+        source.state_machine = state_machine
+        state_machine.register_source(AudioSource.RADIO, source)
+        state_machine.system_state.active_source = AudioSource.RADIO
+        return source, state_machine
+
+    @pytest.mark.asyncio
+    async def test_position_update_syncs_state_then_broadcasts(self, wired):
+        """Both sinks carry position and duration, not just the wire."""
+        source, state_machine = wired
+        spawned = []
+        source._bg.spawn = Mock(
+            side_effect=lambda coro, **kw: spawned.append(asyncio.ensure_future(coro))
+        )
+
+        source.broadcast_position_update(42000, 180000)
+        await asyncio.gather(*spawned)
+
+        assert state_machine.system_state.metadata["position"] == 42000
+        assert state_machine.system_state.metadata["duration"] == 180000
+
+        envelope = state_machine.ws_manager.broadcast_dict.call_args.args[0]
+        assert (envelope["category"], envelope["type"]) == (
+            "source", "position_update",
+        )
+        assert envelope["data"]["position"] == 42000
+        assert envelope["data"]["duration"] == 180000
+
 
 class TestSourceStateValues:
     """Test SourceState enum values."""
