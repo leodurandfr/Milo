@@ -889,6 +889,75 @@ class TestCamillaDSPService:
         assert camilladsp_service._active_preset == before[4]
 
 
+class TestConnectedVolumePath:
+    """The connected half of `set_volume` / `set_mute` / `get_volume`.
+
+    What breaks when these fail: CamillaDSP is the appliance's only attenuation
+    stage (the card's mixer is pinned at unity), so these three are the whole of
+    Milo's volume control on the server. Consumers: `EqualizerRouter`'s local
+    closures, and through them `core/volume/service.py` and every
+    `PUT /api/equalizer/target/local/...`.
+
+    Why this class exists: measured 2026-08-23, not one line of the connected
+    branch of these three ran in the whole suite. The only tests naming them
+    called them *disconnected* and asserted the refusal — which an eviscerated
+    body contradicts by accident, so the mutation looked caught while the real
+    path had never been seen.
+    """
+
+    @pytest.fixture
+    def connected(self, mock_camilla_client, tmp_path, monkeypatch):
+        """A service talking to the daemon double. STORAGE_PATH is redirected
+        because this checkout is also the appliance."""
+        monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
+        settings = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_setting = AsyncMock()
+        svc = CamillaDSPService(settings_service=settings)
+        svc._client = mock_camilla_client
+        svc._connected = True
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_a_connected_set_volume_reaches_the_daemon_and_the_cache_follows(
+        self, connected, mock_camilla_client
+    ):
+        """The dB value must arrive at the daemon, and the cache must carry it:
+        a read taken after CamillaDSP drops serves that cache, so a cache left
+        behind reports a level the hardware no longer has."""
+        result = await connected.set_volume(-12.5)
+
+        # @handle_errors(default=False) makes False the crash value, so the
+        # positive return is what distinguishes "it worked" from "it never ran".
+        assert result is True
+        mock_camilla_client.volume.set_main_volume.assert_called_once_with(-12.5)
+
+        connected._connected = False
+        assert (await connected.get_volume())["main"] == -12.5
+
+    @pytest.mark.asyncio
+    async def test_a_connected_set_mute_reaches_the_daemon_and_the_cache_follows(
+        self, connected, mock_camilla_client
+    ):
+        """Same contract for mute, which the rotary and the API both drive."""
+        result = await connected.set_mute(True)
+
+        assert result is True
+        mock_camilla_client.volume.set_main_mute.assert_called_once_with(True)
+
+        connected._connected = False
+        assert (await connected.get_volume())["mute"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_connected_read_prefers_the_daemon_over_the_cache(self, connected):
+        """Connected, the daemon is the authority — the cache is only the
+        fallback for when it is gone. The double answers -20 dB where the
+        starting cache holds 0 dB, so a body that never reached the daemon
+        cannot pass this."""
+        volume = await connected.get_volume()
+
+        assert volume == {"main": -20.0, "mute": False}
+
 class TestInactiveDaemonConfigFallback:
     """An EQ write issued while CamillaDSP is inactive must still start from the
     graph the daemon holds on disk.
