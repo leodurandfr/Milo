@@ -585,3 +585,82 @@ def test_a_second_connect_before_the_scan_ran_is_dropped_not_raised(bt):
         bt.controller._on_dbus_message(dbus_signal(props={"Connected": variant(True)}))
 
     assert bt.controller._dbus_reconnect_queue.qsize() == 1
+
+
+# ----------------------------------------- the Search button, past its early return
+@pytest.fixture
+def instant(monkeypatch):
+    """Neutralise the clock. _run_discovery spends 5 s scanning and 10 s waiting
+    for BLE pairing; the yields still happen, only the waiting does not."""
+    real_sleep = asyncio.sleep
+
+    async def no_sleep(_delay, *args, **kwargs):
+        return await real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+
+
+@pytest.mark.asyncio
+async def test_search_reconnects_a_bonded_remote_without_a_discovery_scan(bt, instant):
+    """The ordinary press: the remote is bonded and asleep. BlueZ reconnects it
+    on a plain `connect`, and running a full scan+pair on top would re-pair a
+    device that is already bonded — 15 s of the panel spinning for nothing."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+    bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
+    bt.evdev.nodes["/dev/input/event5"] = FakeInputDevice("/dev/input/event5")
+
+    result = await bt.controller.trigger_discovery()
+
+    assert result["status"] == "success"
+    assert "connect" in bt.bluez.argv_names()
+    assert "<interactive>" not in bt.bluez.argv_names(), "a bonded remote paid for a full scan"
+    assert bt.controller._monitored_paths == {"/dev/input/event5"}
+    await bt.controller._stop_scanning()
+
+
+@pytest.mark.asyncio
+async def test_search_falls_through_to_a_full_scan_when_the_bond_is_stale(bt, instant):
+    """A bond BlueZ still lists but the remote no longer honours: `connect` fails
+    and the only way back is the scan+pair sequence. Returning not_found here
+    would leave the user with a remote that can never be re-paired from the UI."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+    bt.bluez.connect_succeeds = False
+
+    await bt.controller.trigger_discovery()
+
+    assert bt.bluez.argv_names().count("<interactive>") == 2, \
+        "no scan session then pair session — the stale bond is a dead end"
+
+
+@pytest.mark.asyncio
+async def test_search_reports_not_found_rather_than_success_when_nothing_answers(bt, instant):
+    """The panel binds :loading and :disabled to `discovering` and clears it on
+    the reply. A success with no device leaves it showing a remote that is not
+    there; the run must also hand `discovering` back to false."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.bluez.paired = []
+    bt.bluez.connected = []
+
+    result = await bt.controller.trigger_discovery()
+
+    assert result["status"] == "not_found"
+    assert bt.controller._monitored_paths == set()
+    assert bt.status()[-1].discovering is False
+
+
+@pytest.mark.asyncio
+async def test_search_on_a_disabled_controller_touches_no_adapter(bt, instant):
+    """`enabled` false means the user turned the feature off. Discovery would
+    scan and pair on an adapter the A2DP source is using."""
+    bt.controller.enabled = False
+    bt.controller.running = False
+
+    result = await bt.controller.trigger_discovery()
+
+    assert result["status"] == "error"
+    assert bt.bluez.calls == []
