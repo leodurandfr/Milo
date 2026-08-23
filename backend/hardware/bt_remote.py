@@ -423,7 +423,11 @@ class BtRemoteController:
             address, name = parts[1], parts[2]
             if not _MAC_PATTERN.match(address):
                 continue
-            if self.device_name_filter and self.device_name_filter.upper() not in name.upper():
+            # An empty filter means "match nothing", never "match everything":
+            # every consumer of this list is destructive (disconnect, remove bond,
+            # trust+pair), so a filter that went blank must strand them, not aim
+            # them at the A2DP phone.
+            if not self.device_name_filter or self.device_name_filter.upper() not in name.upper():
                 continue
             matches.append((address, name))
         return matches
