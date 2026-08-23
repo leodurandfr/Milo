@@ -447,3 +447,74 @@ def test_a_usable_key_map_is_accepted():
 
     payload = BtRemoteConfigRequest(key_map=dict(bt_remote_module.DEFAULT_KEY_MAP))
     assert payload.key_map == bt_remote_module.DEFAULT_KEY_MAP
+
+
+# ------------------------------------------- the name filter, the destructive one
+@pytest.mark.asyncio
+async def test_an_empty_name_filter_unpairs_nothing_instead_of_everything(bt):
+    """`forget_remote()` runs `bluetoothctl remove` over whatever the filter
+    selects, and the selection skipped its name test when the filter was falsy.
+
+    The appliance pairs A2DP senders on the same adapter (sources/bluetooth), so
+    an empty filter aimed the "unpair the remote" button at the owner's phone —
+    a bond removal, not a disconnect, so the phone has to be paired again from
+    scratch. `_disconnect_matching_devices` promises the opposite in writing.
+    """
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.controller.device_name_filter = ""
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME), ("11:22:33:44:55:66", "Pixel 8")]
+    bt.bluez.connected = [("11:22:33:44:55:66", "Pixel 8")]
+
+    await bt.controller.forget_remote()
+
+    assert "remove" not in bt.bluez.argv_names(), "an empty filter removed a bond"
+    assert "disconnect" not in bt.bluez.argv_names(), "an empty filter dropped a live link"
+    assert ("11:22:33:44:55:66", "Pixel 8") in bt.bluez.paired
+
+
+@pytest.mark.asyncio
+async def test_an_empty_name_filter_does_not_report_a_phone_as_the_paired_remote(bt):
+    """is_paired() is what makes the panel offer "unpair". Reading true off an
+    unrelated A2DP bond both lies and arms the button above."""
+    bt.controller.device_name_filter = ""
+    bt.bluez.paired = [("11:22:33:44:55:66", "Pixel 8")]
+
+    assert await bt.controller.is_paired() is False
+
+
+@pytest.mark.asyncio
+async def test_a_matching_filter_still_selects_only_the_remote(bt):
+    """The guard above must not cost the ordinary case: with the real filter,
+    the remote's bond goes and the phone's stays."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME), ("11:22:33:44:55:66", "Pixel 8")]
+
+    await bt.controller.forget_remote()
+
+    removed = [argv[2] for argv, _ in bt.bluez.calls
+               if len(argv) > 2 and argv[1] == "remove"]
+    assert removed == [REMOTE_MAC]
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t"], ids=["empty", "spaces", "tab"])
+def test_a_blank_name_filter_is_refused_at_the_route(blank):
+    """PATCH /api/bt-remote/config is the only writer of this field and it took
+    any string up to 64 chars. Nothing downstream could tell a blank filter from
+    an absent one."""
+    from pydantic import ValidationError
+
+    from backend.api.models import BtRemoteConfigRequest
+
+    with pytest.raises(ValidationError):
+        BtRemoteConfigRequest(device_name_filter=blank)
+
+
+def test_a_name_filter_is_stored_stripped():
+    """Surrounding spaces are the silent half: " ANTICATER " is in no device
+    name, so the remote stops being adopted with nothing logged."""
+    from backend.api.models import BtRemoteConfigRequest
+
+    payload = BtRemoteConfigRequest(device_name_filter="  ANTICATER  ")
+    assert payload.device_name_filter == "ANTICATER"

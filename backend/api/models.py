@@ -128,6 +128,24 @@ class BtRemoteConfigRequest(BaseModel):
     device_name_filter: Optional[str] = Field(None, max_length=64)
     key_map: Optional[dict] = None
 
+    @field_validator('device_name_filter')
+    @classmethod
+    def validate_device_name_filter(cls, v: Optional[str]) -> Optional[str]:
+        """A blank filter is not "match nothing", it is "match every BT device".
+
+        `_get_matching_devices` skips its name test when the filter is falsy, so
+        an empty one turns `forget_remote()` into `bluetoothctl remove` over every
+        bond the appliance holds — the A2DP phone included. Surrounding spaces are
+        the quiet half of the same fault: they match no name at all, and the
+        remote simply stops working.
+        """
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("device_name_filter must not be blank")
+        return v
+
     @field_validator('key_map')
     @classmethod
     def validate_key_map(cls, v: Optional[dict]) -> Optional[dict]:
