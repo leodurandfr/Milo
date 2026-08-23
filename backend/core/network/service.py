@@ -638,7 +638,8 @@ class NetworkService:
             if len(fields) < 2 or "wireless" not in fields[1]:
                 continue
             name = fields[0]
-            if name == ssid or name == f"milo-{ssid}" or f"-{ssid}" in name:
+            netplan_twin = name.startswith("netplan-") and name.endswith(f"-{ssid}")
+            if name == ssid or name == f"milo-{ssid}" or netplan_twin:
                 self.logger.info("Deleting WiFi profile: %s (ssid=%s)", name, ssid)
                 rc2, _, stderr2 = await self._run_nmcli("connection", "delete", name)
                 if rc2 == 0:
