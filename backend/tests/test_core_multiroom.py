@@ -2692,6 +2692,20 @@ class TestClientReconcileSweep:
         service.RECONCILE_INTERVAL_S = 0
         return service, registry
 
+    @staticmethod
+    async def _drive(service):
+        """Run the sweep until the RPC mock ends it, bounded so a regression fails.
+
+        The loop's only exit is that CancelledError, and the three guards above
+        the RPC call (connected / _snapcast_service / registry) skip straight
+        back to the top of the loop. With RECONCILE_INTERVAL_S = 0 that is an
+        unbounded busy loop: anything that breaks one of those guards wedges the
+        run at 100% CPU instead of failing it — measured, by eviscerating
+        set_registry. The bound is liveness, not latency; a healthy sweep exits
+        in microseconds and never approaches it.
+        """
+        await asyncio.wait_for(service._reconcile_loop(), timeout=5)
+
     @pytest.mark.asyncio
     async def test_sweep_marks_a_silently_vanished_client_offline(self):
         """A client snapserver still calls connected goes offline once it stops being seen."""
@@ -2700,7 +2714,7 @@ class TestClientReconcileSweep:
         )
 
         with pytest.raises(asyncio.CancelledError):
-            await service._reconcile_loop()
+            await self._drive(service)
 
         assert registry.get_client(self.VANISHED).online is False
         assert registry.get_client(self.FRESH).online is True
@@ -2713,7 +2727,7 @@ class TestClientReconcileSweep:
         )
 
         with pytest.raises(asyncio.CancelledError):
-            await service._reconcile_loop()
+            await self._drive(service)
 
         assert registry.get_client(self.VANISHED).online is True
         assert registry.get_client(self.FRESH).online is True
@@ -2746,7 +2760,7 @@ class TestClientReconcileSweep:
         service, registry = await self._service([{}, asyncio.CancelledError()])
 
         with pytest.raises(asyncio.CancelledError):
-            await service._reconcile_loop()
+            await self._drive(service)
 
         assert registry.get_client(self.VANISHED).online is True
         assert registry.get_client(self.FRESH).online is True
@@ -2843,7 +2857,7 @@ class TestClientReconcileSweep:
 
         with caplog.at_level(logging.INFO, logger="backend.core.multiroom.websocket"):
             with pytest.raises(asyncio.CancelledError):
-                await service._reconcile_loop()
+                await self._drive(service)
 
         assert registry.get_client(self.VANISHED).online is False
         announced = [r for r in caplog.records if "CLIENT DISCONNECTED" in r.getMessage()]
