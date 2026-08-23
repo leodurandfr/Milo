@@ -500,10 +500,6 @@ class Zone:
         """Check if a client is in this zone."""
         return mac_id in self.client_ids
 
-    def client_count(self) -> int:
-        """Get number of clients in zone."""
-        return len(self.client_ids)
-
     def is_valid(self) -> bool:
         """Check if zone has minimum required clients (2+)."""
         return len(self.client_ids) >= 2
