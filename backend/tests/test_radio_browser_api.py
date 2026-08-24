@@ -8,7 +8,10 @@ Tests cover the parts whose contract the frontend depends on:
   fallback on network failure.
 - _normalize_station: countrycode field exposed and upper-cased.
 """
-from unittest.mock import AsyncMock, patch
+import asyncio
+
+import aiohttp
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -218,3 +221,391 @@ class TestExtractValidGenre:
     def test_world_music_is_skipped(self):
         """'world music' was removed (zero stations have this exact tag)."""
         assert extract_valid_genre("world music,reggae") == "reggae"
+
+
+def _raw(name, **over):
+    """A raw Radio Browser payload that passes _is_valid_station."""
+    station = {
+        "stationuuid": f"uuid-{name}",
+        "name": name,
+        "url_resolved": f"http://stream/{name}",
+        "codec": "MP3",
+        "lastcheckok": 1,
+        "country": "France",
+        "countrycode": "FR",
+        "tags": "rock",
+        "bitrate": 128,
+        "votes": 1,
+        "clickcount": 1,
+    }
+    station.update(over)
+    return station
+
+
+class TestSearchKeepsHandAddedStations:
+    """A station the user typed in by hand must survive the result cap.
+
+    `search_stations` merges the catalogue with the manually-added stations and
+    then cuts the list at `limit`. Measured against the live Radio Browser on
+    2026-08-24, the catalogue alone fills that cap on every broad request: the
+    no-filter view returns 451 deduplicated stations, `rock` 541, `jazz` 500,
+    `fm` 554 and `country=France` 515, against the 300 that
+    `GET /api/radio/stations` defaults to and that the frontend never overrides.
+    Merged in at the end, the hand-added station was therefore cut every time —
+    the one entry no search term can bring back.
+    """
+
+    @staticmethod
+    def _manager(*names):
+        manager = Mock()
+        manager.get_manual_stations.return_value = {
+            f"custom_{n}": {"name": n, "genre": "rock", "country": "France", "url": f"http://{n}"}
+            for n in names
+        }
+        return manager
+
+    @pytest.mark.asyncio
+    async def test_survives_a_catalogue_that_fills_the_cap(self):
+        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
+        catalogue = [_raw(f"Station {i}") for i in range(300)]
+
+        with patch.object(api, "_request", new=AsyncMock(return_value=catalogue)):
+            result = await api.search_stations(query="rock", limit=300)
+
+        assert len(result["stations"]) == 300, "the cap must still be honoured"
+        names = [s["name"] for s in result["stations"]]
+        assert "Ma Radio" in names
+
+    @pytest.mark.asyncio
+    async def test_survives_when_the_catalogue_is_the_top_stations_view(self):
+        """No query, no country, no genre — the screen the user lands on."""
+        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
+        catalogue = [_raw(f"Station {i}") for i in range(451)]
+
+        with patch.object(api, "_request", new=AsyncMock(return_value=catalogue)):
+            result = await api.search_stations(limit=300)
+
+        assert len(result["stations"]) == 300
+        assert "Ma Radio" in [s["name"] for s in result["stations"]]
+
+    @pytest.mark.asyncio
+    async def test_appears_once_when_there_is_room_to_spare(self):
+        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
+
+        with patch.object(api, "_request", new=AsyncMock(return_value=[_raw("Station 0")])):
+            result = await api.search_stations(query="rock", limit=300)
+
+        names = [s["name"] for s in result["stations"]]
+        assert names.count("Ma Radio") == 1
+        assert "Station 0" in names
+
+    @pytest.mark.asyncio
+    async def test_a_non_matching_hand_added_station_is_left_out(self):
+        """The merge filters; it does not smuggle every custom station in."""
+        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
+
+        with patch.object(api, "_request", new=AsyncMock(return_value=[_raw("Station 0")])):
+            result = await api.search_stations(query="nothing-matches-this", limit=300)
+
+        assert "Ma Radio" not in [s["name"] for s in result["stations"]]
+
+    @pytest.mark.asyncio
+    async def test_total_counts_what_was_merged_not_what_was_returned(self):
+        api = RadioBrowserAPI(station_manager=self._manager("Ma Radio"))
+        catalogue = [_raw(f"Station {i}") for i in range(300)]
+
+        with patch.object(api, "_request", new=AsyncMock(return_value=catalogue)):
+            result = await api.search_stations(query="rock", limit=300)
+
+        assert result["total"] == 301
+        assert len(result["stations"]) == 300
+
+
+class TestFaviconQualityGate:
+    """The score decides what artwork a station card shows, and what it costs.
+
+    Two thresholds read it and neither is cosmetic. `_normalize_station` blanks
+    any favicon under 10, so a rejected URL is a station that falls back to the
+    generated monogram. `get_stations_by_ids` treats anything under 20 as poor
+    and pays a *second* Radio Browser round trip per station to look for a better
+    one. A drift that lowers a whole family of URLs therefore either strips the
+    catalogue of its logos or multiplies the calls the favourites list makes.
+    """
+
+    @staticmethod
+    def _with_favicon(api, url):
+        return api._normalize_station(_raw("Test", favicon=url))["favicon"]
+
+    @pytest.mark.parametrize("url", [
+        "https://facebook.com/pages/x/logo.png",
+        "https://scontent.fbcdn.net/logo.png",
+        "https://dropbox.com/s/x/logo.png",
+        "https://cdn.example.com/logo.png?token=abcd",
+        "https://cdn.example.com/logo.png?signature=abcd",
+        "https://en.wikipedia.org/wiki/Radio_France",
+        "https://cdn.example.com/cropped-favicon.png",
+    ])
+    def test_rejected_urls_are_blanked_by_normalize(self, api, url):
+        """Each of these scores under the 10 that _normalize_station requires."""
+        assert self._with_favicon(api, url) == ""
+
+    @pytest.mark.parametrize("url", [
+        "https://cdn.example.com/favicon.ico",       # exactly at the threshold
+        "https://cdn.example.com/logo.png",
+        "https://cdn.example.com/logo.webp",
+        "https://cdn.example.com/logo.jpg",
+        "https://upload.wikimedia.org/x/logo.png",
+    ])
+    def test_accepted_urls_survive_normalize(self, api, url):
+        assert self._with_favicon(api, url) == url
+
+    def test_a_vector_keeps_its_bonus_even_named_favicon(self, api):
+        """The one format the "favicon" penalty does not apply to.
+
+        A raster called `cropped-favicon.png` is a thumbnail and is rejected; the
+        same name in SVG is scalable, so it is kept on purpose. The two must not
+        drift into agreeing — that is the difference between a crisp logo and a
+        monogram on the card.
+        """
+        svg = "https://cdn.example.com/cropped-favicon.svg"
+        png = "https://cdn.example.com/cropped-favicon.png"
+        assert self._with_favicon(api, svg) == svg
+        assert self._with_favicon(api, png) == ""
+
+    def test_resolution_read_from_the_url_outranks_a_plain_image(self, api):
+        plain = api._get_favicon_quality("https://cdn.example.com/logo.png")
+        sized = api._get_favicon_quality("https://cdn.example.com/logo-512x512.png")
+        assert sized > plain
+
+    def test_the_last_resolution_in_the_url_is_the_one_that_counts(self, api):
+        """`image-400x400-resized-180x180.png` is 180 wide, not 400."""
+        resized = api._get_favicon_quality("https://cdn.example.com/a-400x400-resized-180x180.png")
+        small = api._get_favicon_quality("https://cdn.example.com/a-180x180.png")
+        large = api._get_favicon_quality("https://cdn.example.com/a-400x400.png")
+        assert resized == small
+        assert resized < large
+
+    def test_a_rectangle_scores_on_its_smaller_side(self, api):
+        wide = api._get_favicon_quality("https://cdn.example.com/a-1200x200.png")
+        square = api._get_favicon_quality("https://cdn.example.com/a-200x200.png")
+        assert wide == square
+
+    def test_nothing_at_all_ranks_below_the_worst_url(self, api):
+        """_deduplicate_stations seeds its search with -1, so "" must lose."""
+        assert api._get_favicon_quality("") < api._get_favicon_quality(
+            "https://facebook.com/logo.png"
+        )
+
+
+class TestDeduplicateMergesBestAudioWithBestImage:
+    """One station published twice must come back once, taking the best of each.
+
+    This is the whole point of the pass: Radio Browser carries the same station
+    under several entries, and the good stream and the good logo are rarely the
+    same entry. Merging the wrong way round is invisible in a list — it shows up
+    as a station that plays at 64 kbps, or one with no artwork while a sibling
+    entry had one.
+    """
+
+    @pytest.mark.asyncio
+    async def test_takes_the_url_of_the_best_stream_and_the_image_of_another(self, api):
+        loud = api._normalize_station(_raw(
+            "FIP", url_resolved="http://hi", bitrate=320, favicon=""))
+        pretty = api._normalize_station(_raw(
+            "FIP", url_resolved="http://lo", bitrate=64,
+            favicon="https://cdn.example.com/fip-512x512.png"))
+
+        merged = await api._deduplicate_stations([loud, pretty])
+
+        assert len(merged) == 1
+        assert merged[0]["url"] == "http://hi"
+        assert merged[0]["favicon"] == "https://cdn.example.com/fip-512x512.png"
+
+    @pytest.mark.asyncio
+    async def test_groups_ignore_case_and_surrounding_space(self, api):
+        versions = [
+            api._normalize_station(_raw("FIP")),
+            api._normalize_station(_raw("  fip  ")),
+        ]
+        assert len(await api._deduplicate_stations(versions)) == 1
+
+    @pytest.mark.asyncio
+    async def test_distinct_stations_are_all_kept(self, api):
+        versions = [api._normalize_station(_raw(n)) for n in ("FIP", "TSF", "Nova")]
+        merged = await api._deduplicate_stations(versions)
+        assert sorted(s["name"] for s in merged) == ["FIP", "Nova", "TSF"]
+
+    @pytest.mark.asyncio
+    async def test_a_lone_station_is_returned_untouched(self, api):
+        only = api._normalize_station(_raw("FIP", favicon=""))
+        assert await api._deduplicate_stations([only]) == [only]
+
+    @pytest.mark.asyncio
+    async def test_an_empty_list_stays_empty(self, api):
+        assert await api._deduplicate_stations([]) == []
+
+
+class _Resp:
+    """One scripted aiohttp response."""
+
+    def __init__(self, status, payload=None):
+        self.status = status
+        self._payload = payload
+
+    async def json(self):
+        return self._payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _Boom:
+    """A mirror that fails the way aiohttp fails: on entering the context."""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    async def __aenter__(self):
+        raise self._exc
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _Session:
+    """Stands in for aiohttp.ClientSession — the outside world, one outcome per call."""
+
+    def __init__(self, *outcomes):
+        self._outcomes = list(outcomes)
+        self.closed = False
+        self.urls = []
+
+    def get(self, url, **kwargs):
+        self.urls.append(url)
+        return self._outcomes.pop(0)
+
+
+def _wired(api, session, count=3):
+    """Give the client a scripted session and a mirror pool of `count`.
+
+    Faithful to ServerDiscovery on the one point _request depends on: get_server()
+    keeps answering the same mirror, and only rotate() moves the cursor. _request
+    calls get_server() once before the loop to prime DNS resolution, and a pool
+    that advanced on every read would make that priming call skip a mirror.
+    """
+    api.session = session
+    servers = [f"mirror{i}.example" for i in range(max(count, 1))]
+    cursor = {"i": 0}
+
+    async def _current():
+        return servers[cursor["i"] % len(servers)]
+
+    async def _next():
+        cursor["i"] += 1
+        return await _current()
+
+    api._discovery = Mock()
+    api._discovery.get_server = AsyncMock(side_effect=_current)
+    api._discovery.rotate = AsyncMock(side_effect=_next)
+    api._discovery.base_url = lambda server: f"https://{server}/json"
+    api._discovery.server_count = count
+    return api._discovery
+
+
+class TestMirrorRotation:
+    """What happens when a Radio Browser mirror misbehaves.
+
+    Radio Browser is a federated community service: mirrors go down, time out and
+    return 500s routinely, and the whole catalogue — search, countries, the
+    favourites refetch — reaches the network through this one method. Its three
+    outcomes are not interchangeable. Rotating recovers; returning None is a
+    logical "not found" the UI renders as an empty list; raising is what makes
+    the UI say the search is unavailable and keep the stale country cache. Get
+    one wrong and either a transient blip looks like an empty catalogue, or a
+    genuinely absent station looks like an outage.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_healthy_mirror_answers_without_rotating(self, api):
+        session = _Session(_Resp(200, [{"name": "FIP"}]))
+        discovery = _wired(api, session)
+
+        assert await api._request("countries") == [{"name": "FIP"}]
+        discovery.rotate.assert_not_awaited()
+        assert session.urls == ["https://mirror0.example/json/countries"]
+
+    @pytest.mark.asyncio
+    async def test_a_500_rotates_to_the_next_mirror_and_the_answer_stands(self, api):
+        session = _Session(_Resp(503), _Resp(200, ["ok"]))
+        discovery = _wired(api, session)
+
+        assert await api._request("countries") == ["ok"]
+        discovery.rotate.assert_awaited_once()
+        assert session.urls == [
+            "https://mirror0.example/json/countries",
+            "https://mirror1.example/json/countries",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_timeout_rotates_the_same_way_a_500_does(self, api):
+        session = _Session(_Boom(asyncio.TimeoutError()), _Resp(200, ["ok"]))
+        discovery = _wired(api, session)
+
+        assert await api._request("countries") == ["ok"]
+        discovery.rotate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_404_is_a_verdict_and_stops_the_rotation(self, api):
+        """Every mirror shares one database, so asking another cannot help."""
+        session = _Session(_Resp(404), _Resp(200, ["never reached"]))
+        discovery = _wired(api, session)
+
+        assert await api._request("stations/byuuid/nope") is None
+        discovery.rotate.assert_not_awaited()
+        assert len(session.urls) == 1
+
+    @pytest.mark.asyncio
+    async def test_every_mirror_transient_raises_rather_than_answering_empty(self, api):
+        session = _Session(*[_Boom(aiohttp.ClientError("down")) for _ in range(3)])
+        _wired(api, session, count=3)
+
+        with pytest.raises(NetworkUnavailableError):
+            await api._request("countries")
+        assert len(session.urls) == 3
+
+    @pytest.mark.asyncio
+    async def test_every_mirror_500_also_counts_as_unreachable(self, api):
+        session = _Session(*[_Resp(500) for _ in range(3)])
+        _wired(api, session, count=3)
+
+        with pytest.raises(NetworkUnavailableError):
+            await api._request("countries")
+
+    @pytest.mark.asyncio
+    async def test_the_retry_budget_follows_the_mirror_count(self, api):
+        session = _Session(*[_Resp(500) for _ in range(5)])
+        _wired(api, session, count=5)
+
+        with pytest.raises(NetworkUnavailableError):
+            await api._request("countries")
+        assert len(session.urls) == 5
+
+    @pytest.mark.asyncio
+    async def test_an_unresolved_pool_still_gets_a_second_chance(self, api):
+        """server_count is 0 until DNS answers; the floor of 2 is what retries."""
+        session = _Session(_Boom(aiohttp.ClientError("down")), _Resp(200, ["ok"]))
+        _wired(api, session, count=0)
+
+        assert await api._request("countries") == ["ok"]
+        assert len(session.urls) == 2
+
+    @pytest.mark.asyncio
+    async def test_an_unexpected_error_is_a_logical_failure_not_an_outage(self, api):
+        """A bug on our side must not tell the UI the internet is down."""
+        session = _Session(_Boom(ValueError("bad json")))
+        _wired(api, session)
+
+        assert await api._request("countries") is None
