@@ -642,3 +642,258 @@ class TestHandleKeycode:
         controller.source_instance.command.assert_not_awaited()
         controller.volume_service.adjust_volume_db.assert_not_awaited()
         assert controller._menu_click_count == 0
+
+
+# ============================================================================
+# Pairing — the wizard's whole contract, captured through the real evdev path
+# ============================================================================
+
+async def _until(predicate, tries=200):
+    """Yield to the loop until `predicate()` holds (or give up)."""
+    for _ in range(tries):
+        if predicate():
+            return True
+        await asyncio.sleep(0)
+    return False
+
+
+def _pairing_device(events=(), hold=True):
+    """An evdev.InputDevice stand-in for the pairing capture.
+
+    `hold=True` keeps the read loop open after the last event, which is what
+    the kernel device does — the capture ends because it found a scancode,
+    was cancelled, or timed out, never because the loop ran out.
+    """
+    device = MagicMock()
+    device.name = GPIO_IR_DEVICE_NAME
+
+    async def _loop():
+        for event in events:
+            yield event
+        if hold:
+            await asyncio.Event().wait()
+
+    device.async_read_loop = _loop
+    return device
+
+
+def _scan(scancode):
+    return _event(evdev.ecodes.EV_MSC, evdev.ecodes.MSC_SCAN, scancode)
+
+
+APPLE_SCANCODE_8D = (APPLE_MANUFACTURER << 16) | (0x8D << 8) | 0x04
+
+
+class TestStartPairing:
+    """`start_pairing()` — the five statuses the wizard switches on.
+
+    IrRemoteSettings.vue branches on `error` / `success` / `timeout` /
+    `unsupported` / `cancelled`; the route turns `error` into HTTP 500 and
+    passes the rest through as 200. A status that changes shape strands the
+    wizard on its spinner.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_second_pairing_is_refused_while_one_is_running(self):
+        controller = _runtime_controller()
+        controller._pairing_in_progress = True
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device") as find:
+            result = await controller.start_pairing()
+        assert result["status"] == "error"
+        # Refused before the device is even looked up — two readers on one fd
+        # is the failure this guard exists to prevent.
+        find.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_missing_receiver_is_an_error_not_a_timeout(self):
+        """No gpio-ir overlay is a wiring fault; making the user wait 15 s for
+        a `timeout` would blame the remote instead."""
+        controller = _runtime_controller()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value=None):
+            result = await controller.start_pairing()
+        assert result["status"] == "error"
+        assert controller._pairing_in_progress is False
+
+    @pytest.mark.asyncio
+    async def test_a_captured_scancode_pairs_enables_and_resumes_listening(self):
+        controller = _runtime_controller()
+        device = _pairing_device([_scan(APPLE_SCANCODE_8D)])
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device), \
+             patch("backend.hardware.ir_remote.keymap_writer.apply_keymap",
+                   new=AsyncMock()) as apply_keymap:
+            result = await controller.start_pairing(timeout_seconds=5)
+
+            assert result == {"status": "success", "device_id": 0x8D}
+            apply_keymap.assert_awaited_once_with(0x8D)
+            assert controller.paired is True
+            assert controller.device_id == 0x8D
+            assert isinstance(controller.paired_at, float)
+            # Auto-enable: the remote must work the moment the wizard closes,
+            # without a second trip through the header toggle.
+            assert controller.enabled is True
+            controller.settings_service.set_setting.assert_awaited_once_with(
+                'hardware.ir_remote',
+                {'enabled': True, 'device_id': 0x8D,
+                 'paired_at': controller.paired_at},
+            )
+            assert controller._runtime_task is not None
+            await controller._stop_runtime_listener()
+
+    @pytest.mark.asyncio
+    async def test_a_keymap_that_fails_to_load_leaves_the_controller_unpaired(self):
+        """The keymap IS the pairing — the kernel filters by device_id, not
+        Python. Recording a pairing the kernel never took would leave a remote
+        that looks paired in the UI and does nothing."""
+        controller = _runtime_controller()
+        device = _pairing_device([_scan(APPLE_SCANCODE_8D)])
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device), \
+             patch("backend.hardware.ir_remote.keymap_writer.apply_keymap",
+                   new=AsyncMock(side_effect=RuntimeError("exit 1: no such file"))):
+            result = await controller.start_pairing(timeout_seconds=5)
+
+        assert result["status"] == "error"
+        assert "exit 1: no such file" in result["message"]
+        assert controller.paired is False
+        assert controller.device_id is None
+        controller.settings_service.set_setting.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_remote_that_is_not_an_apple_remote_is_reported_at_once(self):
+        controller = _runtime_controller()
+        foreign = (0x77E1 << 16) | (0x8D << 8) | 0x04
+        device = _pairing_device([_scan(foreign)])
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device), \
+             patch("backend.hardware.ir_remote.keymap_writer.apply_keymap",
+                   new=AsyncMock()) as apply_keymap:
+            result = await controller.start_pairing(timeout_seconds=5)
+
+        assert result["status"] == "unsupported"
+        apply_keymap.assert_not_awaited()
+        assert controller.paired is False
+
+    @pytest.mark.asyncio
+    async def test_a_silent_remote_times_out_and_clears_the_pairing_state(self):
+        controller = _runtime_controller()
+        device = _pairing_device()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device):
+            result = await controller.start_pairing(timeout_seconds=0.05)
+
+        assert result["status"] == "timeout"
+        assert controller.paired is False
+        assert controller._pairing_in_progress is False
+        assert controller._pairing_cancel_event is None
+        # The capture holds `_mode_lock` while it reads; a timeout that leaks
+        # it deadlocks every later pairing AND the runtime listener.
+        assert not controller._mode_lock.locked()
+
+    @pytest.mark.asyncio
+    async def test_the_wizard_can_cancel_a_capture_in_flight(self):
+        controller = _runtime_controller()
+        device = _pairing_device()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device):
+            pairing = asyncio.create_task(controller.start_pairing(timeout_seconds=5))
+            assert await _until(lambda: controller._pairing_in_progress)
+
+            assert await controller.cancel_pairing() is True
+            result = await pairing
+
+        assert result["status"] == "cancelled"
+        assert controller.paired is False
+        assert controller._pairing_in_progress is False
+        assert not controller._mode_lock.locked()
+
+    @pytest.mark.asyncio
+    async def test_the_status_is_broadcast_on_both_sides_of_the_capture(self):
+        """The wizard's spinner is driven by the WS flag, not by the pending
+        HTTP request — it must be raised before the wait and lowered after."""
+        controller = _runtime_controller()
+        device = _pairing_device()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device):
+            await controller.start_pairing(timeout_seconds=0.05)
+
+        flags = [call.args[0].pairing_in_progress
+                 for call in controller.state_machine.broadcast.await_args_list]
+        assert flags == [True, False]
+
+
+class TestCaptureFilter:
+    """`_capture_one_scancode()` — which events on the fd are a pairing press."""
+
+    @pytest.mark.asyncio
+    async def test_only_msc_scan_events_carry_a_scancode(self):
+        """The fd interleaves EV_KEY and EV_SYN with the scancode events; the
+        first non-scan event decoded as one would pair a garbage device_id.
+
+        The third event is synthetic — an EV_KEY carrying MSC_SCAN's code and
+        a valid Apple scancode as its value, which no real device emits. The
+        two guards overlap on every realistic event (an EV_KEY code is never
+        MSC_SCAN), so only a collision tells them apart: without the type
+        guard this pairs 0x42, the wrong remote.
+        """
+        controller = _runtime_controller()
+        device = _pairing_device([
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 1),
+            _event(evdev.ecodes.EV_MSC, evdev.ecodes.MSC_RAW, 0xDEADBEEF),
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.MSC_SCAN,
+                   (APPLE_MANUFACTURER << 16) | (0x42 << 8) | 0x04),
+            _scan(APPLE_SCANCODE_8D),
+        ])
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device), \
+             patch("backend.hardware.ir_remote.keymap_writer.apply_keymap",
+                   new=AsyncMock()):
+            result = await controller.start_pairing(timeout_seconds=5)
+            assert result == {"status": "success", "device_id": 0x8D}
+            await controller._stop_runtime_listener()
+
+    @pytest.mark.asyncio
+    async def test_a_device_that_cannot_be_opened_is_an_error(self):
+        controller = _runtime_controller()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", side_effect=OSError(16, "Device busy")):
+            result = await controller.start_pairing(timeout_seconds=5)
+        assert result["status"] == "error"
+        assert "Device busy" in result["message"]
+
+
+class TestUpdateConfigEnable:
+    """The header master switch — `PATCH /api/ir-remote/config`."""
+
+    @pytest.mark.asyncio
+    async def test_enabling_a_paired_remote_starts_the_listener(self):
+        controller = _runtime_controller()
+        controller.paired = True
+        controller.enabled = False
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=_fake_input_device()):
+            await controller.update_config({"enabled": True})
+            assert controller.enabled is True
+            assert controller._runtime_task is not None
+            await controller._stop_runtime_listener()
+        controller.settings_service.set_setting.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_enabling_an_unpaired_remote_starts_nothing(self):
+        controller = _runtime_controller()
+        controller.paired = False
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device") as find:
+            await controller.update_config({"enabled": True})
+        assert controller.enabled is True
+        assert controller._runtime_task is None
+        find.assert_not_called()
