@@ -2,11 +2,16 @@
 """
 Unit tests for the Apple Remote keymap writer.
 """
+import asyncio
+
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from backend.hardware.keymap_writer import (
     APPLE_BUTTON_CMDS,
     APPLE_MANUFACTURER,
+    apply_keymap,
+    clear_kernel_keymap,
     render_keymap,
 )
 
@@ -74,3 +79,80 @@ class TestRenderKeymap:
         toml = render_keymap(0x01)
         for keycode in APPLE_BUTTON_CMDS.keys():
             assert keycode in toml, f"Missing button: {keycode}"
+
+
+class TestApplyKeymap:
+    """`apply_keymap()` — the only privileged step of the pairing flow.
+
+    argv IS the contract here: /etc/sudoers.d/milo-ir-remote grants exactly
+    `/usr/local/bin/milo-apply-ir-keymap`, so a renamed helper or a shell-out
+    that skips sudo is a permission denial on the appliance and nothing else.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_toml_is_piped_on_stdin_to_the_sudoers_helper(self):
+        """Never a write to /etc/rc_keymaps/ from here — the helper owns that
+        path, and the milo user cannot write it."""
+        proc = AsyncMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+
+        with patch("asyncio.create_subprocess_exec",
+                   return_value=proc) as spawn:
+            await apply_keymap(0x8D)
+
+        assert spawn.await_args.args == (
+            "sudo", "-n", "/usr/local/bin/milo-apply-ir-keymap",
+        )
+        assert spawn.await_args.kwargs["stdin"] is asyncio.subprocess.PIPE
+        piped = proc.communicate.await_args.kwargs["input"].decode("utf-8")
+        assert piped == render_keymap(0x8D)
+
+    @pytest.mark.asyncio
+    async def test_a_helper_that_exits_non_zero_raises_with_its_stderr(self):
+        """The caller turns this into the wizard's `error` status; swallowing
+        it would report a pairing the kernel never took."""
+        proc = AsyncMock()
+        proc.returncode = 1
+        proc.communicate = AsyncMock(return_value=(b"", b"cannot open /etc/rc_keymaps"))
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            with pytest.raises(RuntimeError, match="cannot open /etc/rc_keymaps"):
+                await apply_keymap(0x8D)
+
+    @pytest.mark.asyncio
+    async def test_an_invalid_device_id_is_refused_before_any_spawn(self):
+        with patch("asyncio.create_subprocess_exec") as spawn:
+            with pytest.raises(ValueError):
+                await apply_keymap(0x1FF)
+        spawn.assert_not_called()
+
+
+class TestClearKernelKeymap:
+    """`clear_kernel_keymap()` — the unpair half of the same helper."""
+
+    @pytest.mark.asyncio
+    async def test_the_helper_is_invoked_with_the_clear_argument(self):
+        proc = AsyncMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+
+        with patch("asyncio.create_subprocess_exec",
+                   return_value=proc) as spawn:
+            await clear_kernel_keymap()
+
+        assert spawn.await_args.args == (
+            "sudo", "-n", "/usr/local/bin/milo-apply-ir-keymap", "--clear",
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_failed_clear_raises(self):
+        """`unpair()` deliberately swallows this — it must still be raised, or
+        the swallow has nothing to catch and the failure is invisible."""
+        proc = AsyncMock()
+        proc.returncode = 2
+        proc.communicate = AsyncMock(return_value=(b"no keymap loaded", b""))
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            with pytest.raises(RuntimeError, match="no keymap loaded"):
+                await clear_kernel_keymap()

@@ -897,3 +897,56 @@ class TestUpdateConfigEnable:
         assert controller.enabled is True
         assert controller._runtime_task is None
         find.assert_not_called()
+
+
+class TestUnpair:
+    """`unpair()` — the one path that talks to the kernel on the way out."""
+
+    def _paired(self):
+        controller = _runtime_controller()
+        controller.enabled = True
+        controller.paired = True
+        controller.device_id = 0x8D
+        controller.paired_at = 1700000000.0
+        return controller
+
+    @pytest.mark.asyncio
+    async def test_forgetting_a_remote_clears_the_pairing_and_persists_it(self):
+        controller = self._paired()
+        with patch("backend.hardware.ir_remote.keymap_writer.clear_kernel_keymap",
+                   new=AsyncMock()) as clear:
+            await controller.unpair()
+
+        clear.assert_awaited_once()
+        assert controller.paired is False
+        assert controller.device_id is None
+        assert controller.paired_at is None
+        controller.settings_service.set_setting.assert_awaited_once_with(
+            'hardware.ir_remote',
+            {'enabled': True, 'device_id': None, 'paired_at': None},
+        )
+        controller.state_machine.broadcast.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_unpairing_does_not_touch_the_master_switch(self):
+        """`enabled` is the header toggle, orthogonal to pairing: clearing it
+        here would drop the user into the "feature disabled" panel instead of
+        the pairing wizard."""
+        controller = self._paired()
+        with patch("backend.hardware.ir_remote.keymap_writer.clear_kernel_keymap",
+                   new=AsyncMock()):
+            await controller.unpair()
+        assert controller.enabled is True
+
+    @pytest.mark.asyncio
+    async def test_a_kernel_that_refuses_the_clear_still_unpairs(self):
+        """The helper can fail (no sudoers grant, no /etc/rc_keymaps); the
+        settings and the UI state still have to move, or the user is stuck
+        with a remote they cannot forget."""
+        controller = self._paired()
+        with patch("backend.hardware.ir_remote.keymap_writer.clear_kernel_keymap",
+                   new=AsyncMock(side_effect=RuntimeError("exit 1"))):
+            await controller.unpair()
+
+        assert controller.paired is False
+        controller.settings_service.set_setting.assert_awaited_once()
