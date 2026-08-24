@@ -1474,5 +1474,22 @@ img.player-artwork.loaded {
   .audio-player :deep(.ml-transport-main .icon-button--medium.icon-button--loading .loading-spinner--medium .loading-spinner-content) {
     transform: scale(0.85);
   }
+
+  /* Podcast, desktop sidebar only: play/pause joins the 44px primary tier that
+     music library and the lyrics bar already use. The -15s/+30s pair is left on
+     IconButton's native 24px small deliberately — it is utility, the peer of
+     ML's shuffle/like rather than of its prev/next, so it takes their tier. */
+  .audio-player.source-podcast :deep(.playback-controls .icon-button--medium .svg-responsive) {
+    width: 44px;
+    height: 44px;
+  }
+
+  .audio-player.source-podcast :deep(.playback-controls .icon-button--medium.icon-button--loading .loading-spinner--medium) {
+    --spinner-size: 44px;
+  }
+
+  .audio-player.source-podcast :deep(.playback-controls .icon-button--medium.icon-button--loading .loading-spinner--medium .loading-spinner-content) {
+    transform: scale(0.85);
+  }
 }
 </style>
