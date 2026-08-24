@@ -331,3 +331,102 @@ class TestUnmountRunsNoScan:
 
         removable._storage.unmount_share.assert_awaited_once_with("nas")
         removable._storage.request_scan.assert_not_awaited()
+
+
+class TestShareCredentialsMoveWithThePassword:
+    """The three cases the comment in update() states, none of which had run.
+
+    milo-mount attaches ``<id>.cred`` whenever the file exists, so what the
+    service does (or fails to do) with it *is* what the next mount authenticates
+    with. ``has_credentials`` is not decoration either: the edit screen reads it
+    to show "a password is saved" and to leave the field empty-means-keep.
+    """
+
+    @pytest.fixture
+    def editable(self, shares):
+        shares._data.get_share = AsyncMock(
+            return_value={"id": "nas", "has_credentials": True}
+        )
+        shares._data.update_share = AsyncMock(
+            side_effect=lambda sid, up: {"id": sid, **up}
+        )
+        shares._storage.unmount_share = AsyncMock()
+        shares._storage.mount_share = AsyncMock(return_value="/media/milo/nas")
+        shares._storage.forget_share_credentials = AsyncMock()
+        shares._storage.get_mounted_share_ids = Mock(return_value={"nas"})
+        shares._libraries.reconcile = AsyncMock(return_value=True)
+        return shares
+
+    @pytest.mark.asyncio
+    async def test_switching_to_nfs_drops_the_stored_password(self, editable):
+        """Clearing the flag alone would leave the file, and a later switch back
+        to CIFS would remount with the old password while the screen says none is
+        saved."""
+        await editable.update("nas", ShareRequest(
+            type="nfs", host="10.0.0.2", path="export/music", name="NAS",
+        ))
+
+        editable._storage.forget_share_credentials.assert_awaited_once_with("nas")
+        assert editable._data.update_share.await_args[0][1]["has_credentials"] is False
+
+    @pytest.mark.asyncio
+    async def test_switching_to_nfs_a_share_that_had_none_forgets_nothing(
+        self, editable
+    ):
+        """No cred file was ever written, so there is nothing to drop — and a
+        privileged helper is not spawned to find that out."""
+        editable._data.get_share = AsyncMock(
+            return_value={"id": "nas", "has_credentials": False}
+        )
+
+        await editable.update("nas", ShareRequest(
+            type="nfs", host="10.0.0.2", path="export/music", name="NAS",
+        ))
+
+        editable._storage.forget_share_credentials.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_new_password_carries_its_username_and_domain(self, editable):
+        """They move as a unit: milo-mount rewrites the whole cred file from what
+        it is handed, so a password stored beside a stale username authenticates
+        as the wrong account."""
+        await editable.update("nas", ShareRequest(
+            type="cifs", host="10.0.0.2", path="music", name="NAS",
+            username="claire", password="s3cret", domain="WORKGROUP",
+        ))
+
+        stored = editable._data.update_share.await_args[0][1]
+        assert stored["has_credentials"] is True
+        assert (stored["username"], stored["domain"]) == ("claire", "WORKGROUP")
+        assert editable._storage.mount_share.await_args.kwargs["credentials"] == {
+            "username": "claire", "password": "s3cret", "domain": "WORKGROUP",
+        }
+
+    @pytest.mark.asyncio
+    async def test_an_edit_without_a_password_hands_the_mount_nothing(self, editable):
+        """The idempotent PUT: no credentials on stdin is what makes milo-mount
+        keep the persisted file, so passing an empty dict — or the username on
+        its own — would rewrite it without a password and lock the share out."""
+        await editable.update("nas", ShareRequest(
+            type="cifs", host="10.0.0.2", path="music", name="NAS",
+            username="claire",
+        ))
+
+        assert editable._storage.mount_share.await_args.kwargs["credentials"] is None
+        editable._storage.forget_share_credentials.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_password_with_no_username_is_a_guest_login_password(
+        self, editable
+    ):
+        """Only the keys that were given: milo-mount writes the cred file from
+        these lines verbatim, and an empty ``username=`` is not the same thing as
+        no username at all."""
+        await editable.update("nas", ShareRequest(
+            type="cifs", host="10.0.0.2", path="music", name="NAS",
+            password="s3cret",
+        ))
+
+        assert editable._storage.mount_share.await_args.kwargs["credentials"] == {
+            "password": "s3cret",
+        }
