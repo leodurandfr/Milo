@@ -731,7 +731,8 @@ class NetworkShareService:
         Returns the updated share, or None if no share has that id. A request that
         omits the password keeps the existing cred file (idempotent PUT).
         """
-        if await self._data.get_share(share_id) is None:
+        existing = await self._data.get_share(share_id)
+        if existing is None:
             return None
         updates: Dict[str, Any] = {
             "type": req.type,
@@ -749,6 +750,12 @@ class NetworkShareService:
         share = await self._data.update_share(share_id, updates)
         if share is None:
             return None
+        # Clearing the flag is not enough: milo-mount attaches <id>.cred whenever
+        # the file exists, whatever the share now says. Left behind, it would
+        # remount a share switched back to CIFS with the old password while the
+        # edit screen — which reads has_credentials — says none is saved.
+        if req.type == "nfs" and existing.get("has_credentials"):
+            await self._storage.forget_share_credentials(share_id)
         # Unmount first so a changed host/path/credentials actually takes effect.
         await self._unmount_share(share_id)
         mountpoint = await self._mount_share(
