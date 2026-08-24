@@ -42,8 +42,12 @@ def create_ir_remote_router(ir_remote_controller: "IrRemoteController"):
 
     @router.post("/pair")
     async def start_pairing():
-        """Capture one Apple scancode (or timeout after 15 s), save device_id,
-        regenerate the rc-core keymap, and resume the runtime listener.
+        """Capture one Apple scancode (or timeout after 15 s), save device_id
+        and regenerate the rc-core keymap.
+
+        On success the runtime listener is started; any other outcome leaves
+        it as it was, which is down only when the controller was unpaired to
+        begin with — the wizard is the unpaired branch of the settings panel.
 
         Returns the pairing result; HTTP 200 in all flow-control cases
         (success/timeout/cancelled/unsupported). HTTP 500 only on internal
@@ -74,7 +78,11 @@ def create_ir_remote_router(ir_remote_controller: "IrRemoteController"):
 
     @router.delete("/pair")
     async def unpair():
-        """Forget the paired remote, clear the rc-core keymap, disable the controller."""
+        """Forget the paired remote and clear the rc-core keymap.
+
+        `enabled` is the header master switch and is deliberately left as it
+        is: an unpaired-but-enabled remote lands back on the pairing wizard.
+        """
         try:
             await ir_remote_controller.unpair()
             return {"status": "success", **ir_remote_controller.get_status()}
