@@ -7,15 +7,19 @@ by Pi-only smoke tests in Phase 6; here we exercise the pure-Python decoder
 and the controller's config lifecycle without touching real devices.
 """
 import asyncio
+from types import SimpleNamespace
 
+import evdev
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.core.models.audio_state import AudioSource
 from backend.hardware.ir_remote import (
+    GPIO_IR_DEVICE_NAME,
     MENU_CLICK_WINDOW,
     IrRemoteController,
     UnsupportedRemoteError,
+    _find_gpio_ir_device,
     parse_apple_scancode,
 )
 from backend.hardware.keymap_writer import APPLE_MANUFACTURER
@@ -331,3 +335,310 @@ class TestMenuHold:
         assert controller._menu_pressed is True  # cleared by runtime loop, not here
 
 
+
+
+# ============================================================================
+# Runtime listener — device discovery, the EV_KEY filter, keycode dispatch
+# ============================================================================
+
+def _event(type_, code, value):
+    """A minimal stand-in for evdev's InputEvent (only 3 fields are read)."""
+    return SimpleNamespace(type=type_, code=code, value=value)
+
+
+def _fake_input_device(events=(), name=GPIO_IR_DEVICE_NAME):
+    """An evdev.InputDevice stand-in that replays `events` then ends the loop.
+
+    Ending the read loop is how the tests get `_runtime_loop` to return: on
+    hardware the generator never ends and the task is cancelled instead.
+    """
+    device = MagicMock()
+    device.name = name
+
+    async def _loop():
+        for event in events:
+            yield event
+
+    device.async_read_loop = _loop
+    return device
+
+
+async def _drain_volume(controller):
+    """Let VolumeAccumulator's processor task apply what it batched.
+
+    It drains synchronously on its first pass, then sleeps BATCH_INTERVAL —
+    two of those is enough for every delta these tests queue.
+    """
+    for _ in range(4):
+        await asyncio.sleep(controller._volume.BATCH_INTERVAL)
+
+
+def _runtime_controller(active_source=AudioSource.SPOTIFY, step_db=2.0):
+    """A controller whose volume / playback effects are observable.
+
+    The VolumeAccumulator and PlaybackDispatcher are the controller's real
+    collaborators — only the outside world (volume service, source instance)
+    is mocked, so an assertion here covers the whole chain from an EV_KEY
+    code to the command the source receives.
+    """
+    volume_service = MagicMock()
+    volume_service.volume_config.step_ir_remote_db = step_db
+    volume_service.adjust_volume_db = AsyncMock()
+
+    source_instance = MagicMock()
+    source_instance.command = AsyncMock()
+    source_instance.is_playing = True
+
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    state_machine.transition_to_source = AsyncMock()
+    state_machine.system_state.active_source = active_source
+    state_machine.get_source = MagicMock(return_value=source_instance)
+
+    settings_service = MagicMock()
+    settings_service.get_setting = AsyncMock(return_value=None)
+    settings_service.set_setting = AsyncMock()
+    screen_controller = MagicMock()
+    screen_controller.force_sleep = AsyncMock()
+
+    controller = IrRemoteController(
+        volume_service, state_machine, settings_service, screen_controller
+    )
+    controller.source_instance = source_instance
+    return controller
+
+
+class TestFindGpioIrDevice:
+    """`_find_gpio_ir_device()` — which /dev/input node the listener opens.
+
+    When this picks the wrong node (or None), every button is dead and the
+    only symptom is one WARNING line at startup.
+    """
+
+    def test_returns_the_path_of_the_node_named_gpio_ir_recv(self):
+        devices = {
+            "/dev/input/event0": _fake_input_device(name="vc4-hdmi"),
+            "/dev/input/event1": _fake_input_device(name=GPIO_IR_DEVICE_NAME),
+        }
+        with patch("evdev.list_devices", return_value=list(devices)), \
+             patch("evdev.InputDevice", side_effect=lambda p: devices[p]):
+            assert _find_gpio_ir_device() == "/dev/input/event1"
+
+    def test_returns_none_when_no_node_carries_the_name(self):
+        devices = {
+            "/dev/input/event0": _fake_input_device(name="vc4-hdmi"),
+            "/dev/input/event1": _fake_input_device(name="pwr_button"),
+        }
+        with patch("evdev.list_devices", return_value=list(devices)), \
+             patch("evdev.InputDevice", side_effect=lambda p: devices[p]):
+            assert _find_gpio_ir_device() is None
+        # Every node opened during the scan is closed again — the listener
+        # reopens the winner by path, so a leaked fd here is a leaked fd.
+        for device in devices.values():
+            device.close.assert_called_once()
+
+    def test_a_node_that_cannot_be_opened_is_skipped_not_fatal(self):
+        """A device removed mid-scan raises OSError; the scan must continue."""
+        target = _fake_input_device(name=GPIO_IR_DEVICE_NAME)
+
+        def _open(path):
+            if path == "/dev/input/event0":
+                raise OSError(19, "No such device")
+            return target
+
+        with patch("evdev.list_devices",
+                   return_value=["/dev/input/event0", "/dev/input/event1"]), \
+             patch("evdev.InputDevice", side_effect=_open):
+            assert _find_gpio_ir_device() == "/dev/input/event1"
+
+
+class TestRuntimeListenerLifecycle:
+    """`_start_runtime_listener()` / `_stop_runtime_listener()`."""
+
+    @pytest.mark.asyncio
+    async def test_missing_kernel_device_leaves_the_listener_down(self):
+        controller = _runtime_controller()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value=None):
+            await controller._start_runtime_listener()
+        assert controller._runtime_task is None
+
+    @pytest.mark.asyncio
+    async def test_a_second_start_does_not_open_a_second_reader(self):
+        """Two readers on one evdev fd would double-fire every button."""
+        controller = _runtime_controller()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=_fake_input_device()):
+            await controller._start_runtime_listener()
+            first = controller._runtime_task
+            await controller._start_runtime_listener()
+            assert controller._runtime_task is first
+            await controller._stop_runtime_listener()
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_the_task_and_clears_it(self):
+        controller = _runtime_controller()
+        started = asyncio.Event()
+
+        async def _never_ends():
+            started.set()
+            await asyncio.Event().wait()
+
+        controller._runtime_task = asyncio.create_task(_never_ends())
+        await started.wait()
+
+        task = controller._runtime_task
+        await controller._stop_runtime_listener()
+
+        assert controller._runtime_task is None
+        assert task.cancelled() or task.done()
+
+    @pytest.mark.asyncio
+    async def test_an_unopenable_device_is_logged_not_raised(self):
+        """The listener runs as a bare task — an escaping OSError is silent."""
+        controller = _runtime_controller()
+        controller._device_path = "/dev/input/event1"
+        with patch("evdev.InputDevice", side_effect=OSError(16, "Device busy")):
+            await controller._runtime_loop()  # must not raise
+
+
+class TestRuntimeEventFilter:
+    """`_runtime_loop()` — which EV_KEY events become actions.
+
+    The kernel keymap already filters by remote; this filter decides key-down
+    vs autorepeat vs key-up. Getting it wrong double-fires transport commands
+    or strands the MENU hold gesture.
+    """
+
+    @pytest.mark.asyncio
+    async def _drive(self, controller, events):
+        controller._device_path = "/dev/input/event1"
+        with patch("evdev.InputDevice",
+                   return_value=_fake_input_device(events)):
+            await controller._runtime_loop()
+
+    @pytest.mark.asyncio
+    async def test_a_key_down_on_play_pause_reaches_the_active_source(self):
+        controller = _runtime_controller(active_source=AudioSource.SPOTIFY)
+        await self._drive(controller, [
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 1),
+        ])
+        controller.source_instance.command.assert_awaited_once_with("playpause", {})
+
+    @pytest.mark.asyncio
+    async def test_autorepeat_on_play_pause_is_dropped(self):
+        """value=2 is the kernel autorepeat: holding Center must not re-fire."""
+        controller = _runtime_controller(active_source=AudioSource.SPOTIFY)
+        await self._drive(controller, [
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 1),
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 2),
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 2),
+        ])
+        controller.source_instance.command.assert_awaited_once_with("playpause", {})
+
+    @pytest.mark.asyncio
+    async def test_autorepeat_on_volume_accumulates(self):
+        """Hold-to-repeat is the one gesture the volume keys DO accept."""
+        controller = _runtime_controller(step_db=2.0)
+        await self._drive(controller, [
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_VOLUMEUP, 1),
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_VOLUMEUP, 2),
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_VOLUMEUP, 2),
+        ])
+        await _drain_volume(controller)
+        applied = sum(
+            call.args[0]
+            for call in controller.volume_service.adjust_volume_db.await_args_list
+        )
+        assert applied == pytest.approx(6.0)
+
+    @pytest.mark.asyncio
+    async def test_key_up_on_menu_clears_the_hold_flag(self):
+        """The release event is the ONLY thing that clears `_menu_pressed`."""
+        controller = _runtime_controller()
+        await self._drive(controller, [
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_HOMEPAGE, 1),
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_HOMEPAGE, 0),
+        ])
+        assert controller._menu_pressed is False
+        assert controller._menu_click_count == 1
+        controller._cancel_menu_click_timer()
+
+    @pytest.mark.asyncio
+    async def test_key_up_on_another_button_leaves_the_hold_flag_alone(self):
+        controller = _runtime_controller()
+        await self._drive(controller, [
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_HOMEPAGE, 1),
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_NEXTSONG, 0),
+        ])
+        assert controller._menu_pressed is True
+        controller._cancel_menu_click_timer()
+
+    @pytest.mark.asyncio
+    async def test_only_ev_key_events_may_become_actions(self):
+        """The same fd carries EV_MSC scancodes and EV_SYN separators too.
+
+        The two events below are synthetic: they carry an EV_KEY code and an
+        EV_KEY value under a non-EV_KEY type, which real rc-core never emits.
+        That is the point — a realistic EV_MSC/EV_SYN pair sails through even
+        with the type guard deleted, so it pins nothing. These collide on
+        purpose, so the guard is the only thing standing between them and a
+        dispatch.
+        """
+        controller = _runtime_controller()
+        await self._drive(controller, [
+            _event(evdev.ecodes.EV_MSC, evdev.ecodes.KEY_PLAYPAUSE, 1),
+            _event(evdev.ecodes.EV_SYN, evdev.ecodes.KEY_HOMEPAGE, 1),
+        ])
+        controller.source_instance.command.assert_not_awaited()
+        assert controller._menu_click_count == 0
+
+
+class TestHandleKeycode:
+    """`_handle_keycode()` — the code → action map itself.
+
+    Every arm is wrapped in a try/except that only logs, so a wrong attribute
+    or a renamed command shows up as a dead button, never as a failure.
+    """
+
+    @pytest.mark.asyncio
+    async def test_volume_up_accumulates_the_configured_step(self):
+        controller = _runtime_controller(step_db=3.5)
+        await controller._handle_keycode(evdev.ecodes.KEY_VOLUMEUP)
+        await _drain_volume(controller)
+        controller.volume_service.adjust_volume_db.assert_awaited_once_with(3.5)
+
+    @pytest.mark.asyncio
+    async def test_volume_down_accumulates_the_negated_step(self):
+        controller = _runtime_controller(step_db=3.5)
+        await controller._handle_keycode(evdev.ecodes.KEY_VOLUMEDOWN)
+        await _drain_volume(controller)
+        controller.volume_service.adjust_volume_db.assert_awaited_once_with(-3.5)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("code,direction", [
+        ("KEY_NEXTSONG", "next"),
+        ("KEY_PREVIOUSSONG", "prev"),
+    ])
+    async def test_track_buttons_reach_the_active_source(self, code, direction):
+        controller = _runtime_controller(active_source=AudioSource.SPOTIFY)
+        await controller._handle_keycode(getattr(evdev.ecodes, code))
+        controller.source_instance.command.assert_awaited_once_with(direction, {})
+
+    @pytest.mark.asyncio
+    async def test_menu_registers_a_click_rather_than_acting_at_once(self):
+        controller = _runtime_controller()
+        await controller._handle_keycode(evdev.ecodes.KEY_HOMEPAGE)
+        assert controller._menu_click_count == 1
+        assert controller._menu_pressed is True
+        controller.state_machine.transition_to_source.assert_not_called()
+        controller._cancel_menu_click_timer()
+
+    @pytest.mark.asyncio
+    async def test_an_unmapped_keycode_does_nothing(self):
+        controller = _runtime_controller()
+        await controller._handle_keycode(evdev.ecodes.KEY_POWER)
+        controller.source_instance.command.assert_not_awaited()
+        controller.volume_service.adjust_volume_db.assert_not_awaited()
+        assert controller._menu_click_count == 0
