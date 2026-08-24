@@ -350,6 +350,25 @@ class TestUnmountRunsNoScan:
         removable._storage.unmount_share.assert_awaited_once_with("nas")
         removable._storage.request_scan.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_editing_an_offline_share_still_gives_it_its_library(
+        self, removable
+    ):
+        """A remount that failed fired no hook, so this is the pass that carries
+        the new name to Navidrome — without it an edit made while the NAS is
+        asleep is invisible until the NAS comes back."""
+        removable._data.update_share = AsyncMock(
+            return_value={"id": "nas", "name": "NAS-Claire"}
+        )
+        removable._storage.mount_share = AsyncMock(return_value=None)
+
+        updated = await removable.update("nas", ShareRequest(
+            type="cifs", host="10.0.0.2", path="music", name="NAS-Claire",
+        ))
+
+        assert updated["mounted"] is False
+        removable._libraries.reconcile.assert_awaited_once()
+
 
 class TestBoot:
     """initialize() — the method that mounts the owner's NAS on every boot.
@@ -904,3 +923,103 @@ class TestAVerdictDiesWithItsMount:
 
         assert "nas" not in probing._alive
         assert "nas" not in probing._probe_failures
+
+    @pytest.mark.asyncio
+    async def test_a_failing_sweep_does_not_kill_the_liveness_watcher(self, probing):
+        """Spawned once at boot and never restarted: one exception escaping the
+        loop body freezes every share's `mounted` for the session, and a NAS that
+        dies afterwards keeps offering tracks mpv skips in silence."""
+        probing._storage.get_mounted_share_ids = Mock(
+            side_effect=[RuntimeError("procfs hiccup"), asyncio.CancelledError]
+        )
+
+        with patch(
+            "backend.sources.music_library.shares.asyncio.sleep", AsyncMock()
+        ), pytest.raises(asyncio.CancelledError):
+            await probing._watch_share_liveness()
+
+        assert probing._storage.get_mounted_share_ids.call_count == 2
+
+
+class TestTeardown:
+    """cleanup() comes out red under evisceration with 0% of its lines: the only
+    thing that fails is the AST guardrail in test_service_wiring, which reads
+    `cancel_all` out of the source without running anything. These four drains
+    are what a systemd stop actually depends on."""
+
+    @pytest.mark.asyncio
+    async def test_teardown_drains_every_layer_it_owns(self, shares):
+        shares._storage.cleanup = AsyncMock()
+        shares._libraries.cleanup = AsyncMock()
+        shares._bg.spawn(asyncio.sleep(3600), label="scan-watcher")
+
+        await shares.cleanup()
+
+        assert not asyncio.all_tasks() - {asyncio.current_task()}
+        shares._storage.cleanup.assert_awaited_once()
+        shares._libraries.cleanup.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_teardown_does_not_wait_on_a_probe_stuck_on_a_dead_mount(
+        self, shares
+    ):
+        """A worker parked in statvfs returns when the kernel gives up on the
+        link, which is minutes, and nothing at shutdown needs its answer."""
+        started, release, finished = (threading.Event() for _ in range(3))
+
+        def _parked():
+            started.set()
+            release.wait(5)
+            finished.set()
+
+        shares._probe_pool.submit(_parked)
+        assert started.wait(2)
+        shares._storage.cleanup = AsyncMock()
+        shares._libraries.cleanup = AsyncMock()
+
+        await shares.cleanup()
+
+        # Waiting for it would hold the shutdown for as long as the kernel takes
+        # to give up on the link. Asserted as state, not as elapsed time.
+        assert not finished.is_set()
+        release.set()
+
+
+class TestPlaylistPlacement:
+    """A playlist Milō creates is tied to the storage space it was created in,
+    because Navidrome's own library ids are reassigned when a key comes back and
+    anything persisted here is keyed by Milō's id instead."""
+
+    @pytest.fixture
+    def placed(self, shares):
+        shares._data.list_shares = AsyncMock(return_value=[])
+        shares._data.get_known_usb = AsyncMock(return_value={
+            "AAAA": {"name": "IPOD", "mountpoint": "/media/milo/IPOD"},
+        })
+        shares._storage.get_mounted_share_ids = Mock(return_value=set())
+        shares._libraries.library_id = Mock(
+            side_effect=lambda mp: 7 if mp == "/media/milo/IPOD" else None
+        )
+        shares._data.set_playlist_storage = AsyncMock()
+        return shares
+
+    @pytest.mark.asyncio
+    async def test_a_playlist_is_filed_under_milos_own_storage_id(self, placed):
+        await placed.record_playlist_storage("pl-1", 7)
+
+        placed._data.set_playlist_storage.assert_awaited_once_with("pl-1", "AAAA")
+
+    @pytest.mark.asyncio
+    async def test_a_playlist_in_a_library_milo_cannot_place_is_not_filed(
+        self, placed
+    ):
+        """Recording it against the wrong space would survive the reassignment
+        and put the playlist behind a filter it does not belong to."""
+        await placed.record_playlist_storage("pl-1", 99)
+
+        placed._data.set_playlist_storage.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_an_unmapped_library_resolves_to_no_storage(self, placed):
+        assert await placed.storage_id_for_library(7) == "AAAA"
+        assert await placed.storage_id_for_library(99) is None
