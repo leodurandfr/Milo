@@ -30,8 +30,10 @@ from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from backend.sources.spotify.source import SpotifySource
+from backend.sources.spotify.models import NextPrevParams
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.ws_events import SourceError, SourceErrorCleared
 
 
 # A go-librespot GET /status body for a live session, shaped like the daemon's.
@@ -402,6 +404,49 @@ class TestSpotifySourceCommands:
         result = await spotify_source.command("seek", {"position_ms": 30000})
 
         assert result["success"] is True
+
+class TestNextPrevCommands:
+    """`next` / `prev`, the one command arm the suite never entered.
+
+    NextPrevParams carries an optional target URI, and the two payload shapes it
+    produces sat at 0% of lines. Sending `{"uri": null}` instead of `{}` is the
+    failure this pins: go-librespot reads the key, so a null target is not the
+    same request as no target.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cmd", ["next", "prev"])
+    async def test_a_bare_skip_carries_no_target(self, spotify_source, cmd):
+        """No URI given, no URI sent — not a null one."""
+        session = mock_librespot_api(spotify_source)
+
+        result = await spotify_source._handle_command(cmd, NextPrevParams())
+
+        assert result["success"] is True
+        assert posted_commands(session) == [(cmd, {})]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cmd", ["next", "prev"])
+    async def test_a_targeted_skip_carries_the_uri(self, spotify_source, cmd):
+        """The queue view jumps to a track by URI through this same command."""
+        session = mock_librespot_api(spotify_source)
+        uri = "spotify:track:0eGsygTp906u18L0Oimnem"
+
+        await spotify_source._handle_command(cmd, NextPrevParams(uri=uri))
+
+        assert posted_commands(session) == [(cmd, {"uri": uri})]
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_command_is_refused_rather_than_forwarded(self, spotify_source):
+        """COMMANDS gates dispatch, so this arm is only reachable by a new
+        entry someone forgot to serve — it must not reach the daemon."""
+        session = mock_librespot_api(spotify_source)
+
+        result = await spotify_source._handle_command("shuffle", None)
+
+        assert result["success"] is False
+        assert posted_commands(session) == []
+
 
 class TestWebSocketEvents:
     """Test WebSocket event handling."""
@@ -975,3 +1020,243 @@ class TestManagedConfig:
 
         assert await spotify_source.on_spotify_settings_changed(apply_now=True) is True
         spotify_source._service_manager.restart.assert_called_once_with("milo-spotify.service")
+
+    @pytest.mark.asyncio
+    async def test_a_settings_change_always_reaches_config_yml(self, spotify_source):
+        """The write is unconditional; only the restart is not.
+
+        Measured 2026-08-24: deleting `_apply_managed_config()` from
+        on_spotify_settings_changed left the whole suite green. The method's own
+        test asserts both restart branches, so eviscerating the method was red
+        and the missing write hid behind that red — the class of gap only a
+        statement-level mutation reaches.
+
+        What it costs when it breaks: the settings page reports success, the
+        daemon is not restarted (apply_now=False), and the value is gone at the
+        next boot too, because config.yml is the only place it was going to live.
+        """
+        spotify_source._settings_service = Mock()
+        spotify_source._settings_service.get_setting = AsyncMock(return_value=6000)
+
+        assert await spotify_source.on_spotify_settings_changed(apply_now=False) is True
+
+        assert self._read(spotify_source._config_path)["crossfade_duration"] == 6000
+
+
+class TestWebSocketEventDispatch:
+    """go-librespot's event vocabulary, mapped to the handlers that serve it.
+
+    The handlers below each had a test; the map that reaches them had none. The
+    only test that named `_handle_ws_event` asserted it was *wired* as the
+    socket's `on_event` — `TestSpotifySourceLifecycle` still does — and the
+    event tests call `_on_playback_state(True)` and friends directly, so all
+    eight of these wire names sat at 0% of lines. A name go-librespot renames,
+    or an arm typed `not-playing` for `not_playing`, would reach nothing and
+    fail in silence: the daemon keeps streaming and the screen keeps showing
+    whatever it last published.
+
+    Two handlers hang off this map alone (`_on_stopped`, `_on_not_playing`) and
+    were unreachable for the whole suite as a result.
+
+    The spies WRAP the real handlers rather than replace them, so each case
+    still runs the production handler; what they add is *which* one ran. And
+    every case demands exactly one — several arms leave the same trace
+    (`stopped`, `not_playing` and `paused` all clear `_is_playing`), so an
+    assertion on the trace alone would not tell them apart.
+    """
+
+    HANDLERS = [
+        "_on_device_active", "_on_device_inactive", "_on_playback_state",
+        "_on_metadata_update", "_on_seek", "_on_stopped", "_on_not_playing",
+    ]
+
+    @contextlib.contextmanager
+    def _spies(self, source):
+        with contextlib.ExitStack() as stack:
+            yield {
+                name: stack.enter_context(
+                    patch.object(source, name, wraps=getattr(source, name))
+                )
+                for name in self.HANDLERS
+            }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("wire_name, handler, args", [
+        ("active", "_on_device_active", ()),
+        ("inactive", "_on_device_inactive", ()),
+        ("playing", "_on_playback_state", (True,)),
+        ("paused", "_on_playback_state", (False,)),
+        ("metadata", "_on_metadata_update", ()),
+        ("seek", "_on_seek", ()),
+        ("stopped", "_on_stopped", ()),
+        ("not_playing", "_on_not_playing", ()),
+    ])
+    async def test_each_wire_event_reaches_its_own_handler(
+        self, spotify_source, wired, wire_name, handler, args
+    ):
+        """One event name in, exactly one handler out, with the arguments it owes.
+
+        `playing` and `paused` share a handler and differ only by the flag, which
+        is why the argument is asserted and not just the call.
+        """
+        spotify_source._session = librespot_api(TRACK_STATUS)
+
+        with self._spies(spotify_source) as spies:
+            await spotify_source._handle_ws_event({"type": wire_name})
+
+        assert spies[handler].await_args.args == args
+        assert [n for n, spy in spies.items() if spy.await_count] == [handler]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("event", [
+        {"type": "volume"},
+        {"type": "not_playing_yet"},
+        {},
+    ])
+    async def test_an_unhandled_event_reaches_no_handler_at_all(
+        self, spotify_source, wired, event
+    ):
+        """The fall-through is silence, not a wrong guess.
+
+        go-librespot sends more than Milō consumes (volume rides CamillaDSP, not
+        this socket), and a missing `type` is what a truncated frame looks like.
+        Neither may be routed to a handler by accident — `not_playing_yet` is
+        here because a prefix match would take it for `not_playing`.
+        """
+        with self._spies(spotify_source) as spies:
+            await spotify_source._handle_ws_event(event)
+
+        assert [n for n, spy in spies.items() if spy.await_count] == []
+
+
+class TestLogBridge:
+    """go-librespot's journal, read as the Spotify error banner.
+
+    This is the only thing that puts a Spotify failure on screen, and it works
+    by matching literal strings out of another project's log output — the most
+    perishable coupling in the source, and it was at 0% of lines. `JournalDouble`
+    above already takes the lines to feed it; nothing ever passed any.
+
+    The banner is deliberately slow to appear on connection failures: zeroconf
+    crashes and restarts every ~5-15 s, so a single failure means nothing and
+    three inside a minute mean an outage.
+    """
+
+    @staticmethod
+    def _broadcast(source):
+        """The WsEvent the source last handed to the state machine, if any."""
+        broadcast = source.state_machine.broadcast
+        return broadcast.call_args.args[0] if broadcast.call_args else None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("line", [
+        'level=info msg="authenticated AP with stored credentials"',
+        'level=info msg="authenticated Login5 with stored credentials"',
+        'level=info msg="loaded track ..."',
+    ])
+    async def test_a_success_line_dismisses_a_standing_banner(
+        self, spotify_source, wired, line
+    ):
+        """Every line go-librespot logs on success clears the error it fixed."""
+        spotify_source.broadcast_error("go-librespot is unreachable")
+        assert spotify_source._error_active is True
+
+        await spotify_source._handle_log_line(line)
+
+        assert spotify_source._error_active is False
+        assert isinstance(self._broadcast(spotify_source), SourceErrorCleared)
+
+    @pytest.mark.asyncio
+    async def test_authentication_also_forgives_the_failures_that_preceded_it(
+        self, spotify_source, wired
+    ):
+        """A daemon that authenticates starts its next outage from zero.
+
+        Without the reset, two failures from an outage an hour ago would leave
+        the banner one line away on the next hiccup.
+        """
+        spotify_source._connection_error_count = 2
+
+        await spotify_source._handle_log_line('level=info msg="authenticated AP"')
+
+        assert spotify_source._connection_error_count == 0
+
+    @pytest.mark.asyncio
+    async def test_a_track_that_will_not_load_is_shown_at_once(
+        self, spotify_source, wired
+    ):
+        """No throttle here: the user pressed play and nothing happened."""
+        await spotify_source._handle_log_line(
+            'level=error msg="failed loading current track" error="context has no tracks"'
+        )
+
+        event = self._broadcast(spotify_source)
+        assert isinstance(event, SourceError)
+        assert event.message == "failed loading current track: context has no tracks"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("line", [
+        'level=warning msg="failed connecting to accesspoint" error="dial tcp: timeout"',
+        'level=warning msg="failed running zeroconf" error="listen udp :5353: in use"',
+    ])
+    async def test_a_connection_failure_is_shown_only_on_the_third_inside_a_minute(
+        self, spotify_source, wired, line
+    ):
+        """Two failures are a restart; three inside 60 s are an outage."""
+        await spotify_source._handle_log_line(line)
+        await spotify_source._handle_log_line(line)
+
+        assert spotify_source._error_active is False
+        assert self._broadcast(spotify_source) is None
+
+        await spotify_source._handle_log_line(line)
+
+        assert isinstance(self._broadcast(spotify_source), SourceError)
+        # Reset, so the next outage needs its own three rather than riding these.
+        assert spotify_source._connection_error_count == 0
+
+    @pytest.mark.asyncio
+    async def test_failures_more_than_a_minute_apart_never_accumulate(
+        self, spotify_source, wired, monkeypatch
+    ):
+        """The window is what makes three mean an outage rather than an uptime.
+
+        Only this module's `time` is replaced, never the process-wide one the
+        event loop reads.
+        """
+        clock = iter([0.0, 3600.0, 7200.0])
+        monkeypatch.setattr(
+            "backend.sources.spotify.source.time",
+            SimpleNamespace(time=lambda: next(clock), monotonic=time.monotonic),
+        )
+        line = 'level=warning msg="failed connecting to accesspoint" error="timeout"'
+
+        for _ in range(3):
+            await spotify_source._handle_log_line(line)
+
+        assert spotify_source._connection_error_count == 1
+        assert self._broadcast(spotify_source) is None
+
+    @pytest.mark.asyncio
+    async def test_an_unremarkable_line_is_left_alone(self, spotify_source, wired):
+        """The journal is mostly noise; only the five patterns above may fire."""
+        await spotify_source._handle_log_line(
+            'level=debug msg="websocket closed" error="StatusNormalClosure"'
+        )
+
+        assert self._broadcast(spotify_source) is None
+        assert spotify_source._connection_error_count == 0
+
+    @pytest.mark.parametrize("line, expected", [
+        ('msg="failed loading current track" error="no tracks"',
+         "failed loading current track: no tracks"),
+        ('msg="failed loading current track"', "failed loading current track"),
+        ('level=error something entirely different', "Unknown error"),
+    ])
+    def test_the_banner_text_is_the_daemon_own_words(self, spotify_source, line, expected):
+        """What reaches the screen is go-librespot's message, not a paraphrase.
+
+        The last case is the one that matters: a log format that stops matching
+        must still produce a banner, not an empty one.
+        """
+        assert spotify_source._extract_log_message(line) == expected
