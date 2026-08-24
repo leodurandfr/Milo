@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.sources.radio.data import StationDataService
+from backend.sources.radio.data import ImageManager, StationDataService
 
 
 @pytest.fixture
@@ -352,6 +352,39 @@ class TestFavorites:
         assert favorites[0]["id"] == "api-1"
 
 
+class TestShazamOptOut:
+    """The per-station Shazam switch of Réglages → ManageStation.
+
+    Read on every play and on every global-toggle flip; a station opted out must
+    show no recognised track at all. Default is ON, so a lookup that silently
+    stopped finding the stored preference would re-enable recognition on every
+    station that turned it off, with nothing in any log to say so.
+
+    Consumer: `RadioSource._handle_play_station` → `_recognition_enabled`.
+    """
+
+    @pytest.mark.parametrize("store,stored,expected", [
+        ("_modified_metadata", {"shazam_enabled": False}, False),
+        ("_manual_stations", {"shazam_enabled": False}, False),
+        ("_modified_metadata", {"shazam_enabled": True}, True),
+        ("_modified_metadata", {"name": "No preference stored"}, True),
+    ])
+    def test_the_stored_preference_decides(self, data, store, stored, expected):
+        getattr(data, store)["s-1"] = stored
+
+        assert data.is_station_shazam_enabled("s-1") is expected
+
+    def test_an_unknown_station_recognises_by_default(self, data):
+        assert data.is_station_shazam_enabled("s-1") is True
+        assert data.is_station_shazam_enabled("") is True
+
+    def test_an_edit_overrides_the_creation_record(self, data):
+        data._manual_stations["custom_1"] = {"shazam_enabled": True}
+        data._modified_metadata["custom_1"] = {"shazam_enabled": False}
+
+        assert data.is_station_shazam_enabled("custom_1") is False
+
+
 class TestModifiedStationsList:
     """`GET /api/radio/custom` lists what the user actually edited.
 
@@ -411,3 +444,51 @@ class TestModifiedStationsList:
         assert data._modified_metadata[station_id]["name"] == "Renamed"
 
 
+class TestImageStore:
+    """`GET /api/radio/images/{filename}` is the one radio route that turns a
+    free string from the LAN into a filesystem path.
+
+    Its whole defence is the `is_relative_to` check inside the store, and no test
+    entered it. `delete_image` takes the same treatment because the name it is
+    given comes from a stored record, which a bad save can put anything into.
+    """
+
+    @pytest.fixture
+    def images(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(ImageManager, "IMAGES_DIR", tmp_path / "radio_images")
+        return ImageManager()
+
+    def test_a_stored_image_resolves(self, images):
+        (images.IMAGES_DIR / "cover.webp").write_bytes(b"webp")
+
+        assert images.get_image_path("cover.webp") == images.IMAGES_DIR / "cover.webp"
+
+    def test_a_name_with_no_file_behind_it_resolves_to_nothing(self, images):
+        assert images.get_image_path("absent.webp") is None
+        assert images.get_image_path("") is None
+
+    @pytest.mark.parametrize("escape", ["../outside.webp", "sub/../../outside.webp",
+                                        "/etc/passwd"])
+    def test_a_name_that_leaves_the_store_is_refused(self, images, tmp_path, escape):
+        (tmp_path / "outside.webp").write_bytes(b"webp")
+        (images.IMAGES_DIR / "sub").mkdir()
+        # Each escape must reach a file that exists, or an unguarded store would
+        # answer None anyway and the case would pass without the guard.
+        assert (images.IMAGES_DIR / escape).exists()
+
+        assert images.get_image_path(escape) is None
+
+    async def test_delete_refuses_a_name_that_leaves_the_store(self, images, tmp_path):
+        victim = tmp_path / "outside.webp"
+        victim.write_bytes(b"webp")
+
+        assert await images.delete_image("../outside.webp") is False
+        assert victim.exists(), "a stored name reached a file outside the image store"
+
+    async def test_delete_removes_a_stored_image(self, images):
+        stored = images.IMAGES_DIR / "cover.webp"
+        stored.write_bytes(b"webp")
+
+        assert await images.delete_image("cover.webp") is True
+        assert not stored.exists()
+        assert await images.delete_image("cover.webp") is False
