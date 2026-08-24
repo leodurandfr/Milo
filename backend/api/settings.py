@@ -102,17 +102,17 @@ def create_settings_router(
     settings = settings_service
 
     async def _handle_setting_update(
-        payload: Dict[str, Any],
-        validator: Callable[[Any], bool],
         setter: Callable,
         event: SettingsEvent,
         reload_callback: Optional[Callable] = None
     ) -> Dict[str, Any]:
-        """Unified pattern for all settings routes – supports async setters"""
-        async with api_error_handler(f"Error updating setting ({event.TYPE})", logger):
-            if not validator(payload):
-                raise HTTPException(status_code=400, detail="Invalid payload")
+        """Unified pattern for all settings routes – supports async setters.
 
+        No payload validation happens here: the request models in
+        `api/models.py` carry every bound and every cross-field rule, so a
+        request that reaches a handler is already valid.
+        """
+        async with api_error_handler(f"Error updating setting ({event.TYPE})", logger):
             setter_result = setter()
             if asyncio.iscoroutine(setter_result):
                 success = await setter_result
@@ -230,8 +230,6 @@ def create_settings_router(
     @router.put("/language")
     async def set_language(payload: LanguageRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('language', payload.language),
             event=LanguageChanged(language=payload.language)
         )
@@ -240,8 +238,6 @@ def create_settings_router(
     @router.put("/volume-limits")
     async def set_volume_limits(payload: VolumeLimitsRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_settings({
                 'volume.limit_min_db': payload.min_db,
                 'volume.limit_max_db': payload.max_db,
@@ -256,8 +252,6 @@ def create_settings_router(
     @router.put("/volume-startup")
     async def set_volume_startup(payload: VolumeStartupRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_settings({
                 'volume.startup_volume_db': payload.startup_volume_db,
                 'volume.restore_last_volume': payload.restore_last_volume,
@@ -273,8 +267,6 @@ def create_settings_router(
     @router.put("/volume-steps")
     async def set_volume_steps(payload: VolumeStepsRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('volume.step_mobile_db', payload.step_mobile_db),
             event=VolumeStepsChanged(
                 config=VolumeStepsConfig(step_mobile_db=payload.step_mobile_db)
@@ -286,8 +278,6 @@ def create_settings_router(
     @router.put("/rotary-steps")
     async def set_rotary_steps(payload: RotaryStepsRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('volume.step_rotary_db', payload.step_rotary_db),
             event=RotaryStepsChanged(
                 config=RotaryStepsConfig(step_rotary_db=payload.step_rotary_db)
@@ -299,8 +289,6 @@ def create_settings_router(
     @router.put("/bt-remote-steps")
     async def set_bt_remote_steps(payload: BtRemoteStepsRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('volume.step_bt_remote_db', payload.step_bt_remote_db),
             event=BtRemoteStepsChanged(
                 config=BtRemoteStepsConfig(step_bt_remote_db=payload.step_bt_remote_db)
@@ -312,8 +300,6 @@ def create_settings_router(
     @router.put("/ir-remote-steps")
     async def set_ir_remote_steps(payload: IrRemoteStepsRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('volume.step_ir_remote_db', payload.step_ir_remote_db),
             event=IrRemoteStepsChanged(
                 config=IrRemoteStepsConfig(step_ir_remote_db=payload.step_ir_remote_db)
@@ -511,8 +497,6 @@ def create_settings_router(
         delay = payload.auto_stop_delay
 
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('audio.auto_stop_delay', delay),
             event=AudioStopChanged(config=AudioStopConfig(auto_stop_delay=delay)),
             reload_callback=state_machine.reload_auto_stop_for_all_sources
@@ -522,8 +506,6 @@ def create_settings_router(
     @router.put("/screen-timeout")
     async def set_screen_timeout(payload: ScreenTimeoutRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('screen.timeout_seconds', payload.screen_timeout_seconds),
             event=ScreenTimeoutChanged(config=ScreenTimeoutConfig(
                 screen_timeout_enabled=payload.screen_timeout_enabled,
@@ -536,8 +518,6 @@ def create_settings_router(
     @router.put("/screen-brightness")
     async def set_screen_brightness(payload: ScreenBrightnessRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('screen.brightness_on', payload.brightness_on),
             event=ScreenBrightnessChanged(
                 config=ScreenBrightnessConfig(brightness_on=payload.brightness_on)
@@ -577,8 +557,6 @@ def create_settings_router(
         }
 
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,
             setter=setter,
             event=ScreenScreensaverChanged(config=ScreenScreensaverConfig(**config))
         )
@@ -587,8 +565,6 @@ def create_settings_router(
     @router.put("/screen-ui-scale")
     async def set_screen_ui_scale(payload: ScreenUiScaleRequest):
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,
             setter=lambda: settings.set_setting('screen.ui_scale', payload.ui_scale),
             event=ScreenUiScaleChanged(
                 config=ScreenUiScaleConfig(ui_scale=payload.ui_scale)
@@ -613,8 +589,6 @@ def create_settings_router(
         }
 
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,
             setter=setter,
             event=ScreenColorFilterChanged(config=ScreenColorFilterConfig(**config))
         )
@@ -820,8 +794,6 @@ def create_settings_router(
                 return False
 
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('radio', radio_config),
             event=RadioSettingsChanged(config=RadioSettingsConfig(**radio_config)),
             reload_callback=apply_to_radio
@@ -832,8 +804,6 @@ def create_settings_router(
     async def set_music_library_settings(payload: MusicLibrarySettingsRequest):
         ml_config = {'separate_storages': payload.separate_storages}
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('music_library', ml_config),
             event=MusicLibrarySettingsChanged(
                 config=MusicLibrarySettingsConfig(**ml_config)
@@ -858,8 +828,6 @@ def create_settings_router(
                 return False
 
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('qobuz', qobuz_config),
             event=QobuzSettingsChanged(config=QobuzSettingsConfig(**qobuz_config)),
             reload_callback=apply_to_qobuz
@@ -877,8 +845,6 @@ def create_settings_router(
             return await source.on_spotify_settings_changed(payload.apply_now)
 
         return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('spotify', spotify_config),
             event=SpotifySettingsChanged(config=SpotifySettingsConfig(**spotify_config)),
             reload_callback=apply_to_spotify
