@@ -436,8 +436,8 @@ class StationDataService:
     # === Custom Stations ===
 
     def get_manual_stations(self) -> Dict[str, Dict[str, Any]]:
-        """Get all manually created stations."""
-        return self._manual_stations.copy()
+        """Get all manually created stations, each record copied."""
+        return {sid: station.copy() for sid, station in self._manual_stations.items()}
 
     def _is_real_metadata_modification(self, station_id: str) -> bool:
         """True if the modified_metadata entry diverges from the original on any
