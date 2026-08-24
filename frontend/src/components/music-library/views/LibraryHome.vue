@@ -272,6 +272,13 @@ onMounted(async () => {
   // later change arrives on the storages_changed push.
   await store.loadStorages();
   loadTab(store.activeTab);
+  // Opening the browser is the moment freshness matters, and the only one the
+  // frontend can see: the backend already scans when the source *starts*, which
+  // misses coming back to this view while it was already running — the case of
+  // music dropped on the NAS from another machine. Nothing is awaited: the scan
+  // is asynchronous on Navidrome's side and the lists refresh themselves when
+  // the scan flag drops, so it must not delay the first paint.
+  store.rescan();
 });
 </script>
 

@@ -11,7 +11,7 @@ REST surface for the indexed catalog served by the Navidrome sidecar:
 - Cover    — a localhost-only proxy for Navidrome getCoverArt bytes, so the
              frontend never talks to Navidrome (or sees its credentials) directly.
 - Favorites — star/unstar a song/album/artist.
-- Scan     — trigger a quick or full rescan on demand.
+- Scan     — trigger a rescan on demand.
 - Shares   — CRUD for SMB/NFS network shares: add/edit/remove a share,
              which persists its non-secret config, (re)mounts it read-only under
              /media/milo through milo-mount, and rescans. Credentials are write-
@@ -570,12 +570,17 @@ async def trigger_scan(
 ) -> Dict[str, Any]:
     """Kick a Navidrome library rescan on demand ("I added music, refresh now").
 
-    A quick (mtime-based) scan: it picks up new/changed files but does NOT purge
-    disappeared ones — purging only ever happens on the explicit full scan below,
-    so a refresh stays a fast, non-destructive "index what's new". Needed because
-    inotify does not report changes made on the far side of a CIFS/NFS mount, so
-    files added directly on a NAS aren't picked up by the watcher — only by a
-    scan. 503 until provisioned.
+    The only scan Milo ever asks for, and it covers both halves of a refresh:
+    Navidrome walks the tree and *marks* what it cannot find, which is all that
+    "remove deleted music" means here — the Subsonic API excludes a marked track
+    from every answer, so it leaves the UI whether or not its row is ever purged
+    (and with Scanner.PurgeMissing="never" it is not). Measured on the unit: a
+    quick scan marks a deleted file and un-marks it when it comes back, in both
+    cases without needing the folder's mtime to have changed.
+
+    Needed because inotify does not report changes made on the far side of a
+    CIFS/NFS mount, so files added directly on a NAS aren't picked up by the
+    watcher — only by a scan. 503 until provisioned.
 
     Cheap on an already-indexed catalog: measured at 401 ms across 12 488 tracks
     on two storage spaces. Only *new* files cost real time (the first pass over a
@@ -593,35 +598,6 @@ async def trigger_scan(
         source.invalidate_album_cache()
         # Only now: note_scan_started's own precondition is that a scan really
         # is running, and it pushes `scanning: true` to every client.
-        await source.shares.note_scan_started()
-        return {"status": "success"}
-
-
-@router.post("/scan/full")
-async def trigger_full_scan(
-    source: MusicLibrarySource = Depends(get_source),
-) -> Dict[str, Any]:
-    """Full rescan that also purges vanished tracks — the settings "remove deleted
-    music" action (the quick /scan never purges; see its docstring).
-
-    A full scan drops every track Navidrome can't see (Scanner.PurgeMissing="full"),
-    so a storage space that is away would have its still-valid tracks purged. When
-    any is unmounted we skip the scan and return ``{"status": "blocked",
-    offline_shares}`` rather than a 5xx (an asleep NAS is a normal precondition to
-    surface). Unplugged USB keys count too, and that is the point: a key keeps its
-    library and its index across an unplug, so a full scan run while it is away is
-    exactly what would throw that index out. 503 until ready.
-    """
-    async with _catalog_errors("Error starting full scan", source):
-        offline = await source.shares.offline_names()
-        if offline:
-            logger.info("Full scan skipped; storage offline: %s", ", ".join(offline))
-            return {"status": "blocked", "offline_shares": offline}
-        client = await _require_client(source)
-        if not await client.start_scan(full=True):
-            logger.error("Navidrome refused the full scan request")
-            raise HTTPException(status_code=502, detail="Navidrome refused the scan")
-        source.invalidate_album_cache()
         await source.shares.note_scan_started()
         return {"status": "success"}
 

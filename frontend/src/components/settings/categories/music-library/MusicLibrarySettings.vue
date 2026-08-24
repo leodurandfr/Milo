@@ -102,16 +102,12 @@
 
       <p class="text-mono ml-desc">{{ t('musicLibrary.maintenance.description') }}</p>
 
-      <ScanProgress :open="busy" :has-bar="hasBar" :label="scanLabel" />
+      <ScanProgress :open="busy" :has-bar="busy" :label="scanLabel" />
 
       <Button variant="brand" size="medium" left-icon="arrowClockwise"
         :disabled="busy" @click="onRefresh">
         {{ busy ? t('musicLibrary.maintenance.refreshing') : t('musicLibrary.maintenance.refresh') }}
       </Button>
-
-      <p v-if="offlineShares.length" class="ml-maint-warn text-body">
-        {{ t('musicLibrary.maintenance.cleanupDeferred', { shares: offlineShares.join(', ') }) }}
-      </p>
     </SettingsSection>
   </SettingsContainer>
 </template>
@@ -167,10 +163,8 @@ const usbRows = computed(() =>
 const REFRESH_RELEASE_MS = 15000;
 const timer = useTimer();
 const inFlight = ref(false);
-const offlineShares = ref([]);
 
 const busy = computed(() => inFlight.value || store.isScanning);
-const hasBar = computed(() => busy.value && !offlineShares.value.length);
 
 // No count while a scan runs unless the storage space on screen actually has
 // tracks: Navidrome's global counter is frozen for the whole scan (it read the
@@ -192,16 +186,10 @@ watch(() => store.isScanning, (scanning) => { if (!scanning) inFlight.value = fa
 async function onRefresh() {
   if (busy.value) return;
   inFlight.value = true;
-  offlineShares.value = [];
   // Safety net: if no scan state ever arrives (Navidrome not provisioned, a
   // dropped socket), release the button rather than leave it disabled for good.
   timer.setTimeout(() => { inFlight.value = false; }, REFRESH_RELEASE_MS);
-  const result = await store.refreshLibrary();
-  if (!result.ok) {
-    inFlight.value = false;
-    return;
-  }
-  if (result.offlineShares?.length) offlineShares.value = result.offlineShares;
+  if (!await store.rescan()) inFlight.value = false;
 }
 
 const separateStorages = computed(
@@ -231,10 +219,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
-}
-
-.ml-maint-warn {
-  color: var(--color-text-secondary);
 }
 
 /* Subtitle: status dot + host/label. */

@@ -676,7 +676,6 @@
       "refresh": "रीफ़्रेश",
       "refreshing": "रीफ़्रेश हो रहा है...",
       "refreshProgress": "{count} ट्रैक अनुक्रमित...",
-      "cleanupDeferred": "{shares} ऑफ़लाइन है — पुनः कनेक्ट होने पर हटाया गया संगीत हटा दिया जाएगा।",
       "refreshingLabel": "इंडेक्सिंग जारी है…"
     }
   },

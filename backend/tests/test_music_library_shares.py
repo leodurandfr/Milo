@@ -1,9 +1,8 @@
 """Unit tests for the Music Library network-share service (NetworkShareService).
 
 Covers the boot remount of configured SMB/NFS shares plus its bounded catch-up
-retry for a NAS that was still offline when the backend booted, the mount-health
-gate the full-scan/purge route depends on, and the liveness probe that keeps
-``mounted`` honest for a share whose far side died. The config store and the
+retry for a NAS that was still offline when the backend booted, and the liveness
+probe that keeps ``mounted`` honest for a share whose far side died. The config store and the
 storage layer are driven through their own public API; nothing privileged is
 touched (milo-mount is behind StorageManager, which has its own tests) and the
 filesystem is stubbed at ``os.statvfs``, the one call the probe makes.
@@ -32,59 +31,6 @@ def shares():
     service._storage.initialize = AsyncMock(return_value=True)
     service._storage.get_usb_mounts = Mock(return_value=[])
     return service
-
-
-class TestOfflineNames:
-    """The mount-health gate for the full-scan/purge route: purging while a share
-    is offline would wrongly drop its still-valid tracks, so the route refuses
-    when offline_names() is non-empty."""
-
-    @pytest.mark.asyncio
-    async def test_lists_only_unmounted_shares(self, shares):
-        shares._data.list_shares = AsyncMock(return_value=[
-            {"id": "a", "name": "NAS-Leo", "host": "10.0.0.2"},
-            {"id": "b", "name": "Studio", "host": "10.0.0.3"},
-        ])
-        shares._storage.get_mounted_share_ids = Mock(return_value={"a"})
-
-        assert await shares.offline_names() == ["Studio"]
-
-    @pytest.mark.asyncio
-    async def test_empty_when_all_mounted(self, shares):
-        shares._data.list_shares = AsyncMock(return_value=[
-            {"id": "a", "name": "NAS-Leo", "host": "10.0.0.2"},
-        ])
-        shares._storage.get_mounted_share_ids = Mock(return_value={"a"})
-
-        assert await shares.offline_names() == []
-
-    @pytest.mark.asyncio
-    async def test_names_come_from_the_storage_list_not_a_second_rule(self, shares):
-        # offline_names() projects storages(), so a share reads the same here as
-        # in the settings row and the storage filter. It used to apply its own
-        # name→host→id fallback, which is how the "cleanup deferred" warning came
-        # to name a share differently from the row the user was looking at.
-        shares._data.list_shares = AsyncMock(return_value=[
-            {"id": "a", "name": "NAS-Leo", "host": "10.0.0.2"},
-            {"id": "b", "host": "10.0.0.3"},   # unnamed → its id, as in storages()
-        ])
-        shares._storage.get_mounted_share_ids = Mock(return_value=set())
-
-        assert await shares.offline_names() == ["NAS-Leo", "b"]
-
-    @pytest.mark.asyncio
-    async def test_unplugged_usb_key_defers_the_purge_too(self, shares):
-        # A full scan purges what Navidrome cannot see. Now that an unplugged key
-        # keeps its library, it has to gate the scan exactly like an asleep NAS —
-        # otherwise a refresh silently destroys the index the key kept.
-        shares._data.list_shares = AsyncMock(return_value=[])
-        shares._storage.get_mounted_share_ids = Mock(return_value=set())
-        shares._data.get_known_usb = AsyncMock(return_value={
-            "U-1": {"name": "iPod", "label": "MUSIC",
-                    "mountpoint": "/media/milo/MUSIC"},
-        })
-
-        assert await shares.offline_names() == ["iPod"]
 
 
 class TestBootRemountRetry:
@@ -308,84 +254,80 @@ class TestShareLiveness:
             release.set()
 
     @pytest.mark.asyncio
-    async def test_a_dead_nas_defers_the_purge(self, probing):
-        # The verdict has to reach the full-scan gate, not just the UI: purging
-        # while a space is unreadable drops an index that is still perfectly
-        # valid.
+    async def test_a_dead_nas_is_unmounted_in_the_storage_list(self, probing):
+        # The verdict has to reach storages(), not just list(): that is where the
+        # browse scope is built from, and a space whose far side is dead answers a
+        # stream request with a 200 carrying a JSON error body that mpv skips in
+        # silence. Nothing catches it at play time, so it has to be gone from the
+        # catalog the moment the probe gives up.
         with patch(STATVFS, side_effect=OSError(errno.EIO, "io error")):
             await _sweeps(probing, 3)
 
-        assert await probing.offline_names() == ["NAS-Leo"]
+        entries = await probing.storages()
+        assert [e["name"] for e in entries if not e["mounted"]] == ["NAS-Leo"]
 
 
-class TestUnmountPurgeGate:
-    """Removing or editing a share unmounts it and asks for the scan that drops
-    its tracks — a *full* one, which purges globally (Scanner.PurgeMissing=
-    "full"). So the same gate the /scan/full route has must apply here: with any
-    other storage space away, that scan throws out an index that is still valid,
-    and for an unplugged key that index is the 18-minute pass a replug exists to
-    skip."""
+class TestUnmountRunsNoScan:
+    """Removing or editing a share unmounts it and asks for no scan at all.
+
+    A scan here would walk a path that no longer exists. What actually takes the
+    removed share's tracks out of the catalog is the reconcile that retires its
+    Navidrome library; an edit keeps the library and lets the next ordinary scan
+    mark whatever the old path held. This used to run a *full* scan, which is
+    global — one removal while a USB key was unplugged threw away the key's whole
+    index, the 18-minute pass a replug exists to skip."""
 
     @pytest.fixture
     def removable(self, shares):
-        """One mounted share, ready to be removed; collaborators stubbed."""
-        shares._data.list_shares = AsyncMock(return_value=[
-            {"id": "nas", "name": "NAS-Leo", "host": "10.0.0.2"},
-        ])
+        """One mounted share, ready to be removed; collaborators stubbed.
+
+        The config store is stubbed as a real (tiny) store rather than a constant
+        list: the point of the removal path is the *order* of its steps, and a
+        list_shares() that keeps answering after remove_share() would let a
+        reconcile running too early pass.
+        """
+        configured = [{"id": "nas", "name": "NAS-Leo", "host": "10.0.0.2"}]
+        shares._data.list_shares = AsyncMock(side_effect=lambda: list(configured))
         shares._data.get_share = AsyncMock(return_value={"id": "nas"})
-        shares._data.remove_share = AsyncMock(return_value=True)
+
+        async def _remove(share_id):
+            configured[:] = [c for c in configured if c["id"] != share_id]
+            return True
+
+        shares._data.remove_share = AsyncMock(side_effect=_remove)
         shares._storage.get_mounted_share_ids = Mock(return_value={"nas"})
         shares._storage.unmount_share = AsyncMock()
+        shares._storage.request_scan = AsyncMock()
         shares._storage.forget_share_credentials = AsyncMock()
         shares._libraries.reconcile = AsyncMock(return_value=True)
         return shares
 
     @pytest.mark.asyncio
-    async def test_the_purge_runs_when_every_space_is_up(self, removable):
+    async def test_removing_a_share_unmounts_it_and_scans_nothing(self, removable):
         assert await removable.remove("nas") is True
-        assert removable._storage.unmount_share.await_args.kwargs["purge"] is True
+        removable._storage.unmount_share.assert_awaited_once_with("nas")
+        removable._storage.request_scan.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_an_unplugged_key_blocks_the_purge(self, removable):
-        removable._data.get_known_usb = AsyncMock(return_value={
-            "U-1": {"name": "iPod", "label": "MUSIC",
-                    "mountpoint": "/media/milo/MUSIC"},
-        })
+    async def test_removing_a_share_retires_its_library(self, removable):
+        """The reconcile is what deletes the tracks, so it has to run *after* the
+        config entry is gone — reconciling against a set that still lists the
+        share would keep its library, and with it every track it indexed."""
+        await removable.remove("nas")
 
-        assert await removable.remove("nas") is True
-        assert removable._storage.unmount_share.await_args.kwargs["purge"] is False
-
-    @pytest.mark.asyncio
-    async def test_the_share_leaving_does_not_veto_its_own_purge(self, removable):
-        """The offline set is read *before* the unmount, or nothing ever purges:
-        an unmounted share is offline by definition, so a set read afterwards
-        always contains the share being removed and always blocks the scan."""
-        mounted = {"nas"}
-        removable._storage.get_mounted_share_ids = Mock(
-            side_effect=lambda: set(mounted)
-        )
-
-        async def _unmount(share_id, *, purge):
-            mounted.discard(share_id)
-
-        removable._storage.unmount_share = AsyncMock(side_effect=_unmount)
-
-        assert await removable.remove("nas") is True
-        assert removable._storage.unmount_share.await_args.kwargs["purge"] is True
+        removable._libraries.reconcile.assert_awaited_once()
+        assert "/media/milo/nas" not in removable._libraries.reconcile.await_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_editing_a_share_takes_the_same_gate(self, removable):
-        # update() unmounts before it remounts, and that unmount asks for the
-        # same global purge — the gate belongs to the unmount, not to the delete.
+    async def test_editing_a_share_scans_nothing_on_the_way_out(self, removable):
+        # update() unmounts before it remounts; only the remount asks for a scan,
+        # and it is the ordinary one that marks what the old path no longer holds.
         removable._data.update_share = AsyncMock(return_value={"id": "nas"})
         removable._storage.mount_share = AsyncMock(return_value="/media/milo/nas")
-        removable._data.get_known_usb = AsyncMock(return_value={
-            "U-1": {"name": "iPod", "label": "MUSIC",
-                    "mountpoint": "/media/milo/MUSIC"},
-        })
 
         await removable.update("nas", ShareRequest(
             type="cifs", host="10.0.0.2", path="music", name="NAS-Leo",
         ))
 
-        assert removable._storage.unmount_share.await_args.kwargs["purge"] is False
+        removable._storage.unmount_share.assert_awaited_once_with("nas")
+        removable._storage.request_scan.assert_not_awaited()

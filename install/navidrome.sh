@@ -170,11 +170,28 @@ ScanOnStartup = false
 # placeholder file.
 Schedule = "6h"
 
-# Purge files that disappeared (an unplugged USB drive, a removed share) so they
-# don't linger as empty "ghost" albums in the catalog. "full" purges only on an
-# explicit full scan (triggered on removal events), so a transient NAS outage
-# during a quick or scheduled scan never deletes still-valid tracks.
-PurgeMissing = "full"
+# Navidrome's own default, and the one it documents for removable and network
+# storage: a file that disappeared is *marked* missing, never deleted. Marking is
+# all Milo needs — the Subsonic API already excludes a missing track from every
+# answer (measured: 721 albums returned for a library holding 764, the 43 marked
+# ones absent), so a deleted file leaves the UI on the next scan whether or not
+# its row is purged. Purging only decides the fate of rows nobody can see.
+#
+# "full" was set here to stop missing tracks lingering as "ghost" albums; they
+# never reached the UI in the first place, so that bought nothing — and cost the
+# only thing purging can cost. A full scan is global: it drops every track
+# Navidrome cannot see right now, so one run while a USB key is unplugged threw
+# away an index that was still valid, along with its stars, play counts and
+# playlist entries (which is the reason Navidrome defaults to "never"). The
+# whole apparatus that used to contain that risk — an offline gate on the scan
+# route, a "blocked" status, a deferred-cleanup banner — existed only because of
+# this line, and went with it.
+#
+# Consequence to keep in mind: nothing prunes the rows any more. They are
+# invisible and cost only database size; a storage space that is removed for good
+# still takes its rows with it, because forgetting a key or deleting a share
+# deletes the whole Navidrome library (libraries.py).
+PurgeMissing = "never"
 
 # Album identity: group tracks into one album by album title alone (a MusicBrainz
 # album id still wins when present). Dropping album-artist from the key is what

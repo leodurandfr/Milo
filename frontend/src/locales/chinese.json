@@ -676,7 +676,6 @@
       "refresh": "刷新",
       "refreshing": "正在刷新...",
       "refreshProgress": "已索引 {count} 首曲目...",
-      "cleanupDeferred": "{shares} 已离线 — 已删除的音乐将在重新连接后被移除。",
       "refreshingLabel": "正在索引…"
     }
   },

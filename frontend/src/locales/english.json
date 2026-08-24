@@ -676,7 +676,6 @@
       "refresh": "Refresh",
       "refreshing": "Refreshing…",
       "refreshProgress": "{count} tracks indexed…",
-      "cleanupDeferred": "{shares} is offline — deleted music will be removed once it's reconnected.",
       "refreshingLabel": "Indexing in progress…"
     }
   },

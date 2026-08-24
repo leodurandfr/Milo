@@ -222,22 +222,16 @@ class NetworkShareService:
         return mountpoint
 
     async def _unmount_share(self, share_id: str) -> None:
-        """Unmount a share, purging its tracks only when nothing else is away.
+        """Unmount a share. No scan follows, and none is wanted.
 
-        The scan that drops them is full, and a full scan is global
-        (PurgeMissing="full"): run while a USB key is unplugged or another NAS is
-        asleep, it throws out an index that is still perfectly valid — the same
-        reason the /scan/full route is gated by :meth:`offline_names`. The set is
-        read *before* the unmount, so the share on its way out cannot veto its
-        own purge.
+        Removing the share retires its Navidrome library on the reconcile that
+        follows (:meth:`remove`), which takes its tracks with it — so there is
+        nothing left for a scan to clean up. An *edit* keeps the library and
+        remounts under the same id: whatever the old path held stops being found
+        and is marked missing by the next ordinary scan, which is enough, since
+        a marked track is already absent from every catalog answer.
         """
-        offline = await self.offline_names()
-        if offline:
-            self._logger.info(
-                "Unmounting share %s without the purge scan; storage offline: %s",
-                share_id, ", ".join(offline),
-            )
-        await self._storage.unmount_share(share_id, purge=not offline)
+        await self._storage.unmount_share(share_id)
 
     async def _retry_offline(self, shares: List[Dict[str, Any]]) -> None:
         """Retry shares that were offline at boot over a short, bounded schedule.
@@ -620,7 +614,7 @@ class NetworkShareService:
 
         This is the only expression of ``mounted`` for a share; everything that
         decides anything from it — the storage filter, the browse scope, the
-        purge gate, the stop-on-storage-gone — reads it from here.
+        the stop-on-storage-gone — reads it from here.
         """
         mounted_ids = self._storage.get_mounted_share_ids()
         return [
@@ -630,23 +624,6 @@ class NetworkShareService:
                 and self._alive.get(share.get("id"), True),
             }
             for share in await self._data.list_shares()
-        ]
-
-    async def offline_names(self) -> List[str]:
-        """Storage spaces not mounted right now (empty when everything is up).
-
-        Gates the full-scan/purge route: a full scan purges every track Navidrome
-        cannot see (Scanner.PurgeMissing="full"), so running one while a storage
-        space is away drops a catalog that is still perfectly valid.
-
-        USB keys count here, and that is the whole point of remembering them: an
-        unplugged key keeps its library and its index, so a full scan would now
-        undo exactly the 18-minute indexing pass a replug is supposed to skip.
-        """
-        return [
-            entry["name"]
-            for entry in await self.storages()
-            if not entry["mounted"]
         ]
 
     # =========================================================================

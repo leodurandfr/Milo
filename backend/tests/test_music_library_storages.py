@@ -124,21 +124,6 @@ async def test_unplugged_key_keeps_its_entry_and_its_library():
     ]
 
 
-async def test_offline_names_covers_an_unplugged_key():
-    # offline_names() gates the full scan, and a full scan purges everything
-    # Navidrome cannot see (PurgeMissing="full"). Leaving the unplugged key out
-    # would let a refresh throw away the very index the entry above preserves.
-    service = _service(
-        shares=[],
-        usb=[],
-        library_ids={},
-        known={"U-1": {"name": "iPod de Léo", "label": "MUSIC",
-                       "mountpoint": "/media/milo/MUSIC"}},
-    )
-
-    assert await service.offline_names() == ["iPod de Léo"]
-
-
 # === a storage space that disappears ========================================
 
 async def test_unplugging_the_key_being_played_publishes_ready():
