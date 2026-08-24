@@ -666,6 +666,12 @@ class TestResume:
         source._start_service_and_wait = AsyncMock(return_value=True)
         source._load_auto_stop_config = AsyncMock()
         source._start_monitor = Mock()
+        # This repo is checked out ON the appliance, and _do_start spawns the
+        # open-the-library rescan as a background task. Left real, it raced the
+        # end of the test and reached the live Navidrome on 127.0.0.1:4533 —
+        # measured, intermittently, in a full run. TestRescanOnOpen already
+        # stubs it for the same reason.
+        source.shares.request_scan = AsyncMock()
         mpv = _mpv_with_props({"duration": 100})
         mpv.connect = AsyncMock(return_value=True)
 
