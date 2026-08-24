@@ -648,12 +648,17 @@ class TestHandleKeycode:
 # Pairing — the wizard's whole contract, captured through the real evdev path
 # ============================================================================
 
-async def _until(predicate, tries=200):
-    """Yield to the loop until `predicate()` holds (or give up)."""
-    for _ in range(tries):
+async def _until(predicate, tries=300):
+    """Yield to the loop until `predicate()` holds (or give up).
+
+    The first passes are bare yields, so anything already scheduled resolves
+    without a wall-clock cost; the rest tick slowly enough to outlast a
+    `call_later(MENU_CLICK_WINDOW)`.
+    """
+    for attempt in range(tries):
         if predicate():
             return True
-        await asyncio.sleep(0)
+        await asyncio.sleep(0 if attempt < 10 else 0.005)
     return False
 
 
@@ -950,3 +955,83 @@ class TestUnpair:
 
         assert controller.paired is False
         controller.settings_service.set_setting.assert_awaited_once()
+
+
+class TestLifecycle:
+    """`initialize()` / `cleanup()` — the boot and teardown ends.
+
+    Neither is executed by anything else in the suite: `cleanup` was red for
+    one reason only, an AST guardrail reading its source for `_bg.cancel_all()`.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_paired_and_enabled_remote_starts_listening_at_boot(self):
+        controller = _runtime_controller()
+        controller.settings_service.get_setting.return_value = {
+            "enabled": True, "device_id": 0x8D, "paired_at": 1700000000.0,
+        }
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=_fake_input_device()):
+            assert await controller.initialize() is True
+            assert controller._runtime_task is not None
+            await controller._stop_runtime_listener()
+
+    @pytest.mark.asyncio
+    async def test_an_unpaired_remote_boots_idle(self):
+        controller = _runtime_controller()
+        controller.settings_service.get_setting.return_value = {"enabled": True}
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device") as find:
+            assert await controller.initialize() is True
+        assert controller._runtime_task is None
+        find.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_host_without_evdev_boots_without_reading_settings(self):
+        """IR is opt-in hardware: on a dev host the import fails and this must
+        fail open, before it touches anything else."""
+        controller = _runtime_controller()
+        with patch("backend.hardware.ir_remote.EVDEV_AVAILABLE", False):
+            assert await controller.initialize() is True
+        controller.settings_service.get_setting.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_teardown_drops_a_resolution_already_in_flight(self):
+        """A MENU hold resolves in two steps — screen sleep, then the source
+        transition. Tearing down between them must not transition on the way
+        out: the backend is stopping, and the transition stops systemd units.
+        """
+        async def _never_returns():
+            await asyncio.Event().wait()
+
+        controller = _runtime_controller()
+        controller.screen_controller.force_sleep = AsyncMock(
+            side_effect=_never_returns
+        )
+        controller._register_menu_click()  # held: `_menu_pressed` stays True
+        assert await _until(
+            lambda: controller.screen_controller.force_sleep.await_count == 1
+        )
+
+        await controller.cleanup()
+
+        controller.state_machine.transition_to_source.assert_not_called()
+        assert controller._menu_click_timer is None
+        assert controller._menu_click_count == 0
+        assert controller._menu_pressed is False
+
+    @pytest.mark.asyncio
+    async def test_teardown_stops_the_runtime_listener(self):
+        controller = _runtime_controller()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice",
+                   return_value=_pairing_device()):
+            await controller._start_runtime_listener()
+            task = controller._runtime_task
+            assert task is not None
+
+            await controller.cleanup()
+
+        assert controller._runtime_task is None
+        assert task.done()
