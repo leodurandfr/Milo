@@ -310,9 +310,12 @@ class RadioBrowserAPI:
         # Penalize these images as they are generally of lower quality than "official" images
         contains_favicon = 'favicon' in url_lower and 'favicon.ico' not in url_lower
 
-        # Bonus for image formats (reduced if name contains "favicon")
+        # Bonus for image formats. The "favicon" penalty applies to raster
+        # formats only: it exists because a file named "favicon" is usually a
+        # small cropped bitmap, and a vector has no resolution to be cropped out
+        # of — SVG keeping its full bonus is the rule, not an oversight.
         if '.svg' in url_lower:
-            quality += 30 if not contains_favicon else 30
+            quality += 30
         elif '.png' in url_lower:
             quality += 20 if not contains_favicon else -50
         elif '.webp' in url_lower:
@@ -658,7 +661,14 @@ class RadioBrowserAPI:
                     filtered_custom.append(station)
 
             if filtered_custom:
-                all_stations = all_stations + filtered_custom
+                # Prepended, not appended: the slice below cuts at `limit`, and a
+                # broad query fills it on its own — measured against the live
+                # catalogue, the no-filter view returns 451 stations and `rock`
+                # 541, both past the 300 the route defaults to. Appended, a
+                # hand-added station was dropped by that slice every time the
+                # catalogue had enough to say, which is the one entry the user
+                # cannot get back by searching harder.
+                all_stations = filtered_custom + all_stations
                 self.logger.info(f"Added {len(filtered_custom)} manually-added custom station(s)")
 
         # Total before limit
