@@ -676,7 +676,6 @@
       "refresh": "Actualiser",
       "refreshing": "Actualisation en cours…",
       "refreshProgress": "{count} morceaux indexés…",
-      "cleanupDeferred": "{shares} est hors-ligne — la musique supprimée sera retirée dès sa reconnexion.",
       "refreshingLabel": "Indexation en cours…"
     }
   },

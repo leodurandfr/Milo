@@ -237,11 +237,16 @@ class NavidromeClient:
 
     # === Health / scan ===
 
-    async def start_scan(self, full: bool = False) -> bool:
-        """Trigger a library scan (quick by default; ``full`` re-reads all tags)."""
-        response = await self._make_request(
-            "startScan", {"fullScan": "true" if full else "false"}
-        )
+    async def start_scan(self) -> bool:
+        """Trigger a library scan.
+
+        Always the incremental one. It indexes what appeared, marks what it can
+        no longer find and un-marks what came back — every refresh Milo needs.
+        A full scan only adds a re-read of every tag, which no Milo path asks
+        for; ``navidrome scan --full`` on the unit is the escape hatch if a tag
+        edit ever has to be picked up without its file's mtime moving.
+        """
+        response = await self._make_request("startScan", {"fullScan": "false"})
         return bool(response) and not response.get("_network_error")
 
     async def get_scan_status(self) -> Optional[Dict[str, Any]]:

@@ -494,9 +494,11 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   (deleting it would purge a valid catalog every time the NAS boots slower than the Pi), **and so
   does an unplugged USB key**: it keeps its library and its whole index, so a replug costs a quick
   scan (~0.4 s measured over 12 488 tracks) instead of re-reading every tag. That is why an unplug
-  triggers no scan at all — a full one would purge outright (`PurgeMissing="full"`), a quick one
-  would walk a path that no longer exists — and why unplugged keys join offline shares in gating
-  the full-scan route. A key only loses its library when the user forgets it
+  triggers no scan at all: one would only walk a path that no longer exists. What protects the
+  index while the key is away is that the mountpoint is *gone* rather than left behind empty —
+  Navidrome skips a library whose path does not exist, but walks an empty directory and marks every
+  track under it missing, which is why `milo-umount` retries its `rmdir` and fails loudly if the
+  directory survives. A key only loses its library when the user forgets it
   (`DELETE /api/music-library/usb-devices/{uuid}`, offered while it is unplugged)
 - **A USB key can be named** (`PUT /api/music-library/usb-devices/{uuid}`, a sub-screen of the
   Music Library settings). The name is filed under the key's filesystem UUID — the only identity

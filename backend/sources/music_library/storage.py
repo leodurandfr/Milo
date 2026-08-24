@@ -102,7 +102,6 @@ class StorageManager:
         # A rescan owed to a mount that landed while another scan was running,
         # and the lock that keeps two mounts from each starting their own waiter.
         self._deferred_scan: Optional[asyncio.Task] = None
-        self._deferred_scan_full = False
         self._scan_lock = asyncio.Lock()
 
     async def initialize(self) -> bool:
@@ -253,10 +252,11 @@ class StorageManager:
             await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
             self.logger.info("Unmounted %s (%s)", devnode, mountpoint)
         # No scan on removal, and deliberately so: the key keeps its library and
-        # its index (libraries.py), and any scan at all here would be the one that
-        # throws them away — a full one purges outright (PurgeMissing="full"), a
-        # quick one walks a path that no longer exists. The layer above is still
-        # told, so the UI drops the key at once.
+        # its index (libraries.py), and a scan here would only walk a path that no
+        # longer exists. The layer above is still told, so the UI drops the key at
+        # once. What actually protects the index is that the mountpoint is *gone*
+        # rather than left behind empty — see milo-umount, and the asymmetry
+        # install/navidrome.sh depends on.
         await self._on_storage_changed()
 
     async def _run_helper(
@@ -348,20 +348,16 @@ class StorageManager:
         await self.request_scan()
         return mountpoint
 
-    async def unmount_share(self, share_id: str, *, purge: bool) -> None:
-        """Unmount a share (edit/removal); ``purge`` runs the scan that drops its
-        tracks from Navidrome.
+    async def unmount_share(self, share_id: str) -> None:
+        """Unmount a share (edit/removal). No scan follows.
 
         Idempotent: falls back to the deterministic /media/milo/<id> mountpoint
         when the share isn't in the session map (e.g. mounted before a backend
         restart), and milo-umount no-ops on a path that isn't mounted.
 
-        Only a full scan purges (Scanner.PurgeMissing="full") and a full scan is
-        **global** — it drops every track Navidrome cannot see, not just this
-        share's. Whether that is safe depends on what else is away right now,
-        which this layer cannot see (it knows mounts, not the configured shares
-        and remembered USB keys), so the caller decides. ``purge=False`` runs no
-        scan at all: a quick one would only walk a path that no longer exists.
+        A scan here would walk a path that no longer exists, and nothing needs
+        one: a removal retires the whole Navidrome library, and an edit's stale
+        tracks are marked by the next ordinary scan (SharesService._unmount_share).
         """
         async with self._lock:
             mountpoint = self._share_mounts.pop(
@@ -373,8 +369,6 @@ class StorageManager:
         # unmounts before it mounts again) — the caller decides, from the share
         # config, whether it still belongs; here we only report the change.
         await self._on_storage_changed()
-        if purge:
-            await self.request_scan(full=True)
 
     async def forget_share_credentials(self, share_id: str) -> None:
         """Drop a share's root-only cred file (called on share deletion)."""
@@ -445,14 +439,13 @@ class StorageManager:
     # Navidrome rescan
     # =========================================================================
 
-    async def request_scan(self, full: bool = False) -> None:
+    async def request_scan(self) -> None:
         """Ask Navidrome to rescan /media/milo after a mount change.
 
-        ``full`` runs a full scan instead of a quick (mtime-based) one — used on
-        *removal* (USB unplug / share deletion) so Navidrome, with
-        Scanner.PurgeMissing="full", drops the now-missing tracks instead of
-        leaving them as empty "ghost" albums. A plain mount keeps the quick scan
-        (fast, add-only; a transient outage must never purge valid tracks).
+        One flavour only. The scan both indexes what appeared and marks what it
+        cannot find — including, on a reconnection, un-marking everything that
+        came back with the storage space, which is what repairs a library whose
+        tracks were marked while it was away.
 
         A scan already in flight started before this mount existed, so it cannot
         possibly index it — and asking anyway achieves nothing: Navidrome answers
@@ -479,14 +472,12 @@ class StorageManager:
             if self._deferred_scan is not None and not self._deferred_scan.done():
                 # A waiter is already owed a scan — fold this request into it
                 # rather than queueing a second pass over the same tree.
-                self._deferred_scan_full |= full
                 return
             if await self._scan_in_progress(client):
-                self._deferred_scan_full = full
                 self._deferred_scan = asyncio.create_task(self._scan_when_idle())
                 return
 
-        await self._start_scan(client, full)
+        await self._start_scan(client)
 
     async def _scan_in_progress(self, client: NavidromeClient) -> bool:
         """Whether Navidrome is scanning right now; False when it can't say.
@@ -524,19 +515,16 @@ class StorageManager:
                 waited += _SCAN_WAIT_POLL_S
             if client is None:
                 return
-            async with self._scan_lock:
-                full = self._deferred_scan_full
-                self._deferred_scan_full = False
-            await self._start_scan(client, full)
+            await self._start_scan(client)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.logger.warning("Deferred Navidrome rescan failed: %s", exc)
 
-    async def _start_scan(self, client: NavidromeClient, full: bool) -> None:
+    async def _start_scan(self, client: NavidromeClient) -> None:
         """The one place a scan is actually asked for."""
         try:
-            if not await client.start_scan(full=full):
+            if not await client.start_scan():
                 self.logger.warning("Navidrome refused the scan request")
         except Exception as exc:
             self.logger.warning("Navidrome scan trigger failed: %s", exc)

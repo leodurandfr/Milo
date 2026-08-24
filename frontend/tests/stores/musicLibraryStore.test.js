@@ -311,7 +311,7 @@ describe('musicLibraryStore — a storage space the index has lost', () => {
   it('does not confuse it with a space that is merely unplugged', async () => {
     const store = useMusicLibraryStore();
     // An unplugged key keeps its index and its counts; it is not browsable, and
-    // it already has its own message. Re-indexing it would purge, not repair.
+    // it already has its own message. A rescan cannot repair what it cannot walk.
     apiCall.get.mockResolvedValueOnce(
       ok({ storages: [{ ...lost(USB, 10069), mounted: false }] })
     );

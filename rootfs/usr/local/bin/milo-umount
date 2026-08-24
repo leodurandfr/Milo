@@ -41,6 +41,26 @@ else
     log "$TARGET is not mounted (already gone)"
 fi
 
-# Drop the now-empty mountpoint dir. Ignore failure: a lazy unmount may still be
-# settling, and a leftover empty dir is harmless (reused on the next mount).
-rmdir "$TARGET" 2>/dev/null || true
+# Drop the mountpoint directory — and it has to actually go.
+#
+# Navidrome distinguishes "directory absent" (it skips that library and leaves
+# its tracks alone) from "directory present but empty" (it walks it, finds
+# nothing, and marks every track under it missing on the next scan).
+# install/navidrome.sh leans on exactly that asymmetry to make the scheduled
+# scan safe over a storage space that is away, so a leftover empty directory is
+# NOT harmless: it is what turns an unplug into a library-wide marking, and a
+# marked track is gone from the UI until something walks the files again.
+#
+# The retry is here because rmdir fails while a lazy unmount is still settling —
+# i.e. when something still holds a handle, which is precisely the case when
+# Navidrome was scanning this mount, which is when the damage would be worst.
+for _ in $(seq 10); do
+    rmdir "$TARGET" 2>/dev/null && break
+    [ -d "$TARGET" ] || break
+    sleep 0.5
+done
+if [ -d "$TARGET" ]; then
+    log "ERROR: $TARGET still present after unmounting — Navidrome will read it" \
+        "as an empty library and mark its tracks missing"
+    exit 2
+fi

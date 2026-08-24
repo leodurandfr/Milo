@@ -676,7 +676,6 @@
       "refresh": "Atualizar",
       "refreshing": "A atualizar...",
       "refreshProgress": "{count} faixas indexadas...",
-      "cleanupDeferred": "{shares} está offline — a música eliminada será removida assim que for reconectado.",
       "refreshingLabel": "Indexação em curso…"
     }
   },

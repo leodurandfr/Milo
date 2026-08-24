@@ -726,32 +726,20 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return active?.track_count || 0;
   });
 
-  // On-demand rescan ("I added music, refresh now"). The watcher can't see
-  // changes made on a NAS over CIFS/NFS, so this forces Navidrome to re-index.
-  // The scan flag comes back on the storages push, so nothing is polled here.
+  // On-demand rescan ("I added music, refresh now"), and the only kind there is:
+  // it indexes what appeared and marks what is gone, which is all a refresh means
+  // here — a marked track is already absent from every catalog answer. The watcher
+  // can't see changes made on a NAS over CIFS/NFS, so this forces Navidrome to
+  // walk. The scan flag comes back on the storages push, so nothing is polled.
+  //
+  // Never refused: it cannot destroy anything, so an unplugged key is no reason
+  // to hold it back. The settings button and the library view both call it.
   async function rescan() {
     const result = await apiCall.post(`${BASE}/scan`, null, {
       category: 'musicLibrary',
       message: 'Error starting library scan',
     });
     return result.ok && result.data?.status === 'success';
-  }
-
-  // Manual refresh: a full scan (indexes new music + purges gone files) when every
-  // storage space is mounted, else a quick scan — 'blocked' returns the spaces
-  // that deferred the cleanup (a full scan would drop their still-valid tracks,
-  // including an unplugged key's whole index).
-  async function refreshLibrary() {
-    const full = await apiCall.post(`${BASE}/scan/full`, null, {
-      category: 'musicLibrary',
-      message: 'Error refreshing library',
-    });
-    if (full.ok && full.data?.status === 'success') return { ok: true };
-    if (full.ok && full.data?.status === 'blocked') {
-      const ok = await rescan();
-      return { ok, offlineShares: full.data.offline_shares || [] };
-    }
-    return { ok: false };
   }
 
   /** Refetch whichever top-level lists are already cached, in the current scope. */
@@ -1089,7 +1077,6 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     // Scan state (pushed with the storage list)
     isScanning,
     activeStorageTrackCount,
-    refreshLibrary,
     rescan,
 
     // Network shares
