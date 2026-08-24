@@ -90,8 +90,6 @@ class TestRemoveCustomStation:
     async def test_an_unknown_station_is_refused(self, data):
         assert await data.remove_custom_station("custom_nope") is False
         assert await data.remove_custom_station("api_42") is False
-
-
 class TestModifyStationImage:
     """A save owns the upload it replaces — and only the one it replaces.
 
@@ -201,3 +199,64 @@ class TestBlankNameIsRefused:
         assert result["success"] is True
         assert result["station"]["name"] == "France Inter"
         assert result["station"]["url"] == "http://example.invalid/s"
+
+
+class TestModifiedStationsList:
+    """`GET /api/radio/custom` lists what the user actually edited.
+
+    Turning Shazam off writes a full override, original values included: listing
+    every override would file the station under "Modified" in Réglages → Webradio
+    for a preference the user set elsewhere, and offer to restore metadata that
+    was never changed. The predicate that separates the two ran in no test.
+
+    Consumer: `radioStore.fetchCustomStations()` → RadioSettings.vue.
+    """
+
+    ORIGINAL = {"name": "France Inter", "url": "http://example.invalid/fi",
+                "country": "France", "genre": "News", "codec": "MP3",
+                "bitrate": 128, "image_filename": "", "favicon": "http://origin/logo.png"}
+
+    async def _save_as_is(self, data, **overrides):
+        data._favorites_cache["api-1"] = dict(self.ORIGINAL)
+        fields = {k: self.ORIGINAL[k] for k in
+                  ("name", "url", "country", "genre", "codec", "bitrate")}
+        await data.modify_favorite_metadata("api-1", **fields, **overrides)
+
+    async def test_a_shazam_only_change_is_not_a_metadata_change(self, data):
+        await self._save_as_is(data, shazam_enabled=False)
+
+        assert data.is_station_shazam_enabled("api-1") is False, "the preference was not stored"
+        assert "api-1" not in data.get_modified_metadata()
+
+    async def test_a_renamed_station_is_listed(self, data):
+        await self._save_as_is(data)
+        await data.modify_favorite_metadata(
+            "api-1", name="Renamed", url=self.ORIGINAL["url"],
+        )
+
+        assert data.get_modified_metadata()["api-1"]["name"] == "Renamed"
+
+    async def test_a_custom_id_is_never_resolved_from_the_api_cache(self, data):
+        # `get_custom_station_by_id` answers the "is this one of ours" question
+        # for browser_api; the API cache holds records for stations that are not.
+        data._favorites_cache["custom_1"] = {"name": "Cached, not authored here"}
+
+        assert data.get_custom_station_by_id("custom_1") is None
+        assert data.get_favorite_metadata_local("custom_1")["name"] == "Cached, not authored here"
+
+    async def test_the_two_station_stores_answer_with_copies(self, data):
+        created = await data.add_custom_station(
+            name="Created", url="http://example.invalid/s",
+        )
+        station_id = created["station"]["id"]
+        await data.modify_favorite_metadata(
+            station_id, name="Renamed", url="http://example.invalid/s",
+        )
+
+        data.get_manual_stations()[station_id]["name"] = "mutated"
+        data.get_modified_metadata()[station_id]["name"] = "mutated"
+
+        assert data._manual_stations[station_id]["name"] == "Created"
+        assert data._modified_metadata[station_id]["name"] == "Renamed"
+
+
