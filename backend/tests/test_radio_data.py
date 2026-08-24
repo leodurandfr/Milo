@@ -90,6 +90,22 @@ class TestRemoveCustomStation:
     async def test_an_unknown_station_is_refused(self, data):
         assert await data.remove_custom_station("custom_nope") is False
         assert await data.remove_custom_station("api_42") is False
+
+    @pytest.mark.asyncio
+    async def test_deleting_a_station_that_was_favourited_drops_the_favourite(self, data):
+        # The stores are emptied here, so a favourite id left behind resolves to
+        # nothing: a station the favourites list carries forever and no screen
+        # can show or remove.
+        created = await data.add_custom_station(name="Solo", url="http://example.invalid/x")
+        station_id = created["station"]["id"]
+        await data.add_favorite(station_id)
+
+        await data.remove_custom_station(station_id)
+
+        assert data.is_favorite(station_id) is False
+        assert await data.get_favorites_with_metadata() == []
+
+
 class TestModifyStationImage:
     """A save owns the upload it replaces — and only the one it replaces.
 
@@ -199,6 +215,141 @@ class TestBlankNameIsRefused:
         assert result["success"] is True
         assert result["station"]["name"] == "France Inter"
         assert result["station"]["url"] == "http://example.invalid/s"
+
+
+class TestEnrichWithFavoriteStatus:
+    """Every station list the UI draws passes through this overlay.
+
+    The favourite flag was the only half the suite watched; the overlay itself —
+    the user's edits applied over the API record, and the live popularity stats
+    kept whenever the edit left them blank — ran in no test at all. Without the
+    preserved stats an edited station shows 0 votes and 0 clicks in the search
+    list, because every override carries those three keys at zero.
+
+    Consumer: `RadioBrowserAPI.search_stations` → `radioStore` → RadioSearch.vue.
+    """
+
+    @staticmethod
+    def _api_result(station_id):
+        return {"id": station_id, "name": "API name", "genre": "Pop",
+                "score": 9, "votes": 100, "clickcount": 50}
+
+    async def test_an_edit_is_overlaid_on_the_api_record(self, data):
+        await data.modify_favorite_metadata(
+            "api-1", name="Renamed", url="http://example.invalid/s", genre="Jazz",
+        )
+
+        enriched = data.enrich_with_favorite_status([self._api_result("api-1")])[0]
+
+        assert enriched["name"] == "Renamed"
+        assert enriched["genre"] == "Jazz"
+
+    async def test_live_popularity_survives_an_edit_that_left_it_blank(self, data):
+        # An override written with no cached original carries score/votes/
+        # clickcount at zero — overlaying it flat is what blanked the stats.
+        await data.modify_favorite_metadata(
+            "api-1", name="Renamed", url="http://example.invalid/s",
+        )
+
+        enriched = data.enrich_with_favorite_status([self._api_result("api-1")])[0]
+
+        assert enriched["name"] == "Renamed", "the override was not applied at all"
+        assert (enriched["score"], enriched["votes"], enriched["clickcount"]) == (9, 100, 50)
+
+    async def test_stats_the_edit_does_carry_win_over_the_api(self, data):
+        data._favorites_cache["api-1"] = {"votes": 42}
+        await data.modify_favorite_metadata(
+            "api-1", name="Renamed", url="http://example.invalid/s",
+        )
+
+        enriched = data.enrich_with_favorite_status([self._api_result("api-1")])[0]
+
+        assert enriched["votes"] == 42
+
+    async def test_a_custom_station_is_overlaid_from_its_creation_record(self, data):
+        created = await data.add_custom_station(
+            name="Created", url="http://example.invalid/s", genre="Jazz",
+        )
+        station_id = created["station"]["id"]
+
+        enriched = data.enrich_with_favorite_status(
+            [{"id": station_id, "name": "stale", "genre": "Pop"}]
+        )[0]
+
+        assert enriched["name"] == "Created"
+        assert enriched["is_custom"] is True
+        assert enriched["id"] == station_id
+
+
+class TestFavorites:
+    """Adding and removing a favourite — the durable user data of this source.
+
+    Both write `/var/lib/milo/radio_data.json` and both announce themselves over
+    WS; nothing in the suite entered either. The two promises that are not
+    obvious from the call site: the cached original is stored without its `id`
+    (the id is the key, and a stamped copy is what `_lookup_local` would serve
+    back as metadata), and removing a favourite keeps the override and the cached
+    original so re-adding restores the user's edits.
+
+    Consumers: `radioStore` via WS `radio/favorite_added` + `favorite_removed`.
+    """
+
+    async def test_adding_caches_the_original_without_its_id(self, data):
+        added = await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
+
+        assert added is True
+        assert data.is_favorite("api-1") is True
+        assert data._favorites_cache["api-1"] == {"name": "Origin"}
+        event = data._state_machine.broadcast.await_args.args[0]
+        assert (event.TYPE, event.station_id) == ("favorite_added", "api-1")
+
+    async def test_adding_a_second_time_announces_nothing(self, data):
+        await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
+        data._state_machine.broadcast.reset_mock()
+
+        assert await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"}) is True
+
+        data._state_machine.broadcast.assert_not_awaited()
+        assert data._favorites == ["api-1"]
+
+    async def test_an_edited_station_keeps_its_override_as_the_original(self, data):
+        await data.modify_favorite_metadata(
+            "api-1", name="Renamed", url="http://example.invalid/s",
+        )
+
+        await data.add_favorite("api-1", {"id": "api-1", "name": "API name"})
+
+        assert "api-1" not in data._favorites_cache, "the API record overwrote the edit"
+
+    async def test_removing_keeps_what_a_re_add_restores(self, data):
+        await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
+        await data.modify_favorite_metadata(
+            "api-1", name="Renamed", url="http://example.invalid/s",
+        )
+        data._state_machine.broadcast.reset_mock()
+
+        assert await data.remove_favorite("api-1") is True
+
+        assert data.is_favorite("api-1") is False
+        assert data.get_favorite_metadata_local("api-1")["name"] == "Renamed"
+        assert data._favorites_cache["api-1"]["name"] == "Origin"
+        event = data._state_machine.broadcast.await_args.args[0]
+        assert (event.TYPE, event.station_id) == ("favorite_removed", "api-1")
+
+    async def test_removing_a_station_that_is_not_a_favourite_announces_nothing(self, data):
+        assert await data.remove_favorite("api-1") is True
+
+        data._state_machine.broadcast.assert_not_awaited()
+
+    async def test_the_favourites_list_stamps_the_flag_and_drops_what_it_cannot_resolve(self, data):
+        await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
+        data._favorites.append("api-ghost")
+
+        favorites = await data.get_favorites_with_metadata()
+
+        assert [s["name"] for s in favorites] == ["Origin"]
+        assert favorites[0]["is_favorite"] is True
+        assert favorites[0]["id"] == "api-1"
 
 
 class TestModifiedStationsList:
