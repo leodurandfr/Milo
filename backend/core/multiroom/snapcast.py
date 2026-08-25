@@ -322,7 +322,14 @@ class SnapcastService:
         status, file_config = await asyncio.gather(api_task, file_task)
 
         file_stream = file_config.get("parsed_config", {}).get("stream", {})
-        streams = status.get("streams", [])
+        # Server.GetStatus nests everything under "server" — groups AND streams
+        # (_parse_clients already reads groups that way). Reading streams from
+        # the top level always found nothing, so `query` was always empty and
+        # this whole merge collapsed to the file: after a snapserver restart the
+        # daemon refused, the settings page kept reporting the values Milō wrote
+        # rather than the ones snapserver runs. Every stream carries the global
+        # defaults, so the first one is representative.
+        streams = status.get("server", {}).get("streams", [])
         query = streams[0].get("uri", {}).get("query", {}) if streams else {}
 
         return {
