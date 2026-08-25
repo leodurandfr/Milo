@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock
 from backend.api.routing import create_routing_router
 from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG, SNAPCLIENT_LIMITS
+from backend.core.models.audio_state import AudioSource
 from backend.core.settings import SettingsWriteError
 
 
@@ -349,3 +350,89 @@ class TestStoredFragmentsReachBothSidesClamped:
         assert len(satellite.puts) == 1
         _, pushed = satellite.puts[0]
         assert pushed["fragments"] == self.CLAMPED
+
+
+class TestMultiroomToggle:
+    """PUT /api/routing/multiroom — the route Milo-Mac's manifest pins.
+
+    Measured 2026-08-25: the body ran at 0 %. It is the one switch between
+    direct and multiroom mode, which is a full ALSA re-route (the source
+    restarts, snapserver and snapclient start or stop, routing.env is
+    rewritten), and it has an out-of-checkout consumer that reads the response
+    it returns.
+    """
+
+    @pytest.fixture
+    def services(self):
+        routing = Mock()
+        routing.set_multiroom_enabled = AsyncMock(return_value=True)
+        state_machine = Mock()
+        state_machine.get_current_state = Mock(return_value={"active_source": "radio"})
+        return routing, state_machine
+
+    @pytest.fixture
+    def client(self, services):
+        routing, state_machine = services
+        app = FastAPI()
+        app.include_router(create_routing_router(routing, state_machine, Mock()))
+        return TestClient(app)
+
+    def test_the_active_source_is_handed_to_the_transition(self, client, services):
+        """The service restarts that source onto the other ALSA device. Handing
+        it `none` instead leaves the source playing into a device that no longer
+        carries the audio, and the room goes silent with everything reporting
+        success.
+        """
+        routing, _ = services
+
+        response = client.put("/api/routing/multiroom", json={"enabled": True})
+
+        assert response.status_code == 200
+        routing.set_multiroom_enabled.assert_awaited_once_with(True, AudioSource.RADIO)
+
+    def test_an_idle_appliance_switches_with_no_source_to_carry(self, client, services):
+        routing, state_machine = services
+        state_machine.get_current_state.return_value = {"active_source": "none"}
+
+        response = client.put("/api/routing/multiroom", json={"enabled": False})
+
+        assert response.status_code == 200
+        assert response.json()["active_source"] == "none"
+        routing.set_multiroom_enabled.assert_awaited_once_with(False, None)
+
+    def test_a_source_name_the_enum_does_not_know_is_reported_as_none(
+        self, client, services
+    ):
+        """`coerce_audio_source_or_none` is the defensive read of a stored
+        value, and this is the other half of it: the answer must never echo a
+        name back. Milo-Mac decodes `active_source` into its own enum, so an
+        unknown string there is a decode failure at the far end rather than a
+        source that is simply off.
+        """
+        _, state_machine = services
+        state_machine.get_current_state.return_value = {"active_source": "librespot"}
+
+        body = client.put("/api/routing/multiroom", json={"enabled": True}).json()
+
+        assert body["active_source"] == "none"
+
+    def test_the_answer_reports_the_mode_that_was_asked_for(self, client):
+        """Milo-Mac reads `multiroom_enabled` off this body to settle its own
+        toggle; an answer that echoes the old mode leaves its switch flipping
+        back under the user's finger.
+        """
+        body = client.put("/api/routing/multiroom", json={"enabled": True}).json()
+
+        assert body == {"status": "success", "multiroom_enabled": True, "active_source": "radio"}
+
+    def test_a_refused_transition_is_not_a_200(self, client, services):
+        """The ALSA re-route can fail half-way — snapserver refusing the
+        loopback is the usual one. Answering success there is a UI showing
+        multiroom on with the audio still in direct mode.
+        """
+        routing, _ = services
+        routing.set_multiroom_enabled = AsyncMock(return_value=False)
+
+        response = client.put("/api/routing/multiroom", json={"enabled": True})
+
+        assert response.status_code == 500

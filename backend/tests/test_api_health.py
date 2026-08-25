@@ -13,6 +13,9 @@ things this file pins are composition faults rather than probe faults:
 Consumer: any external monitor polling /api/health, plus the operator reading it
 by hand on a unit.
 """
+import asyncio
+
+import pytest
 from unittest.mock import Mock, AsyncMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -22,7 +25,9 @@ from backend.api.health import create_health_router
 
 def _services(*, routing_raises=False, state_machine_raises=False,
               multiroom_enabled=False, multiroom_available=True,
-              ws_connected=True, camilladsp_connected=True):
+              ws_connected=True, camilladsp_connected=True,
+              snapcast_status_raises=False, camilladsp_status=None,
+              camilladsp_raises=False, sources=None):
     """The five collaborators the router probes, each independently breakable."""
     state_machine = Mock()
     if state_machine_raises:
@@ -31,25 +36,33 @@ def _services(*, routing_raises=False, state_machine_raises=False,
         state_machine.get_current_state = Mock(
             return_value={"active_source": "radio", "transitioning": False}
         )
-    state_machine.sources = {}
+    state_machine.sources = sources if sources is not None else {}
 
     routing = Mock()
     if routing_raises:
         routing.get_state = Mock(side_effect=RuntimeError("routing down"))
     else:
         routing.get_state = Mock(return_value={"multiroom_enabled": multiroom_enabled})
-    routing.get_snapcast_status = AsyncMock(return_value={
-        "multiroom_available": multiroom_available,
-        "server_active": True,
-        "client_active": True,
-    })
+    if snapcast_status_raises:
+        routing.get_snapcast_status = AsyncMock(side_effect=RuntimeError("snapserver gone"))
+    else:
+        routing.get_snapcast_status = AsyncMock(return_value={
+            "multiroom_available": multiroom_available,
+            "server_active": True,
+            "client_active": True,
+        })
 
     snapcast_ws = Mock()
     snapcast_ws.connected = ws_connected
 
     camilladsp = Mock()
     camilladsp.connected = camilladsp_connected
-    camilladsp.get_status = AsyncMock(return_value={"available": True, "state": "running"})
+    if camilladsp_raises:
+        camilladsp.get_status = AsyncMock(side_effect=asyncio.TimeoutError())
+    else:
+        camilladsp.get_status = AsyncMock(
+            return_value=camilladsp_status or {"available": True, "state": "running"}
+        )
 
     return state_machine, routing, camilladsp, snapcast_ws
 
@@ -119,3 +132,109 @@ class TestStatusEscalatesMonotonically:
 
     def test_all_probes_healthy_stays_healthy(self):
         assert _health()["status"] == "healthy"
+
+
+class TestProbesThatFailRatherThanReport:
+    """The three arms that turn a collaborator's exception into a verdict.
+
+    Measured 2026-08-25: `health_check` ran at 74.6 % and every one of these was
+    dark. A probe that lets its exception out takes the whole document with it,
+    and an external monitor then sees a connection error where the body would
+    have named which service went — which is the entire reason the route exists.
+    """
+
+    def test_a_snapserver_that_will_not_answer_is_degraded_not_a_dead_route(self):
+        checks = _health(multiroom_enabled=True, snapcast_status_raises=True)
+
+        assert checks["status"] == "degraded"
+        assert checks["services"]["snapcast"]["healthy"] is False
+        assert "snapserver gone" in checks["services"]["snapcast"]["error"]
+
+    def test_multiroom_off_reports_a_healthy_snapcast_rather_than_probing_it(self):
+        """Snapserver is deliberately stopped in direct mode — probing it there
+        would report the appliance unhealthy for working as configured.
+        """
+        checks = _health(multiroom_enabled=False)
+
+        assert checks["services"]["snapcast"] == {"healthy": True, "note": "multiroom disabled"}
+        assert checks["status"] == "healthy"
+
+    @pytest.mark.parametrize("kwargs,state", [
+        ({"camilladsp_connected": False}, "disconnected"),
+        ({"camilladsp_status": {"available": False, "state": "stalled"}}, "stalled"),
+    ])
+    def test_a_camilladsp_that_is_not_running_is_unhealthy_not_degraded(self, kwargs, state):
+        """It is the only attenuation stage and it is always in the audio path,
+        so a down daemon is silence, not reduced service. Degraded here is a
+        monitor that never pages.
+        """
+        checks = _health(**kwargs)
+
+        assert checks["status"] == "unhealthy"
+        assert checks["services"]["camilladsp"]["healthy"] is False
+
+    def test_a_hung_camilladsp_socket_does_not_hold_the_whole_document(self):
+        """`get_status` goes down a socket that can stall. Without the bound,
+        the health route stalls with it and a monitor times out instead of
+        being told which service is wedged.
+        """
+        checks = _health(camilladsp_raises=True)
+
+        assert checks["status"] == "unhealthy"
+        assert checks["services"]["camilladsp"]["healthy"] is False
+
+    def test_registered_sources_are_listed_with_whether_they_came_up(self):
+        """A source that registered but never initialised is the shape of a
+        boot that half worked — the one thing this document can show that
+        nothing else does.
+        """
+        from backend.core.models.audio_state import AudioSource
+
+        started, stalled = Mock(), Mock()
+        started.is_initialized = True
+        stalled.is_initialized = False
+        checks = _health(sources={
+            AudioSource.RADIO: started,
+            AudioSource.SPOTIFY: stalled,
+            AudioSource.BLUETOOTH: None,
+        })
+
+        assert checks["services"]["sources"] == {
+            "radio": {"registered": True, "initialized": True},
+            "spotify": {"registered": True, "initialized": False},
+        }
+
+
+class TestTheTwoFallbackReads:
+
+    def _client(self, **over):
+        state_machine, routing, camilladsp, snapcast_ws = _services()
+        settings = Mock()
+        settings.get_setting = AsyncMock(return_value=over.get("setup_completed", True))
+        network = Mock()
+        network.hotspot_active = over.get("hotspot_active", False)
+        app = FastAPI()
+        app.include_router(create_health_router(
+            state_machine, routing, settings, network, camilladsp, snapcast_ws
+        ))
+        return TestClient(app)
+
+    def test_ping_answers_without_touching_a_service(self):
+        """It is what a caller uses to tell "the box is up" from "the box is
+        up and broken"; a ping that reads state cannot make that distinction.
+        """
+        assert self._client().get("/api/ping").json() == {"status": "success", "message": "pong"}
+
+    def test_the_initial_state_fallback_carries_what_decides_the_first_screen(self):
+        """The macOS captive-portal browser has no WebSocket. These three fields
+        are what App.vue picks between the wizard, the hotspot screen and the
+        player — a missing one lands a fresh unit on the player, with no wizard
+        and nothing to play.
+        """
+        body = self._client(setup_completed=False, hotspot_active=True).get(
+            "/api/initial-state"
+        ).json()
+
+        assert body["setup_completed"] is False
+        assert body["hotspot_active"] is True
+        assert body["full_state"]["active_source"] == "radio"
