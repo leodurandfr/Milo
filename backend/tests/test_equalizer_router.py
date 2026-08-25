@@ -171,3 +171,56 @@ class TestLocalRoutingIsRefused:
         assert result["status"] == "error"
         assert "success" not in result
         proxy.request.assert_not_awaited()
+
+
+# (router method, kwargs, the satellite path its remote closure must PUT to)
+REMOTE_SETTINGS = [
+    ("set_mute", {"muted": True}, "/equalizer/mute", {"muted": True}),
+    ("update_filter",
+     {"filter_id": "eq_band_03",
+      "filter_data": {"freq": 250.0, "gain": 4.0, "q": 1.41, "filter_type": "Peaking"}},
+     "/equalizer/filter/eq_band_03",
+     {"freq": 250.0, "gain": 4.0, "q": 1.41, "filter_type": "Peaking"}),
+    ("set_compressor", {"settings": {"enabled": True, "threshold": -25.0}},
+     "/equalizer/compressor", {"enabled": True, "threshold": -25.0}),
+    ("set_loudness", {"settings": {"enabled": True, "high_boost": 6.0}},
+     "/equalizer/loudness", {"enabled": True, "high_boost": 6.0}),
+    ("set_mono", {"settings": {"enabled": False}}, "/equalizer/mono", {"enabled": False}),
+]
+
+
+class TestRemoteRouting:
+    """The satellite half of the same dispatch, for the five EQ writes.
+
+    What breaks when these fail: a mute, a band, the compressor, loudness or
+    mono changed from the UI stops reaching Canapé or Bureau — or reaches the
+    wrong endpoint on it, which the satellite answers 200 to while changing
+    something else.
+
+    Why this class exists: measured 2026-08-25 by the Lot A eviscration sweep.
+    The remote closure of these five could each be replaced by `return None`
+    with the whole backend suite still green; only `set_volume` and the three
+    getters had a remote test. `test_milo_client_contract.py` proves the paths
+    exist and that the satellite reads every key sent — it cannot see which of
+    them a given setting is sent to, and the four dict-bodied settings are
+    indistinguishable to it.
+
+    Each body here is made distinct on purpose: with `{"enabled": True}` for all
+    of them, swapping two endpoints would keep every assertion green.
+    """
+
+    @pytest.mark.parametrize("method,kwargs,path,body", REMOTE_SETTINGS)
+    async def test_the_setting_is_put_to_its_own_endpoint_on_the_satellite(
+        self, router, camilladsp, proxy, registry, method, kwargs, path, body
+    ):
+        registry.get_client.return_value = Client(
+            mac_id=REMOTE_MAC, name="Canape", ip="192.168.1.153", online=True
+        )
+
+        result = await getattr(router, method)(REMOTE_MAC, **kwargs)
+
+        assert result["status"] == "success"
+        proxy.request.assert_awaited_once_with("192.168.1.153", "PUT", path, body)
+        for dsp_method in ("set_mute", "set_filter", "set_compressor",
+                           "set_loudness", "set_mono"):
+            getattr(camilladsp, dsp_method).assert_not_awaited()
