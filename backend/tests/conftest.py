@@ -3,15 +3,17 @@
 Pytest configuration - Shared fixtures for all tests
 """
 import asyncio
+import builtins
 import copy
 import errno
 import logging
 import os
 import socket
+from pathlib import Path
 
 import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
-from backend.config.constants import ERROR_LOG_FILE
+from backend.config.constants import ERROR_LOG_FILE, MILO_DATA_DIR
 from backend.core.models.audio_state import SourceState
 
 
@@ -132,6 +134,126 @@ def fail_when_a_test_reaches_off_this_host():
         pytest.fail(
             "reached off this host; stand in for the transport instead "
             f"(`no_satellite_network` covers the satellite API): {tried}",
+            pytrace=False,
+        )
+
+
+_APPLIANCE_WRITES: list = []
+
+
+@pytest.fixture(scope="session", autouse=True)
+def keep_the_suite_out_of_the_appliance_data():
+    """Refuse every write under /var/lib/milo, and record who tried.
+
+    Fourth of the same family: the three above keep the run out of the operator
+    log, the env files and the network. This one covers what was left — the
+    persisted data itself. Measured on 2026-08-25: an eviscration of
+    `load_versioned_json` made a caller save an empty record over the real
+    `radio_data.json`, and 22 favourites plus 22 metadata overrides went to 122
+    bytes. Nothing failed; the file is written through the same atomic
+    tmp-then-`os.replace` as every other store, and the suite is checked out ON
+    the appliance, so the live path is the default path.
+
+    The mutation is what exposed it, but it is not the defect: on an untouched
+    tree the same save rewrites the file with identical content, which is
+    invisible and permanent. Only `settings.json` and the env files had a guard.
+    """
+    real_open = builtins.open
+    real_replace, real_rename, real_remove = os.replace, os.rename, os.remove
+    real_write_text, real_write_bytes = Path.write_text, Path.write_bytes
+    real_unlink, real_mkdir = Path.unlink, Path.mkdir
+    real_exists = Path.exists
+    root = str(MILO_DATA_DIR)
+
+    def _refuse(target) -> bool:
+        try:
+            path = os.fspath(target)
+        except TypeError:
+            return False
+        if not str(path).startswith(root):
+            return False
+        _APPLIANCE_WRITES.append((
+            os.environ.get("PYTEST_CURRENT_TEST", "<unknown test>").removesuffix(" (call)"),
+            str(path),
+        ))
+        return True
+
+    def _deny(path):
+        raise PermissionError(errno.EACCES, "refused by the test suite", str(path))
+
+    def open_(file, mode="r", *a, **kw):
+        if any(c in str(mode) for c in "wxa+") and _refuse(file):
+            _deny(file)
+        return real_open(file, mode, *a, **kw)
+
+    def replace_(src, dst, *a, **kw):
+        if _refuse(dst):
+            _deny(dst)
+        return real_replace(src, dst, *a, **kw)
+
+    def rename_(src, dst, *a, **kw):
+        if _refuse(dst):
+            _deny(dst)
+        return real_rename(src, dst, *a, **kw)
+
+    def remove_(path, *a, **kw):
+        if _refuse(path):
+            _deny(path)
+        return real_remove(path, *a, **kw)
+
+    def write_text_(self, *a, **kw):
+        if _refuse(self):
+            _deny(self)
+        return real_write_text(self, *a, **kw)
+
+    def write_bytes_(self, *a, **kw):
+        if _refuse(self):
+            _deny(self)
+        return real_write_bytes(self, *a, **kw)
+
+    def unlink_(self, *a, **kw):
+        if _refuse(self):
+            _deny(self)
+        return real_unlink(self, *a, **kw)
+
+    def mkdir_(self, *a, **kw):
+        # `mkdir(exist_ok=True)` on a directory that is already there creates
+        # nothing and destroys nothing -- every store calls it to ensure its own
+        # folder. Only a mkdir that would really appear on the appliance counts.
+        if not real_exists(self) and _refuse(self):
+            _deny(self)
+        return real_mkdir(self, *a, **kw)
+
+    builtins.open = open_
+    os.replace, os.rename, os.remove = replace_, rename_, remove_
+    Path.write_text, Path.write_bytes = write_text_, write_bytes_
+    Path.unlink, Path.mkdir = unlink_, mkdir_
+    try:
+        yield
+    finally:
+        builtins.open = real_open
+        os.replace, os.rename, os.remove = real_replace, real_rename, real_remove
+        Path.write_text, Path.write_bytes = real_write_text, real_write_bytes
+        Path.unlink, Path.mkdir = real_unlink, real_mkdir
+
+
+@pytest.fixture(autouse=True)
+def fail_when_a_test_writes_appliance_state():
+    """Fail the test that tried, naming it and the file it aimed at.
+
+    Same reason as its network twin: every persistence path here is wrapped in a
+    logged best-effort, so a refused write leaves the run green and the leak in
+    place. The refusal names the test; without this the operator finds the
+    damage days later, by hand.
+    """
+    already = len(_APPLIANCE_WRITES)
+    yield
+    escaped = _APPLIANCE_WRITES[already:]
+    if escaped:
+        tried = ", ".join(f"{where} -> {target}" for where, target in escaped)
+        pytest.fail(
+            "wrote the appliance's own data; point the store at `tmp_path` "
+            f"instead: {tried}",
             pytrace=False,
         )
 
