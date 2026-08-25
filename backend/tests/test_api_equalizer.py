@@ -419,3 +419,139 @@ class TestTargetCrossover:
         assert client.put("/api/equalizer/target/local/crossover",
                           json={"frequency": 80}).status_code == 400
         mock_crossover.set_zone_crossover_frequency.assert_not_awaited()
+
+
+# =============================================================================
+# The ValueError → 404 translation, on every route that carries one
+# =============================================================================
+
+class TestUnknownTargetsAreNamedNotSwallowed:
+    """The access layer raises `ValueError` for a target it cannot resolve, and
+    seven routes each translate that into a 404.
+
+    Measured 2026-08-25: all seven arms ran at 0 %. Losing one does not lose the
+    refusal — `api_error_handler` still catches the ValueError — it turns a 404
+    into a 500, which the frontend renders as the red error banner instead of
+    the "this speaker is gone" the EQ tab strip knows how to handle. A zone
+    deleted in another tab is the ordinary way to reach it.
+    """
+
+    WRITES = [
+        ("put", "/compressor", {"enabled": True, "threshold": -25.0}),
+        ("put", "/loudness", {"enabled": True, "high_boost": 4.0, "low_boost": 6.0}),
+        ("put", "/mono", {"enabled": True}),
+        ("put", "/enabled", {"enabled": True}),
+        ("post", "/save-custom", None),
+    ]
+
+    @pytest.mark.parametrize("verb,suffix,body", WRITES)
+    def test_a_write_to_a_vanished_zone_is_a_404(
+        self, client, mock_mre, verb, suffix, body
+    ):
+        for name in ("update_compressor", "update_loudness", "update_mono",
+                     "set_zone_equalizer_effects_enabled", "save_custom_preset"):
+            setattr(mock_mre, name, AsyncMock(side_effect=ValueError("unknown zone: 7")))
+
+        response = getattr(client, verb)(f"/api/equalizer/target/zone:7{suffix}", json=body)
+
+        assert response.status_code == 404
+        assert "unknown zone: 7" in response.json()["detail"]
+
+    def test_a_read_of_a_vanished_zone_is_a_404(self, client, mock_mre):
+        mock_mre.get_equalizer = AsyncMock(side_effect=ValueError("unknown zone: 7"))
+
+        response = client.get("/api/equalizer/target/zone:7")
+
+        assert response.status_code == 404
+
+    def test_a_zone_the_access_layer_simply_does_not_know_is_a_404(self, client, mock_mre):
+        """The other shape of the same absence: no raise, an empty record. Left
+        untranslated it becomes a 200 carrying `null`, which the EQ view renders
+        as a zone with every band flat.
+        """
+        mock_mre.get_equalizer = AsyncMock(return_value=None)
+
+        response = client.get("/api/equalizer/target/zone:7")
+
+        assert response.status_code == 404
+
+    def test_a_read_of_a_mac_the_registry_never_heard_of_is_a_404(
+        self, client, mock_registry, mock_mre
+    ):
+        """Checked before the access layer on purpose: it would hand back a
+        neutral default record for any MAC, so an unknown one would read as a
+        speaker sitting at flat EQ rather than as absent.
+        """
+        mock_registry.get_client.return_value = None
+        mock_mre.get_equalizer = AsyncMock(return_value=_sample_record())
+
+        response = client.get(f"/api/equalizer/target/{REMOTE_MAC}")
+
+        assert response.status_code == 404
+        mock_mre.get_equalizer.assert_not_awaited()
+
+    def test_crossover_on_a_client_target_is_a_400_and_not_a_404(self, client):
+        """Crossover is zone-only. A 404 would read as "this speaker is gone";
+        400 says what it is — the resource does not apply to this target.
+        """
+        response = client.put(
+            f"/api/equalizer/target/{REMOTE_MAC}/crossover", json={"frequency": 120}
+        )
+
+        assert response.status_code == 400
+
+    def test_a_crossover_the_service_refuses_is_a_500_not_a_silent_success(
+        self, client, mock_crossover
+    ):
+        """The frequency is pushed into every zone member's CamillaDSP; a
+        refusal answered 200 leaves the subwoofer crossed over where it was
+        with the UI showing the new value.
+        """
+        mock_crossover.set_zone_crossover_frequency = AsyncMock(return_value=False)
+
+        response = client.put("/api/equalizer/target/zone:7/crossover", json={"frequency": 120})
+
+        assert response.status_code == 500
+
+
+class TestLevelsMonitorKeepalive:
+    """`POST /api/equalizer/levels/monitor` — the VU meters' keepalive.
+
+    Measured 2026-08-25: never entered. An open EQ view re-posts it every few
+    seconds and the monitor stops by itself once the last keepalive expires, so
+    a route that drops the client list leaves the meters reading the local DAC
+    while the view shows a satellite — or leaves the monitor running against a
+    view nobody has open.
+    """
+
+    @pytest.fixture
+    def client(self, mock_camilladsp, mock_mre, mock_equalizer_router,
+               mock_registry, mock_crossover):
+        self.monitor = Mock()
+        self.monitor.keepalive = Mock()
+        app = FastAPI()
+        app.include_router(create_equalizer_router(
+            camilladsp_service=mock_camilladsp,
+            crossover_service=mock_crossover,
+            client_registry_service=mock_registry,
+            equalizer_router_service=mock_equalizer_router,
+            multiroom_equalizer_service=mock_mre,
+            levels_monitor=self.monitor,
+        ))
+        return TestClient(app)
+
+    def test_the_selected_clients_reach_the_monitor(self, client):
+        response = client.post(
+            "/api/equalizer/levels/monitor", json={"client_ids": [REMOTE_MAC]}
+        )
+
+        assert response.status_code == 200
+        self.monitor.keepalive.assert_called_once_with([REMOTE_MAC])
+
+    def test_an_empty_selection_means_the_local_dac_and_is_still_forwarded(self, client):
+        """Empty is a value, not an absence — it is how the local meters are
+        armed. Skipping the call on empty leaves them dead on the main unit.
+        """
+        client.post("/api/equalizer/levels/monitor", json={"client_ids": []})
+
+        self.monitor.keepalive.assert_called_once_with([])
