@@ -431,7 +431,7 @@ class TestBoot:
 
         await bootable.initialize()
 
-        bootable._libraries.reconcile.assert_awaited_once_with({})
+        bootable._libraries.reconcile.assert_awaited_once_with({}, set())
 
     @pytest.mark.asyncio
     async def test_boot_starts_both_watchers(self, bootable):
@@ -876,7 +876,7 @@ class TestUsbWrites:
         keys._data.forget_usb = AsyncMock(return_value=True)
 
         assert await keys.forget_usb("AAAA") is True
-        keys._libraries.reconcile.assert_awaited_once_with({})
+        keys._libraries.reconcile.assert_awaited_once_with({}, set())
         keys._on_catalog_changed.assert_called()
 
 
