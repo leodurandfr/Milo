@@ -74,3 +74,44 @@ async def test_unchanged_mutation_does_not_rewrite(service, monkeypatch):
     assert await service.mark_episode_completed("absent-episode") is True
 
     saves.assert_not_awaited()
+
+
+class TestMarkEpisodeCompleted:
+    """`mark_episode_completed` — the flag that stops an episode resuming.
+
+    Green in the Lot A eviscration sweep. Consumers: `sources/podcast/source.py`
+    at end-of-stream, and the route behind the UI's "mark as played".
+
+    What breaks when this fails: neutralised it answers True without writing
+    anything, so an episode listened to the end resumes mid-way for ever and
+    the UI reports success each time. Its bool is read by neither caller, so
+    what is asserted here is the stored effect: the flag and its stamp, and the
+    absence of a row for an episode nobody ever played.
+    """
+
+    async def test_an_episode_with_progress_is_marked_and_stamped(self, service):
+        await service.update_playback_progress("ep-1", position=120, duration=1800)
+        before = (await service.get_playback_progress("ep-1")).get("completed")
+
+        await service.mark_episode_completed("ep-1")
+
+        entry = await service.get_playback_progress("ep-1")
+        assert before is not True, "the fixture already had it completed — proves nothing"
+        assert entry["completed"] is True
+        assert entry["last_played"] > 0
+
+    async def test_an_episode_nobody_ever_played_gets_no_row_invented_for_it(self, service):
+        # The bool this answers is read by neither caller (source.py end-of-stream
+        # and the route both discard it), and it is True either way -- so the
+        # observable contract is the absence of a row, not the return value.
+        # Inventing one here would resurrect an episode dropped from the feed.
+        await service.mark_episode_completed("never-played")
+        assert await service.get_playback_progress("never-played") is None
+
+    async def test_marking_one_episode_leaves_the_others_alone(self, service):
+        await service.update_playback_progress("ep-1", position=120, duration=1800)
+        await service.update_playback_progress("ep-2", position=60, duration=900)
+
+        await service.mark_episode_completed("ep-1")
+
+        assert (await service.get_playback_progress("ep-2")).get("completed") is not True

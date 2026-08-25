@@ -67,3 +67,24 @@ async def test_an_interrupted_write_leaves_no_servable_cover(service, tmp_path, 
 
     assert await service._download_cover("disc-2", "release-mbid") is False
     assert service.get_cover_path("disc-2") is None
+
+
+class TestCoverPathLookup:
+    """`get_cover_path` — the on-disk cover for a disc, or nothing.
+
+    Green in the Lot A eviscration sweep. Consumer: `sources/cd/routes.py`,
+    whose only job is cover art; a None is an expected 404 there, not a
+    failure. Neutralised it answers None for every disc, so a disc whose cover
+    was fetched and cached shows the placeholder for ever -- and no test moved.
+    """
+
+    def test_a_cached_cover_is_found_by_its_disc_id(self, service, tmp_path):
+        (tmp_path / "disc-42.jpg").write_bytes(b"\xff\xd8\xff")
+        assert service.get_cover_path("disc-42") == str(tmp_path / "disc-42.jpg")
+
+    def test_a_disc_with_no_cached_cover_answers_nothing(self, service):
+        assert service.get_cover_path("disc-with-no-cover") is None
+
+    def test_the_lookup_is_per_disc_and_not_a_directory_check(self, service, tmp_path):
+        (tmp_path / "disc-42.jpg").write_bytes(b"\xff\xd8\xff")
+        assert service.get_cover_path("disc-43") is None
