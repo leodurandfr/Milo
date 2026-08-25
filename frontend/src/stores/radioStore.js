@@ -433,7 +433,7 @@ export const useRadioStore = defineStore('radio', () => {
       formData.append('image', stationData.image);
     }
 
-    const result = await apiCall.post('/api/radio/custom/add', formData, {
+    const result = await apiCall.post('/api/radio/custom', formData, {
       category: 'radio',
       message: 'Error adding custom station',
       headers: { 'Content-Type': 'multipart/form-data' }
