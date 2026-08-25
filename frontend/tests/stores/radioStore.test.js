@@ -452,7 +452,7 @@ describe('radioStore', () => {
       await store.addCustomStation({ name: 'My Station', url: 'https://stream.example' });
 
       const [url, body, options] = apiCall.post.mock.calls[0];
-      expect(url).toBe('/api/radio/custom/add');
+      expect(url).toBe('/api/radio/custom');
       expect(body).toBeInstanceOf(FormData);
       expect(body.get('name')).toBe('My Station');
       // Defaults to enabled — the backend expects the field on every creation.

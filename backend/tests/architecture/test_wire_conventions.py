@@ -160,6 +160,36 @@ def test_a_resource_has_one_spelling():
     assert not offenders, f"same resource under two spellings: {offenders}"
 
 
+# The method already says what the request does; repeating it in the path is
+# what splits one collection into two spellings. Only the synonyms of the verb
+# itself are listed: `POST /api/programs/{key}/update` triggers an update, which
+# is an action and not a second name for POST.
+VERB_ECHOES = {
+    "POST": {"add", "create", "new"},
+    "DELETE": {"delete", "remove"},
+    "PUT": {"update", "set", "modify"},
+    "PATCH": {"update", "set", "modify"},
+}
+
+
+def test_no_route_repeats_its_own_verb_in_the_path():
+    """`POST /api/radio/custom/add` sat next to `GET /api/radio/custom` and
+    `DELETE /api/radio/custom/{id}` — one resource under two spellings, which is
+    the rule `test_a_resource_has_one_spelling` exists for and cannot see
+    (it only detects a compound name split across a `/`).
+
+    CLAUDE.md names this one directly: collections are plural and the item hangs
+    off the collection, "no `/add` suffix".
+    """
+    offenders = [
+        (method, path)
+        for routes in (ROUTES, SATELLITE_ROUTES)
+        for method, path in routes
+        if path.rsplit("/", 1)[-1] in VERB_ECHOES.get(method, set())
+    ]
+    assert not offenders, f"path repeats its HTTP verb: {offenders}"
+
+
 def test_no_source_status_or_restart_routes():
     """Both are explicitly forbidden: status is WS-only, restart is systemd's job.
 
