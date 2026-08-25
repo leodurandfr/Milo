@@ -696,3 +696,75 @@ class TestBroadcastPolicy:
         })
 
         assert state_machine.update_source_state.call_count == publishes
+
+
+class TestControllerLifecycle:
+    """`AvrcpController.start` / `stop` — the BlueZ link itself.
+
+    Both green in the Lot A eviscration sweep: replaced by their neutral the
+    whole suite stayed green, so nothing checked that starting subscribes to
+    BlueZ at all, nor that stopping lets go of it. What that leaves unguarded
+    is the metadata feed of the whole Bluetooth source -- a start that
+    subscribes to nothing leaves the sender's title, artist and transport dark
+    while the source still reports ACTIVE.
+
+    The real system bus is stood in for here: the suite is checked out on the
+    appliance, where BlueZ answers, and a test that reached it would be talking
+    to the pairings of the room it runs in.
+    """
+
+    @pytest.fixture
+    def bus(self):
+        bus = Mock()
+        bus.call = AsyncMock(return_value=Mock(message_type=MessageType.METHOD_RETURN))
+        bus.add_message_handler = Mock()
+        bus.disconnect = Mock()
+        return bus
+
+    @pytest.fixture
+    def controller(self, bus, monkeypatch):
+        connect = AsyncMock(return_value=bus)
+        monkeypatch.setattr(avrcp_module, "MessageBus",
+                            Mock(return_value=Mock(connect=connect)))
+        avrcp = AvrcpController()
+        avrcp._adopt_existing_player = AsyncMock()
+        return avrcp
+
+    async def test_start_subscribes_to_every_rule_and_installs_the_handler(
+        self, controller, bus
+    ):
+        assert await controller.start() is True
+
+        assert bus.call.await_count == len(avrcp_module._MATCH_RULES), (
+            "one AddMatch per rule: a rule dropped here is a signal never seen"
+        )
+        bus.add_message_handler.assert_called_once_with(controller._on_dbus_message)
+        await controller.stop()
+
+    async def test_start_adopts_a_player_that_already_exists(self, controller):
+        """The backend restarting under a live session sees no change signal."""
+        await controller.start()
+        controller._adopt_existing_player.assert_awaited_once()
+        await controller.stop()
+
+    async def test_a_refused_addmatch_is_not_reported_as_a_live_listener(
+        self, controller, bus
+    ):
+        bus.call = AsyncMock(return_value=Mock(message_type=MessageType.ERROR,
+                                               body=["refused"]))
+
+        # `@handle_errors` turns the raise into the documented fail-open value:
+        # the source keeps working as a plain receiver, minus the metadata.
+        assert await controller.start() is False
+        controller._adopt_existing_player.assert_not_awaited()
+
+    async def test_stop_cancels_the_loops_start_spawned(self, controller):
+        await controller.start()
+        tasks = [controller._notify_task, controller._poll_task]
+        assert all(tasks), "start spawned no loop — the assertion below is empty"
+
+        await controller.stop()
+
+        assert all(t.cancelled() or t.done() for t in tasks)
+        assert controller._notify_task is None
+        assert controller._poll_task is None

@@ -1260,3 +1260,50 @@ class TestLogBridge:
         must still produce a banner, not an empty one.
         """
         assert spotify_source._extract_log_message(line) == expected
+
+
+class TestLibrespotWebSocketTeardown:
+    """`LibrespotWebSocket.stop` — letting go of the go-librespot socket.
+
+    Green in the Lot A eviscration sweep. `stop` is reached when the Spotify
+    source stops or the unit switches source, and its job is to cancel the
+    reconnection loop. Neutralised it cancels nothing: the loop keeps trying to
+    reach a daemon that has been stopped, and the next start adds a second one
+    beside it.
+
+    A lifecycle method is never "entered" by a test that exercises behaviour,
+    which is exactly why nothing held it.
+    """
+
+    @pytest.fixture
+    def ws(self):
+        return LibrespotWebSocket(
+            ws_url="ws://127.0.0.1:3678/events",
+            session=Mock(),
+            on_event=AsyncMock(),
+        )
+
+    async def test_stop_cancels_the_connection_loop_and_drops_it(self, ws):
+        started = asyncio.Event()
+
+        async def never_ending():
+            started.set()
+            await asyncio.sleep(3600)
+
+        ws._task = asyncio.create_task(never_ending())
+        await started.wait()
+
+        await ws.stop()
+
+        assert ws._task is None
+        assert ws._connected is False
+
+    async def test_stop_marks_the_client_stopping_so_the_loop_does_not_reconnect(self, ws):
+        await ws.stop()
+        assert ws._stopping is True
+
+    async def test_stopping_twice_is_harmless(self, ws):
+        """`_do_stop` runs on a source that never started, and on teardown."""
+        await ws.stop()
+        await ws.stop()
+        assert ws._task is None
