@@ -5,7 +5,6 @@ System power management + status + telemetry routes
 """
 from fastapi import APIRouter, BackgroundTasks
 import asyncio
-import contextlib
 import logging
 from typing import Optional, TYPE_CHECKING
 
@@ -61,86 +60,47 @@ def create_system_router(
     # System temperature
     @router.get("/temperature")
     async def get_system_temperature():
-        """Retrieve Raspberry Pi temperature and throttling status"""
+        """Retrieve the Raspberry Pi's SoC temperature.
+
+        A `throttling` block used to ride along here, parsed out of a second
+        `vcgencmd get_throttled`. Removed 2026-08-25: no consumer ever read it
+        (the settings screen reads `temperature` alone, and the route is not in
+        Milo-Mac's manifest), and it was wrong — it looked for the "has
+        occurred" bits at 19-22 where the Pi sets them at 16-19, so this unit,
+        measured at `throttled=0xe0000`, would have been reported as having had
+        an under-voltage it never had while its three real events stayed hidden.
+        """
         try:
-            temp_process = asyncio.create_subprocess_shell(
+            proc = await asyncio.create_subprocess_shell(
                 "vcgencmd measure_temp",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-
-            throttle_process = asyncio.create_subprocess_shell(
-                "vcgencmd get_throttled",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-
-            temp_proc, throttle_proc = await asyncio.gather(temp_process, throttle_process)
             try:
-                temp_stdout, _ = await asyncio.wait_for(temp_proc.communicate(), 5.0)
+                stdout, _ = await asyncio.wait_for(proc.communicate(), 5.0)
             except asyncio.TimeoutError:
-                temp_proc.kill()
+                proc.kill()
                 logger.error("Timeout reading temperature (vcgencmd measure_temp)")
-                temp_stdout, _ = b"", b""
-            try:
-                throttle_stdout, _ = await asyncio.wait_for(throttle_proc.communicate(), 5.0)
-            except asyncio.TimeoutError:
-                throttle_proc.kill()
-                logger.error("Timeout reading throttle status (vcgencmd get_throttled)")
-                throttle_stdout, _ = b"", b""
+                return {"status": "success", "temperature": None}
 
-            result = {"status": "success"}
+            if proc.returncode == 0:
+                output = stdout.decode().strip()
+                if output.startswith("temp=") and output.endswith("'C"):
+                    temp_str = output.replace("temp=", "").replace("'C", "")
+                    return {
+                        "status": "success",
+                        "temperature": float(temp_str),
+                        "unit": "°C",
+                    }
 
-            # Parse temperature
-            if temp_proc.returncode == 0:
-                temp_output = temp_stdout.decode().strip()
-                if temp_output.startswith("temp=") and temp_output.endswith("'C"):
-                    temp_str = temp_output.replace("temp=", "").replace("'C", "")
-                    result["temperature"] = float(temp_str)
-                    result["unit"] = "°C"
-                else:
-                    result["temperature"] = None
-            else:
-                result["temperature"] = None
-
-            # Parse throttling
-            throttle_status = {"code": "0x0", "current": [], "past": [], "severity": "ok"}
-
-            if throttle_proc.returncode == 0:
-                throttle_output = throttle_stdout.decode().strip()
-                if throttle_output.startswith("throttled="):
-                    throttle_code = throttle_output.replace("throttled=", "").strip()
-                    throttle_status["code"] = throttle_code
-
-                    # Stable snake_case codes (current bits 0-3, past bits 19-22);
-                    # display/translation is the consumer's concern.
-                    with contextlib.suppress(ValueError):
-                        throttle_value = int(throttle_code, 16)
-
-                        for bit, code in ((0x1, "under_voltage"), (0x2, "overheating"),
-                                          (0x4, "freq_capped_power"), (0x8, "freq_capped_temp")):
-                            if throttle_value & bit:
-                                throttle_status["current"].append(code)
-                            if throttle_value & (bit << 19):
-                                throttle_status["past"].append(code)
-
-                        if throttle_status["current"]:
-                            throttle_status["severity"] = "critical"
-                        elif throttle_status["past"]:
-                            throttle_status["severity"] = "warning"
-                        else:
-                            throttle_status["severity"] = "ok"
-
-            result["throttling"] = throttle_status
-            return result
+            # debug, not warning: the settings screen polls this every 5 s, and a
+            # dev host has no vcgencmd at all — the fail-open answer is the point.
+            logger.debug("vcgencmd measure_temp gave nothing usable: %r", stdout)
+            return {"status": "success", "temperature": None}
 
         except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "temperature": None,
-                "throttling": {"code": "error", "current": [], "past": [], "severity": "error"}
-            }
+            logger.error(f"Failed to read system temperature: {e}")
+            return {"status": "error", "message": str(e), "temperature": None}
 
     # Network info (IP address)
     @router.get("/network-info")
