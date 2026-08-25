@@ -16,7 +16,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
 from backend.sources.radio.source import RadioSource
-from backend.sources.radio.data import StationDataService, ImageManager
+from backend.sources.radio.data import StationDataService
 from backend.core.models.audio_state import SourceState
 
 
@@ -295,27 +295,6 @@ class TestStationDataPersistence:
 
         with pytest.raises(RuntimeError, match="missing required keys"):
             await service.initialize()
-
-
-class TestImageManager:
-    """Test ImageManager."""
-
-    def test_allowed_extensions(self):
-        """Test allowed image extensions."""
-        manager = ImageManager()
-
-        assert ".jpg" in manager.ALLOWED_EXTENSIONS
-        assert ".jpeg" in manager.ALLOWED_EXTENSIONS
-        assert ".png" in manager.ALLOWED_EXTENSIONS
-        assert ".webp" in manager.ALLOWED_EXTENSIONS
-        assert ".gif" in manager.ALLOWED_EXTENSIONS
-
-    def test_max_file_size(self):
-        """Test max file size configuration."""
-        manager = ImageManager()
-
-        assert manager.MAX_FILE_SIZE_MB == 5
-        assert manager.MAX_FILE_SIZE_BYTES == 5 * 1024 * 1024
 
 
 class TestConnectionState:

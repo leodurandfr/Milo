@@ -637,6 +637,14 @@ class StationDataService:
     async def restore_favorite_metadata(self, station_id: str, radio_api=None) -> Dict[str, Any]:
         """Restore original metadata by deleting custom metadata.
 
+        The refetch runs *before* the override is dropped, and the drop is
+        refused when nothing would be left to restore. The override is the
+        user's own work — a name, a genre, an uploaded image — and
+        `_lookup_local` has nothing else to offer once it is gone: deleting
+        first turned an unreachable directory into a silent loss of that work,
+        reported as `{"success": True}` and a `logger.warning` the user never
+        sees.
+
         Broadcasts the restored station like `modify_favorite_metadata` does: the
         stores hold the station by value, so without the event the favorites list
         keeps serving the override — its uploaded image included, still rendered
@@ -646,32 +654,33 @@ class StationDataService:
             if station_id not in self._modified_metadata:
                 return {"success": False, "error": "Station has no modified metadata"}
 
+            if radio_api:
+                stations = await radio_api.get_stations_by_ids([station_id])
+                if stations:
+                    cached = stations[0].copy()
+                    cached.pop('id', None)
+                    self._favorites_cache[station_id] = cached
+
+            if (
+                station_id not in self._manual_stations
+                and station_id not in self._favorites_cache
+            ):
+                self.logger.error(
+                    f"Cannot restore {station_id}: no original metadata is known"
+                )
+                return {"success": False, "error": "No original metadata to restore"}
+
             old_image = self._modified_metadata[station_id].get('image_filename')
             if old_image:
                 await self.image_manager.delete_image(old_image)
 
             del self._modified_metadata[station_id]
 
-            if radio_api:
-                stations = await radio_api.get_stations_by_ids([station_id])
-                if stations:
-                    cached = stations[0].copy()
-                    if 'id' in cached:
-                        del cached['id']
-                    self._favorites_cache[station_id] = cached
-
             await self._save()
 
             restored = self._lookup_local(station_id)
-            if restored:
-                restored['is_favorite'] = station_id in self._favorites
-                await self._broadcast(RadioFavoriteModified(station=restored))
-            else:
-                # Nothing left to announce: the refetch failed and no original was
-                # cached. The stores keep the override until the next full load.
-                self.logger.warning(
-                    f"Restored {station_id} with no original metadata to broadcast"
-                )
+            restored['is_favorite'] = station_id in self._favorites
+            await self._broadcast(RadioFavoriteModified(station=restored))
 
             return {"success": True}
 

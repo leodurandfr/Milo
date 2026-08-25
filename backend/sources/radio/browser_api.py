@@ -202,8 +202,8 @@ class RadioBrowserAPI:
 
         station = stations[0]  # The API returns a list with 1 element
 
-        if not self._is_valid_station(station):
-            self.logger.debug(f"Station {station_id} is not valid")
+        if not self._is_playable_station(station):
+            self.logger.debug(f"Station {station_id} has no url or no name")
             return None
 
         normalized = self._normalize_station(station)
@@ -246,8 +246,12 @@ class RadioBrowserAPI:
         return deduplicated_stations
 
     def _is_valid_station(self, station: Dict[str, Any]) -> bool:
-        """
-        Checks if station is valid
+        """Search-result quality filter: keep only stations worth *offering*.
+
+        `lastcheckok`/`codec` are radio-browser's own health signals, so they
+        belong to the paths that build a list the user has not asked for by
+        name. They must not decide an explicit lookup -- see
+        `_is_playable_station`.
 
         Args:
             station: Station dict from API
@@ -255,12 +259,23 @@ class RadioBrowserAPI:
         Returns:
             True if station is valid
         """
-        return (
-            station.get('url_resolved') and
+        return bool(
+            self._is_playable_station(station) and
             station.get('codec') != 'UNKNOWN' and
-            station.get('lastcheckok') == 1 and
-            station.get('name')
+            station.get('lastcheckok') == 1
         )
+
+    def _is_playable_station(self, station: Dict[str, Any]) -> bool:
+        """Minimum for a station the caller already named: a URL and a name.
+
+        A station the user favourited or asked to play must not disappear
+        because radio-browser's checker last failed to reach it -- that check
+        runs from their infrastructure, not from this LAN, and a stream it
+        marks down often plays fine here. Dropping it turned a station that
+        works into `Station <id> not found`, and took it out of the favourites
+        list on the way. `name` is also what Milo-Mac decodes non-optionally.
+        """
+        return bool(station.get('url_resolved') and station.get('name'))
 
     def _get_favicon_quality(self, url: str) -> int:
         """
