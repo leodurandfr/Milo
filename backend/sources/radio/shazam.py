@@ -29,9 +29,15 @@ SEGMENT_DURATION_SECONDS = 12
 RECOGNITION_TIMEOUT_SECONDS = 25
 MAX_RETRIES = 2
 
-# Consecutive unrecognized rounds (a round = one initial try + immediate
-# retries) after which a stale pinned track is cleared. Prevents a previous
-# title from lingering over an unrecognizable track (rap/ads/talk).
+# Consecutive *failed* rounds (a round = one initial try + immediate retries)
+# after which a stale pinned track is cleared. This counts capture and transport
+# failures only -- a stream that stopped answering, ffmpeg dying, a Shazam
+# timeout: cases where nothing is known about what is playing, so the last title
+# is held for a couple of rounds rather than dropped on a blip.
+#
+# A Shazam answer of "no match" is not one of these. That is a positive verdict
+# (an ad, talk, an unrecognizable track), and `_try_recognize` clears the title
+# on the spot through `_track_changed(None)` -- it never reaches this counter.
 STALE_CLEAR_ROUNDS = 2
 
 # ffmpeg capture timeout (capture duration + buffer for connection/codec init)
@@ -178,9 +184,11 @@ class ShazamRecognitionService:
                     self._consecutive_failures = 0
                 else:
                     self._consecutive_failures += 1
-                    # Clear a stale pinned title once the stream has gone
-                    # unrecognized for enough rounds (unrecognizable track,
-                    # ad, or talk). Never leave a phantom previous title.
+                    # Clear a stale pinned title once enough rounds have failed
+                    # to produce any verdict at all. A recognised "no match" has
+                    # already cleared it in `_try_recognize`, so `_current_track`
+                    # is only still set here when the capture or the transport
+                    # is what failed.
                     if (
                         self._consecutive_failures >= STALE_CLEAR_ROUNDS
                         and self._current_track is not None
