@@ -20,6 +20,7 @@ from backend.tests.conftest import attach_registry_broadcaster, drain_background
 from backend.core.multiroom.models import (
     Client,
     Zone,
+    EqFilter,
     EqualizerSettings,
     RegistryEventType,
     SPEAKER_TYPES,
@@ -979,6 +980,25 @@ class TestNoDanglingZoneReference:
 # SnapcastService Tests
 # =============================================================================
 
+def _server_status_with_streams(*, chunk_ms: str, codec: str) -> dict:
+    """A Server.GetStatus result in the shape the real daemon answers.
+
+    Captured from the snapserver running on this appliance (2026-08-25): the
+    result nests groups AND streams under "server", and every stream carries the
+    global `[stream]` defaults in its source URI query — so the first one is
+    representative. Getting this shape wrong is not cosmetic: it is what let
+    `get_server_config` read a top-level "streams" that is never there.
+    """
+    return {"server": {"groups": [], "streams": [
+        {"id": "Multiroom", "uri": {"scheme": "meta", "query": {
+            "chunk_ms": chunk_ms, "codec": codec, "name": "Multiroom",
+            "sampleformat": "48000:32:2"}}},
+        {"id": "Spotify", "uri": {"scheme": "alsa", "query": {
+            "chunk_ms": chunk_ms, "codec": codec, "name": "Spotify",
+            "sampleformat": "48000:32:2"}}},
+    ]}}
+
+
 class TestSnapcastService:
     """Tests for SnapcastService."""
 
@@ -1086,10 +1106,8 @@ class TestSnapcastService:
         frontend's translation hid it. Feeding the real read into the real
         validator is what keeps them from drifting apart again.
         """
-        snapcast_service._request = AsyncMock(return_value={
-            "streams": [{"uri": {"query": {"chunk_ms": "20", "codec": "flac",
-                                           "sampleformat": "48000:32:2"}}}]
-        })
+        snapcast_service._request = AsyncMock(return_value=_server_status_with_streams(
+            chunk_ms="20", codec="flac"))
         snapcast_service._read_snapserver_conf = AsyncMock(return_value={
             "parsed_config": {"stream": {"buffer": "700"}}
         })
@@ -1098,6 +1116,46 @@ class TestSnapcastService:
 
         assert config["buffer_ms"] == 700  # non-vacuous: the read really produced values
         assert snapcast_service._validate_config(config) is True
+
+    @pytest.mark.asyncio
+    async def test_the_running_daemon_wins_over_the_file(self, snapcast_service):
+        """What the settings page reports must be what snapserver plays.
+
+        The file is written before the restart, and the restart can be refused
+        (`update_server_config` then returns False and the route answers 502) —
+        at which point the file holds the new preset and the daemon still runs
+        the old one. Reading the daemon is the only way that shows.
+
+        Server.GetStatus nests streams under "server", the way it nests groups;
+        reading them from the top level silently found nothing and the merge
+        collapsed to the file, which is what this pins. Shape measured against
+        the live snapserver on this appliance, 2026-08-25.
+        """
+        snapcast_service._request = AsyncMock(return_value=_server_status_with_streams(
+            chunk_ms="40", codec="opus"))
+        snapcast_service._read_snapserver_conf = AsyncMock(return_value={
+            "parsed_config": {"stream": {"buffer": "700", "chunk_ms": "20", "codec": "flac"}}
+        })
+
+        config = await snapcast_service.get_server_config()
+
+        assert config["chunk_ms"] == 40
+        assert config["codec"] == "opus"
+        # buffer_ms has no daemon counterpart at all — the file is its only source.
+        assert config["buffer_ms"] == 700
+
+    @pytest.mark.asyncio
+    async def test_the_file_answers_when_the_daemon_lists_no_stream(self, snapcast_service):
+        """A snapserver with no stream configured must not blank the page."""
+        snapcast_service._request = AsyncMock(return_value={"server": {"streams": []}})
+        snapcast_service._read_snapserver_conf = AsyncMock(return_value={
+            "parsed_config": {"stream": {"buffer": "700", "chunk_ms": "20", "codec": "flac"}}
+        })
+
+        config = await snapcast_service.get_server_config()
+
+        assert config == {"buffer_ms": 700, "chunk_ms": 20, "codec": "flac",
+                          "sampleformat": "48000:32:2"}
 
     @pytest.mark.asyncio
     async def test_is_available_connection_error(self, snapcast_service):
@@ -3146,3 +3204,192 @@ class TestAdmissionPathConvergence:
             "buffer_time": DEFAULT_SNAPCLIENT_CONFIG["buffer_time"],
             "fragments": DEFAULT_SNAPCLIENT_CONFIG["fragments"],
         }
+
+
+# =============================================================================
+# Registry persistence
+# =============================================================================
+
+class _StoringSettings:
+    """A settings service that actually keeps what it is given.
+
+    Stands in for SettingsService — the outside world on the persistence side —
+    rather than for the registry's own code: `_persist_state` writes through
+    `set_settings`, `_load_persisted_state` reads through `get_setting`, and
+    what this makes assertable is that the two agree without either being
+    restated in the test.
+    """
+
+    def __init__(self, stored: dict | None = None):
+        self.stored = dict(stored or {})
+        self.writes = 0
+
+    async def get_setting(self, key):
+        return self.stored.get(key)
+
+    async def set_setting(self, key, value):
+        await self.set_settings({key: value})
+
+    async def set_settings(self, updates):
+        self.writes += 1
+        self.stored.update(updates)
+
+
+class TestRegistryPersistenceRoundTrip:
+    """What the registry holds must survive a backend restart — all three parts.
+
+    What breaks when this fails is worse than "the data is missing": clients,
+    zones and per-client EQ are persisted through a single path that always
+    serialises the CURRENT in-memory state, so a section that fails to load is
+    ERASED by the first mutation that follows. A zone that did not come back is
+    a zone the next client registration deletes from settings.json.
+
+    Measured 2026-08-25: only the clients branch of `_load_persisted_state` ran
+    under the whole suite. The zones and client_equalizer branches were at 0 %.
+
+    Consumers: the multiroom screen (zones, members), and every satellite —
+    `_sync_standalone_equalizer_to_client` re-pushes the stored EQ record on
+    admission, so an EQ that did not load is an EQ the speaker loses.
+    """
+
+    A = "aa:bb:cc:dd:ee:01"
+    B = "aa:bb:cc:dd:ee:02"
+
+    async def _populated(self, settings):
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        await registry.register_client(self.A, "Salon", "192.168.1.10", host="milo-client")
+        await registry.register_client(self.B, "Bureau", "192.168.1.11", host="milo-client")
+        await registry.create_zone("z1", "Rez-de-chaussée", [self.A, self.B])
+        await registry.set_client_equalizer(self.A, EqualizerSettings(
+            enabled=False,
+            filters=[EqFilter(id="eq_band_00", frequency=120, gain=-4.5, q=0.9)],
+            mono=True,
+        ))
+        return registry
+
+    async def _reloaded(self, settings):
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        return registry
+
+    async def test_a_zone_and_its_members_come_back(self):
+        """Without this the multiroom screen loses every group on a restart."""
+        settings = _StoringSettings()
+        await self._populated(settings)
+
+        reloaded = await self._reloaded(settings)
+
+        zone = reloaded.get_zone("z1")
+        assert zone is not None, "the zones branch of the load never ran"
+        assert zone.name == "Rez-de-chaussée"
+        assert set(zone.client_ids) == {self.A, self.B}
+        assert reloaded.get_client(self.A).zone_id == "z1"
+
+    async def test_a_client_equalizer_record_comes_back_whole(self):
+        """The record is what the satellite is re-pushed on its next admission.
+
+        Losing it does not reset the UI only: `_sync_standalone_equalizer_to_client`
+        sends whatever the registry holds, so an empty record silently flattens
+        the speaker's EQ, bypass flag and mono on reconnection.
+        """
+        settings = _StoringSettings()
+        await self._populated(settings)
+
+        eq = (await self._reloaded(settings)).get_client_equalizer(self.A)
+
+        assert eq is not None, "the client_equalizer branch of the load never ran"
+        assert eq.enabled is False
+        assert eq.mono is True
+        assert [(f.frequency, f.gain) for f in eq.filters] == [(120, -4.5)]
+
+    async def test_a_corrupt_section_costs_every_section_after_it(self):
+        """One unreadable entry is not one lost setting — the load is sequential.
+
+        Clients, then zones, then client_equalizer, all under a single
+        try/except. A zone that will not deserialise therefore takes the EQ
+        records of the whole fleet with it, silently, and the boot still reports
+        success. Combined with the write-back above, that is how a single bad
+        entry ends up erasing two sections from settings.json.
+        """
+        settings = _StoringSettings()
+        await self._populated(settings)
+        settings.stored["multiroom.zones"] = {"z1": {"client_ids": "aa:bb"}}
+
+        reloaded = await self._reloaded(settings)
+
+        assert reloaded._initialized is True, "the boot must not be taken down by it"
+        assert reloaded.get_client(self.A) is not None, "the section before it survived"
+        assert reloaded.get_zone("z1") is None
+        assert reloaded.get_client_equalizer(self.A) is None, "the section after it did not load"
+
+    async def test_a_reload_followed_by_a_write_does_not_erase_the_other_sections(self):
+        """The consequence that makes a silent load failure destructive.
+
+        `_persist_state` serialises the whole current state in one write, so
+        anything the load did not bring back is gone from settings.json the
+        moment anything else changes — a client registration is enough.
+        """
+        settings = _StoringSettings()
+        await self._populated(settings)
+        reloaded = await self._reloaded(settings)
+
+        await reloaded.register_client("aa:bb:cc:dd:ee:03", "Cuisine", "192.168.1.12")
+
+        assert set(settings.stored["multiroom.zones"]) == {"z1"}
+        assert self.A in settings.stored["multiroom.client_equalizer"]
+
+
+class TestEqIndependentFlag:
+    """A zone member that detaches its EQ must stay detached across a restart.
+
+    `PUT /api/multiroom/clients/{mac}/eq-independent` is the only writer, and
+    `api/multiroom.py` delegates the whole effect here — its own test replaces
+    this method with a mock, so nothing ever ran it. Two things hang on it: the
+    flag is persisted (or the detach is undone by the next boot, and
+    MultiroomEqualizerService silently folds the client back into the zone
+    fan-out), and CLIENT_UPDATED is emitted (or the EQ tab strip in
+    `frontend/src/components/multiroom/` keeps showing it as a zone member).
+    """
+
+    MAC = "aa:bb:cc:dd:ee:01"
+
+    async def _registry(self, settings):
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        await registry.register_client(self.MAC, "Salon", "192.168.1.10")
+        return registry
+
+    async def test_the_flag_survives_a_restart(self):
+        settings = _StoringSettings()
+        registry = await self._registry(settings)
+
+        assert await registry.set_client_eq_independent(self.MAC, True) is not None
+
+        reloaded = ClientRegistryService(settings_service=settings)
+        await reloaded.initialize()
+        assert reloaded.get_client(self.MAC).eq_independent is True
+
+    async def test_the_change_is_announced_to_the_frontend(self):
+        settings = _StoringSettings()
+        registry = await self._registry(settings)
+        seen = []
+
+        async def record(event_type, data):
+            seen.append((event_type, data))
+
+        registry.subscribe(record)
+        await registry.set_client_eq_independent(self.MAC, True)
+
+        updates = [d for t, d in seen if t == RegistryEventType.CLIENT_UPDATED]
+        assert updates, "no CLIENT_UPDATED — the EQ tab strip never regroups"
+        assert updates[-1]["client"]["eq_independent"] is True
+
+    async def test_an_unknown_client_is_refused_without_a_write(self):
+        """The mac comes from the URL path; an unknown one must not persist."""
+        settings = _StoringSettings()
+        registry = await self._registry(settings)
+        writes_before = settings.writes
+
+        assert await registry.set_client_eq_independent("no:such:client", True) is None
+        assert settings.writes == writes_before

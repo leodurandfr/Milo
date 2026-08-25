@@ -30,13 +30,9 @@ class TestSnapcastRoutes:
             {"id": "client1", "name": "Client 1", "volume": 50, "muted": False, "host": "milo", "ip": "127.0.0.1", "camilladsp_id": "local"},
             {"id": "client2", "name": "Client 2", "volume": 75, "muted": True, "host": "remote", "ip": "192.168.1.100", "camilladsp_id": "192.168.1.100"}
         ])
-        service.get_detailed_clients = AsyncMock(return_value=[
-            {"id": "client1", "name": "Client 1", "volume": 50, "muted": False, "host": "milo"},
-        ])
         service.get_server_config = AsyncMock(return_value={"version": "0.27.0"})
         service.set_volume = AsyncMock(return_value=True)
         service.set_mute = AsyncMock(return_value=True)
-        service.set_client_name = AsyncMock(return_value=True)
         service.update_server_config = AsyncMock(return_value=True)
         return service
 
