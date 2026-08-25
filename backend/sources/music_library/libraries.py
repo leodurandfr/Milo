@@ -23,13 +23,23 @@ still valid — for the key, the 18-minute pass that indexed 10 000 tracks, ever
 single time it is unplugged. A storage space only loses its library when the user
 removes the share or forgets the key.
 
+Keeping one is not creating one, though, and that is the whole reason
+``reconcile`` is told what is *mounted* on top of what is desired: Navidrome
+validates the directory when a library is created and answers 400 ``pathInvalid``
+for one that is not there. A storage space Milō remembers but has never managed
+to register — a key unplugged before its library was accepted — can therefore
+never be created while it is away, and asking anyway is a request that cannot
+succeed. Measured on the unit 2026-08-25: two iPods last seen on the 4th and 7th
+of August kept the retry below at its 60-second plateau ever since, ~1.4 MB a day
+of ERROR into the log an operator reads, for a library nothing could have made.
+
 Fail-open: Navidrome not up yet, a rejected write, an expired token — log and
 retry, for as long as a storage space is still without its library id. A mount
 must never fail because the catalog engine was busy.
 """
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from backend.config.constants import MUSIC_LIBRARY_MOUNT_ROOT
 from backend.shared.background import BackgroundTaskSet
@@ -68,6 +78,9 @@ class NavidromeLibraryService:
         # The set to converge on, last time we were told. Kept so a retry after a
         # Navidrome outage uses the current truth, not the stale one it failed on.
         self._desired: Dict[str, str] = {}
+        # Of those, the ones whose directory is there right now. Only these can
+        # be created; the rest are kept, renamed and never asked for.
+        self._mounted: Set[str] = set()
         # Library ids the service account is known to have been granted. Kept so
         # a grant that failed is retried even once nothing else needs changing.
         self._granted: set = set()
@@ -118,8 +131,14 @@ class NavidromeLibraryService:
     # RECONCILE
     # =========================================================================
 
-    async def reconcile(self, desired: Dict[str, str]) -> bool:
+    async def reconcile(self, desired: Dict[str, str], mounted: Set[str]) -> bool:
         """Converge Navidrome's libraries on ``desired`` (mountpoint → name).
+
+        ``mounted`` is the subset of those paths whose directory exists right
+        now. Everything in ``desired`` is kept and renamed; only what is also in
+        ``mounted`` is ever created, because Navidrome refuses a path it cannot
+        see. Both are held for the retry loop, so a key plugged in while a
+        reconcile was failing is picked up on the next pass.
 
         Returns True when the two sets match afterwards. On failure a bounded
         retry is scheduled and False returned — never raises, so a mount path can
@@ -127,6 +146,7 @@ class NavidromeLibraryService:
         """
         async with self._lock:
             self._desired = dict(desired)
+            self._mounted = set(mounted)
             ok = await self._converge()
         if not ok:
             self._schedule_retry()
@@ -163,6 +183,12 @@ class NavidromeLibraryService:
         for path, name in desired.items():
             lib = by_path.get(path)
             if lib is None:
+                if path not in self._mounted:
+                    self.logger.debug(
+                        "No Navidrome library for %s and nothing mounted there; "
+                        "it will be created when the storage space comes back", path,
+                    )
+                    continue
                 changed |= (await admin.create_library(name, path)) is not None
             elif lib.get("name") != name:
                 changed |= await admin.rename_library(lib["id"], name, path)
@@ -190,7 +216,12 @@ class NavidromeLibraryService:
                 return False
             self._granted = library_ids
 
-        missing = [path for path in desired if path not in self._by_path]
+        # Only a mounted space can be missing: an absent one was never asked
+        # for, so counting it here is what kept the retry loop running for ever.
+        missing = [
+            path for path in desired
+            if path not in self._by_path and path in self._mounted
+        ]
         if missing:
             self.logger.warning("Navidrome libraries still missing for: %s", missing)
             return False

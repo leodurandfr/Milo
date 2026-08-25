@@ -646,7 +646,8 @@ class NetworkShareService:
             )
         entries = await self.storages()
         await self._libraries.reconcile(
-            {entry["mountpoint"]: entry["name"] for entry in entries}
+            {entry["mountpoint"]: entry["name"] for entry in entries},
+            {entry["mountpoint"] for entry in entries if entry["mounted"]},
         )
         # A mount change is a catalog change: a key that just appeared (or left)
         # invalidates the per-storage album lists cached for the grid, and with
