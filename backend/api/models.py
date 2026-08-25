@@ -84,10 +84,14 @@ class VolumeLimitsRequest(BaseModel):
 
     @model_validator(mode='after')
     def validate_range(self):
-        if self.max_db - self.min_db < 6:
-            raise ValueError('Range between min_db and max_db must be at least 6 dB')
+        # Inverted first, or it is unreachable: an inverted range also has a
+        # span below 6 dB, so the width check answered every one of them with
+        # "must be at least 6 dB" — the one message that does not say what is
+        # actually wrong with min > max.
         if self.max_db <= self.min_db:
             raise ValueError('max_db must be greater than min_db')
+        if self.max_db - self.min_db < 6:
+            raise ValueError('Range between min_db and max_db must be at least 6 dB')
         return self
 
 
