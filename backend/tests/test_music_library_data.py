@@ -205,3 +205,40 @@ async def test_unchanged_mutation_does_not_rewrite(service, monkeypatch):
     await service.forget_playlist("absent-playlist")
 
     saves.assert_not_awaited()
+
+
+class TestPlaylistStoragePlacement:
+    """The playlist -> storage association, and its removal.
+
+    Both came out green in the Lot A eviscration sweep. Consumer:
+    `shares.py::set_playlist_storage` / `forget_playlist`, reached from
+    `routes.py` when a playlist is created or deleted.
+
+    What breaks when this fails: a USB key is recreated with a new storage id
+    every time it comes back, and this map is what lets a playlist survive
+    that. Neutralised, `set` records nothing and `forget` drops nothing -- the
+    first loses every playlist's placement on the next replug, the second
+    leaves a deleted playlist's row behind for ever.
+    """
+
+    async def test_a_placement_is_recorded_and_read_back(self, service):
+        await service.set_playlist_storage("playlist-42", "usb-abcd1234")
+        assert (await service.get_playlist_storages())["playlist-42"] == "usb-abcd1234"
+
+    async def test_a_second_placement_moves_the_playlist_rather_than_duplicating_it(self, service):
+        await service.set_playlist_storage("playlist-42", "usb-abcd1234")
+        await service.set_playlist_storage("playlist-42", "nas-deadbeef")
+        storages = await service.get_playlist_storages()
+        assert storages["playlist-42"] == "nas-deadbeef"
+        assert len(storages) == 1
+
+    async def test_forgetting_removes_only_the_playlist_named(self, service):
+        await service.set_playlist_storage("kept", "usb-abcd1234")
+        await service.set_playlist_storage("dropped", "usb-abcd1234")
+        await service.forget_playlist("dropped")
+        assert list(await service.get_playlist_storages()) == ["kept"]
+
+    async def test_forgetting_a_playlist_that_was_never_placed_is_harmless(self, service):
+        await service.set_playlist_storage("kept", "usb-abcd1234")
+        await service.forget_playlist("never-seen")
+        assert list(await service.get_playlist_storages()) == ["kept"]

@@ -2161,3 +2161,36 @@ class TestAbsentClientKeepsItsPlaceInTheRoom:
         assert service.state_store.get_client_volume(self.ONLINE) == -36.0
         assert service.state_store.get_client_volume(self.REFUSING) == -40.0
         assert service.equalizer_controller.attempted[self.REFUSING] == -46.0
+
+
+class TestEqualizerControllerRegistryInjection:
+    """`EqualizerController.set_registry` — the injection `VolumeService` does.
+
+    Green in the Lot A eviscration sweep, and `test_service_wiring` only proves
+    a production caller exists (`core/volume/service.py:106`), never that the
+    injection lands. Neutralised, the controller keeps no registry and
+    `apply_volumes_parallel` short-circuits: every client of a zone reports
+    False and nothing is dispatched, so a zone volume change does nothing at
+    all while each route still answers.
+    """
+
+    @pytest.fixture
+    def controller(self):
+        return EqualizerController(Mock(), Mock(), equalizer_router=Mock())
+
+    async def test_without_a_registry_no_client_is_dispatched_to(self, controller):
+        controller.set_equalizer_volume = AsyncMock(return_value=True)
+
+        results = await controller.apply_volumes_parallel({"aa:bb": -20.0, "cc:dd": -25.0})
+
+        assert results == {"aa:bb": False, "cc:dd": False}
+        controller.set_equalizer_volume.assert_not_awaited()
+
+    async def test_once_injected_every_client_is_dispatched_to(self, controller):
+        controller.set_registry(Mock())
+        controller.set_equalizer_volume = AsyncMock(return_value=True)
+
+        results = await controller.apply_volumes_parallel({"aa:bb": -20.0, "cc:dd": -25.0})
+
+        assert results == {"aa:bb": True, "cc:dd": True}
+        assert controller.set_equalizer_volume.await_count == 2
