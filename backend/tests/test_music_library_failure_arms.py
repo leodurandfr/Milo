@@ -22,7 +22,6 @@ is wired to explode, and `shares.request_scan` is stubbed — `_do_start` spawns
 that rescan as a background task, and left real it has been measured reaching
 this appliance's live Navidrome after the test ended.
 """
-import asyncio
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
