@@ -11,6 +11,7 @@ import os
 import socket
 from pathlib import Path
 
+import aiofiles.threadpool
 import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 from backend.config.constants import ERROR_LOG_FILE, MILO_DATA_DIR
@@ -157,8 +158,15 @@ def keep_the_suite_out_of_the_appliance_data():
     The mutation is what exposed it, but it is not the defect: on an untouched
     tree the same save rewrites the file with identical content, which is
     invisible and permanent. Only `settings.json` and the env files had a guard.
+
+    `aiofiles` is patched separately and by name: it binds `sync_open = open` at
+    import time, so it holds the *original* builtins.open and a patch installed
+    here is invisible to it. Every store that writes a temp file and renames is
+    still caught at the `os.replace`, but a direct `aiofiles.open(..., 'wb')` is
+    not -- which is exactly how the station images are written.
     """
     real_open = builtins.open
+    real_sync_open = aiofiles.threadpool.sync_open
     real_replace, real_rename, real_remove = os.replace, os.rename, os.remove
     real_write_text, real_write_bytes = Path.write_text, Path.write_bytes
     real_unlink, real_mkdir = Path.unlink, Path.mkdir
@@ -224,7 +232,13 @@ def keep_the_suite_out_of_the_appliance_data():
             _deny(self)
         return real_mkdir(self, *a, **kw)
 
+    def sync_open_(file, mode="r", *a, **kw):
+        if any(c in str(mode) for c in "wxa+") and _refuse(file):
+            _deny(file)
+        return real_sync_open(file, mode, *a, **kw)
+
     builtins.open = open_
+    aiofiles.threadpool.sync_open = sync_open_
     os.replace, os.rename, os.remove = replace_, rename_, remove_
     Path.write_text, Path.write_bytes = write_text_, write_bytes_
     Path.unlink, Path.mkdir = unlink_, mkdir_
@@ -232,6 +246,7 @@ def keep_the_suite_out_of_the_appliance_data():
         yield
     finally:
         builtins.open = real_open
+        aiofiles.threadpool.sync_open = real_sync_open
         os.replace, os.rename, os.remove = real_replace, real_rename, real_remove
         Path.write_text, Path.write_bytes = real_write_text, real_write_bytes
         Path.unlink, Path.mkdir = real_unlink, real_mkdir
