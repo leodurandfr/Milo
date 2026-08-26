@@ -154,10 +154,11 @@ class HostnameConflictService:
 
     async def _detect_conflict(self) -> bool:
         local_ips = await self._get_local_ips()
+        records = await self._browse_workstations()
 
         resolved_ip = await self._avahi_resolve_name(EXPECTED_FQDN)
         self._milo_local_orphan = resolved_ip is None
-        self._other_milos = await self._scan_renamed_milos(local_ips)
+        self._other_milos = self._renamed_peers(records, local_ips)
 
         if resolved_ip and resolved_ip in local_ips:
             # We legitimately own milo.local. Conflict only if a renamed
@@ -167,25 +168,28 @@ class HostnameConflictService:
             self._local_ip = resolved_ip
             return bool(self._other_milos)
 
-        for ip in local_ips:
-            if ip == "127.0.0.1":
-                continue
-            advertised = await self._avahi_resolve_address(ip)
-            if advertised:
-                self._advertised_name = advertised
-                self._local_ip = ip
-                if advertised == EXPECTED_FQDN:
-                    return False
-                return True
+        # Nobody answered milo.local for one of our addresses. Read the name we
+        # are actually advertising out of the browse above rather than by
+        # reverse-resolving our own IPs: `avahi-resolve -a` answers from unicast
+        # DNS when `enable-wide-area=yes` (which Milō ships), and measurement on
+        # this LAN gives the router's `.home` name for every address — including
+        # one whose mDNS name is provably `milo-client-2.local`. A `.local`
+        # answer is therefore impossible there, so that path could only ever
+        # conclude "renamed" and put the full-screen takeover on a unit whose
+        # Avahi was merely silent. The browse is mDNS only and cannot be
+        # answered by unicast DNS.
+        advertised, ip = self._own_advertisement(records, local_ips)
+        if advertised:
+            self._advertised_name = advertised
+            self._local_ip = ip
+            return advertised != EXPECTED_FQDN
 
-        if resolved_ip is not None and resolved_ip not in local_ips:
-            self._advertised_name = None
-            self._local_ip = self._first_non_loopback(local_ips)
-            return True
-
+        # Avahi advertises nothing for us at all (daemon down, mid-probe, or
+        # bound to an interface that is). That is not a hostname conflict, and
+        # with no advertised name `_should_attempt_reclaim` stays False too.
         self._advertised_name = None
         self._local_ip = self._first_non_loopback(local_ips)
-        return False
+        return resolved_ip is not None
 
     @staticmethod
     def _first_non_loopback(local_ips: Set[str]) -> Optional[str]:
@@ -196,10 +200,48 @@ class HostnameConflictService:
         return candidates[0] if candidates else None
 
     @staticmethod
-    async def _scan_renamed_milos(local_ips: Set[str]) -> List[str]:
-        """Returns the FQDNs of milo-N.local servers visible on the LAN
-        (excluding ourselves). Used to detect 'parasite' servers when we
-        legitimately own milo.local but another renamed server is lurking.
+    def _own_advertisement(
+        records: List[tuple], local_ips: Set[str]
+    ) -> tuple:
+        """The name Avahi publishes for this host, from the browse frames.
+
+        Sorted, for the same reason `_first_non_loopback` is: a dual-interface
+        host can appear more than once and the answer must not change with the
+        order the daemon happened to resolve them in.
+        """
+        mine = sorted((fqdn, ip) for fqdn, ip in records if ip in local_ips)
+        return mine[0] if mine else (None, None)
+
+    @staticmethod
+    def _renamed_peers(records: List[tuple], local_ips: Set[str]) -> List[str]:
+        """The FQDNs of milo-N.local servers visible on the LAN, minus ourselves.
+
+        Used to detect 'parasite' servers when we legitimately own milo.local
+        but another renamed server is lurking.
+        """
+        seen: Set[str] = set()
+        out: List[str] = []
+        for fqdn, ip in records:
+            if not RENAMED_MILO_PATTERN.match(fqdn):
+                continue
+            if ip in local_ips or fqdn in seen:
+                continue
+            seen.add(fqdn)
+            out.append(fqdn)
+        return out
+
+    @staticmethod
+    async def _browse_workstations() -> List[tuple]:
+        """Every (fqdn, IPv4) the LAN's Avahi workstation records carry.
+
+        IPv4 only, and that is not a narrowing: `_get_local_ips` reads `ip -4`,
+        so an IPv6 frame could never be recognised as ours — a renamed server
+        would find its own AAAA record among the peers and tell its owner to
+        turn itself off. Every host publishes both families, so nothing is lost.
+
+        `publish-workstation=yes` is shipped by `rootfs/etc/avahi/` on the server
+        and by `milo-client/rootfs/` on the satellites, so this browse is what
+        every Milō on the LAN answers.
         """
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -221,24 +263,14 @@ class HostnameConflictService:
             return []
 
         # Parsable format: =;<iface>;<proto>;<name>;<type>;<domain>;<fqdn>;<ip>;<port>;<txt>
-        seen: Set[str] = set()
-        out: List[str] = []
+        out: List[tuple] = []
         for line in stdout.decode("utf-8", errors="ignore").splitlines():
             if not line.startswith("="):
                 continue
             fields = line.split(";")
-            if len(fields) < 8:
+            if len(fields) < 8 or fields[2] != "IPv4":
                 continue
-            fqdn = fields[6]
-            ip = fields[7]
-            if not RENAMED_MILO_PATTERN.match(fqdn):
-                continue
-            if ip in local_ips:
-                continue
-            if fqdn in seen:
-                continue
-            seen.add(fqdn)
-            out.append(fqdn)
+            out.append((fields[6], fields[7]))
         return out
 
     def _should_attempt_reclaim(self) -> bool:
@@ -282,9 +314,6 @@ class HostnameConflictService:
 
     async def _avahi_resolve_name(self, name: str) -> Optional[str]:
         return await self._run_avahi(["avahi-resolve", "-4", "-n", name])
-
-    async def _avahi_resolve_address(self, ip: str) -> Optional[str]:
-        return await self._run_avahi(["avahi-resolve", "-a", ip])
 
     @staticmethod
     async def _run_avahi(cmd) -> Optional[str]:
