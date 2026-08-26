@@ -1988,3 +1988,218 @@ class TestReadingADiscInTheBackground:
         with caplog.at_level("ERROR", logger=source._logger.name):
             await asyncio.wait_for(source._load_disc_metadata(), 2.0)
         assert any("libdiscid segfault" in r.message for r in caplog.records)
+
+
+class TestResumingFromIdle:
+    """After the auto-stop teardown nothing is loaded any more: mpv holds no
+    stream and the reader is stopped. A play tap has to take the full-restart
+    path and land back where the user left off, not un-pause a dead mpv."""
+
+    def _idle(self, source, track=2, position=42):
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._is_playing = False
+        source._is_paused = False
+        source._current_track = track
+        source._track_position = position
+        return source
+
+    async def test_it_restarts_the_reader_where_the_track_left_off(self, source):
+        self._idle(source)
+        restarts = []
+        source._restart_reader_and_mpv = AsyncMock(
+            side_effect=lambda lba, **kw: restarts.append(lba) or True)
+        source._sync_position_from_mpv = AsyncMock()
+
+        result = await asyncio.wait_for(source._handle_resume(), 2.0)
+
+        assert result["success"] is True
+        # Track 2 starts at 20000; 42 s in at 75 sectors/second.
+        assert restarts == [20000 + 42 * SECTORS_PER_SECOND]
+        assert source._is_playing is True
+        assert source._track_duration == TRACKS[1].duration
+
+    async def test_a_track_number_past_the_disc_falls_back_to_the_first(self, source):
+        """The album-finished reset leaves `_current_track` at 1, but a disc
+        swapped for a shorter one would index past `_tracks` and raise."""
+        self._idle(source, track=99, position=0)
+        source._restart_reader_and_mpv = AsyncMock(return_value=True)
+        source._sync_position_from_mpv = AsyncMock()
+
+        assert (await asyncio.wait_for(source._handle_resume(), 2.0))["success"] is True
+        assert source._current_track == 1
+
+    async def test_a_disc_whose_toc_is_gone_refuses_cleanly(self, source, caplog):
+        """Both versions answer failure — without the guard the LBA maths raises
+        and the outer handler catches it — so `success is False` is not the
+        discriminator. What separates them is HOW: the guard names the reason,
+        while the exception path logs at ERROR and puts an IndexError on the
+        WebSocket error banner for a disc that was merely ejected.
+        """
+        self._idle(source)
+        source._sector_offsets = []
+        source._tracks = []
+        source._restart_reader_and_mpv = AsyncMock(return_value=True)
+
+        with caplog.at_level("ERROR", logger=source._logger.name):
+            result = await asyncio.wait_for(source._handle_resume(), 2.0)
+
+        assert result["success"] is False
+        assert result["error"] == "Disc not ready"
+        assert caplog.records == [], \
+            f"an expected refusal reached the error banner: {[r.message for r in caplog.records]}"
+        source._restart_reader_and_mpv.assert_not_awaited()
+
+    async def test_a_restart_that_fails_reports_it_instead_of_showing_playing(self, source):
+        """`_settle_after_restart` clears `_is_playing`; without the error the UI
+        keeps a play button that has nothing behind it."""
+        self._idle(source)
+        source._restart_reader_and_mpv = AsyncMock(return_value=False)
+
+        result = await asyncio.wait_for(source._handle_resume(), 2.0)
+        assert result["success"] is False
+        assert source._is_playing is False
+        assert source._is_buffering is False
+
+    async def test_resuming_what_is_already_playing_is_not_an_error(self, source):
+        self._idle(source)
+        source._is_playing = True
+        source._restart_reader_and_mpv = AsyncMock()
+
+        result = await asyncio.wait_for(source._handle_resume(), 2.0)
+        assert result["success"] is True
+        source._restart_reader_and_mpv.assert_not_awaited()
+
+
+class TestTheAccessorsRoutesUse:
+    """`routes.py` and `dependencies.py` reach the source through these. Each is
+    a plain read, and that is the point: a forwarding method per service call is
+    the second API surface CLAUDE.md forbids."""
+
+    def test_the_data_service_is_exposed_not_proxied(self, source):
+        assert source.data_service is source._data_service
+        assert isinstance(source.data_service, CdDataService)
+
+    def test_the_track_list_is_the_one_the_disc_read_produced(self, source):
+        source._tracks = TRACKS
+        assert source.tracks == TRACKS
+
+    def test_the_drive_and_disc_flags_are_what_the_watcher_set(self, source):
+        source._drive_connected = True
+        source._disc_present = True
+        assert (source.drive_connected, source.disc_present) == (True, True)
+        source._disc_present = False
+        assert source.disc_present is False
+
+    def test_a_stopped_source_still_publishes_the_disc_it_holds(self, source):
+        """`_idle_metadata` is what the state machine reads on the way to READY.
+        An empty projection there blanks the disc the moment playback stops,
+        even though it is still in the tray."""
+        _with_state_machine(source)
+        source._disc_present = True
+        source._current_disc = DISC
+        source._tracks = TRACKS
+
+        idle = source._idle_metadata()
+        assert idle["disc_present"] is True
+        assert idle["album"] == DISC.album
+        assert len(idle["tracks"]) == len(TRACKS)
+
+    async def test_refresh_metadata_republishes_the_live_projection(self, source):
+        """A WebSocket connecting mid-track seeds its player from
+        `initial_state`; a stale projection there shows the previous track."""
+        _with_state_machine(source)
+        source._current_disc = DISC
+        source._tracks = TRACKS
+        source._metadata = {}
+
+        assert await source.refresh_metadata() is True
+        assert source._metadata["album"] == DISC.album
+
+
+class TestLbaToTrack:
+    def test_an_lba_maps_to_the_track_it_falls_inside(self, source):
+        source._sector_offsets = [150, 20000, 40000]
+        assert source._lba_to_track(150) == 1
+        assert source._lba_to_track(19999) == 1
+        assert source._lba_to_track(20000) == 2
+        assert source._lba_to_track(45000) == 3
+
+    def test_an_lba_before_the_first_track_belongs_to_none(self, source):
+        """The pre-gap. Answered as track 1 it would let the monitor tick report
+        a negative position inside it."""
+        source._sector_offsets = [150, 20000]
+        assert source._lba_to_track(0) is None
+
+    def test_a_disc_with_no_toc_maps_nothing(self, source):
+        source._sector_offsets = []
+        assert source._lba_to_track(20000) is None
+
+
+class TestTeardownAndFailureArms:
+    async def test_initialize_starts_the_watcher_that_never_stops(self, source):
+        """The watcher is what notices a disc at all; started from `initialize`
+        rather than `_do_start` precisely so insertion is seen while the source
+        is closed."""
+        source._data_service = Mock(initialize=AsyncMock())
+        with patch.object(CdSource, "_disc_watcher_loop", AsyncMock()):
+            assert await asyncio.wait_for(source.initialize(), 2.0) is True
+
+        source._data_service.initialize.assert_awaited_once()
+        assert source._disc_watcher_task is not None
+        source._disc_watcher_task.cancel()
+        await asyncio.gather(source._disc_watcher_task, return_exceptions=True)
+
+    async def test_a_data_service_that_cannot_start_does_not_take_the_source_down(self, source):
+        """`initialize` is decorated fail-open: a corrupt cd_data.json must not
+        stop the backend from booting."""
+        source._data_service = Mock(initialize=AsyncMock(side_effect=OSError("disk full")))
+        assert await asyncio.wait_for(source.initialize(), 2.0) is False
+
+    async def test_stopping_releases_the_drive_and_the_service(self, source):
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._cleanup = AsyncMock()
+        source._stop_service = AsyncMock(return_value=True)
+        source._current_track = 2
+
+        assert await asyncio.wait_for(source._do_stop(), 2.0) is True
+        source._cleanup.assert_awaited_once()
+        source._stop_service.assert_awaited_once()
+        assert source._current_track is None, "the resume point survived a full stop"
+
+    async def test_an_mpv_that_dies_stops_the_reader_with_it(self, source):
+        """The reader holds /dev/sr0 and blocks writing into a FIFO nobody
+        drains; left running, the drive is never released."""
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._is_playing = True
+
+        await asyncio.wait_for(source._on_mpv_disconnect(), 2.0)
+
+        source._reader.stop.assert_called_once()
+        assert source._is_playing is False
+
+    async def test_an_eject_the_drive_refuses_is_reported_and_unlatches_the_ui(self, source):
+        """`_ejecting` drives the "ejecting" state on screen. Left set after a
+        refusal — a drive with the tray locked, or a disc still mounted — the
+        source shows it for ever."""
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+
+        proc = Mock()
+        proc.wait = AsyncMock(return_value=1)
+        proc.returncode = 1
+        proc.stderr = Mock(read=AsyncMock(return_value=b"eject: unable to eject"))
+
+        with patch("backend.sources.cd.source.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=proc)):
+            result = await asyncio.wait_for(source._handle_eject(), 2.0)
+
+        assert result["success"] is False
+        assert "unable to eject" in result["error"]
+        assert source._ejecting is False
