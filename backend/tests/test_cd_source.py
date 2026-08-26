@@ -963,8 +963,14 @@ class TestPauseDuringARestart:
         play = asyncio.create_task(
             source._handle_play_track(PlayTrackParams(track_number=1))
         )
-        while not entered.is_set():
+        # Bounded: if the restart ever stops waiting on the reader, this spin
+        # would never end and the mutation that removed the wait would hang the
+        # run instead of reddening it.
+        for _ in range(300):
+            if entered.is_set():
+                break
             await asyncio.sleep(0.01)
+        assert entered.is_set(), "the restart never waited for the reader"
 
         paused = asyncio.create_task(source._handle_pause())
         await asyncio.sleep(0.05)  # the press is in, mid-restart
@@ -1371,3 +1377,614 @@ class TestMpvRefusesTheTransportCommand:
         # The bar was frozen before the refusal; it must not stay frozen.
         assert source._is_buffering is False
         source._mpv.wait_until_advancing.assert_not_called()
+
+
+# =============================================================================
+# Activation, preload, and the reader+mpv handshake.
+#
+# The preload path had never run: the `_bg.spawn` double above CLOSES the
+# coroutine it is handed, which is right for tests that only want to keep an
+# un-awaited task from leaking, and wrong for the four methods whose entire job
+# happens inside one. `_running_bg` below runs them instead.
+# =============================================================================
+
+def _running_bg(source):
+    """A `_bg` that actually awaits what it is given, and hands back the tasks.
+
+    Bounded by the caller with `asyncio.wait_for`: every target here can park on
+    an mpv double that never answers, and an unbounded await turns a mutation
+    into a hang instead of a red.
+    """
+    # `set_state()` also spawns `update_source_state`, and a plain Mock returns
+    # a Mock rather than a coroutine — which the closing double above swallows
+    # silently and this one cannot.
+    if isinstance(getattr(source, "state_machine", None), Mock):
+        source.state_machine.update_source_state = AsyncMock()
+
+    tasks = []
+
+    def spawn(coro, **_kw):
+        task = asyncio.ensure_future(coro)
+        tasks.append(task)
+        return task
+
+    source._bg = Mock()
+    source._bg.spawn = Mock(side_effect=spawn)
+    source._bg.cancel_all = AsyncMock()
+    return tasks
+
+
+async def _settle(tasks, timeout=2.0):
+    if tasks:
+        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout)
+
+
+def _ready_to_play(source, mpv=None):
+    """A source holding a disc it has already read: TOC offsets, tracks, mpv."""
+    source._mpv = mpv or _mpv()
+    source._disc_present = True
+    source._last_disc_id = "disc-1"
+    source._current_disc = DISC
+    source._tracks = TRACKS
+    source._sector_offsets = [150, 20000, 40000]
+    source._disc_end_lba = 60000
+    source._reader = Mock()
+    source._reader.start = Mock()
+    source._reader.stop = Mock()
+    source._reader.wait_ready = Mock(return_value=True)
+    source._reader.is_running = True
+    return source
+
+
+class TestActivation:
+    """`_do_start` — what happens when the user opens the CD source."""
+
+    async def test_a_pre_started_mpv_connection_is_reused(self, source):
+        """`_pre_start_service` runs on insertion, before the user has opened
+        the source. Starting the service again would tear down the connection
+        the insertion just warmed up, which is the whole point of pre-start."""
+        _with_state_machine(source)
+        _running_bg(source)
+        source._mpv = _mpv()
+        source._disc_present = False
+        source._load_auto_stop_config = AsyncMock()
+        source._start_monitor = Mock()
+        source._start_service_and_wait = AsyncMock(return_value=True)
+
+        assert await source._do_start() is True
+        source._start_service_and_wait.assert_not_awaited()
+        source._start_monitor.assert_called_once()
+
+    async def test_a_cold_start_brings_up_the_service_then_connects_ipc(self, source, monkeypatch):
+        _with_state_machine(source)
+        _running_bg(source)
+        source._mpv = None
+        source._disc_present = False
+        source._load_auto_stop_config = AsyncMock()
+        source._start_monitor = Mock()
+        source._start_service_and_wait = AsyncMock(return_value=True)
+        made = _mpv()
+        monkeypatch.setattr("backend.sources.cd.source.MpvController", Mock(return_value=made))
+
+        assert await source._do_start() is True
+        source._start_service_and_wait.assert_awaited_once()
+        made.connect.assert_awaited_once()
+        assert source._mpv is made
+
+    async def test_a_service_that_will_not_start_gives_up_before_touching_mpv(
+            self, source, monkeypatch):
+        _with_state_machine(source)
+        _running_bg(source)
+        source._mpv = None
+        source._start_service_and_wait = AsyncMock(return_value=False)
+        controller = Mock()
+        monkeypatch.setattr("backend.sources.cd.source.MpvController", controller)
+
+        assert await source._do_start() is False
+        controller.assert_not_called()
+
+    async def test_an_ipc_connection_that_fails_aborts_the_start(self, source, monkeypatch):
+        _with_state_machine(source)
+        _running_bg(source)
+        source._mpv = None
+        source._start_service_and_wait = AsyncMock(return_value=True)
+        monkeypatch.setattr("backend.sources.cd.source.MpvController",
+                            Mock(return_value=_mpv(connect=AsyncMock(return_value=False))))
+
+        assert await source._do_start() is False
+
+    async def test_a_disc_already_in_the_tray_is_preloaded_in_the_background(self, source):
+        """After `_do_start` returns, not during: the transition has to complete
+        so the frontend can show its loader while the drive spins up."""
+        _with_state_machine(source)
+        tasks = _running_bg(source)
+        _ready_to_play(source)
+        source._load_auto_stop_config = AsyncMock()
+        source._start_monitor = Mock()
+        source._preload_on_start = AsyncMock()
+
+        assert await source._do_start() is True
+        await _settle(tasks)
+        source._preload_on_start.assert_awaited_once()
+
+    async def test_an_empty_tray_preloads_nothing(self, source):
+        """Settled before asserting: the preload is *spawned*, so a check made
+        while its task is still pending cannot tell "never scheduled" from
+        "scheduled and not run yet" — and would pass either way."""
+        _with_state_machine(source)
+        tasks = _running_bg(source)
+        source._mpv = _mpv()
+        source._disc_present = False
+        source._load_auto_stop_config = AsyncMock()
+        source._start_monitor = Mock()
+        source._preload_on_start = AsyncMock()
+
+        assert await source._do_start() is True
+        await _settle(tasks)
+        source._preload_on_start.assert_not_awaited()
+
+    async def test_a_start_that_blows_up_tears_down_rather_than_half_starting(self, source):
+        """Left half-started, the next activation reuses an mpv that is not
+        there and the source is dead until the backend restarts."""
+        _with_state_machine(source)
+        _running_bg(source)
+        source._mpv = _mpv()
+        source._load_auto_stop_config = AsyncMock(side_effect=RuntimeError("settings gone"))
+        source._cleanup = AsyncMock()
+
+        assert await source._do_start() is False
+        source._cleanup.assert_awaited_once()
+
+
+class TestPreloadOnActivation:
+    """Track 1 is loaded and *parked paused* when the source is opened, so the
+    first tap on play resumes instead of paying the drive spin-up.
+
+    The loader must be held for the whole of it — the metadata lookup and the
+    preload — or the play button flashes from loader to play and back.
+    """
+
+    async def test_the_loader_is_held_from_activation_through_the_preload(self, source):
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        seen = []
+        source._update_connection_state = Mock(
+            side_effect=lambda: seen.append(source._is_buffering))
+        source._preload_track_1 = AsyncMock()
+
+        await asyncio.wait_for(source._preload_on_start(), 2.0)
+
+        assert seen and seen[0] is True, "the loader was not raised on activation"
+        source._preload_track_1.assert_awaited_once()
+
+    async def test_a_disc_whose_metadata_is_not_read_yet_is_read_first(self, source):
+        """Insertion while the source was closed leaves `_last_disc_id` set and
+        `_current_disc` empty; without this the preload has no track list."""
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._current_disc = None
+        source._load_disc_metadata = AsyncMock()
+        source._preload_track_1 = AsyncMock()
+
+        await asyncio.wait_for(source._preload_on_start(), 2.0)
+        source._load_disc_metadata.assert_awaited_once()
+
+    async def test_a_disc_already_read_is_not_read_again(self, source):
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._load_disc_metadata = AsyncMock()
+        source._preload_track_1 = AsyncMock()
+
+        await asyncio.wait_for(source._preload_on_start(), 2.0)
+        source._load_disc_metadata.assert_not_awaited()
+
+    async def test_a_user_who_pressed_play_first_is_not_interrupted(self, source):
+        """The lookup takes seconds. A preload landing on top of a track the
+        user already started would restart the reader at track 1."""
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._is_playing = True
+        source._preload_track_1 = AsyncMock()
+
+        await asyncio.wait_for(source._preload_on_start(), 2.0)
+
+        source._preload_track_1.assert_not_awaited()
+        assert source._is_buffering is False, "the loader was left up for ever"
+
+    async def test_leaving_the_source_during_the_lookup_cancels_the_preload(self, source):
+        _with_state_machine(source, active=AudioSource.SPOTIFY)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._preload_track_1 = AsyncMock()
+
+        await asyncio.wait_for(source._preload_on_start(), 2.0)
+
+        source._preload_track_1.assert_not_awaited()
+        assert source._is_buffering is False
+
+    async def test_a_preload_that_fails_takes_the_loader_down_with_it(self, source):
+        """`is_buffering` is what draws the play button as a spinner; left up,
+        the source looks permanently busy and the button cannot be pressed."""
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._preload_track_1 = AsyncMock(side_effect=RuntimeError("drive gone"))
+
+        await asyncio.wait_for(source._preload_on_start(), 2.0)
+        assert source._is_buffering is False
+
+
+class TestPreloadingTrackOne:
+    async def test_track_one_is_loaded_paused_and_never_un_paused(self, source):
+        """The whole contract: a preload that un-pauses emits audio from a
+        source the user has not asked to play."""
+        _with_state_machine(source)
+        _running_bg(source)
+        mpv = _mpv()
+        _ready_to_play(source, mpv)
+        restarts = []
+        source._restart_reader_and_mpv = AsyncMock(
+            side_effect=lambda lba, autostart=True: restarts.append((lba, autostart)) or True)
+
+        await asyncio.wait_for(source._preload_track_1(), 2.0)
+
+        assert restarts == [(150, False)], "the preload started playback"
+        assert source._is_paused is True
+        assert source._is_playing is False
+        assert source._is_buffering is False
+        assert source._current_track == 1
+        assert source._track_duration == TRACKS[0].duration
+
+    async def test_a_preload_that_cannot_load_clears_the_loader(self, source):
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._restart_reader_and_mpv = AsyncMock(return_value=False)
+
+        await asyncio.wait_for(source._preload_track_1(), 2.0)
+
+        assert source._is_buffering is False
+        assert source._is_paused is False, "a failed preload parked the source paused"
+
+    async def test_a_disc_with_no_toc_yet_is_not_preloaded(self, source):
+        _with_state_machine(source)
+        _running_bg(source)
+        _ready_to_play(source)
+        source._sector_offsets = []
+        source._restart_reader_and_mpv = AsyncMock(return_value=True)
+
+        await asyncio.wait_for(source._preload_track_1(), 2.0)
+        source._restart_reader_and_mpv.assert_not_awaited()
+
+
+class TestTheReaderAndMpvHandshake:
+    """`_start_reader_and_mpv` is the sequence the drive and mpv must follow.
+
+    Its order is load-bearing at three points, each of which is a separate
+    audible failure if it moves.
+    """
+
+    async def test_a_down_mpv_link_is_caught_before_the_drive_spins(self, source):
+        """Two costs avoided: a `set_property` dropped on a down link lets mpv
+        load UNPAUSED and emit through the handshake, and the reader would
+        otherwise open the drive and wait 5 s for an mpv that is not there."""
+        mpv = _mpv(ensure_connected=AsyncMock(return_value=False))
+        _ready_to_play(source, mpv)
+
+        assert await asyncio.wait_for(source._start_reader_and_mpv(150), 2.0) is False
+        source._reader.start.assert_not_called()
+        mpv.load_stream.assert_not_awaited()
+
+    async def test_mpv_is_paused_before_the_stream_is_loaded(self, source):
+        """mpv must not emit audio during the loadfile/FIFO handshake, and the
+        pause also clears a leftover pause from the previous track."""
+        mpv = _mpv()
+        _ready_to_play(source, mpv)
+        order = []
+        mpv.set_property = AsyncMock(side_effect=lambda k, v: order.append((k, v)))
+        mpv.load_stream = AsyncMock(side_effect=lambda p: order.append(("load", p)) or True)
+
+        assert await asyncio.wait_for(source._start_reader_and_mpv(150), 2.0) is True
+
+        assert order[0] == ("pause", True)
+        assert order[1][0] == "load"
+        assert ("pause", False) in order[2:], "playback was never started"
+
+    async def test_the_reader_is_ready_before_mpv_is_told_to_open_the_fifo(self, source):
+        """mpv opening the FIFO first blocks it on a writer that is not there."""
+        mpv = _mpv()
+        _ready_to_play(source, mpv)
+        order = []
+        source._reader.start = Mock(side_effect=lambda a, b: order.append("reader.start"))
+        source._reader.wait_ready = Mock(
+            side_effect=lambda t: order.append("wait_ready") or True)
+        mpv.load_stream = AsyncMock(side_effect=lambda p: order.append("load") or True)
+
+        await asyncio.wait_for(source._start_reader_and_mpv(150), 2.0)
+        assert order == ["reader.start", "wait_ready", "load"]
+
+    async def test_a_reader_that_never_reports_ready_is_stopped(self, source):
+        """Left running it holds the drive and blocks on a FIFO write for ever;
+        the next track's reader then fights it for the same device."""
+        mpv = _mpv()
+        _ready_to_play(source, mpv)
+        source._reader.wait_ready = Mock(return_value=False)
+
+        assert await asyncio.wait_for(source._start_reader_and_mpv(150), 2.0) is False
+        source._reader.stop.assert_called_once()
+        mpv.load_stream.assert_not_awaited()
+
+    async def test_an_mpv_that_cannot_open_the_fifo_stops_the_reader_too(self, source):
+        mpv = _mpv(load_stream=AsyncMock(return_value=False))
+        _ready_to_play(source, mpv)
+
+        assert await asyncio.wait_for(source._start_reader_and_mpv(150), 2.0) is False
+        source._reader.stop.assert_called_once()
+
+    async def test_the_reader_is_started_at_the_requested_lba_up_to_the_leadout(self, source):
+        mpv = _mpv()
+        _ready_to_play(source, mpv)
+        await asyncio.wait_for(source._start_reader_and_mpv(20000), 2.0)
+        source._reader.start.assert_called_once_with(20000, 60000)
+        assert source._play_start_lba == 20000
+
+    async def test_a_preload_leaves_mpv_paused_and_does_not_wait_for_audio(self, source):
+        mpv = _mpv()
+        _ready_to_play(source, mpv)
+
+        assert await asyncio.wait_for(
+            source._start_reader_and_mpv(150, autostart=False), 2.0) is True
+
+        assert mpv.set_property.await_args_list == [call("pause", True)]
+        mpv.wait_until_advancing.assert_not_awaited()
+
+    async def test_playback_that_never_advances_is_reported_but_not_fatal(self, source, caplog):
+        """The ~1 s output-startup latency is real; a disc that is merely slow
+        must still end up playing rather than being called a failure."""
+        mpv = _mpv(wait_until_advancing=AsyncMock(return_value=False))
+        _ready_to_play(source, mpv)
+
+        with caplog.at_level("WARNING", logger=source._logger.name):
+            assert await asyncio.wait_for(source._start_reader_and_mpv(150), 2.0) is True
+        assert any("did not advance" in r.message for r in caplog.records)
+
+
+class TestTheLightTeardown:
+    """`_auto_stop_action` releases the drive after the pause timeout without
+    losing where the user was."""
+
+    async def test_the_drive_is_released_but_the_resume_point_is_kept(self, source):
+        mpv = _mpv()
+        _ready_to_play(source, mpv)
+        source._current_track = 2
+        source._track_position = 42
+        source._is_paused = True
+
+        await asyncio.wait_for(source._auto_stop_action(), 2.0)
+
+        mpv.stop.assert_awaited_once()
+        source._reader.stop.assert_called_once()
+        assert (source._is_playing, source._is_paused, source._is_buffering) == \
+            (False, False, False)
+        assert (source._current_track, source._track_position) == (2, 42)
+
+    async def test_mpv_stays_connected_for_a_cheap_restart(self, source):
+        mpv = _mpv()
+        _ready_to_play(source, mpv)
+        await asyncio.wait_for(source._auto_stop_action(), 2.0)
+        assert source._mpv is mpv
+        mpv.disconnect.assert_not_awaited()
+
+
+class TestPreStartOnInsertion:
+    """`_pre_start_service` warms mpv up while MusicBrainz is being asked, so a
+    disc that is inserted while the source is open plays as soon as it is read.
+
+    Every failure is a warning and nothing else: this runs off a disc insertion,
+    not a user action, and there is nobody to report an error to.
+    """
+
+    async def test_an_already_connected_mpv_is_left_alone(self, source):
+        source._mpv = _mpv()
+        source._start_service_and_wait = AsyncMock(return_value=True)
+        await asyncio.wait_for(source._pre_start_service(), 2.0)
+        source._start_service_and_wait.assert_not_awaited()
+
+    async def test_it_starts_the_service_and_connects(self, source, monkeypatch):
+        source._mpv = None
+        source._start_service_and_wait = AsyncMock(return_value=True)
+        made = _mpv()
+        monkeypatch.setattr("backend.sources.cd.source.MpvController", Mock(return_value=made))
+
+        await asyncio.wait_for(source._pre_start_service(), 2.0)
+        assert source._mpv is made
+        made.connect.assert_awaited_once()
+
+    async def test_a_service_that_will_not_start_warns_and_leaves_mpv_unset(
+            self, source, caplog, monkeypatch):
+        source._mpv = None
+        source._start_service_and_wait = AsyncMock(return_value=False)
+        controller = Mock()
+        monkeypatch.setattr("backend.sources.cd.source.MpvController", controller)
+
+        with caplog.at_level("WARNING", logger=source._logger.name):
+            await asyncio.wait_for(source._pre_start_service(), 2.0)
+
+        controller.assert_not_called()
+        assert source._mpv is None
+        assert any("Pre-start" in r.message for r in caplog.records)
+
+    async def test_a_connect_that_fails_leaves_a_controller_do_start_can_replace(
+            self, source, monkeypatch, caplog):
+        """`_do_start` reuses `self._mpv` only `if self._mpv.is_connected`, so an
+        unconnected one here is not a trap — it is what makes the cold path run."""
+        source._mpv = None
+        source._start_service_and_wait = AsyncMock(return_value=True)
+        dead = _mpv(connect=AsyncMock(return_value=False), is_connected=False)
+        monkeypatch.setattr("backend.sources.cd.source.MpvController", Mock(return_value=dead))
+
+        with caplog.at_level("WARNING", logger=source._logger.name):
+            await asyncio.wait_for(source._pre_start_service(), 2.0)
+
+        assert source._mpv.is_connected is False
+        assert any("connect failed" in r.message for r in caplog.records)
+
+    async def test_a_pre_start_that_raises_is_swallowed(self, source, caplog):
+        """It runs from the disc watcher's loop body; an exception escaping here
+        is caught one level up, but the warning is what names the cause."""
+        source._mpv = None
+        source._start_service_and_wait = AsyncMock(side_effect=RuntimeError("systemd busy"))
+
+        with caplog.at_level("WARNING", logger=source._logger.name):
+            await asyncio.wait_for(source._pre_start_service(), 2.0)
+        assert any("systemd busy" in r.message for r in caplog.records)
+
+
+class TestTheDiscWatcherLoop:
+    """The watcher runs for the life of the unit, in a bare task nobody
+    supervises. How it survives a bad poll IS the behaviour: a poll that raises
+    and kills it means disc insertion stops being noticed until a reboot."""
+
+    async def test_a_poll_that_raises_does_not_kill_the_watcher(self, source, caplog):
+        calls = []
+
+        async def flaky():
+            calls.append(1)
+            if len(calls) == 1:
+                raise OSError("drive vanished mid-poll")
+
+        source._check_drive_and_disc = flaky
+        source._retry_metadata_if_pending = AsyncMock()
+
+        with patch("backend.sources.cd.source.DISC_POLL_INTERVAL_S", 0.01), \
+                caplog.at_level("ERROR", logger=source._logger.name):
+            task = asyncio.create_task(source._disc_watcher_loop())
+            for _ in range(200):
+                await asyncio.sleep(0.01)
+                if len(calls) >= 3:
+                    break
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        assert len(calls) >= 3, "the watcher stopped polling after one failure"
+        assert any("Disc watcher error" in r.message for r in caplog.records)
+
+    async def test_the_metadata_retry_runs_on_every_poll(self, source):
+        """It is throttled inside itself, not by the loop — skipping it here is
+        what leaves a disc whose first lookup failed unnamed for ever."""
+        source._check_drive_and_disc = AsyncMock()
+        source._retry_metadata_if_pending = AsyncMock()
+
+        with patch("backend.sources.cd.source.DISC_POLL_INTERVAL_S", 0.01):
+            task = asyncio.create_task(source._disc_watcher_loop())
+            for _ in range(200):
+                await asyncio.sleep(0.01)
+                if source._retry_metadata_if_pending.await_count >= 2:
+                    break
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        assert source._retry_metadata_if_pending.await_count >= 2
+
+    async def test_cancellation_ends_the_watcher_instead_of_being_logged(self, source, caplog):
+        """Shutdown cancels it. Caught by the generic arm it would log an error
+        on every clean stop, and the banner would fire on a normal restart."""
+        source._check_drive_and_disc = AsyncMock()
+        source._retry_metadata_if_pending = AsyncMock()
+
+        with patch("backend.sources.cd.source.DISC_POLL_INTERVAL_S", 0.01), \
+                caplog.at_level("ERROR", logger=source._logger.name):
+            task = asyncio.create_task(source._disc_watcher_loop())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 2.0)
+
+        assert caplog.records == []
+
+
+class TestReadingADiscInTheBackground:
+    """`_load_disc_metadata` — the lookup that runs when the source is opened on
+    a disc that was inserted while it was closed."""
+
+    async def test_the_toc_offsets_and_the_metadata_both_land(self, source):
+        _with_state_machine(source)
+        source._disc_present = True
+        source._last_disc_id = "disc-1"
+        source._data_service = Mock()
+        source._data_service.read_disc = AsyncMock(return_value=(
+            "disc-1", "toc",
+            [{"number": 1, "duration": 200, "offset": 150},
+             {"number": 2, "duration": 150, "offset": 20000}],
+            60000,
+        ))
+        source._data_service.lookup_metadata = AsyncMock(return_value=DISC)
+
+        await asyncio.wait_for(source._load_disc_metadata(), 2.0)
+
+        assert source._sector_offsets == [150, 20000]
+        assert source._disc_end_lba == 60000
+        assert source._current_disc is DISC
+        assert source._tracks == TRACKS
+        assert source._metadata_retry_pending is False
+
+    async def test_a_disc_ejected_during_the_lookup_is_not_written_back(self, source):
+        """The lookup reaches the network and takes seconds; a disc swapped in
+        the meantime would be captioned with the previous one's album."""
+        _with_state_machine(source)
+        source._disc_present = True
+        source._last_disc_id = "disc-1"
+        source._data_service = Mock()
+        source._data_service.read_disc = AsyncMock(
+            return_value=("disc-1", "toc", [{"number": 1, "duration": 200, "offset": 150}], 60000))
+
+        async def eject_then_answer(*_a):
+            source._disc_present = False
+            return DISC
+
+        source._data_service.lookup_metadata = eject_then_answer
+        await asyncio.wait_for(source._load_disc_metadata(), 2.0)
+
+        assert source._current_disc is None
+        assert source._tracks == []
+
+    async def test_an_unknown_disc_arms_the_retry(self, source):
+        """`album is None` is the fallback DiscInfo; the watcher re-asks
+        MusicBrainz later, which is how a disc read with no internet gets named
+        once the link is back."""
+        _with_state_machine(source)
+        source._disc_present = True
+        source._last_disc_id = "disc-1"
+        unknown = DiscInfo(disc_id="disc-1", track_count=1, total_duration=200,
+                           tracks=[TrackInfo(number=1, title="Track 1", duration=200)])
+        source._data_service = Mock()
+        source._data_service.read_disc = AsyncMock(
+            return_value=("disc-1", "toc", [{"number": 1, "duration": 200, "offset": 150}], 60000))
+        source._data_service.lookup_metadata = AsyncMock(return_value=unknown)
+
+        await asyncio.wait_for(source._load_disc_metadata(), 2.0)
+        assert source._metadata_retry_pending is True
+
+    async def test_a_disc_that_cannot_be_read_leaves_state_untouched(self, source):
+        _with_state_machine(source)
+        source._data_service = Mock()
+        source._data_service.read_disc = AsyncMock(return_value=None)
+        source._data_service.lookup_metadata = AsyncMock()
+
+        await asyncio.wait_for(source._load_disc_metadata(), 2.0)
+        source._data_service.lookup_metadata.assert_not_awaited()
+        assert source._sector_offsets == []
+
+    async def test_a_lookup_that_raises_is_logged_and_contained(self, source, caplog):
+        """It runs from a background task; escaping, it would be swallowed by
+        BackgroundTaskSet with no line naming the disc."""
+        _with_state_machine(source)
+        source._data_service = Mock()
+        source._data_service.read_disc = AsyncMock(side_effect=RuntimeError("libdiscid segfault"))
+
+        with caplog.at_level("ERROR", logger=source._logger.name):
+            await asyncio.wait_for(source._load_disc_metadata(), 2.0)
+        assert any("libdiscid segfault" in r.message for r in caplog.records)
