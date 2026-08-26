@@ -50,6 +50,54 @@ def update_service():
 BINARY_PROGRAMS = ["go-librespot", "camilladsp", "navidrome"]
 
 
+def _recording_aiofiles_open(sink):
+    """Stand in for `aiofiles.open` and bank what was written, by path.
+
+    The real call targets `/var/lib/milo/shairport-sync-version`, which the
+    conftest guard refuses — so the choice is between asserting nothing and
+    standing in for the writer. This banks the payload, which is the thing that
+    matters: the catalog reads that file back to decide the installed version.
+    """
+    class _Writer:
+        def __init__(self, path):
+            self.path = path
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def write(self, data):
+            sink[str(self.path)] = data
+
+    def _open(path, mode="r", *a, **kw):
+        return _Writer(path)
+
+    return _open
+
+
+@pytest.fixture(autouse=True)
+def never_a_real_process():
+    """The default spawn RAISES, for the whole file.
+
+    This service is the one that modifies the appliance: its argv includes
+    `git -C /home/milo/milo reset --hard`, `git pull`, `sudo milo-deploy-update`,
+    `npm run build`, `make install DESTDIR=…` and `tar -xzf`, and `git_path` is
+    the live production checkout that neighbouring sessions share. A spawn that
+    escapes a double here is not a slow test, it is an irreversible edit of the
+    working tree. Every test below re-patches this name for its own scope; what
+    this covers is everything that does not.
+    """
+    async def _refuse(program, *args, **kwargs):
+        raise AssertionError(
+            f"a real process was spawned: {program} {' '.join(map(str, args))}"
+        )
+
+    with patch("asyncio.create_subprocess_exec", new=_refuse):
+        yield
+
+
 def _make_mock_proc(returncode=0, stdout=b"", stderr=b""):
     """Helper to create a mock subprocess"""
     proc = AsyncMock()
@@ -1781,3 +1829,1486 @@ class TestSnapcastComponentDownloadTempDir:
         assert "network down" in result["error"]
         assert len(created) == 1
         assert not created[0].exists(), "the scratch directory outlived the failed download"
+
+
+# =========================================================================== #
+# shairport-sync: the compile-from-source chain
+# =========================================================================== #
+#
+# The only program Milō builds on the unit rather than downloading. Six methods,
+# none of which had a line executed. Its failure mode is quiet by construction:
+# a build that drops a `./configure` flag produces a working binary that has no
+# metadata pipe — AirPlay keeps playing and stops showing titles and covers,
+# which is exactly the regression this appliance already lived through once.
+
+
+class RecordingSpawn:
+    """Records every argv and answers from a per-program router.
+
+    Stands in for `autoreconf`, `./configure`, `make`, `nproc` and `tar`. An
+    unrouted program answers success, so a test asserts on what it asked for
+    rather than on the shape of a fixture it wrote itself.
+    """
+
+    def __init__(self, router=None, hang=()):
+        self.calls: list[dict] = []
+        self._router = router or (lambda argv: (0, b"", b""))
+        self._hang = set(hang)
+        self.killed: list[str] = []
+
+    async def __call__(self, program, *args, **kwargs):
+        argv = (program, *args)
+        self.calls.append({"argv": argv, "cwd": kwargs.get("cwd")})
+        proc = AsyncMock()
+        recorder = self
+
+        if program in self._hang:
+            async def times_out(input=None):
+                raise asyncio.TimeoutError()
+            proc.communicate = times_out
+            proc.kill = lambda: recorder.killed.append(program)
+            proc.wait = AsyncMock()
+            proc.returncode = None
+            return proc
+
+        rc, out, err = self._router(argv)
+        proc.communicate = AsyncMock(return_value=(out, err))
+        proc.returncode = rc
+        proc.kill = lambda: recorder.killed.append(program)
+        proc.wait = AsyncMock()
+        return proc
+
+    def programs(self) -> list[str]:
+        return [c["argv"][0] for c in self.calls]
+
+    def argv_for(self, program) -> tuple:
+        for call in self.calls:
+            if call["argv"][0] == program:
+                return call["argv"]
+        raise AssertionError(f"{program} was never spawned: {self.programs()}")
+
+    def call_for(self, program) -> dict:
+        for call in self.calls:
+            if call["argv"][0] == program:
+                return call
+        raise AssertionError(f"{program} was never spawned: {self.programs()}")
+
+
+@contextmanager
+def spawning(router=None, hang=()):
+    fake = RecordingSpawn(router, hang)
+    with patch("asyncio.create_subprocess_exec", new=fake):
+        yield fake
+
+
+class FakeResponse:
+    def __init__(self, status=200, body=b"tarball"):
+        self.status = status
+        self._body = body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    @property
+    def content(self):
+        body = self._body
+
+        class _Content:
+            @staticmethod
+            async def iter_chunked(size):
+                for i in range(0, len(body), size):
+                    yield body[i:i + size]
+        return _Content()
+
+
+class FakeSession:
+    """Stands in for aiohttp; records the URL and answers one response."""
+
+    def __init__(self, response):
+        self.urls: list[str] = []
+        self._response = response
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def get(self, url):
+        self.urls.append(url)
+        return self._response
+
+
+@contextmanager
+def downloading(status=200, body=b"tarball"):
+    session = FakeSession(FakeResponse(status, body))
+    with patch("backend.core.updates.update.aiohttp.ClientSession",
+               return_value=session):
+        yield session
+
+
+class TestDownloadShairportSource:
+
+    @pytest.mark.asyncio
+    async def test_the_tarball_is_fetched_for_the_upstream_tag_verbatim(self, update_service, tmp_path):
+        """The catalog's `version_regex` strips the `v`, so rebuilding a URL
+        from the parsed version would ask GitHub for `refs/tags/4.3.7` when the
+        release is `4.3.7`, or the reverse — the update then fails with a 404 on
+        a release that exists."""
+        with downloading() as session, spawning(), \
+                patch("tempfile.mkdtemp", return_value=str(tmp_path)):
+            (tmp_path / "shairport-sync-4.3.7").mkdir()
+            result = await update_service._download_shairport_sync_source("4.3.7")
+
+        assert session.urls == [
+            "https://github.com/mikebrady/shairport-sync/archive/refs/tags/4.3.7.tar.gz"
+        ]
+        assert result["success"] is True
+        assert result["source_dir"] == str(tmp_path / "shairport-sync-4.3.7")
+
+    @pytest.mark.asyncio
+    async def test_a_missing_release_leaves_no_temp_directory_behind(self, update_service, tmp_path):
+        """Every failure exit removes its own directory: nothing downstream is
+        handed a `temp_dir` to clean up, so a leak here is permanent and grows
+        by one unpacked source tree per attempt."""
+        staging = tmp_path / "dl"
+        staging.mkdir()
+        with downloading(status=404), spawning(), \
+                patch("tempfile.mkdtemp", return_value=str(staging)):
+            result = await update_service._download_shairport_sync_source("9.9.9")
+
+        assert result["success"] is False
+        assert "404" in result["error"]
+        assert not staging.exists()
+
+    @pytest.mark.asyncio
+    async def test_a_corrupt_tarball_is_reported_with_tars_own_reason(self, update_service, tmp_path):
+        staging = tmp_path / "dl"
+        staging.mkdir()
+        with downloading(), spawning(lambda argv: (2, b"", b"gzip: unexpected end of file")), \
+                patch("tempfile.mkdtemp", return_value=str(staging)):
+            result = await update_service._download_shairport_sync_source("4.3.7")
+
+        assert result["success"] is False
+        assert "unexpected end of file" in result["error"]
+        assert not staging.exists()
+
+    @pytest.mark.asyncio
+    async def test_an_archive_with_no_source_tree_is_refused(self, update_service, tmp_path):
+        """`tar` exits 0 on an archive holding only files; the next phase would
+        then run `autoreconf` in a directory that does not exist."""
+        staging = tmp_path / "dl"
+        staging.mkdir()
+        with downloading(), spawning(), patch("tempfile.mkdtemp", return_value=str(staging)):
+            result = await update_service._download_shairport_sync_source("4.3.7")
+
+        assert result["success"] is False
+        assert "No directory" in result["error"]
+        assert not staging.exists()
+
+    @pytest.mark.asyncio
+    async def test_the_bytes_that_arrive_are_the_bytes_that_are_extracted(self, update_service, tmp_path):
+        """The archive is streamed in 8 KiB chunks; a reassembly that dropped or
+        reordered one would hand `tar` a file it refuses, which reads as a
+        network problem."""
+        payload = bytes(range(256)) * 100
+        with downloading(body=payload) as _, spawning() as spawn, \
+                patch("tempfile.mkdtemp", return_value=str(tmp_path)):
+            (tmp_path / "shairport-sync-4.3.7").mkdir()
+            await update_service._download_shairport_sync_source("4.3.7")
+
+        archive = Path(spawn.argv_for("tar")[2])
+        assert archive.read_bytes() == payload
+
+
+class TestConfigureShairportSync:
+
+    FLAGS = PROGRAMS["shairport-sync"]["configure_flags"]
+
+    @pytest.mark.asyncio
+    async def test_configure_receives_the_catalog_flags_unchanged(self, update_service):
+        """These flags ARE the feature set. A build without `--with-metadata-pipe`
+        installs a shairport-sync that plays perfectly and never writes
+        `/tmp/shairport-sync-metadata`, so AirPlay loses every title, artist and
+        cover — silently, and only until someone looks at the screen. Compared
+        against the catalog rather than a literal, so dropping one there is a
+        red test and not a quieter appliance."""
+        with spawning() as spawn:
+            result = await update_service._configure_shairport_sync("/src", self.FLAGS)
+
+        assert result["success"] is True
+        assert spawn.argv_for("./configure") == ("./configure", *self.FLAGS)
+
+    @pytest.mark.asyncio
+    async def test_both_steps_run_in_the_extracted_source_tree(self, update_service):
+        """`autoreconf` and `./configure` are relative to the unpacked tree; run
+        from the backend's own cwd they would regenerate the build system of
+        this repository."""
+        with spawning() as spawn:
+            await update_service._configure_shairport_sync("/src", self.FLAGS)
+
+        assert spawn.call_for("autoreconf")["cwd"] == "/src"
+        assert spawn.call_for("./configure")["cwd"] == "/src"
+
+    @pytest.mark.asyncio
+    async def test_a_failed_autoreconf_does_not_reach_configure(self, update_service):
+        """`./configure` does not exist until autoreconf has generated it, so
+        running it anyway turns a readable "autoreconf failed" into "No such
+        file or directory"."""
+        def router(argv):
+            if argv[0] == "autoreconf":
+                return (1, b"", b"aclocal: command not found")
+            return (0, b"", b"")
+
+        with spawning(router) as spawn:
+            result = await update_service._configure_shairport_sync("/src", self.FLAGS)
+
+        assert result["success"] is False
+        assert "aclocal" in result["error"]
+        assert "./configure" not in spawn.programs()
+
+    @pytest.mark.asyncio
+    async def test_a_configure_that_refuses_a_flag_is_reported(self, update_service):
+        """The usual real failure: a build dependency missing after a distro
+        upgrade. Its stderr names the library, and that string is the whole
+        diagnosis the owner gets."""
+        def router(argv):
+            if argv[0] == "./configure":
+                return (1, b"", b"configure: error: Avahi library not found")
+            return (0, b"", b"")
+
+        with spawning(router):
+            result = await update_service._configure_shairport_sync("/src", self.FLAGS)
+
+        assert result["success"] is False
+        assert "Avahi library not found" in result["error"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("stalled", ["autoreconf", "./configure"])
+    async def test_a_stalled_step_is_killed_and_reaped(self, update_service, stalled):
+        """Both are bounded at five minutes. An unbounded one holds the update
+        key in `active_updates` for ever and the UI shows a build in progress
+        that will never end."""
+        with spawning(hang=[stalled]) as spawn:
+            result = await update_service._configure_shairport_sync("/src", self.FLAGS)
+
+        assert result["success"] is False
+        assert "timed out" in result["error"]
+        assert spawn.killed == [stalled]
+
+
+class TestCompileShairportSync:
+
+    @pytest.mark.asyncio
+    async def test_the_build_is_parallelised_over_the_cores_this_pi_reports(self, update_service):
+        """A serial build of shairport-sync on a Pi takes minutes longer than
+        the 15-minute ceiling allows for on a loaded unit."""
+        def router(argv):
+            if argv[0] == "nproc":
+                return (0, b"4\n", b"")
+            return (0, b"", b"")
+
+        with spawning(router) as spawn:
+            result = await update_service._compile_shairport_sync("/src")
+
+        assert result["success"] is True
+        assert spawn.argv_for("make") == ("make", "-j4")
+        assert spawn.call_for("make")["cwd"] == "/src"
+
+    @pytest.mark.asyncio
+    async def test_a_host_that_cannot_count_its_cores_still_builds(self, update_service):
+        """`make -j` with an empty argument is `make -j`, which spawns an
+        unbounded number of compilers and takes the Pi's memory with it."""
+        with spawning(lambda argv: (0, b"", b"")) as spawn:
+            await update_service._compile_shairport_sync("/src")
+
+        assert spawn.argv_for("make") == ("make", "-j2")
+
+    @pytest.mark.asyncio
+    async def test_a_build_error_is_reported_by_its_tail(self, update_service):
+        """gcc's output is thousands of lines and the error is at the end; the
+        head would be the banner. 500 characters is what reaches the UI banner."""
+        noise = b"warning: unused variable\n" * 500
+        with spawning(lambda argv: (2, b"", noise + b"error: ao.h: No such file")):
+            result = await update_service._compile_shairport_sync("/src")
+
+        assert result["success"] is False
+        assert "ao.h: No such file" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_a_build_that_never_finishes_is_killed_and_reaped(self, update_service):
+        with spawning(hang=["make"]) as spawn:
+            result = await update_service._compile_shairport_sync("/src")
+
+        assert result["success"] is False
+        assert "timed out" in result["error"]
+        assert spawn.killed == ["make"]
+
+
+class TestInstallShairportSync:
+
+    BINARY = PROGRAMS["shairport-sync"]["binary_path"]
+
+    @staticmethod
+    def _stage(staging_root):
+        """Lay out what `make install DESTDIR=` produces."""
+        staged = Path(staging_root) / "usr/local/bin"
+        staged.mkdir(parents=True)
+        (staged / "shairport-sync").write_text("#!/bin/sh\n")
+
+    @pytest.mark.asyncio
+    async def test_the_binary_is_staged_unprivileged_then_installed_by_the_wrapper(
+            self, update_service, tmp_path):
+        """Invariant 1: `make install` as root would write wherever the upstream
+        Makefile decides — man pages, /etc, systemd units. Staging into a
+        DESTDIR as the milo user and then handing one file to
+        `milo-deploy-update install-binary` is what keeps the privileged step to
+        a single argument-scoped copy."""
+        staging = tmp_path / "stage"
+        staging.mkdir()
+        self._stage(staging)
+        deploy = AsyncMock(return_value=(True, ""))
+        with spawning() as spawn, patch("tempfile.mkdtemp", return_value=str(staging)), \
+                patch.object(update_service, "_run_deploy", deploy):
+            result = await update_service._install_shairport_sync("/src")
+
+        assert result["success"] is True
+        assert spawn.argv_for("make") == ("make", "install", f"DESTDIR={staging}")
+        deploy.assert_awaited_once_with(
+            "install-binary", str(staging / "usr/local/bin/shairport-sync"), self.BINARY
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_staging_run_that_produced_no_binary_is_refused(self, update_service, tmp_path):
+        """`make install` can exit 0 having installed only the man pages when
+        the build tree is stale. Passing the missing path to install-binary
+        would ask the privileged wrapper to copy a file that is not there."""
+        staging = tmp_path / "stage"
+        staging.mkdir()
+        deploy = AsyncMock(return_value=(True, ""))
+        with spawning(), patch("tempfile.mkdtemp", return_value=str(staging)), \
+                patch.object(update_service, "_run_deploy", deploy):
+            result = await update_service._install_shairport_sync("/src")
+
+        assert result["success"] is False
+        assert "not found in staging" in result["error"]
+        deploy.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_refused_install_carries_the_wrappers_reason(self, update_service, tmp_path):
+        staging = tmp_path / "stage"
+        staging.mkdir()
+        self._stage(staging)
+        with spawning(), patch("tempfile.mkdtemp", return_value=str(staging)), \
+                patch.object(update_service, "_run_deploy",
+                             AsyncMock(return_value=(False, "sudo: a password is required"))):
+            result = await update_service._install_shairport_sync("/src")
+
+        assert result["success"] is False
+        assert "a password is required" in result["error"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("outcome", ["ok", "staging-failed", "no-binary", "install-refused"])
+    async def test_the_staging_directory_is_removed_on_every_path(
+            self, update_service, tmp_path, outcome):
+        """A full shairport-sync install tree is tens of megabytes under /tmp,
+        which is tmpfs on this appliance — four failed update attempts would eat
+        the RAM the audio path needs. The removal is in a `finally`, so it is
+        the exit paths that have to be checked, not the happy one."""
+        staging = tmp_path / "stage"
+        staging.mkdir()
+        if outcome != "no-binary":
+            self._stage(staging)
+
+        router = (lambda argv: (1, b"", b"no rule to make target"))\
+            if outcome == "staging-failed" else None
+        deploy_result = (False, "refused") if outcome == "install-refused" else (True, "")
+
+        with spawning(router), patch("tempfile.mkdtemp", return_value=str(staging)), \
+                patch.object(update_service, "_run_deploy",
+                             AsyncMock(return_value=deploy_result)):
+            await update_service._install_shairport_sync("/src")
+
+        assert not staging.exists()
+
+    @pytest.mark.asyncio
+    async def test_a_staging_step_that_stalls_is_killed_and_reaped(self, update_service, tmp_path):
+        staging = tmp_path / "stage"
+        staging.mkdir()
+        with spawning(hang=["make"]) as spawn, \
+                patch("tempfile.mkdtemp", return_value=str(staging)):
+            result = await update_service._install_shairport_sync("/src")
+
+        assert "timed out" in result["error"]
+        assert spawn.killed == ["make"]
+        assert not staging.exists()
+
+
+class TestUpdateShairportSyncFlow:
+    """The ordering of the compile-from-source flow, on the branches the
+    existing `TestUpdateShairportSync` does not reach.
+
+    Same shape as its `_flow` helper and the same stated limit: the phases are
+    the behaviour, and what is asserted is which one ran, in which order, and
+    which did not run at all.
+    """
+
+    STATUS = {
+        "installed": {"versions": {"main": "4.3.7"}},
+        "latest": {"version": "4.3.8", "tag_name": "4.3.8"},
+    }
+
+    @staticmethod
+    @contextmanager
+    def _flow(service, *, was_active=True, overrides=None, version_file=True):
+        returns = {
+            "_is_service_active": was_active,
+            "_backup_shairport_sync": {"success": True},
+            "_download_shairport_sync_source": {
+                "success": True, "temp_dir": "/tmp/sps", "source_dir": "/tmp/sps/src"
+            },
+            "_configure_shairport_sync": {"success": True},
+            "_compile_shairport_sync": {"success": True},
+            "_install_shairport_sync": {"success": True},
+            "_verify_shairport_sync_update": {"success": True},
+            "_stop_service": True,
+            "_start_service": True,
+            "_rollback_shairport_sync": True,
+            "_cleanup_temp_files": None,
+        }
+        returns.update(overrides or {})
+        written = {}
+
+        with ExitStack() as stack:
+            mocks = {
+                name: stack.enter_context(patch.object(service, name, return_value=value))
+                for name, value in returns.items()
+            }
+            if version_file:
+                stack.enter_context(patch("backend.core.updates.update.aiofiles.open",
+                                          new=_recording_aiofiles_open(written)))
+            mocks["_written"] = written
+            yield mocks
+
+    @pytest.mark.asyncio
+    async def test_the_installed_version_is_written_where_the_catalog_reads_it_back(
+            self, update_service):
+        """`catalog["shairport-sync"]["commands"]["main"]` is
+        `cat /var/lib/milo/shairport-sync-version || shairport-sync --version`.
+        The compiled binary's own `--version` carries a build suffix the release
+        tag does not, so without this file the comparison never matches and the
+        panel offers the same update for ever."""
+        with self._flow(update_service) as flow:
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result == {"success": True}
+        assert flow["_written"] == {"/var/lib/milo/shairport-sync-version": "4.3.8"}
+
+    @pytest.mark.asyncio
+    async def test_a_version_file_that_cannot_be_written_does_not_fail_the_update(
+            self, update_service, caplog):
+        """The binary is installed and running by this point; failing the update
+        over a bookkeeping file would trigger a rollback that replaces a good
+        new build with the old one."""
+        with self._flow(update_service, version_file=False), \
+                patch("backend.core.updates.update.aiofiles.open",
+                      side_effect=PermissionError("read-only")), \
+                caplog.at_level(logging.WARNING):
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result == {"success": True}
+        assert "read-only" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_an_inactive_airplay_service_is_neither_stopped_nor_started(self, update_service):
+        """`milo-airplay` is on-demand: it runs while the AirPlay source is
+        selected and not otherwise. Starting it after an update would put a
+        receiver on the network the owner did not ask for, and it would hold the
+        ALSA device against whichever source is actually playing."""
+        with self._flow(update_service, was_active=False) as flow:
+            assert await update_service._update_shairport_sync(self.STATUS) == {"success": True}
+
+        flow["_stop_service"].assert_not_called()
+        flow["_start_service"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_backup_stops_before_anything_is_downloaded(self, update_service):
+        """No backup means no rollback point; the flow must not reach the
+        install that would need one."""
+        with self._flow(update_service, overrides={
+            "_backup_shairport_sync": {"success": False, "error": "Backup failed: read-only"},
+        }) as flow:
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result["success"] is False
+        flow["_download_shairport_sync_source"].assert_not_called()
+        flow["_rollback_shairport_sync"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_download_that_failed_is_returned_verbatim(self, update_service):
+        """It cleaned up its own temp dir already, and nothing was replaced, so
+        neither a cleanup nor a rollback belongs here."""
+        with self._flow(update_service, overrides={
+            "_download_shairport_sync_source": {"success": False, "error": "HTTP 404"},
+        }) as flow:
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result["error"] == "HTTP 404"
+        flow["_cleanup_temp_files"].assert_not_called()
+        flow["_rollback_shairport_sync"].assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("phase", ["_configure_shairport_sync", "_compile_shairport_sync"])
+    async def test_a_build_failure_cleans_up_without_rolling_back(self, update_service, phase):
+        """Nothing has been installed yet, and the running binary was never
+        stopped. A rollback here would stop a working AirPlay receiver to
+        restore the binary it is already running."""
+        with self._flow(update_service, overrides={
+            phase: {"success": False, "error": "boom"},
+        }) as flow:
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result["error"] == "boom"
+        flow["_cleanup_temp_files"].assert_called_once_with("/tmp/sps")
+        flow["_rollback_shairport_sync"].assert_not_called()
+        flow["_stop_service"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_service_that_will_not_stop_aborts_before_the_install(self, update_service):
+        """install-binary on a running unit either hits "Text file busy" or
+        replaces the image under a live process."""
+        with self._flow(update_service, overrides={"_stop_service": False}) as flow:
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result["success"] is False
+        flow["_install_shairport_sync"].assert_not_called()
+        flow["_rollback_shairport_sync"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_service_that_will_not_come_back_rolls_back(self, update_service):
+        """The new binary is in place and the unit is down: leaving it there is
+        an AirPlay receiver that never returns."""
+        with self._flow(update_service, overrides={"_start_service": False}) as flow:
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result["success"] is False
+        flow["_rollback_shairport_sync"].assert_called_once_with(
+            PROGRAMS["shairport-sync"], True
+        )
+        flow["_cleanup_temp_files"].assert_called_once_with("/tmp/sps")
+
+    @pytest.mark.asyncio
+    async def test_a_verification_that_fails_rolls_back_and_says_why(self, update_service):
+        with self._flow(update_service, overrides={
+            "_verify_shairport_sync_update": {
+                "success": False, "error": "shairport-sync service not running after update"},
+        }) as flow:
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert "not running after update" in result["error"]
+        assert "Rolled back" in result["error"]
+        flow["_rollback_shairport_sync"].assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_an_unexpected_failure_still_releases_the_source_tree(self, update_service):
+        """The unpacked source is tens of megabytes on a tmpfs /tmp."""
+        with self._flow(update_service, overrides={
+            "_verify_shairport_sync_update": RuntimeError("systemd went away"),
+        }) as flow:
+            flow["_verify_shairport_sync_update"].side_effect = RuntimeError("systemd went away")
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result["success"] is False
+        flow["_cleanup_temp_files"].assert_called_once_with("/tmp/sps")
+
+
+# =========================================================================== #
+# qobuz-proxy: a pip package inside a venv Milō owns
+# =========================================================================== #
+#
+# The whole venv is copied aside and restored on any failure, and the restore is
+# `rm -rf` followed by `mv`. That ordering is the reason this block is worth
+# pinning: between the two the sidecar has no interpreter at all, so a guard
+# that lets the sequence start on a unit that would not stop, or a step whose
+# failure is not reported, leaves Qobuz unrunnable with the UI reporting a
+# rollback.
+
+QOBUZ = PROGRAMS["qobuz-proxy"]
+
+
+class LocalCommands:
+    """Stands in for `_run_local`'s subprocess: records argv, answers by prefix."""
+
+    def __init__(self, failures=None):
+        self.calls: list[tuple[str, ...]] = []
+        self._failures = failures or {}
+
+    async def __call__(self, *args, timeout=120):
+        self.calls.append(tuple(args))
+        for needle, answer in self._failures.items():
+            if needle in args or any(needle in str(a) for a in args):
+                return answer
+        return (True, "")
+
+    def verbs(self) -> list[str]:
+        return [Path(c[0]).name for c in self.calls]
+
+
+class TestBackupQobuzVenv:
+
+    @pytest.mark.asyncio
+    async def test_a_stale_backup_is_removed_before_the_new_one_is_taken(
+            self, update_service, tmp_path):
+        """`cp -a` onto an existing directory nests the copy inside it, so the
+        restore would `mv` a venv-containing-a-venv into place and every shebang
+        would point one level too high."""
+        config = {"backup_path": str(tmp_path / "backups"), "venv_path": "/var/lib/milo/qobuz/venv"}
+        (tmp_path / "backups" / "venv").mkdir(parents=True)
+
+        local = LocalCommands()
+        with patch.object(update_service, "_run_local", local):
+            assert (await update_service._backup_qobuz_venv(config))["success"] is True
+
+        assert local.verbs() == ["rm", "cp"]
+        assert local.calls[0][:2] == ("rm", "-rf")
+
+    @pytest.mark.asyncio
+    async def test_a_first_backup_skips_the_removal(self, update_service, tmp_path):
+        config = {"backup_path": str(tmp_path / "backups"), "venv_path": "/var/lib/milo/qobuz/venv"}
+        local = LocalCommands()
+        with patch.object(update_service, "_run_local", local):
+            await update_service._backup_qobuz_venv(config)
+
+        assert local.verbs() == ["cp"]
+
+    @pytest.mark.asyncio
+    async def test_the_copy_preserves_the_venvs_symlinks(self, update_service, tmp_path):
+        """A venv is mostly symlinks to the system interpreter; a plain
+        recursive copy dereferences them and the backup is a 200 MB tree whose
+        `bin/python` is a real file with the wrong `sys.prefix`."""
+        config = {"backup_path": str(tmp_path / "backups"), "venv_path": "/var/lib/milo/qobuz/venv"}
+        local = LocalCommands()
+        with patch.object(update_service, "_run_local", local):
+            await update_service._backup_qobuz_venv(config)
+
+        assert local.calls[0][:2] == ("cp", "-a")
+        assert local.calls[0][2] == "/var/lib/milo/qobuz/venv"
+
+    @pytest.mark.asyncio
+    async def test_a_backup_that_could_not_be_written_stops_the_update(
+            self, update_service, tmp_path):
+        """No backup means the rollback below has nothing to restore."""
+        config = {"backup_path": str(tmp_path / "backups"), "venv_path": "/var/lib/milo/qobuz/venv"}
+        local = LocalCommands(failures={"cp": (False, "No space left on device")})
+        with patch.object(update_service, "_run_local", local):
+            result = await update_service._backup_qobuz_venv(config)
+
+        assert result["success"] is False
+        assert "No space left" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_a_stale_backup_that_cannot_be_removed_stops_the_update(
+            self, update_service, tmp_path):
+        """Carrying on would `cp -a` into the stale directory, which is the
+        nested-venv restore above."""
+        config = {"backup_path": str(tmp_path / "backups"), "venv_path": "/var/lib/milo/qobuz/venv"}
+        (tmp_path / "backups" / "venv").mkdir(parents=True)
+        local = LocalCommands(failures={"rm": (False, "Permission denied")})
+        with patch.object(update_service, "_run_local", local):
+            result = await update_service._backup_qobuz_venv(config)
+
+        assert result["success"] is False
+        assert "Backup cleanup failed" in result["error"]
+
+
+class TestRollbackQobuzVenv:
+
+    @staticmethod
+    def _config(tmp_path, with_backup=True):
+        config = dict(QOBUZ, backup_path=str(tmp_path / "backups"),
+                      venv_path=str(tmp_path / "venv"))
+        if with_backup:
+            (tmp_path / "backups" / "venv").mkdir(parents=True)
+        return config
+
+    @pytest.mark.asyncio
+    async def test_with_no_backup_there_is_no_rollback_to_claim(self, update_service, tmp_path, caplog):
+        """Reporting True here is the worst answer available: the caller would
+        tell the owner "rolled back to previous version" over a venv that was
+        never touched, or worse, one half-upgraded."""
+        local = LocalCommands()
+        with patch.object(update_service, "_run_local", local), \
+                patch.object(update_service, "_stop_service", return_value=True), \
+                caplog.at_level(logging.ERROR):
+            assert await update_service._rollback_qobuz_venv(
+                self._config(tmp_path, with_backup=False)) is False
+
+        assert local.calls == []
+        assert "No qobuz-proxy venv backup" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_sidecar_that_will_not_stop_keeps_its_venv(self, update_service, tmp_path):
+        """The next step is `rm -rf` on the interpreter a running process is
+        executing from. The unit has Restart=always, so "not stopped" is the
+        normal answer when systemd is racing us."""
+        local = LocalCommands()
+        with patch.object(update_service, "_run_local", local), \
+                patch.object(update_service, "_stop_service", return_value=False):
+            assert await update_service._rollback_qobuz_venv(self._config(tmp_path)) is False
+
+        assert local.calls == []
+
+    @pytest.mark.asyncio
+    async def test_the_venv_is_restored_to_the_same_absolute_path(self, update_service, tmp_path):
+        """A venv's console scripts carry an absolute shebang. Restoring beside
+        the original instead of onto it gives a tree whose `bin/qobuz-proxy`
+        points at a path that no longer exists."""
+        config = self._config(tmp_path)
+        local = LocalCommands()
+        with patch.object(update_service, "_run_local", local), \
+                patch.object(update_service, "_stop_service", return_value=True), \
+                patch.object(update_service, "_start_service", return_value=True):
+            assert await update_service._rollback_qobuz_venv(config, True) is True
+
+        assert local.verbs() == ["rm", "mv"]
+        assert local.calls[0] == ("rm", "-rf", config["venv_path"])
+        assert local.calls[1] == ("mv", str(tmp_path / "backups" / "venv"), config["venv_path"])
+
+    @pytest.mark.asyncio
+    async def test_a_removal_that_failed_does_not_move_the_backup_onto_it(
+            self, update_service, tmp_path, caplog):
+        """`mv` onto a directory that still exists nests the backup inside it,
+        and the only copy of the working venv is then unreachable."""
+        local = LocalCommands(failures={"rm": (False, "Device or resource busy")})
+        with patch.object(update_service, "_run_local", local), \
+                patch.object(update_service, "_stop_service", return_value=True), \
+                caplog.at_level(logging.ERROR):
+            assert await update_service._rollback_qobuz_venv(self._config(tmp_path)) is False
+
+        assert local.verbs() == ["rm"]
+        assert "rollback (rm) failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_move_that_failed_is_reported_because_nothing_is_left(
+            self, update_service, tmp_path, caplog):
+        """The removal already ran: Qobuz has no venv at all at this point. The
+        False is what turns the caller's message into "manual intervention
+        required" instead of "rolled back"."""
+        local = LocalCommands(failures={"mv": (False, "Invalid cross-device link")})
+        with patch.object(update_service, "_run_local", local), \
+                patch.object(update_service, "_stop_service", return_value=True), \
+                caplog.at_level(logging.ERROR):
+            assert await update_service._rollback_qobuz_venv(self._config(tmp_path)) is False
+
+        assert "rollback (mv) failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_sidecar_that_was_stopped_is_left_stopped(self, update_service, tmp_path):
+        """It starts on demand when the user next selects Qobuz; starting it
+        here would put it on the bus for a source nobody chose."""
+        start = AsyncMock(return_value=True)
+        with patch.object(update_service, "_run_local", LocalCommands()), \
+                patch.object(update_service, "_stop_service", return_value=True), \
+                patch.object(update_service, "_start_service", start):
+            assert await update_service._rollback_qobuz_venv(
+                self._config(tmp_path), service_was_active=False) is True
+
+        start.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_restored_venv_whose_service_will_not_start_is_not_a_rollback(
+            self, update_service, tmp_path, caplog):
+        with patch.object(update_service, "_run_local", LocalCommands()), \
+                patch.object(update_service, "_stop_service", return_value=True), \
+                patch.object(update_service, "_start_service", return_value=False), \
+                caplog.at_level(logging.ERROR):
+            assert await update_service._rollback_qobuz_venv(
+                self._config(tmp_path), service_was_active=True) is False
+
+        assert "did not start" in caplog.text
+
+
+class TestVerifyQobuzUpdate:
+
+    @pytest.mark.asyncio
+    async def test_the_verification_imports_the_module_our_patches_live_in(self, update_service):
+        """The patches are re-applied to `qobuz_proxy.backends.local.stream`; an
+        import of the package alone would pass on a venv whose patched module
+        failed to compile, and Qobuz would then fail at the first track."""
+        local = LocalCommands(failures={"-c": (True, "1.4.2")})
+        with patch.object(update_service, "_run_local", local):
+            assert await update_service._verify_qobuz_update(QOBUZ, "1.4.2") == {"success": True}
+
+        argv = local.calls[0]
+        assert argv[0] == f"{QOBUZ['venv_path']}/bin/python"
+        assert "qobuz_proxy.backends.local.stream" in argv[2]
+
+    @pytest.mark.asyncio
+    async def test_a_version_that_did_not_move_is_a_failed_update(self, update_service):
+        """pip exits 0 when it resolves a cached wheel and installs nothing.
+        Without this the update reports success, the panel keeps offering the
+        same version, and the backup is deleted."""
+        local = LocalCommands(failures={"-c": (True, "1.4.1")})
+        with patch.object(update_service, "_run_local", local):
+            result = await update_service._verify_qobuz_update(QOBUZ, "1.4.2")
+
+        assert result["success"] is False
+        assert "1.4.1" in result["error"] and "1.4.2" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_the_version_is_read_from_the_last_line_of_the_output(self, update_service):
+        """A venv python prints deprecation warnings to stdout before the value;
+        reading the first line would compare a warning against a version."""
+        noisy = "DeprecationWarning: pkg_resources is deprecated\n1.4.2"
+        local = LocalCommands(failures={"-c": (True, noisy)})
+        with patch.object(update_service, "_run_local", local):
+            assert await update_service._verify_qobuz_update(QOBUZ, "1.4.2") == {"success": True}
+
+    @pytest.mark.asyncio
+    async def test_an_import_that_raises_is_reported_with_pythons_own_traceback(self, update_service):
+        local = LocalCommands(failures={"-c": (False, "ModuleNotFoundError: qobuz_proxy")})
+        with patch.object(update_service, "_run_local", local):
+            result = await update_service._verify_qobuz_update(QOBUZ, "1.4.2")
+
+        assert result["success"] is False
+        assert "ModuleNotFoundError" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_an_empty_answer_is_a_mismatch_not_a_match(self, update_service):
+        """`out.strip()` empty means the interpreter printed nothing; treating
+        that as the expected version would pass every verification."""
+        local = LocalCommands(failures={"-c": (True, "   ")})
+        with patch.object(update_service, "_run_local", local):
+            assert (await update_service._verify_qobuz_update(QOBUZ, "1.4.2"))["success"] is False
+
+
+class TestCleanupQobuzBackup:
+
+    @pytest.mark.asyncio
+    async def test_the_backup_is_dropped_once_the_update_is_verified(self, update_service, tmp_path):
+        """It is a full copy of the venv under /var/lib/milo; keeping it doubles
+        the sidecar's footprint on the SD card for ever."""
+        config = dict(QOBUZ, backup_path=str(tmp_path))
+        (tmp_path / "venv").mkdir()
+        local = LocalCommands()
+        with patch.object(update_service, "_run_local", local):
+            await update_service._cleanup_qobuz_backup(config)
+
+        assert local.calls == [("rm", "-rf", str(tmp_path / "venv"))]
+
+    @pytest.mark.asyncio
+    async def test_no_backup_means_nothing_to_remove(self, update_service, tmp_path):
+        local = LocalCommands()
+        with patch.object(update_service, "_run_local", local):
+            await update_service._cleanup_qobuz_backup(dict(QOBUZ, backup_path=str(tmp_path)))
+
+        assert local.calls == []
+
+    @pytest.mark.asyncio
+    async def test_a_cleanup_that_raises_does_not_fail_the_update(self, update_service, tmp_path, caplog):
+        """It is the last step of a successful update; a leftover backup is a
+        disk-space nuisance, not a reason to report the upgrade failed."""
+        config = dict(QOBUZ, backup_path=str(tmp_path))
+        (tmp_path / "venv").mkdir()
+        with patch.object(update_service, "_run_local",
+                          side_effect=OSError("read-only file system")), \
+                caplog.at_level(logging.WARNING):
+            await update_service._cleanup_qobuz_backup(config)
+
+        assert "read-only file system" in caplog.text
+
+
+class TestUpdateQobuzProxyFlow:
+    """The ordering of the sidecar upgrade, on the branches its existing tests
+    do not reach. Same stated limit as the rest of this file."""
+
+    STATUS = {"latest": {"version": "1.4.2", "tag_name": "v1.4.2"}}
+
+    @staticmethod
+    @contextmanager
+    def _flow(service, *, was_active=True, overrides=None):
+        returns = {
+            "_is_service_active": was_active,
+            "_backup_qobuz_venv": {"success": True},
+            "_stop_service": True,
+            "_start_service": True,
+            "_verify_qobuz_update": {"success": True},
+            "_rollback_qobuz_venv": True,
+            "_cleanup_qobuz_backup": None,
+        }
+        returns.update(overrides or {})
+        with ExitStack() as stack:
+            mocks = {
+                name: stack.enter_context(patch.object(service, name, return_value=value))
+                for name, value in returns.items()
+            }
+            local = LocalCommands((overrides or {}).pop("_local_failures", None))
+            mocks["_local"] = stack.enter_context(
+                patch.object(service, "_run_local", local)) and local
+            yield mocks
+
+    @pytest.mark.asyncio
+    async def test_pip_is_pinned_to_the_upstream_tag_and_the_local_extra(self, update_service):
+        """Two halves, both load-bearing. `[local]` pulls the extra that ships
+        the local backend Milō streams through — without it the sidecar imports
+        and answers nothing. And the ref is the *tag* (`v1.4.2`), not the parsed
+        version: pip resolves `git+…@1.4.2` to nothing and installs the default
+        branch, which is not a release at all."""
+        with self._flow(update_service) as flow:
+            assert await update_service._update_qobuz_proxy(self.STATUS) == {"success": True}
+
+        pip_argv = flow["_local"].calls[0]
+        assert pip_argv[0] == f"{QOBUZ['venv_path']}/bin/pip"
+        assert pip_argv[1:3] == ("install", "--upgrade")
+        assert pip_argv[3] == (
+            "qobuz-proxy[local] @ "
+            "git+https://github.com/leolobato/qobuz-proxy@v1.4.2"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_vendored_patches_are_re_applied_with_the_venvs_interpreter(
+            self, update_service):
+        """The patch script edits the installed sources in place, so it has to
+        run with the interpreter whose site-packages they live in. Run with the
+        backend's own python it patches nothing and reports success."""
+        with self._flow(update_service) as flow:
+            await update_service._update_qobuz_proxy(self.STATUS)
+
+        patch_argv = flow["_local"].calls[1]
+        assert patch_argv == (f"{QOBUZ['venv_path']}/bin/python",
+                              "/home/milo/milo/install/qobuz_proxy_patches.py")
+
+    @pytest.mark.asyncio
+    async def test_a_patch_that_no_longer_applies_rolls_the_venv_back(self, update_service):
+        """The fragile step by design: upstream moving an anchor is the expected
+        failure. Leaving the unpatched upgrade in place would give a Qobuz that
+        starts, plays, and ignores Milō's volume policy."""
+        local = LocalCommands({"qobuz_proxy_patches.py": (False, "anchor not found in stream.py")})
+        with self._flow(update_service) as flow, \
+                patch.object(update_service, "_run_local", local):
+            result = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert result["success"] is False
+        assert "anchor not found" in result["error"]
+        assert "Rolled back" in result["error"]
+        flow["_rollback_qobuz_venv"].assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_pip_that_refused_rolls_back_and_never_patches(self, update_service):
+        local = LocalCommands({"install": (False, "Could not find a version")})
+        with self._flow(update_service) as flow, \
+                patch.object(update_service, "_run_local", local):
+            result = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert "Could not find a version" in result["error"]
+        assert len(local.calls) == 1
+        flow["_rollback_qobuz_venv"].assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_backup_stops_before_pip_touches_the_venv(self, update_service):
+        with self._flow(update_service, overrides={
+            "_backup_qobuz_venv": {"success": False, "error": "venv backup failed: ENOSPC"},
+        }) as flow:
+            result = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert result["error"] == "venv backup failed: ENOSPC"
+        assert flow["_local"].calls == []
+        flow["_rollback_qobuz_venv"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_sidecar_that_will_not_stop_rolls_back_before_pip(self, update_service):
+        """The unit is `Restart=always`; upgrading the venv under a process that
+        is still running gives half-old, half-new imports."""
+        with self._flow(update_service, overrides={"_stop_service": False}) as flow:
+            result = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert result["success"] is False
+        assert flow["_local"].calls == []
+        flow["_rollback_qobuz_venv"].assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_an_already_stopped_sidecar_is_upgraded_without_touching_systemd(
+            self, update_service):
+        """The route deactivates Qobuz before calling this, so inactive is the
+        normal state. Starting it afterwards would leave a sidecar running for a
+        source the user has left."""
+        with self._flow(update_service, was_active=False) as flow:
+            assert await update_service._update_qobuz_proxy(self.STATUS) == {"success": True}
+
+        flow["_stop_service"].assert_not_called()
+        flow["_start_service"].assert_not_called()
+        flow["_cleanup_qobuz_backup"].assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_verified_upgrade_whose_service_will_not_restart_is_not_rolled_back(
+            self, update_service):
+        """Same call as the refused reboot in `_update_milo_app`: the venv is
+        upgraded and verified, and undoing a good update because systemd refused
+        would be worse. The backup is kept for the same reason."""
+        with self._flow(update_service, overrides={"_start_service": False}) as flow:
+            result = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert result["success"] is False
+        assert "Restart it manually" in result["error"]
+        flow["_rollback_qobuz_venv"].assert_not_called()
+        flow["_cleanup_qobuz_backup"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_verification_rolls_back_and_keeps_the_backup(self, update_service):
+        with self._flow(update_service, overrides={
+            "_verify_qobuz_update": {"success": False, "error": "Version mismatch after update"},
+        }) as flow:
+            result = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert "Version mismatch" in result["error"]
+        flow["_rollback_qobuz_venv"].assert_called_once()
+        flow["_cleanup_qobuz_backup"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_the_backup_is_only_dropped_once_everything_passed(self, update_service):
+        with self._flow(update_service) as flow:
+            await update_service._update_qobuz_proxy(self.STATUS)
+        flow["_cleanup_qobuz_backup"].assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_crash_before_the_backup_reports_no_rollback_outcome(self, update_service):
+        """Nothing was copied aside, so "rolled back" and "rollback also failed"
+        would both be lies; the bare exception text is the honest answer."""
+        with self._flow(update_service) as flow:
+            flow["_backup_qobuz_venv"].side_effect = OSError("disk gone")
+            result = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert result == {"success": False, "error": "disk gone"}
+        flow["_rollback_qobuz_venv"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_crash_after_the_backup_rolls_back(self, update_service):
+        with self._flow(update_service) as flow:
+            flow["_verify_qobuz_update"].side_effect = OSError("systemd gone")
+            result = await update_service._update_qobuz_proxy(self.STATUS)
+
+        assert "Rolled back" in result["error"]
+        flow["_rollback_qobuz_venv"].assert_called_once()
+
+
+class TestRunLocal:
+    """The unprivileged twin of `_run_deploy`, used for every venv operation."""
+
+    @pytest.mark.asyncio
+    async def test_stdout_is_returned_on_success(self, update_service):
+        with spawning(lambda argv: (0, b"1.4.2\n", b"")):
+            assert await update_service._run_local("python", "-c", "x") == (True, "1.4.2")
+
+    @pytest.mark.asyncio
+    async def test_stderr_is_preferred_when_the_command_failed(self, update_service):
+        with spawning(lambda argv: (1, b"noise", b"ERROR: no matching distribution")):
+            ok, out = await update_service._run_local("pip", "install", "x")
+        assert (ok, out) == (False, "ERROR: no matching distribution")
+
+    @pytest.mark.asyncio
+    async def test_stdout_is_the_fallback_when_a_failure_says_nothing(self, update_service):
+        """pip writes its resolver errors to stdout, not stderr; an empty
+        message would reach the UI as a bare "pip install failed: "."""
+        with spawning(lambda argv: (1, b"ERROR: Could not build wheels", b"")):
+            ok, out = await update_service._run_local("pip", "install", "x")
+        assert (ok, out) == (False, "ERROR: Could not build wheels")
+
+    @pytest.mark.asyncio
+    async def test_a_command_that_hangs_is_killed_and_reaped(self, update_service):
+        """`pip install` from a git ref compiles wheels on the Pi; a stalled one
+        would hold the update key for ever with no ceiling."""
+        with spawning(hang=["pip"]) as spawn:
+            ok, out = await update_service._run_local("pip", "install", "x", timeout=5)
+
+        assert ok is False and "Timed out after 5s" == out
+        assert spawn.killed == ["pip"]
+
+    @pytest.mark.asyncio
+    async def test_a_binary_that_does_not_exist_is_reported_not_raised(self, update_service):
+        """The venv's pip is gone exactly when a rollback needs to run."""
+        async def missing(*a, **k):
+            raise FileNotFoundError("/var/lib/milo/qobuz/venv/bin/pip")
+
+        with patch("asyncio.create_subprocess_exec", new=missing):
+            ok, out = await update_service._run_local("/var/lib/milo/qobuz/venv/bin/pip")
+
+        assert ok is False and "bin/pip" in out
+
+
+# =========================================================================== #
+# The residue: the recovery arms nothing had entered
+# =========================================================================== #
+
+class TestBinaryProgramRecoveryArms:
+    """`_update_binary_program` is the shared flow for go-librespot, CamillaDSP
+    and Navidrome. Its forward path is covered; these are the three exits taken
+    after the unit was already stopped and the binary already swapped."""
+
+    CONFIG_KEY = "camilladsp"
+
+    @staticmethod
+    @contextmanager
+    def _flow(service, *, overrides=None):
+        returns = {
+            "_is_service_active": True,
+            "_backup_binary_program": {"success": True},
+            "_download_binary_program": {
+                "success": True, "binary_path": "/tmp/dl/camilladsp", "temp_dir": "/tmp/dl"},
+            "_stop_service": True,
+            "_start_service": True,
+            "_run_deploy": (True, ""),
+            "_verify_binary_program": {"success": True},
+            "_rollback_binary_program": True,
+            "_cleanup_temp_files": None,
+        }
+        returns.update(overrides or {})
+        with ExitStack() as stack:
+            yield {
+                name: stack.enter_context(patch.object(service, name, return_value=value))
+                for name, value in returns.items()
+            }
+
+    STATUS = {"latest": {"version": "3.0.1"}}
+
+    @pytest.mark.asyncio
+    async def test_a_unit_that_will_not_come_back_rolls_back_and_releases_its_download(
+            self, update_service):
+        """CamillaDSP is always in the audio path: a unit that does not restart
+        is an appliance with no sound at all until someone intervenes."""
+        with self._flow(update_service, overrides={"_start_service": False}) as flow:
+            result = await update_service._update_binary_program(self.CONFIG_KEY, self.STATUS)
+
+        assert result["success"] is False
+        assert "Rolled back" in result["error"]
+        flow["_rollback_binary_program"].assert_called_once_with(PROGRAMS[self.CONFIG_KEY], True)
+        flow["_cleanup_temp_files"].assert_called_once_with("/tmp/dl")
+
+    @pytest.mark.asyncio
+    async def test_a_verification_that_fails_rolls_back_with_its_own_reason(self, update_service):
+        with self._flow(update_service, overrides={
+            "_verify_binary_program": {"success": False, "error": "CamillaDSP binary not found after update"},
+        }) as flow:
+            result = await update_service._update_binary_program(self.CONFIG_KEY, self.STATUS)
+
+        assert "binary not found after update" in result["error"]
+        flow["_rollback_binary_program"].assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_successful_update_releases_its_download(self, update_service):
+        """The tarball plus the unpacked binary is tens of megabytes on a tmpfs
+        /tmp; the success path is the one that runs on every update."""
+        with self._flow(update_service) as flow:
+            assert await update_service._update_binary_program(
+                self.CONFIG_KEY, self.STATUS) == {"success": True}
+
+        flow["_cleanup_temp_files"].assert_called_once_with("/tmp/dl")
+        flow["_rollback_binary_program"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_crash_before_the_unit_was_stopped_reports_no_rollback(self, update_service):
+        """Nothing was replaced, so "rolled back to previous version" would be a
+        sentence about an event that did not happen."""
+        with self._flow(update_service) as flow:
+            flow["_download_binary_program"].side_effect = OSError("connection reset")
+            result = await update_service._update_binary_program(self.CONFIG_KEY, self.STATUS)
+
+        assert result == {"success": False, "error": "connection reset"}
+        flow["_rollback_binary_program"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_crash_after_the_unit_was_stopped_rolls_back(self, update_service):
+        with self._flow(update_service) as flow:
+            flow["_verify_binary_program"].side_effect = OSError("systemd gone")
+            result = await update_service._update_binary_program(self.CONFIG_KEY, self.STATUS)
+
+        assert "Rolled back" in result["error"]
+        flow["_rollback_binary_program"].assert_called_once()
+        flow["_cleanup_temp_files"].assert_called_once_with("/tmp/dl")
+
+
+class TestDownloadSnapcastComponent:
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("component", ["snapserver", "snapclient"])
+    async def test_the_package_name_carries_the_arch_and_this_units_debian(
+            self, update_service, tmp_path, component):
+        """snapcast publishes one .deb per (component, arch, distro). Asking for
+        the bookworm build on a trixie unit installs and then fails to start on
+        a missing libstdc++ symbol — after the running snapserver was stopped."""
+        with downloading() as session, \
+                patch.object(update_service, "_get_debian_codename", return_value="trixie"), \
+                patch("tempfile.mkdtemp", return_value=str(tmp_path)):
+            result = await update_service._download_snapcast_component(component, "0.31.0")
+
+        assert result["success"] is True
+        assert session.urls == [
+            "https://github.com/badaix/snapcast/releases/download/v0.31.0/"
+            f"{component}_0.31.0-1_arm64_trixie.deb"
+        ]
+        assert Path(result["deb_path"]).name == f"{component}_0.31.0-1_arm64_trixie.deb"
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_component_creates_nothing_at_all(self, update_service):
+        """The temp dir is made only once the name is known, so this exit hands
+        the caller no `temp_dir` to release — and must therefore not have made
+        one."""
+        made = []
+        with patch("tempfile.mkdtemp", side_effect=lambda **kw: made.append(1)):
+            result = await update_service._download_snapcast_component("snapproxy", "0.31.0")
+
+        assert result["success"] is False
+        assert made == []
+
+    @pytest.mark.asyncio
+    async def test_a_missing_release_removes_its_temp_dir(self, update_service, tmp_path):
+        staging = tmp_path / "dl"
+        staging.mkdir()
+        with downloading(status=404), \
+                patch.object(update_service, "_get_debian_codename", return_value="bookworm"), \
+                patch("tempfile.mkdtemp", return_value=str(staging)):
+            result = await update_service._download_snapcast_component("snapserver", "9.9.9")
+
+        assert result["success"] is False
+        assert not staging.exists()
+
+    @pytest.mark.asyncio
+    async def test_a_download_that_raises_removes_its_temp_dir(self, update_service, tmp_path):
+        staging = tmp_path / "dl"
+        staging.mkdir()
+        with patch("backend.core.updates.update.aiohttp.ClientSession",
+                   side_effect=OSError("connection reset")), \
+                patch.object(update_service, "_get_debian_codename", return_value="bookworm"), \
+                patch("tempfile.mkdtemp", return_value=str(staging)):
+            result = await update_service._download_snapcast_component("snapclient", "0.31.0")
+
+        assert result["success"] is False
+        assert not staging.exists()
+
+
+class TestRunDeployTimeout:
+
+    @pytest.mark.asyncio
+    async def test_a_deploy_wrapper_that_hangs_is_killed_and_reaped(self, update_service):
+        """Every privileged step goes through this. `install-deb` runs
+        `apt-get -f install`, which can sit on a lock for ever."""
+        with spawning(hang=["sudo"]) as spawn:
+            ok, out = await update_service._run_deploy("install-deb", "/tmp/x.deb", timeout=7)
+
+        assert (ok, out) == (False, "Timed out after 7s")
+        assert spawn.killed == ["sudo"]
+
+    @pytest.mark.asyncio
+    async def test_a_missing_wrapper_is_reported_not_raised(self, update_service):
+        """`can_update_program` calls this to decide whether updates are offered
+        at all; a raise there would take the whole programs panel down."""
+        async def missing(*a, **k):
+            raise FileNotFoundError("sudo")
+
+        with patch("asyncio.create_subprocess_exec", new=missing):
+            ok, out = await update_service._run_deploy("check", timeout=5)
+
+        assert ok is False and "sudo" in out
+
+
+class TestCleanupTempFilesFailure:
+
+    @pytest.mark.asyncio
+    async def test_a_directory_that_cannot_be_removed_does_not_fail_the_update(
+            self, update_service, tmp_path, caplog):
+        """It runs on the success path of every flow; a raise here would turn a
+        completed update into a failure and trigger a rollback of good code."""
+        with patch("shutil.rmtree", side_effect=OSError("device busy")), \
+                caplog.at_level(logging.WARNING):
+            await update_service._cleanup_temp_files(str(tmp_path))
+
+        assert "device busy" in caplog.text
+
+
+class TestRollbackMiloToCommit:
+    """The most destructive method in the backend: `git -C <git_path> reset
+    --hard <sha>` where `git_path` is the production checkout.
+
+    Every spawn is doubled and the fixture at the top of this file makes an
+    escaped one raise, because a reset that ran for real would discard the
+    working tree of whoever is on the box.
+    """
+
+    STATUS = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
+
+    @staticmethod
+    def _router(*, reset=(0, b"", b""), pip=(0, b"", b"")):
+        def route(argv):
+            if "reset" in argv:
+                return reset
+            if str(argv[0]).endswith("pip3"):
+                return pip
+            return (0, b"", b"")
+        return route
+
+    @pytest.mark.asyncio
+    async def test_the_reset_names_the_checkout_and_the_saved_commit(self, update_service):
+        """`-C <git_path>` is what keeps the reset inside the checkout being
+        updated rather than the backend's own working directory, and the commit
+        is the one `_get_current_commit` banked before the pull."""
+        with spawning(self._router()) as spawn, \
+                patch.object(update_service, "_sync_system_files"), \
+                patch.object(update_service, "_restart_service", return_value=True), \
+                patch.object(update_service._systemd, "restart_self", new=AsyncMock()):
+            assert await update_service._rollback_milo_to_commit("abc123def") is True
+
+        git_path = update_service.programs["milo"]["git_path"]
+        assert spawn.argv_for("git") == (
+            "git", "-C", git_path, "reset", "--hard", "abc123def")
+
+    @pytest.mark.asyncio
+    async def test_a_reset_that_failed_stops_before_rebuilding_anything(
+            self, update_service, caplog):
+        """The tree is still on the broken commit. Rebuilding the frontend and
+        the venv against it, then restarting the backend, would make the failed
+        update permanent instead of merely failed."""
+        with spawning(self._router(reset=(128, b"", b"fatal: bad object abc123def"))) as spawn, \
+                patch.object(update_service, "_sync_system_files") as sync, \
+                caplog.at_level(logging.ERROR):
+            assert await update_service._rollback_milo_to_commit("abc123def") is False
+
+        assert "bad object" in caplog.text
+        assert spawn.programs() == ["git"]
+        sync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_venv_that_cannot_be_rebuilt_is_not_a_rollback(self, update_service):
+        """The tree is back on the old commit but the venv still holds the new
+        release's dependencies. Reporting True sends the caller's message
+        "Rolled back to previous version" over an appliance that will not boot."""
+        with spawning(self._router(pip=(1, b"", b"No matching distribution found"))), \
+                patch.object(update_service, "_sync_system_files") as sync:
+            assert await update_service._rollback_milo_to_commit("abc123def") is False
+        sync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_pip_that_hangs_is_killed_and_does_not_freeze_the_rollback(self, update_service):
+        """Unbounded, the rollback never reaches the backend restart and the UI
+        shows an update running for ever."""
+        fake = RecordingSpawn(self._router())
+
+        async def spawn_with_hanging_pip(program, *args, **kwargs):
+            proc = await fake(program, *args, **kwargs)
+            if str(program).endswith("pip3"):
+                async def times_out(input=None):
+                    raise asyncio.TimeoutError()
+                proc.communicate = times_out
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", new=spawn_with_hanging_pip), \
+                patch.object(update_service, "_sync_system_files") as sync:
+            assert await update_service._rollback_milo_to_commit("abc123def") is False
+        sync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_kiosk_that_stays_down_is_reported_but_not_fatal(self, update_service, caplog):
+        """A black screen the owner has to be told about; the tree is back on
+        the previous commit and the backend restart below is what puts the unit
+        back in service, so calling the rollback failed here would be wrong."""
+        restart_self = AsyncMock()
+        with spawning(self._router()), \
+                patch.object(update_service, "_sync_system_files"), \
+                patch.object(update_service, "_restart_service", return_value=False), \
+                patch.object(update_service._systemd, "restart_self", restart_self), \
+                caplog.at_level(logging.ERROR):
+            assert await update_service._rollback_milo_to_commit("abc123def") is True
+
+        assert "Kiosk failed to restart" in caplog.text
+        restart_self.assert_awaited_once_with("milo-backend.service")
+
+    @pytest.mark.asyncio
+    async def test_the_backend_restarts_itself_last(self, update_service):
+        """Restarting our own unit tears this process down mid-call, so anything
+        after it does not run — the kiosk restart and the system-file sync have
+        to be finished before it is issued."""
+        order = []
+        with spawning(self._router()), \
+                patch.object(update_service, "_sync_system_files",
+                             side_effect=lambda: order.append("sync") and None), \
+                patch.object(update_service, "_restart_service",
+                             side_effect=lambda unit: order.append(unit) or True), \
+                patch.object(update_service._systemd, "restart_self",
+                             side_effect=lambda unit: order.append("self")):
+            await update_service._rollback_milo_to_commit("abc123def")
+
+        assert order == ["sync", "milo-kiosk.service", "self"]
+
+
+class TestMiloAppPullArms:
+
+    STATUS = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
+
+    @staticmethod
+    def _router(*, pull=(0, b"", b"")):
+        def route(argv):
+            if "rev-parse" in argv:
+                return (0, b"abc123def456\n", b"")
+            if "pull" in argv:
+                return pull
+            return (0, b"", b"")
+        return route
+
+    @pytest.mark.asyncio
+    async def test_a_pull_that_failed_rolls_the_tree_back(self, update_service):
+        """A pull can leave the tree mid-merge; the saved commit is the only way
+        back to something that boots."""
+        with spawning(self._router(pull=(1, b"", b"fatal: could not read from remote"))), \
+                patch("pathlib.Path.exists", return_value=True), \
+                patch.object(update_service, "_rollback_milo_to_commit",
+                             return_value=True) as rollback:
+            result = await update_service._update_milo_app(self.STATUS)
+
+        assert "could not read from remote" in result["error"]
+        assert "Rolled back" in result["error"]
+        rollback.assert_awaited_once_with("abc123def456")
+
+    @pytest.mark.asyncio
+    async def test_a_pull_that_hangs_is_killed_and_rolls_back(self, update_service):
+        """Two minutes is the ceiling; a stalled fetch against an unreachable
+        remote would otherwise hold the update open for ever."""
+        fake = RecordingSpawn(self._router())
+
+        async def spawn_with_hanging_pull(program, *args, **kwargs):
+            proc = await fake(program, *args, **kwargs)
+            if "pull" in args:
+                async def times_out(input=None):
+                    raise asyncio.TimeoutError()
+                proc.communicate = times_out
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", new=spawn_with_hanging_pull), \
+                patch("pathlib.Path.exists", return_value=True), \
+                patch.object(update_service, "_rollback_milo_to_commit",
+                             return_value=True) as rollback:
+            result = await update_service._update_milo_app(self.STATUS)
+
+        assert "timed out" in result["error"]
+        rollback.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_failure_with_no_saved_commit_reports_no_rollback_outcome(self, update_service):
+        """`_get_current_commit` answers "" when HEAD cannot be read, and
+        `git reset --hard ""` would be worse than no rollback at all. The bare
+        error is then the honest answer — there is no outcome to describe."""
+        def route(argv):
+            if "rev-parse" in argv:
+                return (128, b"", b"fatal: not a git repository")
+            if "pull" in argv:
+                return (1, b"", b"fatal: refusing to merge unrelated histories")
+            return (0, b"", b"")
+
+        with spawning(route), patch("pathlib.Path.exists", return_value=True), \
+                patch.object(update_service, "_rollback_milo_to_commit") as rollback:
+            result = await update_service._update_milo_app(self.STATUS)
+
+        assert result["success"] is False
+        assert "Rolled back" not in result["error"]
+        assert "Rollback also failed" not in result["error"]
+        rollback.assert_not_called()
