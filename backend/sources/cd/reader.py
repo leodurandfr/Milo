@@ -57,12 +57,17 @@ class CdIoctlReader:
         Call wait_ready() to synchronize before telling mpv to loadfile.
         """
         self.stop()
-        self._stop_event.clear()
+        # A fresh event per run, handed to the thread rather than read off self.
+        # stop() gives up on a thread still inside a CDROMREADAUDIO retry after
+        # 3 s and drops the reference while it is alive; clearing a *shared*
+        # event here un-stopped that thread, which resumed writing PCM into the
+        # same FIFO as the new one.
+        self._stop_event = threading.Event()
         self._ready_event.clear()
         self._running = True
         self._thread = threading.Thread(
             target=self._read_loop,
-            args=(start_lba, end_lba),
+            args=(start_lba, end_lba, self._stop_event),
             daemon=True,
             name="cd-ioctl-reader",
         )
@@ -87,8 +92,14 @@ class CdIoctlReader:
             logger.warning("CD reader thread did not stop within timeout")
         self._thread = None
 
-    def _read_loop(self, start_lba: int, end_lba: int) -> None:
-        """Main read loop: ioctl read -> FIFO write."""
+    def _read_loop(self, start_lba: int, end_lba: int,
+                   stop_event: threading.Event) -> None:
+        """Main read loop: ioctl read -> FIFO write.
+
+        Reads its own ``stop_event``, never ``stop_event``: a thread this
+        object has already given up on must stay stopped when the next run
+        installs a fresh one.
+        """
         cd_fd = -1
         fifo_fd = -1
         try:
@@ -98,20 +109,20 @@ class CdIoctlReader:
             # Signal: CD device open, FIFO created, about to block on FIFO open
             self._ready_event.set()
 
-            if self._stop_event.is_set():
+            if stop_event.is_set():
                 return
 
             # Blocks until mpv opens the FIFO for reading
             fifo_fd = os.open(CD_FIFO_PATH, os.O_WRONLY)
 
-            if self._stop_event.is_set():
+            if stop_event.is_set():
                 return
 
             lba = start_lba
             audio_buf = ctypes.create_string_buffer(READ_CHUNK * SECTOR_SIZE)
             buf_ptr = ctypes.addressof(audio_buf)
 
-            while lba < end_lba and not self._stop_event.is_set():
+            while lba < end_lba and not stop_event.is_set():
                 nframes = min(READ_CHUNK, end_lba - lba)
 
                 # Pack struct cdrom_read_audio with native alignment:
@@ -121,7 +132,7 @@ class CdIoctlReader:
                 try:
                     fcntl.ioctl(cd_fd, CDROMREADAUDIO, req)
                 except OSError as e:
-                    if self._stop_event.is_set():
+                    if stop_event.is_set():
                         break
                     logger.error(f"CDROMREADAUDIO failed at LBA {lba}: {e}")
                     break
@@ -132,7 +143,7 @@ class CdIoctlReader:
                     view = memoryview(data)
                     offset = 0
                     while offset < len(data):
-                        if self._stop_event.is_set():
+                        if stop_event.is_set():
                             return
                         written = os.write(fifo_fd, view[offset:])
                         offset += written
@@ -140,7 +151,7 @@ class CdIoctlReader:
                     # mpv closed the read end (track change or stop)
                     break
                 except OSError as e:
-                    if self._stop_event.is_set():
+                    if stop_event.is_set():
                         break
                     logger.error(f"FIFO write error at LBA {lba}: {e}")
                     break
@@ -148,7 +159,7 @@ class CdIoctlReader:
                 lba += nframes
 
         except OSError as e:
-            if not self._stop_event.is_set():
+            if not stop_event.is_set():
                 logger.error(f"CD reader error: {e}")
         finally:
             self._running = False
