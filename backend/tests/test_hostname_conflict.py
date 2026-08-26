@@ -137,15 +137,8 @@ class FakeSpawn:
 
 
 def default_router(*, resolve_name=("milo.local\t192.168.1.55", 0),
-                   resolve_addr=None, browse=(BROWSE_SELF_ONLY, 0),
-                   ip_out=(IP_ADDR_SHOW, 0)):
-    """Build a router from the four answers the service can ask for.
-
-    `resolve_addr` maps an IP to its reverse answer; a missing key is a
-    resolution that failed, which is what a host with no PTR record gives.
-    """
-    reverse = resolve_addr or {}
-
+                   browse=(BROWSE_SELF_ONLY, 0), ip_out=(IP_ADDR_SHOW, 0)):
+    """Build a router from the three answers the service can ask for."""
     def route(argv):
         if argv[0] == "ip":
             return FakeProc(ip_out[1], ip_out[0])
@@ -153,14 +146,17 @@ def default_router(*, resolve_name=("milo.local\t192.168.1.55", 0),
             return FakeProc(browse[1], browse[0])
         if argv[0] == "avahi-resolve" and "-n" in argv:
             return FakeProc(resolve_name[1], resolve_name[0])
-        if argv[0] == "avahi-resolve" and "-a" in argv:
-            ip = argv[-1]
-            if ip in reverse:
-                return FakeProc(0, f"{ip}\t{reverse[ip]}")
-            return FakeProc(1, "", "Failed to resolve address")
         raise AssertionError(f"unrouted argv: {argv}")
 
     return route
+
+
+# The LAN as it looks when this unit lost the probe race and Avahi renamed it.
+BROWSE_RENAMED_SELF = "\n".join([
+    browse_record("milo-2.local", "2a01:e0a:1048:b5b0:e079:41ff:e835:8628", "IPv6"),
+    browse_record("milo-2.local", "192.168.1.55"),
+    browse_record("milo-client-2.local", "192.168.1.153"),
+]) + "\n"
 
 
 @pytest.fixture
@@ -384,6 +380,7 @@ class TestSomebodyElseOwnsMiloLocal:
         expected name, so `advertised_name` is left empty rather than guessed."""
         fake, spawn = with_spawn(default_router(
             resolve_name=("milo.local\t192.168.1.99", 0),
+            browse=(browse_record("milo.local", "192.168.1.99") + "\n", 0),
         ))
         with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
             assert await service.check() is True
@@ -399,6 +396,7 @@ class TestSomebodyElseOwnsMiloLocal:
         between reboots, on the one screen that must identify the box."""
         fake, spawn = with_spawn(default_router(
             resolve_name=("milo.local\t192.168.1.99", 0),
+            browse=(browse_record("milo.local", "192.168.1.99") + "\n", 0),
         ))
         with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
             await service.check()
@@ -420,14 +418,18 @@ class TestSomebodyElseOwnsMiloLocal:
         name alone rather than a fabricated address."""
         assert HostnameConflictService._first_non_loopback({"127.0.0.1"}) is None
 
-    async def test_loopback_is_never_reverse_resolved(self, service):
-        """127.0.0.1 is in the set by construction, and asking Avahi to reverse
-        it costs a 3 s timeout under the service lock for an answer that could
-        never be this unit's LAN name."""
+    async def test_the_name_is_never_read_by_reverse_resolution(self, service):
+        """`avahi-resolve -a` answers from unicast DNS whenever
+        `enable-wide-area=yes` — which Milō ships — so on this LAN it returns the
+        router's `.home` name for every address, including one whose mDNS name is
+        provably `milo-client-2.local`. It can therefore never say "we are
+        advertised as milo.local", and using it would turn every silent-Avahi
+        moment into a full-screen takeover. Measured 2026-08-26; the browse is
+        the only mDNS-only source."""
         fake, spawn = with_spawn(default_router(resolve_name=("", 1)))
         with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
             await service.check()
-        assert fake.argv_starting("avahi-resolve", "-a", "127.0.0.1") == []
+        assert fake.argv_starting("avahi-resolve", "-a") == []
 
 
 # --------------------------------------------------------------------------- #
@@ -497,7 +499,8 @@ class TestFailOpen:
         """`avahi-resolve` prints "<query>\\t<answer>"; a run that exits 0 with a
         single token has resolved nothing, and reading token 0 would hand the
         query string back as if it were an address."""
-        fake, spawn = with_spawn(default_router(resolve_name=("milo.local", 0)))
+        fake, spawn = with_spawn(default_router(
+            resolve_name=("milo.local", 0), browse=("", 0)))
         with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
             assert await service.check() is False
         assert service.get_state()["advertised_name"] is None
@@ -571,7 +574,9 @@ class TestBroadcast:
 
     async def test_the_transition_into_conflict_is_broadcast_once(self, service):
         """The takeover mounts on this event and on nothing else."""
-        conflicted = default_router(resolve_name=("milo.local\t192.168.1.99", 0))
+        conflicted = default_router(
+            resolve_name=("milo.local\t192.168.1.99", 0),
+            browse=(browse_record("milo.local", "192.168.1.99") + "\n", 0))
         fake, spawn = with_spawn(conflicted)
         with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
             await service.check()
@@ -590,7 +595,8 @@ class TestBroadcast:
         someone reloads the page."""
         with patch(f"{MODULE}.socket.gethostname", return_value="milo"):
             fake, spawn = with_spawn(default_router(
-                resolve_name=("milo.local\t192.168.1.99", 0)))
+                resolve_name=("milo.local\t192.168.1.99", 0),
+                browse=(browse_record("milo.local", "192.168.1.99") + "\n", 0)))
             with spawn:
                 assert await service.check() is True
             fake, spawn = with_spawn(default_router())
@@ -605,7 +611,8 @@ class TestBroadcast:
         (or in a unit test) must not raise on the broadcast."""
         bare = HostnameConflictService(systemd_manager=systemd)
         fake, spawn = with_spawn(default_router(
-            resolve_name=("milo.local\t192.168.1.99", 0)))
+            resolve_name=("milo.local\t192.168.1.99", 0),
+            browse=(browse_record("milo.local", "192.168.1.99") + "\n", 0)))
         with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
             assert await bare.check() is True
 
@@ -623,10 +630,7 @@ class TestAvahiReclaim:
     @staticmethod
     def _renamed_and_orphaned():
         """We answer to `milo-2.local`, and nobody at all holds `milo.local`."""
-        return default_router(
-            resolve_name=("", 1),
-            resolve_addr={"192.168.1.55": "milo-2.local"},
-        )
+        return default_router(resolve_name=("", 1), browse=(BROWSE_RENAMED_SELF, 0))
 
     async def test_a_renamed_orphan_restarts_avahi_to_reprobe(self, service, systemd):
         fake, spawn = with_spawn(self._renamed_and_orphaned())
@@ -696,7 +700,10 @@ class TestAvahiReclaim:
         this unit's advertisements for nothing."""
         fake, spawn = with_spawn(default_router(
             resolve_name=("milo.local\t192.168.1.99", 0),
-            resolve_addr={"192.168.1.55": "milo-2.local"},
+            browse=("\n".join([
+                browse_record("milo-2.local", "192.168.1.55"),
+                browse_record("milo.local", "192.168.1.99"),
+            ]) + "\n", 0),
         ))
         with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
             assert await service.check() is True
@@ -806,3 +813,94 @@ class TestState:
         handed_out = service.get_state()["other_milos"]
         handed_out.append("milo-9.local")
         assert service.get_state()["other_milos"] == ["milo-2.local"]
+
+
+# --------------------------------------------------------------------------- #
+# Reading our own advertised name (the branch the reverse lookup could not reach)
+# --------------------------------------------------------------------------- #
+
+class TestOwnAdvertisement:
+    """Before 2026-08-26 this was `avahi-resolve -a <our ip>`, and on this LAN
+    that answers from unicast DNS — the router's `.home` name for every address,
+    never a `.local` one. The "we are advertised correctly" verdict was
+    therefore unreachable, and any moment where `milo.local` failed to resolve
+    became a full-screen takeover plus an avahi-daemon restart."""
+
+    async def test_a_silent_forward_resolve_is_not_a_conflict_when_we_own_the_name(
+            self, service, systemd):
+        """The case the old path got wrong. `avahi-resolve -n milo.local` fails
+        — the daemon is mid-probe, or was just restarted — while the browse
+        still shows this host publishing `milo.local`. Nothing is in conflict."""
+        fake, spawn = with_spawn(default_router(resolve_name=("", 1)))
+        with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
+            assert await service.check() is False
+            await asyncio.sleep(0)
+
+        state = service.get_state()
+        assert state["advertised_name"] == EXPECTED_FQDN
+        assert state["local_ip"] == "192.168.1.55"
+        systemd.restart.assert_not_awaited()
+
+    async def test_a_renamed_unit_reads_its_real_avahi_name(self, service):
+        """`milo-2.local` is what the takeover shows the owner, and what
+        `_should_attempt_reclaim` compares against `milo.local`."""
+        fake, spawn = with_spawn(TestAvahiReclaim._renamed_and_orphaned())
+        with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
+            assert await service.check() is True
+            await service.cleanup()
+
+        state = service.get_state()
+        assert state["advertised_name"] == "milo-2.local"
+        assert state["local_ip"] == "192.168.1.55"
+
+    async def test_a_renamed_unit_does_not_list_itself_among_the_peers(self, service):
+        """The browse resolves every host twice, once per family, and
+        `_get_local_ips` reads `ip -4`. An IPv6 frame can never be recognised as
+        ours, so without the family filter this unit finds its own AAAA record
+        and tells its owner to turn this device off."""
+        fake, spawn = with_spawn(TestAvahiReclaim._renamed_and_orphaned())
+        with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
+            await service.check()
+            await service.cleanup()
+
+        assert service.get_state()["other_milos"] == []
+
+    async def test_a_unit_avahi_publishes_nothing_for_is_not_in_conflict(
+            self, service, systemd):
+        """avahi-daemon down, or bound to an interface that is: no record, no
+        name, no conflict — and no reclaim, because restarting a daemon that is
+        not publishing does not make a second Milō appear."""
+        fake, spawn = with_spawn(default_router(resolve_name=("", 1), browse=("", 0)))
+        with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
+            assert await service.check() is False
+            await asyncio.sleep(0)
+
+        assert service.get_state()["advertised_name"] is None
+        systemd.restart.assert_not_awaited()
+
+    async def test_a_dual_interface_host_reports_one_stable_name(self, service):
+        """Same reason as `_first_non_loopback`: a host advertising on eth0 and
+        wlan0 appears twice in the browse, and the name shown to the owner must
+        not change with the order the daemon happened to answer in."""
+        browse = "\n".join([
+            browse_record("milo-3.local", "192.168.1.39"),
+            browse_record("milo-2.local", "192.168.1.55"),
+        ]) + "\n"
+        fake, spawn = with_spawn(default_router(resolve_name=("", 1), browse=(browse, 0)))
+        with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
+            await service.check()
+            await service.cleanup()
+
+        assert service.get_state()["advertised_name"] == "milo-2.local"
+
+    async def test_a_peer_holding_the_name_leaves_us_without_one(self, service):
+        """We publish nothing (the peer won the probe) and somebody else holds
+        `milo.local`: that is the conflict the takeover exists for, and the name
+        field stays empty rather than borrowing the peer's."""
+        browse = browse_record("milo.local", "192.168.1.99") + "\n"
+        fake, spawn = with_spawn(default_router(
+            resolve_name=("milo.local\t192.168.1.99", 0), browse=(browse, 0)))
+        with patch(f"{MODULE}.socket.gethostname", return_value="milo"), spawn:
+            assert await service.check() is True
+
+        assert service.get_state()["advertised_name"] is None
