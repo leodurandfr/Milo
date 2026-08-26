@@ -553,3 +553,768 @@ async def test_going_idle_returns_the_label_to_the_static_one():
     await src._on_auto_stop()
 
     assert src.metadata["client_name"] == DLNA_CLIENT_NAME
+
+
+# =============================================================================
+# The bridge's supervise loop, the source's own callbacks, and the two guards
+# nothing reached: the resolver's cache and the artwork route.
+#
+# Danger specific to this file: `_connect_and_subscribe` builds an
+# `AiohttpNotifyServer`, which LISTENS on a port, and an `AiohttpRequester`,
+# which reaches the LAN. `never_the_real_upnp` below makes both RAISE for the
+# whole module — they are made to fail, never spied on — and every test that
+# needs them installs its own double.
+# =============================================================================
+import contextlib
+import errno
+from unittest.mock import Mock
+
+import aiohttp
+
+import backend.sources.dlna.metadata_reader as bridge_mod
+
+
+@pytest.fixture(autouse=True)
+def never_the_real_upnp(monkeypatch):
+    """No test opens a notify port or speaks to a renderer on this LAN."""
+    def refuse(*_a, **_k):
+        raise AssertionError("a test reached the real UPnP stack")
+
+    for name in ("AiohttpNotifyServer", "AiohttpRequester", "UpnpFactory", "DmrDevice"):
+        monkeypatch.setattr(bridge_mod, name, refuse)
+    monkeypatch.setattr(aiohttp, "ClientSession", refuse)
+
+
+class _RealBg:
+    """A BackgroundTaskSet that actually runs what it is given.
+
+    `_FakeBg` above closes the coroutine, which is right for the dispatch tests
+    and wrong for the supervise loop — `start()` spawns the loop through it, so
+    with the closing double the loop had never run.
+    """
+
+    def __init__(self):
+        self.tasks = []
+
+    def spawn(self, coro, label=None):
+        task = asyncio.ensure_future(coro)
+        self.tasks.append(task)
+        return task
+
+    async def cancel_all(self):
+        for task in self.tasks:
+            task.cancel()
+        with contextlib.suppress(Exception):
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+
+
+async def _until(predicate, timeout=2.0):
+    """Bounded poll. Every wait here sits behind a double that a mutation can
+    stop feeding, and an unbounded one turns that mutation into a hang."""
+    for _ in range(int(timeout / 0.01)):
+        if predicate():
+            return True
+        await asyncio.sleep(0.01)
+    return predicate()
+
+
+class TestTheSuperviseLoop:
+    """`_run` is what keeps the renderer subscribed for the life of the unit.
+
+    The GENA subscription renews itself while it is alive; this loop exists for
+    the case it cannot — gmediarender restarted, the renderer gone. A loop that
+    stops retrying means DLNA silently stops reporting anything until the
+    backend is restarted.
+    """
+
+    @staticmethod
+    def _bridge(**overrides):
+        bridge = _make_bridge()
+        bridge._bg = _RealBg()
+        bridge._poll_interval = 0.01
+        bridge._retry_delay = 0.01
+        for key, value in overrides.items():
+            setattr(bridge, key, value)
+        return bridge
+
+    async def test_a_successful_subscribe_announces_the_connection_then_polls(self):
+        bridge = self._bridge()
+        bridge._connect_and_subscribe = AsyncMock()
+        bridge._poll_once = AsyncMock()
+
+        await bridge.start()
+        try:
+            assert await _until(lambda: bridge._poll_once.await_count >= 2)
+        finally:
+            await asyncio.wait_for(bridge.stop(), 2.0)
+
+        bridge._on_connection.assert_any_await("connected")
+
+    async def test_a_renderer_that_goes_away_is_announced_and_retried(self):
+        """gmediarender restarting is the ordinary case. Without the retry the
+        source stays up and reports nothing for the rest of the session."""
+        bridge = self._bridge()
+        attempts = []
+
+        async def connect():
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise OSError("Connection refused")
+
+        bridge._connect_and_subscribe = connect
+        bridge._poll_once = AsyncMock()
+        bridge._teardown = AsyncMock()
+
+        await bridge.start()
+        try:
+            assert await _until(lambda: len(attempts) >= 3)
+        finally:
+            await asyncio.wait_for(bridge.stop(), 2.0)
+
+        bridge._on_connection.assert_any_await("disconnected")
+        assert bridge._teardown.await_count >= 2, \
+            "a failed attempt left its subscription and notify server behind"
+
+    async def test_a_poll_that_fails_reconnects_rather_than_ending_the_loop(self):
+        """The subscription is what feeds every metadata event; a poll failing
+        means the renderer is gone, so the whole thing is rebuilt."""
+        bridge = self._bridge()
+        bridge._connect_and_subscribe = AsyncMock()
+        bridge._teardown = AsyncMock()
+        polls = []
+
+        async def poll():
+            polls.append(1)
+            if len(polls) == 1:
+                raise OSError("renderer vanished")
+
+        bridge._poll_once = poll
+
+        await bridge.start()
+        try:
+            assert await _until(lambda: bridge._connect_and_subscribe.await_count >= 2)
+        finally:
+            await asyncio.wait_for(bridge.stop(), 2.0)
+
+    async def test_a_loop_failure_is_logged_where_the_operator_can_see_it(self, caplog):
+        bridge = self._bridge()
+        bridge._connect_and_subscribe = AsyncMock(side_effect=OSError("no route to host"))
+        bridge._teardown = AsyncMock()
+
+        with caplog.at_level("ERROR", logger="source.dlna.bridge"):
+            await bridge.start()
+            try:
+                assert await _until(
+                    lambda: any("no route to host" in r.message for r in caplog.records))
+            finally:
+                await asyncio.wait_for(bridge.stop(), 2.0)
+
+    async def test_a_disconnect_announcement_that_itself_fails_does_not_stop_the_retry(self):
+        """The consumer is a source that may be tearing down underneath us; its
+        failure must not be what ends the reconnection loop."""
+        bridge = self._bridge()
+        bridge._on_connection = AsyncMock(side_effect=RuntimeError("source gone"))
+        attempts = []
+
+        async def connect():
+            attempts.append(1)
+            raise OSError("Connection refused")
+
+        bridge._connect_and_subscribe = connect
+        bridge._teardown = AsyncMock()
+
+        await bridge.start()
+        try:
+            assert await _until(lambda: len(attempts) >= 3)
+        finally:
+            await asyncio.wait_for(bridge.stop(), 2.0)
+
+    async def test_stopping_unsubscribes_and_drains(self):
+        """The renderer keeps POSTing GENA callbacks at a notify server that is
+        gone otherwise, and the subscription is left to expire on its own."""
+        bridge = self._bridge()
+        bridge._connect_and_subscribe = AsyncMock()
+        bridge._poll_once = AsyncMock()
+        bridge._teardown = AsyncMock()
+
+        await bridge.start()
+        assert await _until(lambda: bridge._poll_once.await_count >= 1)
+        await asyncio.wait_for(bridge.stop(), 2.0)
+
+        bridge._teardown.assert_awaited()
+        assert bridge._running is False
+        assert all(t.done() or t.cancelled() for t in bridge._bg.tasks)
+
+
+class TestPolling:
+    """Position is polled, not evented: GENA carries transport state and track
+    metadata, and the playhead is only readable by asking."""
+
+    async def test_a_position_and_a_duration_are_forwarded_in_milliseconds(self):
+        bridge = _make_bridge()
+        bridge._dmr = _make_dmr()
+        bridge._dmr.async_update = AsyncMock()
+        bridge._dmr.media_position = 30
+        bridge._dmr.media_duration = 300
+
+        await asyncio.wait_for(bridge._poll_once(), 2.0)
+        bridge._on_progress.assert_awaited_once_with(30_000, 300_000)
+
+    async def test_the_renderer_is_refreshed_before_it_is_read(self):
+        """`async_update` is the SOAP call; without it the properties answer
+        whatever the last GENA event left behind and the bar never moves."""
+        bridge = _make_bridge()
+        order = []
+        bridge._dmr = _make_dmr()
+        bridge._dmr.async_update = AsyncMock(side_effect=lambda: order.append("update"))
+        bridge._dmr.media_position = 30
+        bridge._dmr.media_duration = 300
+        bridge._on_progress = AsyncMock(side_effect=lambda p, d: order.append("progress"))
+
+        await asyncio.wait_for(bridge._poll_once(), 2.0)
+        assert order == ["update", "progress"]
+
+    async def test_a_renderer_with_no_playhead_reports_nothing(self):
+        """A stream has no duration. Forwarded as 0 it would draw a zero-length
+        track; the source drops it, but sending it is what makes that necessary."""
+        bridge = _make_bridge()
+        bridge._dmr = _make_dmr()
+        bridge._dmr.async_update = AsyncMock()
+        bridge._dmr.media_position = 30
+        bridge._dmr.media_duration = None
+
+        await asyncio.wait_for(bridge._poll_once(), 2.0)
+        bridge._on_progress.assert_not_awaited()
+
+    async def test_polling_before_the_renderer_exists_is_harmless(self):
+        bridge = _make_bridge()
+        bridge._dmr = None
+        await asyncio.wait_for(bridge._poll_once(), 2.0)
+        bridge._on_progress.assert_not_awaited()
+
+
+class TestTeardown:
+    """Both halves are best-effort and independent: a renderer that has already
+    gone cannot be unsubscribed from, and failing there must not leave the
+    notify server listening."""
+
+    async def test_it_unsubscribes_and_closes_the_notify_server(self):
+        bridge = _make_bridge()
+        bridge._dmr = Mock(async_unsubscribe_services=AsyncMock())
+        bridge._server = Mock(async_stop_server=AsyncMock())
+        dmr, server = bridge._dmr, bridge._server
+
+        await asyncio.wait_for(bridge._teardown(), 2.0)
+
+        dmr.async_unsubscribe_services.assert_awaited_once()
+        server.async_stop_server.assert_awaited_once()
+        assert bridge._dmr is None and bridge._server is None
+
+    async def test_an_unreachable_renderer_still_frees_the_notify_port(self):
+        """This is the common case — the renderer going away is WHY we tear
+        down. A port left bound makes the next subscribe fail too."""
+        bridge = _make_bridge()
+        bridge._dmr = Mock(async_unsubscribe_services=AsyncMock(
+            side_effect=OSError("Connection refused")))
+        bridge._server = Mock(async_stop_server=AsyncMock())
+        server = bridge._server
+
+        await asyncio.wait_for(bridge._teardown(), 2.0)
+
+        server.async_stop_server.assert_awaited_once()
+        assert bridge._server is None
+
+    async def test_it_forgets_what_it_had_seen(self):
+        """The next subscription starts from a renderer that will re-announce
+        everything; keeping the old memory means the first full state is read as
+        'nothing changed' and the player stays blank."""
+        bridge = _make_bridge()
+        bridge._last_state = "PLAYING"
+        bridge._last_meta = ("Says", "Nils Frahm", "Spaces")
+        bridge._last_art = "http://dms/art.jpg"
+        bridge._last_origin = "http://dms/track.flac"
+
+        await asyncio.wait_for(bridge._teardown(), 2.0)
+
+        assert (bridge._last_state, bridge._last_meta,
+                bridge._last_art, bridge._last_origin) == (None, None, None, None)
+
+    async def test_tearing_down_twice_is_harmless(self):
+        bridge = _make_bridge()
+        await asyncio.wait_for(bridge._teardown(), 2.0)
+        await asyncio.wait_for(bridge._teardown(), 2.0)
+
+
+def _dlna_source():
+    src = DlnaSource()
+    src._bg = Mock()
+    src._bg.spawn = Mock(side_effect=lambda coro, **kw: coro.close())
+    return src
+
+
+class TestTransportState:
+    """`_on_play_state` — what the renderer's transport state does to the source.
+
+    The `stop` arm is the one with a condition on it, and it is not cosmetic: at
+    subscribe time an idle gmediarender reports STOPPED, and arming the idle
+    timer on that would bounce a source nobody has used yet.
+    """
+
+    async def test_playing_marks_the_source_playing_and_the_device_in_use(self):
+        src = _dlna_source()
+        await src._on_play_state("play")
+        assert src._is_playing is True
+        assert src._device_connected is True
+
+    async def test_pausing_arms_the_idle_timer(self):
+        src = _dlna_source()
+        src._start_pause_timer = Mock()
+        await src._on_play_state("pause")
+        assert src._is_playing is False
+        src._start_pause_timer.assert_called_once()
+
+    async def test_a_stop_from_a_controller_that_was_using_us_arms_the_timer(self):
+        src = _dlna_source()
+        src._start_pause_timer = Mock()
+        await src._on_play_state("play")
+        await src._on_play_state("stop")
+        assert src._is_playing is False
+        src._start_pause_timer.assert_called_once()
+
+    async def test_an_idle_renderer_reporting_stopped_at_subscribe_stays_quiet(self):
+        """This is what `_connect_and_subscribe`'s first `_dispatch_state` sends
+        on every boot. Armed here, the source restarts itself for a session that
+        never existed."""
+        src = _dlna_source()
+        src._start_pause_timer = Mock()
+        await src._on_play_state("stop")
+        src._start_pause_timer.assert_not_called()
+
+    async def test_playing_cancels_a_pending_idle_timer(self):
+        src = _dlna_source()
+        src._cancel_pause_timer = Mock()
+        await src._on_play_state("play")
+        src._cancel_pause_timer.assert_called_once()
+
+    async def test_the_published_metadata_carries_the_play_state(self):
+        src = _dlna_source()
+        await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm"})
+        await src._on_play_state("play")
+        assert src._metadata["is_playing"] is True
+        await src._on_play_state("pause")
+        assert src._metadata["is_playing"] is False
+
+
+class TestBridgeConnection:
+    """`conn`/`disc` from the bridge mean the RENDERER is reachable, not that a
+    controller is pushing — the baseline READY state."""
+
+    async def test_a_connected_bridge_does_not_claim_a_device_is_playing(self):
+        src = _dlna_source()
+        await src._on_connection("connected")
+        assert src._device_connected is False
+        assert src._is_playing is False
+
+    async def test_a_renderer_that_goes_away_resets_the_session(self):
+        """gmediarender restarting must not leave the last track on screen for a
+        renderer that no longer holds it."""
+        src = _dlna_source()
+        src._cancel_pause_timer = Mock()
+        await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm"})
+        src._artwork_data, src._artwork_mime = b"bytes", "image/png"
+        src._metadata["album_art_url"] = "/api/dlna/artwork?v=abc"
+
+        await src._on_connection("disconnected")
+
+        assert src._device_connected is False
+        assert src._is_playing is False
+        assert not {"title", "artist", "album_art_url"} & set(src._metadata)
+        assert src.get_artwork() is None
+        src._cancel_pause_timer.assert_called_once()
+
+
+class TestPolledProgress:
+    """Broadcasts are rate-limited to 30 s; the frontend interpolates locally
+    between them (useSourceProgress)."""
+
+    async def test_the_first_snapshot_is_broadcast(self):
+        src = _dlna_source()
+        src.broadcast_position_update = Mock()
+        await src._on_progress(30_000, 300_000)
+
+        src.broadcast_position_update.assert_called_once_with(30_000, 300_000)
+        assert src._metadata["position"] == 30_000
+        assert src._metadata["duration"] == 300_000
+
+    async def test_a_second_snapshot_inside_the_window_updates_without_broadcasting(self):
+        """The poll runs far more often than 30 s; broadcasting each one would
+        push a full state to every client on every tick for no new information."""
+        src = _dlna_source()
+        await src._on_progress(30_000, 300_000)
+        src.broadcast_position_update = Mock()
+
+        await src._on_progress(31_000, 300_000)
+
+        src.broadcast_position_update.assert_not_called()
+        assert src._metadata["position"] == 31_000, \
+            "the rate limit also swallowed the metadata update"
+
+    async def test_a_snapshot_past_the_window_is_broadcast_again(self):
+        src = _dlna_source()
+        await src._on_progress(30_000, 300_000)
+        src._last_progress_broadcast -= 31.0
+        src.broadcast_position_update = Mock()
+
+        await src._on_progress(61_000, 300_000)
+        src.broadcast_position_update.assert_called_once()
+
+    async def test_a_track_with_no_duration_is_dropped(self):
+        """An internet radio pushed over DLNA has none; taken as 0 the player
+        draws a zero-length bar and the position clamps to it."""
+        src = _dlna_source()
+        src.broadcast_position_update = Mock()
+
+        await src._on_progress(30_000, 0)
+
+        src.broadcast_position_update.assert_not_called()
+        assert "duration" not in src._metadata
+
+
+class TestFetchingTheCover:
+    """The art URL points at the media server, not at the renderer, so the fetch
+    is a plain HTTP GET onto the LAN — best-effort by design."""
+
+    @staticmethod
+    def _session(monkeypatch, *, status=200, body=b"", error=None):
+        resp = AsyncMock()
+        resp.status = status
+        resp.read = AsyncMock(return_value=body)
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=resp)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+
+        session = AsyncMock()
+        session.get = Mock(side_effect=error) if error else Mock(return_value=ctx)
+        outer = AsyncMock()
+        outer.__aenter__ = AsyncMock(return_value=session)
+        outer.__aexit__ = AsyncMock(return_value=False)
+        monkeypatch.setattr("backend.sources.dlna.source.aiohttp.ClientSession",
+                            Mock(return_value=outer))
+        return session
+
+    async def test_a_cover_that_is_served_comes_back_as_bytes(self, monkeypatch):
+        src = _dlna_source()
+        self._session(monkeypatch, body=_PNG)
+        assert await asyncio.wait_for(
+            src._fetch_artwork("http://dms/art.jpg"), 2.0) == _PNG
+
+    async def test_a_media_server_that_answers_an_error_yields_no_cover(self, monkeypatch, caplog):
+        """A 404 on album art is routine — the DIDL-Lite URL outlives the file.
+        Returning the error body would be stored and served as an image."""
+        src = _dlna_source()
+        self._session(monkeypatch, status=404, body=b"<html>Not Found</html>")
+
+        with caplog.at_level("WARNING", logger=src._logger.name):
+            assert await asyncio.wait_for(
+                src._fetch_artwork("http://dms/art.jpg"), 2.0) is None
+        assert any("404" in r.message for r in caplog.records)
+
+    async def test_a_media_server_that_cannot_be_reached_yields_no_cover(self, monkeypatch):
+        """Failure is silent by design: no cover simply means the placeholder."""
+        src = _dlna_source()
+        self._session(monkeypatch, error=OSError("Connection reset by peer"))
+        assert await asyncio.wait_for(
+            src._fetch_artwork("http://dms/art.jpg"), 2.0) is None
+
+    async def test_a_cover_is_dropped_if_the_track_moved_on_during_the_fetch(self, monkeypatch):
+        """The fetch is a LAN round trip. Published late, the outgoing track's
+        cover sits on the incoming one until the track after that."""
+        src = _dlna_source()
+        await src._on_metadata_update({"title": "One", "artist": "Nils Frahm"})
+
+        async def slow_read():
+            await src._on_metadata_update({"title": "Two", "artist": "Nils Frahm"})
+            return _PNG
+
+        resp = AsyncMock(status=200)
+        resp.read = slow_read
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=resp)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        session = AsyncMock()
+        session.get = Mock(return_value=ctx)
+        outer = AsyncMock()
+        outer.__aenter__ = AsyncMock(return_value=session)
+        outer.__aexit__ = AsyncMock(return_value=False)
+        monkeypatch.setattr("backend.sources.dlna.source.aiohttp.ClientSession",
+                            Mock(return_value=outer))
+
+        await asyncio.wait_for(src._on_artwork("http://dms/art.jpg"), 2.0)
+        assert src.get_artwork() is None
+        assert "album_art_url" not in src._metadata
+
+
+class TestTheResolverCache:
+    """One SSDP sweep costs seconds of MX wait, and the same media server serves
+    track after track."""
+
+    async def test_a_known_host_is_answered_without_a_second_sweep(self):
+        resolver = MediaServerResolver()
+        resolver._cache["192.168.1.50"] = "Synology DS"
+        resolver._sweep = AsyncMock()
+
+        assert await asyncio.wait_for(resolver.resolve("192.168.1.50"), 2.0) == "Synology DS"
+        resolver._sweep.assert_not_awaited()
+
+    async def test_a_host_that_answered_nothing_is_remembered_too(self):
+        """Re-sweeping for a host nobody claims would pay the MX wait again on
+        every track, for ever, to reach the same answer."""
+        resolver = MediaServerResolver()
+        resolver._cache["192.168.1.50"] = None
+        resolver._sweep = AsyncMock()
+
+        assert await asyncio.wait_for(resolver.resolve("192.168.1.50"), 2.0) is None
+        resolver._sweep.assert_not_awaited()
+
+    async def test_no_host_at_all_is_answered_without_a_sweep(self):
+        resolver = MediaServerResolver()
+        resolver._sweep = AsyncMock()
+        assert await asyncio.wait_for(resolver.resolve(""), 2.0) is None
+        resolver._sweep.assert_not_awaited()
+
+    async def test_two_callers_for_one_host_pay_for_a_single_sweep(self):
+        """Both would otherwise wait out the MX window, and the second would be
+        answering the first's question."""
+        resolver = MediaServerResolver()
+        sweeps = []
+
+        async def sweep():
+            sweeps.append(1)
+            await asyncio.sleep(0.02)
+            return {"192.168.1.50": "Synology DS"}
+
+        resolver._sweep = sweep
+        both = await asyncio.wait_for(asyncio.gather(
+            resolver.resolve("192.168.1.50"), resolver.resolve("192.168.1.50")), 2.0)
+
+        assert both == ["Synology DS", "Synology DS"]
+        assert len(sweeps) == 1
+
+    async def test_a_known_host_is_answered_while_another_host_is_being_swept(self):
+        """The check before the lock is not a duplicate of the one inside it.
+
+        A sweep is seconds of MX wait and it holds the lock for all of them; a
+        host already in the cache has to come back now, or the source-bar label
+        for a track from a known server waits out a discovery it has nothing to
+        do with.
+        """
+        resolver = MediaServerResolver()
+        resolver._cache["192.168.1.50"] = "Synology DS"
+        release = asyncio.Event()
+
+        async def slow_sweep():
+            await release.wait()
+            return {"192.168.1.99": "Other"}
+
+        resolver._sweep = slow_sweep
+        sweeping = asyncio.create_task(resolver.resolve("192.168.1.99"))
+        await asyncio.sleep(0)          # let it take the lock
+
+        known = asyncio.create_task(resolver.resolve("192.168.1.50"))
+        try:
+            for _ in range(50):
+                await asyncio.sleep(0.01)
+                if known.done():
+                    break
+            assert known.done(), \
+                "a cached host queued behind an unrelated sweep"
+            assert known.result() == "Synology DS"
+        finally:
+            release.set()
+            await asyncio.wait_for(sweeping, 2.0)
+
+    async def test_a_sweep_that_times_out_leaves_the_host_unknown(self, caplog):
+        """A clean negative is cached; a transient fault must NOT be, or one bad
+        moment pins the static label for the rest of the session."""
+        resolver = MediaServerResolver()
+
+        async def hang():
+            await asyncio.sleep(30)
+
+        resolver._sweep = hang
+        with patch("backend.sources.dlna.server_resolver._RESOLVE_TIMEOUT", 0.01), \
+                caplog.at_level("WARNING", logger="source.dlna.resolver"):
+            assert await asyncio.wait_for(resolver.resolve("192.168.1.50"), 2.0) is None
+
+        assert "192.168.1.50" not in resolver._cache
+        assert any("exceeded" in r.message for r in caplog.records)
+
+    async def test_a_sweep_that_fails_leaves_the_host_unknown(self):
+        resolver = MediaServerResolver()
+        resolver._sweep = AsyncMock(side_effect=OSError("Network is unreachable"))
+
+        assert await asyncio.wait_for(resolver.resolve("192.168.1.50"), 2.0) is None
+        assert "192.168.1.50" not in resolver._cache
+
+    async def test_one_sweep_banks_every_server_it_found(self):
+        """A second media server on the LAN then costs no second sweep."""
+        resolver = MediaServerResolver()
+        resolver._sweep = AsyncMock(return_value={
+            "192.168.1.50": "Synology DS", "192.168.1.51": "Plex",
+        })
+
+        assert await asyncio.wait_for(resolver.resolve("192.168.1.50"), 2.0) == "Synology DS"
+        resolver._sweep = AsyncMock()
+        assert await asyncio.wait_for(resolver.resolve("192.168.1.51"), 2.0) == "Plex"
+        resolver._sweep.assert_not_awaited()
+
+    async def test_a_host_no_sweep_claimed_is_banked_as_a_clean_negative(self):
+        resolver = MediaServerResolver()
+        resolver._sweep = AsyncMock(return_value={"192.168.1.51": "Plex"})
+
+        assert await asyncio.wait_for(resolver.resolve("192.168.1.50"), 2.0) is None
+        assert resolver._cache["192.168.1.50"] is None
+
+
+class TestTheArtworkRoute:
+    """`GET /api/dlna/artwork` — the cover fetched from the media server, served
+    to the player. Same contract as AirPlay's."""
+
+    @staticmethod
+    def _client(source):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from backend.sources.dlna.routes import setup_dlna_routes
+        app = FastAPI()
+        app.include_router(setup_dlna_routes(lambda: source), prefix="/api")
+        return TestClient(app)
+
+    def test_the_cover_is_served_with_the_type_it_was_stored_as(self):
+        src = DlnaSource()
+        src._artwork_data, src._artwork_mime = _PNG, "image/png"
+
+        resp = self._client(src).get("/api/dlna/artwork")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content == _PNG
+
+    def test_it_is_cached_privately_and_immutably(self):
+        src = DlnaSource()
+        src._artwork_data, src._artwork_mime = _PNG, "image/png"
+        cache = self._client(src).get("/api/dlna/artwork").headers["cache-control"]
+        assert "private" in cache and "immutable" in cache
+
+    def test_a_track_with_no_cover_is_a_404_and_not_an_error(self, caplog):
+        """The DIDL-Lite of plenty of tracks carries no art URL. Logged at ERROR
+        this would raise the WebSocket error banner on an ordinary track."""
+        with caplog.at_level("ERROR", logger="backend.sources.dlna.routes"):
+            resp = self._client(DlnaSource()).get("/api/dlna/artwork")
+
+        assert resp.status_code == 404
+        assert caplog.records == []
+
+
+class TestDlnaLifecycle:
+    """`_do_start` brings up gmediarender and the control-point bridge. Its
+    error arm is the interesting half: starting DLNA with the network down is an
+    expected outcome, not a fault to put on the system-error banner."""
+
+    @staticmethod
+    def _source(monkeypatch, bridge=None):
+        src = _dlna_source()
+        src._start_service_and_wait = AsyncMock(return_value=True)
+        src._load_auto_stop_config = AsyncMock()
+        src._update_connection_state = Mock()
+        made = bridge or Mock(start=AsyncMock(), stop=AsyncMock(),
+                              forget_last_seen=Mock())
+        monkeypatch.setattr("backend.sources.dlna.source.DlnaBridge",
+                            Mock(return_value=made))
+        monkeypatch.setattr("backend.sources.dlna.source.get_local_ip",
+                            Mock(return_value="192.168.1.10"))
+        return src, made
+
+    async def test_the_bridge_is_pointed_at_the_renderer_on_this_host(self, monkeypatch):
+        """gmediarender does not listen on loopback, so the description URL has
+        to carry the LAN address the renderer actually advertises on."""
+        src, bridge = self._source(monkeypatch)
+
+        assert await asyncio.wait_for(src._do_start(), 2.0) is True
+        assert src._description_url.startswith("http://192.168.1.10:")
+        assert src._description_url.endswith("/description.xml")
+        bridge.start.assert_awaited_once()
+
+    async def test_every_callback_is_wired(self, monkeypatch):
+        """Same failure mode as AirPlay: an un-wired one disables its branch in
+        `_dispatch_state` with nothing to show for it."""
+        src, _bridge = self._source(monkeypatch)
+        from backend.sources.dlna.source import DlnaBridge as Patched
+
+        await asyncio.wait_for(src._do_start(), 2.0)
+        kwargs = Patched.call_args.kwargs
+        assert kwargs["on_metadata"] == src._on_metadata_update
+        assert kwargs["on_play_state"] == src._on_play_state
+        assert kwargs["on_artwork"] == src._on_artwork
+        assert kwargs["on_media_origin"] == src._on_media_origin
+        assert kwargs["on_progress"] == src._on_progress
+        assert kwargs["on_connection"] == src._on_connection
+
+    async def test_a_renderer_that_will_not_start_builds_no_bridge(self, monkeypatch):
+        src, bridge = self._source(monkeypatch)
+        src._start_service_and_wait = AsyncMock(return_value=False)
+
+        assert await asyncio.wait_for(src._do_start(), 2.0) is False
+        bridge.start.assert_not_awaited()
+
+    async def test_starting_with_the_network_down_is_a_warning_not_an_error(
+            self, monkeypatch, caplog):
+        """ENETUNREACH is the link saying there is nothing to advertise on. At
+        ERROR it reaches the WebSocketLogHandler banner and sits on top of the
+        status card that already says the same thing."""
+        src, bridge = self._source(monkeypatch)
+        bridge.start = AsyncMock(side_effect=OSError(errno.ENETUNREACH, "Network is unreachable"))
+
+        with caplog.at_level("WARNING", logger=src._logger.name):
+            assert await asyncio.wait_for(src._do_start(), 2.0) is False
+
+        levels = {r.levelname for r in caplog.records if "Start failed" in r.message}
+        assert levels == {"WARNING"}, f"the expected no-network case logged {levels}"
+
+    async def test_any_other_start_failure_is_still_an_error(self, monkeypatch, caplog):
+        """The warning arm is narrow on purpose — a renderer that is genuinely
+        broken must still reach the operator."""
+        src, bridge = self._source(monkeypatch)
+        bridge.start = AsyncMock(side_effect=OSError(errno.ECONNREFUSED, "Connection refused"))
+
+        with caplog.at_level("WARNING", logger=src._logger.name):
+            assert await asyncio.wait_for(src._do_start(), 2.0) is False
+
+        levels = {r.levelname for r in caplog.records if "Start failed" in r.message}
+        assert levels == {"ERROR"}
+
+    async def test_a_failed_start_tears_the_bridge_down(self, monkeypatch):
+        """Left behind it keeps a notify port bound and its subscription alive,
+        and the next start builds a second one alongside it."""
+        src, bridge = self._source(monkeypatch)
+        src._load_auto_stop_config = AsyncMock(side_effect=RuntimeError("settings gone"))
+
+        assert await asyncio.wait_for(src._do_start(), 2.0) is False
+        assert src._bridge is None
+
+    async def test_cleanup_stops_the_bridge_and_forgets_the_session(self, monkeypatch):
+        src, bridge = self._source(monkeypatch)
+        await asyncio.wait_for(src._do_start(), 2.0)
+        src._device_connected = True
+        src._artwork_data, src._artwork_mime = _PNG, "image/png"
+
+        await asyncio.wait_for(src._cleanup(), 2.0)
+
+        bridge.stop.assert_awaited_once()
+        assert src._bridge is None
+        assert src._device_connected is False
+        assert src.get_artwork() is None
+
+    async def test_cleaning_up_twice_is_harmless(self, monkeypatch):
+        src, _bridge = self._source(monkeypatch)
+        await asyncio.wait_for(src._cleanup(), 2.0)
+        await asyncio.wait_for(src._cleanup(), 2.0)
