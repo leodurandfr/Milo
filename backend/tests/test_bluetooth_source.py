@@ -16,8 +16,39 @@ from unittest.mock import Mock, AsyncMock, patch
 from backend.sources.bluetooth.source import BluetoothSource
 from backend.sources.bluetooth.adapter import BluetoothAdapter
 from backend.sources.bluetooth.agent import BluetoothAgent
+from backend.sources.bluetooth import (
+    adapter as adapter_module,
+    agent as agent_module,
+    avrcp as avrcp_module,
+    monitor as monitor_module,
+)
 from backend.sources.bluetooth.monitor import BlueAlsaMonitor, PCM_REMOVED_PREFIX
 from backend.core.models.audio_state import SourceState
+
+
+@pytest.fixture(autouse=True)
+def never_the_real_system_bus(monkeypatch):
+    """The appliance's own BlueZ and BlueALSA are on this machine's system bus.
+
+    Measured 2026-08-24 and left open until B7: `BlueAlsaMonitor.start()` reached
+    `MessageBus(bus_type=BusType.SYSTEM).connect()` on the live socket at every
+    `pytest backend/` run on this host — the only connection the whole suite made
+    outside pytest's own temp directories. The bus was used there only to *read*
+    BlueZ names on a fail-open path, which is why it was classed benign; a test
+    should still not depend on BlueZ being present, and the next thing to reach
+    for that bus is not guaranteed to be a read.
+
+    Same shape as `test_bt_remote.py::never_the_real_system_bus`, but over the
+    **four** modules of this package that open one — `adapter`, `agent`,
+    `avrcp` and `monitor`. Measured: patching `monitor` alone left the two
+    connections in place, because `start()` reaches the adapter and the agent
+    first. Covering one module of a package is not covering the package.
+    """
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("a test reached the appliance's real D-Bus system bus")
+
+    for module in (adapter_module, agent_module, avrcp_module, monitor_module):
+        monkeypatch.setattr(module, "MessageBus", refuse, raising=False)
 
 
 @pytest.fixture
