@@ -7,6 +7,7 @@ by Pi-only smoke tests in Phase 6; here we exercise the pure-Python decoder
 and the controller's config lifecycle without touching real devices.
 """
 import asyncio
+import logging
 from types import SimpleNamespace
 
 import evdev
@@ -1035,3 +1036,116 @@ class TestLifecycle:
 
         assert controller._runtime_task is None
         assert task.done()
+
+
+class TestTheRuntimeLoopEndsQuietly:
+    """The three exits of `_runtime_loop` that were at 0 %.
+
+    It runs as a bare task nobody watches, so how it ends is the whole story:
+    an escaping exception is a silent crash, and — because nothing restarts
+    this loop — a receiver that stops reading leaves every button dead until
+    the setting is toggled or the unit reboots. That is a *constat*, not a
+    change: the gpio_ir_recv node is created by the overlay at boot and does
+    not come and go. What is pinned here is that the exit is reported, closes
+    the device, and does not take the process with it.
+    """
+
+    def _controller_reading(self, error):
+        controller = _runtime_controller()
+        controller._device_path = "/dev/input/event1"
+        device = MagicMock()
+        device.name = GPIO_IR_DEVICE_NAME
+
+        async def _loop():
+            raise error
+            yield  # pragma: no cover - makes this an async generator
+
+        device.async_read_loop = _loop
+        return controller, device
+
+    @pytest.mark.asyncio
+    async def test_a_receiver_that_stops_reading_is_reported_at_warning(self, caplog):
+        """OSError is the device going away — expected enough not to be an
+        ERROR, loud enough that `journalctl -u milo-backend` can explain a
+        remote that stopped working."""
+        controller, device = self._controller_reading(OSError(19, "No such device"))
+
+        with caplog.at_level(logging.WARNING), \
+                patch("evdev.InputDevice", return_value=device):
+            await controller._runtime_loop()
+
+        assert "IR device read failed" in caplog.text
+        device.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_any_other_fault_is_reported_at_error(self, caplog):
+        controller, device = self._controller_reading(RuntimeError("evdev bug"))
+
+        with caplog.at_level(logging.ERROR), \
+                patch("evdev.InputDevice", return_value=device):
+            await controller._runtime_loop()
+
+        assert "IR runtime loop error" in caplog.text
+        device.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_cancelled_loop_stays_cancelled_and_closes_the_device(self):
+        """Teardown cancels this task. Swallowing the cancellation would hold
+        the evdev fd open, and the pairing wizard needs it under `_mode_lock`."""
+        controller, device = self._controller_reading(asyncio.CancelledError())
+
+        with patch("evdev.InputDevice", return_value=device), \
+                pytest.raises(asyncio.CancelledError):
+            await controller._runtime_loop()
+
+        device.close.assert_called_once()
+
+
+class TestAKeycodeHandlerThatRaises:
+    @pytest.mark.asyncio
+    async def test_a_failing_action_does_not_end_the_read_loop(self, caplog):
+        """`_handle_keycode` is called straight from the read loop; letting an
+        exception out ends the loop and kills every button, not just the one
+        pressed."""
+        controller = _runtime_controller()
+        controller.volume_service.volume_config = None  # attribute access raises
+
+        with caplog.at_level(logging.ERROR):
+            await controller._handle_keycode(evdev.ecodes.KEY_VOLUMEUP)
+
+        assert "Error handling IR keycode" in caplog.text
+
+
+class TestAMenuResolutionThatRaises:
+    @pytest.mark.asyncio
+    async def test_a_failing_source_transition_is_logged_not_raised(self, caplog):
+        """The resolver runs from a timer into the BackgroundTaskSet; an
+        exception there surfaces as a task-set error rather than as the dead
+        MENU button it actually is."""
+        controller = _runtime_controller()
+        controller.state_machine.transition_to_source = AsyncMock(
+            side_effect=RuntimeError("state machine gone")
+        )
+        controller._menu_click_count = 2
+        controller._menu_pressed = False
+
+        with caplog.at_level(logging.ERROR):
+            await controller._resolve_menu_clicks()
+
+        assert "Error resolving MENU clicks" in caplog.text
+
+
+class TestPairingOnAHostWithoutEvdev:
+    @pytest.mark.asyncio
+    async def test_the_wizard_is_told_rather_than_left_waiting(self, monkeypatch):
+        """Off-Pi there is no receiver at all. Falling through would park the
+        wizard on its capture timeout instead of saying why."""
+        import backend.hardware.ir_remote as ir_module
+
+        monkeypatch.setattr(ir_module, "EVDEV_AVAILABLE", False)
+        controller = _runtime_controller()
+
+        assert await controller.start_pairing() == {
+            "status": "error", "message": "evdev not available",
+        }
+        assert controller._pairing_in_progress is False

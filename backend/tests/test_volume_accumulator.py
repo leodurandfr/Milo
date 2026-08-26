@@ -76,3 +76,31 @@ async def test_a_delta_after_cleanup_spawns_nothing():
 
     assert service.calls == []
     assert acc._processor_task is None
+
+
+async def test_a_refused_adjustment_does_not_strand_the_detents_behind_it():
+    """One refused push must not end the drain task.
+
+    `accumulate` only spawns a processor when none is running, so a detent
+    that arrives *while* a push is in flight has no other way in. If the
+    refusal kills the task, that delta sits in the accumulator until the next
+    detent — the knob skips, and nothing is logged above the one error.
+    """
+    service = _RecordingVolumeService()
+    failures = [RuntimeError("CamillaDSP is down")]
+    acc = VolumeAccumulator(service)
+
+    async def flaky(delta_db):
+        service.calls.append(delta_db)
+        if failures:
+            acc.accumulate(3.0)  # a detent turned while the push was in flight
+            raise failures.pop()
+
+    service.adjust_volume_db = flaky
+
+    acc.accumulate(2.0)
+    await asyncio.sleep(0.15)
+
+    assert service.calls == [2.0, 3.0], "the detent behind the refusal was applied"
+    assert acc._processor_running is False
+    await acc.cleanup()

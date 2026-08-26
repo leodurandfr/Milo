@@ -227,3 +227,77 @@ class TestCleanupDrains:
         await asyncio.wait_for(dispatcher.cleanup(), timeout=1)
 
         assert cancelled, "cleanup() left the resolve task running"
+
+
+class TestASourceThatIsNotThere:
+    """The three arms at 0 %: a registered source with no live instance, and a
+    command that raises.
+
+    `get_source` answers None while a source is mid-restart. Both dispatch
+    methods run inside a hardware monitor task — the IR runtime loop and the BT
+    per-device loop — so an escaping exception ends the task and the remote
+    goes dead until it reconnects, with one line in the journal.
+    """
+
+    @pytest.mark.asyncio
+    async def test_play_pause_on_a_source_with_no_instance_is_a_no_op(self, caplog):
+        """Without the guard the None is subscripted and the AttributeError
+        lands in the `except` below — same silence to the user, but an ERROR in
+        the journal on every press during a source restart."""
+        dispatcher = PlaybackDispatcher(
+            _make_state_machine(AudioSource.SPOTIFY, None)
+        )
+
+        await dispatcher.dispatch_play_pause()
+
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_track_nav_on_a_source_with_no_instance_is_a_no_op(self, caplog):
+        dispatcher = PlaybackDispatcher(
+            _make_state_machine(AudioSource.SPOTIFY, None)
+        )
+
+        await dispatcher.dispatch_track("next")
+
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_a_command_that_raises_does_not_escape_play_pause(self, caplog):
+        source = MagicMock()
+        source.command = AsyncMock(side_effect=RuntimeError("ipc socket gone"))
+        dispatcher = PlaybackDispatcher(
+            _make_state_machine(AudioSource.SPOTIFY, source)
+        )
+
+        await dispatcher.dispatch_play_pause()
+
+        assert "Error dispatching play/pause" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_command_that_raises_does_not_escape_track_nav(self, caplog):
+        source = MagicMock()
+        source.command = AsyncMock(side_effect=RuntimeError("ipc socket gone"))
+        dispatcher = PlaybackDispatcher(
+            _make_state_machine(AudioSource.SPOTIFY, source)
+        )
+
+        await dispatcher.dispatch_track("next")
+
+        assert "Error dispatching next" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_resolver_that_raises_does_not_kill_the_click_window(self, caplog):
+        """`_resolve_clicks` runs from a timer into the BackgroundTaskSet; an
+        exception there would surface as a task-set error and, worse, leave
+        `_click_count` at whatever it was — the next single press would resolve
+        as a double."""
+        sm = _make_state_machine(AudioSource.SPOTIFY, MagicMock())
+        sm.get_source = MagicMock(side_effect=RuntimeError("state machine gone"))
+        dispatcher = PlaybackDispatcher(sm)
+        dispatcher._click_count = 1
+
+        await dispatcher._resolve_clicks()
+
+        assert dispatcher._click_count == 0
+        assert "Error resolving clicks" in caplog.text
