@@ -27,7 +27,6 @@ What is pinned, in order of what it costs to get wrong:
 import ctypes
 import fcntl
 import os
-import struct
 import threading
 import time
 
