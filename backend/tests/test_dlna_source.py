@@ -1318,3 +1318,118 @@ class TestDlnaLifecycle:
         src, _bridge = self._source(monkeypatch)
         await asyncio.wait_for(src._cleanup(), 2.0)
         await asyncio.wait_for(src._cleanup(), 2.0)
+
+
+class TestSubscribing:
+    """`_connect_and_subscribe` builds the control point. It was never entered:
+    the whole of it is async-upnp-client wiring, and the autouse guard above
+    makes every one of those names raise unless a test installs a double.
+
+    Three details in it are load-bearing and none of them is obvious.
+    """
+
+    @staticmethod
+    def _stack(monkeypatch, *, local_ip="192.168.1.10"):
+        requester = Mock(name="requester")
+        device = Mock(name="device")
+        factory = Mock(async_create_device=AsyncMock(return_value=device))
+        server = Mock(async_start_server=AsyncMock(), event_handler=Mock(name="handler"))
+        dmr = Mock(async_subscribe_services=AsyncMock(),
+                   transport_state="STOPPED", media_title="", media_artist="",
+                   media_album_artist="", media_album_name="",
+                   media_image_url=None, current_track_uri=None)
+        made = {}
+
+        monkeypatch.setattr(bridge_mod, "AiohttpRequester", Mock(return_value=requester))
+        monkeypatch.setattr(bridge_mod, "UpnpFactory", Mock(return_value=factory))
+        monkeypatch.setattr(bridge_mod, "AiohttpNotifyServer",
+                            Mock(side_effect=lambda *a, **k: made.setdefault(
+                                "notify", (a, k)) and server or server))
+        monkeypatch.setattr(bridge_mod, "DmrDevice", Mock(return_value=dmr))
+        monkeypatch.setattr(bridge_mod, "get_local_ip", Mock(return_value=local_ip))
+        return SimpleNamespace(requester=requester, device=device, factory=factory,
+                               server=server, dmr=dmr, made=made)
+
+    async def test_the_notify_server_binds_to_the_lan_address_not_loopback(self, monkeypatch):
+        """gmediarender POSTs its GENA callbacks back to us and does not listen
+        on loopback, so a notify server bound to 127.0.0.1 subscribes fine and
+        then never receives a single event — the player stays blank while the
+        renderer plays."""
+        stack = self._stack(monkeypatch)
+        bridge = _make_bridge()
+
+        await asyncio.wait_for(bridge._connect_and_subscribe(), 2.0)
+
+        _args, kwargs = bridge_mod.AiohttpNotifyServer.call_args
+        assert kwargs["source"] == ("192.168.1.10", 0), \
+            "the notify server was not bound to the address the renderer routes to"
+        stack.server.async_start_server.assert_awaited_once()
+
+    async def test_the_subscription_renews_itself(self, monkeypatch):
+        """GENA subscriptions expire. Without auto_resubscribe the bridge goes
+        quiet after the timeout with no error anywhere — the supervise loop is
+        still happily polling, so nothing retries either."""
+        stack = self._stack(monkeypatch)
+        bridge = _make_bridge()
+
+        await asyncio.wait_for(bridge._connect_and_subscribe(), 2.0)
+        stack.dmr.async_subscribe_services.assert_awaited_once_with(auto_resubscribe=True)
+
+    async def test_the_renderer_is_read_once_at_subscribe_time(self, monkeypatch):
+        """GENA only sends what CHANGES. A renderer already playing when the
+        source starts sends nothing until the next track, so without this first
+        read the player is empty for the rest of the current one."""
+        stack = self._stack(monkeypatch)
+        stack.dmr.transport_state = "PLAYING"
+        stack.dmr.media_title = "Says"
+        stack.dmr.media_artist = "Nils Frahm"
+        bridge = _make_bridge()
+        bridge._bg = _RealBg()
+
+        await asyncio.wait_for(bridge._connect_and_subscribe(), 2.0)
+        await asyncio.gather(*bridge._bg.tasks, return_exceptions=True)
+
+        bridge._on_play_state.assert_awaited_with("play")
+        bridge._on_metadata.assert_awaited()
+
+    async def test_gena_events_are_routed_back_into_the_dispatch(self, monkeypatch):
+        """`on_event` is the only thing async-upnp-client calls when a NOTIFY
+        arrives; unset, the subscription is live and nothing reads it."""
+        stack = self._stack(monkeypatch)
+        bridge = _make_bridge()
+
+        await asyncio.wait_for(bridge._connect_and_subscribe(), 2.0)
+        assert stack.dmr.on_event == bridge._on_dmr_event
+
+        stack.dmr.transport_state = "PLAYING"
+        bridge._bg = _RealBg()
+        bridge._on_dmr_event(None, None)
+        await asyncio.gather(*bridge._bg.tasks, return_exceptions=True)
+        bridge._on_play_state.assert_awaited_with("play")
+
+    async def test_the_device_is_built_from_the_description_url(self, monkeypatch):
+        stack = self._stack(monkeypatch)
+        bridge = _make_bridge()
+
+        await asyncio.wait_for(bridge._connect_and_subscribe(), 2.0)
+        stack.factory.async_create_device.assert_awaited_once_with(
+            bridge._description_url)
+
+    async def test_a_renderer_that_is_not_there_raises_for_the_loop_to_retry(self, monkeypatch):
+        """Swallowed here, the supervise loop would treat a failed subscribe as
+        success and poll a renderer it never reached."""
+        self._stack(monkeypatch)
+        bridge_mod.UpnpFactory.return_value.async_create_device = AsyncMock(
+            side_effect=OSError("Connection refused"))
+        bridge = _make_bridge()
+
+        with pytest.raises(OSError):
+            await asyncio.wait_for(bridge._connect_and_subscribe(), 2.0)
+
+    async def test_dispatching_before_a_renderer_exists_is_harmless(self):
+        """`_teardown` sets `_dmr` to None while a GENA callback may still be in
+        flight — async-upnp-client calls it straight from the loop."""
+        bridge = _make_bridge()
+        bridge._dmr = None
+        bridge._dispatch_state()
+        bridge._on_play_state.assert_not_awaited()
