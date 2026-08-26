@@ -7,6 +7,7 @@ Every assertion here is about a machine CI can never reach — a second physical
 Pi — so the mocks stand for the satellite's HTTP surface and for git, and the
 assertion is always what the service concluded from what the satellite said.
 """
+import logging
 import tarfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
@@ -43,6 +44,13 @@ class _FakeResponse:
 
     async def json(self):
         return self._payload
+
+    async def text(self):
+        # aiohttp responses carry both; the app-update arm reads `text()` on a
+        # refusal because a satellite that rejects a tarball answers a plain
+        # message, not JSON. A double that only has `json()` is a shape the real
+        # server cannot produce.
+        return self._payload if isinstance(self._payload, str) else str(self._payload)
 
 
 class _FakeSatellite:
@@ -87,12 +95,12 @@ def _patch_satellite(satellite):
 @pytest.fixture
 def satellite_service():
     registry = Mock()
-    registry.get_all_clients = Mock(return_value={
-        "dc:a6:32:7e:d3:43": Mock(
-            is_local=False, ip="192.168.1.153", online=True,
-            host="milo-client", name="Canapé",
-        )
-    })
+    # `name` cannot be passed to the Mock constructor: it names the mock itself
+    # and leaves `client.name` a child Mock, which is how `display_name` ends up
+    # as a repr string in the payload the UI labels its buttons with.
+    canape = Mock(is_local=False, ip="192.168.1.153", online=True, host="milo-client")
+    canape.name = "Canapé"
+    registry.get_all_clients = Mock(return_value={"dc:a6:32:7e:d3:43": canape})
     return SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry)
 
 
@@ -367,3 +375,479 @@ class TestAppUpdateOutcome:
 
         assert result["success"] is False
         assert "timeout" in result["error"]
+
+
+# --------------------------------------------------------------------------- #
+# No test in this file may reach a real satellite or spawn a real process
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture(autouse=True)
+def never_a_real_satellite():
+    """Two doubles, both of which must FAIL rather than be spied on.
+
+    The conftest's network guard refuses a connect off this host, and both
+    satellites are off this host — but a refused connect leaves aiohttp raising
+    inside a `try` this service catches, so a leak stays green. Here the session
+    itself raises, which names the test that tried. The spawn double covers
+    `git -C <repo> describe`, whose repo is the live checkout.
+    """
+    def _refuse_session(*a, **k):
+        raise AssertionError("a real aiohttp session was opened towards a satellite")
+
+    async def _refuse_spawn(program, *args, **kwargs):
+        raise AssertionError(
+            f"a real process was spawned: {program} {' '.join(map(str, args))}"
+        )
+
+    with patch("backend.core.updates.satellite.aiohttp.ClientSession",
+               side_effect=_refuse_session), \
+            patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                  new=_refuse_spawn):
+        yield
+
+
+class TestDiscoverSatellites:
+    """The list every satellite action starts from — an update is dispatched by
+    `mac_id` against what this returned."""
+
+    @staticmethod
+    def _client(**kw):
+        # `name` is set after construction on purpose — see the fixture above.
+        defaults = dict(is_local=False, ip="192.168.1.153", online=True,
+                        host="milo-client")
+        display = kw.pop("name", "Canapé")
+        defaults.update(kw)
+        client = Mock(**defaults)
+        client.name = display
+        return client
+
+    @staticmethod
+    def _service(clients):
+        registry = Mock()
+        registry.get_all_clients = Mock(return_value=clients)
+        return SatelliteUpdateService(snapcast_service=Mock(),
+                                      client_registry_service=registry)
+
+    STATUS = {
+        "snapclient": {"version": "0.31.0", "running": True},
+        "uptime": 4242,
+        "app": {"version": "v0.1.0-1673-gdeadbee", "started_at": 1787000000},
+        "camilladsp": {"version": "3.0.1"},
+    }
+
+    async def test_an_online_satellite_is_described_from_the_registry_and_its_api(self):
+        service = self._service({"dc:a6:32:7e:d3:43": self._client()})
+        with _patch_satellite(_FakeSatellite(self.STATUS)):
+            found = await service.discover_satellites()
+
+        assert found == [{
+            "mac_id": "dc:a6:32:7e:d3:43",
+            "hostname": "milo-client",
+            "display_name": "Canapé",
+            "ip": "192.168.1.153",
+            "snapclient_version": "0.31.0",
+            "app_version": "v0.1.0-1673-gdeadbee",
+            "app_started_at": 1787000000,
+            "camilladsp_version": "3.0.1",
+            "online": True,
+            "uptime": 4242,
+            "snapclient_running": True,
+        }]
+
+    async def test_the_local_client_is_never_probed(self):
+        """The server's own snapclient has no `:8001` listener — the satellite
+        app is installed on satellites only. Probing it costs a 3 s timeout on
+        every refresh of the programs panel."""
+        service = self._service({"aa:bb:cc:dd:ee:ff": self._client(is_local=True)})
+        with _patch_satellite(_FakeSatellite(self.STATUS)):
+            assert await service.discover_satellites() == []
+
+    async def test_an_offline_client_is_never_probed(self):
+        """A speaker that is unplugged answers nothing; the timeout is what made
+        the panel take seconds to open with one satellite off."""
+        service = self._service({"dc:a6:32:7e:d3:43": self._client(online=False)})
+        with _patch_satellite(_FakeSatellite(self.STATUS)):
+            assert await service.discover_satellites() == []
+
+    async def test_a_client_the_registry_has_no_address_for_is_never_probed(self):
+        """`http://None:8001/status` is a DNS lookup for the string "None"."""
+        service = self._service({"dc:a6:32:7e:d3:43": self._client(ip=None)})
+        with _patch_satellite(_FakeSatellite(self.STATUS)):
+            assert await service.discover_satellites() == []
+
+    async def test_a_registry_with_nothing_in_it_opens_no_session(self):
+        """The early return is what keeps the autouse refusal above quiet: with
+        no candidate there is nothing to probe, and `asyncio.gather` of an empty
+        list would still have opened one."""
+        assert await self._service({}).discover_satellites() == []
+
+    async def test_a_satellite_that_refuses_the_probe_is_left_out(self):
+        """It is in the registry because snapcast sees its audio client, but the
+        satellite *app* may be down or mid-update. Listing it anyway offers an
+        update button that answers "not found or offline"."""
+        service = self._service({"dc:a6:32:7e:d3:43": self._client()})
+
+        class _Down(_FakeSatellite):
+            def get(self, url, **kwargs):
+                return _FakeResponse(503, {})
+
+        with _patch_satellite(_Down(self.STATUS)):
+            assert await service.discover_satellites() == []
+
+    async def test_one_satellite_timing_out_does_not_hide_the_other(self):
+        """One unreachable speaker must not empty the list for the ones that are
+        up — the panel would then offer no update at all.
+
+        Note for whoever mutates this: the `return_exceptions=True` on the
+        gather and the `isinstance(result, Exception)` arm below it are both
+        inert, because `_check_satellite_api` is `@handle_errors(default=…)` and
+        cannot raise. What actually carries this case is the `online` check."""
+        service = self._service({
+            "dc:a6:32:7e:d3:43": self._client(ip="192.168.1.153", name="Canapé"),
+            "d8:3a:dd:68:e7:e4": self._client(ip="192.168.1.60", name="Bureau"),
+        })
+
+        class _OneDead(_FakeSatellite):
+            def get(self, url, **kwargs):
+                if "192.168.1.60" in url:
+                    raise OSError("No route to host")
+                return _FakeResponse(200, TestDiscoverSatellites.STATUS)
+
+        with _patch_satellite(_OneDead(self.STATUS)):
+            found = await service.discover_satellites()
+
+        assert [s["display_name"] for s in found] == ["Canapé"]
+
+    async def test_a_satellite_with_no_name_falls_back_to_its_mac(self):
+        """The name is what the update dialog shows; an empty one would offer a
+        button labelled with nothing."""
+        service = self._service({"dc:a6:32:7e:d3:43": self._client(name=None)})
+        with _patch_satellite(_FakeSatellite(self.STATUS)):
+            found = await service.discover_satellites()
+
+        assert found[0]["display_name"] == "dc:a6:32:7e:d3:43"
+
+
+class TestUpdateSatelliteDispatch:
+    """`POST /api/programs/satellites/{mac}/update` lands here. Every arm below
+    is a different sentence in the UI's banner, and the satellite is the only
+    thing that knows which one is true."""
+
+    STATUS = TestDiscoverSatellites.STATUS
+
+    async def test_an_unknown_or_offline_satellite_is_refused_before_any_post(
+            self, satellite_service):
+        """Posting to the wrong address would start an update on a speaker the
+        user did not pick."""
+        fake = _FakeSatellite(self.STATUS)
+        with _patch_satellite(fake):
+            result = await satellite_service.update_satellite("00:00:00:00:00:00")
+
+        assert result["success"] is False
+        assert "not found or offline" in result["error"]
+        assert fake.posts == []
+
+    async def test_a_satellite_that_declines_reports_its_own_message(self, satellite_service):
+        """`started: false` is the legitimate already-up-to-date answer, not a
+        transport failure — the satellite's own message is the only thing that
+        distinguishes them."""
+        fake = _FakeSatellite(self.STATUS, post_payload={
+            "started": False, "message": "Already at the latest version"})
+        with _patch_satellite(fake):
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+
+        assert result == {"success": False, "error": "Already at the latest version"}
+
+    async def test_a_declined_update_with_no_message_still_says_something(self, satellite_service):
+        fake = _FakeSatellite(self.STATUS, post_payload={"started": False})
+        with _patch_satellite(fake):
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+
+        assert result == {"success": False, "error": "Update failed"}
+
+    async def test_an_update_started_without_a_target_is_refused_not_waited_on(
+            self, satellite_service):
+        """The target version is what the completion wait polls for. Reading it
+        with `[]` would raise a KeyError that reaches the UI as the string
+        `'target_version'`; waiting on None would poll until the timeout and
+        then report a timeout for an update that never began."""
+        fake = _FakeSatellite(self.STATUS, post_payload={"started": True})
+        with _patch_satellite(fake):
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+
+        assert result["success"] is False
+        assert "without a target_version" in result["error"]
+
+    async def test_a_refused_post_is_reported_with_its_status(self, satellite_service):
+        """A satellite mid-reboot answers 502 through its own nginx."""
+        class _Refusing(_FakeSatellite):
+            def post(self, url, **kwargs):
+                self.posts.append(url)
+                return _FakeResponse(502, {})
+
+        with _patch_satellite(_Refusing(self.STATUS)):
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+
+        assert result == {"success": False, "error": "HTTP 502"}
+
+    async def test_a_transport_that_dies_mid_update_is_reported_not_raised(
+            self, satellite_service, caplog):
+        """The route turns this dict into a banner; an exception would reach the
+        client as a 500 with no indication of which satellite failed."""
+        class _Dropping(_FakeSatellite):
+            def post(self, url, **kwargs):
+                raise OSError("Connection reset by peer")
+
+        with _patch_satellite(_Dropping(self.STATUS)), caplog.at_level(logging.ERROR):
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+
+        assert result["success"] is False
+        assert "Connection reset" in result["error"]
+        assert "dc:a6:32:7e:d3:43" in caplog.text
+
+    async def test_the_update_is_posted_to_the_satellites_own_api_port(self, satellite_service):
+        """`CLIENT_API_PORT` is the satellite app's only listener; posting to 80
+        reaches its nginx and 404s, which reads as "satellite refused"."""
+        fake = _FakeSatellite(self.STATUS, post_payload={"started": False})
+        with _patch_satellite(fake):
+            await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+
+        assert fake.posts == [
+            f"http://192.168.1.153:{satellite_service.satellite_api_port}/update"
+        ]
+
+
+class TestSatelliteUpdateRecoveryArms:
+    """The arms every waiter and every push shares: a satellite that never
+    answers, one that answers something unparsable, and one that refuses."""
+
+    STATUS = TestDiscoverSatellites.STATUS
+
+    async def test_a_satellite_that_stops_answering_mid_update_is_a_timeout(
+            self, satellite_service):
+        """The poll loop swallows every transport error and keeps going — a
+        satellite rebooting into its new snapclient is *expected* to refuse
+        connections for a few seconds. What must not happen is the loop dying on
+        the first refusal and reporting a failure for an update that worked."""
+        class _DiesAfterPost(_FakeSatellite):
+            def get(self, url, **kwargs):
+                if url.endswith("/update/status") and self.posts:
+                    raise OSError("Connection refused")
+                return super().get(url, **kwargs)
+
+        fake = _DiesAfterPost(self.STATUS, post_payload={
+            "started": True, "target_version": "0.32.0"})
+        with _patch_satellite(fake), patch("asyncio.sleep", new=AsyncMock()):
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+
+        assert result["success"] is False
+        assert "timeout" in result["error"]
+
+    async def test_a_camilladsp_update_is_dispatched_to_its_own_endpoint(
+            self, satellite_service):
+        """The satellite serves snapclient, CamillaDSP and app updates on three
+        separate paths; the wrong one 404s and reads as "satellite refused"."""
+        fake = _FakeSatellite(self.STATUS, post_payload={"started": False})
+        with _patch_satellite(fake):
+            await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+
+        assert fake.posts == [
+            f"http://192.168.1.153:{satellite_service.satellite_api_port}/camilladsp/update"
+        ]
+
+    async def test_an_unknown_satellite_gets_no_camilladsp_push(self, satellite_service):
+        fake = _FakeSatellite(self.STATUS)
+        with _patch_satellite(fake):
+            result = await satellite_service.update_satellite_camilladsp("00:00:00:00:00:00")
+
+        assert "not found or offline" in result["error"]
+        assert fake.posts == []
+
+    async def test_a_camilladsp_update_started_without_a_target_is_refused(
+            self, satellite_service):
+        fake = _FakeSatellite(self.STATUS, post_payload={"started": True})
+        with _patch_satellite(fake):
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+
+        assert "without a target_version" in result["error"]
+
+    async def test_a_camilladsp_update_the_satellite_declined_carries_its_message(
+            self, satellite_service):
+        fake = _FakeSatellite(self.STATUS, post_payload={
+            "started": False, "message": "CamillaDSP is already at 3.0.1"})
+        with _patch_satellite(fake):
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+
+        assert result == {"success": False, "error": "CamillaDSP is already at 3.0.1"}
+
+    async def test_a_refused_camilladsp_post_reports_its_status(self, satellite_service):
+        class _Refusing(_FakeSatellite):
+            def post(self, url, **kwargs):
+                return _FakeResponse(500, {})
+
+        with _patch_satellite(_Refusing(self.STATUS)):
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+
+        assert result == {"success": False, "error": "HTTP 500"}
+
+    async def test_a_camilladsp_transport_failure_is_reported_not_raised(
+            self, satellite_service, caplog):
+        class _Dropping(_FakeSatellite):
+            def post(self, url, **kwargs):
+                raise OSError("No route to host")
+
+        with _patch_satellite(_Dropping(self.STATUS)), caplog.at_level(logging.ERROR):
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+
+        assert "No route to host" in result["error"]
+        assert "dc:a6:32:7e:d3:43" in caplog.text
+
+    async def test_a_camilladsp_satellite_that_stops_answering_is_a_timeout(
+            self, satellite_service):
+        class _DiesAfterPost(_FakeSatellite):
+            def get(self, url, **kwargs):
+                if self.posts:
+                    raise OSError("Connection refused")
+                return super().get(url, **kwargs)
+
+        fake = _DiesAfterPost(self.STATUS, post_payload={
+            "started": True, "target_version": "3.0.2"})
+        with _patch_satellite(fake), patch("asyncio.sleep", new=AsyncMock()):
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+
+        assert "CamillaDSP update timeout" in result["error"]
+
+    async def test_an_unknown_satellite_is_never_sent_a_tarball(self, satellite_service):
+        """Building the tarball is a `git describe` plus tens of megabytes of
+        compression; the lookup comes first so an offline satellite costs
+        nothing."""
+        fake = _FakeSatellite(self.STATUS)
+        with _patch_satellite(fake):
+            result = await satellite_service.update_satellite_app("00:00:00:00:00:00")
+
+        assert "not found or offline" in result["error"]
+        assert fake.posts == []
+
+    async def test_a_server_that_cannot_describe_itself_ships_nothing(
+            self, satellite_service, caplog):
+        """`_create_client_tarball` refuses without a version, and the version
+        it stamps is what the satellite writes to its own version file — an
+        unstamped push would make every later comparison meaningless."""
+        with _patch_satellite(_FakeSatellite(self.STATUS)), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      AsyncMock(return_value=_mock_proc(b"", returncode=128))), \
+                caplog.at_level(logging.ERROR):
+            result = await satellite_service.update_satellite_app("dc:a6:32:7e:d3:43")
+
+        assert result["success"] is False
+        assert "Could not determine server version" in result["error"]
+
+    async def test_a_missing_client_tree_is_refused_before_any_transfer(
+            self, satellite_service, tmp_path):
+        """A server whose checkout has no `milo-client/` would otherwise ship an
+        empty archive and the satellite would extract nothing over its app."""
+        with _patch_satellite(_FakeSatellite(self.STATUS)), \
+                patch("backend.core.updates.satellite.MILO_CLIENT_DIR", tmp_path / "absent"), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode()))):
+            result = await satellite_service.update_satellite_app("dc:a6:32:7e:d3:43")
+
+        assert "milo-client directory not found" in result["error"]
+
+    async def test_the_tarball_is_deleted_whatever_happened(
+            self, satellite_service, tmp_path):
+        """It is written under /tmp, which is tmpfs on this appliance. A failed
+        push per satellite per attempt eats the RAM the audio path needs."""
+        tree = tmp_path / "milo-client"
+        (tree / "app").mkdir(parents=True)
+        (tree / "app" / "main.py").write_text("app\n")
+        made = []
+
+        class _Refusing(_FakeSatellite):
+            def post(self, url, **kwargs):
+                return _FakeResponse(507, {})
+
+        real_tarball = SatelliteUpdateService._create_client_tarball
+
+        async def recording(self):
+            path, version = await real_tarball(self)
+            made.append(path)
+            return path, version
+
+        with _patch_satellite(_Refusing(self.STATUS)), \
+                patch("backend.core.updates.satellite.MILO_CLIENT_DIR", tree), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode()))), \
+                patch.object(SatelliteUpdateService, "_create_client_tarball", recording):
+            result = await satellite_service.update_satellite_app("dc:a6:32:7e:d3:43")
+
+        assert result["success"] is False
+        assert "507" in result["error"]
+        assert made and not Path(made[0]).exists()
+
+    async def test_a_satellite_refusing_connections_while_it_restarts_is_not_a_failure(
+            self, satellite_service, tmp_path):
+        """The waiter polls across the satellite's own restart, so a refused
+        connection is the *expected* answer for a few seconds. A loop that gave
+        up on the first one would report every successful app update as failed."""
+        tree = tmp_path / "milo-client"
+        (tree / "app").mkdir(parents=True)
+        (tree / "app" / "main.py").write_text("app\n")
+
+        class _RebootingThenBack(_FakeSatellite):
+            def __init__(self):
+                super().__init__(
+                    status_payload={"app": {"version": "v0.1.0-1600-gold", "started_at": 1000},
+                                    "snapclient": {"version": "0.28.0"}},
+                    post_payload={},
+                )
+                self.gets = 0
+
+            def get(self, url, **kwargs):
+                self.gets += 1
+                if self.posts and self.gets <= 3:
+                    raise OSError("Connection refused")
+                if self.posts:
+                    self.status_payload = {
+                        "app": {"version": SERVER_VERSION, "started_at": 2000},
+                        "snapclient": {"version": "0.28.0"},
+                    }
+                return super().get(url, **kwargs)
+
+        fake = _RebootingThenBack()
+        with _patch_satellite(fake), \
+                patch("backend.core.updates.satellite.MILO_CLIENT_DIR", tree), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode()))), \
+                patch("asyncio.sleep", new=AsyncMock()):
+            result = await satellite_service.update_satellite_app("dc:a6:32:7e:d3:43")
+
+        assert result["success"] is True
+        assert result["new_version"] == SERVER_VERSION
+
+    async def test_a_stray_bytecode_file_outside_pycache_is_not_shipped(
+            self, satellite_service, tmp_path):
+        """`__pycache__` and `.pyc` are two separate rules, and
+        `TARBALL_EXCLUDE_PATTERNS` is a *set* — so which one catches a file
+        inside `__pycache__` depends on iteration order. A `.pyc` left beside
+        its source (an interrupted install, an old layout) is only caught by the
+        extension rule, and the satellite would extract it over a module it no
+        longer matches."""
+        tree = tmp_path / "milo-client"
+        (tree / "app").mkdir(parents=True)
+        (tree / "app" / "main.py").write_text("app\n")
+        (tree / "app" / "stale.pyc").write_bytes(b"\x00")
+
+        with patch("backend.core.updates.satellite.MILO_CLIENT_DIR", tree), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode()))):
+            tarball_path, _ = await satellite_service._create_client_tarball()
+
+        try:
+            with tarfile.open(tarball_path, "r:gz") as tar:
+                members = [m.name for m in tar.getmembers()]
+        finally:
+            Path(tarball_path).unlink()
+
+        assert "milo-client/app/main.py" in members
+        assert not [m for m in members if m.endswith(".pyc")]

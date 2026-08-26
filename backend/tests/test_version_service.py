@@ -543,3 +543,115 @@ class TestGetAllProgramStatus:
 
         assert result["milo"]["status"] == "error"
         assert "milo error" in result["milo"]["message"]
+
+
+class TestVersionDetectionResidue:
+    """The three arms the programs panel reads when detection half-works."""
+
+    @pytest.mark.asyncio
+    async def test_a_git_program_carries_the_raw_describe_alongside_the_number(
+            self, version_service):
+        """Milō's own version is `v0.1.0-1673-gdeadbee`; the regex reduces it to
+        `0.1.0`, which is the same for every commit since the tag. The satellite
+        update path compares the *raw* describe on both sides, so dropping it
+        makes every satellite look current."""
+        with patch.object(version_service, "_execute_version_command",
+                          return_value=("v0.1.0-1673-gdeadbee", "0.1.0")):
+            result = await version_service.get_installed_version("milo")
+
+        assert result["status"] == "installed"
+        assert result["versions"]["main"] == "0.1.0"
+        assert result["raw_version"] == "v0.1.0-1673-gdeadbee"
+
+    @pytest.mark.asyncio
+    async def test_a_program_without_a_checkout_carries_no_raw_version(self, version_service):
+        """`raw_version` only means something for a git tree; on a binary it
+        would be the `--version` banner, and the satellite comparison would then
+        be against a string that never matches."""
+        with patch.object(version_service, "_execute_version_command",
+                          return_value=("snapserver v0.28.0", "0.28.0")):
+            result = await version_service.get_installed_version("multiroom")
+
+        assert "raw_version" not in result
+
+    @pytest.mark.asyncio
+    async def test_output_the_regex_cannot_read_is_an_error_not_a_version(
+            self, version_service):
+        """A binary that prints an unexpected banner after an upstream change
+        must read as not-installed, so the panel offers a reinstall — rather
+        than as installed at some version nobody parsed."""
+        with patch.object(version_service, "_execute_version_command",
+                          return_value=("shairport-sync unknown build", None)):
+            result = await version_service.get_installed_version("shairport-sync")
+
+        assert result["status"] == "not_installed"
+        assert result["errors"] == ["main: Version not detected"]
+
+    @pytest.mark.asyncio
+    async def test_a_command_that_raises_is_collected_not_propagated(self, version_service):
+        """`get_all_program_status` gathers seven of these; one raising would
+        empty the whole panel."""
+        with patch.object(version_service, "_execute_version_command",
+                          side_effect=FileNotFoundError("shairport-sync")):
+            result = await version_service.get_installed_version("shairport-sync")
+
+        assert result["status"] == "not_installed"
+        assert "shairport-sync" in result["errors"][0]
+
+    @pytest.mark.asyncio
+    async def test_a_rate_limit_hit_with_a_token_configured_is_reported_differently(
+            self, version_service_with_token):
+        """Without a token, 403 means "wait an hour" and the log says to add
+        one. With a token it means the token is wrong or exhausted, and telling
+        the operator to add the token they already added is the wrong advice."""
+        mock_response = AsyncMock()
+        mock_response.status = 403
+        mock_response.json = AsyncMock(return_value={"message": "Bad credentials"})
+        mock_session = AsyncMock()
+        mock_session.get = MagicMock(return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_response),
+            __aexit__=AsyncMock(return_value=False)))
+
+        with patch("aiohttp.ClientSession", return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_session),
+                __aexit__=AsyncMock(return_value=False))), \
+                patch.object(version_service_with_token.logger, "warning") as warned:
+            result = await version_service_with_token.get_latest_github_version("multiroom")
+
+        assert result == {"status": "error", "message": "Bad credentials"}
+        assert "despite token" in warned.call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_a_github_read_that_raises_is_turned_into_an_error_entry(
+            self, version_service):
+        """`asyncio.gather(..., return_exceptions=True)` hands the raw exception
+        back; without the isinstance arm the next line calls `.get` on it."""
+        with patch.object(version_service, "get_installed_version", return_value={
+                "status": "installed", "versions": {"main": "0.28.0"}, "errors": []}), \
+                patch.object(version_service, "get_latest_github_version",
+                             side_effect=OSError("Name or service not known")):
+            result = await version_service.get_program_full_status("multiroom")
+
+        assert result["latest"]["status"] == "error"
+        assert "Name or service not known" in result["latest"]["message"]
+        assert result["update_available"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_comparison_that_blows_up_becomes_an_error_row(self, version_service):
+        """`get_all_program_status` gathers seven of these; one raising past the
+        handler would empty the whole programs panel instead of greying out one
+        row. Note the limit of that handler, measured and left as it is: it
+        builds its answer from `self.programs[program_key]`, so it can only
+        catch failures for a key that exists — which every one of its four call
+        sites already guarantees."""
+        with patch.object(version_service, "get_installed_version", return_value={
+                "status": "installed", "versions": {"main": "0.28.0"}, "errors": []}), \
+                patch.object(version_service, "get_latest_github_version", return_value={
+                    "status": "success", "version": "0.29.0"}), \
+                patch("backend.core.updates.version.compare_versions",
+                      side_effect=ValueError("invalid literal for int()")):
+            result = await version_service.get_program_full_status("multiroom")
+
+        assert result["status"] == "error"
+        assert "invalid literal" in result["message"]
+        assert result["name"] == version_service.programs["multiroom"]["name"]
