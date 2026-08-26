@@ -15,6 +15,7 @@ the monitored set without broadcasting strands it — the "Search" CTA binds bot
 button. Milo-Mac ignores this event (see its vendored WebSocketService.swift).
 """
 import asyncio
+import logging
 import types
 from unittest.mock import AsyncMock, MagicMock
 
@@ -664,3 +665,472 @@ async def test_search_on_a_disabled_controller_touches_no_adapter(bt, instant):
 
     assert result["status"] == "error"
     assert bt.bluez.calls == []
+
+
+# ------------------------------------------------------------------ the boot
+@pytest.fixture(autouse=True)
+def never_the_real_system_bus(monkeypatch):
+    """The appliance's own BlueZ is on this machine's system bus.
+
+    `read_battery_level` and `_connect_dbus_listener` both open one, so the
+    module-level name is replaced by a raiser for the whole file: a test that
+    forgets its own stand-in fails loudly instead of talking to the adapter
+    that holds the owner's phone.
+    """
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("a test reached the appliance's real D-Bus system bus")
+
+    monkeypatch.setattr(bt_remote_module, "MessageBus", refuse, raising=False)
+
+
+class TestWhatBootDecides:
+    """`initialize` was at 0 % — the method that decides, on every boot,
+    whether the remote works at all."""
+
+    @pytest.mark.asyncio
+    async def test_an_enabled_remote_starts_scanning(self, bt):
+        assert await bt.controller.initialize() is True
+
+        assert bt.controller.running is True
+        assert bt.controller._scan_task is not None
+        assert bt.controller._discovery_task is not None
+        await bt.controller.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_a_disabled_remote_hangs_up_on_what_is_connected(self, bt):
+        """Disabled means the keys must stop reaching the volume. A remote
+        already connected when the setting was flipped off — or connected by
+        BlueZ auto-connect before the backend came up — keeps working
+        otherwise, since nothing else drops the link."""
+        bt.settings.get_setting = AsyncMock(return_value={
+            "enabled": False,
+            "device_name_filter": "ANTICATER",
+            "key_map": dict(bt_remote_module.DEFAULT_KEY_MAP),
+        })
+        bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
+
+        assert await bt.controller.initialize() is True
+
+        assert bt.controller.running is False
+        assert bt.controller._scan_task is None
+        assert ["devices", "disconnect"] == [
+            argv[1] for argv, _ in bt.bluez.calls
+        ]
+
+    @pytest.mark.asyncio
+    async def test_the_bond_is_kept_when_the_remote_is_switched_off(self, bt):
+        """Only the explicit "unpair" removes it: a toggle that also removed
+        the bond would make re-enabling need a full 15 s re-pair."""
+        bt.settings.get_setting = AsyncMock(return_value={"enabled": False})
+        bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
+
+        await bt.controller.initialize()
+
+        assert "remove" not in bt.bluez.argv_names()
+
+    @pytest.mark.asyncio
+    async def test_a_host_without_evdev_is_not_a_failure(self, bt, monkeypatch):
+        monkeypatch.setattr(bt_remote_module, "EVDEV_AVAILABLE", False)
+
+        assert await bt.controller.initialize() is True
+
+        assert bt.controller.running is False
+        assert bt.bluez.calls == []
+
+    @pytest.mark.asyncio
+    async def test_the_dbus_listener_is_only_started_when_dbus_is_there(
+        self, bt, monkeypatch
+    ):
+        monkeypatch.setattr(bt_remote_module, "DBUS_AVAILABLE", False)
+        await bt.controller.initialize()
+        assert bt.controller._dbus_listener_task is None
+        await bt.controller.cleanup()
+
+
+class TestTheSettingsKeysTheRemoteReadsThrough:
+    """`_load_config_from_settings` was at 0 %. Every value is a
+    `.get(key, default)`, so a renamed key does not fail — it answers the
+    default, and the remote quietly stops being the thing it was configured as.
+    """
+
+    async def _load(self, bt, stored):
+        bt.settings.get_setting = AsyncMock(return_value=stored)
+        await bt.controller._load_config_from_settings()
+        return bt.settings.get_setting.await_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_the_three_values_come_from_hardware_bt_remote(self, bt):
+        key = await self._load(bt, {
+            "enabled": True,
+            "device_name_filter": "MYREMOTE",
+            "key_map": {"200": "click"},
+        })
+
+        assert key == "hardware.bt_remote"
+        assert bt.controller.enabled is True
+        assert bt.controller.device_name_filter == "MYREMOTE"
+        assert bt.controller.key_map == {"200": "click"}
+
+    @pytest.mark.asyncio
+    async def test_a_unit_that_never_configured_a_remote_keeps_its_defaults(self, bt):
+        """The section is absent from `SettingsService.defaults`, so a fresh
+        unit answers nothing here — and the constructor's values must survive
+        rather than be overwritten with an empty config."""
+        await self._load(bt, None)
+
+        assert bt.controller.enabled is False
+        assert bt.controller.device_name_filter == bt_remote_module.DEFAULT_DEVICE_FILTER
+        assert bt.controller.key_map == bt_remote_module.DEFAULT_KEY_MAP
+
+    @pytest.mark.asyncio
+    async def test_a_remote_with_no_stored_switch_stays_off(self, bt):
+        """The default is False on purpose: an accessory nobody configured must
+        not start scanning and pairing on its own."""
+        await self._load(bt, {"device_name_filter": "MYREMOTE"})
+        assert bt.controller.enabled is False
+
+    @pytest.mark.parametrize("stored_map", [{}, None, "115:volume_up"])
+    @pytest.mark.asyncio
+    async def test_an_unusable_key_map_leaves_the_default_in_place(self, bt, stored_map):
+        """`_is_bt_hid_device` intersects the device's keys with this map, so an
+        empty one matches NO device — the remote would connect in BlueZ and
+        never be adopted, with nothing logged above debug. The settings
+        validator lets `key_map: {}` through, which is what makes this reachable.
+        """
+        await self._load(bt, {"enabled": True, "key_map": stored_map})
+
+        assert bt.controller.key_map == bt_remote_module.DEFAULT_KEY_MAP
+
+
+class TestBatteryOverDbus:
+    """`read_battery_level` was at 0 %. It is a one-shot system-bus read, and
+    `settingsStore.fetchBtRemoteBattery()` fires it the moment a remote
+    connects — so it runs unattended on a live BlueZ."""
+
+    @pytest.fixture
+    def dbus(self, monkeypatch):
+        state = types.SimpleNamespace(
+            introspected=[], value=87, get_error=None, disconnected=0,
+        )
+
+        class FakeProps:
+            async def call_get(self, interface, prop):
+                state.asked = (interface, prop)
+                if state.get_error:
+                    raise state.get_error
+                return types.SimpleNamespace(value=state.value)
+
+        class FakeObject:
+            def get_interface(self, name):
+                state.interface = name
+                return FakeProps()
+
+        class FakeBus:
+            async def introspect(self, service, path):
+                state.introspected.append((service, path))
+                return object()
+
+            def get_proxy_object(self, service, path, _introspection):
+                state.proxied = (service, path)
+                return FakeObject()
+
+            def disconnect(self):
+                state.disconnected += 1
+
+        class FakeMessageBus:
+            def __init__(self, **kwargs):
+                state.bus_type = kwargs.get("bus_type")
+
+            async def connect(self):
+                return FakeBus()
+
+        monkeypatch.setattr(bt_remote_module, "DBUS_AVAILABLE", True)
+        monkeypatch.setattr(bt_remote_module, "MessageBus", FakeMessageBus)
+        return state
+
+    @pytest.mark.asyncio
+    async def test_the_percentage_is_read_off_the_bluez_battery_interface(
+        self, bt, dbus
+    ):
+        assert await bt.controller.read_battery_level(REMOTE_MAC.lower()) == 87
+
+        assert dbus.bus_type is bt_remote_module.BusType.SYSTEM
+        assert dbus.proxied == (
+            "org.bluez", "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF",
+        )
+        assert dbus.asked == ("org.bluez.Battery1", "Percentage")
+
+    def test_the_object_path_is_the_uppercased_mac_with_underscores(self):
+        """BlueZ names its device objects that way; a lowercase or
+        colon-separated path introspects to nothing and every read answers
+        None — a battery that is simply never shown."""
+        assert bt_remote_module.BtRemoteController._mac_to_dbus_path(
+            "aa:bb:cc:dd:ee:ff"
+        ) == "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+
+    @pytest.mark.asyncio
+    async def test_a_remote_with_no_battery_service_answers_none(self, bt, dbus):
+        """Not every BLE HID exposes Battery1, and a sleeping one exposes
+        nothing at all. The panel hides the gauge on None; raising here would
+        turn the whole `/battery` route into a 500."""
+        dbus.get_error = RuntimeError("No such interface 'org.bluez.Battery1'")
+
+        assert await bt.controller.read_battery_level(REMOTE_MAC) is None
+
+    @pytest.mark.asyncio
+    async def test_the_bus_is_closed_whether_the_read_worked_or_not(self, bt, dbus):
+        """One connection per read, and the route makes one read per device:
+        a leaked bus per poll ends as a file-descriptor exhaustion days later."""
+        await bt.controller.read_battery_level(REMOTE_MAC)
+        dbus.get_error = RuntimeError("gone")
+        await bt.controller.read_battery_level(REMOTE_MAC)
+
+        assert dbus.disconnected == 2
+
+    @pytest.mark.asyncio
+    async def test_a_host_without_dbus_answers_none_without_connecting(
+        self, bt, monkeypatch
+    ):
+        """None is also what the `except` answers, so the absence of a
+        connection attempt is the only thing that separates the two."""
+        attempts = MagicMock(side_effect=RuntimeError("no bus here"))
+        monkeypatch.setattr(bt_remote_module, "DBUS_AVAILABLE", False)
+        monkeypatch.setattr(bt_remote_module, "MessageBus", attempts)
+
+        assert await bt.controller.read_battery_level(REMOTE_MAC) is None
+
+        attempts.assert_not_called()
+
+
+class TestWhatTheScanRefusesToAdopt:
+    """The three rejection arms of `_is_bt_hid_device`, all at 0 %.
+
+    Only the name filter had a test. The other three decide, silently, that a
+    device is not the remote — and a false rejection is a remote that pairs in
+    BlueZ and never works.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_device_with_no_key_events_is_not_a_remote(self, bt):
+        """BLE HID exposes several evdev nodes per remote and only some carry
+        EV_KEY; the others are consumer-control or vendor nodes."""
+        bt.controller.running = True
+        node = FakeInputDevice("/dev/input/event9")
+        node.capabilities = lambda verbose=False: {}
+        bt.evdev.nodes["/dev/input/event9"] = node
+        bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
+
+        await bt.controller._scan_devices()
+
+        assert bt.controller._monitored_paths == set()
+        assert node.closed, "a rejected node must not be left open"
+
+    @pytest.mark.asyncio
+    async def test_a_device_with_no_address_is_not_a_remote(self, bt):
+        """`uniq` is empty for built-in inputs — the Pi's own power button and
+        any USB keyboard. Adopting one would send its keys to the volume."""
+        bt.controller.running = True
+        bt.evdev.nodes["/dev/input/event0"] = FakeInputDevice(
+            "/dev/input/event0", name="ANTICATER-lookalike", uniq=""
+        )
+
+        await bt.controller._scan_devices()
+
+        assert bt.controller._monitored_paths == set()
+
+    @pytest.mark.asyncio
+    async def test_a_device_sharing_no_configured_keycode_is_not_a_remote(self, bt):
+        bt.controller.running = True
+        bt.evdev.nodes["/dev/input/event9"] = FakeInputDevice(
+            "/dev/input/event9", keys=(1, 2, 3)
+        )
+        bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
+
+        await bt.controller._scan_devices()
+
+        assert bt.controller._monitored_paths == set()
+
+
+class TestAScanThatCannotSeeTheKernelTable:
+    """`_scan_devices`'s error arms were at 0 %.
+
+    The scan runs every 30 s for the life of the unit and each arm returns
+    quietly; what matters is that none of them leaves the monitored set
+    half-updated or drops a node that is still alive.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_dev_input_leaves_the_known_remotes_alone(self, bt):
+        """A transient EACCES must not read as "every remote disappeared" — the
+        panel would blink to disconnected and back on the next pass."""
+        bt.controller.running = True
+        await connect_remote(bt)
+        before = set(bt.controller._monitored_paths)
+        assert before, "the remote has to be adopted first for this to say anything"
+        bt.evdev.list_devices = lambda: (_ for _ in ()).throw(OSError("EACCES"))
+        bt.broadcasts.clear()
+
+        await bt.controller._scan_devices()
+
+        assert bt.controller._monitored_paths == before
+        assert bt.status() == []
+        await bt.controller._stop_scanning()
+
+    @pytest.mark.asyncio
+    async def test_an_unexpected_listing_fault_is_a_warning_not_a_debug(
+        self, bt, caplog
+    ):
+        """OSError is ordinary; anything else is a fault of ours and used to be
+        indistinguishable from a dev host with no /dev/input."""
+        bt.controller.running = True
+        bt.evdev.list_devices = lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+
+        with caplog.at_level(logging.WARNING):
+            await bt.controller._scan_devices()
+
+        assert "Unexpected error listing input devices" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_node_that_vanishes_between_listing_and_opening_is_skipped(
+        self, bt
+    ):
+        """The window is real: BLE nodes appear and go in the same second."""
+        bt.controller.running = True
+        bt.evdev.nodes["/dev/input/event9"] = FakeInputDevice("/dev/input/event9")
+        real_open = bt.evdev.InputDevice
+
+        def open_or_vanish(path):
+            if path == "/dev/input/event9":
+                raise OSError("no such device")
+            return real_open(path)
+
+        bt.evdev.InputDevice = open_or_vanish
+
+        await bt.controller._scan_devices()
+
+        assert bt.controller._monitored_paths == set()
+
+    @pytest.mark.asyncio
+    async def test_an_unexpected_open_fault_is_a_warning(self, bt, caplog):
+        bt.controller.running = True
+        bt.evdev.nodes["/dev/input/event9"] = FakeInputDevice("/dev/input/event9")
+        bt.evdev.InputDevice = lambda _path: (_ for _ in ()).throw(RuntimeError("boom"))
+
+        with caplog.at_level(logging.WARNING):
+            await bt.controller._scan_devices()
+
+        assert "Unexpected error opening device" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_node_that_dies_while_being_checked_is_closed_and_skipped(self, bt):
+        bt.controller.running = True
+        node = FakeInputDevice("/dev/input/event9")
+        node.capabilities = lambda verbose=False: (_ for _ in ()).throw(OSError("gone"))
+        bt.evdev.nodes["/dev/input/event9"] = node
+
+        await bt.controller._scan_devices()
+
+        assert node.closed
+        assert bt.controller._monitored_paths == set()
+
+    @pytest.mark.asyncio
+    async def test_a_fault_in_our_own_matching_is_a_warning_and_closes_the_node(
+        self, bt, caplog
+    ):
+        """A key_map with a non-numeric key makes `int(k)` raise here. At debug
+        it silently ignored every remote for the life of the process."""
+        bt.controller.running = True
+        node = FakeInputDevice("/dev/input/event9")
+        bt.evdev.nodes["/dev/input/event9"] = node
+        bt.controller.key_map = {"not-a-keycode": "click"}
+
+        with caplog.at_level(logging.WARNING):
+            await bt.controller._scan_devices()
+
+        assert node.closed
+        assert "Unexpected error checking device" in caplog.text
+
+
+class TestTheLinesBluetoothctlPrintsThatAreNotDevices:
+    """`_get_matching_devices`'s three parse guards, all at 0 %.
+
+    `bluetoothctl devices` prints its banner and agent chatter on the same
+    stream. A line taken for a device feeds a MAC-shaped string to
+    `bluetoothctl remove`.
+    """
+
+    @pytest.mark.parametrize("line", [
+        "Agent registered",
+        "Device",
+        "Device AA:BB:CC:DD:EE:FF",
+        "Device not-a-mac ANTICATER VK-01",
+        "[CHG] Device AA:BB:CC:DD:EE:FF ANTICATER VK-01",
+        # `bluetoothctl list` prints the adapter in the same three-token shape,
+        # with a real MAC — only the row type separates it from a device.
+        "Controller DC:A6:32:7E:D3:43 ANTICATER",
+    ])
+    @pytest.mark.asyncio
+    async def test_a_line_that_is_not_a_device_row_is_not_a_device(self, bt, line):
+        async def one_line(*_argv, **_kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate = AsyncMock(return_value=(line.encode() + b"\n", b""))
+            proc.wait = AsyncMock(return_value=0)
+            proc.kill = MagicMock()
+            return proc
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(asyncio, "create_subprocess_exec", one_line)
+            assert await bt.controller._get_matching_devices("Paired") == []
+
+    @pytest.mark.asyncio
+    async def test_a_well_formed_row_still_gets_through(self, bt):
+        """The guards above are only worth anything next to this one."""
+        bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+        assert await bt.controller._get_matching_devices("Paired") == [
+            (REMOTE_MAC, REMOTE_NAME)
+        ]
+
+
+class TestBluetoothctlThatDoesNotAnswer:
+    """`_run_bluetoothctl`'s timeout and reap arms were at 0 %.
+
+    bluetoothctl blocks on a wedged adapter. Left unreaped it becomes a zombie
+    per scan cycle, every 30 s, forever.
+    """
+
+    def _hanging(self, bt, monkeypatch):
+        proc = MagicMock()
+        proc.returncode = None
+        proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+        proc.wait = AsyncMock(return_value=0)
+        proc.kill = MagicMock()
+
+        async def spawn(*_argv, **_kwargs):
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+        return proc
+
+    @pytest.mark.asyncio
+    async def test_a_hung_listing_answers_empty_rather_than_hanging(
+        self, bt, monkeypatch
+    ):
+        self._hanging(bt, monkeypatch)
+        assert await bt.controller._run_bluetoothctl(
+            "devices", "Paired", capture_stdout=True
+        ) == ""
+
+    @pytest.mark.asyncio
+    async def test_a_hung_action_answers_failure(self, bt, monkeypatch):
+        self._hanging(bt, monkeypatch)
+        assert await bt.controller._run_bluetoothctl("connect", REMOTE_MAC) is False
+
+    @pytest.mark.asyncio
+    async def test_a_process_left_running_is_killed_and_reaped(self, bt, monkeypatch):
+        proc = self._hanging(bt, monkeypatch)
+
+        await bt.controller._run_bluetoothctl("connect", REMOTE_MAC)
+
+        proc.kill.assert_called_once_with()
+        proc.wait.assert_awaited_once_with()
