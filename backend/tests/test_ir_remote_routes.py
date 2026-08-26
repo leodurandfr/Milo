@@ -144,3 +144,16 @@ class TestUnpairRoute:
         response = client.delete("/api/ir-remote/pair")
         assert response.status_code == 500
         assert "keymap helper missing" in response.json()["detail"]
+
+
+class TestCancelPairingFailure:
+    def test_a_controller_that_raises_is_a_500(self, client, controller):
+        """The wizard's Cancel is the only way out of a capture; a fault there
+        that answered 200 would leave the panel believing it had stopped while
+        the listener stays parked on the device under `_mode_lock`."""
+        controller.cancel_pairing = AsyncMock(side_effect=RuntimeError("evdev gone"))
+
+        response = client.post("/api/ir-remote/pair/cancel")
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "evdev gone"
