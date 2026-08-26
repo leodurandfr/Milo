@@ -15,6 +15,7 @@ the monitored set without broadcasting strands it — the "Search" CTA binds bot
 button. Milo-Mac ignores this event (see its vendored WebSocketService.swift).
 """
 import asyncio
+import contextlib
 import logging
 import types
 from unittest.mock import AsyncMock, MagicMock
@@ -85,8 +86,10 @@ class FakeBluez:
 
     def __init__(self):
         self.calls = []            # (argv, controller.running at call time)
+        self.written = []          # one list of stdin lines per interactive session
         self.paired = []
         self.connected = []
+        self.discovered = []       # seen by a scan, not bonded — the daemon cache
         self.connect_succeeds = True
         self._controller = None
 
@@ -99,7 +102,8 @@ class FakeBluez:
         stdout = b""
         if len(argv) > 1 and argv[1] == "devices":
             rows = self.paired if "Paired" in argv else (
-                self.connected if "Connected" in argv else self.paired + self.connected)
+                self.connected if "Connected" in argv
+                else self.paired + self.connected + self.discovered)
             seen, unique = set(), []
             for address, name in rows:
                 if address not in seen:
@@ -116,7 +120,12 @@ class FakeBluez:
         proc.wait = AsyncMock(return_value=0)
         proc.kill = MagicMock()
         stdin = MagicMock()
-        stdin.write = MagicMock()
+        # An interactive session (`bluetoothctl` with no argv) is driven only
+        # through stdin, so what is written there IS the command sequence.
+        lines = []
+        if len(argv) == 1:
+            self.written.append(lines)
+        stdin.write = MagicMock(side_effect=lambda blob: lines.append(blob.decode()))
         stdin.drain = AsyncMock()
         proc.stdin = stdin
         return proc
@@ -1134,3 +1143,678 @@ class TestBluetoothctlThatDoesNotAnswer:
 
         proc.kill.assert_called_once_with()
         proc.wait.assert_awaited_once_with()
+
+
+# --------------------------------------------------------- the D-Bus session
+class FakeMessageBus:
+    """One BlueZ system-bus session. `add_match_reply` is what AddMatch answers."""
+
+    def __init__(self, state):
+        self._state = state
+
+    async def connect(self):
+        self._state.connects += 1
+        return self._state.bus
+
+
+class FakeBus:
+    def __init__(self, state):
+        self._state = state
+        self._dropped = asyncio.Event()
+
+    async def call(self, message):
+        self._state.calls.append(message)
+        return types.SimpleNamespace(
+            message_type=self._state.add_match_reply, body=["Access denied"]
+        )
+
+    def add_message_handler(self, handler):
+        self._state.handlers.append(handler)
+
+    async def wait_for_disconnect(self):
+        await self._dropped.wait()
+
+    def drop(self):
+        self._dropped.set()
+
+    def disconnect(self):
+        self._state.disconnects += 1
+
+
+@pytest.fixture
+def dbus_session(bt, monkeypatch):
+    """A stand-in BlueZ session bus wired into the controller's module."""
+    state = types.SimpleNamespace(
+        calls=[], handlers=[], connects=0, disconnects=0,
+        add_match_reply=bt_remote_module.MessageType.METHOD_RETURN,
+    )
+    state.bus = FakeBus(state)
+    monkeypatch.setattr(bt_remote_module, "DBUS_AVAILABLE", True)
+    monkeypatch.setattr(
+        bt_remote_module, "MessageBus", lambda **_kw: FakeMessageBus(state)
+    )
+    return state
+
+
+class TestTheReconnectListener:
+    """`_connect_dbus_listener` was at 0 % — all 25 lines.
+
+    It is what makes a BLE remote usable at all: the device deep-sleeps to save
+    its battery, BlueZ auto-connects it when a key is pressed, and this is what
+    notices in time to adopt the new evdev node. Without it the remote is dead
+    until the 30 s fallback scan, which is long enough that the press is lost.
+    """
+
+    async def _session(self, bt, timeout=0.5):
+        """Run one listener session to completion or until it parks."""
+        task = asyncio.create_task(bt.controller._connect_dbus_listener())
+        await asyncio.sleep(0)
+        return task
+
+    @pytest.mark.asyncio
+    async def test_the_match_rule_subscribes_to_bluez_device_properties(
+        self, bt, dbus_session
+    ):
+        """A broader rule wakes the handler on every signal on the bus; a
+        narrower one never fires. The rule is the whole subscription."""
+        bt.controller.running = True
+        task = await self._session(bt)
+
+        assert len(dbus_session.calls) == 1
+        message = dbus_session.calls[0]
+        assert message.member == "AddMatch"
+        assert message.body == [bt_remote_module._DBUS_MATCH_RULE]
+        assert dbus_session.handlers == [bt.controller._on_dbus_message]
+
+        bt.controller.running = False
+        dbus_session.bus.drop()
+        await task
+
+    @pytest.mark.asyncio
+    async def test_a_refused_subscription_ends_the_session_and_closes_the_bus(
+        self, bt, dbus_session
+    ):
+        """The outer loop reconnects on the raise. Carrying on instead would
+        leave a live bus that never delivers a signal — the remote silently
+        falls back to the 30 s scan for the life of the process."""
+        dbus_session.add_match_reply = bt_remote_module.MessageType.ERROR
+        bt.controller.running = True
+
+        # Bounded on purpose: without the raise this session parks on the
+        # reconnect queue forever, so the mutation that drops it would hang the
+        # run instead of reddening it (the B4 "bound the double" lesson).
+        with pytest.raises(RuntimeError, match="AddMatch failed"):
+            await asyncio.wait_for(bt.controller._connect_dbus_listener(), timeout=2)
+
+        assert dbus_session.handlers == []
+        assert dbus_session.disconnects == 1
+
+    @pytest.mark.asyncio
+    async def test_a_connect_signal_triggers_a_rescan_after_the_settle_delay(
+        self, bt, dbus_session, monkeypatch
+    ):
+        """The evdev node does not exist yet when the signal lands — the kernel
+        creates it a moment later. Scanning immediately finds nothing."""
+        slept = []
+        real_sleep = asyncio.sleep
+
+        async def record(delay, *args, **kwargs):
+            slept.append(delay)
+            return await real_sleep(0)
+
+        scans = AsyncMock()
+        monkeypatch.setattr(asyncio, "sleep", record)
+        monkeypatch.setattr(bt.controller, "_scan_devices", scans)
+        bt.controller.running = True
+
+        task = asyncio.create_task(bt.controller._connect_dbus_listener())
+        await real_sleep(0)
+        bt.controller._dbus_reconnect_queue.put_nowait("/org/bluez/hci0/dev_X")
+        for _ in range(20):
+            await real_sleep(0)
+            if scans.await_count:
+                break
+
+        scans.assert_awaited()
+        assert bt_remote_module.DBUS_EVDEV_SETTLE in slept
+
+        bt.controller.running = False
+        dbus_session.bus.drop()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    @pytest.mark.asyncio
+    async def test_a_dropped_bus_returns_so_the_outer_loop_can_reconnect(
+        self, bt, dbus_session
+    ):
+        """BlueZ restarts on an adapter reset. Waiting on the queue forever
+        after that is a listener that exists and hears nothing."""
+        bt.controller.running = True
+        task = asyncio.create_task(bt.controller._connect_dbus_listener())
+        await asyncio.sleep(0)
+
+        dbus_session.bus.drop()
+        await asyncio.wait_for(task, timeout=1)
+
+        assert dbus_session.disconnects == 1
+
+    @pytest.mark.asyncio
+    async def test_the_outer_loop_reconnects_after_a_failed_session(
+        self, bt, dbus_session, monkeypatch
+    ):
+        """One refused AddMatch — BlueZ not up yet at boot — must not end the
+        listener for good."""
+        delays = []
+        attempts = []
+        real_sleep = asyncio.sleep
+
+        async def record(delay, *args, **kwargs):
+            delays.append(delay)
+            return await real_sleep(0)
+
+        async def session():
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("D-Bus AddMatch failed")
+            bt.controller.running = False
+
+        monkeypatch.setattr(asyncio, "sleep", record)
+        monkeypatch.setattr(bt.controller, "_connect_dbus_listener", session)
+        bt.controller.running = True
+
+        await bt.controller._run_dbus_listener()
+
+        assert len(attempts) == 2, "the listener gave up after one failure"
+        assert delays == [bt_remote_module.DBUS_RECONNECT_DELAY]
+
+    @pytest.mark.asyncio
+    async def test_a_cancelled_listener_does_not_reconnect(self, bt, monkeypatch):
+        """Teardown cancels this task; swallowing the cancellation would make
+        it immortal — it would log, wait 5 s, reconnect, and hold the system
+        bus open past shutdown, forever.
+
+        The dedicated `except asyncio.CancelledError: raise` arm is inert on
+        its own (CancelledError is a BaseException, so the broad arm below
+        cannot reach it either); what this catches is the arm below being
+        widened. Bounded because that regression loops rather than fails.
+        """
+        async def session():
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(bt.controller, "_connect_dbus_listener", session)
+        bt.controller.running = True
+
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(bt.controller._run_dbus_listener(), timeout=2)
+
+
+# ------------------------------------------------------ the background loops
+class TestThePeriodicScan:
+    """`_periodic_scan` was at 0 %. It is the fallback for everything the D-Bus
+    listener misses, so it is what recovers a unit whose bus session died."""
+
+    async def _run(self, bt, monkeypatch, ticks):
+        delays = []
+        real_sleep = asyncio.sleep
+
+        async def record(delay, *args, **kwargs):
+            delays.append(delay)
+            if len(delays) >= ticks:
+                bt.controller.running = False
+            return await real_sleep(0)
+
+        monkeypatch.setattr(asyncio, "sleep", record)
+        bt.controller.running = True
+        await bt.controller._periodic_scan()
+        return delays
+
+    @pytest.mark.asyncio
+    async def test_the_first_scan_waits_for_stale_nodes_to_disappear(
+        self, bt, monkeypatch
+    ):
+        """A disable/re-enable leaves kernel nodes behind for a moment, and
+        `_scan_devices` refuses any node BlueZ does not report connected — so
+        scanning at once adopts nothing and then waits a full interval."""
+        scans = AsyncMock()
+        monkeypatch.setattr(bt.controller, "_scan_devices", scans)
+
+        delays = await self._run(bt, monkeypatch, ticks=1)
+
+        assert delays[0] == 2
+        assert scans.await_count == 0, "the wait comes before the first scan"
+
+    @pytest.mark.asyncio
+    async def test_it_scans_once_per_interval(self, bt, monkeypatch):
+        scans = AsyncMock()
+        monkeypatch.setattr(bt.controller, "_scan_devices", scans)
+
+        delays = await self._run(bt, monkeypatch, ticks=3)
+
+        assert delays == [2, bt_remote_module.SCAN_INTERVAL, bt_remote_module.SCAN_INTERVAL]
+        assert scans.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_failing_scan_does_not_end_the_loop(self, bt, monkeypatch, caplog):
+        scans = AsyncMock(side_effect=[RuntimeError("kernel table gone"), None])
+        monkeypatch.setattr(bt.controller, "_scan_devices", scans)
+
+        with caplog.at_level(logging.ERROR):
+            delays = await self._run(bt, monkeypatch, ticks=3)
+
+        assert scans.await_count == 2, "the loop kept scanning after the failure"
+        assert len(delays) == 3
+        assert "Error scanning BT HID devices" in caplog.text
+
+
+class TestThePeriodicDiscovery:
+    """`_periodic_discovery` was at 0 %. It is the unattended half of pairing:
+    it reconnects a bonded remote after a deep sleep, and runs a full
+    scan+pair when there is no bond at all."""
+
+    async def _run(self, bt, monkeypatch, ticks):
+        delays = []
+        real_sleep = asyncio.sleep
+
+        async def record(delay, *args, **kwargs):
+            delays.append(delay)
+            if len(delays) >= ticks:
+                bt.controller.running = False
+            return await real_sleep(0)
+
+        monkeypatch.setattr(asyncio, "sleep", record)
+        bt.controller.running = True
+        await bt.controller._periodic_discovery()
+        return delays
+
+    @pytest.mark.asyncio
+    async def test_a_bonded_remote_is_reconnected_not_re_paired(self, bt, monkeypatch):
+        """A full discovery on a device that is already bonded is 15 s of
+        adapter time for nothing, and it re-pairs a remote that never lost its
+        bond."""
+        bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+        pair = AsyncMock()
+        scans = AsyncMock()
+        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
+        monkeypatch.setattr(bt.controller, "_scan_devices", scans)
+
+        await self._run(bt, monkeypatch, ticks=2)
+
+        assert "connect" in bt.bluez.argv_names()
+        pair.assert_not_awaited()
+        # The reconnect is only half of it: BlueZ brings the link back but the
+        # evdev node is new, and nothing adopts it until something scans.
+        scans.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_bond_at_all_runs_the_full_discovery(self, bt, monkeypatch):
+        bt.bluez.paired = []
+        pair = AsyncMock()
+        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
+
+        await self._run(bt, monkeypatch, ticks=2)
+
+        pair.assert_awaited()
+        assert "connect" not in bt.bluez.argv_names()
+
+    @pytest.mark.asyncio
+    async def test_a_remote_already_monitored_is_left_alone(self, bt, monkeypatch):
+        """Scanning and pairing over a working remote is what makes the adapter
+        drop it mid-use."""
+        bt.controller._monitored_paths.add("/dev/input/event5")
+        pair = AsyncMock()
+        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
+
+        await self._run(bt, monkeypatch, ticks=2)
+
+        pair.assert_not_awaited()
+        assert bt.bluez.calls == []
+
+    @pytest.mark.asyncio
+    async def test_the_first_attempts_retry_fast_then_settle_to_the_long_cycle(
+        self, bt, monkeypatch
+    ):
+        """BlueZ is often not ready when the backend comes up, and 300 s of
+        silence after a cold boot is a remote that looks broken."""
+        bt.bluez.paired = []
+        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", AsyncMock())
+
+        delays = await self._run(bt, monkeypatch, ticks=6)
+
+        assert delays == [6, 15, 15, 15, bt_remote_module.DISCOVERY_INTERVAL,
+                          bt_remote_module.DISCOVERY_INTERVAL]
+
+    @pytest.mark.asyncio
+    async def test_a_connected_remote_stops_the_fast_retries(self, bt, monkeypatch):
+        """The boot budget is for finding the remote; once found, going on
+        polling at 15 s keeps the adapter busy for nothing."""
+        async def adopt():
+            bt.controller._monitored_paths.add("/dev/input/event5")
+
+        bt.bluez.paired = []
+        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", AsyncMock(side_effect=adopt))
+
+        delays = await self._run(bt, monkeypatch, ticks=3)
+
+        assert delays == [6, bt_remote_module.DISCOVERY_INTERVAL,
+                          bt_remote_module.DISCOVERY_INTERVAL]
+
+    @pytest.mark.asyncio
+    async def test_a_failing_cycle_does_not_end_the_loop(self, bt, monkeypatch, caplog):
+        pair = AsyncMock(side_effect=[RuntimeError("adapter down"), None])
+        bt.bluez.paired = []
+        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
+
+        with caplog.at_level(logging.ERROR):
+            await self._run(bt, monkeypatch, ticks=3)
+
+        assert pair.await_count == 2
+        assert "Error in BT auto-discovery" in caplog.text
+
+
+class TestTheDiscoveryItself:
+    """`_auto_discover_and_pair` and `_run_discovery`: the panel's spinner and
+    the trust/pair/connect session."""
+
+    @pytest.mark.asyncio
+    async def test_the_panel_is_told_when_discovery_starts_and_stops(
+        self, bt, monkeypatch
+    ):
+        """`discovering` drives both :loading and :disabled on the Search CTA,
+        so a start with no matching stop is an unclickable button."""
+        seen = []
+        monkeypatch.setattr(
+            bt.controller, "_run_discovery",
+            AsyncMock(side_effect=lambda: seen.append(bt.controller._discovering)),
+        )
+
+        await bt.controller._auto_discover_and_pair()
+
+        assert seen == [True]
+        assert bt.controller._discovering is False
+        assert [e.discovering for e in bt.status()] == [True, False]
+
+    @pytest.mark.asyncio
+    async def test_a_discovery_that_raises_still_clears_the_spinner(
+        self, bt, monkeypatch
+    ):
+        monkeypatch.setattr(
+            bt.controller, "_run_discovery", AsyncMock(side_effect=RuntimeError("boom"))
+        )
+
+        with pytest.raises(RuntimeError):
+            await bt.controller._auto_discover_and_pair()
+
+        assert bt.controller._discovering is False
+        assert bt.status()[-1].discovering is False
+
+    @pytest.mark.asyncio
+    async def test_a_second_discovery_while_one_runs_is_dropped(self, bt, monkeypatch):
+        run = AsyncMock()
+        monkeypatch.setattr(bt.controller, "_run_discovery", run)
+        bt.controller._discovering = True
+
+        await bt.controller._auto_discover_and_pair()
+
+        run.assert_not_awaited()
+        assert bt.status() == [], "no spinner event either"
+
+    @pytest.mark.asyncio
+    async def test_trust_pair_and_connect_run_in_one_bluetoothctl_session(
+        self, bt, instant
+    ):
+        """BLE devices go unavailable between separate invocations, so three
+        calls would pair a device the third can no longer reach.
+
+        The remote here is *discovered, not bonded*: this path only runs when
+        there is no bond, so reading the bonded list instead of the daemon
+        cache would find nothing and the pairing would never happen.
+        """
+        bt.controller.running = True
+        bt.bluez.paired = []
+        bt.bluez.discovered = [(REMOTE_MAC, REMOTE_NAME)]
+        bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]  # after the pair session
+
+        await bt.controller._run_discovery()
+
+        assert bt.bluez.written[-1] == [
+            f"trust {REMOTE_MAC}\n", f"pair {REMOTE_MAC}\n", f"connect {REMOTE_MAC}\nquit\n",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_pairing_bluez_did_not_take_is_reported_not_assumed(
+        self, bt, instant, caplog
+    ):
+        """`bluetoothctl pair` prints its outcome and exits 0 either way, so
+        the daemon's own view is the only verdict. Assuming success rescans for
+        a node that will never appear and reports a remote that is not there."""
+        bt.controller.running = True
+        bt.bluez.paired = []
+        bt.bluez.discovered = [(REMOTE_MAC, REMOTE_NAME)]
+        bt.bluez.connected = []  # BlueZ never took it
+        scans = AsyncMock()
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(bt.controller, "_scan_devices", scans)
+            with caplog.at_level(logging.WARNING):
+                await bt.controller._run_discovery()
+
+        scans.assert_not_awaited()
+        assert "Pairing/connect failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_pairing_bluez_took_is_followed_by_a_rescan(self, bt, instant):
+        bt.controller.running = True
+        bt.bluez.paired = []
+        bt.bluez.discovered = [(REMOTE_MAC, REMOTE_NAME)]
+        bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
+        scans = AsyncMock()
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(bt.controller, "_scan_devices", scans)
+            await bt.controller._run_discovery()
+
+        scans.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    async def test_a_scan_that_finds_nothing_matching_stops_before_pairing(
+        self, bt, instant
+    ):
+        bt.controller.running = True
+        bt.bluez.paired = []
+        bt.bluez.connected = []
+
+        await bt.controller._run_discovery()
+
+        assert bt.bluez.written == [["scan on\n", "scan off\nquit\n"]]
+
+    @pytest.mark.asyncio
+    async def test_a_remote_adopted_during_the_scan_ends_the_discovery(
+        self, bt, instant
+    ):
+        """`_periodic_scan` runs concurrently; pairing on top of a node it just
+        adopted drops the link the user is already using."""
+        bt.controller.running = True
+        bt.controller._monitored_paths.add("/dev/input/event5")
+        bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+
+        await bt.controller._run_discovery()
+
+        assert bt.bluez.written == [["scan on\n", "scan off\nquit\n"]]
+
+
+# ---------------------------------------------------------------- teardown
+class TestStopScanning:
+    @pytest.mark.asyncio
+    async def test_every_task_and_every_monitored_node_is_dropped(self, bt):
+        await bt.controller.initialize()
+        await connect_remote(bt)
+        assert bt.controller._monitored_paths
+
+        await bt.controller.cleanup()
+
+        assert bt.controller.running is False
+        assert bt.controller._scan_task is None
+        assert bt.controller._discovery_task is None
+        assert bt.controller._dbus_listener_task is None
+        assert bt.controller._monitor_tasks == {}
+        assert bt.controller._monitored_paths == set()
+        assert bt.controller._device_info == {}
+
+    @pytest.mark.asyncio
+    async def test_a_pending_reconnect_event_does_not_survive_the_stop(self, bt):
+        """The queue holds one slot. A stale path left in it makes the next
+        session scan immediately for a device that disconnected long ago."""
+        bt.controller._dbus_reconnect_queue.put_nowait("/org/bluez/hci0/dev_X")
+
+        await bt.controller._stop_scanning()
+
+        assert bt.controller._dbus_reconnect_queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_both_collaborators_are_drained(self, bt, monkeypatch):
+        """The dispatcher holds a 400 ms multi-click timer and the accumulator a
+        drain task: left alive they act on a remote that is already gone."""
+        dispatcher = AsyncMock()
+        volume = AsyncMock()
+        monkeypatch.setattr(bt.controller._dispatcher, "cleanup", dispatcher)
+        monkeypatch.setattr(bt.controller._volume, "cleanup", volume)
+
+        await bt.controller.cleanup()
+
+        dispatcher.assert_awaited_once_with()
+        volume.assert_awaited_once_with()
+
+
+class TestUnknownActions:
+    @pytest.mark.asyncio
+    async def test_an_action_the_dispatcher_does_not_know_moves_no_volume(
+        self, bt, monkeypatch
+    ):
+        """`key_map` is operator-editable through the API; a typo must not
+        become a volume change.
+
+        The assertion is on the accumulator rather than on the volume service:
+        `accumulate` batches into a task, so nothing is *awaited* in this tick
+        either way and `assert_not_awaited` would pass on the regression.
+        """
+        deltas = []
+        monkeypatch.setattr(bt.controller._volume, "accumulate", deltas.append)
+
+        await bt.controller._dispatch_action("volume_sideways")
+
+        assert deltas == []
+
+    @pytest.mark.asyncio
+    async def test_a_volume_service_that_raises_is_logged_not_propagated(
+        self, bt, caplog
+    ):
+        """This runs inside the per-device monitor task; an escaping exception
+        ends it and the remote stops working until it reconnects."""
+        bt.volume_service.volume_config = None  # attribute access raises
+
+        with caplog.at_level(logging.ERROR):
+            await bt.controller._dispatch_action("volume_up")
+
+        assert "Error dispatching BT remote action" in caplog.text
+
+
+class TestTheRemainingEntryGuards:
+    """Small arms that decide whether a whole action happens at all."""
+
+    @pytest.mark.asyncio
+    async def test_a_new_key_map_reaches_the_scanner_and_the_store(self, bt):
+        """The map is both the dispatch table and the adoption filter, so a
+        write that lands in settings.json but not in memory leaves the running
+        scanner matching devices by the old codes."""
+        await bt.controller.update_config({"key_map": {"200": "click"}})
+
+        assert bt.controller.key_map == {"200": "click"}
+        stored = bt.settings.set_setting.await_args.args[1]
+        assert stored["key_map"] == {"200": "click"}
+
+    @pytest.mark.parametrize("bad", ["115:volume_up", None, 7])
+    @pytest.mark.asyncio
+    async def test_a_key_map_that_is_not_a_map_is_ignored(self, bt, bad):
+        await bt.controller.update_config({"key_map": bad})
+        assert bt.controller.key_map == bt_remote_module.DEFAULT_KEY_MAP
+
+    @pytest.mark.asyncio
+    async def test_search_on_a_host_without_evdev_says_so(self, bt, monkeypatch):
+        monkeypatch.setattr(bt_remote_module, "EVDEV_AVAILABLE", False)
+
+        assert await bt.controller.trigger_discovery() == {
+            "status": "error", "message": "evdev not available",
+        }
+        assert bt.bluez.calls == []
+
+    @pytest.mark.asyncio
+    async def test_unpair_on_a_host_without_evdev_touches_no_bond(self, bt, monkeypatch):
+        """A `bluetoothctl remove` issued on a box with no adapter is the same
+        command that removes the A2DP phone's bond on one that has."""
+        monkeypatch.setattr(bt_remote_module, "EVDEV_AVAILABLE", False)
+
+        assert await bt.controller.forget_remote() == {
+            "status": "error", "message": "evdev not available",
+        }
+        assert bt.bluez.calls == []
+
+
+class TestTheDeviceMonitor:
+    """`_monitor_device`'s exit paths — what happens when a remote goes away."""
+
+    @pytest.mark.asyncio
+    async def test_a_non_key_event_is_not_an_action(self, bt):
+        """evdev delivers SYN and MSC on the same node; treating either as a
+        keypress would fire the volume on every report."""
+        bt.controller.running = True
+        node = await connect_remote(bt)
+        deltas = []
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(bt.controller._volume, "accumulate", deltas.append)
+            await node.events.put(types.SimpleNamespace(type=99, code=115, value=1))
+            await node.events.put(key_event(115))
+            for _ in range(20):
+                await asyncio.sleep(0)
+                if deltas:
+                    break
+
+        assert deltas == [2.0], "only the EV_KEY report counted"
+        await bt.controller._stop_scanning()
+
+    @pytest.mark.asyncio
+    async def test_a_key_release_is_not_a_second_press(self, bt):
+        bt.controller.running = True
+        node = await connect_remote(bt)
+        deltas = []
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(bt.controller._volume, "accumulate", deltas.append)
+            await node.events.put(
+                types.SimpleNamespace(type=FakeEcodes.EV_KEY, code=115, value=0)
+            )
+            await node.events.put(key_event(115))
+            for _ in range(20):
+                await asyncio.sleep(0)
+                if deltas:
+                    break
+
+        assert deltas == [2.0]
+        await bt.controller._stop_scanning()
+
+    @pytest.mark.asyncio
+    async def test_a_remote_that_disappears_leaves_no_bookkeeping_behind(self, bt):
+        """The node dies when the remote sleeps. A path left in the monitored
+        set means the next scan skips it, so the remote never comes back."""
+        bt.controller.running = True
+        node = await connect_remote(bt)
+        assert bt.controller._monitored_paths
+
+        await node.events.put(None)  # the read loop raises OSError
+        for _ in range(50):
+            await asyncio.sleep(0)
+            if not bt.controller._monitored_paths:
+                break
+
+        assert bt.controller._monitored_paths == set()
+        assert bt.controller._device_info == {}
+        assert bt.controller._monitor_tasks == {}
+        assert bt.status()[-1].connected_devices == []
+        await bt.controller._stop_scanning()
