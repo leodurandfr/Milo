@@ -102,7 +102,7 @@ class TestCoverPathLookup:
 # =============================================================================
 import fcntl
 import json
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from backend.config.constants import CD_DEVICE
 from backend.sources.cd.data import (

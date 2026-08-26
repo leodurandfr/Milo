@@ -13,14 +13,12 @@ harmless (it serves album art), so the check is the whole of it.
 Consumer: `AudioPlayerFull` / `AudioSourceStatus` via `metadata.cover_url`,
 which the data service sets to `/api/cd/cover/{disc_id}` for a cached jacket.
 """
-from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.config.constants import CD_COVERS_DIR
 from backend.sources.cd.routes import setup_cd_routes
 
 JPEG = b"\xff\xd8\xff\xe0" + b"J" * 512
