@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from backend.core.updates.version import VersionService
+from backend.core.updates.dependency_versions import apply_validated_versions
 from backend.config.constants import DEPLOY_UPDATE_CMD
 
 # qobuz-proxy is a pip package installed from a git tag; the in-app update pins
@@ -40,22 +41,86 @@ class UpdateService(VersionService):
             if not status.get("update_available"):
                 return {"success": False, "error": "No update available"}
 
-            if program_key == "milo":
-                return await self._update_milo_app(status)
-            elif program_key == "multiroom":
-                return await self._update_multiroom(status)
-            elif program_key == "shairport-sync":
-                return await self._update_shairport_sync(status)
-            elif program_key == "qobuz-proxy":
-                return await self._update_qobuz_proxy(status)
-            elif "asset_url" in self.programs[program_key]:
-                return await self._update_binary_program(program_key, status)
-            else:
-                return {"success": False, "error": f"Update handler not implemented for {program_key}"}
+            return await self._dispatch_update(program_key, status)
 
         except Exception as e:
             self.update_logger.error(f"Update failed for {program_key}: {e}")
             return {"success": False, "error": str(e)}
+
+    async def _dispatch_update(self, program_key: str, status: Dict[str, Any]) -> Dict[str, Any]:
+        """Route one program to its install flow. Two callers, one implementation.
+
+        `update_program` is the route's entry point; `_reconcile_dependencies`
+        is the Milō update bringing the set to the manifest. Both have already
+        decided there is something to install, so neither re-checks here.
+        """
+        if program_key == "milo":
+            return await self._update_milo_app(status)
+        elif program_key == "multiroom":
+            return await self._update_multiroom(status)
+        elif program_key == "shairport-sync":
+            return await self._update_shairport_sync(status)
+        elif program_key == "qobuz-proxy":
+            return await self._update_qobuz_proxy(status)
+        elif "asset_url" in self.programs[program_key]:
+            return await self._update_binary_program(program_key, status)
+        else:
+            return {"success": False, "error": f"Update handler not implemented for {program_key}"}
+
+    async def _reconcile_dependencies(self) -> list[str]:
+        """Bring every dependency to the version the *pulled* manifest declares.
+
+        A Milō update installs the app and the dependency set validated with it,
+        as one sequence — never as one transaction, and never deferred to the
+        next boot. Deferring would put a multi-minute source compile behind a
+        dark screen with the backend down and nothing anywhere to say why; a
+        transaction would mean composing seven independent rollbacks into one,
+        whose half-applied states are worse than either end.
+
+        So each step keeps its own backup and its own rollback, and a step that
+        failed *and restored itself* is reported rather than fatal: the app still
+        reboots into the new code with the old dependency, which is the state
+        every unit is already in for any dependency nobody clicked. The caller
+        relies on this never raising — it runs past the point where the app can
+        still be rolled back.
+
+        Returns the keys that failed, for the journal and for the one caller path
+        that survives to return an envelope.
+        """
+        # The pulled tree carries a new dependencies.env that this process was
+        # started before, and the cached GitHub results carry the *old* pin.
+        # Without both of these the reconciliation compares against the set the
+        # unit already had, and does nothing at all.
+        apply_validated_versions(self.programs)
+        self._github_cache.clear()
+        self._last_github_fetch.clear()
+
+        failed: list[str] = []
+        for program_key in self.programs:
+            if program_key == "milo":
+                continue
+            try:
+                status = await self.get_program_full_status(program_key)
+                if not status.get("update_available"):
+                    continue
+
+                self.update_logger.info(
+                    f"{program_key}: installing the validated "
+                    f"{status['latest']['version']} as part of the Milo update"
+                )
+                result = await self._dispatch_update(program_key, status)
+                if not result.get("success"):
+                    failed.append(program_key)
+                    self.update_logger.error(
+                        f"{program_key}: could not reach the validated version "
+                        f"({result.get('error', 'unknown error')}). The app update "
+                        "continues; the unit will run the previous version of it."
+                    )
+            except Exception as e:
+                failed.append(program_key)
+                self.update_logger.error(f"{program_key}: reconciliation failed: {e}")
+
+        return failed
 
     async def _get_current_commit(self, git_path: str) -> str:
         """Get current HEAD commit hash, or "" when it cannot be read.
@@ -269,7 +334,15 @@ class UpdateService(VersionService):
             # 9. Sync system files (services, rootfs)
             await self._sync_system_files()
 
-            # 10. Reboot the system to reload all services and configs
+            # 10. Install the dependency set the pulled commit validated.
+            # Deliberately *after* the app is built and synced: everything above
+            # this line can still roll the app back, and rolling back with the
+            # dependencies already moved would leave the two out of step. Below
+            # it, the only remaining step is the reboot — which is why
+            # _reconcile_dependencies never raises.
+            dependency_failures = await self._reconcile_dependencies()
+
+            # 11. Reboot the system to reload all services and configs
             # Small delay to ensure the WebSocket message is sent
             await asyncio.sleep(1)
 
@@ -282,10 +355,13 @@ class UpdateService(VersionService):
                 return {
                     "success": False,
                     "error": f"Update applied but the reboot failed ({reboot_output}). Reboot to complete it.",
+                    "dependency_failures": dependency_failures,
                 }
 
-            # The process will be killed by the reboot, but return success in case it somehow continues
-            return {"success": True}
+            # The process will be killed by the reboot, but return success in case it somehow continues.
+            # A dependency that failed is reported here and in the journal; after the reboot it is
+            # visible for as long as it lasts, as installed != validated on the dependency rows.
+            return {"success": True, "dependency_failures": dependency_failures}
 
         except Exception as e:
             self.update_logger.error(f"Milo app update failed: {e}")

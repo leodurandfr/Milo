@@ -354,7 +354,9 @@
     "update": "更新",
     "updating": "更新中...",
     "errorDetectingSatellites": "检测 Milō Client 时出错",
-    "upToDate": "已是最新"
+    "upToDate": "已是最新",
+    "dependenciesHint": "安装应用及与之一同验证的程序版本。",
+    "upstream": "上游"
   },
   "info": {
     "temperature": "温度",

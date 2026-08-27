@@ -26,8 +26,13 @@ MANIFEST_PATH = REPO_ROOT / "dependencies.env"
 _ENTRY_RE = re.compile(r"^([A-Z][A-Z0-9_]*)=(\S+)$", re.MULTILINE)
 
 
-def load_dependency_versions(path: Path = MANIFEST_PATH) -> dict[str, str]:
-    """Parse `dependencies.env` into {SHELL_VAR_NAME: version}."""
+def load_dependency_versions(path: Path | None = None) -> dict[str, str]:
+    """Parse `dependencies.env` into {SHELL_VAR_NAME: version}.
+
+    Resolved at call time, not bound at import: `UpdateService` re-reads the
+    file after a `git pull` has replaced it under the running process.
+    """
+    path = path if path is not None else MANIFEST_PATH
     if not path.is_file():
         raise FileNotFoundError(f"dependency manifest missing: {path}")
 
@@ -40,4 +45,23 @@ def load_dependency_versions(path: Path = MANIFEST_PATH) -> dict[str, str]:
     return versions
 
 
-DEPENDENCY_VERSIONS = load_dependency_versions()
+def apply_validated_versions(programs: dict, versions: dict[str, str] | None = None) -> dict:
+    """Fill each program's `validated_version` from its `validated_version_key`.
+
+    Two callers, and the second is the reason the association and the number are
+    separate keys. `catalog.py` calls it once at import; `UpdateService` calls it
+    again *after* a `git pull`, because the pulled tree carries a new manifest
+    that the running process imported minutes ago and cannot see. The key is a
+    constant a pull never changes, so re-reading the file is enough — reloading
+    the module would not be.
+
+    A key the manifest does not declare raises `KeyError`: a dependency whose
+    version silently vanished would fall back to "whatever GitHub's
+    releases/latest returns", which is the button the manifest exists to remove.
+    """
+    resolved = versions if versions is not None else load_dependency_versions()
+    for config in programs.values():
+        key = config.get("validated_version_key")
+        if key:
+            config["validated_version"] = resolved[key]
+    return programs

@@ -16,11 +16,14 @@ Keys, per program:
     commands          how to read the installed version, per component.
     repo              GitHub "owner/name" the latest release is fetched from.
     version_regex     extracts the version out of both of the above.
-    validated_version the version this Milō ships, read from the repo's
-                      `dependencies.env` — the only place it is declared, shared
-                      with both install trees and pi-gen. What the update flow
-                      offers and installs, whatever upstream has released since
-                      (see get_latest_github_version). `milo` alone has none: it
+    validated_version_key
+                      which line of the repo's `dependencies.env` holds this
+                      program's validated version — the only place the number is
+                      declared, shared with both install trees and pi-gen.
+                      `apply_validated_versions` resolves it below into
+                      "validated_version", which is what the update flow offers
+                      and installs whatever upstream has released since (see
+                      get_latest_github_version). `milo` alone declares none: it
                       is the app, not a dependency.
 
   Install layout
@@ -37,7 +40,7 @@ Keys, per program:
                       preserving whatever state it was in.
     config_path       config file backed up alongside the binary.
 """
-from backend.core.updates.dependency_versions import DEPENDENCY_VERSIONS
+from backend.core.updates.dependency_versions import apply_validated_versions
 
 PROGRAMS = {
     "milo": {
@@ -62,7 +65,7 @@ PROGRAMS = {
         },
         "repo": "devgianlu/go-librespot",
         "version_regex": r"(\d+\.\d+\.\d+)",
-        "validated_version": DEPENDENCY_VERSIONS["GO_LIBRESPOT_VERSION"],
+        "validated_version_key": "GO_LIBRESPOT_VERSION",
         "log_name": "go-librespot",
         "binary_path": "/usr/local/bin/go-librespot",
         "config_path": "/var/lib/milo/go-librespot/config.yml",
@@ -78,7 +81,7 @@ PROGRAMS = {
         },
         "repo": "mikebrady/shairport-sync",
         "version_regex": r"(\d+\.\d+(?:\.\d+)?)",
-        "validated_version": DEPENDENCY_VERSIONS["SHAIRPORT_SYNC_VERSION"],
+        "validated_version_key": "SHAIRPORT_SYNC_VERSION",
         "binary_path": "/usr/local/bin/shairport-sync",
         "service_name": "milo-airplay.service",
         "backup_path": "/var/lib/milo/backups/shairport-sync",
@@ -101,7 +104,7 @@ PROGRAMS = {
         },
         "repo": "badaix/snapcast",
         "version_regex": r"v(\d+\.\d+\.\d+)",
-        "validated_version": DEPENDENCY_VERSIONS["SNAPCAST_VERSION"],
+        "validated_version_key": "SNAPCAST_VERSION",
         "services": [
             "milo-snapserver-multiroom.service",
             "milo-snapclient-multiroom.service"
@@ -116,7 +119,7 @@ PROGRAMS = {
         },
         "repo": "HEnquist/camilladsp",
         "version_regex": r"(\d+\.\d+\.\d+)",
-        "validated_version": DEPENDENCY_VERSIONS["CAMILLADSP_VERSION"],
+        "validated_version_key": "CAMILLADSP_VERSION",
         "log_name": "CamillaDSP",
         "binary_path": "/usr/local/bin/camilladsp",
         "service_name": "milo-camilladsp.service",
@@ -136,7 +139,7 @@ PROGRAMS = {
         },
         "repo": "leolobato/qobuz-proxy",
         "version_regex": r"v?(\d+\.\d+\.\d+)",
-        "validated_version": DEPENDENCY_VERSIONS["QOBUZ_PROXY_VERSION"],
+        "validated_version_key": "QOBUZ_PROXY_VERSION",
         "service_name": "milo-qobuz.service",
         "venv_path": "/var/lib/milo/qobuz/venv",
         "backup_path": "/var/lib/milo/backups/qobuz"
@@ -152,7 +155,7 @@ PROGRAMS = {
         },
         "repo": "navidrome/navidrome",
         "version_regex": r"(\d+\.\d+\.\d+)",
-        "validated_version": DEPENDENCY_VERSIONS["NAVIDROME_VERSION"],
+        "validated_version_key": "NAVIDROME_VERSION",
         "log_name": "Navidrome",
         "binary_path": "/usr/local/bin/navidrome",
         "service_name": "milo-navidrome.service",
@@ -163,3 +166,9 @@ PROGRAMS = {
         "always_on": True
     }
 }
+
+# Resolve every "validated_version_key" against dependencies.env. Kept out of the
+# literals above so the association (which line) and the value (which version)
+# stay separate: UpdateService re-runs this after a `git pull` to pick up a
+# manifest the running process was started before.
+apply_validated_versions(PROGRAMS)

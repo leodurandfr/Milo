@@ -354,7 +354,9 @@
     "update": "Actualizar",
     "updating": "Actualizando...",
     "errorDetectingSatellites": "Error al detectar satélites",
-    "upToDate": "Actualizado"
+    "upToDate": "Actualizado",
+    "dependenciesHint": "Instala la aplicación y las versiones de los programas validadas con ella.",
+    "upstream": "upstream"
   },
   "info": {
     "temperature": "Temperatura",

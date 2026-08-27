@@ -25,8 +25,12 @@ Three trees, three ways of reading the same file:
     Docker, and cannot reach the Milō repo — `pi-gen/build.sh` copies it in.
     This is invariant 2's shape applied to a third deployment tree, and the copy
     is checked here because nothing else can see a pi-gen build fail;
-  * `backend/core/updates/catalog.py` reads it into each program's
+  * `backend/core/updates/catalog.py` names the line each program uses
+    (`"validated_version_key"`) and `apply_validated_versions` resolves it into
     `"validated_version"`, which is what the update flow offers and installs.
+    The association and the number are separate keys on purpose: `UpdateService`
+    re-resolves after a `git pull`, when the process holds the old numbers and
+    the disk holds the new ones.
 
 Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing on
@@ -58,8 +62,8 @@ VAR_READ_RE = re.compile(r"\$\{?([A-Z][A-Z0-9_]*)\}?")
 # manifest owns must not be assigned anywhere but the manifest.
 ASSIGN_RE = re.compile(r"^\s*(?:export\s+|local\s+)?([A-Z][A-Z0-9_]*)=", re.MULTILINE)
 
-# `DEPENDENCY_VERSIONS["VAR"]` — the backend's only way of reading the manifest.
-PY_READ_RE = re.compile(r'DEPENDENCY_VERSIONS\[\s*["\']([A-Z][A-Z0-9_]*)["\']\s*\]')
+# `"validated_version_key": "VAR"` — the catalog's only reference to the manifest.
+PY_READ_RE = re.compile(r'"validated_version_key"\s*:\s*"([A-Z][A-Z0-9_]*)"')
 
 PI_GEN_STAGE = REPO_ROOT / "pi-gen" / "stage-milo"
 BUILD_SH = REPO_ROOT / "pi-gen" / "build.sh"
@@ -104,47 +108,59 @@ def test_every_updatable_program_declares_a_validated_version(manifest):
     """A program without a declared version is a program nobody validated.
 
     The whole point of the manifest is that the appliance installs a set someone
-    signed off on. A new catalog entry with no `validated_version` silently falls
-    back to "whatever GitHub's releases/latest returns" — the exact button this
-    plan removed, re-added by omission. This is the successor to
+    signed off on. A new catalog entry with no key silently falls back to
+    "whatever GitHub's releases/latest returns" — the exact button this plan
+    removed, re-added by omission. This is the successor to
     `test_no_program_pins_a_ceiling_by_default`, inverted: back then no program
     pinned anything, now every dependency must.
     """
-    declared = {k for k, cfg in PROGRAMS.items() if "validated_version" in cfg}
+    declared = {k for k, cfg in PROGRAMS.items() if "validated_version_key" in cfg}
     expected = set(PROGRAMS) - {NOT_A_DEPENDENCY}
 
     assert declared == expected, (
-        f"missing a validated_version: {sorted(expected - declared)}; "
+        f"missing a validated_version_key: {sorted(expected - declared)}; "
         f"declared one but should not: {sorted(declared - expected)}"
     )
-    # Values must come from the manifest, not from a literal typed into the
-    # catalog — the second declaration this file exists to prevent.
-    values = set(manifest.values())
-    off_manifest = {
-        k: cfg["validated_version"]
+
+    unknown = {
+        k: cfg["validated_version_key"]
         for k, cfg in PROGRAMS.items()
-        if "validated_version" in cfg and cfg["validated_version"] not in values
+        if cfg.get("validated_version_key") not in manifest
+        and "validated_version_key" in cfg
     }
-    assert not off_manifest, f"validated_version not read from the manifest: {off_manifest}"
+    assert not unknown, f"keys dependencies.env does not declare: {unknown}"
+
+    # And the key is actually *resolved* — an association nothing applies leaves
+    # `validated_version` absent, which un-pins the program without changing a
+    # single line anyone would look at.
+    unresolved = {
+        k: cfg.get("validated_version")
+        for k, cfg in PROGRAMS.items()
+        if "validated_version_key" in cfg
+        and cfg.get("validated_version") != manifest[cfg["validated_version_key"]]
+    }
+    assert not unresolved, f"validated_version_key never resolved against the manifest: {unresolved}"
 
 
-def test_the_catalog_reads_the_manifest_by_lookup(manifest):
+def test_the_catalog_declares_no_version_literal(manifest):
     """A literal in the catalog would be a second declaration that never drifts *loudly*.
 
-    `"validated_version": "0.63.2"` passes the test above (the value happens to
-    match today) and goes stale the moment the manifest moves. Requiring the
-    lookup expression makes the manifest the only place the number can change.
+    `"validated_version": "0.63.2"` matches the manifest today and goes stale the
+    moment it moves, with nothing to notice — the same shape as a version literal
+    in an install script, one tree over.
     """
-    code = CATALOG.read_text()
-    looked_up = set(PY_READ_RE.findall(code))
-    assert looked_up, "catalog.py no longer reads DEPENDENCY_VERSIONS at all"
-
-    dependencies = set(PROGRAMS) - {NOT_A_DEPENDENCY}
-    assert len(looked_up) == len(dependencies), (
-        f"{len(dependencies)} dependencies but {len(looked_up)} manifest lookups: {looked_up}"
-    )
-    unknown = looked_up - set(manifest)
-    assert not unknown, f"catalog.py looks up keys the manifest does not declare: {unknown}"
+    # Comment-stripped: the Navidrome entry documents what `navidrome --version`
+    # prints, which is a version string and not a declaration. The shell rule
+    # below strips comments for the same reason.
+    code = _strip_comments(CATALOG.read_text())
+    offenders = [
+        f"catalog.py:{i} writes the literal {version!r}; "
+        f'declare "validated_version_key": "{name}" instead'
+        for i, line in enumerate(code.splitlines(), 1)
+        for name, version in manifest.items()
+        if version in line
+    ]
+    assert not offenders, "\n".join(offenders)
 
 
 def test_no_provisioning_script_restates_a_manifest_version(manifest, scripts):
