@@ -354,7 +354,9 @@
     "update": "अपडेट करें",
     "updating": "अपडेट हो रहा है...",
     "errorDetectingSatellites": "सैटेलाइट का पता लगाने में त्रुटि",
-    "upToDate": "अप टू डेट"
+    "upToDate": "अप टू डेट",
+    "dependenciesHint": "ऐप और उसके साथ मान्य किए गए प्रोग्राम संस्करण इंस्टॉल करता है।",
+    "upstream": "अपस्ट्रीम"
   },
   "info": {
     "temperature": "तापमान",

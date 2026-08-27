@@ -18,6 +18,7 @@ sibling files where that migration *is* right say so in their own headers.
 import asyncio
 import logging
 import tempfile
+import time
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
@@ -114,6 +115,22 @@ class TestUpdateServiceInit:
     def test_inherits_version_service(self, update_service):
         assert hasattr(update_service, "programs")
         assert hasattr(update_service, "_github_cache")
+
+
+@contextmanager
+def github_unreachable():
+    """Stand in for the GitHub transport, refusing every call.
+
+    A Milō update now reconciles the dependency set before it reboots, and that
+    reads `releases/latest` for each dependency. A test about the app's own
+    steps must stand in for that transport rather than reach it — this suite
+    runs ON the appliance, and the conftest guard fails the run otherwise.
+    Refusing makes every dependency read as "no update available", so the
+    reconciliation is a no-op and the app steps are what is left under test.
+    """
+    with patch("backend.core.updates.update.aiohttp.ClientSession",
+               side_effect=Exception("no network in tests")):
+        yield
 
 
 class TestUpdateHandlerCoverage:
@@ -1141,6 +1158,7 @@ class TestMiloAppPythonDependencies:
             stack.enter_context(patch.object(service, "_sync_system_files"))
             stack.enter_context(patch.object(service, "_run_deploy", return_value=(True, "")))
             stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(github_unreachable())
             yield calls
 
     @pytest.mark.asyncio
@@ -1224,6 +1242,268 @@ class TestMiloAppPythonDependencies:
         assert (REPO_ROOT / requirements).is_file(), f"{requirements} is not in the repo"
 
 
+class TestDependencyReconciliation:
+    """A Milō update installs the app *and* the dependency set validated with it.
+
+    One sequence, never one transaction and never deferred to the next boot.
+    Deferring would put a multi-minute source compile behind a dark screen with
+    the backend down; a transaction would mean composing seven independent
+    rollbacks, whose half-applied states are worse than either end.
+
+    The subtle half is *which* set. `git pull` replaces `dependencies.env` under
+    a process that read it minutes earlier and cached its GitHub answers for an
+    hour — so a reconciliation that skips either refresh compares the unit
+    against the versions it already runs and does nothing at all, silently. That
+    is the shape both of the first two tests exist to catch.
+
+    Phases are patched rather than collaborators, per this file's header: what
+    is under test here is which program was reached, with which version, and
+    which was not reached at all.
+    """
+
+    # Version strings no manifest will ever hold, so a dispatch carrying one can
+    # only have come from the file written by the test.
+    BUMPED = "9.87.65"
+
+    @classmethod
+    def _manifest_bumping(cls, tmp_path, *keys):
+        """The real manifest with the named lines rewritten to BUMPED.
+
+        Derived, not retyped: a hand-written stand-in would stop resembling the
+        file under test the first time its shape changed.
+        """
+        from backend.core.updates.dependency_versions import MANIFEST_PATH
+
+        lines = MANIFEST_PATH.read_text().splitlines()
+        out = list(lines)
+        for key in keys:
+            out = [f"{key}={cls.BUMPED}" if ln.startswith(f"{key}=") else ln for ln in out]
+            assert any(ln == f"{key}={cls.BUMPED}" for ln in out), f"{key} is not declared"
+        path = tmp_path / "dependencies.env"
+        path.write_text("\n".join(out) + "\n")
+        return path
+
+    @staticmethod
+    @contextmanager
+    def _reconciling(service, manifest=None, *, installed=b"1.0.0", tag="v1.0.0", dispatch=None):
+        """Drive the real status chain, and record what was dispatched.
+
+        `installed` answers every version command and `tag` every GitHub fetch,
+        so each program's own regex decides which of them read as installed —
+        the same filter production applies.
+        """
+        dispatched = []
+        answer = dispatch or (lambda *_a: {"success": True})
+
+        async def record(program_key, status):
+            dispatched.append((program_key, status["latest"]["version"]))
+            result = answer(program_key, status)
+            if result is None:
+                raise RuntimeError("tar: unexpected EOF")
+            return result
+
+        async def exec_(*args, **kwargs):
+            return _make_mock_proc(stdout=installed)
+
+        class _Response:
+            status = 200
+
+            async def json(self):
+                return {"tag_name": tag, "published_at": None, "html_url": None}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        class _Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def get(self, *a, **kw):
+                return _Response()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=exec_))
+            stack.enter_context(
+                patch("backend.core.updates.update.aiohttp.ClientSession", return_value=_Session())
+            )
+            stack.enter_context(patch.object(service, "_dispatch_update", side_effect=record))
+            if manifest is not None:
+                stack.enter_context(
+                    patch("backend.core.updates.dependency_versions.MANIFEST_PATH", manifest)
+                )
+            yield dispatched
+
+    @pytest.mark.asyncio
+    async def test_the_manifest_is_re_read_after_the_pull(self, update_service, tmp_path):
+        """The set that reaches the unit is the one the *pulled* commit declares.
+
+        The process imported `dependencies.env` at startup; the pull replaced it
+        seconds ago. Reconciling against the in-memory copy installs the set the
+        unit already has, reports success, and leaves the bump the maintainer
+        just shipped unapplied — on every unit, with nothing to notice.
+        """
+        before = update_service.programs["navidrome"]["validated_version"]
+        assert before != self.BUMPED
+
+        manifest = self._manifest_bumping(tmp_path, "NAVIDROME_VERSION")
+        with self._reconciling(update_service, manifest) as dispatched:
+            failed = await update_service._reconcile_dependencies()
+
+        assert failed == []
+        assert ("navidrome", self.BUMPED) in dispatched
+
+    @pytest.mark.asyncio
+    async def test_the_cached_github_answers_are_dropped(self, update_service, tmp_path):
+        """A cached fetch carries the *old* pin, and the cache lasts an hour.
+
+        `get_latest_github_version` answers from `_github_cache` without looking
+        at the manifest at all, so a bump landing inside that hour — which is
+        every bump, the fetch happens when the screen is opened — would be
+        clamped straight back to the version the unit already runs.
+        """
+        update_service._github_cache["github_navidrome"] = {
+            "status": "success",
+            "version": update_service.programs["navidrome"]["validated_version"],
+            "tag_name": "v1.0.0",
+            "published_at": None,
+            "html_url": None,
+        }
+        update_service._last_github_fetch["github_navidrome"] = time.time()
+
+        manifest = self._manifest_bumping(tmp_path, "NAVIDROME_VERSION")
+        with self._reconciling(update_service, manifest) as dispatched:
+            await update_service._reconcile_dependencies()
+
+        assert ("navidrome", self.BUMPED) in dispatched
+
+    @pytest.mark.asyncio
+    async def test_a_dependency_already_at_the_validated_version_is_left_alone(self, update_service):
+        """Reconciling is not reinstalling: the common case must touch nothing.
+
+        Every dependency is at its validated version on a healthy unit, so a
+        reconciliation that dispatched regardless would stop and restart every
+        audio service — and recompile shairport-sync — on every app update.
+        """
+        installed = update_service.programs["navidrome"]["validated_version"].encode()
+        with self._reconciling(update_service, installed=installed, tag="v1.0.0") as dispatched:
+            failed = await update_service._reconcile_dependencies()
+
+        assert failed == []
+        assert [k for k, _ in dispatched if k == "navidrome"] == []
+
+    @pytest.mark.asyncio
+    async def test_the_app_itself_is_never_reconciled(self, update_service, tmp_path):
+        """`milo` reaching the dispatcher re-enters `_update_milo_app`.
+
+        The reconciliation runs *inside* that flow, so dispatching `milo` would
+        pull, rebuild and reboot from within a pull-rebuild-reboot — recursively,
+        each level holding the update key the route claimed.
+        """
+        # A tag ahead of the installed version, so `milo` is exactly what the
+        # loop *would* pick up: unpinned, and an update genuinely available. A
+        # fixture where it is already current would leave this guard untested
+        # while reading green.
+        manifest = self._manifest_bumping(tmp_path, "NAVIDROME_VERSION")
+        with self._reconciling(update_service, manifest, tag="v2.0.0") as dispatched:
+            await update_service._reconcile_dependencies()
+
+        reached = [k for k, _ in dispatched]
+        assert "milo" not in reached
+        assert "navidrome" in reached, "the loop dispatched nothing at all"
+
+    @pytest.mark.asyncio
+    async def test_one_failed_dependency_does_not_stop_the_others(self, update_service, tmp_path):
+        """Reported, not fatal — and never fatal to the programs behind it.
+
+        Each flow restores itself on failure, so a failed step leaves the unit
+        on the previous version of that one dependency: the state every unit is
+        already in for anything nobody clicked. Aborting the sequence there
+        would leave the rest of the set behind for no gain.
+        """
+        manifest = self._manifest_bumping(tmp_path, "GO_LIBRESPOT_VERSION", "NAVIDROME_VERSION")
+
+        def dispatch(program_key, status):
+            if program_key == "go-librespot":
+                return {"success": False, "error": "download failed"}
+            return {"success": True}
+
+        with self._reconciling(update_service, manifest, dispatch=dispatch) as dispatched:
+            failed = await update_service._reconcile_dependencies()
+
+        assert failed == ["go-librespot"]
+        # go-librespot precedes navidrome in the catalog, so navidrome having
+        # been reached at all is the proof the loop did not stop on the failure.
+        reached = [k for k, _ in dispatched]
+        assert reached.index("go-librespot") < reached.index("navidrome")
+
+    @pytest.mark.asyncio
+    async def test_a_dependency_that_raises_is_caught(self, update_service, tmp_path):
+        """This runs past the point where the app can still be rolled back.
+
+        `_update_milo_app` rolls back to the original commit on any exception,
+        and by the time the set is reconciled the app is pulled, built and
+        synced. An exception escaping here would undo a good update over a
+        dependency — and leave the dependencies that already moved ahead of the
+        app that was just reverted.
+        """
+        manifest = self._manifest_bumping(tmp_path, "NAVIDROME_VERSION")
+
+        with self._reconciling(update_service, manifest, dispatch=lambda *_a: None) as dispatched:
+            failed = await update_service._reconcile_dependencies()
+
+        # It returned at all — that is the assertion. Every program it reached
+        # raised, and every one of them is reported rather than propagated.
+        assert failed == [k for k, _ in dispatched]
+        assert "navidrome" in failed
+
+
+    @pytest.mark.asyncio
+    async def test_the_set_is_installed_after_the_sync_and_before_the_reboot(self, update_service):
+        """Placement is the whole design, and both edges matter.
+
+        *After* the sync: everything above that line can still roll the app back
+        to the original commit, and rolling back with the dependencies already
+        moved leaves the two out of step. *Before* the reboot: deferring the
+        install to the next boot puts a multi-minute source compile behind a
+        dark screen, with the backend down and nothing anywhere to say why —
+        the most invisible place it could possibly run.
+
+        The failures it reports ride the envelope too, for the one path that
+        survives to return one (a refused reboot); otherwise the journal and
+        `installed != validated` on the dependency rows are what is left.
+        """
+        order = []
+        calls, mock_exec = TestMiloAppLastSteps._exec()
+
+        async def deploy(*args, **kwargs):
+            order.append(args[0])
+            return (True, "")
+
+        async def reconcile():
+            order.append("reconcile")
+            return ["shairport-sync"]
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(patch.object(update_service, "_run_deploy", side_effect=deploy))
+            stack.enter_context(
+                patch.object(update_service, "_reconcile_dependencies", side_effect=reconcile)
+            )
+            result = await update_service._update_milo_app(TestMiloAppLastSteps.STATUS)
+
+        assert order == ["sync-system-files", "reconcile", "reboot"]
+        assert result["success"] is True
+        assert result["dependency_failures"] == ["shairport-sync"]
+
+
 class TestMiloAppLastSteps:
     """The two steps of a Milo update whose result was never read.
 
@@ -1290,6 +1570,7 @@ class TestMiloAppLastSteps:
             stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
             stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
             stack.enter_context(patch.object(update_service, "_run_deploy", side_effect=deploy))
+            stack.enter_context(github_unreachable())
             rollback = stack.enter_context(
                 patch.object(update_service, "_rollback_milo_to_commit", return_value=True)
             )

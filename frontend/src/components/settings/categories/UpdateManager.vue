@@ -16,6 +16,12 @@
     <template v-else>
       <!-- Section 1: Operating System (Milo OS only) -->
       <SettingsSection v-if="localProgramsLoading || localPrograms.milo" :title="t('updates.osTitle')">
+        <!-- Shown only alongside the button, because it describes what pressing
+             it does: one Milō update carries the whole validated set. -->
+        <p v-if="!localProgramsLoading && localPrograms.milo?.update_available && !isLocalUpdateCompleted('milo')"
+          class="text-mono section-note">
+          {{ t('updates.dependenciesHint') }}
+        </p>
         <div class="crossfade-wrapper">
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
@@ -59,8 +65,13 @@
         </div>
       </SettingsSection>
 
-      <!-- Section 2: Milo Programs -->
-      <SettingsSection :title="t('updates.programsTitle')">
+      <!-- Section 2: the individual programs — a maintainer surface.
+           Collapsed by default: since every version here is the one declared in
+           dependencies.env, these rows only ever move when the Milō update above
+           moves them. Local state, not a setting: it is a disclosure, and
+           persisting it would invent a preference nobody asked for. -->
+      <ToggleSection :title="t('updates.programsTitle')" :enabled="showPrograms"
+        @change="showPrograms = $event">
         <div class="crossfade-wrapper">
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
@@ -84,6 +95,12 @@
                         v-if="program.update_available && !isLocalUpdateCompleted(key)">
                         <span class="version-new">> {{ getLocalLatestVersion(program) }}</span>
                       </template>
+                      <!-- What upstream has released past the validated version.
+                           Never --color-brand: brand means "actionable update",
+                           and this one is deliberately not on offer. -->
+                      <span v-if="getUpstreamAhead(program)" class="program-upstream text-mono-small">
+                        {{ t('updates.upstream') }} {{ getUpstreamAhead(program) }}
+                      </span>
                     </span>
                   </div>
 
@@ -105,7 +122,7 @@
             </div>
           </Transition>
         </div>
-      </SettingsSection>
+      </ToggleSection>
 
       <!-- Section 3: Satellite Programs (error) -->
       <SettingsSection v-if="isMultiroomEnabled && satellitesError"
@@ -252,6 +269,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUpdatesStore } from '@/stores/updatesStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
+import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 function getProgramIcon(programKey) {
   const iconMap = {
@@ -332,6 +350,9 @@ const anticipatedSatellites = computed(() =>
   })
 );
 
+// Advanced surface, collapsed on open. See the template comment above it.
+const showPrograms = ref(false);
+
 // Debug: toggle via console with window.__miloDebugUpdating(true/false)
 const debugForceUpdating = ref(false);
 if (typeof window !== 'undefined') {
@@ -367,6 +388,14 @@ function getLocalInstalledVersion(program) {
 
 function getLocalLatestVersion(program) {
   return program.latest?.version || null;
+}
+
+// The upstream release, when it is newer than the validated one. Backend-driven
+// (`latest.upstream.ahead`): the frontend never compares versions itself, and
+// `ahead` is false — not absent — for the normal case where the set is current.
+function getUpstreamAhead(program) {
+  const upstream = program.latest?.upstream;
+  return upstream?.ahead ? upstream.version : null;
 }
 
 // === LIFECYCLE ===
@@ -451,6 +480,15 @@ onMounted(async () => {
 
 .version-new {
   color: var(--color-brand);
+}
+
+.section-note {
+  color: var(--color-text-secondary);
+}
+
+.program-upstream {
+  display: block;
+  color: var(--color-text-light);
 }
 
 .satellite-name {
