@@ -168,3 +168,194 @@ async def test_reporting_the_card_ends_the_reboot_shield(clock, storage):
 
     assert REBOOTING not in clients
     assert FRESH in clients
+
+
+class TestTheTransferAndTheRefusals:
+    """What clears the wizard entry, and what happens when nothing is there.
+
+    `remove_client` ran at 0 % until 2026-08-27: it is the last step of an
+    adoption — `_register_snapclient` calls it once the registry owns the
+    identity. An entry that survives the transfer keeps the speaker in the
+    wizard's "waiting to be configured" list while it is already playing, and
+    every later heartbeat re-broadcasts it.
+    """
+
+    async def test_a_successful_adoption_clears_the_wizard_entry(self, clock, storage):
+        service = _service()
+        await service.register_client(
+            mac_id=REBOOTING, ip="192.168.1.60", hardware_configured=False, audio_id="none"
+        )
+        try:
+            assert await service.remove_client(REBOOTING) is True
+
+            assert service.get_client(REBOOTING) is None
+            assert await _reload_after_sweep() == {}, "the removal did not reach the disk"
+        finally:
+            await service.shutdown()
+
+    async def test_the_removal_is_announced_so_the_wizard_list_updates(
+        self, clock, storage
+    ):
+        """The multiroom page holds the pending list from a WS delta; without the
+        event the adopted speaker stays in it until the tab is reloaded."""
+        service = _service()
+        await service.register_client(
+            mac_id=REBOOTING, ip="192.168.1.60", hardware_configured=False, audio_id="none"
+        )
+        service._state_machine.broadcast.reset_mock()
+        try:
+            await service.remove_client(REBOOTING)
+
+            events = [c.args[0] for c in service._state_machine.broadcast.await_args_list]
+            assert [(e.action, e.mac_id) for e in events] == [("removed", REBOOTING)]
+        finally:
+            await service.shutdown()
+
+    async def test_removing_an_unknown_client_changes_nothing(self, clock, storage):
+        """`_register_snapclient` calls it for every admission, pending or not."""
+        service = _service()
+        try:
+            assert await service.remove_client(FRESH) is False
+            service._state_machine.broadcast.assert_not_called()
+        finally:
+            await service.shutdown()
+
+    async def test_updating_an_unknown_client_answers_none(self, clock, storage):
+        """The mac comes from a URL path segment; creating an entry from a
+        `PATCH` would put a speaker in the wizard that never registered."""
+        service = _service()
+        try:
+            assert await service.update_client(FRESH, name="Salon") is None
+        finally:
+            await service.shutdown()
+
+    async def test_an_update_touches_only_the_fields_it_was_given(self, clock, storage):
+        """The wizard PATCHes one field at a time as the user fills the form."""
+        service = _service()
+        await service.register_client(
+            mac_id=REBOOTING, ip="192.168.1.60", hardware_configured=False, audio_id="none"
+        )
+        try:
+            await service.update_client(REBOOTING, name="Salon", speaker_type="subwoofer")
+            updated = await service.update_client(
+                REBOOTING, audio_id="hifiberry-dac", volume_control=False
+            )
+
+            assert updated["name"] == "Salon"
+            assert updated["speaker_type"] == "subwoofer"
+            assert updated["audio_id"] == "hifiberry-dac"
+            assert updated["volume_control"] is False
+        finally:
+            await service.shutdown()
+
+    async def test_marking_an_unknown_client_as_configuring_is_refused(
+        self, clock, storage
+    ):
+        """The grace period it grants is what shields an entry through a reboot;
+        granting it to an absent mac would write a record with nothing else in it.
+        """
+        service = _service()
+        try:
+            assert await service.mark_configuring(FRESH) is False
+        finally:
+            await service.shutdown()
+
+    async def test_a_sweep_with_nothing_stale_writes_nothing(self, clock, storage):
+        """It runs every cleanup interval for the life of the process. Persisting
+        each time is a write to the SD card per pass, forever."""
+        service = _service()
+        await service.register_client(
+            mac_id=FRESH, ip="192.168.1.70", hardware_configured=False, audio_id="none"
+        )
+        try:
+            storage.unlink()
+
+            await service._purge_stale()
+
+            assert not storage.exists(), "an idle sweep rewrote the file"
+        finally:
+            await service.shutdown()
+
+    async def test_a_corrupt_store_starts_empty_rather_than_stopping_the_boot(
+        self, clock, storage, caplog
+    ):
+        """This file carries no `schema_version` — it is a staging area, not
+        persisted state — so the fail-loud protocol does not apply and a
+        half-written file must not keep the backend from starting. The wizard
+        entries are rebuilt by the next heartbeat, 15 s later.
+        """
+        import logging
+
+        storage.write_text("{not json")
+        service = _service()
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.pending_clients"):
+            assert await service.initialize() is True
+        try:
+            assert service.get_all_clients() == {}
+            assert any("Failed to load pending clients" in r.message for r in caplog.records)
+        finally:
+            await service.shutdown()
+
+    async def test_an_empty_file_is_not_a_corrupt_one(self, clock, storage, caplog):
+        """`_persist` writes `{}` when the last entry is adopted, and an empty
+        read must not log a fault on every boot after that."""
+        import logging
+
+        storage.write_text("")
+        service = _service()
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.pending_clients"):
+            await service.initialize()
+        try:
+            assert service.get_all_clients() == {}
+            assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+        finally:
+            await service.shutdown()
+
+    async def test_a_disk_that_refuses_the_write_does_not_lose_the_entry(
+        self, clock, storage, monkeypatch, caplog
+    ):
+        """The in-memory copy is what the wizard reads and what the transfer
+        consumes; a persistence failure must cost the reboot shield, not the
+        registration that just arrived."""
+        import logging
+
+        monkeypatch.setattr(
+            pending_clients_module.os, "replace",
+            MagicMock(side_effect=OSError("read-only filesystem")),
+        )
+        service = _service()
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.pending_clients"):
+            await service.register_client(
+                mac_id=FRESH, ip="192.168.1.70", hardware_configured=False, audio_id="none"
+            )
+        try:
+            assert service.get_client(FRESH) is not None
+            assert any("Failed to persist pending clients" in r.message for r in caplog.records)
+        finally:
+            await service.shutdown()
+
+    async def test_a_broadcast_that_fails_does_not_undo_the_registration(
+        self, clock, storage, caplog
+    ):
+        """It is awaited after the lock is released and after the write landed;
+        raising would surface a failed `POST /api/multiroom/register-client` to a
+        satellite that is registered — and the satellite retries the POST, which
+        would re-broadcast forever."""
+        import logging
+
+        service = _service()
+        service._state_machine.broadcast = AsyncMock(side_effect=RuntimeError("no ws"))
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.pending_clients"):
+            await service.register_client(
+                mac_id=FRESH, ip="192.168.1.70", hardware_configured=False, audio_id="none"
+            )
+        try:
+            assert service.get_client(FRESH) is not None
+            assert any("Failed to broadcast pending client event" in r.message
+                       for r in caplog.records)
+        finally:
+            await service.shutdown()
