@@ -8,6 +8,7 @@ Tests cover:
 - BaseAudioSource lifecycle
 """
 import asyncio
+import logging
 
 import pytest
 from unittest.mock import Mock, AsyncMock
@@ -545,3 +546,230 @@ class TestBaseAudioSourceInheritance:
         assert hasattr(source, 'service_name')
         assert source.source_id == "test"
         assert source.service_name == "milo-test"
+
+
+class TestServiceHelperFailureArms:
+    """The five systemd wrappers every source inherits, when systemd says no.
+
+    Each one is `try: await manager.X(name) except: log + False`, and every
+    `except` arm was at zero — as was the "no unit name" early return that the
+    metadata-only sources (Bluetooth, DLNA) take on every call.
+
+    What the arms buy: `SystemdServiceManager` already answers False for a
+    non-zero systemctl, so an exception here is a *broken* privileged path — a
+    sudoers rule that stopped matching, a unit renamed on one side only. Swallowed
+    into the caller's `_do_start`, the source reports ERROR with no explanation in
+    the journal; re-raised, it escapes into `start()`'s generic handler and every
+    source failure reads the same.
+    """
+
+    def _source_with(self, service_name="milo-test"):
+        source = ConcreteAudioSource()
+        source.service_name = service_name
+        source._service_manager = Mock()
+        return source
+
+    @pytest.mark.parametrize("helper,manager_method", [
+        ("_start_service", "start"),
+        ("_stop_service", "stop"),
+        ("_restart_service", "restart"),
+        ("_is_service_active", "is_active"),
+    ])
+    @pytest.mark.asyncio
+    async def test_a_raising_manager_answers_false_and_names_the_unit(
+        self, helper, manager_method, caplog
+    ):
+        source = self._source_with()
+        setattr(source._service_manager, manager_method,
+                AsyncMock(side_effect=OSError("sudo: a password is required")))
+
+        with caplog.at_level(logging.ERROR):
+            assert await getattr(source, helper)() is False
+
+        assert "milo-test" in caplog.text
+        assert "a password is required" in caplog.text
+
+    @pytest.mark.parametrize("helper,manager_method", [
+        ("_start_service", "start"),
+        ("_stop_service", "stop"),
+        ("_restart_service", "restart"),
+        ("_is_service_active", "is_active"),
+    ])
+    @pytest.mark.asyncio
+    async def test_a_source_with_no_unit_succeeds_without_calling_systemd(
+        self, helper, manager_method
+    ):
+        """Bluetooth and DLNA own no systemd unit; their `service_name` is None.
+
+        Answered False, every one of their starts and stops would fail. Passed to
+        systemd, `systemctl start None` is a spawn with a nonsense argument on a
+        path the sudoers policy scopes by unit name.
+        """
+        source = self._source_with(service_name=None)
+        setattr(source._service_manager, manager_method, AsyncMock())
+
+        assert await getattr(source, helper)() is True
+
+        getattr(source._service_manager, manager_method).assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_an_explicit_unit_name_overrides_the_source_own(self):
+        """Spotify stops go-librespot's unit, not its own name.
+
+        A helper that ignored the argument would act on the caller's unit — the
+        wrong one — and report success.
+        """
+        source = self._source_with()
+        source._service_manager.stop = AsyncMock(return_value=True)
+
+        assert await source._stop_service("milo-go-librespot") is True
+
+        source._service_manager.stop.assert_awaited_once_with("milo-go-librespot")
+
+    @pytest.mark.asyncio
+    async def test_a_restart_that_failed_is_not_waited_out(self):
+        """`_restart_service_and_wait` settles only after a restart that worked.
+
+        Sleeping anyway adds half a second to every failed source switch, and —
+        worse — the caller reads True from the settle instead of False from the
+        restart.
+        """
+        source = self._source_with()
+        source._service_manager.restart = AsyncMock(return_value=False)
+        slept = []
+
+        async def _sleep(delay):
+            slept.append(delay)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("backend.core.audio_source.asyncio.sleep", _sleep)
+            assert await source._restart_service_and_wait() is False
+
+        assert slept == []
+
+    @pytest.mark.asyncio
+    async def test_a_successful_restart_settles_before_answering(self):
+        """The settle is what makes the state machine's post-start resync read a
+        unit that has actually come up rather than one still forking."""
+        source = self._source_with()
+        source._service_manager.restart = AsyncMock(return_value=True)
+        slept = []
+
+        async def _sleep(delay):
+            slept.append(delay)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("backend.core.audio_source.asyncio.sleep", _sleep)
+            assert await source._restart_service_and_wait(settle=0.25) is True
+
+        assert slept == [0.25]
+
+
+class TestStartFailureArm:
+    """`start()` when `_do_start` raises rather than answers.
+
+    `AudioStateMachine.transition_to_source` reads the boolean and the state; a
+    raise that reached it instead would abort the transition itself, leaving
+    `transitioning` set and every later update dropped rather than buffered.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_raising_start_is_contained_and_lands_in_error(self, caplog):
+        source = ConcreteAudioSource()
+
+        async def _boom():
+            raise RuntimeError("loopback device busy")
+
+        source._do_start = _boom
+
+        with caplog.at_level(logging.ERROR):
+            assert await source.start() is False
+
+        assert source.state == SourceState.ERROR
+        assert "loopback device busy" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_the_recorded_reason_has_no_reader(self):
+        """A constat, asserted so it stays true: `_error` is write-only.
+
+        `start()` stores the exception text (and "Start failed"), `stop()` clears
+        it, and nothing in either application reads it back — there is no
+        property, no serialiser, no consumer. What `GET /api/audio/state` shows
+        as `error` is `SystemAudioState.error`, which the state machine sets from
+        the transition or from `metadata["error"]`, and the UI banner is the
+        separate `broadcast_error` / `_error_active` mechanism that
+        `TestErrorMechanismsStaySeparate` above pins.
+
+        Left as is rather than removed: four inert assignments in the ABC every
+        source inherits, and touching that file means the audio-path checklist
+        for a change that provably alters nothing. This test is the record, and
+        it turns red the day someone gives the field a reader — which is the
+        moment to decide what it should mean.
+        """
+        source = ConcreteAudioSource()
+
+        async def _boom():
+            raise RuntimeError("loopback device busy")
+
+        source._do_start = _boom
+        await source.start()
+
+        assert source._error == "loopback device busy"
+        assert not hasattr(type(source), "error"), \
+            "the write-only field grew a reader — see this test's docstring"
+
+
+class TestCommandFailureArm:
+    """`command()` when the handler raises."""
+
+    @pytest.mark.asyncio
+    async def test_a_raising_handler_answers_an_error_envelope(self, caplog):
+        """`run_source_command` turns the envelope into the HTTP response.
+
+        A raise escaping here becomes a 500 on a transport button, where the
+        contract is `{"success": False, "error": ...}` and the UI shows the
+        reason next to the control the user pressed.
+        """
+        source = ConcreteAudioSource()
+
+        async def _boom(cmd, params):
+            raise RuntimeError("mpv socket gone")
+
+        source._handle_command = _boom
+
+        with caplog.at_level(logging.ERROR):
+            result = await source.command("test_command", None)
+
+        assert result["success"] is False
+        assert "mpv socket gone" in result["error"]
+        assert "Error handling command test_command" in caplog.text
+
+
+class TestInitializeContract:
+    """`BaseAudioSource.initialize()` — the default every source inherits.
+
+    Entered by the boot but held by nothing (it came out ESCAPED when gutted):
+    `dependencies.py::init_async` awaits it for four sources and only logs the
+    outcome, so a default that answered False would be reported as a failed
+    init on every boot, and one that skipped the flag would leave
+    `is_initialized` False forever.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_default_initialize_succeeds_and_records_that_it_ran(self):
+        source = ConcreteAudioSource()
+        assert source.is_initialized is False
+
+        assert await source.initialize() is True
+
+        assert source.is_initialized is True
+
+    @pytest.mark.asyncio
+    async def test_initialize_is_idempotent(self):
+        """`init_async` runs once, but a source may also be initialized by its
+        own routes on first access; the second call must not report failure."""
+        source = ConcreteAudioSource()
+        await source.initialize()
+
+        assert await source.initialize() is True
+        assert source.is_initialized is True
