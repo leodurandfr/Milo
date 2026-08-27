@@ -476,7 +476,19 @@ class TestTryRecognize:
     @pytest.mark.asyncio
     async def test_a_shazam_timeout_is_a_miss_not_a_crash(self, armed, monkeypatch):
         monkeypatch.setattr(shazam_mod, "RECOGNITION_TIMEOUT_SECONDS", 0.05)
-        armed._shazam.recognize = AsyncMock(side_effect=lambda b: asyncio.sleep(5))
+
+        # Two traps, both measured. The side_effect must be a coroutine
+        # *function*: a lambda that merely returns a coroutine is handed back
+        # un-awaited, `wait_for` returns at once and the timeout never fires.
+        # And the slow answer must be a HIT — with a miss, `False` comes out of
+        # the no-track arm just as happily, so deleting `wait_for` altogether
+        # left the test green.
+        async def _answers_too_late(_audio):
+            await asyncio.sleep(5)
+            return {"matches": [{}], "track": {"title": "Ne me quitte pas",
+                                               "subtitle": "Jacques Brel"}}
+
+        armed._shazam.recognize = AsyncMock(side_effect=_answers_too_late)
 
         assert await armed._try_recognize() is False
 

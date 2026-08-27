@@ -50,10 +50,19 @@ class TestProcessLineDispatch:
     @pytest.mark.asyncio
     async def test_pcm_added_triggers_connect(self, monitor):
         seen = []
-        monitor.set_callbacks(
-            on_connect=lambda addr, name: seen.append(("connect", addr, name)),
-            on_disconnect=lambda addr, name: seen.append(("disconnect", addr, name)),
-        )
+
+        # Both callbacks are awaited by the handlers, and the source passes
+        # coroutine functions (`_on_device_connected`/`_on_device_disconnected`).
+        # A sync lambda returns None, `await None` raises, and `@handle_errors`
+        # logs it away *after* the append — so the assertion held while the
+        # handler never reached its end.
+        async def _connect(addr, name):
+            seen.append(("connect", addr, name))
+
+        async def _disconnect(addr, name):
+            seen.append(("disconnect", addr, name))
+
+        monitor.set_callbacks(on_connect=_connect, on_disconnect=_disconnect)
         # Avoid real D-Bus name lookup
         async def _name(addr):
             return "Phone"
@@ -66,10 +75,14 @@ class TestProcessLineDispatch:
     @pytest.mark.asyncio
     async def test_pcm_removed_triggers_disconnect(self, monitor):
         seen = []
-        monitor.set_callbacks(
-            on_connect=lambda addr, name: None,
-            on_disconnect=lambda addr, name: seen.append(("disconnect", addr, name)),
-        )
+
+        async def _connect(addr, name):
+            return None
+
+        async def _disconnect(addr, name):
+            seen.append(("disconnect", addr, name))
+
+        monitor.set_callbacks(on_connect=_connect, on_disconnect=_disconnect)
         # Pre-populate connected state so removal is honored
         monitor._connected_devices["AA:BB:CC:DD:EE:FF"] = {"name": "Phone"}
 

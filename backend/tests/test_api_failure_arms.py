@@ -53,10 +53,12 @@ class TestTheProgramsReads:
     @pytest.fixture
     def router(self):
         update_service = MagicMock()
+        satellite_service = MagicMock()
         state_machine = MagicMock()
         state_machine.broadcast = AsyncMock()
-        r = create_programs_router(update_service, MagicMock(), state_machine)
+        r = create_programs_router(update_service, satellite_service, state_machine)
         r.update_service = update_service
+        r.satellite_service = satellite_service
         r.state_machine = state_machine
         return r
 
@@ -106,9 +108,21 @@ class TestTheProgramsReads:
     async def test_a_satellite_discovery_that_throws_says_so(self, router, caplog):
         """The list is built from four awaits against the fleet. A discovery that
         threw used to leave the screen showing "no satellite" with nothing
-        anywhere to say why — the reason this arm logs at all."""
-        router.update_service.get_satellites_status = AsyncMock(
+        anywhere to say why — the reason this arm logs at all.
+
+        The three version lookups are stubbed to succeed so the discovery is the
+        only thing that can fail: they share one `asyncio.gather`, and any
+        un-stubbed collaborator raises there too — which is how this test used to
+        pass while the failure it names was never injected at all.
+        """
+        router.satellite_service.discover_satellites = AsyncMock(
             side_effect=RuntimeError("mDNS browse failed")
+        )
+        router.update_service.get_latest_github_version = AsyncMock(
+            return_value={"status": "success", "version": "0.27.0"}
+        )
+        router.update_service.get_installed_version = AsyncMock(
+            return_value={"raw_version": "1.0.0"}
         )
 
         with caplog.at_level(logging.ERROR, logger="backend.api.programs"):
@@ -116,7 +130,10 @@ class TestTheProgramsReads:
 
         assert body["status"] == "error"
         assert body["satellites"] == [] and body["count"] == 0
-        assert any("Error listing satellites" in r.message for r in caplog.records)
+        assert any(
+            "Error listing satellites" in r.message and "mDNS browse failed" in r.message
+            for r in caplog.records
+        )
 
     async def test_an_unreadable_installed_version_is_null_not_a_failure(
         self, router, caplog

@@ -31,6 +31,7 @@ import pytest
 
 from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.models.volume import VolumeConfig
+from backend.core.settings import SettingsService
 from backend.core.multiroom.models import RegistryEventType
 from backend.core.volume import VolumeService, VolumeStateStore
 
@@ -66,7 +67,16 @@ def service(state_machine, camilladsp, tmp_path, monkeypatch):
     """
     monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
     settings = Mock()
-    settings.get_setting = AsyncMock(return_value=None)
+
+    # `_load_volume_config` reads every key of the `volume` section with no
+    # fallback operand, by design — so answering None for it makes boot log
+    # "Error loading volume config" and keep the built-in defaults, which is a
+    # degraded path the tests here do not mean to be on. The one test that wants
+    # that failure injects it on `_load_volume_config` itself.
+    async def _get_setting(key, *a, **kw):
+        return SettingsService().defaults["volume"] if key == "volume" else None
+
+    settings.get_setting = AsyncMock(side_effect=_get_setting)
     settings.set_setting = AsyncMock()
     settings.invalidate_cache = Mock()
     svc = VolumeService(

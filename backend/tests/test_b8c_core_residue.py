@@ -337,7 +337,7 @@ class TestTheVolumeLockTimeouts:
         svc._is_multiroom_enabled = Mock(return_value=True)
         svc._get_controllable_client_ids = Mock(return_value=["aa:bb:cc:dd:ee:07"])
         svc._compute_multiroom_updates = AsyncMock(return_value={})
-        svc._state_store.apply_global_delta = AsyncMock(return_value={})
+        svc._state_store.get_complete_state = AsyncMock(return_value={})
         return svc
 
     async def test_a_set_that_cannot_take_the_lock_in_time_is_dropped(
@@ -363,7 +363,9 @@ class TestTheVolumeLockTimeouts:
                 assert await service.adjust_volume_db(2.0) is False
 
         assert any("Timeout waiting for volume lock" in r.message for r in caplog.records)
-        service._state_store.apply_global_delta.assert_not_called()
+        # `get_complete_state` is the first thing the guarded body reaches, so it
+        # is what says the command was dropped rather than queued.
+        service._state_store.get_complete_state.assert_not_called()
 
 
 class TestTheAutoStopReload:
