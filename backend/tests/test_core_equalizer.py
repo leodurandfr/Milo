@@ -1129,3 +1129,69 @@ class TestCamillaDspState:
         assert CamillaDspState.INACTIVE.value == "inactive"
         assert CamillaDspState.RUNNING.value == "running"
         assert CamillaDspState.PAUSED.value == "paused"
+
+
+class TestProxyFailureArms:
+    """`EqualizerClientProxyService.request` — the pipe to the satellites."""
+
+    @pytest.fixture
+    def proxy(self):
+        return EqualizerClientProxyService()
+
+    async def test_an_unsupported_method_is_refused_as_a_server_error(
+        self, proxy, satellite, caplog
+    ):
+        """The api/ layer maps `SatelliteUnreachable` to an HTTP status, so a
+        raw ValueError escaping here would be a 500 with no satellite named.
+        503 would be a lie — the satellite is fine, the caller is wrong.
+        """
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(SatelliteUnreachable) as exc:
+                await proxy.request("192.168.1.100", "DELETE", "/equalizer/volume")
+
+        assert exc.value.status_code == 500
+        assert "Unsupported HTTP method" in caplog.text
+
+    async def test_an_unsupported_method_on_the_non_raising_variant(self, proxy, satellite):
+        """`try_request` answers a status code; a ValueError escaping it would
+        kill the background caller (CrossoverService) that chose it precisely
+        because it does not raise.
+        """
+        with pytest.raises(ValueError, match="Unsupported HTTP method"):
+            await proxy.try_request("192.168.1.100", "DELETE", "/equalizer/crossover")
+
+    async def test_a_multiroom_check_that_raises_does_not_block_the_push(
+        self, proxy, satellite, caplog
+    ):
+        """The check is an optimisation — skip a call that cannot land. A routing
+        service that cannot answer must not stop a push that would have worked.
+        """
+        routing = Mock()
+        type(routing).multiroom_enabled = property(
+            lambda _self: (_ for _ in ()).throw(RuntimeError("no routing state"))
+        )
+        proxy.routing_service = routing
+
+        with caplog.at_level(logging.DEBUG):
+            await proxy.request("192.168.1.100", "GET", "/equalizer/status")
+
+        assert "Could not check multiroom status" in caplog.text
+        assert satellite.last is not None
+
+    async def test_an_unexpected_error_is_wrapped_rather_than_escaping(
+        self, proxy, monkeypatch, caplog
+    ):
+        """Every caller catches `SatelliteUnreachable` and nothing else. A raw
+        exception escaping this method reaches the route as a 500 with a stack
+        trace and no satellite name.
+        """
+        monkeypatch.setattr(
+            proxy, "_get_host", Mock(side_effect=RuntimeError("resolver exploded"))
+        )
+
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(SatelliteUnreachable) as exc:
+                await proxy.request("192.168.1.100", "GET", "/equalizer/status")
+
+        assert exc.value.status_code == 500
+        assert "Unexpected error proxying to" in caplog.text
