@@ -48,7 +48,6 @@ def mock_camilladsp_service():
 def mock_snapcast_service():
     """Mock Snapcast service to avoid WebSocket calls."""
     service = Mock()
-    service.get_clients = AsyncMock(return_value=[])
     service.set_volume = AsyncMock(return_value=True)
     return service
 
@@ -1293,7 +1292,6 @@ class TestZoneVolumeDeltaIntegration:
 
         # Action: apply +10dB delta and apply updates
         updates = await store.apply_zone_delta('zone_1', 10.0)
-        store._persist_state = AsyncMock()  # Mock persist
         await store.apply_zone_updates(updates)
 
         # Assert: average updated
@@ -1784,7 +1782,6 @@ class TestVolumeApiEndpointsIntegration:
         assert updates['client-c'] == -35.0  # -40 + 5, applied while away
 
         # Apply updates to verify state change
-        store._persist_state = AsyncMock()
         await store.apply_zone_updates(updates)
 
         # Assert: State updated
@@ -1947,7 +1944,6 @@ class TestVolumeApiEndpointsIntegration:
 
         # Apply delta and updates
         updates = await store.apply_zone_delta('test-zone', 10.0)
-        store._persist_state = AsyncMock()
         await store.apply_zone_updates(updates)
 
         # New average: (-20 + -30) / 2 = -25

@@ -52,31 +52,6 @@ def mock_state_machine():
 
 
 @pytest.fixture
-def mock_equalizer_router_service():
-    """Create mock Equalizer router service for local/remote client checks"""
-    service = Mock()
-    # Local client returns True, remote clients return False
-    service.is_local_client = Mock(side_effect=lambda mac_id: mac_id == "local")
-    return service
-
-
-@pytest.fixture
-def mock_multiroom_equalizer_service():
-    """Create mock multiroom Equalizer service for zone and client operations"""
-    service = Mock()
-    service.get_zone_equalizer = AsyncMock(return_value=Mock())
-    service.get_client_equalizer = AsyncMock(return_value=Mock())
-    service.resolve_preset_gains = AsyncMock(return_value=[0.0] * 10)
-    service.load_zone_preset = AsyncMock(return_value=True)
-    service.load_client_preset = AsyncMock(return_value=True)
-    service.update_filter = AsyncMock(return_value=True)
-    service.update_compressor = AsyncMock(return_value=True)
-    service.update_loudness = AsyncMock(return_value=True)
-    service.set_zone_equalizer_effects_enabled = AsyncMock(return_value=True)
-    return service
-
-
-@pytest.fixture
 def connected_camilladsp_service(mock_settings_service, mock_state_machine, mock_camilla_client):
     """Create connected Equalizer service"""
     service = CamillaDSPService(

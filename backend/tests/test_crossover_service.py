@@ -45,10 +45,6 @@ def mock_camilladsp_service():
     service = AsyncMock()
     service.set_crossover_filter = AsyncMock(return_value=True)
     service.set_lowpass_filter = AsyncMock(return_value=True)
-    service.set_mute = AsyncMock(return_value=True)
-    service.set_filter = AsyncMock(return_value=True)
-    service.set_compressor = AsyncMock(return_value=True)
-    service.set_loudness = AsyncMock(return_value=True)
     return service
 
 

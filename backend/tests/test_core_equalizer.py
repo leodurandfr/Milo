@@ -451,7 +451,6 @@ class TestCamillaDSPService:
         """Create mock settings service"""
         settings = Mock()
         settings.get_setting = AsyncMock(return_value=None)
-        settings.set_setting = AsyncMock()
         return settings
 
     @pytest.fixture
@@ -912,7 +911,6 @@ class TestConnectedVolumePath:
         monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
         settings = Mock()
         settings.get_setting = AsyncMock(return_value=None)
-        settings.set_setting = AsyncMock()
         svc = CamillaDSPService(settings_service=settings)
         svc._client = mock_camilla_client
         svc._connected = True
@@ -986,7 +984,6 @@ class TestInactiveDaemonConfigFallback:
         monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
         settings = Mock()
         settings.get_setting = AsyncMock(return_value=None)
-        settings.set_setting = AsyncMock()
         svc = CamillaDSPService(settings_service=settings)
         svc._client = mock_camilla_client
         svc._connected = True
@@ -1070,7 +1067,6 @@ class TestRestoreAfterReconnect:
     def service(self):
         settings = Mock()
         settings.get_setting = AsyncMock(return_value=None)
-        settings.set_setting = AsyncMock()
         svc = CamillaDSPService(settings_service=settings)
         svc._connected = True
         return svc

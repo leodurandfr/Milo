@@ -342,9 +342,6 @@ class TestZoneAverageCalculation:
         # Verify initial average
         assert store.compute_zone_average('zone_1') == pytest.approx(-25.0, rel=1e-6)
 
-        # Mock persist to avoid file I/O
-        store._persist_state = AsyncMock()
-
         # Action: change client-1 volume
         await store.set_client_volume('client-1', -10.0)
 

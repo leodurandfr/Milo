@@ -17,7 +17,6 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock
 
 from backend.core.settings import SettingsService
 
@@ -58,19 +57,6 @@ async def settings_service(temp_settings_file):
     await service.load_settings()
 
     return service
-
-
-@pytest.fixture
-def mock_ws_manager():
-    """Mock WebSocket manager for capturing broadcast events."""
-    manager = Mock()
-    manager.events = []
-
-    async def broadcast_dict(data):
-        manager.events.append(data)
-
-    manager.broadcast_dict = AsyncMock(side_effect=broadcast_dict)
-    return manager
 
 
 # ==============================================================================

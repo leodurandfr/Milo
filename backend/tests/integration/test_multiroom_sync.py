@@ -48,7 +48,6 @@ def _make_volume_service(startup_volume_db: float = DEFAULT_VOLUME_DB,
     vs.equalizer_controller = MagicMock()
     vs.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
     vs.equalizer_controller.set_equalizer_mute = AsyncMock()
-    vs.equalizer_controller.apply_volumes_parallel = AsyncMock(return_value={})
     vs.broadcast_volume_state = AsyncMock()
     vs.volume_config = VolumeConfig(startup_volume_db=startup_volume_db)
     return vs
@@ -60,7 +59,6 @@ def _make_ws_service(registry, volume_service=None, snapcast_service=None):
     sm.broadcast = AsyncMock()
 
     routing = MagicMock()
-    routing.get_state = MagicMock(return_value={"multiroom_enabled": True})
 
     ws = SnapcastWebSocketService(state_machine=sm, routing_service=routing)
     ws.set_registry(registry)
@@ -71,7 +69,6 @@ def _make_ws_service(registry, volume_service=None, snapcast_service=None):
         get_clients=AsyncMock(return_value=[]),
     )
     # Stub equalizer sync to isolate volume tests
-    ws._sync_zone_equalizer_to_client = AsyncMock(return_value=True)
     ws._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
     return ws
 
@@ -1000,7 +997,6 @@ def _make_ws_with_proxy(registry):
     sm = MagicMock()
     sm.broadcast = AsyncMock()
     routing = MagicMock()
-    routing.get_state = MagicMock(return_value={"multiroom_enabled": True})
     ws = SnapcastWebSocketService(state_machine=sm, routing_service=routing)
     ws.set_registry(registry)
     proxy = EqualizerClientProxyService()
