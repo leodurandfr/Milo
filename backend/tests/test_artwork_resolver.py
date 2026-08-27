@@ -5,6 +5,11 @@ knows the album). The HTTP boundary is thin; the pure selection helpers
 (plausibility gate, artwork pick, upscale, query cleanup) are tested directly,
 and the ordering + caching contracts are tested with the network stubbed out.
 """
+import asyncio
+import logging
+import time
+
+import aiohttp
 import pytest
 
 from backend.shared.artwork_resolver import ArtworkResolver
@@ -207,3 +212,404 @@ class TestResolveCaching:
 
         monkeypatch.setattr(resolver, "_lookup", fail_lookup)
         assert await resolver.resolve("Artist", "   ") is None
+
+
+class _Resp:
+    """Minimal aiohttp response stand-in (async context manager)."""
+
+    def __init__(self, status, body):
+        self.status = status
+        self._body = body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def json(self, **kwargs):
+        if isinstance(self._body, Exception):
+            raise self._body
+        return self._body
+
+
+class _SessionRecorder:
+    """Stands in for `aiohttp.ClientSession` and for its constructor.
+
+    `_search` builds its own session per query, so covering it means replacing
+    the class, not an injected object. The captured kwargs are asserted because
+    the timeout is contractual: this call sits on the metadata path of a track
+    that is already playing.
+    """
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.requests = []
+        self.kwargs = None
+
+    def __call__(self, **kwargs):
+        self.kwargs = kwargs
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def get(self, url, params=None):
+        self.requests.append((url, dict(params or {})))
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return _Resp(*reply)
+
+
+@pytest.fixture
+def no_throttle(monkeypatch):
+    """Collapse the 0.5 s politeness spacing; never assert on it."""
+    monkeypatch.setattr("backend.shared.artwork_resolver._ITUNES_MIN_INTERVAL", 0)
+
+
+def _itunes(results):
+    return {"resultCount": len(results), "results": results}
+
+
+class TestSearchRequest:
+    """`_search` — the one iTunes query, nineteen lines that had never run.
+
+    This is the only cover source Bluetooth has: AVRCP carries no image over the
+    link, so what this returns *is* the artwork on the card. Radio's ICY feed is
+    the same shape without an album.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_query_pairs_the_two_fields_and_names_its_entity(
+        self, monkeypatch, no_throttle
+    ):
+        """iTunes names the matched field differently per entity, so the entity
+        and the result key travel together as one pair. Sent apart, an album
+        search would be scored against `trackName`, which an album result does
+        not carry, and every album query would be rejected as implausible.
+        """
+        from backend.shared.artwork_resolver import _ALBUM_ENTITY
+
+        resolver = ArtworkResolver()
+        session = _SessionRecorder([(200, _itunes([]))])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        await resolver._search(_ALBUM_ENTITY, "Miles Davis", "Kind of Blue")
+
+        url, params = session.requests[0]
+        assert url == "https://itunes.apple.com/search"
+        assert params == {
+            "term": "Miles Davis Kind of Blue", "entity": "album", "limit": "5",
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_query_with_no_artist_still_carries_the_name(
+        self, monkeypatch, no_throttle
+    ):
+        """A radio station announcing only a title is common. A term with a
+        leading space matches worse, and an empty one matches everything."""
+        from backend.shared.artwork_resolver import _SONG_ENTITY
+
+        resolver = ArtworkResolver()
+        session = _SessionRecorder([(200, _itunes([]))])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        await resolver._search(_SONG_ENTITY, "", "So What")
+
+        assert session.requests[0][1]["term"] == "So What"
+
+    @pytest.mark.asyncio
+    async def test_a_plausible_hit_is_returned_upscaled(self, monkeypatch, no_throttle):
+        from backend.shared.artwork_resolver import _SONG_ENTITY
+
+        resolver = ArtworkResolver()
+        session = _SessionRecorder([(200, _itunes([{
+            "artistName": "Miles Davis",
+            "trackName": "So What",
+            "artworkUrl100": "https://is1/100x100bb.jpg",
+        }]))])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        url = await resolver._search(_SONG_ENTITY, "Miles Davis", "So What")
+
+        assert url == "https://is1/600x600bb.jpg"
+
+    @pytest.mark.asyncio
+    async def test_an_album_hit_is_scored_against_the_album_field(
+        self, monkeypatch, no_throttle
+    ):
+        """The other half of the entity pair, and the half a params-only
+        assertion cannot see. An album result carries `collectionName` and no
+        `trackName`; scored against the wrong key it reads as an empty field,
+        the plausibility gate rejects it, and the album search — the first and
+        better one — never returns anything for anybody.
+        """
+        from backend.shared.artwork_resolver import _ALBUM_ENTITY
+
+        resolver = ArtworkResolver()
+        session = _SessionRecorder([(200, _itunes([{
+            "artistName": "Miles Davis",
+            "collectionName": "Kind of Blue",
+            "artworkUrl100": "https://is1/100x100bb.jpg",
+        }]))])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        url = await resolver._search(_ALBUM_ENTITY, "Miles Davis", "Kind of Blue")
+
+        assert url == "https://is1/600x600bb.jpg"
+
+    @pytest.mark.asyncio
+    async def test_an_implausible_hit_is_refused(self, monkeypatch, no_throttle):
+        """"A wrong cover is worse than none" — the module's own words.
+
+        iTunes always answers *something* for a fuzzy term, so without the gate
+        every unrecognised radio track would get a confidently wrong sleeve.
+        """
+        from backend.shared.artwork_resolver import _SONG_ENTITY
+
+        resolver = ArtworkResolver()
+        session = _SessionRecorder([(200, _itunes([{
+            "artistName": "Buddy Holly",
+            "trackName": "Peggy Sue",
+            "artworkUrl100": "https://is1/100x100bb.jpg",
+        }]))])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        assert await resolver._search(_SONG_ENTITY, "Buddy Greco", "The Lady Is a Tramp") is None
+
+    @pytest.mark.asyncio
+    async def test_a_non_200_answers_nothing(self, monkeypatch, no_throttle, caplog):
+        """iTunes rate-limits. Raising would take down the metadata publish of
+        the track that is playing; this is a decoration, not the audio."""
+        from backend.shared.artwork_resolver import _SONG_ENTITY
+
+        resolver = ArtworkResolver()
+        session = _SessionRecorder([(403, None)])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        with caplog.at_level(logging.INFO):
+            assert await resolver._search(_SONG_ENTITY, "A", "B") is None
+
+        assert "iTunes search HTTP 403" in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", [
+        aiohttp.ClientError("connection reset"),
+        asyncio.TimeoutError(),
+    ])
+    async def test_an_unreachable_itunes_answers_nothing(
+        self, monkeypatch, no_throttle, failure, caplog
+    ):
+        """The unit runs with no internet often enough — Bluetooth and a local
+        library need none. A raise here would surface as a metadata error on a
+        track that is playing perfectly.
+        """
+        from backend.shared.artwork_resolver import _SONG_ENTITY
+
+        resolver = ArtworkResolver()
+        session = _SessionRecorder([failure])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        with caplog.at_level(logging.INFO):
+            assert await resolver._search(_SONG_ENTITY, "A", "B") is None
+
+        assert "Artwork lookup failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_body_that_is_not_json_answers_nothing(
+        self, monkeypatch, no_throttle
+    ):
+        """iTunes serves `text/javascript`, so the parse is deliberately lenient
+        (`content_type=None`). A captive portal answering HTML is what this
+        catches — `ValueError` is in the except tuple for exactly that.
+        """
+        from backend.shared.artwork_resolver import _SONG_ENTITY
+
+        resolver = ArtworkResolver()
+        session = _SessionRecorder([(200, ValueError("not json"))])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        assert await resolver._search(_SONG_ENTITY, "A", "B") is None
+
+    @pytest.mark.asyncio
+    async def test_the_search_is_bounded_in_time(self, monkeypatch, no_throttle):
+        """It runs inline on the metadata publish path. Unbounded, a hung iTunes
+        holds the resolver lock and every later track waits behind it."""
+        from backend.shared.artwork_resolver import _SONG_ENTITY
+
+        resolver = ArtworkResolver()
+        session = _SessionRecorder([(200, _itunes([]))])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        await resolver._search(_SONG_ENTITY, "A", "B")
+
+        assert session.kwargs["timeout"].total == 8
+
+    @pytest.mark.asyncio
+    async def test_the_calls_are_spaced_by_the_politeness_interval(self, monkeypatch):
+        """An album search that misses is followed immediately by a track search;
+        a station changing tracks fast queues more. The spacing is what keeps
+        that from bursting a public API the appliance has no account with."""
+        from backend.shared.artwork_resolver import _SONG_ENTITY
+
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver._ITUNES_MIN_INTERVAL", 5.0
+        )
+        slept = []
+
+        async def _sleep(delay):
+            slept.append(delay)
+
+        monkeypatch.setattr("backend.shared.artwork_resolver.asyncio.sleep", _sleep)
+        resolver = ArtworkResolver()
+        resolver._last_call = time.monotonic()
+        session = _SessionRecorder([(200, _itunes([]))])
+        monkeypatch.setattr(
+            "backend.shared.artwork_resolver.aiohttp.ClientSession", session
+        )
+
+        await resolver._search(_SONG_ENTITY, "A", "B")
+
+        assert len(slept) == 1 and 0 < slept[0] <= 5.0
+
+    @pytest.mark.asyncio
+    async def test_a_first_call_after_a_long_idle_is_not_delayed(self, monkeypatch):
+        """The control. A throttle that always slept would add half a second to
+        the cover of every track a listener actually waits for."""
+        slept = []
+
+        async def _sleep(delay):
+            slept.append(delay)
+
+        monkeypatch.setattr("backend.shared.artwork_resolver.asyncio.sleep", _sleep)
+        resolver = ArtworkResolver()
+        resolver._last_call = time.monotonic() - 3600
+
+        await resolver._throttle()
+
+        assert slept == []
+
+
+class TestCacheEviction:
+    """The bounded LRU — this resolver serves a radio station that never stops."""
+
+    @pytest.mark.asyncio
+    async def test_the_cache_is_capped_and_evicts_the_least_recently_used(
+        self, monkeypatch
+    ):
+        """Unbounded, a station running for weeks accumulates one entry per
+        track, forever, in a process that is never restarted."""
+        monkeypatch.setattr("backend.shared.artwork_resolver._CACHE_MAX", 3)
+        resolver = ArtworkResolver()
+
+        for i in range(3):
+            resolver._store(f"k{i}", f"url{i}")
+        resolver._store("k0", "url0")  # re-touch the oldest
+        resolver._store("k3", "url3")
+
+        assert set(resolver._cache) == {"k0", "k2", "k3"}
+
+    @pytest.mark.asyncio
+    async def test_a_cache_hit_is_promoted_so_a_played_track_survives(
+        self, monkeypatch
+    ):
+        """`resolve` moves the key to the end on a hit. Without it the LRU is a
+        FIFO, and the cover of the track on screen is the next one evicted."""
+        monkeypatch.setattr("backend.shared.artwork_resolver._CACHE_MAX", 2)
+        resolver = ArtworkResolver()
+
+        async def _lookup(artist, title, album):
+            return f"url:{title}"
+
+        resolver._lookup = _lookup
+
+        await resolver.resolve("A", "first")
+        await resolver.resolve("A", "second")
+        await resolver.resolve("A", "first")   # hit -> promoted
+        await resolver.resolve("A", "third")
+
+        assert resolver._cache_key("A", "second", "") not in resolver._cache
+        assert resolver._cache_key("A", "first", "") in resolver._cache
+
+    @pytest.mark.asyncio
+    async def test_a_title_that_cleans_down_to_nothing_never_searches(
+        self, monkeypatch
+    ):
+        """A title that is entirely a parenthetical — "(Live)" alone — cleans to
+        an empty string. Searched, the term is the artist alone and iTunes
+        answers that artist's most popular record, which is a wrong cover."""
+        resolver = ArtworkResolver()
+        tried = []
+
+        async def _search(entity, q_artist, q_name):
+            tried.append(entity[0])
+            return None
+
+        resolver._search = _search
+
+        assert await resolver._lookup("Miles Davis", "(Live)", "") is None
+        assert tried == []
+
+    @pytest.mark.asyncio
+    async def test_two_tracks_of_one_album_query_itunes_once(self):
+        """The re-check INSIDE the lock, which the one before it cannot cover.
+
+        Both callers pass the pre-lock read while the cache is still empty —
+        exactly what the lock is there to serialise — and the second then waits.
+        Without the second look it re-queries iTunes for a cover the first has
+        already resolved, which is how two tracks of the same album, published
+        milliseconds apart by a gapless queue, cost two searches instead of one.
+
+        Two real tasks: two sequential calls are answered by the pre-lock read
+        and never reach the second check.
+        """
+        resolver = ArtworkResolver()
+        calls = {"n": 0}
+        released = asyncio.Event()
+
+        async def _lookup(artist, title, album):
+            calls["n"] += 1
+            await released.wait()
+            return "https://is1/600x600bb.jpg"
+
+        resolver._lookup = _lookup
+
+        first = asyncio.create_task(resolver.resolve("Miles Davis", "So What", "Kind of Blue"))
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if calls["n"] == 1:
+                break
+        assert calls["n"] == 1, "the first caller never reached the lookup"
+
+        second = asyncio.create_task(resolver.resolve("Miles Davis", "So What", "Kind of Blue"))
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert not second.done(), "the second caller did not queue on the lock"
+
+        released.set()
+        results = await asyncio.gather(first, second)
+
+        assert results == ["https://is1/600x600bb.jpg"] * 2
+        assert calls["n"] == 1

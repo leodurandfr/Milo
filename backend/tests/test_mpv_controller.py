@@ -22,6 +22,7 @@ the frames its commands put on that link.
 """
 import asyncio
 import json
+import logging
 import os
 import time
 from unittest.mock import AsyncMock, Mock, patch
@@ -57,6 +58,14 @@ class FakeMpv:
         self.received = []
         self.properties = {}
         self.fail_commands = set()
+        # Async event lines emitted before each reply, the way mpv bursts
+        # `playback-restart` / `file-loaded` during a stream load. They carry no
+        # request_id, which is what the reader has to skip past.
+        self.events_before_reply = []
+        # Commands answered by hanging up mid-request instead of replying.
+        self.close_on = set()
+        # Commands the fake never answers at all.
+        self.silent_on = set()
         self._server = None
         self._peers = []
 
@@ -95,6 +104,14 @@ class FakeMpv:
                     return
                 request = json.loads(line)
                 self.received.append(request["command"])
+                name = request["command"][0]
+                if name in self.close_on:
+                    writer.close()
+                    return
+                if name in self.silent_on:
+                    continue
+                for event in self.events_before_reply:
+                    writer.write((json.dumps(event) + "\n").encode())
                 reply = self._reply(request["command"])
                 reply["request_id"] = request["request_id"]
                 writer.write((json.dumps(reply) + "\n").encode())
@@ -558,3 +575,410 @@ class TestDisconnect:
         assert controller.is_connected is False
         assert await controller.stop() is False
         assert fake.received == []
+
+
+class TestResponseMatching:
+    """The read loop inside `_send_command`, which had never run.
+
+    mpv interleaves async event lines — no `request_id` — on the same socket as
+    the replies, and bursts them during a stream load or a rapid station change.
+    Every frame the loop skips, every way it can end, and the reason the bound is
+    a wall-clock deadline rather than a line count: with a count, a burst longer
+    than the count loses the reply that came right after it.
+    """
+
+    async def test_events_before_the_reply_are_skipped_not_returned(self, live_mpv):
+        """A reader that returned the first line would hand `playback-restart`
+        back as the answer to `loadfile`, and every command during a station
+        change would read as a failure with no error anywhere.
+        """
+        controller, fake = live_mpv
+        fake.events_before_reply = [
+            {"event": "start-file"},
+            {"event": "playback-restart"},
+            {"event": "file-loaded"},
+        ]
+
+        response = await controller._send_command("get_property", "idle-active")
+
+        assert response is not None
+        assert response.get("error") == "success"
+        assert "event" not in response
+
+    async def test_the_reply_is_matched_by_its_own_request_id(self, live_mpv):
+        """Two commands in flight cannot cross: `_command_lock` serialises them,
+        but a reply to an earlier, timed-out request can still be sitting in the
+        buffer. Matched by position instead of id, a station change would answer
+        with the previous station's result.
+        """
+        controller, fake = live_mpv
+        fake.events_before_reply = [{"request_id": 999, "error": "success", "data": "stale"}]
+
+        response = await controller._send_command("get_property", "idle-active")
+
+        assert response["request_id"] != 999
+        assert response["data"] != "stale"
+
+    async def test_a_socket_closed_mid_request_drops_the_link_quietly(
+        self, live_mpv, caplog
+    ):
+        """mpv dying between the write and the reply is what a restart looks like.
+
+        Without the disconnect the controller keeps `_connected` True over a dead
+        writer, and every later command is written into nothing and times out —
+        each one paying the full deadline.
+
+        The level is the other half, and the only thing that separates this arm
+        from the generic one below it: drop the empty-line check and `json.loads`
+        raises a JSONDecodeError on `b""`, which the outer `except Exception`
+        catches and reports at ERROR. Same return, same disconnect — but ERROR
+        reaches the `WebSocketLogHandler` banner, so a routine mpv restart would
+        put a red banner in front of the user on every source switch.
+        """
+        controller, fake = live_mpv
+        fake.close_on = {"get_property"}
+
+        # Named logger, not the root: `backend/main.py` raises
+        # `backend.shared.mpv` to INFO at import time so mpv playback lines reach
+        # the journal, and a logger-level floor is applied before any handler.
+        # A bare `caplog.at_level(DEBUG)` therefore captures nothing here — and
+        # only once main.py has been imported, which is to say only in the full
+        # suite and never when this file is run alone.
+        with caplog.at_level(logging.DEBUG, logger="backend.shared.mpv"):
+            assert await controller._send_command("get_property", "idle-active") is None
+
+        assert controller.is_connected is False
+        assert "mpv socket closed while awaiting request" in caplog.text
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR], \
+            "a routine mpv restart was reported at ERROR, which reaches the UI banner"
+
+    async def test_a_reply_that_never_comes_costs_its_deadline_and_no_more(
+        self, live_mpv, caplog
+    ):
+        """The bound must be the deadline, not the reader: `readline()` on a live
+        socket with no data blocks forever, so nothing else ends this.
+
+        Two inert guards sit on this path and are recorded rather than removed,
+        because a mutation of either is indistinguishable from the original:
+
+        * `if timeout <= 0: raise asyncio.TimeoutError` — `asyncio.wait_for`
+          raises `TimeoutError` on a non-positive timeout by itself (measured on
+          3.13), so the early exit only saves building one future.
+        * `if 'event' in response: continue` — an mpv event carries no
+          `request_id`, so the identity check below already rejects every event
+          frame and the loop keeps reading either way.
+
+        Both are readable and cost nothing; the note is here so the next reader
+        does not mistake them for untested behaviour.
+        """
+        controller, fake = live_mpv
+        fake.silent_on = {"get_property"}
+
+        with caplog.at_level(logging.DEBUG, logger="backend.shared.mpv"):
+            assert await controller._send_command(
+                "get_property", "idle-active", timeout=0.2
+            ) is None
+
+        assert "Timeout waiting for mpv response" in caplog.text
+
+    async def test_a_silent_link_does_not_look_disconnected(self, live_mpv):
+        """The control for the test above. A timeout is not a death — mpv can be
+        busy opening a slow stream — and dropping the link on one would make
+        every slow station change re-connect.
+        """
+        controller, fake = live_mpv
+        fake.silent_on = {"get_property"}
+
+        await controller._send_command("get_property", "idle-active", timeout=0.2)
+
+        assert controller.is_connected is True
+
+    async def test_a_write_that_raises_drops_the_link(self, live_mpv):
+        """The outer arm. A writer whose transport is gone raises rather than
+        timing out; keeping the link would leave the controller believing in a
+        socket the kernel has already reaped.
+        """
+        controller, fake = live_mpv
+        controller.writer.write = Mock(side_effect=OSError("broken pipe"))
+
+        assert await controller._send_command("get_property", "idle-active") is None
+
+        assert controller.is_connected is False
+
+
+class TestConnectFailureArms:
+    """What `connect()` does when the socket is there but the connection is not."""
+
+    async def test_a_refused_socket_is_retried_within_the_budget(self, tmp_path):
+        """mpv creates its socket before it is ready to accept, so a refusal at
+        boot is normal and transient. Given up on the first one, every mpv source
+        would fail to start on a cold boot and the transition would report ERROR.
+        """
+        fake = FakeMpv(tmp_path / "ipc.sock")
+        # A path that exists but nothing is listening on: exactly the window
+        (tmp_path / "ipc.sock").write_bytes(b"")
+        controller = MpvController(ipc_socket_path=str(tmp_path / "ipc.sock"))
+
+        attempts = {"n": 0}
+        real_open = asyncio.open_unix_connection
+
+        async def _open(path):
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise ConnectionRefusedError("not accepting yet")
+            (tmp_path / "ipc.sock").unlink()
+            fake.path = str(tmp_path / "ipc.sock")
+            await fake.start()
+            return await real_open(path)
+
+        with patch("asyncio.open_unix_connection", _open):
+            assert await controller.connect(timeout=3.0, retry_delay=0.05) is True
+
+        assert attempts["n"] == 3
+        await fake.stop()
+
+    async def test_a_socket_that_never_accepts_gives_up_and_says_so(
+        self, tmp_path, caplog
+    ):
+        """The budget is time, not attempts (see TestConnectBudget above); this
+        is the arm it lands on. Answered True, `_do_start` would report the source
+        started over a controller with no link.
+        """
+        (tmp_path / "ipc.sock").write_bytes(b"")
+        controller = MpvController(ipc_socket_path=str(tmp_path / "ipc.sock"))
+
+        async def _refuse(path):
+            raise ConnectionRefusedError("nothing there")
+
+        with patch("asyncio.open_unix_connection", _refuse):
+            with caplog.at_level(logging.ERROR):
+                assert await controller.connect(timeout=0.3, retry_delay=0.05) is False
+
+        assert "Failed to connect to mpv within" in caplog.text
+
+    async def test_an_unexpected_error_is_not_retried(self, tmp_path, caplog):
+        """Only a refusal and a missing file are transient. Retrying a
+        programming error would spend the whole transition budget on it and then
+        report the same failure anyway.
+        """
+        (tmp_path / "ipc.sock").write_bytes(b"")
+        controller = MpvController(ipc_socket_path=str(tmp_path / "ipc.sock"))
+        attempts = {"n": 0}
+
+        async def _boom(path):
+            attempts["n"] += 1
+            raise RuntimeError("bad socket type")
+
+        with patch("asyncio.open_unix_connection", _boom):
+            with caplog.at_level(logging.ERROR):
+                assert await controller.connect(timeout=3.0, retry_delay=0.05) is False
+
+        assert attempts["n"] == 1
+        assert "Unexpected error connecting to mpv" in caplog.text
+
+
+class TestLoadStreamVerdicts:
+    """`load_stream` decides whether a station is playing. Its three False arms
+    had never run, and the difference between them is what the UI shows."""
+
+    async def test_a_down_link_refuses_before_touching_the_stream_options(
+        self, tmp_path
+    ):
+        """`_apply_stream_options` always issues a round-trip; on a link that
+        died since the last command, that round-trip is the one that discovers
+        the death, and every command after it is dropped. Checking first is the
+        documented order.
+        """
+        controller = MpvController(ipc_socket_path=str(tmp_path / "gone.sock"))
+
+        assert await controller.load_stream("http://example.invalid/s.mp3") is False
+
+    async def test_the_link_is_re_attached_before_the_stream_options_are_sent(
+        self, live_mpv
+    ):
+        """Order, not presence. `_apply_stream_options` always issues a
+        round-trip, and on a link that dropped since the last command that
+        round-trip is the one that discovers the death — it is answered by the
+        "link down, dropping" arm and never leaves the process. Run before the
+        reconnect, the HLS switch is silently lost for this load and the stream
+        hangs in "loading" with the unit's reconnect options still in force.
+
+        Both orders end in a successful load, so only the frame reaching mpv
+        separates them.
+        """
+        controller, fake = live_mpv
+        await fake.drop_peers()
+        fake.received.clear()
+
+        assert await controller.load_stream("https://example.invalid/live.m3u8") is True
+
+        assert _first(fake.received, "set_property") >= 0, \
+            "the stream options never reached mpv: they were sent over the dead link"
+        assert _first(fake.received, "set_property") < _first(fake.received, "loadfile")
+
+    async def test_a_loadfile_that_answers_nothing_is_a_failure(self, live_mpv, caplog):
+        """None means the link went away mid-command, not that mpv refused.
+
+        Read as success, the source publishes ACTIVE over a station that never
+        loaded, and the card shows a track that is not playing.
+        """
+        controller, fake = live_mpv
+        fake.silent_on = {"loadfile"}
+
+        with caplog.at_level(logging.INFO):
+            assert await controller.load_stream("http://example.invalid/s.mp3") is False
+
+        assert "loadfile returned None" in caplog.text
+
+    async def test_a_real_mpv_error_is_a_failure_and_is_logged_loudly(
+        self, live_mpv, caplog
+    ):
+        """A dead stream URL answers with an error string. That is the case the
+        user can act on — it is the station, not the appliance — so it is the one
+        arm that logs at error.
+        """
+        controller, fake = live_mpv
+        fake.fail_commands = {"loadfile"}
+
+        with caplog.at_level(logging.ERROR):
+            assert await controller.load_stream("http://example.invalid/s.mp3") is False
+
+        assert "loadfile failed with error" in caplog.text
+
+    @pytest.mark.parametrize("error", [None, "null", "property unavailable"])
+    async def test_the_transient_errors_of_a_fast_station_change_still_succeed(
+        self, live_mpv, error
+    ):
+        """These three arrive when stations are changed quickly, and the load does
+        happen. Treated as failures, every fast zap would show an error banner.
+        """
+        controller, fake = live_mpv
+        controller._send_command = AsyncMock(return_value={"error": error})
+
+        assert await controller.load_stream("http://example.invalid/s.mp3") is True
+
+
+class TestStreamOptions:
+    """The HLS reconnect switch — two lines that decide whether a stream hangs."""
+
+    async def test_an_hls_url_has_the_reconnect_options_cleared(self, live_mpv):
+        """The systemd unit sets `--stream-lavf-o=reconnect=...`, which makes the
+        HLS demuxer's own segment retries fight ffmpeg's: the stream hangs in
+        "loading" forever. Clearing them for .m3u8 is the whole fix.
+        """
+        controller, fake = live_mpv
+
+        await controller._apply_stream_options("https://example.invalid/live.m3u8")
+
+        sets = [f for f in fake.received if f[0] == "set_property" and f[1] == "stream-lavf-o"]
+        assert sets and sets[-1][2] == ""
+
+    async def test_an_empty_url_touches_nothing(self, live_mpv):
+        """`load_playlist` and the resume path can both reach here with nothing.
+
+        A set_property issued anyway would clear the launch defaults for the
+        stream that follows, and that stream would then never reconnect.
+        """
+        controller, fake = live_mpv
+
+        await controller._apply_stream_options("")
+
+        assert not [f for f in fake.received if f[0] == "set_property"]
+
+
+class TestPlaylistFailureArms:
+    """`load_playlist` / `replace_playlist_tail` — the gapless queue's refusals."""
+
+    async def test_an_empty_queue_is_refused_without_a_round_trip(self, live_mpv):
+        controller, fake = live_mpv
+
+        assert await controller.load_playlist([]) is False
+
+        assert fake.received == []
+
+    async def test_a_down_link_refuses_before_the_priming_pause(self, tmp_path):
+        """The pause is what stops entry 0 blipping before the jump to
+        `start_index`. Dropped on a down link, the queue loads unpaused — audibly,
+        with nothing reporting a failure.
+        """
+        controller = MpvController(ipc_socket_path=str(tmp_path / "gone.sock"))
+
+        assert await controller.load_playlist(["http://a.invalid/1.mp3"]) is False
+
+    async def test_a_first_entry_that_will_not_load_aborts_the_queue(self, live_mpv):
+        """Appending onto a failed first entry builds a playlist whose head is
+        missing; mpv then plays entry 1 while Milō's queue index says 0, and
+        every title after it is off by one."""
+        controller, fake = live_mpv
+        fake.fail_commands = {"loadfile"}
+
+        assert await controller.load_playlist(
+            ["http://a.invalid/1.mp3", "http://a.invalid/2.mp3"]
+        ) is False
+
+    async def test_one_failed_append_does_not_abort_the_rest_of_the_queue(
+        self, live_mpv, caplog
+    ):
+        """A queue is dozens of tracks; one unreachable URL must cost that track,
+        not the album. Aborting would leave a partial playlist that looks
+        complete in the UI.
+        """
+        controller, fake = live_mpv
+        calls = {"n": 0}
+        real_send = controller._send_command
+
+        async def _send(command, *args, **kwargs):
+            if command == "loadfile" and args[1:] == ("append",):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return None
+            return await real_send(command, *args, **kwargs)
+
+        controller._send_command = _send
+
+        with caplog.at_level(logging.WARNING):
+            assert await controller.load_playlist([
+                "http://a.invalid/1.mp3", "http://a.invalid/2.mp3", "http://a.invalid/3.mp3",
+            ]) is True
+
+        assert calls["n"] == 2
+        assert "playlist append failed for an entry" in caplog.text
+
+    async def test_a_tail_replacement_that_cannot_read_the_length_refuses(
+        self, live_mpv
+    ):
+        """Without the count the removal loop has no upper bound and would leave
+        the old tail in place under the new one — the shuffle toggle would then
+        double the queue instead of reordering it.
+        """
+        controller, fake = live_mpv
+        controller.get_property = AsyncMock(return_value=None)
+
+        assert await controller.replace_playlist_tail(2, ["http://a.invalid/x.mp3"]) is False
+
+        assert not [f for f in fake.received if f[0] == "playlist-remove"]
+
+    async def test_one_failed_tail_append_is_logged_and_the_rest_go_on(
+        self, live_mpv, caplog
+    ):
+        controller, fake = live_mpv
+        controller.get_property = AsyncMock(return_value=3)
+        real_send = controller._send_command
+        calls = {"n": 0}
+
+        async def _send(command, *args, **kwargs):
+            if command == "loadfile":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return None
+            return await real_send(command, *args, **kwargs)
+
+        controller._send_command = _send
+
+        with caplog.at_level(logging.WARNING):
+            assert await controller.replace_playlist_tail(
+                1, ["http://a.invalid/x.mp3", "http://a.invalid/y.mp3"]
+            ) is True
+
+        assert calls["n"] == 2
+        assert "playlist tail append failed for an entry" in caplog.text
