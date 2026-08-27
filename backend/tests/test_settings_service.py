@@ -653,3 +653,225 @@ class TestSettingsService:
         assert result is True
         spy.assert_not_awaited()
         assert service._cache is cache_before
+
+
+class TestValidateHardwareSection:
+    """The `hardware` branch of `_validate_and_merge`, which had never run.
+
+    It is optional and absent from `defaults`, so it is the one section whose
+    keys are read from the *input* rather than projected from a declared shape.
+    That makes it the one place where a value straight off disk reaches a
+    consumer, and both of its sub-sections drive real hardware: the BT remote's
+    pairing filter and the IR receiver's scancode table.
+    """
+
+    @pytest.fixture
+    def service(self, tmp_path):
+        service = SettingsService()
+        service.settings_file = str(tmp_path / "settings.json")
+        return service
+
+    def test_a_file_with_no_hardware_section_produces_none(self, service):
+        """It is optional. Emitted empty, `hardware.bt_remote.enabled` would read
+        as a declared False and the controller would never start — which is
+        indistinguishable from the user having turned it off."""
+        result = service._validate_and_merge({})
+
+        assert "hardware" not in result
+
+    def test_an_empty_hardware_section_produces_none(self, service):
+        result = service._validate_and_merge({"hardware": {}})
+
+        assert "hardware" not in result
+
+    def test_a_hardware_section_with_neither_sub_section_produces_none(self, service):
+        """The inner guard is separate from the outer one: a `hardware` key
+        carrying something unrelated must not synthesise an empty record."""
+        result = service._validate_and_merge({"hardware": {"unknown": {"x": 1}}})
+
+        assert "hardware" not in result
+
+    def test_the_bt_remote_filter_survives_the_round_trip(self, service):
+        """The filter is what the pairing scan matches on. Dropped to its
+        default, a remote whose name is not ANTICATER stops being adopted, and
+        the scan reports nothing found."""
+        result = service._validate_and_merge({"hardware": {"bt_remote": {
+            "enabled": True,
+            "device_name_filter": "Flirc",
+            "key_map": {"KEY_PLAYPAUSE": "toggle_play"},
+        }}})
+
+        assert result["hardware"]["bt_remote"] == {
+            "enabled": True,
+            "device_name_filter": "Flirc",
+            "key_map": {"KEY_PLAYPAUSE": "toggle_play"},
+        }
+
+    def test_a_bt_remote_name_filter_is_capped(self, service):
+        """It goes into a scan comparison on every discovered device; an
+        unbounded string from disk is a value nothing else limits."""
+        result = service._validate_and_merge({"hardware": {"bt_remote": {
+            "device_name_filter": "x" * 200,
+        }}})
+
+        assert len(result["hardware"]["bt_remote"]["device_name_filter"]) == 64
+
+    def test_a_bt_remote_key_map_that_is_not_a_dict_is_dropped(self, service):
+        """The controller indexes it per keypress. A list or a string from a
+        hand-edited file would raise inside the input-event loop — the loop
+        nothing restarts — and every button on the remote would go dead."""
+        result = service._validate_and_merge({"hardware": {"bt_remote": {
+            "enabled": True, "key_map": ["KEY_PLAY"],
+        }}})
+
+        assert result["hardware"]["bt_remote"]["key_map"] == {}
+
+    def test_the_ir_device_id_is_kept_when_it_fits_a_byte(self, service):
+        """The paired remote's address. Lost, the receiver accepts scancodes from
+        every remote in the room; changed, it accepts none."""
+        result = service._validate_and_merge({"hardware": {"ir_remote": {
+            "enabled": True, "device_id": 0x1F, "paired_at": 1787.5,
+        }}})
+
+        assert result["hardware"]["ir_remote"] == {
+            "enabled": True, "device_id": 0x1F, "paired_at": 1787.5,
+        }
+
+    @pytest.mark.parametrize("device_id", [-1, 256, "0x1F", 31.0, None])
+    def test_an_ir_device_id_outside_a_byte_is_dropped_to_none(self, service, device_id):
+        """It is written into an `ir-keytable` scancode map by
+        `milo-apply-ir-keymap`. A value outside 0..0xFF produces a keymap the
+        kernel refuses, and the remote stops working with a failure that only
+        shows in the journal of a helper script.
+        """
+        result = service._validate_and_merge({"hardware": {"ir_remote": {
+            "enabled": True, "device_id": device_id,
+        }}})
+
+        assert result["hardware"]["ir_remote"]["device_id"] is None
+
+    def test_a_boolean_device_id_passes_both_range_checks(self, service):
+        """A constat, asserted so it stays visible: `isinstance(x, int)` accepts
+        `True`, and `0 <= True <= 0xFF` holds.
+
+        `keymap_writer._validate_device_id` uses the same test, so a
+        hand-edited `"device_id": true` survives both and renders a keymap for
+        remote 0x01 — silently, since 0x01 is a perfectly valid remote address.
+
+        Latent and left alone: the only producer is the pairing decode,
+        `(scancode >> 8) & 0xFF`, which cannot yield a bool. Tightening it would
+        mean touching the validator AND the writer for a value nothing can
+        write. This turns red the day a producer can.
+        """
+        result = service._validate_and_merge({"hardware": {"ir_remote": {
+            "enabled": True, "device_id": True,
+        }}})
+
+        assert result["hardware"]["ir_remote"]["device_id"] is True
+
+    @pytest.mark.parametrize("paired_at,expected", [
+        (1787.5, 1787.5),
+        (1787, 1787.0),
+        ("yesterday", None),
+        (None, None),
+    ])
+    def test_the_pairing_timestamp_is_coerced_to_a_float_or_dropped(
+        self, service, paired_at, expected
+    ):
+        """The settings screen renders it as a date. A string reaching the UI is
+        a render error on a page the user opened to unpair a remote."""
+        result = service._validate_and_merge({"hardware": {"ir_remote": {
+            "paired_at": paired_at,
+        }}})
+
+        assert result["hardware"]["ir_remote"]["paired_at"] == expected
+
+    def test_one_sub_section_alone_is_enough(self, service):
+        """A unit with an IR receiver and no BT remote is the normal case; the
+        record must not carry a synthesised `bt_remote` that reads as
+        deliberately disabled."""
+        result = service._validate_and_merge({"hardware": {"ir_remote": {"enabled": True}}})
+
+        assert set(result["hardware"]) == {"ir_remote"}
+
+
+class TestValidateMultiroomSection:
+    """`multiroom` is preserved without strict validation, and that is deliberate."""
+
+    @pytest.fixture
+    def service(self, tmp_path):
+        service = SettingsService()
+        service.settings_file = str(tmp_path / "settings.json")
+        return service
+
+    def test_the_multiroom_section_survives_untouched(self, service):
+        """It holds `client_equalizer[mac]` — one full EQ record per satellite,
+        under keys that are MAC addresses. There is no declarable shape to
+        validate against, and a validator that projected known keys would drop
+        every satellite's curve on the next write.
+        """
+        stored = {
+            "client_types": {"aa:bb:cc:dd:ee:ff": "subwoofer"},
+            "client_equalizer": {"aa:bb:cc:dd:ee:ff": {"enabled": True, "mono": False}},
+        }
+
+        result = service._validate_and_merge({"multiroom": stored})
+
+        assert result["multiroom"] == stored
+
+    def test_an_absent_multiroom_section_is_not_synthesised(self, service):
+        """A direct-mode unit has none. An empty one emitted here would be
+        written back and read as "every satellite reset to defaults"."""
+        result = service._validate_and_merge({})
+
+        assert "multiroom" not in result
+
+    def test_an_empty_multiroom_section_is_not_carried(self, service):
+        result = service._validate_and_merge({"multiroom": {}})
+
+        assert "multiroom" not in result
+
+
+class TestVolumeLimitGap:
+    """The 6 dB floor between the two limits, and the arm that gives up on it."""
+
+    @pytest.fixture
+    def service(self, tmp_path):
+        service = SettingsService()
+        service.settings_file = str(tmp_path / "settings.json")
+        return service
+
+    def test_a_gap_narrower_than_six_db_is_widened_upwards(self, service):
+        """The slider maps its whole travel onto this range; a 1 dB range makes
+        every step of the UI a 0.05 dB change and the control useless."""
+        result = service._validate_and_merge({"volume": {
+            "limit_min_db": -30.0, "limit_max_db": -29.0,
+        }})
+
+        assert result["volume"]["limit_min_db"] == -30.0
+        assert result["volume"]["limit_max_db"] == -24.0
+
+    def test_a_range_that_cannot_widen_upwards_is_pinned_to_the_top_six_db(
+        self, service
+    ):
+        """0 dB is the technical ceiling — the DSP cannot amplify — so a
+        too-narrow range near the top has nowhere to grow. Left alone, the max
+        would exceed unity and every level in the UI would be clipped to a value
+        the daemon refuses.
+        """
+        result = service._validate_and_merge({"volume": {
+            "limit_min_db": -1.0, "limit_max_db": 0.0,
+        }})
+
+        assert result["volume"]["limit_max_db"] == 0.0
+        assert result["volume"]["limit_min_db"] == -6.0
+
+    def test_the_startup_volume_is_clamped_into_the_widened_range(self, service):
+        """It is clamped against the limits AFTER they are widened, not the ones
+        that came off disk — otherwise a boot could apply a level the running
+        limits then refuse to display."""
+        result = service._validate_and_merge({"volume": {
+            "limit_min_db": -1.0, "limit_max_db": 0.0, "startup_volume_db": -40.0,
+        }})
+
+        assert result["volume"]["startup_volume_db"] == -6.0

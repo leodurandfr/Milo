@@ -890,3 +890,121 @@ class TestReloadAutoStopForAllSources:
             if not source.reload_auto_stop_config.await_count
         ]
         assert not not_reloaded, f"sources left on the old delay: {not_reloaded}"
+
+
+class TestInactivityMonitorTask:
+    """The 12 h sweep as a running task, not just its one-shot check.
+
+    `_check_inactivity` was already driven directly; the loop around it was not.
+    That loop is the appliance's only way back to `source=NONE` without a user
+    gesture, it is spawned exactly once (by the lifespan), and nothing restarts
+    it — so if its body can die, the appliance never idles again for the life of
+    the process.
+    """
+
+    class _StopTheMonitor(BaseException):
+        """Ends a bounded double.
+
+        Derived from `BaseException` because the loop body catches `Exception`
+        and logs it, which would turn a runaway double into a silent busy loop
+        instead of a failure — the shape that took this machine down in B8a.
+        """
+
+    @pytest.mark.asyncio
+    async def test_the_monitor_is_started_once_and_is_idempotent(self, state_machine):
+        """`main.py` calls it at boot; a second call must not spawn a second
+        sweep, or two tasks race the same CAS transition and the second one
+        deactivates a source the user selected in between."""
+        state_machine.start_inactivity_monitor()
+        first = state_machine._inactivity_monitor_task
+        state_machine.start_inactivity_monitor()
+
+        try:
+            assert state_machine._inactivity_monitor_task is first
+            assert first is not None
+        finally:
+            state_machine.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_the_monitor_checks_once_per_tick(self, state_machine, monkeypatch):
+        checks = {"n": 0}
+
+        async def _check():
+            checks["n"] += 1
+            if checks["n"] >= 3:
+                raise self._StopTheMonitor()
+
+        async def _sleep(_delay):
+            return None
+
+        monkeypatch.setattr("backend.core.state.asyncio.sleep", _sleep)
+        state_machine._check_inactivity = _check
+
+        with pytest.raises(self._StopTheMonitor):
+            await state_machine._monitor_inactivity()
+
+        assert checks["n"] == 3
+
+    @pytest.mark.asyncio
+    async def test_a_check_that_raises_does_not_end_the_sweep(
+        self, state_machine, monkeypatch, caplog
+    ):
+        """A source whose `stop()` blew up makes `transition_to_source` raise.
+
+        Unguarded, that one failure ends the sweep for the life of the process
+        and the appliance never returns to NONE again — no error, no banner, and
+        the screen stays awake on a source nobody is listening to.
+        """
+        checks = {"n": 0}
+
+        async def _check():
+            checks["n"] += 1
+            if checks["n"] >= 3:
+                raise self._StopTheMonitor()
+            raise RuntimeError("source would not stop")
+
+        async def _sleep(_delay):
+            return None
+
+        monkeypatch.setattr("backend.core.state.asyncio.sleep", _sleep)
+        state_machine._check_inactivity = _check
+
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(self._StopTheMonitor):
+                await state_machine._monitor_inactivity()
+
+        assert checks["n"] == 3
+        assert "Inactivity check failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_cancelled_monitor_ends_quietly(self, state_machine, monkeypatch):
+        """`cleanup()` cancels it during shutdown. Left to propagate, the
+        CancelledError surfaces as a task exception on every single shutdown.
+        """
+        async def _sleep(_delay):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr("backend.core.state.asyncio.sleep", _sleep)
+
+        await state_machine._monitor_inactivity()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_cancels_the_sweep_and_forgets_it(self, state_machine):
+        """Forgetting the reference is what lets a restarted lifespan start a
+        fresh one; kept, `start_inactivity_monitor` sees a non-None task and
+        never spawns again."""
+        state_machine.start_inactivity_monitor()
+        task = state_machine._inactivity_monitor_task
+
+        state_machine.cleanup()
+        await asyncio.sleep(0)
+
+        assert task.cancelled() or task.done()
+        assert state_machine._inactivity_monitor_task is None
+
+    @pytest.mark.asyncio
+    async def test_cleanup_without_a_monitor_is_a_no_op(self, state_machine):
+        """Shutdown runs whether or not startup got as far as the monitor."""
+        state_machine.cleanup()
+
+        assert state_machine._inactivity_monitor_task is None
