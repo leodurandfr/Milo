@@ -522,3 +522,54 @@ class TestTheSnapcastStatusRead:
             "server_active": False, "client_active": False, "multiroom_available": False,
         }
         assert any("Error getting snapcast status" in r.message for r in caplog.records)
+
+
+class TestTheServiceLifecycle:
+    """The two calls the lifespan makes, and the guard `_apply_transition` opens with."""
+
+    async def test_the_first_transition_reconciles_the_real_state_first(self, service):
+        """`multiroom_enabled` is read from settings, but what the *hardware* is
+        doing is read from systemd. A first transition that trusted the stored
+        flag alone would refuse as "already enabled" against a snapserver that
+        is not running — the desync class `_sync_snapcast_state` exists to
+        prevent."""
+        service._initial_detection_done = False
+        service._detect_initial_state = AsyncMock()
+        service._apply_transition = AsyncMock(return_value=True)
+        service._post_transition_setup_best_effort = AsyncMock()
+
+        await service.set_multiroom_enabled(True)
+
+        service._detect_initial_state.assert_awaited_once()
+
+    async def test_a_later_transition_does_not_re_detect(self, service):
+        """It shells `systemctl is-active` twice; doing it per request puts two
+        subprocess spawns on the path of every multiroom toggle."""
+        service._detect_initial_state = AsyncMock()
+        service._apply_transition = AsyncMock(return_value=True)
+        service._post_transition_setup_best_effort = AsyncMock()
+
+        await service.set_multiroom_enabled(True)
+
+        service._detect_initial_state.assert_not_called()
+
+    async def test_a_transition_without_a_state_machine_refuses_loudly(self, service):
+        """Everything downstream broadcasts. Proceeding would switch the ALSA
+        routing with the UI left on the previous mode and no event to correct
+        it — worse than not switching."""
+        service.state_machine = None
+
+        with pytest.raises(RuntimeError, match="State machine not available"):
+            await service._apply_transition(True, None)
+
+    async def test_cleanup_drains_the_delayed_sync(self, service):
+        """It waits up to fifteen seconds on snapserver. Left running through a
+        teardown it outlives the services it pushes to, and the lifespan is the
+        only thing that ever cancels it."""
+        parked = asyncio.Event()
+        task = service._bg.spawn(parked.wait(), label="delayed_sync")
+
+        await service.cleanup()
+
+        assert task.cancelled()
+        assert service._bg._tasks == set()

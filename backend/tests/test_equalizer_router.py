@@ -341,3 +341,53 @@ class TestReads:
 
         assert result["status"] == "error"
         camilladsp.get_status.assert_not_called()
+
+
+class TestTheLocalArmWithoutCamillaDSP:
+    """The nine local arms when CamillaDSP is not wired.
+
+    Measured 2026-08-27: eight identical refusals, none of them ever executed.
+    The service is optional in the constructor, and `dependencies.py` builds it
+    lazily — so a boot that reordered the wiring, or a dev host with no daemon,
+    reaches every one of these. What they must not do is answer as though the
+    write landed: `EqualizerRouter` is the transport behind
+    `PUT /api/equalizer/target/local/...`, and the route's envelope is read
+    verbatim by the UI. The two getters answer `available: False` instead of an
+    error envelope because they feed a status panel, not a write.
+    """
+
+    @pytest.fixture
+    def router_without_camilla(self, registry, proxy):
+        # A registered LOCAL client: without one `_route` answers its own
+        # "client not found" refusal and the eight inner arms stay unreached.
+        registry.get_client.return_value = Client(
+            mac_id=LOCAL_MAC, name="Milō", ip="127.0.0.1", online=True
+        )
+        return EqualizerRouter(registry, None, proxy)
+
+    @pytest.mark.parametrize("method,kwargs,_dsp", LOCAL_SETTINGS)
+    async def test_a_write_without_the_daemon_is_an_error_envelope(
+        self, router_without_camilla, method, kwargs, _dsp
+    ):
+        result = await getattr(router_without_camilla, method)(LOCAL_MAC, **kwargs)
+
+        assert result["status"] == "error"
+        assert "not available" in result["message"]
+        assert "success" not in result, "the envelope rule: never a bare boolean"
+
+    async def test_the_status_read_says_unavailable_rather_than_erroring(
+        self, router_without_camilla
+    ):
+        """It backs the EQ tab's header; an error envelope there is a fault
+        banner every time the tab is opened on a host with no daemon."""
+        result = await router_without_camilla.get_status(LOCAL_MAC)
+
+        assert result["available"] is False
+        assert "not available" in result["error"]
+
+    async def test_the_levels_read_says_unavailable_and_nothing_else(
+        self, router_without_camilla
+    ):
+        """The VU meters poll this at 10 Hz. A message field here would be
+        rebuilt ten times a second for a condition that does not change."""
+        assert await router_without_camilla.get_levels(LOCAL_MAC) == {"available": False}
