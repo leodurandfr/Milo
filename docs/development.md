@@ -808,6 +808,55 @@ git push origin v1.2.0
 # GitHub Actions (if configured) automatically builds
 ```
 
+### Validating a dependency bump
+
+Every upstream version Milō ships is declared once, in **`dependencies.env`** at the repo
+root — read by `install/`, by `pi-gen/stage-milo/` and by the backend's update flow, so a
+bump is a one-line edit and there is nowhere else it can disagree. That single line is also
+the only thing standing between an upstream release and every unit: a Milō update installs
+the app *and* the set declared with it, and nothing else is ever offered.
+
+So "validated" has to mean something. It means **a person watched this version do the thing
+the dependency exists for, on a unit** — not that it compiled, and not that audio came out.
+
+On **2026-07-14** the updater compiled shairport-sync 5.1 from 4.3.7. It built, it ran, it
+played AirPlay audio perfectly, and it delivered **no track metadata at all** — no title, no
+artist, no album, no cover. The player fell back to the plain source card. No error, no log
+line, nothing to notice. "Audio plays" would have passed it.
+
+#### The procedure
+
+1. Edit the one line in `dependencies.env`. Nothing else — a version literal anywhere else
+   fails CI (`backend/tests/architecture/test_dependency_manifest.py`).
+2. Install that version on a unit, through the in-app update or by re-running the install
+   script. Do not hand-build it: what you are validating includes the way Milō installs it.
+3. Run the dependency's row below **and** the ~10-minute smoke set from
+   [docs/manual/verification-checklist.md](manual/verification-checklist.md).
+4. Commit the bump on its own, saying which unit and which rows were run. A bump folded into
+   a feature commit cannot be reverted alone, and reverting is the whole point of pinning.
+
+#### What to watch, per dependency
+
+The column that matters is the third: the thing that has broken before, or the thing whose
+absence is silent. A dependency whose feature is *visible* fails loudly; the ones below are
+the ones that do not.
+
+| Dependency | Exercise | The check that is **not** "it works" |
+|---|---|---|
+| `SHAIRPORT_SYNC_VERSION` | Play from an iPhone | **Title, artist, album and cover reach the player.** This is the 5.1 case; audio proves nothing. Also confirm AirPlay 2 (not 1) still negotiates — that is `nqptp` and the `--with-airplay-2` build flag together |
+| `NQPTP_VERSION` | Play from an iPhone, then leave it playing ~5 min | No drift and no re-sync stutter. NQPTP is the AirPlay 2 clock; a bad one degrades slowly rather than failing |
+| `GO_LIBRESPOT_VERSION` | Hand off from the Spotify app | Artwork + title + artist appear **and change on track change**; the device still appears in the picker after a source switch (zeroconf via Avahi, not the embedded responder — see `install/go-librespot.sh`) |
+| `CAMILLADSP_VERSION` | Change volume, switch an EQ preset | Volume attenuates **in CamillaDSP** and the card mixer stays at unity; a preset change is audible; `bypass_effects()`/`restore_effects()` still round-trip. Check `/proc/asound/card0/pcm0p/sub0/status` reads `RUNNING`, not `PAUSED` — the silence-pause failure leaves no log line |
+| `SNAPCAST_VERSION` | Play to a satellite | Both rooms stay in sync for minutes, not seconds. Needs a **second Pi**; this row cannot be run on one unit |
+| `NAVIDROME_VERSION` | Browse and play the Music Library | The catalog is complete after a rescan, and a track from an *unmounted* share fails visibly rather than streaming a 200 + JSON error body |
+| `QOBUZ_PROXY_VERSION` | Play from the Qobuz app | The device still appears under its ASCII name, and Milō's vendored patches still apply — `install/qobuz_proxy_patches.py` anchors on upstream source lines and is the first thing a bump breaks. Needs a **paid Qobuz account** |
+| `BLUEZ_ALSA_VERSION` | Pair a phone, play, press pause on the phone | Audio, **and** the AVRCP transport: the pause button follows, title/artist arrive. A2DP without AVRCP looks like a working source with an empty card |
+| `ROC_TOOLKIT_VERSION` | Stream from the Mac | Audio arrives with no dropouts. Note that roc-vad sends silence continuously, so "connected" never means "playing" — judge it by ear. Needs a **Mac** |
+
+Four of these need hardware a single developer unit does not have (a second Pi, a Mac, a
+Qobuz account, a phone). Say so in the commit rather than implying the row was run: an
+unstated shortcut is indistinguishable from a skipped check.
+
 ### Updating an installation
 
 ```bash
