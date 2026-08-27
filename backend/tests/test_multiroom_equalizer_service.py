@@ -1429,3 +1429,354 @@ class TestEqIndependentMembers:
         await multiroom_equalizer_service.update_mono("zone", "z", enabled=True)
 
         assert list(batched_records(mock_registry)) == ["milo-client-2"]
+
+
+class TestRemotePushRefusals:
+    """`_apply_to_remote`'s four refusal arms, and why two of them answer True.
+
+    Every one was at zero. The distinction they encode is the whole reason the
+    reconnection sync exists: "the satellite is asleep" is not the same failure
+    as "the satellite is here and would not take it". The first is normal — a
+    speaker in an empty room — and reported as a failure it would put an error
+    banner in front of the user every time they touch a zone. The second must
+    surface, because nothing retries it.
+    """
+
+    @pytest.fixture
+    def proxy_service(self):
+        proxy = Mock()
+        proxy.apply_record = AsyncMock(return_value=True)
+        return proxy
+
+    @pytest.fixture
+    def service(self, mock_registry, mock_camilladsp_service, mock_state_machine, proxy_service):
+        return MultiroomEqualizerService(
+            client_registry_service=mock_registry,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=proxy_service,
+            state_machine=mock_state_machine,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_proxy_service_is_not_a_failure(
+        self, mock_registry, mock_camilladsp_service, mock_state_machine,
+        sample_equalizer_settings, caplog
+    ):
+        """The record is already persisted by the time this runs; the reconnection
+        sync replays it. Answered False, a unit built without the proxy would
+        report every zone write as failed while the state on disk is correct."""
+        service = MultiroomEqualizerService(
+            client_registry_service=mock_registry,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=None,
+            state_machine=mock_state_machine,
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            assert await service._apply_to_remote("aa:bb", sample_equalizer_settings) is True
+
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    @pytest.mark.asyncio
+    async def test_no_registry_is_a_failure(
+        self, service, sample_equalizer_settings, caplog
+    ):
+        """Without the registry there is no address to push to and no record to
+        replay later — nothing will ever sync this client. That is a real
+        failure, not a deferral."""
+        service._registry = None
+
+        with caplog.at_level(logging.WARNING):
+            assert await service._apply_to_remote("aa:bb", sample_equalizer_settings) is False
+
+        assert "Registry not available" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_client_is_deferred_not_failed(
+        self, service, mock_registry, sample_equalizer_settings, caplog
+    ):
+        """A zone can name a client the registry has not admitted yet — the
+        admission race the four snapserver notifications share. Deferred, the
+        record is applied when it arrives."""
+        mock_registry.get_client.return_value = None
+
+        with caplog.at_level(logging.DEBUG):
+            assert await service._apply_to_remote("aa:bb", sample_equalizer_settings) is True
+
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    @pytest.mark.asyncio
+    async def test_an_offline_client_is_deferred_not_failed(
+        self, service, mock_registry, sample_equalizer_settings, proxy_service, caplog
+    ):
+        """A speaker switched off is the ordinary state of a multiroom house.
+
+        Reported as a failure it would raise a banner on every EQ change; and
+        the push must not even be attempted, or each one costs a TCP connect
+        that has to time out.
+        """
+        offline = Client(
+            mac_id="aa:bb", name="Bureau", ip="192.168.1.60",
+            host="milo-client-2", online=False,
+        )
+        mock_registry.get_client.return_value = offline
+
+        with caplog.at_level(logging.DEBUG):
+            assert await service._apply_to_remote("aa:bb", sample_equalizer_settings) is True
+
+        proxy_service.apply_record.assert_not_awaited()
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    @pytest.mark.asyncio
+    async def test_an_online_client_with_no_address_is_a_failure(
+        self, service, mock_registry, sample_equalizer_settings, proxy_service, caplog
+    ):
+        """Online but unaddressable is a registry inconsistency, not a sleeping
+        speaker: nothing will resolve it on its own. Deferred silently, that
+        client's EQ would never be applied and nothing would ever say so."""
+        addressless = Client(
+            mac_id="aa:bb", name="Bureau", ip=None, host="milo-client-2", online=True,
+        )
+        mock_registry.get_client.return_value = addressless
+
+        with caplog.at_level(logging.WARNING):
+            assert await service._apply_to_remote("aa:bb", sample_equalizer_settings) is False
+
+        proxy_service.apply_record.assert_not_awaited()
+        assert "has no IP" in caplog.text
+
+
+class TestZoneEnabledFanout:
+    """`set_zone_equalizer_effects_enabled` — the master toggle over a whole zone.
+
+    It is the one setting applied *last*, after the effects it gates, and it
+    reaches the local client and the satellites by two entirely different
+    mechanisms: the routing service's DSP bypass locally, an HTTP PUT remotely.
+    Both arms were at zero.
+    """
+
+    @pytest.fixture
+    def proxy_service(self):
+        proxy = Mock()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        proxy.apply_record = AsyncMock(return_value=True)
+        return proxy
+
+    @pytest.fixture
+    def service(self, mock_registry, mock_camilladsp_service, mock_state_machine, proxy_service):
+        svc = MultiroomEqualizerService(
+            client_registry_service=mock_registry,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=proxy_service,
+            state_machine=mock_state_machine,
+        )
+        svc._routing_service = Mock()
+        svc._routing_service.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+        return svc
+
+    @staticmethod
+    def _zone(registry, members):
+        registry.get_zone = Mock(return_value=Zone(
+            id="zone-1", name="Salon", client_ids=list(members)
+        ))
+        registry.get_client = Mock(side_effect=lambda mac: Client(
+            mac_id=mac, name=mac, ip=f"192.168.1.{mac[-1]}", host=mac, online=True,
+        ))
+
+    @pytest.mark.asyncio
+    async def test_a_missing_zone_raises_rather_than_reporting_success(
+        self, service, mock_registry
+    ):
+        """The route turns this into a 404. Answered False, the UI would show a
+        generic failure for a zone the user just deleted in another tab."""
+        mock_registry.get_zone = Mock(return_value=None)
+
+        with pytest.raises(ValueError, match="Zone not found"):
+            await service.set_zone_equalizer_effects_enabled("gone", True)
+
+    @pytest.mark.asyncio
+    async def test_no_registry_is_reported_not_raised(self, service, caplog):
+        """Distinct from the missing zone above: there is no registry to ask, so
+        the answer is "could not", not "does not exist"."""
+        service._registry = None
+
+        with caplog.at_level(logging.ERROR):
+            assert await service.set_zone_equalizer_effects_enabled("zone-1", True) is False
+
+        assert "ClientRegistryService not available" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_the_local_member_goes_through_the_routing_service(
+        self, service, mock_registry, proxy_service
+    ):
+        """Locally the toggle is a DSP bypass, not an HTTP call — the routing
+        service owns it because it also persists `routing.equalizer_effects_enabled`
+        and re-broadcasts `full_state`. Pushed over HTTP instead, the local
+        client would be asked to proxy to itself."""
+        self._zone(mock_registry, ["local", "aa:bb:cc:dd:ee:02"])
+
+        assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is True
+
+        service._routing_service.set_equalizer_effects_enabled.assert_awaited_once_with(False)
+        assert proxy_service.request.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_local_failure_does_not_stop_the_satellites(
+        self, service, mock_registry, proxy_service, caplog
+    ):
+        """A DSP that refuses its bypass must not leave the rest of the zone at
+        the old setting — half a room with effects on is worse than none."""
+        self._zone(mock_registry, ["local", "aa:bb:cc:dd:ee:02"])
+        service._routing_service.set_equalizer_effects_enabled = AsyncMock(
+            side_effect=RuntimeError("daemon down")
+        )
+
+        with caplog.at_level(logging.WARNING):
+            assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is True
+
+        proxy_service.request.assert_awaited_once()
+        assert "Failed to set equalizer enabled for local" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_zone_whose_members_all_refuse_reports_failure(
+        self, service, mock_registry, proxy_service
+    ):
+        """"At least one client updated" is the contract. All refused is the one
+        case the UI must not draw as applied."""
+        self._zone(mock_registry, ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])
+        proxy_service.request = AsyncMock(return_value={"status": "error"})
+
+        assert await service.set_zone_equalizer_effects_enabled("zone-1", True) is False
+
+    @pytest.mark.asyncio
+    async def test_a_zone_with_no_routing_service_reports_nothing_wrong(
+        self, service, mock_registry, proxy_service, caplog
+    ):
+        """The guard's only effect is the absence of a warning, and that is the
+        whole assertion.
+
+        `dependencies.py` always constructs this service with the routing
+        service, so None is a dev-host shape. And the `except Exception` inside
+        the guard would catch the `AttributeError` an unguarded call raises, log
+        it, and let the satellites through anyway — so the fan-out's OUTCOME
+        cannot separate the two versions. What separates them is a WARNING per
+        zone toggle in `errors.log`, on a unit where nothing is actually wrong.
+        Same family as `_load_config_from_settings`'s inert guard in B5, except
+        this one is worth keeping for that reason.
+        """
+        self._zone(mock_registry, ["local", "aa:bb:cc:dd:ee:02"])
+        service._routing_service = None
+
+        with caplog.at_level(logging.WARNING):
+            assert await service.set_zone_equalizer_effects_enabled("zone-1", True) is True
+
+        proxy_service.request.assert_awaited_once()
+        assert caplog.text == "", \
+            "a unit with no routing service was reported as a failed local toggle"
+
+
+class TestRemoteEnabledPush:
+    """`_set_remote_client_enabled` — the master toggle for one satellite."""
+
+    @pytest.fixture
+    def proxy_service(self):
+        proxy = Mock()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        return proxy
+
+    @pytest.fixture
+    def service(self, mock_registry, mock_camilladsp_service, mock_state_machine, proxy_service):
+        return MultiroomEqualizerService(
+            client_registry_service=mock_registry,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=proxy_service,
+            state_machine=mock_state_machine,
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_push_that_raises_is_reported_and_the_record_still_persists(
+        self, service, mock_registry, proxy_service, caplog
+    ):
+        """The persist is what the reconnection sync replays. Skipped because the
+        push raised, a satellite that was unreachable for one second keeps the
+        old master state for ever.
+        """
+        mock_registry.get_client = Mock(return_value=Client(
+            mac_id="aa:bb", name="Bureau", ip="192.168.1.60",
+            host="milo-client-2", online=True,
+        ))
+        proxy_service.request = AsyncMock(side_effect=RuntimeError("unreachable"))
+
+        with caplog.at_level(logging.WARNING):
+            result = await service._set_remote_client_enabled(
+                "aa:bb", False, fallback=EqualizerSettings.default_for_zone
+            )
+
+        assert result is False
+        assert "Failed to push equalizer enabled" in caplog.text
+        mock_registry.set_client_equalizer.assert_awaited_once()
+        assert mock_registry.set_client_equalizer.await_args.args[1].enabled is False
+
+    @pytest.mark.asyncio
+    async def test_an_offline_client_persists_and_reports_success(
+        self, service, mock_registry, proxy_service
+    ):
+        """A speaker that is off cannot refuse. Reported as a failure, turning
+        the effects off for a zone with one sleeping member would always look
+        broken."""
+        mock_registry.get_client = Mock(return_value=Client(
+            mac_id="aa:bb", name="Bureau", ip="192.168.1.60",
+            host="milo-client-2", online=False,
+        ))
+
+        result = await service._set_remote_client_enabled(
+            "aa:bb", True, fallback=EqualizerSettings.default_for_zone
+        )
+
+        assert result is True
+        proxy_service.request.assert_not_awaited()
+        mock_registry.set_client_equalizer.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_an_existing_record_keeps_its_tuning_when_only_the_gate_moves(
+        self, service, mock_registry, proxy_service, sample_equalizer_settings
+    ):
+        """Bands carry tuning only; the master toggle is pipeline membership.
+
+        Replacing the record with the fallback default would silently flatten
+        the user's curve every time they switched the effects off and on.
+        """
+        mock_registry.get_client = Mock(return_value=Client(
+            mac_id="aa:bb", name="Bureau", ip="192.168.1.60",
+            host="milo-client-2", online=True,
+        ))
+        mock_registry.get_client_equalizer = Mock(return_value=sample_equalizer_settings)
+
+        await service._set_remote_client_enabled(
+            "aa:bb", False, fallback=EqualizerSettings.default_for_zone
+        )
+
+        stored = mock_registry.set_client_equalizer.await_args.args[1]
+        assert stored.enabled is False
+        assert stored.filters[0].gain == sample_equalizer_settings.filters[0].gain
+
+    @pytest.mark.asyncio
+    async def test_a_client_with_no_record_yet_starts_from_the_fallback(
+        self, service, mock_registry, proxy_service
+    ):
+        """A satellite adopted since the last write has nothing stored. Without
+        the fallback the persist would write None and the reconnection sync
+        would have nothing to replay."""
+        mock_registry.get_client = Mock(return_value=Client(
+            mac_id="aa:bb", name="Bureau", ip="192.168.1.60",
+            host="milo-client-2", online=True,
+        ))
+        mock_registry.get_client_equalizer = Mock(return_value=None)
+
+        await service._set_remote_client_enabled(
+            "aa:bb", True, fallback=EqualizerSettings.default_for_zone
+        )
+
+        stored = mock_registry.set_client_equalizer.await_args.args[1]
+        assert isinstance(stored, EqualizerSettings)
+        assert stored.enabled is True
