@@ -25,10 +25,9 @@ install_nqptp() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    # Pinned to the tag pi-gen declares (NQPTP_VERSION in
-    # pi-gen/stage-milo/01-install-audio/01-run.sh): the AirPlay 2 clock must be
-    # one version across both install paths, and HEAD is not a version.
-    git clone --branch 1.2.4 --depth 1 https://github.com/mikebrady/nqptp.git
+    # Pinned from dependencies.env, which pi-gen reads too: the AirPlay 2 clock
+    # must be one version across both install paths, and HEAD is not a version.
+    git clone --branch "${NQPTP_VERSION}" --depth 1 https://github.com/mikebrady/nqptp.git
     cd nqptp
     autoreconf -fi
     ./configure --with-systemd-startup
@@ -59,9 +58,9 @@ install_shairport_sync() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    # Pinned, not HEAD: 5.0/5.1 delivered no AirPlay metadata (fixed upstream
-    # in 5.2).
-    git clone --branch 5.2.1 --depth 1 https://github.com/mikebrady/shairport-sync.git
+    # Pinned from dependencies.env, not HEAD: 5.0/5.1 delivered no AirPlay
+    # metadata (fixed upstream in 5.2).
+    git clone --branch "${SHAIRPORT_SYNC_VERSION}" --depth 1 https://github.com/mikebrady/shairport-sync.git
     cd shairport-sync
     autoreconf -fi
     ./configure --sysconfdir=/etc \

@@ -64,24 +64,18 @@ Build time is approximately 1-2 hours due to ARM64 cross-compilation via QEMU.
 
 ## Dependency Versions
 
-All dependency versions are pinned as variables at the top of the stage scripts.
-The numbers are deliberately **not** repeated here — this table restated them
-once and went stale on two rows while the scripts moved on. Read the variable:
+Every dependency version comes from **`dependencies.env` at the repo root** —
+the single declaration, shared with `install/` and with the backend's update
+flow. The stage scripts declare nothing: `build.sh` copies that file in beside
+`stage-milo/` and each script sources it as a sibling. It has to be a copy
+because a stage is built from a duplicate of `stage-milo/` inside a cloned
+pi-gen checkout, often in Docker, which cannot reach the Milō repo.
 
-| Dependency | Variable | Location |
-|---|---|---|
-| go-librespot | `GO_LIBRESPOT_VERSION` | `01-install-audio/00-run.sh` |
-| CamillaDSP | `CAMILLADSP_VERSION` | `01-install-audio/00-run.sh` |
-| Snapcast | `SNAPCAST_VERSION` | `01-install-audio/00-run.sh` |
-| Navidrome | `NAVIDROME_VERSION` | `01-install-audio/00-run.sh` |
-| NQPTP | `NQPTP_VERSION` | `01-install-audio/01-run.sh` |
-| shairport-sync | `SHAIRPORT_SYNC_VERSION` | `01-install-audio/01-run.sh` |
-| bluez-alsa | `BLUEZ_ALSA_VERSION` | `01-install-audio/01-run.sh` |
-| roc-toolkit | `ROC_TOOLKIT_VERSION` | `01-install-audio/01-run.sh` |
-
-`install/airplay.sh` (NQPTP, shairport-sync), `install/bluez-alsa.sh` and
-`install/roc-toolkit.sh` build the same four from source and must carry the same
-tags — a script-installed unit and a flashed one are the same appliance.
+The numbers are deliberately not repeated here, nor in the scripts. Read
+`dependencies.env`. A version declared in a stage script instead of there fails
+CI (`backend/tests/architecture/test_dependency_manifest.py`), which is what a
+script-installed unit and a flashed one drifting apart used to look like:
+nothing, until a reinstall landed behind the fleet.
 
 ## Output
 

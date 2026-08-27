@@ -5,6 +5,11 @@
 # duplicating colour codes, log functions, temp directory cleanup,
 # and common installation routines across main and client installs.
 
+# The validated dependency set. Sourced here rather than in each module so
+# every install chain gets the same numbers from the same file — the versions
+# below are read, never declared. See dependencies.env.
+source "$(dirname "${BASH_SOURCE[0]}")/../dependencies.env"
+
 # ============================================================================
 # Colour codes
 # ============================================================================
@@ -161,7 +166,7 @@ suppress_pulseaudio() {
 # Strategy: GitHub .deb (detected Debian) -> GitHub .deb (bookworm) -> apt repos
 install_snapcast_packages() {
     local packages=("$@")
-    local version="0.35.0"
+    local version="$SNAPCAST_VERSION"
     local label="${packages[*]}"
 
     log_info "Installing Snapcast ($label)..."
@@ -271,7 +276,7 @@ install_camilladsp_binary() {
     local user="$1"
     local data_dir="$2"
     local config_source="$3"
-    local version="4.1.3"
+    local version="$CAMILLADSP_VERSION"
 
     log_info "Installing CamillaDSP..."
 

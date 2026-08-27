@@ -57,9 +57,18 @@ CHAINS = {
     "satellite": REPO_ROOT / "milo-client" / "install-client.sh",
 }
 
-# The one file the satellite chain may take from the server's tree. See the
-# module docstring: shared on purpose, pinned so a second one cannot join it.
-SHARED_HELPER = REPO_ROOT / "install" / "common.sh"
+# The files the satellite chain may take from outside `milo-client/`. See the
+# module docstring: shared on purpose, named so an unlisted one cannot join them.
+#   common.sh        the shared helper the docstring is about.
+#   dependencies.env the validated dependency set. Both chains install the same
+#                    snapclient and the same CamillaDSP, so both must read the
+#                    same versions; copying it into `milo-client/` would answer
+#                    a cross-tree read with a twin file, which is the drift
+#                    `test_twin_files_have_not_drifted` exists to punish.
+SHARED_FILES = {
+    REPO_ROOT / "install" / "common.sh",
+    REPO_ROOT / "dependencies.env",
+}
 
 # The `rootfs/` tree each variable names, and the chain allowed to name it.
 ROOTFS_TREES = {
@@ -210,21 +219,21 @@ def test_every_sourced_file_resolves_and_exists(chain_name, chains):
     assert not chains[chain_name]["problems"], "\n".join(chains[chain_name]["problems"])
 
 
-def test_the_satellite_chain_reuses_exactly_one_server_file(chains):
-    """`install/common.sh` is shared on purpose; a second server file is not.
+def test_the_satellite_chain_reuses_only_the_named_shared_files(chains):
+    """Two files are shared on purpose; a third is not.
 
     A satellite module reaching further into `install/` inherits code written
     against `MILO_APP_DIR` and the server's `rootfs/` — 1.1's exact shape, and
-    the reason that dependency is pinned to one named file instead of banned.
+    the reason the dependency is pinned to named files instead of banned.
     """
     outside = sorted(
         str(f.relative_to(REPO_ROOT))
         for f in chains["satellite"]["files"]
-        if REPO_ROOT / "milo-client" not in f.parents and f != SHARED_HELPER
+        if REPO_ROOT / "milo-client" not in f.parents and f not in SHARED_FILES
     )
+    allowed = sorted(str(f.relative_to(REPO_ROOT)) for f in SHARED_FILES)
     assert not outside, (
-        "the satellite installer now sources server files beyond "
-        f"{SHARED_HELPER.relative_to(REPO_ROOT)}: {outside}"
+        f"the satellite installer now sources server files beyond {allowed}: {outside}"
     )
 
 

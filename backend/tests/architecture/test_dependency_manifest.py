@@ -1,0 +1,248 @@
+"""Structural guardrail: one declaration per dependency version, and it is `dependencies.env`.
+
+Milō pins a version for nine upstream dependencies, and until this file existed
+each of them was declared in two or three places at once: an `install/` script,
+a `pi-gen/stage-milo/` stage script, and — for the six the Update Manager can
+install — a `max_version` ceiling in the backend catalog. Nothing bound them.
+
+That drift shipped. The Update Manager moved the fleet to go-librespot 0.9.0 and
+shairport-sync 5.2.1 while both install trees still cloned 0.8.0 and 4.3.7, so a
+reinstall or a freshly flashed card landed *behind* every running unit — with no
+error anywhere, because each declaration was internally consistent. The symptom
+was a unit that had "just been installed" and behaved like an old one.
+
+The manifest kills that class by construction rather than by vigilance: the
+number exists once, and every consumer reads it. These tests are what makes
+"reads it" true — a literal that creeps back into a provisioning script is
+otherwise invisible to CI, which never runs bash and never builds an image.
+
+Three trees, three ways of reading the same file:
+
+  * `install/` and `milo-client/install/` source it through `install/common.sh`
+    (`test_install_deployment.py` proves that `source` resolves);
+  * `pi-gen/stage-milo/` sources it as a *sibling*, because a stage is built
+    from a copy of `stage-milo/` inside a cloned pi-gen checkout, often in
+    Docker, and cannot reach the Milō repo — `pi-gen/build.sh` copies it in.
+    This is invariant 2's shape applied to a third deployment tree, and the copy
+    is checked here because nothing else can see a pi-gen build fail;
+  * `backend/core/updates/catalog.py` reads it into each program's
+    `"validated_version"`, which is what the update flow offers and installs.
+
+Doctrine note (as in the other guardrails here): every extractor asserts its own
+output is non-trivial first, so a broken parse fails loudly instead of passing on
+an empty surface.
+"""
+import re
+from pathlib import Path
+
+import pytest
+
+from backend.core.updates.catalog import PROGRAMS
+from backend.core.updates.dependency_versions import (
+    MANIFEST_PATH,
+    load_dependency_versions,
+)
+
+# The shell comment stripper is imported rather than re-written: it handles the
+# `${script#"$VAR"/}` expansions and quoted `#` literals these files carry, and a
+# second hand-rolled parser that gets one of them wrong would under-report — the
+# one failure mode a guardrail must not have.
+from backend.tests.architecture.test_install_deployment import _strip_comments
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# `$VAR` / `${VAR}` — a manifest variable being read.
+VAR_READ_RE = re.compile(r"\$\{?([A-Z][A-Z0-9_]*)\}?")
+
+# `VAR=` at command position, with or without `export`/`local`. Anything the
+# manifest owns must not be assigned anywhere but the manifest.
+ASSIGN_RE = re.compile(r"^\s*(?:export\s+|local\s+)?([A-Z][A-Z0-9_]*)=", re.MULTILINE)
+
+# `DEPENDENCY_VERSIONS["VAR"]` — the backend's only way of reading the manifest.
+PY_READ_RE = re.compile(r'DEPENDENCY_VERSIONS\[\s*["\']([A-Z][A-Z0-9_]*)["\']\s*\]')
+
+PI_GEN_STAGE = REPO_ROOT / "pi-gen" / "stage-milo"
+BUILD_SH = REPO_ROOT / "pi-gen" / "build.sh"
+CATALOG = REPO_ROOT / "backend" / "core" / "updates" / "catalog.py"
+
+# The app itself, not a dependency: `milo` is updated by `git pull`, so it has no
+# validated version to declare.
+NOT_A_DEPENDENCY = "milo"
+
+
+def _provisioning_scripts() -> list[Path]:
+    """Every shell file that provisions a unit, across all three trees."""
+    return sorted(
+        [
+            REPO_ROOT / "install.sh",
+            REPO_ROOT / "milo-client" / "install-client.sh",
+            *(REPO_ROOT / "install").glob("*.sh"),
+            *(REPO_ROOT / "milo-client" / "install").glob("*.sh"),
+            *PI_GEN_STAGE.rglob("*run.sh"),
+        ]
+    )
+
+
+@pytest.fixture(scope="module")
+def manifest() -> dict[str, str]:
+    parsed = load_dependency_versions()
+    # A parse that silently yields nothing, or that drops the values, would make
+    # every rule below pass on an empty surface.
+    assert len(parsed) >= 9, f"only {len(parsed)} versions parsed from {MANIFEST_PATH}"
+    assert all(re.fullmatch(r"\d+(\.\d+)+", v) for v in parsed.values()), parsed
+    return parsed
+
+
+@pytest.fixture(scope="module")
+def scripts() -> dict[Path, str]:
+    parsed = {p: _strip_comments(p.read_text()) for p in _provisioning_scripts()}
+    assert len(parsed) >= 20, f"only {len(parsed)} provisioning scripts found"
+    return parsed
+
+
+def test_every_updatable_program_declares_a_validated_version(manifest):
+    """A program without a declared version is a program nobody validated.
+
+    The whole point of the manifest is that the appliance installs a set someone
+    signed off on. A new catalog entry with no `validated_version` silently falls
+    back to "whatever GitHub's releases/latest returns" — the exact button this
+    plan removed, re-added by omission. This is the successor to
+    `test_no_program_pins_a_ceiling_by_default`, inverted: back then no program
+    pinned anything, now every dependency must.
+    """
+    declared = {k for k, cfg in PROGRAMS.items() if "validated_version" in cfg}
+    expected = set(PROGRAMS) - {NOT_A_DEPENDENCY}
+
+    assert declared == expected, (
+        f"missing a validated_version: {sorted(expected - declared)}; "
+        f"declared one but should not: {sorted(declared - expected)}"
+    )
+    # Values must come from the manifest, not from a literal typed into the
+    # catalog — the second declaration this file exists to prevent.
+    values = set(manifest.values())
+    off_manifest = {
+        k: cfg["validated_version"]
+        for k, cfg in PROGRAMS.items()
+        if "validated_version" in cfg and cfg["validated_version"] not in values
+    }
+    assert not off_manifest, f"validated_version not read from the manifest: {off_manifest}"
+
+
+def test_the_catalog_reads_the_manifest_by_lookup(manifest):
+    """A literal in the catalog would be a second declaration that never drifts *loudly*.
+
+    `"validated_version": "0.63.2"` passes the test above (the value happens to
+    match today) and goes stale the moment the manifest moves. Requiring the
+    lookup expression makes the manifest the only place the number can change.
+    """
+    code = CATALOG.read_text()
+    looked_up = set(PY_READ_RE.findall(code))
+    assert looked_up, "catalog.py no longer reads DEPENDENCY_VERSIONS at all"
+
+    dependencies = set(PROGRAMS) - {NOT_A_DEPENDENCY}
+    assert len(looked_up) == len(dependencies), (
+        f"{len(dependencies)} dependencies but {len(looked_up)} manifest lookups: {looked_up}"
+    )
+    unknown = looked_up - set(manifest)
+    assert not unknown, f"catalog.py looks up keys the manifest does not declare: {unknown}"
+
+
+def test_no_provisioning_script_restates_a_manifest_version(manifest, scripts):
+    """A version literal in an install or stage script is the drift, textually.
+
+    This is the rule the fleet actually needed: `git clone --branch 5.2.1` in one
+    tree and `5.2.1` in the manifest agree today and diverge on the next bump,
+    with nothing to notice — a flashed card and a script-installed unit running
+    different upstream code while both report a successful install.
+    """
+    offenders = []
+    for path, code in scripts.items():
+        for name, version in manifest.items():
+            for i, line in enumerate(code.splitlines(), 1):
+                if version in line:
+                    offenders.append(
+                        f"{path.relative_to(REPO_ROOT)}:{i} writes the literal "
+                        f"{version!r}; read ${{{name}}} from dependencies.env instead"
+                    )
+    assert not offenders, "\n".join(offenders)
+
+
+def test_no_provisioning_script_assigns_a_manifest_variable(manifest, scripts):
+    """Re-assigning `NAVIDROME_VERSION=` locally shadows the manifest silently.
+
+    A `${VAR:-default}` override reads as a courtesy and behaves as a second
+    declaration: the manifest moves, the script keeps its own default, and the
+    install lands on a version nobody chose.
+    """
+    offenders = [
+        f"{path.relative_to(REPO_ROOT)}:{i} assigns {name}, which dependencies.env owns"
+        for path, code in scripts.items()
+        for i, line in enumerate(code.splitlines(), 1)
+        for name in ASSIGN_RE.findall(line)
+        if name in manifest
+    ]
+    assert not offenders, "\n".join(offenders)
+
+
+def test_every_manifest_variable_has_a_reader(manifest, scripts):
+    """The other direction: an entry nothing reads is a version nobody installs.
+
+    A dependency dropped from the installers but left in the manifest reads as
+    pinned and validated while no unit has ever run it.
+    """
+    read = {
+        name
+        for code in scripts.values()
+        for name in VAR_READ_RE.findall(code)
+    } | set(PY_READ_RE.findall(CATALOG.read_text()))
+
+    # Non-trivial-output check: if nothing resolved, the rule above is vacuous
+    # and so is `test_no_provisioning_script_restates_a_manifest_version`.
+    assert len(read & set(manifest)) >= 5, f"only {sorted(read & set(manifest))} read"
+
+    orphans = sorted(set(manifest) - read)
+    assert not orphans, f"dependencies.env declares versions nothing reads: {orphans}"
+
+
+def test_pi_gen_stage_scripts_can_reach_the_manifest():
+    """A stage sourcing a file `build.sh` never copies dies at image-build time.
+
+    `pi-gen/build.sh` copies `stage-milo/` into a cloned pi-gen checkout and
+    builds it, often in Docker — the stage cannot reach back into the Milō repo,
+    so the manifest has to travel with it. Nothing else catches this: CI never
+    builds an image, and the failure is a `set -e` abort an hour into a build.
+    Invariant 2's rule, applied to the third deployment tree.
+    """
+    build = BUILD_SH.read_text()
+    assert "dependencies.env" in build, (
+        "pi-gen/build.sh no longer copies dependencies.env beside the stage; "
+        "every stage script that sources it aborts the image build"
+    )
+
+    readers = [
+        p
+        for p in PI_GEN_STAGE.rglob("*run.sh")
+        if set(VAR_READ_RE.findall(_strip_comments(p.read_text()))) & set(load_dependency_versions())
+    ]
+    assert readers, "no pi-gen stage script reads a manifest variable any more"
+
+    for script in readers:
+        assert "dependencies.env" in script.read_text(), (
+            f"{script.relative_to(REPO_ROOT)} reads a manifest variable but never "
+            "sources dependencies.env — it expands to the empty string, and the "
+            "download URL it builds is silently wrong"
+        )
+
+
+def test_the_manifest_is_tracked_by_git():
+    """An untracked manifest works here and breaks every clone, install and build."""
+    import subprocess
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", str(MANIFEST_PATH.relative_to(REPO_ROOT))],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+    )
+    assert tracked.returncode == 0, (
+        "dependencies.env is not in git: every install chain sources it and "
+        "every pi-gen build copies it"
+    )

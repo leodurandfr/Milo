@@ -16,8 +16,12 @@ Keys, per program:
     commands          how to read the installed version, per component.
     repo              GitHub "owner/name" the latest release is fetched from.
     version_regex     extracts the version out of both of the above.
-    max_version       optional ceiling: never offer an upstream release above
-                      this, however new (see get_latest_github_version).
+    validated_version the version this Milō ships, read from the repo's
+                      `dependencies.env` — the only place it is declared, shared
+                      with both install trees and pi-gen. What the update flow
+                      offers and installs, whatever upstream has released since
+                      (see get_latest_github_version). `milo` alone has none: it
+                      is the app, not a dependency.
 
   Install layout
     log_name          the program's own name, for log lines and error strings.
@@ -33,6 +37,7 @@ Keys, per program:
                       preserving whatever state it was in.
     config_path       config file backed up alongside the binary.
 """
+from backend.core.updates.dependency_versions import DEPENDENCY_VERSIONS
 
 PROGRAMS = {
     "milo": {
@@ -57,9 +62,7 @@ PROGRAMS = {
         },
         "repo": "devgianlu/go-librespot",
         "version_regex": r"(\d+\.\d+\.\d+)",
-        # No "max_version" since 2026-05-25, on purpose, so the UI surfaces
-        # go-librespot 0.7.3 (which carries the upstream SIGTERM-hang fix).
-        # Re-arm by adding the key back with the last validated version.
+        "validated_version": DEPENDENCY_VERSIONS["GO_LIBRESPOT_VERSION"],
         "log_name": "go-librespot",
         "binary_path": "/usr/local/bin/go-librespot",
         "config_path": "/var/lib/milo/go-librespot/config.yml",
@@ -75,6 +78,7 @@ PROGRAMS = {
         },
         "repo": "mikebrady/shairport-sync",
         "version_regex": r"(\d+\.\d+(?:\.\d+)?)",
+        "validated_version": DEPENDENCY_VERSIONS["SHAIRPORT_SYNC_VERSION"],
         "binary_path": "/usr/local/bin/shairport-sync",
         "service_name": "milo-airplay.service",
         "backup_path": "/var/lib/milo/backups/shairport-sync",
@@ -97,6 +101,7 @@ PROGRAMS = {
         },
         "repo": "badaix/snapcast",
         "version_regex": r"v(\d+\.\d+\.\d+)",
+        "validated_version": DEPENDENCY_VERSIONS["SNAPCAST_VERSION"],
         "services": [
             "milo-snapserver-multiroom.service",
             "milo-snapclient-multiroom.service"
@@ -111,6 +116,7 @@ PROGRAMS = {
         },
         "repo": "HEnquist/camilladsp",
         "version_regex": r"(\d+\.\d+\.\d+)",
+        "validated_version": DEPENDENCY_VERSIONS["CAMILLADSP_VERSION"],
         "log_name": "CamillaDSP",
         "binary_path": "/usr/local/bin/camilladsp",
         "service_name": "milo-camilladsp.service",
@@ -130,6 +136,7 @@ PROGRAMS = {
         },
         "repo": "leolobato/qobuz-proxy",
         "version_regex": r"v?(\d+\.\d+\.\d+)",
+        "validated_version": DEPENDENCY_VERSIONS["QOBUZ_PROXY_VERSION"],
         "service_name": "milo-qobuz.service",
         "venv_path": "/var/lib/milo/qobuz/venv",
         "backup_path": "/var/lib/milo/backups/qobuz"
@@ -145,6 +152,7 @@ PROGRAMS = {
         },
         "repo": "navidrome/navidrome",
         "version_regex": r"(\d+\.\d+\.\d+)",
+        "validated_version": DEPENDENCY_VERSIONS["NAVIDROME_VERSION"],
         "log_name": "Navidrome",
         "binary_path": "/usr/local/bin/navidrome",
         "service_name": "milo-navidrome.service",
