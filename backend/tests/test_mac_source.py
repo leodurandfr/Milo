@@ -122,14 +122,21 @@ class TestMacSourceLifecycle:
     @pytest.mark.asyncio
     async def test_stop_cancels_monitor(self, mac_source):
         """Test stop cancels monitoring task."""
-        # Create a mock task
-        mock_task = AsyncMock()
-        mock_task.cancel = Mock()
-        mac_source._monitor_task = mock_task
+        # `_do_stop` awaits the task after cancelling it, and an AsyncMock
+        # instance is not awaitable — the whole teardown died there, swallowed,
+        # with only `cancel()` having run. A real task is the only double that
+        # reaches the end of the method.
+        async def _forever():
+            await asyncio.sleep(3600)
+
+        task = asyncio.create_task(_forever())
+        await asyncio.sleep(0)
+        mac_source._monitor_task = task
 
         await mac_source.stop()
 
-        mock_task.cancel.assert_called_once()
+        assert task.cancelled()
+        assert mac_source._monitor_task is None
 
 
 class TestConnectionState:

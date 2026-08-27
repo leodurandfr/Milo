@@ -34,8 +34,14 @@ def controller():
     settings = Mock()
     settings.defaults = SettingsService().defaults
 
+    # `broadcast` is awaited: a plain Mock makes every sleep-state announcement
+    # die in `@handle_errors` after the screen command already went out, so the
+    # assertions hold while the broadcast half never runs.
+    state_machine = Mock()
+    state_machine.broadcast = AsyncMock()
+
     return ScreenController(
-        state_machine=Mock(),
+        state_machine=state_machine,
         settings_service=settings,
         hardware_service=hardware,
     )

@@ -138,8 +138,14 @@ class TestFavoritesHaveOneEntryPoint:
         data.add_favorite = AsyncMock(return_value=False)
         client, _ = self._client(data)
 
-        assert client.post("/api/radio/favorites",
-                           json={"station_id": "s1", "station": {}}).status_code == 500
+        # A falsy `station` sends the route to RadioBrowser first, and a Mock
+        # `radio_api` raises there — the same "any other 500" the twin below
+        # names. The record has to be non-empty for the refusal to be reached.
+        assert client.post(
+            "/api/radio/favorites",
+            json={"station_id": "s1", "station": {"name": "FIP"}},
+        ).status_code == 500
+        data.add_favorite.assert_awaited_once_with("s1", {"name": "FIP"})
 
     def test_remove_reaches_station_data_without_going_through_command(self):
         data = Mock()
