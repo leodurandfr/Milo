@@ -196,8 +196,12 @@ class TestGetLatestGithubVersion:
             result = await version_service.get_latest_github_version("multiroom")
 
         assert result["status"] == "success"
-        assert result["version"] == "0.28.0"
-        assert result["tag_name"] == "v0.28.0"
+        # Every dependency is pinned, so what is *offered* is the validated
+        # version and the fetched release lands under "upstream". Both halves
+        # are read from the service's own config rather than restated here.
+        assert result["version"] == version_service.programs["multiroom"]["validated_version"]
+        assert result["upstream"]["version"] == "0.28.0"
+        assert result["upstream"]["tag_name"] == "v0.28.0"
 
     @pytest.mark.asyncio
     async def test_cache_hit(self, version_service):
@@ -241,7 +245,9 @@ class TestGetLatestGithubVersion:
         )):
             result = await version_service.get_latest_github_version("multiroom")
 
-        assert result["version"] == "0.28.0"
+        # The stale entry said 0.27.0 and carried no "upstream" at all, so this
+        # can only have come from a refetch.
+        assert result["upstream"]["version"] == "0.28.0"
 
     @pytest.mark.asyncio
     async def test_rate_limit_403(self, version_service):
@@ -301,7 +307,11 @@ class TestGetLatestGithubVersion:
 
     @pytest.mark.asyncio
     async def test_tag_without_matching_regex(self, version_service):
-        """When tag_name doesn't match version_regex, raw tag is used"""
+        """When tag_name doesn't match version_regex, the raw tag is carried through.
+
+        The pin decides what is *offered*; this is about what was *read*, so the
+        raw tag now surfaces under "upstream" instead of at the top level.
+        """
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value={
@@ -323,7 +333,7 @@ class TestGetLatestGithubVersion:
             result = await version_service.get_latest_github_version("multiroom")
 
         assert result["status"] == "success"
-        assert result["version"] == "release-candidate"
+        assert result["upstream"]["version"] == "release-candidate"
 
 
 def _patch_github_release(tag_name: str):
@@ -348,74 +358,111 @@ def _patch_github_release(tag_name: str):
     ))
 
 
-class TestMaxVersionCeiling:
-    """Tests for the optional max_version ceiling mechanism (generic, D5).
+class TestValidatedVersionPin:
+    """Tests for the pin every dependency carries (`validated_version`).
 
-    The clamp is a generic feature keyed off a program's optional "max_version"
-    config. No program pins it by default — go-librespot's 0.7.2 pin was lifted
-    2026-05-25 to surface 0.7.3 — so these tests arm the ceiling in-fixture to
-    keep the dormant mechanism covered, ready to re-arm in prod by re-adding the
-    config key.
+    The version each dependency's entry declares is read from the repo's
+    `dependencies.env`, the one place any of these numbers exists. It is a pin,
+    not a ceiling: what the manifest says is what the update flow offers, and
+    the release GitHub actually published is kept alongside rather than
+    overwritten — the maintainer surface needs it to decide whether to bump.
+
+    Most tests here arm the pin in-fixture on a chosen value so the assertion
+    does not move every time the real set is bumped;
+    `test_the_pin_is_armed_on_the_real_catalog` is the one that reads production.
     """
 
     @pytest.mark.asyncio
-    async def test_caps_release_above_ceiling(self, version_service):
-        version_service.programs["go-librespot"]["max_version"] = "0.7.2"
-        with _patch_github_release("v0.7.3"):
+    async def test_upstream_above_the_validated_version_is_not_offered(self, version_service):
+        """The whole point: a newer upstream release must not reach a unit.
+
+        shairport-sync 5.1 shipped exactly this way — no error, no log line,
+        AirPlay metadata simply gone. The offered version stays the validated
+        one and the fetched release survives under "upstream".
+        """
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+        with _patch_github_release("v0.9.9"):
             result = await version_service.get_latest_github_version("go-librespot")
 
-        assert result["status"] == "success"
         assert result["version"] == "0.7.2"
         assert result["tag_name"] == "v0.7.2"
-        assert result["html_url"] == "https://github.com/devgianlu/go-librespot/releases/tag/v0.7.2"
+        assert result["html_url"].endswith("/releases/tag/v0.7.2")
+        # The validated release's own publication date is not what this fetch
+        # returned, so it is cleared rather than mislabelled.
         assert result["published_at"] is None
 
-    @pytest.mark.asyncio
-    async def test_no_cap_at_ceiling(self, version_service):
-        version_service.programs["go-librespot"]["max_version"] = "0.7.2"
-        with _patch_github_release("v0.7.2"):
-            result = await version_service.get_latest_github_version("go-librespot")
-
-        assert result["version"] == "0.7.2"
-        assert result["tag_name"] == "v0.7.2"
-        # Upstream metadata preserved when not capped
-        assert result["published_at"] == "2026-05-21T00:00:00Z"
+        assert result["upstream"]["version"] == "0.9.9"
+        assert result["upstream"]["tag_name"] == "v0.9.9"
+        assert result["upstream"]["published_at"] == "2026-05-21T00:00:00Z"
+        assert result["upstream"]["ahead"] is True
 
     @pytest.mark.asyncio
-    async def test_no_cap_below_ceiling(self, version_service):
-        """A release below the ceiling is still offered as-is (e.g. recovering from 0.7.1)."""
-        version_service.programs["go-librespot"]["max_version"] = "0.7.2"
+    async def test_upstream_below_the_validated_version_is_not_offered_either(self, version_service):
+        """A pin, not a clamp — this is what separates the two.
+
+        A yanked release, or a set bumped ahead of the tag being published,
+        makes `releases/latest` answer *below* the manifest. A clamp would let
+        that through and install it, which would quietly make GitHub, not
+        `dependencies.env`, the thing that decides what the appliance runs.
+        """
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
         with _patch_github_release("v0.7.1"):
             result = await version_service.get_latest_github_version("go-librespot")
 
-        assert result["version"] == "0.7.1"
-        assert result["tag_name"] == "v0.7.1"
+        assert result["version"] == "0.7.2"
+        assert result["tag_name"] == "v0.7.2"
+        assert result["upstream"]["version"] == "0.7.1"
+        assert result["upstream"]["ahead"] is False
 
     @pytest.mark.asyncio
-    async def test_no_program_pins_a_ceiling_by_default(self, version_service):
-        """No program pins max_version, so an upstream release is offered as-is
-        (go-librespot's own ceiling was lifted 2026-05-25)."""
-        assert all(
-            "max_version" not in cfg for cfg in version_service.programs.values()
-        )
+    async def test_the_pinned_tag_keeps_the_repo_tag_convention(self, version_service):
+        """Some repos tag "v1.2.3", others "1.2.3", and the manifest holds neither.
 
-        with _patch_github_release("v99.0.0"):
-            result = await version_service.get_latest_github_version("go-librespot")
-
-        assert result["version"] == "99.0.0"
-
-    @pytest.mark.asyncio
-    async def test_cap_keeps_the_repo_tag_convention(self, version_service):
-        """When some program does set max_version, the clamped tag follows the
-        upstream tag's own prefix convention — a repo whose tags carry no "v"
-        must not get a hardcoded "v{max_version}" pointing at a missing tag."""
-        version_service.programs["shairport-sync"]["max_version"] = "4.3.7"
+        It carries bare versions, so the prefix is derived from the tag actually
+        fetched. Guessing it wrong points the source download at a tag that does
+        not exist — a failed build rather than a wrong install, but only after
+        several minutes of compiling.
+        """
+        version_service.programs["shairport-sync"]["validated_version"] = "4.3.7"
         with _patch_github_release("5.1"):
             result = await version_service.get_latest_github_version("shairport-sync")
 
         assert result["version"] == "4.3.7"
         assert result["tag_name"] == "4.3.7"
         assert result["html_url"].endswith("/releases/tag/4.3.7")
+
+    @pytest.mark.asyncio
+    async def test_the_pin_is_armed_on_the_real_catalog(self, version_service):
+        """End to end: `dependencies.env` -> catalog -> the version offered.
+
+        The structural half (every dependency declares one, read by lookup) is
+        proven by `tests/architecture/test_dependency_manifest.py`. What is
+        proven here is that the declaration is actually *wired* — an entry read
+        into a key nothing consults would pass every structural rule and still
+        hand the unit whatever upstream released.
+        """
+        validated = version_service.programs["navidrome"]["validated_version"]
+        with _patch_github_release("v99.0.0"):
+            result = await version_service.get_latest_github_version("navidrome")
+
+        assert result["version"] == validated
+        assert result["upstream"]["version"] == "99.0.0"
+
+    @pytest.mark.asyncio
+    async def test_the_app_itself_is_not_pinned(self, version_service):
+        """`milo` is the app, not a dependency: it updates to whatever main is.
+
+        Pinning it would mean the appliance could never update itself, and the
+        absent "upstream" key is what tells a consumer this row has no set to
+        compare against.
+        """
+        assert "validated_version" not in version_service.programs["milo"]
+
+        with _patch_github_release("v9.9.9"):
+            result = await version_service.get_latest_github_version("milo")
+
+        assert result["version"] == "9.9.9"
+        assert "upstream" not in result
 
 
 class TestGetProgramFullStatus:

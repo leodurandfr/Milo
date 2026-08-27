@@ -21,10 +21,6 @@ set -e
 MILO_USER="${MILO_USER:-milo}"
 MILO_DATA_DIR="${MILO_DATA_DIR:-/var/lib/milo}"
 
-# Version pin — bump consciously (single source of truth shared with pi-gen's
-# audio stage, which downloads the same tag).
-NAVIDROME_VERSION="${NAVIDROME_VERSION:-0.63.2}"
-
 # Use parent logging functions if available, otherwise load common helpers
 if ! type log_info &>/dev/null; then
     source "$(dirname "$0")/common.sh"

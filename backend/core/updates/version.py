@@ -27,7 +27,7 @@ class VersionService:
             self.logger.debug("No GitHub token - using anonymous API (60 req/hour)")
 
         # One entry per program, shared with UpdateService. Copied per instance so
-        # arming a "max_version" ceiling at runtime cannot mutate the module constant.
+        # overriding a "validated_version" at runtime cannot mutate the module constant.
         self.programs = copy.deepcopy(PROGRAMS)
 
         # Cache to avoid repeated GitHub calls
@@ -176,25 +176,40 @@ class VersionService:
                                 "html_url": data.get("html_url")
                             }
 
-                        # Apply optional version ceiling: never offer an upstream
-                        # release newer than the program's pinned known-good version
-                        # (compare_versions(max, fetched) is True when fetched > max).
-                        max_version = self.programs[program_key].get("max_version")
-                        if max_version and compare_versions(max_version, result["version"]):
-                            self.logger.info(
-                                f"{program_key}: upstream {result['version']} exceeds pinned "
-                                f"ceiling {max_version}; offering {max_version} instead"
-                            )
+                        # Pin to the validated version. Not a ceiling: what the
+                        # manifest declares is what is offered, whether upstream
+                        # is ahead of it or (a yanked release, a manifest bumped
+                        # early) behind. A clamp would let an upstream release
+                        # below the manifest through, which would make
+                        # dependencies.env something less than the source of
+                        # truth it is declared to be.
+                        validated = self.programs[program_key].get("validated_version")
+                        if validated:
+                            # Keep what upstream actually offers. The clamp used
+                            # to overwrite it, so the maintainer surface — the
+                            # one place the decision to bump the set is taken —
+                            # could not show what there was to bump to.
+                            result["upstream"] = {
+                                "version": result["version"],
+                                "tag_name": result["tag_name"],
+                                "published_at": result["published_at"],
+                                "html_url": result["html_url"],
+                                "ahead": compare_versions(validated, result["version"]),
+                            }
                             # Rebuild the tag in the repo's own convention — some tag
                             # "v1.2.3" (go-librespot, snapcast), others "1.2.3"
-                            # (shairport-sync). Guessing wrong makes the ceiling point
-                            # the source download at a tag that doesn't exist.
+                            # (shairport-sync). Guessing wrong points the source
+                            # download at a tag that doesn't exist. Derived from the
+                            # fetched tag rather than restated in the manifest, which
+                            # carries bare versions only.
                             prefix = "v" if result["tag_name"].startswith("v") else ""
-                            result["version"] = max_version
-                            result["tag_name"] = f"{prefix}{max_version}"
+                            result["version"] = validated
+                            result["tag_name"] = f"{prefix}{validated}"
                             result["html_url"] = (
-                                f"https://github.com/{repo}/releases/tag/{prefix}{max_version}"
+                                f"https://github.com/{repo}/releases/tag/{prefix}{validated}"
                             )
+                            # The validated release's own publication date is not
+                            # what this fetch returned.
                             result["published_at"] = None
 
                         self._github_cache[cache_key] = result

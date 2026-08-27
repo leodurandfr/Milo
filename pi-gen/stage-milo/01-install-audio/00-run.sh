@@ -1,16 +1,11 @@
 #!/bin/bash -e
 # Milo pi-gen stage: Install pre-compiled audio binaries
-#
-# Versions are defined as variables for easy updates.
 
-# ── Version pins ─────────────────────────────────────────────────────────────
-GO_LIBRESPOT_VERSION="0.9.0"
-CAMILLADSP_VERSION="4.1.3"
-SNAPCAST_VERSION="0.35.0"
-# Keep in sync with install/navidrome.sh::NAVIDROME_VERSION (single source of truth
-# for the config; the binary is downloaded here for the image, there for bash installs).
-NAVIDROME_VERSION="0.63.2"
-# ─────────────────────────────────────────────────────────────────────────────
+# The validated dependency set, copied in beside this stage by pi-gen/build.sh.
+# A stage is built from a copy of stage-milo/ inside a cloned pi-gen checkout —
+# possibly in Docker — so it cannot reach back into the Milō repo for it; that
+# copy is why the file is a sibling here and not a relative path into the tree.
+source "$(dirname "${BASH_SOURCE[0]}")/../dependencies.env"
 
 # go-librespot
 on_chroot << CHROOT

@@ -48,6 +48,12 @@ cp "${SCRIPT_DIR}/config" "${PIGEN_DIR}/config"
 rm -rf "${PIGEN_DIR}/stage-milo"
 cp -r "${SCRIPT_DIR}/stage-milo" "${PIGEN_DIR}/stage-milo"
 
+# The validated dependency set travels with the stage: the stage scripts source
+# it as a sibling, and once copied into the pi-gen checkout (and, in Docker, into
+# the container) they can no longer reach the Milō repo it lives in. This copy is
+# the only reason a single declaration works across all three provisioning trees.
+cp "${SCRIPT_DIR}/../dependencies.env" "${PIGEN_DIR}/stage-milo/dependencies.env"
+
 # Pass MILO_BRANCH to the build environment
 if [[ -n "${MILO_BRANCH}" ]]; then
     echo "MILO_BRANCH=${MILO_BRANCH}" >> "${PIGEN_DIR}/config"

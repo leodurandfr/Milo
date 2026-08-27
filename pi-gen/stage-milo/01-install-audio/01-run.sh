@@ -2,14 +2,10 @@
 # Milo pi-gen stage: Compile audio software from source
 #
 # These are compiled during the image build so users don't need to compile on-device.
-# Versions are defined as variables for easy updates.
 
-# ── Version pins ─────────────────────────────────────────────────────────────
-NQPTP_VERSION="1.2.4"
-SHAIRPORT_SYNC_VERSION="5.2.1"
-BLUEZ_ALSA_VERSION="4.3.1"
-ROC_TOOLKIT_VERSION="0.4.0"
-# ─────────────────────────────────────────────────────────────────────────────
+# The validated dependency set — see the note in 00-run.sh for why it is a
+# sibling file rather than a path into the repo.
+source "$(dirname "${BASH_SOURCE[0]}")/../dependencies.env"
 
 # NQPTP (AirPlay 2 timing daemon)
 on_chroot << CHROOT

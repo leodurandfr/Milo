@@ -41,7 +41,7 @@ install_bluez_alsa() {
 
     git clone https://github.com/arkq/bluez-alsa.git
     cd bluez-alsa
-    git checkout v4.3.1
+    git checkout "v${BLUEZ_ALSA_VERSION}"
 
     autoreconf --install
     mkdir build && cd build
