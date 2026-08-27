@@ -51,8 +51,6 @@ class TestSettingsRoutes:
         controller.timeout_seconds = 10
         controller.last_activity_time = 0
         controller.current_source_state = "PLAYING"
-        controller._update_screen_commands = Mock()
-        controller._screen_cmd = AsyncMock()
         controller.apply_screen_config = AsyncMock(return_value=True)
         controller.on_touch_detected = AsyncMock()
         return controller
@@ -71,7 +69,6 @@ class TestSettingsRoutes:
         """Routing service mock"""
         service = Mock()
         service.set_multiroom_enabled = AsyncMock(return_value=True)
-        service.set_equalizer_effects_enabled = AsyncMock(return_value=True)
         return service
 
     @pytest.fixture

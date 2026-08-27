@@ -75,10 +75,6 @@ class TestMacAddressClientVolume:
         service = MagicMock()
         service.update_client_volume_db = AsyncMock(return_value=True)
         service.set_client_mute = AsyncMock(return_value=True)
-        service.get_client_volume = AsyncMock(return_value={
-            "main": -25.0,
-            "mute": False
-        })
         service.config = MagicMock()
         service.volume_config = MagicMock()
         service.volume_config.limit_min_db = -80.0
@@ -245,10 +241,6 @@ class TestZoneVolumeDelta:
             name="Living Room",
             client_ids=["dc:a6:32:7e:d3:43", "aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66"]
         ))
-        registry.get_online_zone_clients = MagicMock(return_value=[
-            MagicMock(mac_id="dc:a6:32:7e:d3:43", online=True, volume_db=-40.0),
-            MagicMock(mac_id="aa:bb:cc:dd:ee:ff", online=True, volume_db=-40.0)
-        ])
         registry.get_zone_clients = MagicMock(return_value=[
             MagicMock(mac_id="dc:a6:32:7e:d3:43", online=True, volume_db=-40.0),
             MagicMock(mac_id="aa:bb:cc:dd:ee:ff", online=True, volume_db=-40.0),

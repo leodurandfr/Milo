@@ -36,7 +36,6 @@ def service(mock_camilla_client, tmp_path, monkeypatch):
     monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
     settings = Mock()
     settings.get_setting = AsyncMock(return_value=None)
-    settings.set_setting = AsyncMock()
     svc = CamillaDSPService(settings_service=settings)
     svc._client = mock_camilla_client
     svc._connected = True

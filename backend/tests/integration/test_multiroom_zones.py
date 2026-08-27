@@ -27,7 +27,6 @@ from .conftest import WebSocketEventCollector
 def mock_settings_service():
     """Mock settings service for registry persistence."""
     service = Mock()
-    service.invalidate_cache = Mock()
 
     # In-memory storage for new structure
     storage = {

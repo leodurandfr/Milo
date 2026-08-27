@@ -45,7 +45,6 @@ class TestInZoneReconnectionSyncIntegration:
         # Mock volume service with config and state store
         volume_service = AsyncMock()
         volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
-        volume_service.update_client_volume_db = AsyncMock()
         volume_service.broadcast_volume_state = AsyncMock()
         # Mock _state_store._clients to return proper client state objects
         mock_client_state = MagicMock()
@@ -309,7 +308,6 @@ class TestPendingSettingsQueue:
         # Mock crossover service with queue_pending_settings
         crossover = AsyncMock()
         crossover.queue_pending_settings = AsyncMock()
-        crossover.has_pending_settings = MagicMock(return_value=False)
         sm.crossover_service = crossover
 
         # Mock Equalizer proxy that will fail
@@ -462,7 +460,6 @@ class TestStandaloneReconnectionSyncIntegration:
         # Mock volume service with config and state store
         volume_service = AsyncMock()
         volume_service.volume_config = VolumeConfig(startup_volume_db=-45.0)
-        volume_service.update_client_volume_db = AsyncMock()
         volume_service.broadcast_volume_state = AsyncMock()
         # Mock _state_store._clients to return proper client state objects
         mock_client_state = MagicMock()

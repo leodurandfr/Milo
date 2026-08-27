@@ -36,7 +36,6 @@ class TestVolumeService:
     def mock_snapcast_service(self):
         """Mock of snapcast service"""
         service = Mock()
-        service.get_clients = AsyncMock(return_value=[])
         service.set_volume = AsyncMock(return_value=True)
         return service
 

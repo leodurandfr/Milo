@@ -66,8 +66,6 @@ class TestSnapcastDetectionIntegration:
     def mock_routing_service(self):
         """Create a mock routing service."""
         service = MagicMock()
-        service.get_state = MagicMock(return_value={'multiroom_enabled': False})
-        service.get_snapcast_status = AsyncMock(return_value={'multiroom_available': False})
         return service
 
     @pytest.fixture

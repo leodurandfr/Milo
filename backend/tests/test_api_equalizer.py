@@ -47,8 +47,6 @@ def _sample_record():
 def mock_camilladsp():
     cam = Mock()
     cam.get_status = AsyncMock(return_value={"available": True, "state": "running"})
-    cam.get_filters = AsyncMock(return_value=[])
-    cam.set_mute = AsyncMock(return_value=True)
     return cam
 
 
@@ -72,12 +70,7 @@ def mock_mre():
 def mock_equalizer_router():
     """The equalizer_router must NOT be used for per-client writes after unification."""
     router = Mock()
-    router.is_local_client = Mock(return_value=False)
     router.update_filter = AsyncMock(return_value={"status": "success"})
-    router.set_compressor = AsyncMock(return_value={"status": "success"})
-    router.set_loudness = AsyncMock(return_value={"status": "success"})
-    router.set_mono = AsyncMock(return_value={"status": "success"})
-    router.set_equalizer_enabled = AsyncMock(return_value={"status": "success"})
     return router
 
 
@@ -85,8 +78,6 @@ def mock_equalizer_router():
 def mock_registry():
     reg = Mock()
     reg.get_client = Mock(return_value=None)
-    reg.get_client_equalizer = Mock(return_value=None)
-    reg.set_client_equalizer = AsyncMock()
     return reg
 
 
