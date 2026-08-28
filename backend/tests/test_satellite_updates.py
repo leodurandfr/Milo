@@ -19,6 +19,8 @@ from fastapi.testclient import TestClient
 from backend.api.programs import create_programs_router
 from backend.core.updates.satellite import SatelliteUpdateService
 
+# What the server calls the version of a satellite: a describe of the last
+# commit that touched `milo-client/`, the tarball's only content.
 SERVER_VERSION = "v0.1.0-1673-gdeadbee"
 
 
@@ -27,6 +29,33 @@ def _mock_proc(stdout: bytes, returncode: int = 0):
     proc.returncode = returncode
     proc.communicate = AsyncMock(return_value=(stdout, b""))
     return proc
+
+
+def _fake_git(commit: str = "deadbee", describe: str = SERVER_VERSION, dirty: bool = False):
+    """Stands in for git across the three calls the payload version issues.
+
+    It answers each by its argv instead of returning one string to all of them:
+    a single-answer double lets a version built from the wrong command pass.
+    Every argv it received is recorded on `.calls`.
+    """
+    calls = []
+
+    def _run(program, *args, **kwargs):
+        argv = [str(a) for a in args]
+        calls.append(argv)
+        if "log" in argv:
+            out = commit
+        elif "describe" in argv:
+            out = describe
+        elif "status" in argv:
+            out = " M milo-client/app/main.py" if dirty else ""
+        else:
+            raise AssertionError(f"unexpected git call: {argv}")
+        return _mock_proc(out.encode() + b"\n")
+
+    mock = AsyncMock(side_effect=_run)
+    mock.calls = calls
+    return mock
 
 
 class _FakeResponse:
@@ -87,6 +116,30 @@ class _FakeSatellite:
         return _FakeResponse(200, self.post_payload)
 
 
+class _FakeFleet:
+    """The whole fleet at once: `/status` answers per IP, and an IP the fleet
+    does not hold refuses the connection the way an unplugged satellite does.
+
+    `_FakeSatellite` answers every host identically, which cannot express the
+    only question the fleet push asks — which of them is behind.
+    """
+
+    def __init__(self, by_ip):
+        self._by_ip = by_ip
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def get(self, url, **kwargs):
+        ip = url.split("//", 1)[1].split(":", 1)[0]
+        if ip not in self._by_ip:
+            raise ConnectionError(f"nothing answering at {ip}")
+        return _FakeResponse(200, self._by_ip[ip])
+
+
 def _patch_satellite(satellite):
     """Every ClientSession the service opens answers as this one satellite."""
     return patch("backend.core.updates.satellite.aiohttp.ClientSession", return_value=satellite)
@@ -132,7 +185,7 @@ class TestClientTarball:
     async def _members(self, service, client_tree):
         with patch("backend.core.updates.satellite.MILO_CLIENT_DIR", client_tree), \
              patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
-                   AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode() + b"\n"))):
+                   _fake_git()):
             tarball_path, version = await service._create_client_tarball()
 
         assert version == SERVER_VERSION
@@ -162,6 +215,47 @@ class TestClientTarball:
 
         assert not [m for m in members if "__pycache__" in Path(m).parts]
         assert not [m for m in members if "tests" in Path(m).parts]
+
+
+class TestClientPayloadVersion:
+    """What the server calls "the version a satellite should be running".
+
+    A describe of the last commit that touched `milo-client/` — the tarball's
+    only content — never of HEAD. Describing HEAD offered an update after every
+    server-side push, measured once at 100 commits none of which touched the
+    directory: each press then shipped a byte-identical payload and restarted
+    the audio of an occupied room.
+    """
+
+    async def test_it_describes_the_last_commit_touching_the_client_tree(self, satellite_service):
+        git = _fake_git(commit="c6247d94", describe="v0.1.0-1749-gc6247d94")
+
+        with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", git):
+            version = await satellite_service.get_client_payload_version()
+
+        assert version == "v0.1.0-1749-gc6247d94"
+        log = next(argv for argv in git.calls if "log" in argv)
+        assert log[-2:] == ["--", "milo-client"], "unscoped, this describes HEAD again"
+        described = next(argv for argv in git.calls if "describe" in argv)
+        assert described[-1] == "c6247d94", "the tag must be read at that commit, not at HEAD"
+
+    async def test_uncommitted_client_work_is_marked_dirty(self, satellite_service):
+        """The tarball is built from the working tree, so an edit no commit
+        names is still payload. Without the suffix, a satellite change under
+        test reports the committed version and can never be pushed from the UI.
+        """
+        with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                   _fake_git(dirty=True)):
+            version = await satellite_service.get_client_payload_version()
+
+        assert version == f"{SERVER_VERSION}-dirty"
+
+    async def test_a_git_that_fails_yields_no_version(self, satellite_service):
+        """None disarms every satellite's button; any stray string would arm
+        them all at once and ship an unstamped tarball."""
+        with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                   AsyncMock(return_value=_mock_proc(b"", returncode=128))):
+            assert await satellite_service.get_client_payload_version() is None
 
 
 class TestSnapclientUpdateOutcome:
@@ -230,10 +324,10 @@ class TestCamillaDspUpdateOutcome:
 
 class TestAppUpdateAvailableFlag:
     """`app_update_available` is the only thing that puts the update button in
-    UpdateManager.vue. Both sides report the same repo's `git describe`, so the
-    server and the satellite are the same version only when the strings match —
-    comparing base tags made the flag permanently false and froze the fleet at
-    whatever commit it was installed with.
+    UpdateManager.vue. Both sides report the version of the `milo-client/` tree
+    the tarball carries, so the server and the satellite run the same code only
+    when the strings match — comparing base tags made the flag permanently
+    false and froze the fleet at whatever commit it was installed with.
     """
 
     @pytest.fixture
@@ -258,13 +352,9 @@ class TestAppUpdateAvailableFlag:
             update_service.get_latest_github_version = AsyncMock(
                 return_value={"status": "success", "version": "0.28.0"}
             )
-            installed = {"status": "installed", "versions": {}}
-            if server_version is not None:
-                installed["raw_version"] = server_version
-            update_service.get_installed_version = AsyncMock(return_value=installed)
-
             satellite_service = Mock()
             satellite_service.discover_satellites = AsyncMock(return_value=satellites)
+            satellite_service.get_client_payload_version = AsyncMock(return_value=server_version)
 
             app = FastAPI()
             app.include_router(create_programs_router(update_service, satellite_service, Mock()))
@@ -324,7 +414,7 @@ class TestAppUpdateOutcome:
              patch("asyncio.sleep", new_callable=AsyncMock), \
              patch("backend.core.updates.satellite.MILO_CLIENT_DIR", client_tree), \
              patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
-                   AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode() + b"\n"))):
+                   _fake_git()):
             return await service.update_satellite_app("dc:a6:32:7e:d3:43")
 
     async def test_a_satellite_that_restarted_into_it_is_a_successful_update(
@@ -526,6 +616,119 @@ class TestDiscoverSatellites:
             found = await service.discover_satellites()
 
         assert found[0]["display_name"] == "dc:a6:32:7e:d3:43"
+
+
+class TestFleetPush:
+    """What a Milō update does to the satellites.
+
+    The push itself is `update_satellite_app`, tested above. What is new here is
+    the decision: which satellites it is called for, and what becomes of what it
+    answers. Both matter on hardware — a satellite pushed for nothing restarts a
+    speaker in an occupied room, and a satellite skipped in silence runs client
+    code older than the server driving it, which is the one thing the contract
+    test cannot catch because it holds per commit, not per unit.
+    """
+
+    @staticmethod
+    def _client(ip, name, is_local=False):
+        # `name` is set after construction: passing it to Mock() names the mock.
+        client = Mock(is_local=is_local, ip=ip, online=True, host="milo-client")
+        client.name = name
+        return client
+
+    @staticmethod
+    def _status(app_version):
+        return {
+            "snapclient": {"version": "0.35.0", "running": True},
+            "uptime": 4242,
+            "app": {"version": app_version, "started_at": 1787000000},
+            "camilladsp": {"version": "4.1.3"},
+        }
+
+    @pytest.fixture
+    def fleet(self):
+        """Two satellites: Canapé behind the server, Bureau already on it."""
+        registry = Mock()
+        registry.get_all_clients = Mock(return_value={
+            "dc:a6:32:7e:d3:43": self._client("192.168.1.153", "Canapé"),
+            "d8:3a:dd:68:e7:e4": self._client("192.168.1.60", "Bureau"),
+        })
+        service = SatelliteUpdateService(snapcast_service=Mock(),
+                                         client_registry_service=registry)
+        service.pushed = []
+
+        async def _push(mac_id):
+            service.pushed.append(mac_id)
+            return service.push_result
+
+        service.update_satellite_app = _push
+        service.push_result = {"success": True}
+        return service
+
+    async def _push_to(self, service, by_ip):
+        with patch("backend.core.updates.satellite.aiohttp.ClientSession",
+                   return_value=_FakeFleet(by_ip)), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      _fake_git()):
+            return await service.push_client_app_to_fleet()
+
+    async def test_only_the_satellite_behind_the_server_is_pushed(self, fleet):
+        """The other one would be restarted to deploy bytes it already has."""
+        left_behind = await self._push_to(fleet, {
+            "192.168.1.153": self._status("v0.1.0-1600-gold"),
+            "192.168.1.60": self._status(SERVER_VERSION),
+        })
+
+        assert fleet.pushed == ["dc:a6:32:7e:d3:43"]
+        assert left_behind == []
+
+    async def test_a_satellite_that_does_not_answer_is_reported_and_the_rest_still_get_it(self, fleet):
+        """Unplugged during the update: naming it is all that is left, since its
+        own row is what offers the catch-up once it is back."""
+        left_behind = await self._push_to(fleet, {
+            "192.168.1.60": self._status("v0.1.0-1600-gold"),
+        })
+
+        assert fleet.pushed == ["d8:3a:dd:68:e7:e4"]
+        assert left_behind == ["Canapé"]
+
+    async def test_a_push_that_failed_is_reported_and_not_raised(self, fleet):
+        """It runs past the point where the app can still be rolled back: a
+        raise here would abort a Milō update that has already succeeded."""
+        fleet.push_result = {"success": False, "error": "satellite rejected update"}
+
+        left_behind = await self._push_to(fleet, {
+            "192.168.1.153": self._status("v0.1.0-1600-gold"),
+            "192.168.1.60": self._status("v0.1.0-1600-gold"),
+        })
+
+        assert fleet.pushed == ["dc:a6:32:7e:d3:43", "d8:3a:dd:68:e7:e4"]
+        assert left_behind == ["Canapé", "Bureau"]
+
+    async def test_the_local_client_is_not_a_satellite(self, fleet):
+        """The server is a client of its own snapserver. Pushing the tarball to
+        itself would deploy the satellite app over the machine that built it."""
+        fleet.client_registry_service.get_all_clients.return_value = {
+            "aa:bb:cc:dd:ee:ff": self._client("192.168.1.10", "Milō", is_local=True),
+        }
+
+        left_behind = await self._push_to(fleet, {"192.168.1.10": self._status("v0.1.0-1600-gold")})
+
+        assert fleet.pushed == []
+        assert left_behind == []
+
+    async def test_nothing_is_pushed_when_the_payload_version_cannot_be_read(self, fleet):
+        """Without it there is nothing to compare against and nothing to stamp
+        the tarball with — pushing anyway writes a version file no later
+        comparison can use."""
+        with patch("backend.core.updates.satellite.aiohttp.ClientSession",
+                   return_value=_FakeFleet({"192.168.1.153": self._status("v0.1.0-1600-gold")})), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      AsyncMock(return_value=_mock_proc(b"", returncode=128))):
+            left_behind = await fleet.push_client_app_to_fleet()
+
+        assert fleet.pushed == []
+        assert left_behind and "payload version" in left_behind[0]
 
 
 class TestUpdateSatelliteDispatch:
@@ -740,7 +943,7 @@ class TestSatelliteUpdateRecoveryArms:
             result = await satellite_service.update_satellite_app("dc:a6:32:7e:d3:43")
 
         assert result["success"] is False
-        assert "Could not determine server version" in result["error"]
+        assert "Could not determine the milo-client payload version" in result["error"]
 
     async def test_a_missing_client_tree_is_refused_before_any_transfer(
             self, satellite_service, tmp_path):
@@ -749,7 +952,7 @@ class TestSatelliteUpdateRecoveryArms:
         with _patch_satellite(_FakeSatellite(self.STATUS)), \
                 patch("backend.core.updates.satellite.MILO_CLIENT_DIR", tmp_path / "absent"), \
                 patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
-                      AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode()))):
+                      _fake_git()):
             result = await satellite_service.update_satellite_app("dc:a6:32:7e:d3:43")
 
         assert "milo-client directory not found" in result["error"]
@@ -777,7 +980,7 @@ class TestSatelliteUpdateRecoveryArms:
         with _patch_satellite(_Refusing(self.STATUS)), \
                 patch("backend.core.updates.satellite.MILO_CLIENT_DIR", tree), \
                 patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
-                      AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode()))), \
+                      _fake_git()), \
                 patch.object(SatelliteUpdateService, "_create_client_tarball", recording):
             result = await satellite_service.update_satellite_app("dc:a6:32:7e:d3:43")
 
@@ -818,7 +1021,7 @@ class TestSatelliteUpdateRecoveryArms:
         with _patch_satellite(fake), \
                 patch("backend.core.updates.satellite.MILO_CLIENT_DIR", tree), \
                 patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
-                      AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode()))), \
+                      _fake_git()), \
                 patch("asyncio.sleep", new=AsyncMock()):
             result = await satellite_service.update_satellite_app("dc:a6:32:7e:d3:43")
 
@@ -840,7 +1043,7 @@ class TestSatelliteUpdateRecoveryArms:
 
         with patch("backend.core.updates.satellite.MILO_CLIENT_DIR", tree), \
                 patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
-                      AsyncMock(return_value=_mock_proc(SERVER_VERSION.encode()))):
+                      _fake_git()):
             tarball_path, _ = await satellite_service._create_client_tarball()
 
         try:

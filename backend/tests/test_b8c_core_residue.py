@@ -479,7 +479,8 @@ class TestTheUpdateRollbacks:
         from backend.core.updates.update import UpdateService
 
         with patch.dict("os.environ", {}, clear=True):
-            return UpdateService(systemd_manager=SystemdServiceManager())
+            return UpdateService(systemd_manager=SystemdServiceManager(),
+                                 satellite_update_service=Mock())
 
     @pytest.fixture(autouse=True)
     def never_a_real_process(self):

@@ -25,9 +25,10 @@ QOBUZ_PROXY_PATCHES_SCRIPT = "/home/milo/milo/install/qobuz_proxy_patches.py"
 class UpdateService(VersionService):
     """Update service - Extends VersionService"""
 
-    def __init__(self, systemd_manager):
+    def __init__(self, systemd_manager, satellite_update_service):
         super().__init__()
         self._systemd = systemd_manager
+        self._satellites = satellite_update_service
         self.update_logger = logging.getLogger(f"{__name__}.update")
 
     async def update_program(self, program_key: str) -> Dict[str, Any]:
@@ -342,6 +343,17 @@ class UpdateService(VersionService):
             # _reconcile_dependencies never raises.
             dependency_failures = await self._reconcile_dependencies()
 
+            # 10b. Push the same commit's client app to the satellites. The
+            # tarball is built from the tree the pull just replaced, so the fleet
+            # is stale from this line on — leaving it there means the appliance
+            # updates and the speakers do not, until someone finds their rows.
+            # Below step 10 for the same reason as the set above (a rollback
+            # with the satellites already moved leaves them ahead of the server
+            # that drives them), and after it rather than before so the local
+            # snapserver has finished whatever the reconciliation did to it —
+            # a satellite is discovered through it. Never raises, same rule.
+            satellite_failures = await self._satellites.push_client_app_to_fleet()
+
             # 11. Reboot the system to reload all services and configs
             # Small delay to ensure the WebSocket message is sent
             await asyncio.sleep(1)
@@ -356,12 +368,17 @@ class UpdateService(VersionService):
                     "success": False,
                     "error": f"Update applied but the reboot failed ({reboot_output}). Reboot to complete it.",
                     "dependency_failures": dependency_failures,
+                    "satellite_failures": satellite_failures,
                 }
 
             # The process will be killed by the reboot, but return success in case it somehow continues.
             # A dependency that failed is reported here and in the journal; after the reboot it is
             # visible for as long as it lasts, as installed != validated on the dependency rows.
-            return {"success": True, "dependency_failures": dependency_failures}
+            return {
+                "success": True,
+                "dependency_failures": dependency_failures,
+                "satellite_failures": satellite_failures,
+            }
 
         except Exception as e:
             self.update_logger.error(f"Milo app update failed: {e}")

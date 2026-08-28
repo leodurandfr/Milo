@@ -23,7 +23,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.update import UpdateService
@@ -40,9 +40,14 @@ def update_service():
 
     Injects a real SystemdServiceManager so the service-control helpers (which
     now delegate to it) still exercise the subprocess layer patched by tests.
+    The satellite service is a double: it reaches a second physical Pi, and the
+    tests that care about the fleet push assert what the update did to it.
     """
+    satellites = Mock()
+    satellites.push_client_app_to_fleet = AsyncMock(return_value=[])
     with patch.dict("os.environ", {}, clear=True):
-        return UpdateService(systemd_manager=SystemdServiceManager())
+        return UpdateService(systemd_manager=SystemdServiceManager(),
+                             satellite_update_service=satellites)
 
 
 # The programs served by the one shared _update_binary_program flow. Kept as a
@@ -1502,6 +1507,49 @@ class TestDependencyReconciliation:
         assert order == ["sync-system-files", "reconcile", "reboot"]
         assert result["success"] is True
         assert result["dependency_failures"] == ["shairport-sync"]
+
+
+    async def test_the_satellites_are_pushed_after_the_set_and_before_the_reboot(self, update_service):
+        """A Milō update replaces the `milo-client/` tree the satellites run, so
+        the fleet goes stale the moment the pull lands — all of it, at once. The
+        press that updates the appliance carries them, or nobody does until
+        someone thinks to open the satellite rows.
+
+        Both edges again. *After* the set, because a satellite is discovered
+        through the local snapserver, which the reconciliation may have just
+        restarted. *Before* the reboot, because this process is what drives the
+        push. And what it leaves behind rides the envelope, like a dependency.
+        """
+        order = []
+        calls, mock_exec = TestMiloAppLastSteps._exec()
+
+        async def deploy(*args, **kwargs):
+            order.append(args[0])
+            return (True, "")
+
+        async def reconcile():
+            order.append("reconcile")
+            return []
+
+        async def push():
+            order.append("push-satellites")
+            return ["Canapé"]
+
+        update_service._satellites.push_client_app_to_fleet = AsyncMock(side_effect=push)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(patch.object(update_service, "_run_deploy", side_effect=deploy))
+            stack.enter_context(
+                patch.object(update_service, "_reconcile_dependencies", side_effect=reconcile)
+            )
+            result = await update_service._update_milo_app(TestMiloAppLastSteps.STATUS)
+
+        assert order == ["sync-system-files", "reconcile", "push-satellites", "reboot"]
+        assert result["success"] is True
+        assert result["satellite_failures"] == ["Canapé"]
 
 
 class TestMiloAppLastSteps:

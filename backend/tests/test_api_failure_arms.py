@@ -121,8 +121,8 @@ class TestTheProgramsReads:
         router.update_service.get_latest_github_version = AsyncMock(
             return_value={"status": "success", "version": "0.27.0"}
         )
-        router.update_service.get_installed_version = AsyncMock(
-            return_value={"raw_version": "1.0.0"}
+        router.satellite_service.get_client_payload_version = AsyncMock(
+            return_value="v0.1.0-1749-gc6247d94"
         )
 
         with caplog.at_level(logging.ERROR, logger="backend.api.programs"):
