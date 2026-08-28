@@ -9,11 +9,10 @@ Type=simple
 User=milo
 Group=milo
 
-# Create /run/user/1000 for XDG_RUNTIME_DIR, and an ephemeral Chromium
-# profile directory in /run/milo-kiosk (tmpfs, recreated on every start).
-# The ephemeral profile avoids stale Singleton locks tied to the previous
-# hostname or PID after reboots and unclean shutdowns.
-RuntimeDirectory=user/1000 milo-kiosk
+# Ephemeral Chromium profile directory in /run/milo-kiosk (tmpfs, recreated
+# on every start). The ephemeral profile avoids stale Singleton locks tied to
+# the previous hostname or PID after reboots and unclean shutdowns.
+RuntimeDirectory=milo-kiosk
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
 
@@ -28,8 +27,11 @@ StandardInput=tty
 StandardOutput=journal
 StandardError=journal
 
-# Environment variables for Wayland/Cage
-Environment=XDG_RUNTIME_DIR=/run/user/1000
+# Environment variables for Wayland/Cage.
+# XDG_RUNTIME_DIR is /run/milo-kiosk, not /run/user/1000: logind mounts its own
+# tmpfs over the latter at the first login, which hides the wayland-0 socket
+# cage bound at boot. The compositor keeps working, but no client can reach it.
+Environment=XDG_RUNTIME_DIR=/run/milo-kiosk
 Environment=XCURSOR_THEME=Adwaita
 Environment=XCURSOR_SIZE=24
 Environment=WLR_XCURSOR_THEME=Adwaita
