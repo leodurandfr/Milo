@@ -356,6 +356,7 @@
     "errorDetectingSatellites": "Erreur lors de la détection des satellites",
     "upToDate": "À jour",
     "dependenciesHint": "Installe l'application et les versions des programmes validées avec elle.",
+    "clientsHint": "Les Milō Clients la reçoivent aussi.",
     "upstream": "amont"
   },
   "info": {

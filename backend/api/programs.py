@@ -159,16 +159,15 @@ def create_programs_router(
             # Fetch all data in parallel: satellite discovery + cached version lookups
             satellites_task = satellite_service.discover_satellites()
             snapclient_task = update_service.get_latest_github_version("multiroom")
-            milo_task = update_service.get_installed_version("milo")
+            payload_task = satellite_service.get_client_payload_version()
 
             camilladsp_task = update_service.get_latest_github_version("camilladsp")
 
-            satellites, snapclient_github, milo_installed, camilladsp_github = await asyncio.gather(
-                satellites_task, snapclient_task, milo_task, camilladsp_task
+            satellites, snapclient_github, server_version, camilladsp_github = await asyncio.gather(
+                satellites_task, snapclient_task, payload_task, camilladsp_task
             )
 
             latest_version = snapclient_github.get("version") if snapclient_github.get("status") == "success" else None
-            server_version = milo_installed.get("raw_version")
             camilladsp_latest = camilladsp_github.get("version") if camilladsp_github.get("status") == "success" else None
 
             for satellite in satellites:
@@ -185,10 +184,10 @@ def create_programs_router(
                     satellite.get("snapclient_version"),
                     latest_version
                 )
-                # Both sides report the same repo's `git describe`, so anything
-                # but exact equality is a satellite running older code. Comparing
-                # base tags here made the flag permanently false: the whole fleet
-                # shared the server's tag while sitting hundreds of commits behind.
+                # Both sides report the version of the `milo-client/` tree the
+                # tarball carries, so anything but exact equality is a satellite
+                # running older code — and equality is not the tag, which sat
+                # still for 1800 commits while the fleet fell behind it.
                 satellite["server_version"] = server_version
                 satellite["app_update_available"] = (
                     bool(server_version) and satellite.get("app_version") != server_version

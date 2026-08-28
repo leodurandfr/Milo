@@ -228,26 +228,50 @@ class SatelliteUpdateService:
             "error": f"Update timeout for {mac_id}"
         }
 
-    async def _get_server_version(self) -> Optional[str]:
-        """Gets the current server version via git describe."""
+    async def _git(self, *args: str) -> Optional[str]:
+        """Runs one git command in the repo; None when git itself failed."""
         proc = await asyncio.create_subprocess_exec(
-            "git", "-C", str(MILO_REPO_DIR), "describe", "--tags", "--always",
+            "git", "-C", str(MILO_REPO_DIR), *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
         stdout, _ = await proc.communicate()
-        if proc.returncode == 0:
-            return stdout.decode().strip()
-        return None
+        if proc.returncode != 0:
+            return None
+        return stdout.decode().strip()
+
+    async def get_client_payload_version(self) -> Optional[str]:
+        """Version of what a satellite update actually ships: the last commit
+        that touched `milo-client/`.
+
+        The tarball carries that directory and nothing else, so a server commit
+        elsewhere leaves a satellite's code identical. Describing HEAD instead
+        lit the update button on the whole fleet after every push — measured
+        once at 100 commits, 0 of them touching `milo-client/` — and each press
+        deployed a byte-identical payload, restart of that room's audio
+        included. Uncommitted work in the directory is payload no commit names,
+        hence the `-dirty` suffix: without it a satellite change under test can
+        never be pushed from the UI.
+        """
+        commit = await self._git("log", "-1", "--format=%H", "--", "milo-client")
+        if not commit:
+            return None
+
+        version = await self._git("describe", "--tags", "--always", commit)
+        if not version:
+            return None
+
+        dirty = await self._git("status", "--porcelain", "--", "milo-client")
+        return f"{version}-dirty" if dirty else version
 
     async def _create_client_tarball(self) -> tuple:
         """Creates a tarball of the milo-client/ directory.
 
         Returns (tarball_path, version) tuple.
         """
-        version = await self._get_server_version()
+        version = await self.get_client_payload_version()
         if not version:
-            raise RuntimeError("Could not determine server version")
+            raise RuntimeError("Could not determine the milo-client payload version")
 
         if not MILO_CLIENT_DIR.is_dir():
             raise RuntimeError(f"milo-client directory not found: {MILO_CLIENT_DIR}")
@@ -336,6 +360,75 @@ class SatelliteUpdateService:
             if tarball_path:
                 with contextlib.suppress(OSError):
                     os.unlink(tarball_path)
+
+    async def push_client_app_to_fleet(self) -> list[str]:
+        """Bring every satellite to the `milo-client/` tree this server now has.
+
+        A Milō update replaces that tree, so the whole fleet goes stale at once
+        and deterministically. Pushing it here is the same sequence as the
+        validated dependency set: one press updates the appliance, not the
+        appliance and then N speakers one screen at a time. It costs no extra
+        silence either — the update reboots the unit on the next step, so the
+        satellites restart inside a window that is already quiet.
+
+        Never raises. It runs past the point where the app can still be rolled
+        back, and an unplugged satellite is a fact to report, not a failed Milō
+        update: its own row offers the catch-up when it comes back.
+
+        Returns what was left behind, named for the journal and the envelope —
+        a satellite, or the reason nothing could be pushed at all.
+        """
+        left_behind: list[str] = []
+        try:
+            version = await self.get_client_payload_version()
+            if not version:
+                self.logger.error(
+                    "Client app not pushed: the milo-client payload version is "
+                    "unreadable. Every satellite keeps the app it runs."
+                )
+                return ["milo-client payload version unreadable"]
+
+            remote = {
+                mac: client
+                for mac, client in self.client_registry_service.get_all_clients().items()
+                if not client.is_local
+            }
+            if not remote:
+                return left_behind
+
+            reachable = {s["mac_id"]: s for s in await self.discover_satellites()}
+
+            for mac, client in remote.items():
+                name = client.name or mac
+                satellite = reachable.get(mac)
+
+                if not satellite:
+                    left_behind.append(name)
+                    self.logger.error(
+                        f"{name}: not answering its API, client app not pushed. "
+                        "Its own row offers the update once it is back."
+                    )
+                    continue
+
+                # Already running this tree: pushing would restart a speaker in
+                # an occupied room to deploy bytes it already has.
+                if satellite.get("app_version") == version:
+                    continue
+
+                self.logger.info(f"{name}: pushing client app {version} with the Milo update")
+                result = await self.update_satellite_app(mac)
+                if not result.get("success"):
+                    left_behind.append(name)
+                    self.logger.error(
+                        f"{name}: client app push failed ({result.get('error', 'unknown error')}). "
+                        "The Milo update continues; the satellite keeps the app it runs."
+                    )
+
+        except Exception as e:
+            self.logger.error(f"Pushing the client app to the fleet failed: {e}")
+            left_behind.append(f"fleet push failed: {e}")
+
+        return left_behind
 
     async def update_satellite_camilladsp(
         self,

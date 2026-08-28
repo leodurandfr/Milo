@@ -17,10 +17,12 @@
       <!-- Section 1: Operating System (Milo OS only) -->
       <SettingsSection v-if="localProgramsLoading || localPrograms.milo" :title="t('updates.osTitle')">
         <!-- Shown only alongside the button, because it describes what pressing
-             it does: one Milō update carries the whole validated set. -->
+             it does: one Milō update carries the whole validated set, and the
+             satellites with it — but only say so where there are any. -->
         <p v-if="!localProgramsLoading && localPrograms.milo?.update_available && !isLocalUpdateCompleted('milo')"
           class="text-mono section-note">
           {{ t('updates.dependenciesHint') }}
+          <template v-if="anticipatedSatellites.length"> {{ t('updates.clientsHint') }}</template>
         </p>
         <div class="crossfade-wrapper">
           <Transition name="crossfade">
@@ -146,7 +148,8 @@
           </template>
           <div class="crossfade-wrapper">
             <Transition name="crossfade">
-              <div v-if="!satelliteByMacId[client.mac_id]" key="skeleton" class="programs-list">
+              <div v-if="!satelliteByMacId[client.mac_id] && isSatelliteLoading(client.mac_id)" key="skeleton"
+                class="programs-list">
                 <div class="program-item-skeleton">
                   <div class="skeleton-icon shimmer"></div>
                   <div class="skeleton-text shimmer skeleton-name"></div>
@@ -167,7 +170,7 @@
                 </div>
               </div>
 
-              <div v-else key="content" class="programs-list">
+              <div v-else-if="satelliteByMacId[client.mac_id]" key="content" class="programs-list">
                 <!-- Milo Client row -->
                 <div class="program-item">
                   <div class="program-info">
@@ -249,6 +252,12 @@
                   </Button>
                 </div>
               </div>
+
+              <!-- Snapcast still sees it, its own API does not answer. Said in
+                   words: a skeleton here waits for a fetch nobody will make. -->
+              <div v-else key="unreachable" class="programs-list">
+                <p class="text-mono section-note">{{ t('multiroom.offline') }}</p>
+              </div>
             </Transition>
           </div>
         </SettingsSection>
@@ -306,14 +315,20 @@ function getVersionLabel(key) {
   return labelOverrides[key] || key;
 }
 
+// A satellite reports the version of the `milo-client/` tree it runs — a git
+// describe of the last commit that touched it. Two of those differ by their
+// hash long before the tag moves, so the hash is the part worth showing:
+// collapsing to the tag alone printed "0.1.0 > 0.1.0" on every real update.
+//   "v0.1.0-1749-gc6247d94"       → "0.1.0 (c6247d94)"
+//   "v0.1.0-1749-gc6247d94-dirty" → "0.1.0 (c6247d94-dirty)"
+//   "v0.1.0"                      → "0.1.0"
+//   "b601da9"                     → "b601da9"
 function formatGitVersion(version) {
   if (!version) return null;
-  // Extract base version only (no commit hash)
-  //   "v0.0.1"                → "0.0.1"
-  //   "v0.0.1-533-gc6d74a1"  → "0.0.1"
-  //   "b601da9"               → "b601da9"
-  const match = version.match(/v?(\d+\.\d+\.\d+)/);
-  return match ? match[1] : version.replace(/^v/, '');
+  const match = version.match(/^v?(\d+\.\d+\.\d+)(?:-\d+-g([0-9a-f]+))?(-dirty)?$/);
+  if (!match) return version.replace(/^v/, '');
+  const [, base, hash, dirty] = match;
+  return hash ? `${base} (${hash}${dirty || ''})` : `${base}${dirty || ''}`;
 }
 
 const { t } = useI18n();
@@ -326,7 +341,7 @@ const updatesStore = useUpdatesStore();
 // registered centrally in App.vue); this component only renders store state.
 const {
   localPrograms, localProgramsLoading, localProgramsError,
-  satellitesError, satelliteByMacId,
+  satellites, satellitesError, satelliteByMacId,
 } = storeToRefs(updatesStore);
 const {
   loadLocalPrograms, loadSatellites,
@@ -336,7 +351,7 @@ const {
   isSatelliteUpdating, isSatelliteUpdateCompleted,
   isSatelliteAppUpdating, isSatelliteAppUpdateCompleted,
   isSatelliteCamillaUpdating, isSatelliteCamillaUpdateCompleted,
-  isAnyUpdateInProgress,
+  isSatelliteAwaitingReturn, isAnyUpdateInProgress,
 } = updatesStore;
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -349,6 +364,18 @@ const anticipatedSatellites = computed(() =>
     return isSatelliteUpdating(c.mac_id) || isSatelliteAppUpdating(c.mac_id) || isSatelliteCamillaUpdating(c.mac_id);
   })
 );
+
+// The inventory is a live probe of each satellite's own API, so a client
+// missing from it is one that did not answer. Expected before the first fetch
+// and across the restart an update puts it through — anywhere else a skeleton
+// would claim to be loading something nobody is fetching.
+function isSatelliteLoading(macId) {
+  return satellites.value === null
+    || isSatelliteAwaitingReturn(macId)
+    || isSatelliteUpdating(macId)
+    || isSatelliteAppUpdating(macId)
+    || isSatelliteCamillaUpdating(macId);
+}
 
 // Advanced surface, collapsed on open. See the template comment above it.
 const showPrograms = ref(false);

@@ -187,7 +187,10 @@ def _create_service(name: str) -> Any:
         "lyrics_service": lambda: _import("backend.core.lyrics", "LyricsService")(),
 
         # Update services
-        "update_service": lambda: _import("backend.core.updates", "UpdateService")(systemd_manager=get_service("systemd_manager")),
+        "update_service": lambda: _import("backend.core.updates", "UpdateService")(
+            systemd_manager=get_service("systemd_manager"),
+            satellite_update_service=get_service("satellite_update_service")
+        ),
         "satellite_update_service": lambda: _import("backend.core.updates", "SatelliteUpdateService")(
             snapcast_service=get_service("snapcast_service"),
             client_registry_service=get_service("client_registry_service")

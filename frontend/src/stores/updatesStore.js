@@ -31,6 +31,11 @@ export const useUpdatesStore = defineStore('updates', () => {
   const satelliteAppCompletedUpdates = ref(new Set());
   const satelliteCamillaUpdateStates = ref({});
   const satelliteCamillaCompletedUpdates = ref(new Set());
+  // Satellites whose own API we are waiting to answer again after they
+  // restarted themselves. Kept apart from the update states above because
+  // reconcileActiveUpdates clears those from the server's in-flight set, which
+  // no longer holds an update the server considers finished.
+  const satellitesAwaitingReturn = ref(new Set());
 
   // === COMPUTED ===
 
@@ -82,7 +87,9 @@ export const useUpdatesStore = defineStore('updates', () => {
   }
 
   async function loadSatellites() {
-    satellites.value = null;
+    // `null` is the never-loaded state, and it is what draws the skeleton —
+    // re-entering it on a refresh flashed every satellite section back to
+    // skeletons for the length of a fleet-wide probe.
     satellitesError.value = false;
     const result = await apiCall.get('/api/programs/satellites', {
       category: 'updates',
@@ -169,6 +176,9 @@ export const useUpdatesStore = defineStore('updates', () => {
   function isSatelliteCamillaUpdating(macId) {
     return satelliteCamillaUpdateStates.value[macId]?.updating || false;
   }
+  function isSatelliteAwaitingReturn(macId) {
+    return satellitesAwaitingReturn.value.has(macId);
+  }
   function isSatelliteCamillaUpdateCompleted(macId) {
     return satelliteCamillaCompletedUpdates.value.has(macId);
   }
@@ -199,19 +209,42 @@ export const useUpdatesStore = defineStore('updates', () => {
       delete states.value[id];
       if (payload.success) {
         completed.value.add(id);
-        reload();
+        reload(id);
       }
     };
+  }
+
+  // A satellite restarts its own services as it reports an update finished, so
+  // the inventory that completion triggers can be read while its API is still
+  // down: the server then answers without it — measured once 8 s after the
+  // press, one satellite of two in the payload — and nothing else ever fetched
+  // it again, leaving its row a skeleton until the page was reloaded. Poll
+  // until it answers, bounded: what outlives the bound is a satellite that
+  // really is not answering, and the row says so in words.
+  const SATELLITE_RETURN_ATTEMPTS = 5;
+  const SATELLITE_RETURN_DELAY_MS = 4000;
+
+  async function awaitSatelliteReturn(macId) {
+    satellitesAwaitingReturn.value.add(macId);
+    try {
+      for (let attempt = 1; ; attempt++) {
+        await loadSatellites();
+        if (satelliteByMacId.value[macId] || attempt >= SATELLITE_RETURN_ATTEMPTS) return;
+        await new Promise(resolve => setTimeout(resolve, SATELLITE_RETURN_DELAY_MS));
+      }
+    } finally {
+      satellitesAwaitingReturn.value.delete(macId);
+    }
   }
 
   const handleProgramUpdateProgress = makeProgressHandler(localUpdateStates, 'program');
   const handleProgramUpdateComplete = makeCompleteHandler(localUpdateStates, localCompletedUpdates, 'program', loadLocalPrograms);
   const handleSatelliteUpdateProgress = makeProgressHandler(satelliteUpdateStates, 'mac_id');
-  const handleSatelliteUpdateComplete = makeCompleteHandler(satelliteUpdateStates, satelliteCompletedUpdates, 'mac_id', loadSatellites);
+  const handleSatelliteUpdateComplete = makeCompleteHandler(satelliteUpdateStates, satelliteCompletedUpdates, 'mac_id', awaitSatelliteReturn);
   const handleSatelliteAppUpdateProgress = makeProgressHandler(satelliteAppUpdateStates, 'mac_id');
-  const handleSatelliteAppUpdateComplete = makeCompleteHandler(satelliteAppUpdateStates, satelliteAppCompletedUpdates, 'mac_id', loadSatellites);
+  const handleSatelliteAppUpdateComplete = makeCompleteHandler(satelliteAppUpdateStates, satelliteAppCompletedUpdates, 'mac_id', awaitSatelliteReturn);
   const handleSatelliteCamillaUpdateProgress = makeProgressHandler(satelliteCamillaUpdateStates, 'mac_id');
-  const handleSatelliteCamillaUpdateComplete = makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', loadSatellites);
+  const handleSatelliteCamillaUpdateComplete = makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', awaitSatelliteReturn);
 
   // Reconciles in-flight update flags so "updating" survives a reconnect/foreground.
   // Lazily loaded: UpdateManager calls loadLocalPrograms() when it opens, and the
@@ -258,6 +291,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     isSatelliteAppUpdateCompleted,
     isSatelliteCamillaUpdating,
     isSatelliteCamillaUpdateCompleted,
+    isSatelliteAwaitingReturn,
     isAnyUpdateInProgress,
 
     // WebSocket handlers
