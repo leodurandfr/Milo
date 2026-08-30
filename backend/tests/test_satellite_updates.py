@@ -399,6 +399,28 @@ class TestAppUpdateAvailableFlag:
 
         assert self._flag(client, None) is False
 
+    def _snapclient_flag(self, client):
+        body = client(SERVER_VERSION).get("/api/programs/satellites").json()
+        return body["satellites"][0]["update_available"]
+
+    def test_a_satellite_above_the_target_is_offered_the_way_back(self, client, satellites):
+        """The server sends versions in both directions, so the row must too.
+
+        Ending a trial of an unvalidated snapclient lowers the fleet's target;
+        asking only "is the target newer" leaves the satellite that took the
+        trial reading "up to date" on a version the server no longer runs, with
+        its button disabled and nothing able to bring it back.
+        """
+        satellites[0]["snapclient_version"] = "0.29.0"   # the target is 0.28.0
+
+        assert self._snapclient_flag(client) is True
+
+    def test_a_satellite_already_at_the_target_is_offered_nothing(self, client, satellites):
+        """Restarting snapclient to install what is already there cuts a room."""
+        satellites[0]["snapclient_version"] = "0.28.0"
+
+        assert self._snapclient_flag(client) is False
+
 
 class TestAppUpdateOutcome:
     """What counts as "the satellite is running the new app".

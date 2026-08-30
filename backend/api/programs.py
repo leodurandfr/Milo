@@ -20,7 +20,6 @@ from backend.core.models.ws_events import (
     SatelliteUpdateProgress,
 )
 from backend.api.models import ProgramUpdateRequest
-from backend.core.updates.helpers import compare_versions
 
 if TYPE_CHECKING:
     from backend.core.state import AudioStateMachine
@@ -180,10 +179,14 @@ def create_programs_router(
                 satellite["app_updating"] = f"satellite_app_{mac}" in active_updates
                 satellite["camilladsp_updating"] = f"satellite_camilladsp_{mac}" in active_updates
 
+                # Not "is the target newer": the server now sends a version
+                # below the installed one too — ending a trial of an unvalidated
+                # release, or following a manifest rolled back. Asking only
+                # about newer leaves such a satellite reading "up to date" with
+                # a disabled button and no way back.
                 satellite["latest_version"] = latest_version
-                satellite["update_available"] = compare_versions(
-                    satellite.get("snapclient_version"),
-                    latest_version
+                satellite["update_available"] = bool(latest_version) and (
+                    satellite.get("snapclient_version") != latest_version
                 )
                 # Both sides report the version of the `milo-client/` tree the
                 # tarball carries, so anything but exact equality is a satellite
@@ -195,9 +198,8 @@ def create_programs_router(
                 )
                 # CamillaDSP update
                 satellite["camilladsp_latest_version"] = camilladsp_latest
-                satellite["camilladsp_update_available"] = compare_versions(
-                    satellite.get("camilladsp_version"),
-                    camilladsp_latest
+                satellite["camilladsp_update_available"] = bool(camilladsp_latest) and (
+                    satellite.get("camilladsp_version") != camilladsp_latest
                 )
 
             return {

@@ -58,7 +58,7 @@
                       size="small" variant="brand" class="program-button"
                       :loading="isLocalUpdating('milo') || debugForceUpdating"
                       @click="startLocalUpdate('milo')"
-                      :disabled="debugForceUpdating || isLocalUpdateBusy()">
+                      :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()">
                       {{ (isLocalUpdating('milo') || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
                     </Button>
                     <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
@@ -378,7 +378,7 @@ const {
   isSatelliteAppUpdating, isSatelliteAppUpdateCompleted,
   isSatelliteCamillaUpdating, isSatelliteCamillaUpdateCompleted,
   isSatelliteAwaitingReturn, localUpdateTarget,
-  isMiloUpdating, isLocalUpdateBusy, isSatelliteBusy,
+  isMiloUpdating, isLocalUpdateBusy, isAnySatelliteUpdating, isSatelliteBusy,
 } = updatesStore;
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -462,15 +462,22 @@ const rows = computed(() => {
   const out = {};
   for (const [key, program] of Object.entries(localPrograms.value)) {
     const upstream = program.latest?.upstream;
+    const revertTo = program.latest?.validated?.version || null;
     let update = null;
     if (!isLocalUpdateCompleted(key)) {
-      if (upstream?.ahead) {
-        update = { target: 'upstream', version: upstream.version };
-      } else if (program.update_available) {
+      if (program.update_available && !revertTo) {
+        // Behind the manifest: catching up comes before trying something newer,
+        // and `upstream.ahead` is measured against the pin rather than against
+        // what is installed — so it stays true on a unit that never reached it.
         update = { target: 'validated', version: getLocalLatestVersion(program) };
+      } else if (upstream?.ahead) {
+        update = { target: 'upstream', version: upstream.version };
       }
     }
-    out[key] = { update, revertTo: program.latest?.validated?.version || null };
+    // No "validated" update while a trial is recorded: that target is the
+    // return, and it installs the manifest's version — which is not the one
+    // this row would print beside it.
+    out[key] = { update, revertTo };
   }
   return out;
 });

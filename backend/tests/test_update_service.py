@@ -3822,6 +3822,25 @@ class TestForcedVersionBookkeeping:
         assert mock_settings_service._storage["updates.forced_versions"] == {}
 
     @pytest.mark.asyncio
+    async def test_a_record_that_cannot_be_written_is_not_swallowed(
+            self, update_service, mock_settings_service):
+        """An unrecorded trial is an off-pin unit that reads as up to date.
+
+        The row derives everything from the record: without it, installed sits
+        above the manifest, `update_available` is false, no return button is
+        drawn, and nothing anywhere says the unit runs something nobody
+        validated. Reporting the update as successful would seal that.
+        """
+        mock_settings_service.set_setting_strict = AsyncMock(
+            side_effect=OSError("No space left on device")
+        )
+
+        with pytest.raises(OSError):
+            await update_service._record_forced_version(
+                "shairport-sync", "upstream", {"latest": {"version": "5.2.3"}}
+            )
+
+    @pytest.mark.asyncio
     async def test_a_live_override_survives_the_pruning(self, update_service, mock_settings_service):
         update_service.programs["navidrome"]["validated_version"] = "0.63.2"
         mock_settings_service._storage["updates.forced_versions"] = {"navidrome": "0.64.0"}

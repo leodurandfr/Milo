@@ -213,6 +213,11 @@ export const useUpdatesStore = defineStore('updates', () => {
     return Object.values(localUpdateStates.value).some(state => state.updating);
   }
 
+  function isAnySatelliteUpdating() {
+    return [satelliteUpdateStates, satelliteAppUpdateStates, satelliteCamillaUpdateStates]
+      .some(states => Object.values(states.value).some(state => state.updating));
+  }
+
   function isSatelliteBusy(macId) {
     return isSatelliteUpdating(macId)
       || isSatelliteAppUpdating(macId)
@@ -326,6 +331,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     localUpdateTarget,
     isMiloUpdating,
     isLocalUpdateBusy,
+    isAnySatelliteUpdating,
     isSatelliteBusy,
 
     // WebSocket handlers
