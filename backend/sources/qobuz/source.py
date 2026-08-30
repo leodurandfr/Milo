@@ -31,9 +31,6 @@ QOBUZ_STATUS_URL = "http://127.0.0.1:8689/api/status"
 # Our speaker is matched by its ALSA output device, not the slugified id
 # ("Milō" -> "mil"): qobuz-proxy hard-couples id = slugify(name).
 QOBUZ_AUDIO_DEVICE = "milo_qobuz"
-# Static controller label so the source bar renders: the proxy never reports the
-# controlling phone's name — it only knows the speaker name ("Milō").
-QOBUZ_CLIENT_NAME = "Qobuz"
 
 # qobuz-proxy speaker.status values that mean a session is attached.
 _ACTIVE_STATUSES = {"playing", "paused"}
@@ -260,17 +257,17 @@ class QobuzSource(BaseAudioSource):
 
         Broadcast metadata (WS source/state_changed → system_state.metadata):
         title, artist, album, album_art_url, position, duration, is_playing,
-        is_buffering (canonical PlaybackMetadata) + client_name="Qobuz" (extra,
-        so the source bar shows a label — the proxy never reports the controlling
-        device) + account_authenticated (login state; drives the idle card's
-        "connect account" CTA when no Qobuz account is logged in).
+        is_buffering (canonical PlaybackMetadata) + account_authenticated (login
+        state; drives the idle card's "connect account" CTA when no Qobuz account
+        is logged in). No client_name: the proxy never reports the controlling
+        device — it only knows the speaker name — so the source bar falls back to
+        the source's own label rather than to one hardcoded here.
 
         The ~1 Hz poll doubles as the progress feed: every tick re-emits the full
         state, so there is no separate broadcast_position_update path here.
         """
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
-        extras["client_name"] = QOBUZ_CLIENT_NAME
         extras["account_authenticated"] = self._authenticated
         self.emit_connection_state(self._device_connected, core, extras)
 

@@ -27,13 +27,6 @@ from backend.shared.decorators import handle_errors
 from backend.sources.dlna.metadata_reader import DlnaBridge
 from backend.sources.dlna.server_resolver import MediaServerResolver, host_of
 
-# Fallback source-bar label. UPnP never identifies the *control point* to the
-# renderer, so the app that pushed the audio can never be named — same call as
-# Qobuz (QOBUZ_CLIENT_NAME). The media *server* usually can be, and
-# MediaServerResolver replaces this with its friendlyName when it succeeds; this
-# is what shows until then, and for good if it never does.
-DLNA_CLIENT_NAME = "DLNA"
-
 # What makes a track a different track here: the triple _on_metadata_update
 # compares to decide the cover is stale, and the one _on_artwork re-checks
 # across its fetch.
@@ -332,8 +325,8 @@ class DlnaSource(BaseAudioSource):
         matters, and the same host serves track after track, so the work is
         skipped entirely once it is known. The resolution behind it is an SSDP
         sweep costing seconds — it runs here, in a bridge-spawned task, and the
-        player keeps the static label meanwhile. Failure is silent by design:
-        no name simply means "DLNA" stays.
+        player shows its own source label meanwhile. Failure is silent by design:
+        no name simply means that label stays.
         """
         host = host_of(url)
         if not host or host == self._server_host:
@@ -423,10 +416,10 @@ class DlnaSource(BaseAudioSource):
 
         Broadcast metadata shape (WS source/state_changed → system_state.metadata):
         title, artist, album, album_art_url, album_art_width, position, duration,
-        is_playing (canonical PlaybackMetadata) + client_name (extra, so the source
-        bar shows a label): the media server's friendlyName once resolved, else
-        the static "DLNA". The control point is never identified by the renderer,
-        so what is named here is where the audio came from, not who asked for it.
+        is_playing (canonical PlaybackMetadata) + client_name (extra, the source
+        bar's label): the media server's friendlyName, present only once resolved.
+        The control point is never identified by the renderer, so what is named
+        here is where the audio came from, not who asked for it.
         """
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
@@ -445,7 +438,14 @@ class DlnaSource(BaseAudioSource):
         ):
             core.album_art_url = self._cover_url
             extras["album_art_width"] = self._cover_width
-        extras["client_name"] = self._server_name or DLNA_CLIENT_NAME
+        # The media server's friendlyName, or None until the sweep names it —
+        # UPnP never identifies the *control point* to the renderer, so with no
+        # server resolved there is nobody to name and the player falls back to
+        # the source's own label, which belongs to the frontend's i18n table and
+        # not here. Assigned unconditionally: emit_connection_state drops a None
+        # extra, and _metadata is the record it hands back, so this is also what
+        # clears the previous server's name out of it when the host changes.
+        extras["client_name"] = self._server_name
         self.emit_connection_state(self._device_connected, core, extras)
 
     async def _cleanup(self) -> None:

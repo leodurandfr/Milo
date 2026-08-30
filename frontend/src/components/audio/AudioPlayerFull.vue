@@ -73,9 +73,9 @@
                     :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
                     :interactive="false" animateIn />
                 </div>
-                <div v-if="clientName" class="source-bar">
+                <div class="source-bar">
                   <AppIcon :name="source" :size="40" />
-                  <span class="source-bar-name heading-4">{{ clientName }}</span>
+                  <span class="source-bar-name heading-4">{{ sourceBarName }}</span>
                 </div>
               </template>
             </div>
@@ -101,6 +101,7 @@ import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useScreensaverRevealNonce } from '@/composables/useScreensaverReveal';
 import { isSourceBuffering } from '@/utils/playbackBuffering';
 import { useI18n } from '@/services/i18n';
+import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
 import { nowPlayingArtwork } from '@/utils/nowPlayingArtwork';
@@ -206,8 +207,15 @@ const isBuffering = computed(() =>
 );
 
 
-// Client/device name (for source bar when controls are hidden)
-const clientName = computed(() => unifiedStore.systemState.metadata?.client_name || '');
+// Who is sending, when the channel says so: AirPlay's sender, DLNA's media
+// server. Nothing identifies the sender on the other receiver channels — UPnP
+// never names the control point, the Qobuz proxy only knows the speaker — so
+// the answer there is the source itself, read from the same key the status card
+// and the dock use, never a label a backend hardcoded in one language.
+const sourceBarName = computed(
+  () => unifiedStore.systemState.metadata?.client_name
+    || t(AUDIO_SOURCE_LABEL_KEYS[props.source])
+);
 
 // === ARTWORK TRANSITION ===
 // Which cover this source shows is decided in one place, shared with
