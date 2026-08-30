@@ -17,6 +17,7 @@ set -e
 
 MILO_USER="${MILO_USER:-milo}"
 MILO_DATA_DIR="${MILO_DATA_DIR:-/var/lib/milo}"
+MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
 
 # Use parent logging functions if available, otherwise load common helpers
 if ! type log_info &>/dev/null; then
@@ -39,7 +40,7 @@ install_qobuz_proxy() {
     sudo "$MILO_DATA_DIR/qobuz/venv/bin/pip" install \
         "qobuz-proxy[local] @ git+https://github.com/leolobato/qobuz-proxy@v${QOBUZ_PROXY_VERSION}"
 
-    patch_qobuz_proxy
+    install_qobuz_adapter
     configure_qobuz_proxy
 
     # Own the whole tree (venv + config + future credentials.json) as milo:audio
@@ -49,15 +50,16 @@ install_qobuz_proxy() {
     log_success "qobuz-proxy installed"
 }
 
-# Apply Milō's edits to the vendored install: unity-gain volume policy (flag-gated
-# on the "allow app volume" setting — CamillaDSP owns volume) and position/duration
-# in /api/status. The patches themselves live in qobuz_proxy_patches.py so the
-# fragile, version-pinned anchors have a single definition shared with the in-app
-# updater — BASH_SOURCE resolves the script dir even when this file is sourced
-# from install.sh / pi-gen.
-patch_qobuz_proxy() {
-    sudo "$MILO_DATA_DIR/qobuz/venv/bin/python" \
-        "$(dirname "${BASH_SOURCE[0]}")/qobuz_proxy_patches.py"
+# Milō runs qobuz-proxy through its own launcher, which applies two adaptations
+# upstream offers no configuration for: unity-gain volume policy (flag-gated on
+# the "allow app volume" setting — CamillaDSP owns volume) and position/duration
+# in /api/status. They bind to method names rather than to source text, and
+# `--check` refuses a release that moved any of them — the same gate the in-app
+# updater runs before restarting the service onto a new version.
+install_qobuz_adapter() {
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-qobuz" /usr/local/bin/milo-qobuz
+    sudo chmod 0755 /usr/local/bin/milo-qobuz
+    sudo "$MILO_DATA_DIR/qobuz/venv/bin/python" /usr/local/bin/milo-qobuz --check
 }
 
 # Write /var/lib/milo/qobuz/config.yaml. Speakers-list form → qobuz-proxy builds

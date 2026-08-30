@@ -3137,35 +3137,37 @@ class TestUpdateQobuzProxyFlow:
         )
 
     @pytest.mark.asyncio
-    async def test_the_vendored_patches_are_re_applied_with_the_venvs_interpreter(
+    async def test_the_release_is_asked_with_the_venvs_own_interpreter(
             self, update_service):
-        """The patch script edits the installed sources in place, so it has to
-        run with the interpreter whose site-packages they live in. Run with the
-        backend's own python it patches nothing and reports success."""
+        """The check imports qobuz-proxy, so it has to run with the interpreter
+        whose site-packages hold the version just installed. Run with the
+        backend's own python it imports nothing and reports success."""
         with self._flow(update_service) as flow:
             await update_service._update_qobuz_proxy(self.STATUS)
 
-        patch_argv = flow["_local"].calls[1]
-        assert patch_argv == (f"{QOBUZ['venv_path']}/bin/python",
-                              "/home/milo/milo/install/qobuz_proxy_patches.py")
+        check_argv = flow["_local"].calls[1]
+        assert check_argv == (f"{QOBUZ['venv_path']}/bin/python",
+                              "/usr/local/bin/milo-qobuz", "--check")
 
     @pytest.mark.asyncio
-    async def test_a_patch_that_no_longer_applies_rolls_the_venv_back(self, update_service):
-        """The fragile step by design: upstream moving an anchor is the expected
-        failure. Leaving the unpatched upgrade in place would give a Qobuz that
-        starts, plays, and ignores Milō's volume policy."""
-        local = LocalCommands({"qobuz_proxy_patches.py": (False, "anchor not found in stream.py")})
+    async def test_a_release_that_moved_what_milo_adapts_rolls_the_venv_back(self, update_service):
+        """Asked before the restart, because neither adaptation fails audibly.
+
+        A sidecar started without them plays, and reports a volume Milō does not
+        want honoured and a progress bar that never moves — no error anywhere.
+        """
+        local = LocalCommands({"milo-qobuz": (False, "QobuzPlayer.duration_ms: gone")})
         with self._flow(update_service) as flow, \
                 patch.object(update_service, "_run_local", local):
             result = await update_service._update_qobuz_proxy(self.STATUS)
 
         assert result["success"] is False
-        assert "anchor not found" in result["error"]
+        assert "duration_ms" in result["error"]
         assert "Rolled back" in result["error"]
         flow["_rollback_qobuz_venv"].assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_a_pip_that_refused_rolls_back_and_never_patches(self, update_service):
+    async def test_a_pip_that_refused_rolls_back_and_never_checks(self, update_service):
         local = LocalCommands({"install": (False, "Could not find a version")})
         with self._flow(update_service) as flow, \
                 patch.object(update_service, "_run_local", local):

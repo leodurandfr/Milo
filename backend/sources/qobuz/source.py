@@ -7,8 +7,8 @@ Milō only displays + plays (Family B, like AirPlay) — playback is driven from
 the Qobuz app, so there are no on-device controls. Now-playing metadata
 (title/artist/album/artwork + position/duration) is polled from the proxy's local
 HTTP API (GET /api/status); the proxy exposes no push channel and no local
-control endpoints. Progress is there because install/qobuz_proxy_patches.py adds
-position_ms/duration_ms to the vendored now_playing payload — upstream reports
+control endpoints. Progress is there because rootfs/usr/local/bin/milo-qobuz adds
+position_ms/duration_ms to the now_playing payload — upstream reports
 them only to the Qobuz cloud. Album art is a Qobuz CDN URL loaded directly by the
 kiosk — there is no binary artwork route (unlike AirPlay/DLNA).
 """
@@ -174,7 +174,7 @@ class QobuzSource(BaseAudioSource):
         session before it has a track to report (don't publish an ACTIVE with
         nothing to draw). Position/duration ride the same poll (our patched
         now_playing carries them, see
-        install/qobuz_proxy_patches.py) and the frontend interpolates between
+        rootfs/usr/local/bin/milo-qobuz) and the frontend interpolates between
         ticks; seeking stays with the Qobuz app — Family B has no local control.
 
         `authenticated` is the proxy's login state (None = unknown, keep last);

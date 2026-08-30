@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Run qobuz-proxy with Milō's two adaptations, bound to names instead of to source text.
+
+Milō needs two things upstream does not offer as configuration:
+
+1. **Volume policy.** CamillaDSP is the only attenuation stage in the audio path
+   — the role `external_volume` plays for go-librespot and `ignore_volume_control`
+   for shairport-sync. qobuz-proxy's local backend has no knob for it
+   (`fixed_volume` is DLNA-only) and its stream defaults to 50 %, so the app
+   slider would attenuate, and lose bits, before CamillaDSP. The stream keeps
+   unity unless `$QOBUZPROXY_DATA_DIR/allow_app_volume` holds `1`, which the
+   backend writes from the "allow app volume" setting.
+
+2. **Progress in the local status API.** The proxy tracks position and duration
+   and ships both to the Qobuz cloud, but leaves them out of `now_playing` —
+   the only surface Milō can read. Without them the player's progress bar never
+   moves.
+
+Both used to be applied by rewriting upstream's installed sources, anchored on
+exact lines. qobuz-proxy 1.6.0 moved one of those lines — `"volume"` left the
+`now_playing` literal for a conditional assignment, for a DLNA-only feature —
+without changing a single name, a single signature or a single key. The update
+failed, rolled back, and nothing was wrong with the release: the anchor was
+reading formatting.
+
+So the adaptations wrap methods. What they bind to is `Speaker.get_status`,
+`AudioOutputStream.set_volume` and the player's two progress properties, which
+only a real refactor moves — and `--check` says which one did, before the
+service is restarted onto it.
+
+Run by milo-qobuz.service through the venv's own interpreter; every argument is
+forwarded to qobuz-proxy untouched.
+"""
+import os
+import sys
+
+VOLUME_FLAG = "allow_app_volume"
+
+
+def _mentions_key(func, key):
+    """Whether `func` still deals in `key` as a literal.
+
+    Not "builds": a constant is a constant, and reading one is indistinguishable
+    from writing one here. That is enough — the function asked about is the one
+    that produces the status dict, so a release that stopped mentioning the key
+    stopped carrying it.
+
+    Nesting is the part worth handling. A dict display with constant keys
+    compiles to BUILD_CONST_KEY_MAP, which parks every key in one tuple inside
+    `co_consts`, so a flat membership test reports every version as broken —
+    measured on 1.5.0, which builds `now_playing` and was reported as having
+    renamed it.
+    """
+    for const in func.__code__.co_consts:
+        if const == key or (isinstance(const, tuple) and key in const):
+            return True
+    return False
+
+
+def _bindings():
+    """Everything the adaptations touch, with what to say when one has moved."""
+    from qobuz_proxy.backends.local.stream import AudioOutputStream
+    from qobuz_proxy.playback.player import QobuzPlayer
+    from qobuz_proxy.speaker import Speaker
+
+    return [
+        (
+            "Speaker.get_status",
+            callable(getattr(Speaker, "get_status", None)),
+            "the status API Milo polls is gone",
+        ),
+        (
+            'Speaker.get_status still deals in "now_playing"',
+            _mentions_key(Speaker.get_status, "now_playing"),
+            "the key progress is added to was renamed — the bar would stop moving in silence",
+        ),
+        (
+            "QobuzPlayer.current_position_ms",
+            hasattr(QobuzPlayer, "current_position_ms"),
+            "there is no position left to report",
+        ),
+        (
+            "QobuzPlayer.duration_ms",
+            hasattr(QobuzPlayer, "duration_ms"),
+            "there is no duration left to report",
+        ),
+        (
+            "AudioOutputStream.set_volume",
+            callable(getattr(AudioOutputStream, "set_volume", None)),
+            "the app slider can no longer be held at unity before CamillaDSP",
+        ),
+        (
+            "AudioOutputStream.__init__ sets _volume",
+            "_volume" in AudioOutputStream.__init__.__code__.co_names,
+            "the gain attribute the stream multiplies by was renamed",
+        ),
+    ]
+
+
+def check():
+    """Report every binding that moved. Exit 1 on the first release that breaks one."""
+    moved = [(name, why) for name, ok, why in _bindings() if not ok]
+    if moved:
+        print("qobuz-proxy no longer offers what Milo adapts:", file=sys.stderr)
+        for name, why in moved:
+            print(f"  {name}: {why}", file=sys.stderr)
+        print(
+            "Upstream refactored — re-derive the adaptation in "
+            "rootfs/usr/local/bin/milo-qobuz before shipping this version.",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"qobuz-proxy adaptations bind cleanly ({len(_bindings())} checks)")
+    return 0
+
+
+def _app_volume_allowed():
+    """The one-byte flag the backend writes from the "allow app volume" setting."""
+    flag = os.path.join(os.environ.get("QOBUZPROXY_DATA_DIR", "."), VOLUME_FLAG)
+    try:
+        with open(flag) as handle:
+            return handle.read().strip() == "1"
+    except OSError:
+        return False
+
+
+def apply():
+    from qobuz_proxy.backends.local.stream import AudioOutputStream
+    from qobuz_proxy.speaker import Speaker
+
+    stream_init = AudioOutputStream.__init__
+
+    def __init__(self, *args, **kwargs):
+        stream_init(self, *args, **kwargs)
+        # Unity, not upstream's 50 %: the policy below is what may lower it.
+        self._volume = 1.0
+
+    def set_volume(self, level):
+        self._volume = max(0.0, min(1.0, level / 100.0)) if _app_volume_allowed() else 1.0
+
+    AudioOutputStream.__init__ = __init__
+    AudioOutputStream.set_volume = set_volume
+
+    speaker_status = Speaker.get_status
+
+    def get_status(self):
+        status = speaker_status(self)
+        now_playing = status.get("now_playing")
+        if now_playing is not None:
+            # `current_position_ms` extrapolates from the last backend report, so
+            # it stays smooth between Milo's ~1 Hz polls.
+            now_playing["position_ms"] = self._player.current_position_ms
+            now_playing["duration_ms"] = self._player.duration_ms
+        return status
+
+    Speaker.get_status = get_status
+
+
+def main():
+    if "--check" in sys.argv[1:]:
+        return check()
+
+    failed = check()
+    if failed:
+        return failed
+
+    apply()
+    from qobuz_proxy.cli import main as qobuz_proxy_main
+
+    return qobuz_proxy_main()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

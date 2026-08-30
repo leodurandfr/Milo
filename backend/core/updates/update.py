@@ -16,10 +16,11 @@ from backend.core.updates.dependency_versions import apply_validated_versions
 from backend.config.constants import DEPLOY_UPDATE_CMD
 
 # qobuz-proxy is a pip package installed from a git tag; the in-app update pins
-# the same URL the installer uses (install/qobuz-proxy.sh) and re-applies our
-# vendored patches via the shared script (single source of truth for the anchors).
+# the same URL the installer uses (install/qobuz-proxy.sh). Milō's two
+# adaptations live in the launcher the service runs, which also answers whether
+# a release still offers what they bind to.
 QOBUZ_PROXY_REPO_URL = "https://github.com/leolobato/qobuz-proxy"
-QOBUZ_PROXY_PATCHES_SCRIPT = "/home/milo/milo/install/qobuz_proxy_patches.py"
+QOBUZ_ADAPTER = "/usr/local/bin/milo-qobuz"
 
 
 class UpdateService(VersionService):
@@ -1210,12 +1211,13 @@ class UpdateService(VersionService):
         """Updates the qobuz-proxy sidecar (a pip package installed from a git tag).
 
         Unlike the binary programs, the "install" is a pip upgrade inside the
-        milo-owned venv plus re-applying our vendored source patches (volume
-        policy + status progress) — both unprivileged (the backend runs as
-        milo). The whole venv is backed up first so any failure rolls back to
-        the working version; the fragile part is the patching, which fails loud
-        if an upstream release moved its anchors. config.yaml and
-        credentials.json are left untouched.
+        milo-owned venv — unprivileged, since the backend runs as milo. Nothing
+        is written into site-packages: Milō's volume policy and status progress
+        are applied at runtime by the launcher the service runs, so the venv
+        matches the released package exactly. What is asked here instead is
+        whether the new release still offers what those adaptations bind to.
+        The whole venv is backed up first so any failure rolls back to the
+        working version; config.yaml and credentials.json are left untouched.
         """
         config = self.programs["qobuz-proxy"]
         latest_version = status["latest"]["version"]
@@ -1258,15 +1260,18 @@ class UpdateService(VersionService):
                 rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
                 return self._failure_after_rollback(f"pip install failed: {pip_out}.", rolled_back)
 
-            # Phase 4: re-apply our vendored patches (85%) — the fragile step
-            patch_ok, patch_out = await self._run_local(
-                f"{venv}/bin/python", QOBUZ_PROXY_PATCHES_SCRIPT, timeout=60
+            # Phase 4: does this release still offer what Milō adapts? (85%)
+            # Asked before the service is restarted onto it, so a refactor that
+            # moved one of them is a rolled-back update rather than a sidecar
+            # that starts and reports no progress.
+            check_ok, check_out = await self._run_local(
+                f"{venv}/bin/python", QOBUZ_ADAPTER, "--check", timeout=60
             )
-            if not patch_ok:
-                self.update_logger.error(f"qobuz-proxy patches failed: {patch_out}")
+            if not check_ok:
+                self.update_logger.error(f"qobuz-proxy adaptation check failed: {check_out}")
                 rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
                 return self._failure_after_rollback(
-                    f"Patching failed (upstream sources may have changed): {patch_out}.", rolled_back
+                    f"This release no longer offers what Milo adapts: {check_out}.", rolled_back
                 )
 
             # Phase 5: verify import + version (95%)

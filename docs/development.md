@@ -495,15 +495,19 @@ is driven entirely by an external app:
   (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
   backend + `libportaudio2` from apt). It is called from both `install.sh` and the
   pi-gen stage-02 (single source of truth).
-- **Two vendored patches**, both in
-  [install/qobuz_proxy_patches.py](../install/qobuz_proxy_patches.py) so the
-  version-pinned anchors have one definition, shared by the installer and the
-  in-app updater (which re-applies them after every pip upgrade): `stream.py`
-  pins the local backend to unity gain (CamillaDSP is the sole volume authority,
-  flag-gated on the "allow app volume" setting), and `speaker.py` adds
-  `position_ms`/`duration_ms` to `now_playing` — the proxy tracks both for its
-  cloud state reports but omits them from `/api/status`. Each edit is idempotent
-  and aborts loudly on a version bump if its anchors moved.
+- **Two adaptations**, applied at runtime by the launcher the unit runs,
+  [rootfs/usr/local/bin/milo-qobuz](../rootfs/usr/local/bin/milo-qobuz): the
+  local backend's stream is held at unity gain (CamillaDSP is the sole volume
+  authority, flag-gated on the "allow app volume" setting), and
+  `position_ms`/`duration_ms` are added to `now_playing` — the proxy tracks both
+  for its cloud state reports but omits them from `/api/status`. They wrap
+  methods rather than rewriting installed sources, so nothing is edited inside
+  site-packages and the venv matches the released package exactly. `--check`
+  answers whether a release still offers what they bind to; the installer runs
+  it after `pip install` and the in-app updater before restarting the service,
+  and a release that moved one is a rolled-back update. They used to be source
+  patches anchored on exact lines, which 1.6.0 broke by reflowing a dict literal
+  without touching a single name.
 - **One-time account login.** Unlike Spotify's zeroconf, qobuz-proxy won't
   advertise until a Qobuz account is authenticated. The **Qobuz account** settings
   screen (`components/settings/categories/QobuzSettings.vue`) drives the backend
@@ -832,7 +836,8 @@ line, nothing to notice. "Audio plays" would have passed it.
    is then off-pin: the row says so, `Back to 5.2.2` is one click away, and the trial survives
    Milō updates until you end it or the manifest catches up (invariant 8). This is where a
    version fails, and it costs nothing to find out: qobuz-proxy 1.6.0 moved the anchor
-   `install/qobuz_proxy_patches.py` needs and rolled itself back in under a minute.
+   `install/qobuz_proxy_patches.py` needed and rolled itself back in under a minute
+   (that anchor is gone — see `rootfs/usr/local/bin/milo-qobuz`).
 2. Edit the one line in `dependencies.env`. Nothing else — a version literal anywhere else
    fails CI (`backend/tests/architecture/test_dependency_manifest.py`). The override is dropped
    on its own once the manifest declares that version, so nothing is left to clean up.
@@ -858,7 +863,7 @@ the ones that do not.
 | `CAMILLADSP_VERSION` | Change volume, switch an EQ preset | Volume attenuates **in CamillaDSP** and the card mixer stays at unity; a preset change is audible; `bypass_effects()`/`restore_effects()` still round-trip. Check `/proc/asound/card0/pcm0p/sub0/status` reads `RUNNING`, not `PAUSED` — the silence-pause failure leaves no log line |
 | `SNAPCAST_VERSION` | Play to a satellite | Both rooms stay in sync for minutes, not seconds. Needs a **second Pi**; this row cannot be run on one unit |
 | `NAVIDROME_VERSION` | Browse and play the Music Library | The catalog is complete after a rescan, and a track from an *unmounted* share fails visibly rather than streaming a 200 + JSON error body |
-| `QOBUZ_PROXY_VERSION` | Play from the Qobuz app | The device still appears under its ASCII name, and Milō's vendored patches still apply — `install/qobuz_proxy_patches.py` anchors on upstream source lines and is the first thing a bump breaks. Needs a **paid Qobuz account** |
+| `QOBUZ_PROXY_VERSION` | Play from the Qobuz app | The device still appears under its ASCII name, **and the progress bar moves** — Milō adds position/duration to a status API that omits them, and the update refuses a release that stopped offering what it binds to (`milo-qobuz --check`). Needs a **paid Qobuz account** |
 | `BLUEZ_ALSA_VERSION` | Pair a phone, play, press pause on the phone | Audio, **and** the AVRCP transport: the pause button follows, title/artist arrive. A2DP without AVRCP looks like a working source with an empty card |
 | `ROC_TOOLKIT_VERSION` | Stream from the Mac | Audio arrives with no dropouts. Note that roc-vad sends silence continuously, so "connected" never means "playing" — judge it by ear. Needs a **Mac** |
 

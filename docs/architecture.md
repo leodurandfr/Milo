@@ -432,9 +432,9 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - The proxy's `local` (PortAudio) backend renders to the named ALSA PCM
   `milo_qobuz`; Milō's `QobuzMonitor` **polls `GET http://127.0.0.1:8689/api/status`**
   (~1 Hz) for `now_playing` (title/artist/album/album-art URL + position/duration).
-  Upstream reports progress only to the Qobuz cloud, so
-  [install/qobuz_proxy_patches.py](../install/qobuz_proxy_patches.py) adds
-  `position_ms`/`duration_ms` to the vendored payload; the poll doubles as the
+  Upstream reports progress only to the Qobuz cloud, so the launcher
+  [rootfs/usr/local/bin/milo-qobuz](../rootfs/usr/local/bin/milo-qobuz) adds
+  `position_ms`/`duration_ms` to that payload at runtime; the poll doubles as the
   progress feed (the frontend interpolates between ticks) and the bar is
   read-only — seeking belongs to the Qobuz app
 - Artwork is a plain Qobuz CDN URL loaded directly by the kiosk — no binary
