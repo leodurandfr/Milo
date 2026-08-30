@@ -28,6 +28,13 @@ So the adaptations wrap methods. What they bind to is `Speaker.get_status`,
 only a real refactor moves — and `--check` says which one did, before the
 service is restarted onto it.
 
+The trade this makes, stated: `set_volume` is replaced whole rather than having
+one line rewritten, so a statement upstream later adds to that method is
+dropped here in silence, where the old anchored patch would have refused.
+Detecting that would mean fingerprinting the method body, which is the
+brittleness this replaced. The dependency table's row is what covers it: play
+from the Qobuz app and watch the level.
+
 Run by milo-qobuz.service through the venv's own interpreter; every argument is
 forwarded to qobuz-proxy untouched.
 """
@@ -59,11 +66,18 @@ def _mentions_key(func, key):
 
 def _bindings():
     """Everything the adaptations touch, with what to say when one has moved."""
+    from qobuz_proxy import cli
     from qobuz_proxy.backends.local.stream import AudioOutputStream
     from qobuz_proxy.playback.player import QobuzPlayer
     from qobuz_proxy.speaker import Speaker
 
     return [
+        (
+            "qobuz_proxy.cli.main",
+            callable(getattr(cli, "main", None)),
+            "there is nothing left for this launcher to hand over to — the "
+            "service would crash-loop under Restart=always",
+        ),
         (
             "Speaker.get_status",
             callable(getattr(Speaker, "get_status", None)),
@@ -73,6 +87,11 @@ def _bindings():
             'Speaker.get_status still deals in "now_playing"',
             _mentions_key(Speaker.get_status, "now_playing"),
             "the key progress is added to was renamed — the bar would stop moving in silence",
+        ),
+        (
+            "Speaker.get_status reaches the player through _player",
+            "_player" in Speaker.get_status.__code__.co_names,
+            "the attribute progress is read from was renamed",
         ),
         (
             "QobuzPlayer.current_position_ms",

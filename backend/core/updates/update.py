@@ -70,6 +70,11 @@ class UpdateService(VersionService):
         the previous version in place, so recording it beforehand would claim an
         override the unit does not have. Returning to the manifest drops the
         entry the same way — the two gestures are one write of the whole map.
+
+        Strict, so a write that failed is reported rather than swallowed: the
+        unit would be running an unvalidated release with nothing recording it,
+        which reads on the row as "up to date" — the exact state this whole
+        surface exists to make impossible.
         """
         forced = await self.get_forced_versions()
         updated = dict(forced)
@@ -78,7 +83,7 @@ class UpdateService(VersionService):
         else:
             updated.pop(program_key, None)
         if updated != forced:
-            await self.settings_service.set_setting("updates.forced_versions", updated)
+            await self.settings_service.set_setting_strict("updates.forced_versions", updated)
 
     async def _prune_forced_versions(self) -> None:
         """Drop the overrides the manifest has caught up with.
