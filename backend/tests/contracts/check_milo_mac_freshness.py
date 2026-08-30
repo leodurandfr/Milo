@@ -35,10 +35,38 @@ MANIFEST_PATH = HERE / "milo_mac_contract.json"
 VENDOR_DIR = HERE / "vendor" / "milo-mac"
 
 
+def _collapse_interpolation(path: str) -> str:
+    """Replace every Swift `\\(...)` with `{}`, nested parentheses included.
+
+    Not a regex: the interpolated expression is arbitrary Swift, so
+    `\\(Self.macForURL(macId))` closes on its SECOND `)`. A `\\(\\w+\\)` pattern
+    matched a bare identifier only and left the tail of the call inside the
+    path, which no FastAPI template can ever match — the two client-volume
+    routes then read as missing from the manifest however the manifest spelled
+    them.
+    """
+    out, i = [], 0
+    while i < len(path):
+        if path.startswith("\\(", i):
+            depth, j = 1, i + 2
+            while j < len(path) and depth:
+                depth += {"(": 1, ")": -1}.get(path[j], 0)
+                j += 1
+            if depth:                          # unbalanced: not ours to rewrite
+                out.append(path[i:])
+                break
+            out.append("{}")
+            i = j
+        else:
+            out.append(path[i])
+            i += 1
+    return "".join(out)
+
+
 def _shape(path: str) -> str:
     """Canonical method-agnostic path shape: strip query, collapse params to {}."""
     path = path.split("?", 1)[0]
-    path = re.sub(r"\\\(\w+\)", "{}", path)        # Swift interpolation \(x) -> {}
+    path = _collapse_interpolation(path)
     path = re.sub(r"\{[^}]+\}", "{}", path)        # named template {x} -> {}
     return path.rstrip("/")
 

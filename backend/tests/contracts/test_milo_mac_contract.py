@@ -309,6 +309,24 @@ def test_invariant_settings_payloads(pair_key):
         )
 
 
+@pytest.mark.parametrize("pair_key", ["multiroom/client_state_changed", "multiroom/zone_changed"])
+def test_invariant_multiroom_payloads(pair_key):
+    """The registry events must keep the top-level keys Milo-Mac reads.
+
+    Presence only: `client` and `zone` are `Dict[str, Any]` on the backend and
+    are decoded by MultiroomModels.swift, which is not vendored — so their
+    sub-fields are as opaque here as full_state.metadata is.
+    """
+    inv = _INVARIANTS[pair_key]
+    category, evt_type = pair_key.split("/")
+    cls = _sole_event_class(category, evt_type)
+
+    for key in inv["data_keys"]:
+        assert key in cls.model_fields, (
+            f"{cls.__name__} lost `{key}` — Milo-Mac reads it on {pair_key}."
+        )
+
+
 def test_all_payload_invariants_are_verified():
     """A new manifest invariant must not silently skip verification: this list
     mirrors the test functions above (routing/multiroom_error is presence-only,
@@ -320,6 +338,8 @@ def test_all_payload_invariants_are_verified():
         "settings/volume_limits_changed",
         "settings/dock_apps_changed",
         "routing/multiroom_error",
+        "multiroom/client_state_changed",
+        "multiroom/zone_changed",
     }
     assert set(_INVARIANTS) == verified, (
         "payload_invariants changed in the manifest — add/remove the matching "
