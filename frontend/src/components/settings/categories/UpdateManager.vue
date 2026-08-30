@@ -88,32 +88,36 @@
                     <span class="program-name heading-4">{{ getProgramDisplayName(program, key) }}</span>
                     <span class="program-version text-mono">
                       {{ getVersionLabel(key) }} {{ getLocalInstalledVersion(program) || t('updates.notAvailable') }}
-                      <template
-                        v-if="program.update_available && !isLocalUpdateCompleted(key)">
-                        <span class="version-new">> {{ getLocalLatestVersion(program) }}</span>
-                      </template>
-                      <!-- What upstream has released past the validated version.
-                           Never --color-brand: brand means "actionable update",
-                           and this one is deliberately not on offer. -->
-                      <span v-if="getUpstreamAhead(program)" class="program-upstream text-mono-small">
-                        {{ t('updates.upstream') }} {{ getUpstreamAhead(program) }}
-                      </span>
+                      <span v-if="rows[key].update" class="version-new">> {{ rows[key].update.version }}</span>
                     </span>
                   </div>
 
-                  <!-- Update button (loading state during update) -->
-                  <Button
-                    v-if="isLocalUpdating(key) || debugForceUpdating || (program.update_available && canUpdateLocal(key) && !isLocalUpdateCompleted(key))"
-                    size="small" variant="brand" class="program-button"
-                    :loading="isLocalUpdating(key) || debugForceUpdating"
-                    @click="startLocalUpdate(key)"
-                    :disabled="debugForceUpdating || isAnyUpdateInProgress()">
-                    {{ (isLocalUpdating(key) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
-                  </Button>
-                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date"
-                    disabled>
-                    {{ t('updates.upToDate') }}
-                  </Button>
+                  <div class="program-actions">
+                    <!-- One button for both kinds of update: the manifest's
+                         version, and what upstream published past it. Which one
+                         it is comes from the backend, never from a comparison
+                         here. -->
+                    <Button
+                      v-if="isLocalUpdating(key) || debugForceUpdating || (rows[key].update && canUpdateLocal(key))"
+                      size="small" variant="brand" class="program-button"
+                      :loading="isLocalUpdating(key) || debugForceUpdating"
+                      @click="startLocalUpdate(key, rows[key].update?.target)"
+                      :disabled="debugForceUpdating || isAnyUpdateInProgress()">
+                      {{ (isLocalUpdating(key) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                    </Button>
+                    <!-- Only on a unit deliberately moved past the manifest —
+                         and then it is the only thing saying so. -->
+                    <Button v-if="rows[key].revertTo" size="small" variant="background-strong"
+                      class="program-button"
+                      @click="startLocalUpdate(key, 'validated')"
+                      :disabled="debugForceUpdating || isAnyUpdateInProgress()">
+                      {{ t('updates.revertTo', { version: rows[key].revertTo }) }}
+                    </Button>
+                    <Button v-if="!rows[key].update && !rows[key].revertTo && !isLocalUpdating(key) && !debugForceUpdating"
+                      size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                      {{ t('updates.upToDate') }}
+                    </Button>
+                  </div>
                 </div>
               </template>
             </div>
@@ -408,13 +412,32 @@ function getLocalLatestVersion(program) {
   return program.latest?.version || null;
 }
 
-// The upstream release, when it is newer than the validated one. Backend-driven
-// (`latest.upstream.ahead`): the frontend never compares versions itself, and
-// `ahead` is false — not absent — for the normal case where the set is current.
-function getUpstreamAhead(program) {
-  const upstream = program.latest?.upstream;
-  return upstream?.ahead ? upstream.version : null;
-}
+// The two decisions a program row can offer, taken once per program.
+//
+// `update` is the release the brand button installs and the target it asks the
+// backend for: what upstream published past the manifest when there is such a
+// release, otherwise the manifest's own version. `revertTo` is the version the
+// return button goes back to, and it exists only while the unit runs something
+// past the manifest — `latest.validated` is present for that case alone.
+//
+// Every one of those is decided by the backend. Nothing here compares two
+// versions: doing it on both sides is how the two answers come to disagree.
+const rows = computed(() => {
+  const out = {};
+  for (const [key, program] of Object.entries(localPrograms.value)) {
+    const upstream = program.latest?.upstream;
+    let update = null;
+    if (!isLocalUpdateCompleted(key)) {
+      if (upstream?.ahead) {
+        update = { target: 'upstream', version: upstream.version };
+      } else if (program.update_available) {
+        update = { target: 'validated', version: getLocalLatestVersion(program) };
+      }
+    }
+    out[key] = { update, revertTo: program.latest?.validated?.version || null };
+  }
+  return out;
+});
 
 // === LIFECYCLE ===
 
@@ -504,17 +527,15 @@ onMounted(async () => {
   color: var(--color-text-secondary);
 }
 
-.program-upstream {
-  display: block;
-  color: var(--color-text-light);
-}
-
 .satellite-name {
   color: var(--color-text-secondary);
 }
 
-.program-button {
-  justify-self: end;
+.program-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-02);
 }
 
 /* Override loading appearance to show disabled style when updating */
@@ -623,8 +644,12 @@ onMounted(async () => {
     height: 44px !important;
   }
 
-  .program-button {
+  .program-actions {
     width: 100%;
+  }
+
+  .program-button {
+    flex: 1;
   }
 
   /* Hide "Up to date" button and skeleton button on mobile */

@@ -357,7 +357,7 @@
     "upToDate": "已是最新",
     "dependenciesHint": "安装应用及与之一同验证的程序版本。",
     "clientsHint": "Milō Clients 也会一并更新。",
-    "upstream": "上游"
+    "revertTo": "回到 {version}"
   },
   "info": {
     "temperature": "温度",
