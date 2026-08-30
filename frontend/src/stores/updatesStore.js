@@ -80,6 +80,11 @@ export const useUpdatesStore = defineStore('updates', () => {
     if (result.ok) {
       localPrograms.value = result.data.programs || {};
       reconcileActiveUpdates(localUpdateStates, result.data.active_updates || []);
+      // "Completed" means an update finished and this list had not caught up
+      // yet — it suppresses one stale frame, nothing more. Kept past the
+      // refetch it would outlive its purpose and hide the row's real state:
+      // after returning to the manifest, the release upstream is offering again.
+      localCompletedUpdates.value.clear();
     } else {
       localProgramsError.value = true;
     }
@@ -109,7 +114,10 @@ export const useUpdatesStore = defineStore('updates', () => {
 
   async function startUpdate(states, id, url, message, body = null) {
     if (states.value[id]?.updating) return;
-    states.value[id] = { updating: true };
+    // The target rides along so the button that was pressed can say what it is
+    // doing. A client that only learned of the update from the server's
+    // in-flight set has no target and falls back to the generic label.
+    states.value[id] = { updating: true, target: body?.target };
     const result = await apiCall.post(url, body, {
       category: 'updates',
       message,
@@ -163,6 +171,9 @@ export const useUpdatesStore = defineStore('updates', () => {
   function isLocalUpdating(programKey) {
     return localUpdateStates.value[programKey]?.updating || false;
   }
+  function localUpdateTarget(programKey) {
+    return localUpdateStates.value[programKey]?.target || null;
+  }
   function isLocalUpdateCompleted(programKey) {
     return localCompletedUpdates.value.has(programKey);
   }
@@ -188,9 +199,24 @@ export const useUpdatesStore = defineStore('updates', () => {
     return satelliteCamillaCompletedUpdates.value.has(macId);
   }
 
-  function isAnyUpdateInProgress() {
-    return [localUpdateStates, satelliteUpdateStates, satelliteAppUpdateStates, satelliteCamillaUpdateStates]
-      .some(states => Object.values(states.value).some(state => state.updating));
+  // What a running update must block, and no more. The app update blocks
+  // everything: it reconciles the whole dependency set, pushes the client app
+  // to the fleet and reboots. Local programs block each other because they
+  // share dpkg/apt through the deploy wrapper. A satellite is a separate
+  // machine — it blocks only its own three buttons, which its API enforces
+  // anyway (409 while one runs).
+  function isMiloUpdating() {
+    return localUpdateStates.value['milo']?.updating || false;
+  }
+
+  function isLocalUpdateBusy() {
+    return Object.values(localUpdateStates.value).some(state => state.updating);
+  }
+
+  function isSatelliteBusy(macId) {
+    return isSatelliteUpdating(macId)
+      || isSatelliteAppUpdating(macId)
+      || isSatelliteCamillaUpdating(macId);
   }
 
   // === WEBSOCKET HANDLERS ===
@@ -297,7 +323,10 @@ export const useUpdatesStore = defineStore('updates', () => {
     isSatelliteCamillaUpdating,
     isSatelliteCamillaUpdateCompleted,
     isSatelliteAwaitingReturn,
-    isAnyUpdateInProgress,
+    localUpdateTarget,
+    isMiloUpdating,
+    isLocalUpdateBusy,
+    isSatelliteBusy,
 
     // WebSocket handlers
     handleProgramUpdateProgress,
