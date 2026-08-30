@@ -33,6 +33,13 @@ _HTTP_TIMEOUT = 8
 _ITUNES_MIN_INTERVAL = 0.5  # polite spacing between calls (serialised by lock)
 _CACHE_MAX = 500
 
+# The size _upscale asks iTunes for, and therefore the width of every URL this
+# module returns. Declared rather than inlined because a consumer has to be able
+# to say how wide a resolved cover is: DLNA publishes it as album_art_width, and
+# the frontend's untrusted-sender gate judges a cover of unstated size as if it
+# had none -- which would make a resolved cover invisible.
+RESOLVED_ARTWORK_PX = 600
+
 # Fraction of query tokens that must appear in the matched field for it to count
 # as the same artist / name. 0.6 tolerates extra credits ("A & B", remaster
 # tags) and one missing word in a long title, while still requiring a 2-token
@@ -195,5 +202,6 @@ class ArtworkResolver:
 
     @staticmethod
     def _upscale(url: str) -> str:
-        """Upgrade the default 100×100 iTunes thumbnail to 600×600."""
-        return url.replace("100x100bb", "600x600bb").replace("100x100", "600x600")
+        """Upgrade the default 100×100 iTunes thumbnail to RESOLVED_ARTWORK_PX."""
+        big = f"{RESOLVED_ARTWORK_PX}x{RESOLVED_ARTWORK_PX}"
+        return url.replace("100x100bb", f"{big}bb").replace("100x100", big)

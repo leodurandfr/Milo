@@ -29,6 +29,7 @@ from PIL import Image
 
 from async_upnp_client.utils import CaseInsensitiveDict
 
+from backend.shared.artwork_resolver import RESOLVED_ARTWORK_PX
 from backend.sources.dlna.metadata_reader import DlnaBridge, _to_ms
 from backend.sources.dlna.server_resolver import MediaServerResolver, host_of
 from backend.sources.dlna.source import DLNA_CLIENT_NAME, DlnaSource
@@ -224,10 +225,12 @@ async def test_a_new_track_does_not_inherit_the_previous_cover():
     await src._on_artwork("http://nas/spaces.jpg")
     assert src.metadata["album_art_url"].startswith("/api/dlna/artwork?v=")
 
+    src._artwork.resolve = AsyncMock(return_value=None)  # iTunes finds nothing
     await src._on_metadata_update({"title": "Toilet Brush"})
     # What drops it is the bridge saying this track has no art, not the track
     # change itself — the change only starts the hold (see the two tests below).
     await src._on_artwork(None)
+    await _let_the_lookup_run()
 
     assert src.metadata["title"] == "Toilet Brush"
     assert "album_art_url" not in src.metadata
@@ -264,6 +267,95 @@ async def test_a_cover_still_in_flight_does_not_land_on_the_next_track():
     assert src.metadata["title"] == "Toilet Brush"
     assert "album_art_url" not in src.metadata
     assert src.get_artwork() is None
+
+
+async def _let_the_lookup_run() -> None:
+    """Give the spawned text lookup its turn.
+
+    _no_cover_from_sender hands it to `_bg`, so nothing has happened yet when
+    the call that triggered it returns — and the suite's off-host guard would
+    otherwise be what answers iTunes.
+    """
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_a_track_the_sender_sends_no_cover_for_gets_one_looked_up():
+    """A fully tagged track must not land on the status card for want of art.
+
+    Measured on a live control point: DIDL-Lite carrying title, artist and
+    album and no <upnp:albumArtURI> at all — so Milō knew everything about the
+    track and drew a generic "DLNA" card. Whether a cover is published is the
+    control point's choice, not the media server's, so no choice of server
+    fixes it; the track text is the thing that is always there. Same fallback
+    Bluetooth (AVRCP carries no image) and Radio (ICY carries none) run on.
+
+    The width is asserted because the feature is invisible without it:
+    useRichDisplay reads album_art_width, and a cover of unstated size is
+    judged exactly as if there were none.
+    """
+    src = DlnaSource()
+    src._artwork.resolve = AsyncMock(return_value="https://itunes/600x600bb.jpg")
+
+    await src._on_metadata_update(
+        {"title": "Everyday", "artist": "Jamiroquai", "album": "Travelling Without Moving"}
+    )
+    await src._on_artwork(None)
+    await _let_the_lookup_run()
+
+    src._artwork.resolve.assert_awaited_once_with(
+        "Jamiroquai", "Everyday", "Travelling Without Moving"
+    )
+    assert src.metadata["album_art_url"] == "https://itunes/600x600bb.jpg"
+    assert src.metadata["album_art_width"] == RESOLVED_ARTWORK_PX
+
+
+@pytest.mark.asyncio
+async def test_the_senders_own_cover_wins_over_a_looked_up_one():
+    """The lookup is a fallback, not a preference. The server knows which
+    edition is playing and iTunes is guessing from text, so a cover that came
+    with the track must never be displaced by one Milō found for it."""
+    src = DlnaSource()
+    src._artwork.resolve = AsyncMock(return_value="https://itunes/600x600bb.jpg")
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
+    await src._on_artwork(None)
+    await _let_the_lookup_run()
+    assert src.metadata["album_art_url"] == "https://itunes/600x600bb.jpg"
+
+    # The renderer publishes one after all — a later GENA event, a slow server.
+    src._fetch_artwork = AsyncMock(return_value=_PNG)
+    await src._on_artwork("http://nas/spaces.jpg")
+
+    assert src.metadata["album_art_url"].startswith("/api/dlna/artwork?v=")
+    assert src.metadata["album_art_width"] == 600
+
+
+@pytest.mark.asyncio
+async def test_a_looked_up_cover_does_not_follow_the_next_track():
+    """A cover found for one track must not caption the one after it.
+
+    The lookup is keyed to the track it was made for and paired again at
+    publish time, which is what enforces this: a track change alone publishes
+    a state, and the previous track's cover is exactly what would ride out on
+    it. Same defect as the sender's own cover outliving its track, reached
+    from the other side.
+    """
+    src = DlnaSource()
+    src._artwork.resolve = AsyncMock(return_value="https://itunes/600x600bb.jpg")
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
+    await src._on_artwork(None)
+    await _let_the_lookup_run()
+    assert src.metadata["album_art_url"] == "https://itunes/600x600bb.jpg"
+
+    # The next track, before any lookup of its own has answered.
+    src._artwork.resolve = AsyncMock(return_value=None)
+    await src._on_metadata_update(
+        {"title": "Toilet Brush", "artist": "Nils Frahm", "album": "Spaces"}
+    )
+
+    assert src.metadata["title"] == "Toilet Brush"
+    assert "album_art_url" not in src.metadata
 
 
 @pytest.mark.asyncio
@@ -314,8 +406,10 @@ async def test_a_fetch_that_fails_releases_the_held_cover():
     assert "album_art_url" in src.metadata
 
     src._fetch_artwork = AsyncMock(return_value=None)
+    src._artwork.resolve = AsyncMock(return_value=None)
     await src._on_metadata_update({"title": "Toilet Brush", "artist": "Nils Frahm", "album": "Spaces"})
     await src._on_artwork("http://nas/brush.jpg")
+    await _let_the_lookup_run()
 
     assert "album_art_url" not in src.metadata
     assert "album_art_width" not in src.metadata
