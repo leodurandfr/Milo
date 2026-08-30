@@ -67,13 +67,8 @@
         </div>
       </SettingsSection>
 
-      <!-- Section 2: the individual programs — a maintainer surface.
-           Collapsed by default: since every version here is the one declared in
-           dependencies.env, these rows only ever move when the Milō update above
-           moves them. Local state, not a setting: it is a disclosure, and
-           persisting it would invent a preference nobody asked for. -->
-      <ToggleSection :title="t('updates.programsTitle')" :enabled="showPrograms"
-        @change="showPrograms = $event">
+      <!-- Section 2: the individual programs — a maintainer surface. -->
+      <SettingsSection :title="t('updates.programsTitle')">
         <div class="crossfade-wrapper">
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
@@ -124,7 +119,7 @@
             </div>
           </Transition>
         </div>
-      </ToggleSection>
+      </SettingsSection>
 
       <!-- Section 3: Satellite Programs (error) -->
       <SettingsSection v-if="isMultiroomEnabled && satellitesError"
@@ -278,7 +273,6 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUpdatesStore } from '@/stores/updatesStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 function getProgramIcon(programKey) {
   const iconMap = {
@@ -376,9 +370,6 @@ function isSatelliteLoading(macId) {
     || isSatelliteAppUpdating(macId)
     || isSatelliteCamillaUpdating(macId);
 }
-
-// Advanced surface, collapsed on open. See the template comment above it.
-const showPrograms = ref(false);
 
 // Debug: toggle via console with window.__miloDebugUpdating(true/false)
 const debugForceUpdating = ref(false);
