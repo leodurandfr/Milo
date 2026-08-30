@@ -1,5 +1,5 @@
 {
-  "_about": "Wire contract consumed by Milo-Mac (github.com/leodurandfr/Milo-Mac), a SECOND API client beyond frontend/. Milo-Mac is a separate macOS app, not in this checkout, with no API versioning: if the backend drops a route or WS event listed here, Milo-Mac breaks silently at runtime. This manifest is the SOURCE OF TRUTH for that contract. Re-synced 2026-06-15 from the vendored snapshot under vendor/milo-mac/ (MiloAPIService.swift = REST, WebSocketService.swift = WS). test_milo_mac_contract.py enforces TWO things offline on every pytest run: the backend still serves every route/event here, AND this manifest matches the vendored snapshot's surface EXACTLY (so it can't silently drift from the app it protects). The non-blocking CI job check_milo_mac_freshness.py re-clones the real Milo-Mac and warns when the vendored snapshot has fallen behind upstream. Update this file + refresh vendor/milo-mac/ together, CONSCIOUSLY, in one commit when Milo-Mac evolves.",
+  "_about": "Wire contract consumed by Milo-Mac (github.com/leodurandfr/Milo-Mac), a SECOND API client beyond frontend/. Milo-Mac is a separate macOS app, not in this checkout, with no API versioning: if the backend drops a route or WS event listed here, Milo-Mac breaks silently at runtime. This manifest is the SOURCE OF TRUTH for that contract. Re-synced 2026-08-30 from the vendored snapshot under vendor/milo-mac/ (MiloAPIService.swift = REST, WebSocketService.swift = WS). test_milo_mac_contract.py enforces TWO things offline on every pytest run: the backend still serves every route/event here, AND this manifest matches the vendored snapshot's surface EXACTLY (so it can't silently drift from the app it protects). The non-blocking CI job check_milo_mac_freshness.py re-clones the real Milo-Mac and warns when the vendored snapshot has fallen behind upstream. Update this file + refresh vendor/milo-mac/ together, CONSCIOUSLY, in one commit when Milo-Mac evolves.",
 
   "rest": [
     { "method": "GET",  "path": "/api/audio/state",                  "consumer": "MiloAPIService.fetchState" },
@@ -7,6 +7,14 @@
     { "method": "PUT",  "path": "/api/routing/multiroom",            "consumer": "MiloAPIService.setMultiroom" },
     { "method": "GET",  "path": "/api/volume/state",                 "consumer": "MiloAPIService.getVolumeStatus" },
     { "method": "POST", "path": "/api/volume/adjust",                "consumer": "MiloAPIService.adjustVolumeDb" },
+    { "method": "PATCH", "path": "/api/volume/client/mac/{mac_url}", "consumer": "MiloAPIService.setClientVolume",
+      "note": "Body {volume_db}. The MAC travels WITHOUT colons in the path (dca6327ed343) while every response carries them — Milo-Mac strips them in macForURL(). The backend answers 400 outside the configured limits instead of clamping, so Milo-Mac clamps on its cached limits first." },
+    { "method": "PATCH", "path": "/api/volume/client/mac/{mac_url}/mute", "consumer": "MiloAPIService.setClientMute",
+      "note": "Body {mute}." },
+    { "method": "PATCH", "path": "/api/volume/zone/{zone_id}",       "consumer": "MiloAPIService.applyZoneDelta",
+      "note": "Body {delta_db} — a zone-wide DELTA the backend applies atomically, emitting a single volume_changed. Milo-Mac deliberately does not loop per-client PATCHes here." },
+    { "method": "GET",  "path": "/api/multiroom/state",              "consumer": "MiloAPIService.fetchMultiroomTopology",
+      "note": "Zone membership comes from here (Client.zone_id / Zone.client_ids); Milo-Mac never reconstructs it from equalizer groups the way frontend/ does. Decoded by MultiroomTopology(json:) in MultiroomModels.swift, which is NOT part of the vendored pair." },
     { "method": "PUT",  "path": "/api/equalizer/target/local/enabled", "consumer": "MiloAPIService.setEqualizer",
       "note": "Calls the {target} route with the literal target 'local'. The backend route is templated /api/equalizer/target/{target}/enabled." },
     { "method": "GET",  "path": "/api/settings/bulk",                "consumer": "MiloAPIService.fetchBulkSettings",
@@ -28,7 +36,9 @@
       { "category": "routing",   "type": "multiroom_error",      "consumer": "didReceiveMultiroomTransitionComplete(success: false)" },
       { "category": "settings",  "type": "volume_limits_changed", "consumer": "handleVolumeLimitsChange",
         "note": "Emitted as a typed VolumeLimitsChanged event through api/settings.py::_handle_setting_update." },
-      { "category": "settings",  "type": "dock_apps_changed",    "consumer": "handleDockAppsChange" }
+      { "category": "settings",  "type": "dock_apps_changed",    "consumer": "handleDockAppsChange" },
+      { "category": "multiroom", "type": "client_state_changed", "consumer": "handleMultiroomClientChange" },
+      { "category": "multiroom", "type": "zone_changed",         "consumer": "handleMultiroomZoneChange" }
     ],
 
     "payload_invariants": {
@@ -43,13 +53,22 @@
         "meaning": "boolean sibling of full_state; true marks the authoritative end of a routing transition (multiroom loading spinner completion)."
       },
       "volume_changed": {
-        "data_keys": ["state.global_volume_db", "state.mode", "multiroom_enabled"],
+        "data_keys": ["state.global_volume_db", "state.mode", "state.clients", "state.zones", "multiroom_enabled"],
         "fallback": "data.volume_db (Double or Int) when state is absent",
+        "multiroom_note": "state.clients and state.zones are the ONLY real-time feed for the per-client and per-zone volumes in Milo-Mac's multiroom submenu — no other event carries them. Their contents are decoded by MultiroomVolumes(volumeStateData:) in MultiroomModels.swift, outside the vendored pair, so only the two keys are pinned here.",
         "step_note": "step_mobile_db is NO LONGER consumed — Milo-Mac's keyboard step is a local setting (GlobalHotkeyManager.volumeDeltaDb). Do not re-couple to it."
       },
       "settings/volume_limits_changed": { "data_key": "limits", "subkeys": ["min_db", "max_db"] },
       "settings/dock_apps_changed": { "data_key": "config", "subkeys": ["enabled_apps"] },
-      "routing/multiroom_error": { "data_keys": [], "note": "presence only; no payload field is read" }
+      "routing/multiroom_error": { "data_keys": [], "note": "presence only; no payload field is read" },
+      "multiroom/client_state_changed": {
+        "data_keys": ["mac_id", "client"],
+        "note": "`client` is ABSENT rather than null when the client leaves the registry (EXCLUDE_NONE), which is exactly what Milo-Mac's optional cast reads as nil. Its contents are decoded by MultiroomClient(json:) outside the vendored pair, so presence only is pinned."
+      },
+      "multiroom/zone_changed": {
+        "data_keys": ["zone_id", "zone", "mac_id"],
+        "note": "Milo-Mac reads zone_id, zone, and the PRESENCE of mac_id — it does not read `action`, and derives its member-removed case from `zone == nil && mac_id != nil`. MultiroomZoneChanged's own docstring says that discriminator is wrong: `deleted` carries the zone dict too, so zone-presence says nothing about what happened. Pinned here as what Milo-Mac reads TODAY; the fix belongs in Milo-Mac (branch on `action`), never in a backend shim."
+      }
     },
 
     "metadata_is_opaque": "Milo-Mac reads full_state.metadata as an opaque [String: Any] dict. NO metadata SUB-field is coupled (uri, client_count, album_art_height, track_position/duration, etc.). An over-emitted metadata sub-field with no frontend/src/ consumer is therefore safe to drop without touching this manifest.",
