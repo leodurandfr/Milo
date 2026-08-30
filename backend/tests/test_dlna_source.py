@@ -1251,12 +1251,19 @@ class TestPolledProgress:
 
         src.broadcast_position_update.assert_called_once_with(3_000, 220_000)
 
-    async def test_a_track_change_drops_the_previous_playhead(self):
-        """Position and duration belong to the track that ended.
+    async def test_a_track_change_keeps_the_playhead_until_a_real_one_lands(self):
+        """Publishing no playhead is worse than briefly publishing a stale one.
 
-        Republished with the new track's title they are read as its own, and
-        the bar opens near the end of something that just started. Dropping
-        them shows no bar for the round trip it takes to poll a real one.
+        ProgressBar is gated on `duration > 0` and carries a mount animation
+        (`animateIn`), so a track change that dropped position and duration made
+        the bar vanish and spring back in — while the title beside it changed
+        without a flicker. Seen on the unit and reverted; the numbers stay for
+        the one round trip the bridge's own poll takes to answer, and the jump
+        broadcast puts the real ones out the moment they arrive.
+
+        Dropping them also bought nothing: useSourceProgress ignores an absent
+        position (`newPosition === undefined` returns early), so the bar went on
+        drawing the old one regardless.
         """
         src = _dlna_source()
         await src._on_progress(220_000, 263_000)
@@ -1265,8 +1272,8 @@ class TestPolledProgress:
             {"title": "Travelling Without Moving", "artist": "Jamiroquai", "album": "TWM"}
         )
 
-        assert "position" not in src.metadata
-        assert "duration" not in src.metadata
+        assert src.metadata["position"] == 220_000
+        assert src.metadata["duration"] == 263_000
 
     async def test_a_track_with_no_duration_is_dropped(self):
         """An internet radio pushed over DLNA has none; taken as 0 the player

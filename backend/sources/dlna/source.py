@@ -173,27 +173,25 @@ class DlnaSource(BaseAudioSource):
     # === Metadata Callbacks (fed by DlnaBridge) ===
 
     async def _on_metadata_update(self, metadata: Dict[str, Any]) -> None:
-        """Handle track metadata from GENA DIDL-Lite (title, artist, album)."""
+        """Handle track metadata from GENA DIDL-Lite (title, artist, album).
+
+        Nothing belonging to the previous track is dropped here, and both
+        omissions are deliberate — each field is what a piece of the UI is
+        gated on, so publishing none of it removes that piece rather than
+        correcting it. The cover gates the rich player (see the publish). The
+        playhead gates ProgressBar, on `duration > 0`, and that bar carries a
+        mount animation: dropping the playhead was tried and made it vanish and
+        spring back on every track change, while the title beside it changed
+        without a flicker.
+
+        Neither is left wrong for long, which is the other half of the trade:
+        the bridge polls the playhead on this same change, and a jump is
+        broadcast the moment it lands instead of waiting out the rate limit.
+        """
         track = {
             key: metadata.get(key, self._metadata.get(key, ""))
             for key in TRACK_IDENTITY_KEYS
         }
-        if any(track[key] != self._metadata.get(key, "") for key in track):
-            # The playhead belongs to the track that just ended. Left in place
-            # it is published as this one's: measured on the unit, a new track
-            # opened at 220 s of 263 s — the previous track's position and
-            # duration — and stayed wrong for 12.7 s, until a poll and the
-            # broadcast rate limit both allowed a correction. Dropping them
-            # shows no bar rather than a false one, and the poll the bridge
-            # fires on this same change fills it within a round trip.
-            #
-            # The cover is deliberately NOT dropped here, for the opposite
-            # reason: it is what the rich player is gated on, so its absence
-            # unmounts the player rather than blanking a bar. See the publish.
-            self._metadata.pop("position", None)
-            self._metadata.pop("duration", None)
-            self._last_poll_at = None
-
         self._metadata.update({**track, "is_playing": self._is_playing})
         self._device_connected = True
         self._update_connection_state()
