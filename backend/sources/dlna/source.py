@@ -148,12 +148,15 @@ class DlnaSource(BaseAudioSource):
             key: metadata.get(key, self._metadata.get(key, ""))
             for key in TRACK_IDENTITY_KEYS
         }
-        # A cover belongs to the track it was fetched for: kept, it is what the
-        # player draws for the whole of the next one. The bridge re-dispatches
-        # the art URL on every track change, so a track that has one gets it
-        # straight back and a track that has none shows none.
-        if any(track[key] != self._metadata.get(key, "") for key in track):
-            self._clear_artwork()
+        # The cover is deliberately NOT dropped here. A cover belongs to the
+        # track it was fetched for, but the fetch behind the replacement runs
+        # up to 10 s, and a state published with no album_art_url in the
+        # meantime is read by the frontend's untrusted-sender gate as "this
+        # sender pushes no real cover": AudioPlayerFull is swapped for the
+        # status card and back, for the length of an HTTP fetch. So the cover
+        # in hand is held until the bridge says what replaces it — a URL, or
+        # None for a track that has none. DlnaBridge dispatches both, which is
+        # what makes the answer deterministic here where AirPlay can only wait.
 
         self._metadata.update({**track, "is_playing": self._is_playing})
         self._device_connected = True
@@ -202,7 +205,7 @@ class DlnaSource(BaseAudioSource):
         return tuple(self._metadata.get(key, "") for key in TRACK_IDENTITY_KEYS)
 
     @handle_errors(default=None)
-    async def _on_artwork(self, url: str) -> None:
+    async def _on_artwork(self, url: Optional[str]) -> None:
         """Fetch the DIDL-Lite album-art URL, cache it, and serve via endpoint.
 
         Also decodes pixel dimensions so the frontend can gate the rich player on
@@ -218,9 +221,18 @@ class DlnaSource(BaseAudioSource):
         cover here costs nothing — the bridge re-emits the art URL on every
         track change (see _on_metadata_update).
         """
+        if url is None:
+            self._drop_held_cover()
+            return
+
         track = self._track_key()
         data = await self._fetch_artwork(url)
         if not data:
+            # The fetch broke the promise the hold was granted on. The track
+            # having moved on is the one case to leave alone: the newer track
+            # has its own dispatch, and it owns the cover now.
+            if self._track_key() == track:
+                self._drop_held_cover()
             return
 
         if self._track_key() != track:
@@ -243,6 +255,19 @@ class DlnaSource(BaseAudioSource):
         self._metadata["album_art_url"] = f"/api/dlna/artwork?v={new_hash}"
         self._metadata["album_art_width"] = width
         self._logger.info(f"DLNA artwork {width}x{height} ({self._artwork_mime})")
+        self._update_connection_state()
+
+    def _drop_held_cover(self) -> None:
+        """Release the cover held across a track change, and publish that.
+
+        The hold in _on_metadata_update is granted on the promise that
+        something will replace it. This is what keeps the promise honest: with
+        nothing coming, what is held belongs to the previous track and would
+        otherwise be what the player draws for the whole of this one.
+        """
+        if not self._artwork_data:
+            return
+        self._clear_artwork()
         self._update_connection_state()
 
     @handle_errors(default=None)

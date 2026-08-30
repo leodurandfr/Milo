@@ -61,7 +61,7 @@ class DlnaBridge:
         description_url: str,
         on_metadata: Callable[[Dict[str, Any]], Any],
         on_play_state: Callable[[str], Any],
-        on_artwork: Callable[[str], Any],
+        on_artwork: Callable[[Optional[str]], Any],
         on_media_origin: Callable[[str], Any],
         on_progress: Callable[[int, int], Any],
         on_connection: Callable[[str], Any],
@@ -164,11 +164,13 @@ class DlnaBridge:
         artist = dmr.media_artist or dmr.media_album_artist or ""
         album = dmr.media_album_name or ""
         meta = (title, artist, album)
-        if any(meta) and meta != self._last_meta:
+        track_changed = bool(any(meta) and meta != self._last_meta)
+        if track_changed:
             self._last_meta = meta
-            # The source drops the cover with the track it belonged to, so the
-            # new track's art has to be dispatched again even when the renderer
-            # reports the very same URL — two tracks off one album do.
+            # The source holds the cover across a track change rather than
+            # dropping it, so the new track's art has to be dispatched again
+            # even when the renderer reports the very same URL — two tracks off
+            # one album do.
             self._last_art = None
             self._bg.spawn(
                 self._on_metadata({"title": title, "artist": artist, "album": album}),
@@ -179,6 +181,12 @@ class DlnaBridge:
         if art and art != self._last_art:
             self._last_art = art
             self._bg.spawn(self._on_artwork(art), label="artwork")
+        elif track_changed:
+            # A new track the renderer publishes no art for. Saying so is the
+            # only way the source learns that the cover it is holding has
+            # nothing coming to replace it; without it that cover outlives the
+            # track it belongs to, which is what the holding traded away.
+            self._bg.spawn(self._on_artwork(None), label="artwork")
 
         # Where the audio came from. CurrentTrackURI is the content itself and
         # is the right answer; the art URL is the standby for a renderer that
