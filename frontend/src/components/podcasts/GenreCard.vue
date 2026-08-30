@@ -10,33 +10,7 @@
 <script setup>
 import { computed } from 'vue'
 
-import comedyImg from '@/assets/podcasts/genres/comedy.jpg'
-import societyCultureImg from '@/assets/podcasts/genres/society_and_culture.jpg'
-import newsImg from '@/assets/podcasts/genres/news.jpg'
-import trueCrimeImg from '@/assets/podcasts/genres/true_crime.jpg'
-import businessImg from '@/assets/podcasts/genres/business.jpg'
-import educationImg from '@/assets/podcasts/genres/education.jpg'
-import healthImg from '@/assets/podcasts/genres/health_and_fitness.jpg'
-import sportsImg from '@/assets/podcasts/genres/sports.jpg'
-import artsImg from '@/assets/podcasts/genres/arts.jpg'
-import scienceImg from '@/assets/podcasts/genres/science.jpg'
-import tvFilmImg from '@/assets/podcasts/genres/tv_and_film.jpg'
-import musicImg from '@/assets/podcasts/genres/music.jpg'
-
-const GENRE_IMAGES = {
-  'PODCASTSERIES_COMEDY': comedyImg,
-  'PODCASTSERIES_SOCIETY_AND_CULTURE': societyCultureImg,
-  'PODCASTSERIES_NEWS': newsImg,
-  'PODCASTSERIES_TRUE_CRIME': trueCrimeImg,
-  'PODCASTSERIES_BUSINESS': businessImg,
-  'PODCASTSERIES_EDUCATION': educationImg,
-  'PODCASTSERIES_HEALTH_AND_FITNESS': healthImg,
-  'PODCASTSERIES_SPORTS': sportsImg,
-  'PODCASTSERIES_ARTS': artsImg,
-  'PODCASTSERIES_SCIENCE': scienceImg,
-  'PODCASTSERIES_TV_AND_FILM': tvFilmImg,
-  'PODCASTSERIES_MUSIC': musicImg
-}
+import { genreArtwork } from '@/constants/podcastGenres'
 
 const props = defineProps({
   label: {
@@ -51,7 +25,7 @@ const props = defineProps({
 
 defineEmits(['click'])
 
-const genreImage = computed(() => GENRE_IMAGES[props.value])
+const genreImage = computed(() => genreArtwork(props.value))
 </script>
 
 <style scoped>

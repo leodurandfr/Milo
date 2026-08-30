@@ -93,6 +93,7 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { logger } from '@/services/logger'
+import { PODCAST_GENRE_IDS, genreSlug } from '@/constants/podcastGenres'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import GenreCard from './GenreCard.vue'
@@ -129,20 +130,9 @@ function isPodcastLoading(podcast) {
 const hasSubscriptions = computed(() => podcastStore.hasSubscriptions)
 const latestSubscriptionEpisodes = computed(() => podcastStore.latestSubscriptionEpisodes)
 
-const mainGenres = computed(() => [
-  { value: 'PODCASTSERIES_COMEDY', label: t('podcasts.genres.comedy') },
-  { value: 'PODCASTSERIES_SOCIETY_AND_CULTURE', label: t('podcasts.genres.society_and_culture') },
-  { value: 'PODCASTSERIES_NEWS', label: t('podcasts.genres.news') },
-  { value: 'PODCASTSERIES_TRUE_CRIME', label: t('podcasts.genres.true_crime') },
-  { value: 'PODCASTSERIES_BUSINESS', label: t('podcasts.genres.business') },
-  { value: 'PODCASTSERIES_EDUCATION', label: t('podcasts.genres.education') },
-  { value: 'PODCASTSERIES_HEALTH_AND_FITNESS', label: t('podcasts.genres.health_and_fitness') },
-  { value: 'PODCASTSERIES_SPORTS', label: t('podcasts.genres.sports') },
-  { value: 'PODCASTSERIES_ARTS', label: t('podcasts.genres.arts') },
-  { value: 'PODCASTSERIES_SCIENCE', label: t('podcasts.genres.science') },
-  { value: 'PODCASTSERIES_TV_AND_FILM', label: t('podcasts.genres.tv_and_film') },
-  { value: 'PODCASTSERIES_MUSIC', label: t('podcasts.genres.music') }
-])
+const mainGenres = computed(() =>
+  PODCAST_GENRE_IDS.map(id => ({ value: id, label: t(`podcasts.genres.${genreSlug(id)}`) }))
+)
 
 function browseGenre(genreValue) {
   const genre = mainGenres.value.find(g => g.value === genreValue)
