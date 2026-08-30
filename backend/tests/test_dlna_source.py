@@ -34,9 +34,9 @@ from backend.sources.dlna.server_resolver import MediaServerResolver, host_of
 from backend.sources.dlna.source import DLNA_CLIENT_NAME, DlnaSource
 
 
-def _png() -> bytes:
+def _png(color: str = "navy", size: int = 600) -> bytes:
     buf = BytesIO()
-    Image.new("RGB", (600, 600), "navy").save(buf, format="PNG")
+    Image.new("RGB", (size, size), color).save(buf, format="PNG")
     return buf.getvalue()
 
 
@@ -225,6 +225,9 @@ async def test_a_new_track_does_not_inherit_the_previous_cover():
     assert src.metadata["album_art_url"].startswith("/api/dlna/artwork?v=")
 
     await src._on_metadata_update({"title": "Toilet Brush"})
+    # What drops it is the bridge saying this track has no art, not the track
+    # change itself — the change only starts the hold (see the two tests below).
+    await src._on_artwork(None)
 
     assert src.metadata["title"] == "Toilet Brush"
     assert "album_art_url" not in src.metadata
@@ -261,6 +264,91 @@ async def test_a_cover_still_in_flight_does_not_land_on_the_next_track():
     assert src.metadata["title"] == "Toilet Brush"
     assert "album_art_url" not in src.metadata
     assert src.get_artwork() is None
+
+
+@pytest.mark.asyncio
+async def test_the_cover_is_held_while_the_next_one_is_fetched():
+    """A track change must not blank the cover for the length of an HTTP fetch.
+
+    The bridge dispatches the metadata and the art as independent tasks and
+    _fetch_artwork runs up to 10 s, so this is the state published in between.
+    Dropping the cover there publishes no album_art_url, and useRichDisplay's
+    untrusted-sender gate reads a missing album_art_width as "this sender
+    pushes no real cover": AudioPlayerFull is swapped for the AudioSourceStatus
+    card and back, for seconds. Same defect as AirPlay's, whose gap is the
+    unpaired rtptime rather than a fetch.
+    """
+    src = DlnaSource()
+    src._fetch_artwork = AsyncMock(return_value=_PNG)
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
+    await src._on_artwork("http://nas/spaces.jpg")
+    held = src.metadata["album_art_url"]
+
+    await src._on_metadata_update({"title": "Toilet Brush", "artist": "Nils Frahm", "album": "Spaces"})
+
+    assert src.metadata["title"] == "Toilet Brush"
+    assert src.metadata["album_art_url"] == held
+    assert src.metadata["album_art_width"] == 600
+
+    # And the track's own cover, when the fetch lands, takes the hold's place.
+    src._fetch_artwork = AsyncMock(return_value=_png("crimson", 450))
+    await src._on_artwork("http://nas/brush.jpg")
+
+    assert src.metadata["album_art_url"] != held
+    assert src.metadata["album_art_width"] == 450
+
+
+@pytest.mark.asyncio
+async def test_a_fetch_that_fails_releases_the_held_cover():
+    """The hold is granted on the promise that something will replace it.
+
+    A fetch returning nothing — the DMS 404s, the host is gone — breaks that
+    promise, and a cover kept then is exactly the whole-track stale cover the
+    drop existed to prevent. Best-effort fetching makes this the common failure,
+    not an exotic one.
+    """
+    src = DlnaSource()
+    src._fetch_artwork = AsyncMock(return_value=_PNG)
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
+    await src._on_artwork("http://nas/spaces.jpg")
+    assert "album_art_url" in src.metadata
+
+    src._fetch_artwork = AsyncMock(return_value=None)
+    await src._on_metadata_update({"title": "Toilet Brush", "artist": "Nils Frahm", "album": "Spaces"})
+    await src._on_artwork("http://nas/brush.jpg")
+
+    assert "album_art_url" not in src.metadata
+    assert "album_art_width" not in src.metadata
+    assert src.get_artwork() is None
+
+
+def test_the_bridge_says_when_a_new_track_has_no_art():
+    """The source's half of the hold is worth nothing without this one.
+
+    It holds its cover across a track change and waits to be told what replaces
+    it. A bridge that only ever spoke when there WAS art would leave that hold
+    standing for the whole of a coverless track — the defect the hold trades
+    against, reintroduced through the other side.
+    """
+    bridge = _make_bridge()
+    bridge._dmr = _make_dmr(
+        transport_state="PLAYING", media_title="Says", media_artist="Nils Frahm",
+        media_image_url="http://nas/spaces.jpg",
+    )
+    bridge._dispatch_state()
+    # Non-triviality: a bridge dispatching no art at all would satisfy the
+    # assertion below for the wrong reason.
+    assert bridge._on_artwork.call_args.args == ("http://nas/spaces.jpg",)
+
+    bridge._on_artwork.reset_mock()
+    bridge._dmr = _make_dmr(
+        transport_state="PLAYING", media_title="Toilet Brush", media_artist="Nils Frahm",
+        media_image_url=None,
+    )
+    bridge._dispatch_state()
+
+    assert bridge._on_artwork.call_count == 1
+    assert bridge._on_artwork.call_args.args == (None,)
 
 
 @pytest.mark.asyncio
