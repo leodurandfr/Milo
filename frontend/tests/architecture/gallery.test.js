@@ -289,6 +289,36 @@ describe('component gallery playground', () => {
     expect(broken).toEqual([]);
   });
 
+  it('states a condition only on a control the descriptor has', () => {
+    // A `notes` entry is the one hand-written per-control line on a panel that is
+    // otherwise derived, and it exists because half the controls here are read
+    // only under a condition the panel cannot see — a branch another prop picks,
+    // a mode, a viewport, an animation that plays on the way out. Nothing else
+    // notices when the prop under a note is renamed away, and a note left behind
+    // then documents a control the reader cannot find.
+    const problems = [];
+    let noted = 0;
+
+    for (const [id, descriptor] of Object.entries(REGISTRY)) {
+      const controls = new Set([
+        ...describeProps(descriptor.component, descriptor.overrides || {}).map(prop => prop.name),
+        ...Object.keys(descriptor.slots || {}),
+        ...Object.keys(descriptor.presets || {}),
+        ...Object.keys(descriptor.state || {})
+      ]);
+
+      for (const [name, note] of Object.entries(descriptor.notes || {})) {
+        noted += 1;
+        if (!controls.has(name)) problems.push(`${id}.${name} (no such control)`);
+        if ((note || '').length < 40) problems.push(`${id}.${name} (thin note)`);
+      }
+    }
+
+    // A registry carrying none of them would pass vacuously.
+    expect(noted).toBeGreaterThan(5);
+    expect(problems).toEqual([]);
+  });
+
   it('gives an always-mounted primitive nothing the panel cannot bind', () => {
     // An `alwaysMounted` descriptor is rendered by the canvas outside the
     // selection, so it never receives `bound` props or resolved slots — args,
@@ -335,6 +365,27 @@ describe('component gallery playground', () => {
     // A required prop left unset renders a broken instance, and Vue only warns.
     // A preset counts: the canvas resolves one before the component mounts.
     expect(gaps).toEqual([]);
+  });
+
+  it('starts every enum on a value its own select offers', () => {
+    // The panel narrows an enum arg only when something writes to it, so a
+    // descriptor is free to open on a value its select does not carry: the
+    // control then looks operable, and the state it opened on is the one place
+    // it can never return to. That is how the genre tiles opened on a value the
+    // component could not resolve — an imageless default, and twelve options
+    // that all changed it for the better.
+    const stray = [];
+
+    for (const [id, descriptor] of Object.entries(REGISTRY)) {
+      for (const prop of describeProps(descriptor.component, descriptor.overrides || {})) {
+        if (prop.kind !== 'enum' || !prop.options?.length) continue;
+        const start = (descriptor.args || {})[prop.name];
+        if (start === undefined) continue; // unset is a value the panel keeps
+        if (!prop.options.includes(start)) stray.push(`${id}.${prop.name} (${start})`);
+      }
+    }
+
+    expect(stray).toEqual([]);
   });
 
   it('invents no store field the component does not read', () => {

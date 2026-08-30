@@ -251,7 +251,7 @@ export const ENTRIES = [
     id: 'Modal',
     group: 'structure',
     file: 'components/ui/Modal.vue',
-    summary: 'Teleported overlay that springs to its content height and provides modalRequestHeightDelta to descendants that change size.',
+    summary: 'Fixed overlay that springs to its content height and provides modalRequestHeightDelta to descendants that change size. It opens on isOpen *changing*, never on being mounted already true — so the playground starts closed, and ticking the box is what plays the entrance.',
   },
   {
     id: 'NavigationHeader',
@@ -318,7 +318,7 @@ export const ENTRIES = [
     group: 'layout',
     file: 'components/audio/AudioPlayerFull.vue',
     coupling: 'store',
-    summary: 'The player for the sources with nothing to browse (Spotify, CD, AirPlay, DLNA, Qobuz). Unlike AudioPlayer it reads unifiedAudioStore itself and sends its own commands, so the now-playing record sits in the State section rather than the props table, and the four booleans are the whole layout matrix. Its progress is gated on active_source matching the source prop — point them at different sources and the bar freezes, which is the guard useSourceProgress exists for.',
+    summary: 'The player for the sources with nothing to browse (Spotify, CD, AirPlay, DLNA, Qobuz). Unlike AudioPlayer it reads unifiedAudioStore itself and sends its own commands, so the now-playing record sits in the State section rather than the props table, and the booleans are two exclusive branches rather than four independent axes: showControls picks between the transport — which draws its own bar, seekable or not — and the receiver’s source bar, where showProgress alone decides whether a read-only bar sits above it. hideContent replaces the column outright, slot and all. Its progress is gated on active_source matching the source prop — point them at different sources and the bar freezes, which is the guard useSourceProgress exists for.',
   },
   {
     id: 'AudioSourceLayout',
