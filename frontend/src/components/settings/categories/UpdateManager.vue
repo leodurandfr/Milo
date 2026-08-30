@@ -188,7 +188,7 @@
                     <AppIcon name="milo-client" :size="48" class="program-icon" />
                     <span class="program-name heading-4">Milō Client</span>
                     <span class="program-version text-mono">
-                      milo-client {{ formatGitVersion(satelliteByMacId[client.mac_id].app_version) || t('updates.notAvailable') }}
+                      milo {{ formatGitVersion(satelliteByMacId[client.mac_id].app_version) || t('updates.notAvailable') }}
                       <template
                         v-if="satelliteByMacId[client.mac_id].app_update_available && !isSatelliteAppUpdateCompleted(client.mac_id)">
                         <span class="version-new">> {{ formatGitVersion(satelliteByMacId[client.mac_id].server_version) }}</span>
@@ -332,9 +332,12 @@ function getVersionLabel(key) {
 }
 
 // A satellite reports the version of the `milo-client/` tree it runs — a git
-// describe of the last commit that touched it. Two of those differ by their
-// hash long before the tag moves, so the hash is the part worth showing:
-// collapsing to the tag alone printed "0.1.0 > 0.1.0" on every real update.
+// describe, in this repo, of the last commit that touched it. It is a Milō
+// version, which is why the row prints it under `milo` and not `milo-client`:
+// it sits in the same numbering as the server's own row, and the two are meant
+// to be read against each other. Two of them differ by their hash long before
+// the tag moves, so the hash is the part worth showing: collapsing to the tag
+// alone printed "0.1.0 > 0.1.0" on every real update.
 //   "v0.1.0-1749-gc6247d94"       → "0.1.0 (c6247d94)"
 //   "v0.1.0-1749-gc6247d94-dirty" → "0.1.0 (c6247d94-dirty)"
 //   "v0.1.0"                      → "0.1.0"
