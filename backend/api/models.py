@@ -625,3 +625,13 @@ class ConfigurePendingClientRequest(BaseModel):
     @classmethod
     def validate_audio_id(cls, v):
         return _validate_configurable_audio_id(v)
+
+
+class ProgramUpdateRequest(BaseModel):
+    """Which release a program update installs.
+
+    "validated" is the version `dependencies.env` declares, and — when the unit
+    was moved past it — the return to that version. "upstream" is what GitHub
+    published beyond the manifest, installed to try it before the set is bumped.
+    """
+    target: Literal['validated', 'upstream']

@@ -9,7 +9,7 @@ import aiohttp
 import logging
 import os
 import re
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.helpers import compare_versions
@@ -17,8 +17,9 @@ from backend.core.updates.helpers import compare_versions
 class VersionService:
     """Simplified service to manage Milo program versions"""
 
-    def __init__(self):
+    def __init__(self, settings_service):
         self.logger = logging.getLogger(__name__)
+        self.settings_service = settings_service
 
         self.github_token = os.environ.get('GITHUB_TOKEN')
         if self.github_token:
@@ -130,8 +131,98 @@ class VersionService:
         except Exception as e:
             raise Exception(f"Execution error: {str(e)}")
 
+    async def get_forced_versions(self) -> Dict[str, str]:
+        """The versions this unit was deliberately moved to, past the manifest.
+
+        Only an entry still *ahead* of what `dependencies.env` declares counts:
+        bumping the manifest to the version that was forced makes the override
+        redundant, and keeping it would hold the unit below the *next* bump —
+        the "landed behind" failure the manifest exists to prevent, one program
+        at a time. `UpdateService._prune_forced_versions` writes that reading
+        back to disk.
+        """
+        # No `or {}`: `_validate_and_merge` emits the section unconditionally,
+        # so a missing key is a broken settings.json and must surface as one.
+        stored = await self.settings_service.get_setting("updates.forced_versions")
+        return {
+            key: version
+            for key, version in stored.items()
+            if key in self.programs
+            and compare_versions(self.programs[key].get("validated_version"), version)
+        }
+
+    def _release_at(self, program_key: str, fetched_tag: str, version: str) -> Dict[str, Any]:
+        """Describe a release the fetch did not return: its tag, its URL, no date.
+
+        The tag is rebuilt in the repo's own convention — some tag "v1.2.3"
+        (go-librespot, snapcast), others "1.2.3" (shairport-sync). Guessing wrong
+        points the source download at a tag that doesn't exist. Derived from the
+        fetched tag rather than restated in the manifest, which carries bare
+        versions only. The publication date belongs to the fetched release and
+        not to this one, so it is dropped rather than carried over.
+        """
+        prefix = "v" if fetched_tag.startswith("v") else ""
+        repo = self.programs[program_key]["repo"]
+        return {
+            "version": version,
+            "tag_name": f"{prefix}{version}",
+            "html_url": f"https://github.com/{repo}/releases/tag/{prefix}{version}",
+            "published_at": None,
+        }
+
+    async def _apply_pin(self, program_key: str, fetched: Dict[str, Any]) -> Dict[str, Any]:
+        """Point the offered release at the version this unit is pinned to.
+
+        Pin, not ceiling: what the manifest declares is what is offered, whether
+        upstream is ahead of it or (a yanked release, a manifest bumped early)
+        behind. A clamp would let an upstream release below the manifest
+        through, which would make dependencies.env something less than the
+        source of truth it is declared to be.
+
+        A forced version outranks the manifest for as long as it stays ahead of
+        it — that *is* "this unit is deliberately off-pin", and the `validated`
+        block it adds is what the return button installs. `upstream` keeps what
+        upstream actually offers: the clamp used to overwrite it, so the
+        maintainer surface — the one place the decision to bump the set is taken
+        — could not show what there was to bump to.
+        """
+        validated = self.programs[program_key].get("validated_version")
+        if not validated:
+            # milo: the app, not a dependency. It has no manifest line, so the
+            # latest release is what it offers.
+            return fetched
+
+        forced = (await self.get_forced_versions()).get(program_key)
+        target = forced or validated
+
+        result = dict(fetched)
+        result["upstream"] = {
+            "version": fetched["version"],
+            "tag_name": fetched["tag_name"],
+            "published_at": fetched["published_at"],
+            "html_url": fetched["html_url"],
+            "ahead": compare_versions(target, fetched["version"]),
+        }
+        result.update(self._release_at(program_key, fetched["tag_name"], target))
+        if forced:
+            result["validated"] = self._release_at(program_key, fetched["tag_name"], validated)
+        return result
+
     async def get_latest_github_version(self, program_key: str) -> Dict[str, Any]:
-        """Gets the latest version from GitHub with cache and token"""
+        """The release this unit is meant to run, and what upstream has.
+
+        The fetch is cached raw and the pin applied on every call: the pin is
+        not a property of the fetch. A forced version is written while the cache
+        is still warm, and a Milo update replaces the manifest under a process
+        that read it minutes earlier.
+        """
+        fetched = await self._fetch_latest_release(program_key)
+        if fetched.get("status") != "success":
+            return fetched
+        return await self._apply_pin(program_key, fetched)
+
+    async def _fetch_latest_release(self, program_key: str) -> Dict[str, Any]:
+        """The program's latest upstream release, cached for an hour."""
         if program_key not in self.programs:
             return {"status": "error", "message": "Unknown program"}
 
@@ -175,42 +266,6 @@ class VersionService:
                                 "published_at": data.get("published_at"),
                                 "html_url": data.get("html_url")
                             }
-
-                        # Pin to the validated version. Not a ceiling: what the
-                        # manifest declares is what is offered, whether upstream
-                        # is ahead of it or (a yanked release, a manifest bumped
-                        # early) behind. A clamp would let an upstream release
-                        # below the manifest through, which would make
-                        # dependencies.env something less than the source of
-                        # truth it is declared to be.
-                        validated = self.programs[program_key].get("validated_version")
-                        if validated:
-                            # Keep what upstream actually offers. The clamp used
-                            # to overwrite it, so the maintainer surface — the
-                            # one place the decision to bump the set is taken —
-                            # could not show what there was to bump to.
-                            result["upstream"] = {
-                                "version": result["version"],
-                                "tag_name": result["tag_name"],
-                                "published_at": result["published_at"],
-                                "html_url": result["html_url"],
-                                "ahead": compare_versions(validated, result["version"]),
-                            }
-                            # Rebuild the tag in the repo's own convention — some tag
-                            # "v1.2.3" (go-librespot, snapcast), others "1.2.3"
-                            # (shairport-sync). Guessing wrong points the source
-                            # download at a tag that doesn't exist. Derived from the
-                            # fetched tag rather than restated in the manifest, which
-                            # carries bare versions only.
-                            prefix = "v" if result["tag_name"].startswith("v") else ""
-                            result["version"] = validated
-                            result["tag_name"] = f"{prefix}{validated}"
-                            result["html_url"] = (
-                                f"https://github.com/{repo}/releases/tag/{prefix}{validated}"
-                            )
-                            # The validated release's own publication date is not
-                            # what this fetch returned.
-                            result["published_at"] = None
 
                         self._github_cache[cache_key] = result
                         self._last_github_fetch[cache_key] = current_time
@@ -257,6 +312,15 @@ class VersionService:
 
         return results
 
+    @staticmethod
+    def installed_version(status: Dict[str, Any]) -> Optional[str]:
+        """The one version a full status reports as installed.
+
+        Multiroom's two components are normalised to a single entry below, so
+        the first value is the only value for every program.
+        """
+        return next(iter(status.get("installed", {}).get("versions", {}).values()), None)
+
     async def get_program_full_status(self, program_key: str) -> Dict[str, Any]:
         """Gets complete status (installed + GitHub) for a program"""
         try:
@@ -293,14 +357,11 @@ class VersionService:
             if (installed_result.get("status") == "installed" and
                 github_result.get("status") == "success"):
 
-                # Take the first installed version for comparison
-                installed_versions = installed_result.get("versions", {})
-                if installed_versions:
-                    installed_version = list(installed_versions.values())[0]
-                    latest_version = github_result.get("version")
+                installed_version = self.installed_version(result)
+                latest_version = github_result.get("version")
 
-                    if installed_version and latest_version:
-                        result["update_available"] = compare_versions(installed_version, latest_version)
+                if installed_version and latest_version:
+                    result["update_available"] = compare_versions(installed_version, latest_version)
 
             return result
 

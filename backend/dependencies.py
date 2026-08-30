@@ -189,7 +189,8 @@ def _create_service(name: str) -> Any:
         # Update services
         "update_service": lambda: _import("backend.core.updates", "UpdateService")(
             systemd_manager=get_service("systemd_manager"),
-            satellite_update_service=get_service("satellite_update_service")
+            satellite_update_service=get_service("satellite_update_service"),
+            settings_service=get_service("settings_service")
         ),
         "satellite_update_service": lambda: _import("backend.core.updates", "SatelliteUpdateService")(
             snapcast_service=get_service("snapcast_service"),
