@@ -24,6 +24,12 @@ jobs:
         with:
           python-version: '3.13'
           cache: 'pip'
+      # `discid` dlopens libdiscid.so.0 at *import* time, and the CD tests patch
+      # `discid.read` -- which imports it. The appliance image ships the library
+      # (pi-gen/stage-milo/00-install-deps/00-packages), so the tests pass on the
+      # unit and only ever fail here.
+      - name: Install the native libraries the tests import
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdiscid0
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
