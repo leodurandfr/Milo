@@ -35,7 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
-def update_service():
+def update_service(mock_settings_service):
     """Fresh UpdateService instance.
 
     Injects a real SystemdServiceManager so the service-control helpers (which
@@ -45,9 +45,11 @@ def update_service():
     """
     satellites = Mock()
     satellites.push_client_app_to_fleet = AsyncMock(return_value=[])
+    mock_settings_service._storage["updates.forced_versions"] = {}
     with patch.dict("os.environ", {}, clear=True):
         return UpdateService(systemd_manager=SystemdServiceManager(),
-                             satellite_update_service=satellites)
+                             satellite_update_service=satellites,
+                             settings_service=mock_settings_service)
 
 
 # The programs served by the one shared _update_binary_program flow. Kept as a
@@ -1364,13 +1366,13 @@ class TestDependencyReconciliation:
         assert ("navidrome", self.BUMPED) in dispatched
 
     @pytest.mark.asyncio
-    async def test_the_cached_github_answers_are_dropped(self, update_service, tmp_path):
-        """A cached fetch carries the *old* pin, and the cache lasts an hour.
+    async def test_a_warm_github_cache_does_not_hold_the_old_pin(self, update_service, tmp_path):
+        """A bump lands inside the hour the fetch is cached for — always.
 
-        `get_latest_github_version` answers from `_github_cache` without looking
-        at the manifest at all, so a bump landing inside that hour — which is
-        every bump, the fetch happens when the screen is opened — would be
-        clamped straight back to the version the unit already runs.
+        The fetch happens when the settings screen is opened, minutes before the
+        update it leads to. What is cached is the release GitHub returned; which
+        version the unit should run is resolved on every call, so the pulled
+        manifest applies to a cache that is still warm.
         """
         update_service._github_cache["github_navidrome"] = {
             "status": "success",
@@ -1401,6 +1403,43 @@ class TestDependencyReconciliation:
 
         assert failed == []
         assert [k for k, _ in dispatched if k == "navidrome"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_version_forced_on_purpose_is_left_alone(self, update_service, mock_settings_service):
+        """The trial must survive the Milo update it was started before.
+
+        Milo updates land far more often than dependency bumps, so a
+        reconciliation that overwrote the override would end most trials within
+        hours — and silently, since the row would go back to reading "up to
+        date" on the manifest's version.
+        """
+        forced = "9.87.65"
+        update_service.programs["navidrome"]["validated_version"] = "0.63.2"
+        mock_settings_service._storage["updates.forced_versions"] = {"navidrome": forced}
+
+        with self._reconciling(update_service, installed=forced.encode(), tag="v1.0.0") as dispatched:
+            failed = await update_service._reconcile_dependencies()
+
+        assert failed == []
+        assert [k for k, _ in dispatched if k == "navidrome"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_unit_above_the_manifest_by_accident_is_brought_back(self, update_service):
+        """The manifest is authoritative in both directions, not just upwards.
+
+        A yanked release, a set rolled back, a half-applied install: nothing
+        records those, and comparing "is the manifest newer" would leave the
+        unit above it for good — indistinguishable, from then on, from a version
+        someone chose.
+        """
+        validated = update_service.programs["navidrome"]["validated_version"]
+        assert validated != "9.87.65"
+
+        with self._reconciling(update_service, installed=b"9.87.65", tag="v1.0.0") as dispatched:
+            failed = await update_service._reconcile_dependencies()
+
+        assert failed == []
+        assert ("navidrome", validated) in dispatched
 
     @pytest.mark.asyncio
     async def test_the_app_itself_is_never_reconciled(self, update_service, tmp_path):
@@ -3641,3 +3680,150 @@ class TestMiloAppPullArms:
         assert "Rolled back" not in result["error"]
         assert "Rollback also failed" not in result["error"]
         rollback.assert_not_called()
+
+
+
+class TestTheInstallTarget:
+    """Which release an update installs, for each of the three gestures.
+
+    One flow serves all three — the ordinary update, the trial of what upstream
+    published past the manifest, and the return that ends such a trial — and it
+    reads its version from `latest`. Pointing `latest` at the wrong release is
+    an install that succeeds, verifies, and lands the wrong version.
+    """
+
+    @staticmethod
+    def _status(*, version, upstream_version, ahead, validated=None, update_available=False):
+        latest = {
+            "status": "success",
+            "version": version,
+            "tag_name": f"v{version}",
+            "html_url": f"https://example.invalid/{version}",
+            "published_at": None,
+            "upstream": {
+                "version": upstream_version,
+                "tag_name": f"v{upstream_version}",
+                "html_url": f"https://example.invalid/{upstream_version}",
+                "published_at": "2026-05-21T00:00:00Z",
+                "ahead": ahead,
+            },
+        }
+        if validated:
+            latest["validated"] = {
+                "version": validated,
+                "tag_name": f"v{validated}",
+                "html_url": f"https://example.invalid/{validated}",
+                "published_at": None,
+            }
+        return {"latest": latest, "update_available": update_available}
+
+    def test_the_upstream_target_installs_what_upstream_published(self):
+        """The trial must reach the tag GitHub answered with, not the pinned one.
+
+        Every flow builds its download from `latest.tag_name` — a source
+        checkout, a .deb filename, a pip git ref. Leaving the pinned tag in
+        place would reinstall the version already running and report success.
+        """
+        selected = UpdateService._select_target(
+            self._status(version="5.2.2", upstream_version="5.2.3", ahead=True), "upstream"
+        )
+
+        assert selected["latest"]["version"] == "5.2.3"
+        assert selected["latest"]["tag_name"] == "v5.2.3"
+        assert selected["latest"]["html_url"].endswith("5.2.3")
+
+    def test_nothing_is_installed_when_upstream_is_not_ahead(self):
+        """`ahead` is the only admission: it is measured against what runs."""
+        assert UpdateService._select_target(
+            self._status(version="5.2.2", upstream_version="5.2.2", ahead=False), "upstream"
+        ) is None
+
+    def test_the_return_installs_the_manifest_version(self):
+        """Ending a trial is a downgrade, so `update_available` is false for it.
+
+        Gating the return on that flag is what would strand a unit on a version
+        the manifest does not declare, with the button visible and inert.
+        """
+        selected = UpdateService._select_target(
+            self._status(
+                version="5.2.3", upstream_version="5.2.3", ahead=False,
+                validated="5.2.2", update_available=False,
+            ),
+            "validated",
+        )
+
+        assert selected["latest"]["version"] == "5.2.2"
+        assert selected["latest"]["tag_name"] == "v5.2.2"
+
+    def test_an_ordinary_update_installs_the_offered_release(self):
+        """No override in play: the offered release is the manifest's."""
+        selected = UpdateService._select_target(
+            self._status(
+                version="0.9.0", upstream_version="0.9.0", ahead=False, update_available=True
+            ),
+            "validated",
+        )
+
+        assert selected["latest"]["version"] == "0.9.0"
+
+    def test_a_unit_already_at_the_manifest_version_installs_nothing(self):
+        assert UpdateService._select_target(
+            self._status(version="0.9.0", upstream_version="0.9.0", ahead=False), "validated"
+        ) is None
+
+
+class TestForcedVersionBookkeeping:
+    """The record of "this unit runs a version past the manifest".
+
+    It is what survives a reboot, so it decides what the reconciliation on the
+    next Milo update leaves alone — and, wrongly kept, what it would hold back
+    for good.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_successful_trial_is_recorded(self, update_service, mock_settings_service):
+        status = {"latest": {"version": "5.2.3"}}
+        await update_service._record_forced_version("shairport-sync", "upstream", status)
+
+        assert mock_settings_service._storage["updates.forced_versions"] == {
+            "shairport-sync": "5.2.3"
+        }
+
+    @pytest.mark.asyncio
+    async def test_returning_to_the_manifest_drops_the_record(self, update_service, mock_settings_service):
+        """Otherwise the unit reads as off-pin while running the pinned version.
+
+        The reconciliation would then skip a program it is meant to own, and the
+        row would keep offering a return to the version already installed.
+        """
+        update_service.programs["shairport-sync"]["validated_version"] = "5.2.2"
+        mock_settings_service._storage["updates.forced_versions"] = {"shairport-sync": "5.2.3"}
+
+        await update_service._record_forced_version(
+            "shairport-sync", "validated", {"latest": {"version": "5.2.2"}}
+        )
+
+        assert mock_settings_service._storage["updates.forced_versions"] == {}
+
+    @pytest.mark.asyncio
+    async def test_an_override_the_manifest_caught_up_with_is_erased(self, update_service, mock_settings_service):
+        """Pruned against the *pulled* manifest, on disk, not only on read.
+
+        A reading that never lands would re-derive the same answer forever while
+        the stale entry stayed one bump away from pinning the unit backwards.
+        """
+        update_service.programs["navidrome"]["validated_version"] = "0.64.0"
+        mock_settings_service._storage["updates.forced_versions"] = {"navidrome": "0.63.9"}
+
+        await update_service._prune_forced_versions()
+
+        assert mock_settings_service._storage["updates.forced_versions"] == {}
+
+    @pytest.mark.asyncio
+    async def test_a_live_override_survives_the_pruning(self, update_service, mock_settings_service):
+        update_service.programs["navidrome"]["validated_version"] = "0.63.2"
+        mock_settings_service._storage["updates.forced_versions"] = {"navidrome": "0.64.0"}
+
+        await update_service._prune_forced_versions()
+
+        assert mock_settings_service._storage["updates.forced_versions"] == {"navidrome": "0.64.0"}

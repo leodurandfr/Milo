@@ -12,17 +12,25 @@ from backend.core.updates.version import VersionService
 
 
 @pytest.fixture
-def version_service():
+def version_service(mock_settings_service):
     """Fresh VersionService instance with no GitHub token"""
+    # A healthy settings.json always carries the section: `_validate_and_merge`
+    # emits it unconditionally, and the update service reads it without a
+    # fallback so a degraded read surfaces instead of passing as "none forced".
+    mock_settings_service._storage["updates.forced_versions"] = {}
     with patch.dict("os.environ", {}, clear=True):
-        return VersionService()
+        return VersionService(mock_settings_service)
 
 
 @pytest.fixture
-def version_service_with_token():
+def version_service_with_token(mock_settings_service):
     """VersionService with a GitHub token configured"""
+    # A healthy settings.json always carries the section: `_validate_and_merge`
+    # emits it unconditionally, and the update service reads it without a
+    # fallback so a degraded read surfaces instead of passing as "none forced".
+    mock_settings_service._storage["updates.forced_versions"] = {}
     with patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_testtoken123"}):
-        return VersionService()
+        return VersionService(mock_settings_service)
 
 
 class TestVersionServiceInit:
@@ -205,19 +213,27 @@ class TestGetLatestGithubVersion:
 
     @pytest.mark.asyncio
     async def test_cache_hit(self, version_service):
-        cached_result = {
+        """A warm cache answers without a fetch — and the pin still applies.
+
+        What is cached is the release GitHub returned; which version the unit is
+        meant to run is resolved on every call, because a forced version is
+        written while the cache is still warm and would otherwise stay invisible
+        for an hour.
+        """
+        version_service._github_cache["github_multiroom"] = {
             "status": "success",
             "version": "0.28.0",
             "tag_name": "v0.28.0",
             "published_at": None,
             "html_url": None
         }
-        version_service._github_cache["github_multiroom"] = cached_result
         version_service._last_github_fetch["github_multiroom"] = time.time()
 
-        # Should return cached result without making HTTP request
-        result = await version_service.get_latest_github_version("multiroom")
-        assert result == cached_result
+        with patch("aiohttp.ClientSession", side_effect=AssertionError("refetched a warm cache")):
+            result = await version_service.get_latest_github_version("multiroom")
+
+        assert result["version"] == version_service.programs["multiroom"]["validated_version"]
+        assert result["upstream"]["version"] == "0.28.0"
 
     @pytest.mark.asyncio
     async def test_cache_expired(self, version_service):
@@ -463,6 +479,86 @@ class TestValidatedVersionPin:
 
         assert result["version"] == "9.9.9"
         assert "upstream" not in result
+
+
+class TestForcedVersions:
+    """Tests for a version deliberately installed past the manifest.
+
+    The maintainer surface can install what upstream published beyond
+    `dependencies.env`, to try it before the set is bumped. Everything the UI
+    draws from that state — which version is offered, which one the return
+    button installs, whether upstream still has something newer — is decided
+    here, and nothing downstream compares versions again.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_forced_version_is_the_one_the_unit_is_offered(self, version_service, mock_settings_service):
+        """The override outranks the manifest, and says so in the payload.
+
+        Without `validated` alongside it there is no way back: the manifest's
+        version appears nowhere else in the answer, so the return button would
+        have nothing to install and the unit would stay off-pin for good.
+        """
+        version_service.programs["shairport-sync"]["validated_version"] = "5.2.2"
+        mock_settings_service._storage["updates.forced_versions"] = {"shairport-sync": "5.2.3"}
+
+        with _patch_github_release("5.2.3"):
+            result = await version_service.get_latest_github_version("shairport-sync")
+
+        assert result["version"] == "5.2.3"
+        assert result["tag_name"] == "5.2.3"
+        assert result["validated"]["version"] == "5.2.2"
+        assert result["validated"]["tag_name"] == "5.2.2"
+        # Nothing left to install: the trial already runs what upstream has.
+        assert result["upstream"]["ahead"] is False
+
+    @pytest.mark.asyncio
+    async def test_upstream_moving_past_a_forced_version_is_still_offered(self, version_service, mock_settings_service):
+        """A trial does not freeze the row — `ahead` measures against what runs.
+
+        Comparing upstream to the manifest instead would leave `ahead` true for
+        as long as the override lived, offering an update to the version the
+        unit already runs.
+        """
+        version_service.programs["shairport-sync"]["validated_version"] = "5.2.2"
+        mock_settings_service._storage["updates.forced_versions"] = {"shairport-sync": "5.2.3"}
+
+        with _patch_github_release("5.2.4"):
+            result = await version_service.get_latest_github_version("shairport-sync")
+
+        assert result["version"] == "5.2.3"
+        assert result["upstream"]["version"] == "5.2.4"
+        assert result["upstream"]["ahead"] is True
+        assert result["validated"]["version"] == "5.2.2"
+
+    @pytest.mark.asyncio
+    async def test_an_override_the_manifest_caught_up_with_is_ignored(self, version_service, mock_settings_service):
+        """Bumping the set to the version that was forced ends the trial.
+
+        Left standing, the entry would hold the unit at 5.2.3 through every
+        later bump — the manifest landing *behind* the fleet, one program at a
+        time, which is the failure it exists to prevent.
+        """
+        version_service.programs["shairport-sync"]["validated_version"] = "5.2.4"
+        mock_settings_service._storage["updates.forced_versions"] = {"shairport-sync": "5.2.3"}
+
+        with _patch_github_release("5.2.4"):
+            result = await version_service.get_latest_github_version("shairport-sync")
+
+        assert result["version"] == "5.2.4"
+        assert "validated" not in result
+
+    @pytest.mark.asyncio
+    async def test_an_entry_naming_no_program_is_dropped(self, version_service, mock_settings_service):
+        """A key nothing in the catalog answers to must not reach the flows.
+
+        `_apply_pin` would hand it to a download that builds its URL from the
+        catalog entry — so the read filters on the catalog rather than trusting
+        what is stored.
+        """
+        mock_settings_service._storage["updates.forced_versions"] = {"not-a-program": "9.9.9"}
+
+        assert await version_service.get_forced_versions() == {}
 
 
 class TestGetProgramFullStatus:

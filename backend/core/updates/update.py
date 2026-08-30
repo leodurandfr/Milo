@@ -25,24 +25,96 @@ QOBUZ_PROXY_PATCHES_SCRIPT = "/home/milo/milo/install/qobuz_proxy_patches.py"
 class UpdateService(VersionService):
     """Update service - Extends VersionService"""
 
-    def __init__(self, systemd_manager, satellite_update_service):
-        super().__init__()
+    def __init__(self, systemd_manager, satellite_update_service, settings_service):
+        super().__init__(settings_service)
         self._systemd = systemd_manager
         self._satellites = satellite_update_service
         self.update_logger = logging.getLogger(f"{__name__}.update")
 
-    async def update_program(self, program_key: str) -> Dict[str, Any]:
-        """Dispatches a program key to the flow that knows how to update it."""
+    @staticmethod
+    def _select_target(status: Dict[str, Any], target: str) -> Optional[Dict[str, Any]]:
+        """Point `latest` at the version this update must install.
+
+        Three gestures share one flow and differ only in which release `latest`
+        names: the ordinary update (the manifest's version), the trial of what
+        upstream published past it, and the return to the manifest that ends
+        such a trial. Every install flow below reads its version from the same
+        place, so none of them knows which gesture it is serving.
+
+        `None` means there is nothing to install for that target.
+        """
+        latest = status.get("latest", {})
+        release_keys = ("version", "tag_name", "html_url", "published_at")
+
+        if target == "upstream":
+            upstream = latest.get("upstream") or {}
+            if not upstream.get("ahead"):
+                return None
+            return {**status, "latest": {**latest, **{k: upstream[k] for k in release_keys}}}
+
+        # The manifest's version. Present as its own block only while an override
+        # is active, and then it is the return: `latest` already names the forced
+        # version, so the ordinary update path cannot reach it.
+        validated = latest.get("validated")
+        if validated:
+            return {**status, "latest": {**latest, **validated}}
+        if not status.get("update_available"):
+            return None
+        return status
+
+    async def _record_forced_version(self, program_key: str, target: str, status: Dict[str, Any]) -> None:
+        """Remember, or forget, that this unit runs a version past the manifest.
+
+        Written only once the install succeeded: a trial that rolled back left
+        the previous version in place, so recording it beforehand would claim an
+        override the unit does not have. Returning to the manifest drops the
+        entry the same way — the two gestures are one write of the whole map.
+        """
+        forced = await self.get_forced_versions()
+        updated = dict(forced)
+        if target == "upstream":
+            updated[program_key] = status["latest"]["version"]
+        else:
+            updated.pop(program_key, None)
+        if updated != forced:
+            await self.settings_service.set_setting("updates.forced_versions", updated)
+
+    async def _prune_forced_versions(self) -> None:
+        """Drop the overrides the manifest has caught up with.
+
+        Called once the pulled `dependencies.env` is in hand: an override the
+        set now declares is redundant, and left on disk it would hold the unit
+        below the next bump. `get_forced_versions` already reads it that way —
+        this is what makes the reading durable.
+        """
+        stored = await self.settings_service.get_setting("updates.forced_versions")
+        live = await self.get_forced_versions()
+        if live != stored:
+            self.update_logger.info(
+                f"Forced versions pruned against the manifest: {stored} -> {live}"
+            )
+            await self.settings_service.set_setting("updates.forced_versions", live)
+
+    async def update_program(self, program_key: str, target: str = "validated") -> Dict[str, Any]:
+        """Dispatches a program key to the flow that knows how to update it.
+
+        `target` picks the release: "validated" is the version `dependencies.env`
+        declares (and, when the unit is off-pin, the return to it), "upstream"
+        the one GitHub published past it.
+        """
         if program_key not in self.programs:
             return {"success": False, "error": f"Update not supported for {program_key}"}
 
         try:
-            # Check that an update is available
             status = await self.get_program_full_status(program_key)
-            if not status.get("update_available"):
+            selected = self._select_target(status, target)
+            if selected is None:
                 return {"success": False, "error": "No update available"}
 
-            return await self._dispatch_update(program_key, status)
+            result = await self._dispatch_update(program_key, selected)
+            if result.get("success"):
+                await self._record_forced_version(program_key, target, selected)
+            return result
 
         except Exception as e:
             self.update_logger.error(f"Update failed for {program_key}: {e}")
@@ -89,12 +161,11 @@ class UpdateService(VersionService):
         that survives to return an envelope.
         """
         # The pulled tree carries a new dependencies.env that this process was
-        # started before, and the cached GitHub results carry the *old* pin.
-        # Without both of these the reconciliation compares against the set the
-        # unit already had, and does nothing at all.
+        # started before; without this the reconciliation compares against the
+        # set the unit already had, and does nothing at all. The GitHub cache
+        # holds the fetched release untouched by the pin, so it survives.
         apply_validated_versions(self.programs)
-        self._github_cache.clear()
-        self._last_github_fetch.clear()
+        await self._prune_forced_versions()
 
         failed: list[str] = []
         for program_key in self.programs:
@@ -102,7 +173,15 @@ class UpdateService(VersionService):
                 continue
             try:
                 status = await self.get_program_full_status(program_key)
-                if not status.get("update_available"):
+                # Not `update_available`: the manifest is authoritative in both
+                # directions, so a unit sitting *above* what it declares — a
+                # yanked release, a manifest deliberately rolled back — is
+                # brought down as readily as one sitting below. A version that
+                # is off-pin on purpose is not seen here at all: it is what
+                # `latest.version` names.
+                target = status.get("latest", {}).get("version")
+                installed = self.installed_version(status)
+                if not target or not installed or installed == target:
                     continue
 
                 self.update_logger.info(
@@ -1412,8 +1491,8 @@ class UpdateService(VersionService):
             except Exception as e:
                 self.update_logger.warning(f"Failed to cleanup {temp_dir}: {e}")
 
-    async def can_update_program(self, program_key: str) -> Dict[str, Any]:
-        """Checks if a program can be updated"""
+    async def can_update_program(self, program_key: str, target: str = "validated") -> Dict[str, Any]:
+        """Checks if a program can be installed at the requested target"""
         if program_key not in self.programs:
             return {"can_update": False, "reason": "Update not supported"}
 
@@ -1422,9 +1501,9 @@ class UpdateService(VersionService):
         if not success:
             return {"can_update": False, "reason": "Deploy wrapper not accessible"}
 
-        # Check that an update is available
         status = await self.get_program_full_status(program_key)
-        if not status.get("update_available"):
+        selected = self._select_target(status, target)
+        if selected is None:
             return {"can_update": False, "reason": "No update available"}
 
-        return {"can_update": True, "available_version": status["latest"]["version"]}
+        return {"can_update": True, "available_version": selected["latest"]["version"]}

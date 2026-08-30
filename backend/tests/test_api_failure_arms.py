@@ -33,11 +33,18 @@ from fastapi.testclient import TestClient
 
 from backend.api.errors import create_errors_router
 from backend.api.multiroom import create_multiroom_router
+from backend.api.models import ProgramUpdateRequest
 from backend.api.programs import create_programs_router
 from backend.api.routing import create_routing_router
 from backend.api.volume import create_volume_router
 from backend.core.models.audio_state import AudioSource
 from backend.core.multiroom.models import Client
+
+
+# The payload every one of these calls carries: they exercise the in-flight
+# claim, not the choice of release, so they all ask for the version the
+# manifest declares.
+VALIDATED = ProgramUpdateRequest(target="validated")
 
 
 def _endpoint(router, path: str, method: str = "GET"):
@@ -99,7 +106,7 @@ class TestTheProgramsReads:
                 return_value={"can_update": True, "available_version": "1.2.3"}
             )
             router.update_service.update_program = AsyncMock(return_value={"success": True})
-            await claim("go-librespot", BackgroundTasks())
+            await claim("go-librespot", VALIDATED, BackgroundTasks())
 
             body = await endpoint()
 
@@ -182,7 +189,7 @@ class TestTheBackgroundUpdate:
 
         with caplog.at_level(logging.ERROR, logger="backend.api.programs"):
             tasks = BackgroundTasks()
-            await endpoint("go-librespot", tasks)
+            await endpoint("go-librespot", VALIDATED, tasks)
             await tasks()
 
         events = [c.args[0] for c in router.state_machine.broadcast.await_args_list]
@@ -191,7 +198,7 @@ class TestTheBackgroundUpdate:
 
         # The claim is gone: a second attempt is accepted.
         router.update_service.update_program = AsyncMock(return_value={"success": True})
-        second = await endpoint("go-librespot", BackgroundTasks())
+        second = await endpoint("go-librespot", VALIDATED, BackgroundTasks())
         assert second["status"] == "success"
 
     async def test_an_update_that_raises_is_announced_as_failed_too(
@@ -206,13 +213,13 @@ class TestTheBackgroundUpdate:
 
         with caplog.at_level(logging.ERROR, logger="backend.api.programs"):
             tasks = BackgroundTasks()
-            await endpoint("go-librespot", tasks)
+            await endpoint("go-librespot", VALIDATED, tasks)
             await tasks()
 
         events = [c.args[0] for c in router.state_machine.broadcast.await_args_list]
         assert events[-1].success is False
 
-        second = await endpoint("go-librespot", BackgroundTasks())
+        second = await endpoint("go-librespot", VALIDATED, BackgroundTasks())
         assert second["status"] == "success", "the claim outlived the failure"
 
     async def test_updating_the_program_behind_the_playing_source_stops_it_first(
@@ -225,7 +232,7 @@ class TestTheBackgroundUpdate:
         endpoint = _endpoint(router, "/api/programs/{program_key}/update", "POST")
 
         tasks = BackgroundTasks()
-        await endpoint("go-librespot", tasks)
+        await endpoint("go-librespot", VALIDATED, tasks)
         await tasks()
 
         router.state_machine.transition_to_source.assert_awaited_once_with(AudioSource.NONE)
@@ -239,7 +246,7 @@ class TestTheBackgroundUpdate:
         endpoint = _endpoint(router, "/api/programs/{program_key}/update", "POST")
 
         tasks = BackgroundTasks()
-        await endpoint("go-librespot", tasks)
+        await endpoint("go-librespot", VALIDATED, tasks)
         await tasks()
 
         router.state_machine.transition_to_source.assert_not_called()

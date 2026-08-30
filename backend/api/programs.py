@@ -19,6 +19,7 @@ from backend.core.models.ws_events import (
     SatelliteUpdateComplete,
     SatelliteUpdateProgress,
 )
+from backend.api.models import ProgramUpdateRequest
 from backend.core.updates.helpers import compare_versions
 
 if TYPE_CHECKING:
@@ -319,7 +320,11 @@ def create_programs_router(
             }
 
     @router.post("/{program_key}/update")
-    async def update_program(program_key: str, background_tasks: BackgroundTasks):
+    async def update_program(
+        program_key: str,
+        payload: ProgramUpdateRequest,
+        background_tasks: BackgroundTasks
+    ):
         """Launch a local program update in the background"""
 
         if not _claim_update(program_key):
@@ -329,7 +334,7 @@ def create_programs_router(
             }
 
         try:
-            can_update = await update_service.can_update_program(program_key)
+            can_update = await update_service.can_update_program(program_key, payload.target)
         except Exception:
             active_updates.discard(program_key)
             raise
@@ -348,7 +353,7 @@ def create_programs_router(
 
         do_update = _create_background_update(
             update_key=program_key,
-            update_fn=lambda: update_service.update_program(program_key),
+            update_fn=lambda: update_service.update_program(program_key, payload.target),
             progress_event_cls=ProgramUpdateProgress,
             complete_event_cls=ProgramUpdateComplete,
             identifier={"program": program_key},

@@ -474,13 +474,16 @@ class TestTheUpdateRollbacks:
     """They run after an update already failed. A false success is the worst answer."""
 
     @pytest.fixture
-    def service(self):
+    def service(self, mock_settings_service):
         from backend.core.systemd import SystemdServiceManager
         from backend.core.updates.update import UpdateService
 
+        mock_settings_service._storage["updates.forced_versions"] = {}
+
         with patch.dict("os.environ", {}, clear=True):
             return UpdateService(systemd_manager=SystemdServiceManager(),
-                                 satellite_update_service=Mock())
+                                 satellite_update_service=Mock(),
+                                 settings_service=mock_settings_service)
 
     @pytest.fixture(autouse=True)
     def never_a_real_process(self):

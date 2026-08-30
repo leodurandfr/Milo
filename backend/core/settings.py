@@ -6,6 +6,7 @@ import copy
 import json
 import os
 import logging
+import re
 import aiofiles
 import asyncio
 from pathlib import Path
@@ -40,6 +41,11 @@ from backend.shared.persistence import (
     load_versioned_json_sync,
     save_versioned_json,
 )
+
+
+# A dotted version, as the update flows read them out of a GitHub tag. Shape
+# only: whether a stored version exists upstream is the update flow's business.
+VERSION_PATTERN = re.compile(r"^\d+(?:\.\d+)*$")
 
 
 class SettingsWriteError(RuntimeError):
@@ -122,6 +128,13 @@ class SettingsService:
             },
             "wifi": {
                 "country": ""
+            },
+            "updates": {
+                # {program_key: version} — a version deliberately installed past
+                # the one `dependencies.env` declares, to try it before the set
+                # is bumped. Empty is the normal state: the manifest is what a
+                # unit runs. `VersionService.get_forced_versions` resolves it.
+                "forced_versions": {}
             },
             # The `mac` section is the macOS/ROC sender's tuning, not a MAC
             # address. It used to be the one section with defaults that
@@ -355,6 +368,21 @@ class SettingsService:
         country_valid = len(country_raw) == 2 and country_raw.isalpha() and country_raw.isupper()
         validated['wifi'] = {
             'country': country_raw if country_valid else d['wifi']['country']
+        }
+
+        # Forced program versions. Shape only — which keys name a program is the
+        # update catalog's to say, and the route that writes them checks against
+        # it; a malformed version is dropped rather than clamped, since there is
+        # no nearest valid version to fall back to.
+        forced_input = settings.get('updates', {}).get(
+            'forced_versions', d['updates']['forced_versions']
+        )
+        validated['updates'] = {
+            'forced_versions': {
+                str(key): version
+                for key, version in forced_input.items()
+                if isinstance(version, str) and VERSION_PATTERN.match(version)
+            } if isinstance(forced_input, dict) else dict(d['updates']['forced_versions'])
         }
 
         # Multiroom (client_types for crossover) - Preserve multiroom section without strict validation

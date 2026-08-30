@@ -13,8 +13,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import BackgroundTasks
 
+from backend.api.models import ProgramUpdateRequest
 from backend.api.programs import create_programs_router
 from backend.core.models.ws_events import ProgramUpdateComplete, ProgramUpdateProgress
+
+
+# The payload every one of these calls carries: they exercise the in-flight
+# claim, not the choice of release, so they all ask for the version the
+# manifest declares.
+VALIDATED = ProgramUpdateRequest(target="validated")
 
 
 def _endpoint(router, path: str, method: str = "POST"):
@@ -45,16 +52,16 @@ async def test_two_clients_racing_the_same_update_start_only_one(router):
     """The claim must land before the GitHub round-trip, not after it."""
     gate = asyncio.Event()
 
-    async def slow_check(program_key):
+    async def slow_check(program_key, target):
         await gate.wait()
         return {"can_update": True, "available_version": "1.2.3"}
 
     router.update_service.can_update_program = slow_check
     endpoint = _endpoint(router, "/api/programs/{program_key}/update")
 
-    first = asyncio.create_task(endpoint("go-librespot", BackgroundTasks()))
+    first = asyncio.create_task(endpoint("go-librespot", VALIDATED, BackgroundTasks()))
     await asyncio.sleep(0)  # first request is parked on the GitHub call
-    second = asyncio.create_task(endpoint("go-librespot", BackgroundTasks()))
+    second = asyncio.create_task(endpoint("go-librespot", VALIDATED, BackgroundTasks()))
     await asyncio.sleep(0)
     gate.set()
 
@@ -73,13 +80,13 @@ async def test_a_refused_update_releases_the_key(router):
     router.update_service.can_update_program = AsyncMock(
         return_value={"can_update": False, "reason": "Already up to date"}
     )
-    refused = await endpoint("go-librespot", BackgroundTasks())
+    refused = await endpoint("go-librespot", VALIDATED, BackgroundTasks())
     assert refused["status"] == "error"
 
     router.update_service.can_update_program = AsyncMock(
         return_value={"can_update": True, "available_version": "1.2.3"}
     )
-    assert (await endpoint("go-librespot", BackgroundTasks()))["status"] == "success"
+    assert (await endpoint("go-librespot", VALIDATED, BackgroundTasks()))["status"] == "success"
 
 
 async def test_a_failing_check_releases_the_key(router):
@@ -88,12 +95,12 @@ async def test_a_failing_check_releases_the_key(router):
 
     router.update_service.can_update_program = AsyncMock(side_effect=RuntimeError("GitHub down"))
     with pytest.raises(RuntimeError):
-        await endpoint("go-librespot", BackgroundTasks())
+        await endpoint("go-librespot", VALIDATED, BackgroundTasks())
 
     router.update_service.can_update_program = AsyncMock(
         return_value={"can_update": True, "available_version": "1.2.3"}
     )
-    assert (await endpoint("go-librespot", BackgroundTasks()))["status"] == "success"
+    assert (await endpoint("go-librespot", VALIDATED, BackgroundTasks()))["status"] == "success"
 
 
 async def test_the_satellite_routes_claim_their_key_too(router):
@@ -123,7 +130,7 @@ async def test_an_update_announces_itself_once(router):
     """
     endpoint = _endpoint(router, "/api/programs/{program_key}/update")
     tasks = BackgroundTasks()
-    assert (await endpoint("go-librespot", tasks))["status"] == "success"
+    assert (await endpoint("go-librespot", VALIDATED, tasks))["status"] == "success"
 
     await tasks()
 
@@ -138,4 +145,4 @@ async def test_an_update_announces_itself_once(router):
     assert complete[0].success is True
 
     # The key is released, so the same program can be updated again.
-    assert (await endpoint("go-librespot", BackgroundTasks()))["status"] == "success"
+    assert (await endpoint("go-librespot", VALIDATED, BackgroundTasks()))["status"] == "success"
