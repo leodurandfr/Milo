@@ -482,8 +482,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.error-state,
-.empty-state {
+.error-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -492,12 +491,7 @@ onMounted(async () => {
   text-align: center;
 }
 
-.loading-message,
 .error-message {
-  color: var(--color-text-secondary);
-}
-
-.empty-state .text-mono {
   color: var(--color-text-secondary);
 }
 
@@ -571,14 +565,6 @@ onMounted(async () => {
   gap: var(--space-02);
 }
 
-/* Override loading appearance to show disabled style when updating */
-.program-button:disabled {
-  background-color: var(--color-background) !important;
-  color: var(--color-text-light) !important;
-  cursor: not-allowed !important;
-  pointer-events: auto !important;
-}
-
 /* Crossfade transition */
 .crossfade-wrapper {
   display: grid;
@@ -648,7 +634,6 @@ onMounted(async () => {
   border-radius: var(--radius-02);
 }
 
-
 .skeleton-button {
   grid-area: button;
   width: 100px;
@@ -672,6 +657,7 @@ onMounted(async () => {
     gap: var(--space-01) var(--space-02);
   }
 
+  /* AppIcon renders `:size` as an inline style — nothing else outranks it. */
   .program-icon {
     width: 44px !important;
     height: 44px !important;
@@ -702,7 +688,6 @@ onMounted(async () => {
 
   .program-item-skeleton:first-child {
     padding-top: 0;
-
   }
 
   .skeleton-icon {
@@ -717,6 +702,5 @@ onMounted(async () => {
   .skeleton-version {
     width: 160px;
   }
-
 }
 </style>
