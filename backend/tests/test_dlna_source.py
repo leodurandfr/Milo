@@ -32,7 +32,7 @@ from async_upnp_client.utils import CaseInsensitiveDict
 from backend.shared.artwork_resolver import RESOLVED_ARTWORK_PX
 from backend.sources.dlna.metadata_reader import DlnaBridge, _to_ms
 from backend.sources.dlna.server_resolver import MediaServerResolver, host_of
-from backend.sources.dlna.source import DLNA_CLIENT_NAME, DlnaSource
+from backend.sources.dlna.source import DlnaSource
 
 
 def _png(color: str = "navy", size: int = 600) -> bytes:
@@ -718,12 +718,13 @@ def test_host_of_survives_a_malformed_url():
 # === DlnaSource: the source-bar label ========================================
 
 @pytest.mark.asyncio
-async def test_label_is_the_static_one_until_the_server_is_named():
-    """Resolution takes seconds; the player renders immediately and must show
-    something in the meantime."""
+async def test_no_label_is_published_until_the_server_is_named():
+    """Resolution takes seconds, and naming nobody is not the same as naming
+    "DLNA": the player renders immediately and falls back to its own source
+    label, which lives in the frontend's i18n table."""
     src = DlnaSource()
     await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm"})
-    assert src.metadata["client_name"] == DLNA_CLIENT_NAME
+    assert "client_name" not in src.metadata
 
 
 @pytest.mark.asyncio
@@ -755,7 +756,7 @@ async def test_an_unresolved_server_falls_back_silently():
 
     await src._on_media_origin("http://192.168.1.99:8200/track/1.flac")
 
-    assert src.metadata["client_name"] == DLNA_CLIENT_NAME
+    assert "client_name" not in src.metadata
 
 
 @pytest.mark.asyncio
@@ -770,16 +771,16 @@ async def test_a_new_server_drops_the_previous_name_before_resolving():
 
     labels = []
     src._server_resolver.resolve = AsyncMock(
-        side_effect=lambda host: labels.append(src.metadata["client_name"]) or "minidlna"
+        side_effect=lambda host: labels.append(src.metadata.get("client_name")) or "minidlna"
     )
     await src._on_media_origin("http://nas:8200/track/9.flac")
 
-    assert labels == [DLNA_CLIENT_NAME]
+    assert labels == [None]
     assert src.metadata["client_name"] == "minidlna"
 
 
 @pytest.mark.asyncio
-async def test_going_idle_returns_the_label_to_the_static_one():
+async def test_going_idle_drops_the_server_name():
     """An idle renderer is serving nobody, so it names nobody. The bridge
     re-emits the origin on resume, which the resolver answers from cache."""
     src = DlnaSource()
@@ -790,7 +791,7 @@ async def test_going_idle_returns_the_label_to_the_static_one():
 
     await src._on_auto_stop()
 
-    assert src.metadata["client_name"] == DLNA_CLIENT_NAME
+    assert "client_name" not in src.metadata
 
 
 # =============================================================================

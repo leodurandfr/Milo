@@ -57,7 +57,7 @@
  * scenario would put two tokens no decider can branch on into every name in
  * the select, which is the list a reader actually reads. They are stated here
  * once instead, and carried only where one of them is the difference. A field that *does* discriminate is carried even when it never
- * changes — Qobuz's `client_name`, Mac's empty `client_names` — because a
+ * changes — Qobuz's `account_authenticated`, Mac's empty `client_names` — because a
  * reader who only ever sees the field on the interesting scenario concludes it
  * only exists there.
  *
@@ -674,27 +674,26 @@ export const SOURCE_PAGES = [
       ready(
         'qobuz',
         'Ready',
-        'Account connected, waiting for the app to pick the speaker. Both extras ride every record the source publishes, this one included — which is the point of carrying them here: account_authenticated is not a field that appears when something is wrong, it is a field that is always there and is sometimes false.',
-        { client_name: 'Qobuz', account_authenticated: true }
+        'Account connected, waiting for the app to pick the speaker. The extra rides every record the source publishes, this one included — which is the point of carrying it here: account_authenticated is not a field that appears when something is wrong, it is a field that is always there and is sometimes false.',
+        { account_authenticated: true }
       ),
       ready(
         'qobuz',
         'Ready, no account',
         'account_authenticated false — the only path to the second CTA in AudioSourceStatus, and only an explicit false arms it, so the CTA cannot flash before the proxy has answered. Tapping it calls inject("openSettings"), which is absent here, so it no-ops.',
-        { client_name: 'Qobuz', account_authenticated: false }
+        { account_authenticated: false }
       ),
       active(
         'qobuz',
         'Active, before now_playing',
-        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in READY. client_name is a static label, not a controller identity — the proxy exposes none — so currentDeviceName is empty and the generic active line prints "Qobuz / playing", the same one DLNA lands on, which is why neither needs a branch of its own any more.',
-        { is_playing: true, client_name: 'Qobuz', account_authenticated: true }
+        'Reachable, but only as an escape hatch: the source holds an active status carrying no track for a few poll ticks, then commits anyway so a proxy that never delivers one cannot wedge it in READY. No client_name: the proxy exposes no controller identity, so currentDeviceName is empty and the generic active line prints "Qobuz / playing", the same one DLNA lands on, which is why neither needs a branch of its own any more.',
+        { is_playing: true, account_authenticated: true }
       ),
-      active('qobuz', 'Playing', 'Trusted CDN cover, so no album_art_width gate — title + artist is enough. Read-only bar above the source bar, which carries the static "Qobuz" label rather than a device.', {
+      active('qobuz', 'Playing', 'Trusted CDN cover, so no album_art_width gate — title + artist is enough. Read-only bar above the source bar, which names no device: with no client_name on the record the bar falls back to the source\'s own label, "Qobuz".', {
         title: 'Ambre',
         artist: 'Nils Frahm',
         album_art_url: albumPlaceholder,
         is_playing: true,
-        client_name: 'Qobuz',
         account_authenticated: true,
         position: 64000,
         duration: 264000
@@ -833,27 +832,26 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (showControls false, showProgress)',
     via: 'dispatcher',
     summary:
-      'Same untrusted-sender gate as AirPlay, and the same player — the difference is identity: UPnP exposes no "who is casting", so currentDeviceName hard-returns empty. That used to need a DLNA-only branch in the card; the generic active line ("DLNA / playing", whenever there is no sender to name) covers it now, and Qobuz’s twin went with it. client_name here is the static "DLNA" label the player’s source bar reads, not a controller name.',
+      'Same untrusted-sender gate as AirPlay, and the same player — the difference is identity: UPnP exposes no "who is casting", so currentDeviceName hard-returns empty. That used to need a DLNA-only branch in the card; the generic active line ("DLNA / playing", whenever there is no sender to name) covers it now, and Qobuz’s twin went with it. client_name here is not a controller name either: it is the media *server* the audio is streamed from, resolved over SSDP seconds after playback starts, and absent until it is — the player’s source bar reads its own source label meanwhile.',
     scenarios: [
       starting('dlna'),
       ready(
         'dlna',
         'Ready',
-        'The UPnP renderer is advertised, no controller has pushed anything. client_name is on every record the source publishes, idle included — it is a constant, DLNA_CLIENT_NAME, not something a controller supplied.',
-        { client_name: 'DLNA' }
+        'The UPnP renderer is advertised, no controller has pushed anything. No client_name: nothing has been streamed yet, so no media server has been resolved — and an idle renderer would have none to name anyway.'
       ),
       active(
         'dlna',
         'Active, no cover',
         'A controller pushing a bare title: no album_art_width, so the gate declines. The generic active line prints "DLNA / playing" — the shape every source without a sender to name lands on, and what used to be a per-source branch dodging an idle fallback.',
-        { title: 'Untitled', is_playing: true, client_name: 'DLNA' }
+        { title: 'Untitled', is_playing: true }
       ),
-      active('dlna', 'Playing', 'A full-fat controller: cover above the floor, audio flowing. Read-only bar plus the static DLNA source bar. Position is corrected every 30 s — the longest interval of any source that has one — so most of what the bar shows here is useSourceProgress interpolating.', {
+      active('dlna', 'Playing', 'A full-fat controller: cover above the floor, audio flowing, and the SSDP sweep has come back — so the source bar names the media server the track is streamed from instead of the source. Position is corrected every 30 s — the longest interval of any source that has one — so most of what the bar shows here is useSourceProgress interpolating.', {
         title: 'Hammers',
         artist: 'Nils Frahm',
         album_art_url: albumPlaceholder,
         is_playing: true,
-        client_name: 'DLNA',
+        client_name: 'Freebox Server',
         album_art_width: MEDIA_APP_COVER_PX,
         position: 88000,
         duration: 331000
@@ -867,7 +865,7 @@ export const SOURCE_PAGES = [
           artist: 'Nils Frahm',
           album_art_url: albumPlaceholder,
           is_playing: false,
-          client_name: 'DLNA',
+          client_name: 'Freebox Server',
           album_art_width: MEDIA_APP_COVER_PX,
           position: 88000,
           duration: 331000

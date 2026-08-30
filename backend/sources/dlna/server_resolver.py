@@ -2,16 +2,16 @@
 """Name the UPnP media server that serves the currently playing track.
 
 UPnP tells a renderer nothing about the control point that pushed the audio, so
-there is no sender name to show (see DLNA_CLIENT_NAME) — but the push does carry
-URLs, and those point at the *media server*: the CurrentTrackURI the renderer was
-told to play, and the DIDL-Lite album art. That host is identifiable: a
-MediaServer advertises a friendlyName in its device description, which is the
-name its owner recognises ("Freebox Server", a Synology, a Plex box) and a far
-better source-bar label than a static "DLNA".
+there is no sender name to show — but the push does carry URLs, and those point
+at the *media server*: the CurrentTrackURI the renderer was told to play, and the
+DIDL-Lite album art. That host is identifiable: a MediaServer advertises a
+friendlyName in its device description, which is the name its owner recognises
+("Freebox Server", a Synology, a Plex box) and a far better source-bar label than
+the source's own name, which is all the player has to show without it.
 
 Resolution is an SSDP M-SEARCH plus a description fetch — seconds, not
 milliseconds — so it can never sit in the metadata path: DlnaSource runs it in
-the background and keeps the static label until it answers. Results are cached
+the background and publishes no name until it answers. Results are cached
 per host, misses included: a sweep costs the full MX wait whether or not anything
 replies, and a host's name does not change from one track to the next.
 
@@ -75,7 +75,7 @@ class MediaServerResolver:
         # are cached too — re-sweeping on every track would spend the MX wait
         # again to reach the same answer. Only a *clean* negative is stored: a
         # sweep that failed or timed out leaves the host unknown, so a transient
-        # network fault does not pin the static label for the whole session.
+        # network fault does not leave the host unnamed for the whole session.
         self._cache: Dict[str, Optional[str]] = {}
         # One sweep at a time. Two concurrent M-SEARCHes would each pay the MX
         # wait to collect the same responses, and the second would usually be
@@ -119,7 +119,7 @@ class MediaServerResolver:
             if len(urls) > 1:
                 logger.info(
                     "%s advertises %d media servers; nothing says which one served "
-                    "the track, keeping the static label", host, len(urls)
+                    "the track, leaving it unnamed", host, len(urls)
                 )
                 continue
             unambiguous[host] = next(iter(urls))

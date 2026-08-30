@@ -17,6 +17,7 @@ import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 import { nowPlayingArtwork } from '@/utils/nowPlayingArtwork';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
+import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 /** Minimum ms between activity event processing. */
 const ACTIVITY_THROTTLE_MS = 500;
@@ -252,9 +253,10 @@ export function useScreensaver() {
     // Qobuz + DLNA: passive players (external control, rich metadata) like
     // AirPlay. Visibility is gated on is_playing, so a bare media layout suffices
     // here — no "connected but idle" fallback. The bottom bar mirrors their main
-    // view's source bar (source glyph + client name; DLNA renderers often send no
-    // name, so the bar simply hides). No progress bar — neither shows one in its
-    // main view (showControls=false).
+    // view's source bar down to the fallback: DLNA names the media server once
+    // resolved and Qobuz names nobody at all, so with no name on the record both
+    // read the source's own label rather than leaving the slot empty. No progress
+    // bar — neither shows one in its main view (showControls=false).
     if (source === 'qobuz' || source === 'dlna') {
       const metadata = unifiedStore.systemState.metadata || {};
       return {
@@ -263,7 +265,7 @@ export function useScreensaver() {
         title: metadata.title || '',
         subtitle: metadata.artist || null,
         stationIcon: source,
-        stationName: metadata.client_name || null,
+        stationName: metadata.client_name || t(AUDIO_SOURCE_LABEL_KEYS[source]),
       };
     }
 
