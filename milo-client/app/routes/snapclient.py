@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
 from services.snapclient import SnapclientService
-from models import SnapclientConfigUpdate
+from models import ProgramUpdateRequest, SnapclientConfigUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -20,31 +20,29 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
     router = APIRouter(tags=["snapclient"])
 
     @router.post("/update")
-    async def update_snapclient(background_tasks: BackgroundTasks):
-        """Starts the snapclient update from GitHub."""
+    async def update_snapclient(payload: ProgramUpdateRequest, background_tasks: BackgroundTasks):
+        """Installs the snapclient version the server names."""
         if snapclient_service.update_in_progress:
             raise HTTPException(status_code=409, detail="Update already in progress")
 
         try:
-            # Get the latest available version on GitHub
-            latest_version = await snapclient_service.get_latest_github_version()
-            if not latest_version:
-                raise HTTPException(status_code=500, detail="Could not determine latest version")
+            target_version = payload.target_version
 
-            # Check if an update is needed
+            # Not "is the target newer": the server also sends a version *below*
+            # the installed one, to end a trial or to follow a manifest rollback.
             current_version = await snapclient_service.get_installed_version()
-            if current_version == latest_version:
+            if current_version == target_version:
                 return {
                     "status": "success",
                     "started": False,
                     "message": "Already up to date",
                     "current_version": current_version,
-                    "latest_version": latest_version
+                    "target_version": target_version
                 }
 
             # Start the update in background
             async def do_update():
-                result = await snapclient_service.update_snapclient(latest_version)
+                result = await snapclient_service.update_snapclient(target_version)
                 logger.info(f"Update completed: {result}")
 
             background_tasks.add_task(do_update)
@@ -52,9 +50,9 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
             return {
                 "status": "success",
                 "started": True,
-                "message": f"Update started: {current_version} -> {latest_version}",
+                "message": f"Update started: {current_version} -> {target_version}",
                 "current_version": current_version,
-                "target_version": latest_version
+                "target_version": target_version
             }
 
         except HTTPException:

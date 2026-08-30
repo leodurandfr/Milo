@@ -26,35 +26,6 @@ def _spawning(proc):
     return patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc))
 
 
-def _github_serving(payload, status=200):
-    """A ClientSession class standing in for api.github.com, serving one release document."""
-
-    class _Response:
-        def __init__(self):
-            self.status = status
-
-        async def json(self):
-            return payload
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc):
-            return False
-
-    class _Session:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc):
-            return False
-
-        def get(self, url, **kwargs):
-            return _Response()
-
-    return _Session
-
-
 class TestSnapclientServiceProperties:
     """Test SnapclientService property accessors."""
 
@@ -96,36 +67,6 @@ class TestInstalledVersionParsing:
     async def test_a_missing_binary_is_not_a_version(self, snapclient_service):
         with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
             assert await snapclient_service.get_installed_version() is None
-
-
-class TestLatestGithubVersion:
-    """What the UI offers as the update target for every satellite in the house."""
-
-    @pytest.mark.asyncio
-    async def test_the_release_tag_becomes_the_version(self, snapclient_service):
-        with patch("aiohttp.ClientSession", _github_serving({"tag_name": "v0.29.0"})):
-            assert await snapclient_service.get_latest_github_version() == "0.29.0"
-
-    @pytest.mark.asyncio
-    async def test_a_tag_the_regex_misses_falls_back_to_stripping_the_v(self, snapclient_service):
-        """The regex wants three parts. The fallback below it is deliberate: on a
-        two-part tag the alternative is None, which reads in the UI as "no update
-        available" rather than as "GitHub answered something unexpected"."""
-        with patch("aiohttp.ClientSession", _github_serving({"tag_name": "v0.30"})):
-            assert await snapclient_service.get_latest_github_version() == "0.30"
-
-    @pytest.mark.asyncio
-    async def test_a_non_200_offers_nothing(self, snapclient_service):
-        """GitHub rate-limits unauthenticated callers and answers 403 with a JSON
-        body. Parsing that body would push a version off an error message."""
-        with patch("aiohttp.ClientSession",
-                   _github_serving({"message": "API rate limit exceeded"}, status=403)):
-            assert await snapclient_service.get_latest_github_version() is None
-
-    @pytest.mark.asyncio
-    async def test_an_offline_unit_offers_nothing(self, snapclient_service):
-        with patch("aiohttp.ClientSession", side_effect=Exception("Network error")):
-            assert await snapclient_service.get_latest_github_version() is None
 
 
 class TestServiceRunning:

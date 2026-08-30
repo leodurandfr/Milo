@@ -91,3 +91,14 @@ class SnapclientConfigUpdate(BaseModel):
     """
     buffer_time: int = Field(..., ge=60, le=300)
     fragments: int = Field(..., ge=2, le=8)
+
+
+class ProgramUpdateRequest(BaseModel):
+    """Model for an update request naming the version to install.
+
+    Required, and the satellite installs exactly what it names: a satellite
+    carries no `dependencies.env` and no GitHub token, so resolving
+    `releases/latest` here is how a client ends up on a release the server
+    never validated — while the row that started it announced another one.
+    """
+    target_version: str = Field(..., min_length=1)

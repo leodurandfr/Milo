@@ -105,9 +105,15 @@ class SatelliteUpdateService:
 
     async def update_satellite(
         self,
-        mac_id: str
+        mac_id: str,
+        target_version: str
     ) -> Dict[str, Any]:
-        """Launches a satellite snapclient update."""
+        """Installs `target_version` of snapclient on a satellite.
+
+        The version is resolved on the server, against the same manifest — and
+        the same trial — the server itself runs on. A satellite carries neither,
+        so deciding it there is how a client lands on a release nobody validated.
+        """
         try:
             satellites = await self.discover_satellites()
             satellite = next((s for s in satellites if s["mac_id"] == mac_id), None)
@@ -123,25 +129,15 @@ class SatelliteUpdateService:
 
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url) as response:
+                async with session.post(url, json={"target_version": target_version}) as response:
                     if response.status == 200:
                         data = await response.json()
 
                         # `started` is the satellite's answer to "did I begin
                         # one" — false is the legitimate already-up-to-date
-                        # branch, not a failure, and only the true one carries a
-                        # target_version to wait for.
+                        # branch, not a failure. What it would install is no
+                        # longer in question: it is what this call named.
                         if data.get("started"):
-                            # Named rather than subscripted: the version is what
-                            # the completion wait polls for, and a KeyError here
-                            # reaches the UI as the error string `'target_version'`.
-                            target_version = data.get("target_version")
-                            if not target_version:
-                                return {
-                                    "success": False,
-                                    "error": "Satellite started an update without a target_version"
-                                }
-
                             update_result = await self._wait_for_update_completion(
                                 mac_id,
                                 ip,
@@ -432,9 +428,13 @@ class SatelliteUpdateService:
 
     async def update_satellite_camilladsp(
         self,
-        mac_id: str
+        mac_id: str,
+        target_version: str
     ) -> Dict[str, Any]:
-        """Triggers a CamillaDSP binary update on a satellite."""
+        """Installs `target_version` of CamillaDSP on a satellite.
+
+        Server-resolved for the same reason as the snapclient update above.
+        """
         try:
             satellites = await self.discover_satellites()
             satellite = next((s for s in satellites if s["mac_id"] == mac_id), None)
@@ -450,18 +450,11 @@ class SatelliteUpdateService:
 
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url) as response:
+                async with session.post(url, json={"target_version": target_version}) as response:
                     if response.status == 200:
                         data = await response.json()
 
                         if data.get("started"):
-                            target_version = data.get("target_version")
-                            if not target_version:
-                                return {
-                                    "success": False,
-                                    "error": "Satellite started an update without a target_version"
-                                }
-
                             return await self._wait_for_camilladsp_update_completion(
                                 mac_id, ip, target_version
                             )

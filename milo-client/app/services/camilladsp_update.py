@@ -68,29 +68,6 @@ class CamillaDSPUpdateService:
             self.logger.error(f"Error getting CamillaDSP version: {e}")
             return None
 
-    async def get_latest_github_version(self) -> Optional[str]:
-        """Gets the latest version from GitHub."""
-        try:
-            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        tag_name = data.get("tag_name", "")
-
-                        match = re.search(CAMILLADSP_VERSION_REGEX, tag_name)
-                        if match:
-                            return match.group(1)
-
-                        return tag_name.lstrip('v')
-
-                    return None
-
-        except Exception as e:
-            self.logger.error(f"Error getting latest version from GitHub: {e}")
-            return None
-
     async def update_camilladsp(self, target_version: str) -> Dict[str, Any]:
         """Updates CamillaDSP binary from GitHub release.
 

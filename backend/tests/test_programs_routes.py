@@ -38,6 +38,11 @@ def router():
         return_value={"can_update": True, "available_version": "1.2.3"}
     )
     update_service.update_program = AsyncMock(return_value={"success": True})
+    # The two satellite routes resolve the version to install before dispatching:
+    # a satellite has no manifest of its own, so the server names it.
+    update_service.get_latest_github_version = AsyncMock(
+        return_value={"status": "success", "version": "0.35.0"}
+    )
 
     state_machine = MagicMock()
     state_machine.broadcast = AsyncMock()
@@ -105,8 +110,8 @@ async def test_a_failing_check_releases_the_key(router):
 
 async def test_the_satellite_routes_claim_their_key_too(router):
     """
-    The three satellite routes have no await in the window, but they share the
-    claim helper — a second request must still be refused.
+    Two of the three now resolve the version to install inside the window, and
+    all three share the claim helper — a second request must still be refused.
     """
     for path, key_prefix in (
         ("/api/programs/satellites/{mac_id}/update", "satellite_"),
@@ -116,6 +121,29 @@ async def test_the_satellite_routes_claim_their_key_too(router):
         endpoint = _endpoint(router, path)
         assert (await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "success"
         assert (await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "error"
+
+
+async def test_a_satellite_update_with_no_resolvable_version_never_starts(router):
+    """No version, no update — and the claim goes back.
+
+    The satellite would otherwise be asked to install nothing, or (as it once
+    did) to pick `releases/latest` for itself, which is how a client lands on a
+    release the server never validated. GitHub rate-limits unauthenticated
+    callers at 60/hour, so an unresolvable answer is an ordinary Tuesday.
+    """
+    endpoint = _endpoint(router, "/api/programs/satellites/{mac_id}/update")
+    router.update_service.get_latest_github_version = AsyncMock(
+        return_value={"status": "error", "message": "API rate limit exceeded"}
+    )
+
+    refused = await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks())
+    assert refused["status"] == "error"
+
+    # The key was released, so the update is still startable once GitHub answers.
+    router.update_service.get_latest_github_version = AsyncMock(
+        return_value={"status": "success", "version": "0.35.0"}
+    )
+    assert (await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "success"
 
 
 async def test_an_update_announces_itself_once(router):

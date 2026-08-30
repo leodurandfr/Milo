@@ -5,6 +5,7 @@ import time
 import logging
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
+from models import ProgramUpdateRequest
 from services.camilladsp_update import CamillaDSPUpdateService
 
 logger = logging.getLogger(__name__)
@@ -15,28 +16,26 @@ def create_camilladsp_update_router(camilladsp_update_service: CamillaDSPUpdateS
     router = APIRouter(tags=["camilladsp-update"])
 
     @router.post("/camilladsp/update")
-    async def update_camilladsp(background_tasks: BackgroundTasks):
-        """Starts the CamillaDSP update from GitHub."""
+    async def update_camilladsp(payload: ProgramUpdateRequest, background_tasks: BackgroundTasks):
+        """Installs the CamillaDSP version the server names."""
         if camilladsp_update_service.update_in_progress:
             raise HTTPException(status_code=409, detail="Update already in progress")
 
         try:
-            latest_version = await camilladsp_update_service.get_latest_github_version()
-            if not latest_version:
-                raise HTTPException(status_code=500, detail="Could not determine latest version")
+            target_version = payload.target_version
 
             current_version = await camilladsp_update_service.get_installed_version()
-            if current_version == latest_version:
+            if current_version == target_version:
                 return {
                     "status": "success",
                     "started": False,
                     "message": "Already up to date",
                     "current_version": current_version,
-                    "latest_version": latest_version
+                    "target_version": target_version
                 }
 
             async def do_update():
-                result = await camilladsp_update_service.update_camilladsp(latest_version)
+                result = await camilladsp_update_service.update_camilladsp(target_version)
                 logger.info(f"CamillaDSP update completed: {result}")
 
             background_tasks.add_task(do_update)
@@ -44,9 +43,9 @@ def create_camilladsp_update_router(camilladsp_update_service: CamillaDSPUpdateS
             return {
                 "status": "success",
                 "started": True,
-                "message": f"Update started: {current_version} -> {latest_version}",
+                "message": f"Update started: {current_version} -> {target_version}",
                 "current_version": current_version,
-                "target_version": latest_version
+                "target_version": target_version
             }
 
         except HTTPException:
