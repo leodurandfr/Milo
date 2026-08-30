@@ -54,6 +54,28 @@ POSITION_TICK_SECONDS = 10.0
 # (track change, seek) rather than routine confirmation.
 POSITION_JUMP_TOLERANCE_MS = 2000
 
+# How long the cover in hand may outlive its pairing while the next one is
+# still in flight.
+#
+# The tags and the picture are two SET_PARAMETER requests in no guaranteed
+# order, so a track change with the tags first leaves the new stamp unpaired.
+# Publishing that gap drops album_art_url, and the frontend's untrusted-sender
+# gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX) reads a missing album_art_width as
+# "this sender pushes no real cover": AudioPlayerFull is swapped for the status
+# card and back, which is visible as the player animating itself out and in.
+#
+# Holding the cover across the gap keeps what the pairing is for -- a coverless
+# track must not wear the previous one's for its whole duration -- and bounds it
+# explicitly instead of deciding on an instant. Two delays were measured
+# against a macOS sender: ~30 ms when the sender merely re-sends its bundle
+# under a fresh rtptime, which every transport action makes it do, and 5.4 s on
+# a genuine track change where it had to produce the new cover. The bound has
+# to cover the second, so what it sizes is not the gap but how long a cover may
+# be wrong -- and at a track change inside one album the held cover IS the new
+# track's, so only an album boundary onto a coverless track shows a stale one,
+# with the title and artist beside it already correct throughout.
+ARTWORK_SETTLE_SECONDS = 8.0
+
 
 class AirPlaySource(BaseAudioSource):
     """AirPlay 2 source (Family B — passive player): external control, rich metadata."""
@@ -98,6 +120,7 @@ class AirPlaySource(BaseAudioSource):
         self._artwork_url: Optional[str] = None
         self._artwork_width: int = 0
         self._artwork_id: Optional[str] = None
+        self._artwork_settle_task: Optional[asyncio.Task] = None
         self._track_id: Optional[str] = None
 
         # Progress tracking: `prgr` gives a position snapshot in RTP frames; the
@@ -207,6 +230,10 @@ class AirPlaySource(BaseAudioSource):
         the previous one's cover for its whole duration.
         """
         self._track_id = track_id
+        # Before the publish below, so it already sees the hold rather than
+        # emitting one coverless state and correcting it a task-turn later.
+        if self._artwork_url and self._artwork_id != track_id:
+            self._start_artwork_settle()
         self._metadata.update({
             "title": metadata.get("title", self._metadata.get("title", "")),
             "artist": metadata.get("artist", self._metadata.get("artist", "")),
@@ -264,6 +291,8 @@ class AirPlaySource(BaseAudioSource):
         which track the cover belongs to.
         """
         paired_with, self._artwork_id = self._artwork_id, track_id
+        if self._artwork_id == self._track_id:
+            self._cancel_artwork_settle()
         new_hash = hashlib.md5(data).hexdigest()[:12]
         if new_hash == self._artwork_hash:
             if track_id != paired_with:
@@ -394,13 +423,17 @@ class AirPlaySource(BaseAudioSource):
         """Update state based on device connection."""
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
-        # The cover is published only for the track it was stamped for, and the
+        # The cover is published for the track it was stamped for, and the
         # width comes with it — both dropped first, because _metadata is the
         # last publish handed back and either would otherwise round-trip
-        # through it and outlive the pairing that put it there.
+        # through it and outlive the pairing that put it there. A pending
+        # settle keeps them for the few ms a newly-stamped track's own picture
+        # may still be in flight (ARTWORK_SETTLE_SECONDS).
         core.album_art_url = None
         extras.pop("album_art_width", None)
-        if self._artwork_url and self._artwork_id == self._track_id:
+        if self._artwork_url and (
+            self._artwork_id == self._track_id or self._artwork_settle_task
+        ):
             core.album_art_url = self._artwork_url
             extras["album_art_width"] = self._artwork_width
         extras["client_name"] = self._client_name
@@ -416,8 +449,31 @@ class AirPlaySource(BaseAudioSource):
 
         self._reset_playback_state()
 
+    def _cancel_artwork_settle(self) -> None:
+        """Stop holding the previous cover: the pairing resolved, or is moot."""
+        if self._artwork_settle_task:
+            self._artwork_settle_task.cancel()
+            self._artwork_settle_task = None
+
+    def _start_artwork_settle(self) -> None:
+        """Hold the cover in hand while this track's own may still arrive."""
+        self._cancel_artwork_settle()
+
+        async def drop_after_delay():
+            try:
+                await asyncio.sleep(ARTWORK_SETTLE_SECONDS)
+            except asyncio.CancelledError:
+                return
+            # Detached before the publish so it sees no hold and drops the
+            # cover -- the coverless state, once, instead of on every event.
+            self._artwork_settle_task = None
+            self._update_connection_state()
+
+        self._artwork_settle_task = asyncio.create_task(drop_after_delay())
+
     def _clear_artwork(self) -> None:
         """Clear stored artwork data."""
+        self._cancel_artwork_settle()
         self._artwork_data = None
         self._artwork_mime = None
         self._artwork_hash = None

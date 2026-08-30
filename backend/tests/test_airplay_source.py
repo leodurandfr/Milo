@@ -22,6 +22,7 @@ import pytest
 from PIL import Image
 
 from backend.sources.airplay.metadata_reader import MetadataReader
+from backend.sources.airplay import source as airplay_source
 from backend.sources.airplay.source import AirPlaySource
 
 # Two rtptimes, as the sender sends them: an ASCII decimal string.
@@ -76,8 +77,15 @@ def _picture(rtptime: Optional[str], data: bytes) -> str:
 
 
 @pytest.fixture
-def airplay():
-    """The real source behind the real reader, fed by the caller."""
+def airplay(monkeypatch):
+    """The real source behind the real reader, fed by the caller.
+
+    The artwork hold is shortened from its production 8 s. What the two "no
+    cover" tests pin is that the window *ends*, not how long it is, and
+    sleeping the real bound would put 16 s of wall clock in the suite for a
+    tuning constant.
+    """
+    monkeypatch.setattr(airplay_source, "ARTWORK_SETTLE_SECONDS", 0.2)
     source = AirPlaySource()
     reader = MetadataReader(
         pipe_path="/nonexistent",
@@ -90,6 +98,17 @@ def airplay():
         await reader._process_buffer("".join(chunks).encode())
 
     return source, feed
+
+
+async def _after_the_hold() -> None:
+    """Wait out the artwork hold, so what follows is the state it leaves behind.
+
+    Read off the module rather than imported, so it follows the shortened value
+    the fixture installs. `asyncio` is the module's single import of it, made
+    further down with the second block; a second one here would be an F811
+    redefinition.
+    """
+    await asyncio.sleep(airplay_source.ARTWORK_SETTLE_SECONDS + 0.05)
 
 
 class TestCoverPairing:
@@ -122,11 +141,17 @@ class TestCoverPairing:
     async def test_a_track_that_sends_no_cover_shows_none(self, airplay):
         """The defect this pairing exists for. Plenty of senders push a picture
         for one track and nothing for the next; the cover left behind is what
-        the full-screen player draws for the whole of it."""
+        the full-screen player draws for the whole of it.
+
+        The drop is deferred by ARTWORK_SETTLE_SECONDS, not instant — see
+        `test_the_cover_is_held_while_the_next_one_is_still_in_flight` for what
+        that window is for. What this pins is that the window *ends*: a hold
+        that never expired would be the whole-track-stale-cover bug again."""
         source, feed = airplay
         await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
 
         await feed(_bundle(RTP_B, "Toilet Brush"))
+        await _after_the_hold()
 
         assert source.metadata["title"] == "Toilet Brush"
         assert "album_art_url" not in source.metadata
@@ -134,11 +159,12 @@ class TestCoverPairing:
 
     async def test_a_cover_stamped_for_the_previous_track_is_not_adopted(self, airplay):
         """The stamp is the whole rule: a picture in hand is not this track's
-        merely because it is the most recent one."""
+        merely because it is the most recent one — once the hold has expired."""
         source, feed = airplay
         await feed(_picture(RTP_A, _cover("navy")))
 
         await feed(_bundle(RTP_B, "Toilet Brush"))
+        await _after_the_hold()
 
         assert "album_art_url" not in source.metadata
 
@@ -156,6 +182,39 @@ class TestCoverPairing:
 
         assert source.metadata["title"] == "Says (Live)"
         assert source.metadata["album_art_url"] == first
+
+    async def test_the_cover_is_held_while_the_next_one_is_still_in_flight(self, airplay):
+        """A track change must not blank the cover for the millisecond before
+        its own arrives.
+
+        The tags and the picture are two SET_PARAMETER requests in no
+        guaranteed order, so the tags-first order leaves the new stamp
+        unpaired. Publishing that gap sends a state with no `album_art_url`,
+        and `useRichDisplay`'s untrusted-sender gate reads a missing
+        `album_art_width` as "no real cover from this sender": the frontend
+        swaps AudioPlayerFull for the AudioSourceStatus card and back within
+        ~30 ms, which is visible as the player animating itself out and in.
+        Measured on a macOS sender, on every track change *and* every transport
+        action, since the sender re-sends its bundle under a fresh rtptime.
+
+        The window is what is asserted here; that it expires is asserted by
+        `test_a_track_that_sends_no_cover_shows_none`.
+        """
+        source, feed = airplay
+        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
+        held = source.metadata["album_art_url"]
+
+        await feed(_bundle(RTP_B, "Toilet Brush"))
+
+        assert source.metadata["title"] == "Toilet Brush"
+        assert source.metadata["album_art_url"] == held
+        assert source.metadata["album_art_width"] == 600
+
+        # And the track's own picture, when it lands, takes the hold's place.
+        await feed(_picture(RTP_B, _cover("crimson", size=450)))
+
+        assert source.metadata["album_art_url"] != held
+        assert source.metadata["album_art_width"] == 450
 
     async def test_a_sender_without_rtp_info_keeps_what_it_had(self, airplay):
         """shairport-sync tolerates a sender that sends no RTP-Info and sends
