@@ -826,13 +826,22 @@ line, nothing to notice. "Audio plays" would have passed it.
 
 #### The procedure
 
-1. Edit the one line in `dependencies.env`. Nothing else — a version literal anywhere else
-   fails CI (`backend/tests/architecture/test_dependency_manifest.py`).
-2. Install that version on a unit, through the in-app update or by re-running the install
-   script. Do not hand-build it: what you are validating includes the way Milō installs it.
-3. Run the dependency's row below **and** the ~10-minute smoke set from
+1. **Try it first, from the Update Manager.** When upstream is ahead of the manifest the row
+   offers that release directly (`shairport-sync 5.2.2 > 5.2.3`), and installing it uses the
+   exact flow a bump would — the same download, the same compile, the same rollback. The unit
+   is then off-pin: the row says so, `Back to 5.2.2` is one click away, and the trial survives
+   Milō updates until you end it or the manifest catches up (invariant 8). This is where a
+   version fails, and it costs nothing to find out: qobuz-proxy 1.6.0 moved the anchor
+   `install/qobuz_proxy_patches.py` needs and rolled itself back in under a minute.
+2. Edit the one line in `dependencies.env`. Nothing else — a version literal anywhere else
+   fails CI (`backend/tests/architecture/test_dependency_manifest.py`). The override is dropped
+   on its own once the manifest declares that version, so nothing is left to clean up.
+3. If you skipped step 1, install the version on a unit through the in-app update or by
+   re-running the install script. Do not hand-build it: what you are validating includes the
+   way Milō installs it.
+4. Run the dependency's row below **and** the ~10-minute smoke set from
    [docs/manual/verification-checklist.md](manual/verification-checklist.md).
-4. Commit the bump on its own, saying which unit and which rows were run. A bump folded into
+5. Commit the bump on its own, saying which unit and which rows were run. A bump folded into
    a feature commit cannot be reverted alone, and reverting is the whole point of pinning.
 
 #### What to watch, per dependency
