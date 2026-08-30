@@ -57,7 +57,6 @@ def mock_snapclient_service():
 
     # Async methods
     service.get_installed_version = AsyncMock(return_value="0.28.0")
-    service.get_latest_github_version = AsyncMock(return_value="0.29.0")
     service.is_service_running = AsyncMock(return_value=True)
     service.update_snapclient = AsyncMock(return_value={"success": True})
 
@@ -79,7 +78,6 @@ def mock_camilladsp_update_service():
     service = Mock(spec=CamillaDSPUpdateService)
     service.update_in_progress = False
     service.get_installed_version = AsyncMock(return_value="2.0.0")
-    service.get_latest_github_version = AsyncMock(return_value="2.0.1")
     service.update_camilladsp = AsyncMock(return_value={"success": True})
     return service
 
@@ -147,6 +145,51 @@ class TestSnapclientRoutes:
         assert response.status_code == 200
         data = response.json()
         assert "update_in_progress" in data
+
+
+class TestSnapclientUpdateTarget:
+    """POST /update installs the version the server names, and only that one.
+
+    The satellite used to ask GitHub for `releases/latest` itself. It carries no
+    manifest and no token, so that answer had nothing to do with what the server
+    validated — a client could land on a release the row that started it never
+    named, and no error anywhere said so.
+    """
+
+    def test_the_named_version_is_the_one_installed(self, client, mock_snapclient_service):
+        response = client.post("/update", json={"target_version": "0.30.0"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["started"] is True
+        assert body["target_version"] == "0.30.0"
+        mock_snapclient_service.update_snapclient.assert_called_once_with("0.30.0")
+
+    def test_a_version_below_the_installed_one_still_starts(self, client, mock_snapclient_service):
+        """Ending a trial of an unvalidated release is a downgrade.
+
+        Refusing it — or comparing "is the target newer" — is what would strand a
+        satellite above the version the server runs, with nothing able to bring
+        it back.
+        """
+        response = client.post("/update", json={"target_version": "0.27.0"})
+
+        assert response.json()["started"] is True
+        mock_snapclient_service.update_snapclient.assert_called_once_with("0.27.0")
+
+    def test_the_version_already_installed_starts_nothing(self, client, mock_snapclient_service):
+        """Restarting snapclient to install what is already there cuts the sound
+        in an occupied room for no gain."""
+        response = client.post("/update", json={"target_version": "0.28.0"})
+
+        assert response.json()["started"] is False
+        mock_snapclient_service.update_snapclient.assert_not_called()
+
+    def test_a_request_naming_no_version_is_refused(self, client, mock_snapclient_service):
+        """There is no version to fall back to: the resolver that used to supply
+        one is gone, and installing "the latest" is the fault this closed."""
+        assert client.post("/update", json={}).status_code == 422
+        mock_snapclient_service.update_snapclient.assert_not_called()
 
 
 class TestSnapclientConfigBounds:

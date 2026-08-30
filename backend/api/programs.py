@@ -218,6 +218,23 @@ def create_programs_router(
                 "count": 0
             }
 
+    async def _fleet_target(program_key: str):
+        """The version the fleet must run — the server's, resolved once here.
+
+        A satellite has no manifest and no GitHub token; letting it read
+        `releases/latest` for itself is what put a client on a version the row
+        that started it never named. Unresolvable means the update does not
+        start: an unpinned install is worse than a refusal.
+        """
+        latest = await update_service.get_latest_github_version(program_key)
+        if latest.get("status") != "success":
+            logger.error(
+                f"Cannot resolve the {program_key} version for the fleet: "
+                f"{latest.get('message', 'unknown error')}"
+            )
+            return None
+        return latest.get("version")
+
     @router.post("/satellites/{mac_id}/update")
     async def update_satellite(mac_id: str, background_tasks: BackgroundTasks):
         """Launch a satellite update in the background"""
@@ -230,9 +247,17 @@ def create_programs_router(
                 "message": f"Update already in progress for {mac_id}"
             }
 
+        target_version = await _fleet_target("multiroom")
+        if not target_version:
+            active_updates.discard(satellite_key)
+            return {
+                "status": "error",
+                "message": "Could not resolve the snapclient version to install"
+            }
+
         do_update = _create_background_update(
             update_key=satellite_key,
-            update_fn=lambda: satellite_service.update_satellite(mac_id),
+            update_fn=lambda: satellite_service.update_satellite(mac_id, target_version),
             progress_event_cls=SatelliteUpdateProgress,
             complete_event_cls=SatelliteUpdateComplete,
             identifier={"mac_id": mac_id},
@@ -284,9 +309,17 @@ def create_programs_router(
                 "message": f"CamillaDSP update already in progress for {mac_id}"
             }
 
+        target_version = await _fleet_target("camilladsp")
+        if not target_version:
+            active_updates.discard(satellite_key)
+            return {
+                "status": "error",
+                "message": "Could not resolve the CamillaDSP version to install"
+            }
+
         do_update = _create_background_update(
             update_key=satellite_key,
-            update_fn=lambda: satellite_service.update_satellite_camilladsp(mac_id),
+            update_fn=lambda: satellite_service.update_satellite_camilladsp(mac_id, target_version),
             progress_event_cls=SatelliteCamillaDspUpdateProgress,
             complete_event_cls=SatelliteCamillaDspUpdateComplete,
             identifier={"mac_id": mac_id},

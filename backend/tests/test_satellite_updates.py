@@ -19,6 +19,13 @@ from fastapi.testclient import TestClient
 from backend.api.programs import create_programs_router
 from backend.core.updates.satellite import SatelliteUpdateService
 
+# What the server names in the call. It resolves the version against its own
+# manifest — including a trial of an unvalidated release — because a satellite
+# carries neither a manifest nor a GitHub token.
+SNAPCLIENT_TARGET = "0.28.0"
+CAMILLADSP_TARGET = "3.1.0"
+
+
 # What the server calls the version of a satellite: a describe of the last
 # commit that touched `milo-client/`, the tarball's only content.
 SERVER_VERSION = "v0.1.0-1673-gdeadbee"
@@ -268,26 +275,28 @@ class TestSnapclientUpdateOutcome:
     async def test_a_version_that_did_not_move_is_a_failed_update(self, satellite_service):
         satellite = _FakeSatellite(
             status_payload={"snapclient": {"version": "0.27.0", "running": True}},
-            post_payload={"status": "success", "started": True, "target_version": "0.28.0"},
+            post_payload={"status": "success", "started": True, "target_version": SNAPCLIENT_TARGET},
         )
 
         with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
 
         assert satellite.posts == ["http://192.168.1.153:8001/update"]
         assert result["success"] is False
         assert "0.27.0" in result["error"] and "0.28.0" in result["error"]
 
     async def test_the_version_the_satellite_targeted_is_the_one_required(self, satellite_service):
-        """The target comes from the satellite's own POST answer — the server never
-        knows which snapclient release GitHub offered it."""
+        """The update is done when the satellite reports the version asked for.
+
+        `update_in_progress` going false only says the attempt ended; the
+        version is the only thing that separates an install from a rollback."""
         satellite = _FakeSatellite(
             status_payload={"snapclient": {"version": "0.28.0", "running": True}},
-            post_payload={"status": "success", "started": True, "target_version": "0.28.0"},
+            post_payload={"status": "success", "started": True, "target_version": SNAPCLIENT_TARGET},
         )
 
         with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
 
         assert result["success"] is True
         assert result["new_version"] == "0.28.0"
@@ -300,11 +309,11 @@ class TestCamillaDspUpdateOutcome:
     async def test_a_version_that_did_not_move_is_a_failed_update(self, satellite_service):
         satellite = _FakeSatellite(
             status_payload={"camilladsp": {"version": "3.0.0"}, "snapclient": {"version": "0.28.0"}},
-            post_payload={"status": "success", "started": True, "target_version": "3.1.0"},
+            post_payload={"status": "success", "started": True, "target_version": CAMILLADSP_TARGET},
         )
 
         with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET)
 
         assert result["success"] is False
         assert "3.0.0" in result["error"] and "3.1.0" in result["error"]
@@ -312,11 +321,11 @@ class TestCamillaDspUpdateOutcome:
     async def test_a_version_that_moved_is_a_successful_update(self, satellite_service):
         satellite = _FakeSatellite(
             status_payload={"camilladsp": {"version": "3.1.0"}, "snapclient": {"version": "0.28.0"}},
-            post_payload={"status": "success", "started": True, "target_version": "3.1.0"},
+            post_payload={"status": "success", "started": True, "target_version": CAMILLADSP_TARGET},
         )
 
         with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET)
 
         assert result["success"] is True
         assert result["new_version"] == "3.1.0"
@@ -744,7 +753,7 @@ class TestUpdateSatelliteDispatch:
         user did not pick."""
         fake = _FakeSatellite(self.STATUS)
         with _patch_satellite(fake):
-            result = await satellite_service.update_satellite("00:00:00:00:00:00")
+            result = await satellite_service.update_satellite("00:00:00:00:00:00", SNAPCLIENT_TARGET)
 
         assert result["success"] is False
         assert "not found or offline" in result["error"]
@@ -757,29 +766,16 @@ class TestUpdateSatelliteDispatch:
         fake = _FakeSatellite(self.STATUS, post_payload={
             "started": False, "message": "Already at the latest version"})
         with _patch_satellite(fake):
-            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
 
         assert result == {"success": False, "error": "Already at the latest version"}
 
     async def test_a_declined_update_with_no_message_still_says_something(self, satellite_service):
         fake = _FakeSatellite(self.STATUS, post_payload={"started": False})
         with _patch_satellite(fake):
-            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
 
         assert result == {"success": False, "error": "Update failed"}
-
-    async def test_an_update_started_without_a_target_is_refused_not_waited_on(
-            self, satellite_service):
-        """The target version is what the completion wait polls for. Reading it
-        with `[]` would raise a KeyError that reaches the UI as the string
-        `'target_version'`; waiting on None would poll until the timeout and
-        then report a timeout for an update that never began."""
-        fake = _FakeSatellite(self.STATUS, post_payload={"started": True})
-        with _patch_satellite(fake):
-            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
-
-        assert result["success"] is False
-        assert "without a target_version" in result["error"]
 
     async def test_a_refused_post_is_reported_with_its_status(self, satellite_service):
         """A satellite mid-reboot answers 502 through its own nginx."""
@@ -789,7 +785,7 @@ class TestUpdateSatelliteDispatch:
                 return _FakeResponse(502, {})
 
         with _patch_satellite(_Refusing(self.STATUS)):
-            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
 
         assert result == {"success": False, "error": "HTTP 502"}
 
@@ -802,7 +798,7 @@ class TestUpdateSatelliteDispatch:
                 raise OSError("Connection reset by peer")
 
         with _patch_satellite(_Dropping(self.STATUS)), caplog.at_level(logging.ERROR):
-            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
 
         assert result["success"] is False
         assert "Connection reset" in result["error"]
@@ -813,7 +809,7 @@ class TestUpdateSatelliteDispatch:
         reaches its nginx and 404s, which reads as "satellite refused"."""
         fake = _FakeSatellite(self.STATUS, post_payload={"started": False})
         with _patch_satellite(fake):
-            await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+            await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
 
         assert fake.posts == [
             f"http://192.168.1.153:{satellite_service.satellite_api_port}/update"
@@ -839,9 +835,9 @@ class TestSatelliteUpdateRecoveryArms:
                 return super().get(url, **kwargs)
 
         fake = _DiesAfterPost(self.STATUS, post_payload={
-            "started": True, "target_version": "0.32.0"})
+            "started": True, "target_version": SNAPCLIENT_TARGET})
         with _patch_satellite(fake), patch("asyncio.sleep", new=AsyncMock()):
-            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
 
         assert result["success"] is False
         assert "timeout" in result["error"]
@@ -852,7 +848,7 @@ class TestSatelliteUpdateRecoveryArms:
         separate paths; the wrong one 404s and reads as "satellite refused"."""
         fake = _FakeSatellite(self.STATUS, post_payload={"started": False})
         with _patch_satellite(fake):
-            await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+            await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET)
 
         assert fake.posts == [
             f"http://192.168.1.153:{satellite_service.satellite_api_port}/camilladsp/update"
@@ -861,25 +857,17 @@ class TestSatelliteUpdateRecoveryArms:
     async def test_an_unknown_satellite_gets_no_camilladsp_push(self, satellite_service):
         fake = _FakeSatellite(self.STATUS)
         with _patch_satellite(fake):
-            result = await satellite_service.update_satellite_camilladsp("00:00:00:00:00:00")
+            result = await satellite_service.update_satellite_camilladsp("00:00:00:00:00:00", CAMILLADSP_TARGET)
 
         assert "not found or offline" in result["error"]
         assert fake.posts == []
-
-    async def test_a_camilladsp_update_started_without_a_target_is_refused(
-            self, satellite_service):
-        fake = _FakeSatellite(self.STATUS, post_payload={"started": True})
-        with _patch_satellite(fake):
-            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
-
-        assert "without a target_version" in result["error"]
 
     async def test_a_camilladsp_update_the_satellite_declined_carries_its_message(
             self, satellite_service):
         fake = _FakeSatellite(self.STATUS, post_payload={
             "started": False, "message": "CamillaDSP is already at 3.0.1"})
         with _patch_satellite(fake):
-            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET)
 
         assert result == {"success": False, "error": "CamillaDSP is already at 3.0.1"}
 
@@ -889,7 +877,7 @@ class TestSatelliteUpdateRecoveryArms:
                 return _FakeResponse(500, {})
 
         with _patch_satellite(_Refusing(self.STATUS)):
-            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET)
 
         assert result == {"success": False, "error": "HTTP 500"}
 
@@ -900,7 +888,7 @@ class TestSatelliteUpdateRecoveryArms:
                 raise OSError("No route to host")
 
         with _patch_satellite(_Dropping(self.STATUS)), caplog.at_level(logging.ERROR):
-            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET)
 
         assert "No route to host" in result["error"]
         assert "dc:a6:32:7e:d3:43" in caplog.text
@@ -914,9 +902,9 @@ class TestSatelliteUpdateRecoveryArms:
                 return super().get(url, **kwargs)
 
         fake = _DiesAfterPost(self.STATUS, post_payload={
-            "started": True, "target_version": "3.0.2"})
+            "started": True, "target_version": CAMILLADSP_TARGET})
         with _patch_satellite(fake), patch("asyncio.sleep", new=AsyncMock()):
-            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43")
+            result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET)
 
         assert "CamillaDSP update timeout" in result["error"]
 

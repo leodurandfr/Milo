@@ -35,6 +35,9 @@ PACKAGE_NAME=$(dpkg-deb --show --showformat='${Package}' "$DEB_PATH" 2>/dev/null
     error_exit "Failed to read package info"
 [ "$PACKAGE_NAME" != "snapclient" ] && error_exit "Package is not snapclient: $PACKAGE_NAME"
 
-# Update package lists and install
+# Update package lists and install. --allow-downgrades because the server also
+# sends a version *below* the installed one — ending a trial of an unvalidated
+# release, or following a manifest rolled back — and apt refuses that silently
+# enough to read as an install failure.
 DEBIAN_FRONTEND=noninteractive apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$DEB_PATH"
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --allow-downgrades "$DEB_PATH"
