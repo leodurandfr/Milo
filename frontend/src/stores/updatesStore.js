@@ -107,10 +107,10 @@ export const useUpdatesStore = defineStore('updates', () => {
     }
   }
 
-  async function startUpdate(states, id, url, message) {
+  async function startUpdate(states, id, url, message, body = null) {
     if (states.value[id]?.updating) return;
     states.value[id] = { updating: true };
-    const result = await apiCall.post(url, null, {
+    const result = await apiCall.post(url, body, {
       category: 'updates',
       message,
       checkStatus: true
@@ -128,11 +128,16 @@ export const useUpdatesStore = defineStore('updates', () => {
     return programKey in localPrograms.value;
   }
 
-  async function startLocalUpdate(programKey) {
+  // `target` names the release to install: 'validated' is the version
+  // dependencies.env declares — and, on a unit deliberately moved past it, the
+  // return to that version — while 'upstream' is what GitHub published beyond
+  // the manifest. The backend decides which are on offer; this only forwards it.
+  async function startLocalUpdate(programKey, target = 'validated') {
     if (!canUpdateLocal(programKey)) return;
     await startUpdate(localUpdateStates, programKey,
       `/api/programs/${programKey}/update`,
-      `Error starting update for ${programKey}`);
+      `Error starting update for ${programKey}`,
+      { target });
   }
 
   async function startSatelliteUpdate(macId) {

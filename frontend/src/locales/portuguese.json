@@ -357,7 +357,7 @@
     "upToDate": "Atualizado",
     "dependenciesHint": "Instala a aplicação e as versões dos programas validadas com ela.",
     "clientsHint": "Os Milō Clients também a recebem.",
-    "upstream": "upstream"
+    "revertTo": "Voltar para {version}"
   },
   "info": {
     "temperature": "Temperatura",
