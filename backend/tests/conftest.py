@@ -67,6 +67,35 @@ def keep_the_suite_out_of_the_live_env_files(tmp_path_factory):
         yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def keep_the_suite_out_of_the_live_store_folders(tmp_path_factory):
+    """Repoint the two stores that create their own folder, for the whole run.
+
+    Same reason as the env writers above, one directory further again:
+    `VolumeStateStore` and `ImageManager` each `mkdir` their folder under
+    /var/lib/milo from `__init__`, so every fixture that builds a volume store or
+    anything holding a radio source reached the live path -- 235 tests, none of
+    which repoints anything. Reading is the visible half: nothing repoints
+    `STORAGE_PATH` in `integration/test_multiroom_zones.py`, so `initialize()`
+    there loaded the appliance's real last_volume.json -- two live satellite MACs
+    at whatever level the operator last left the knob -- and loaded nothing on
+    CI. Same test, two starting states, decided by the host.
+
+    Session-scoped and autouse for the same reason as the env fixture: both
+    constructors are reached through many paths, and a test that acquires one
+    more must not have to know this exists. The files that already repoint these
+    two per-test keep winning -- function-scoped monkeypatch undoes first.
+    """
+    from backend.core.volume.state import VolumeStateStore
+    from backend.sources.radio.data import ImageManager
+
+    tmp = tmp_path_factory.mktemp("stores")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(VolumeStateStore, "STORAGE_PATH", tmp / "last_volume.json")
+        mp.setattr(ImageManager, "IMAGES_DIR", tmp / "radio_images")
+        yield
+
+
 _OFF_HOST_CONNECTS: list = []
 
 
@@ -163,14 +192,25 @@ def keep_the_suite_out_of_the_appliance_data():
     import time, so it holds the *original* builtins.open and a patch installed
     here is invisible to it. Every store that writes a temp file and renames is
     still caught at the `os.replace`, but a direct `aiofiles.open(..., 'wb')` is
-    not -- which is exactly how the station images are written.
+    not -- which is exactly how the station images are written. `os.makedirs` is
+    the same shape of hole and is patched for the same reason: it never reaches
+    `Path.mkdir`.
+
+    Creating a directory is refused outright, with no "it is already there"
+    exemption. That exemption asked the filesystem a question about the *host*
+    rather than about the test: on the appliance every store's own folder exists,
+    so it never fired and the run was green; on CI none of them exist, so the
+    same commit turned 262 tests green here into setup errors there. The false
+    positives it was narrowed against are gone at their source instead -- the two
+    stores that make their own folder are repointed at a temp dir by
+    `keep_the_suite_out_of_the_live_store_folders`.
     """
     real_open = builtins.open
     real_sync_open = aiofiles.threadpool.sync_open
     real_replace, real_rename, real_remove = os.replace, os.rename, os.remove
     real_write_text, real_write_bytes = Path.write_text, Path.write_bytes
     real_unlink, real_mkdir = Path.unlink, Path.mkdir
-    real_exists = Path.exists
+    real_makedirs = os.makedirs
     root = str(MILO_DATA_DIR)
 
     def _refuse(target) -> bool:
@@ -225,12 +265,14 @@ def keep_the_suite_out_of_the_appliance_data():
         return real_unlink(self, *a, **kw)
 
     def mkdir_(self, *a, **kw):
-        # `mkdir(exist_ok=True)` on a directory that is already there creates
-        # nothing and destroys nothing -- every store calls it to ensure its own
-        # folder. Only a mkdir that would really appear on the appliance counts.
-        if not real_exists(self) and _refuse(self):
+        if _refuse(self):
             _deny(self)
         return real_mkdir(self, *a, **kw)
+
+    def makedirs_(name, *a, **kw):
+        if _refuse(name):
+            _deny(name)
+        return real_makedirs(name, *a, **kw)
 
     def sync_open_(file, mode="r", *a, **kw):
         if any(c in str(mode) for c in "wxa+") and _refuse(file):
@@ -242,6 +284,7 @@ def keep_the_suite_out_of_the_appliance_data():
     os.replace, os.rename, os.remove = replace_, rename_, remove_
     Path.write_text, Path.write_bytes = write_text_, write_bytes_
     Path.unlink, Path.mkdir = unlink_, mkdir_
+    os.makedirs = makedirs_
     try:
         yield
     finally:
@@ -250,6 +293,7 @@ def keep_the_suite_out_of_the_appliance_data():
         os.replace, os.rename, os.remove = real_replace, real_rename, real_remove
         Path.write_text, Path.write_bytes = real_write_text, real_write_bytes
         Path.unlink, Path.mkdir = real_unlink, real_mkdir
+        os.makedirs = real_makedirs
 
 
 @pytest.fixture(autouse=True)

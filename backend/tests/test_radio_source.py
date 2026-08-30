@@ -29,9 +29,18 @@ def config():
 
 
 @pytest.fixture
-def radio_source(config):
-    """Create RadioSource with mocked components."""
+def radio_source(config, tmp_path):
+    """Create RadioSource with mocked components.
+
+    `_data_file` is repointed the way the CD and music-library data services are:
+    `RadioSource.__init__` builds a real StationDataService whatever the test
+    patches afterwards, and `_do_start` initializes it. On the appliance that
+    file exists, so the run loaded the operator's own favourites and wrote
+    nothing; on CI it does not, so the same test seeded defaults and saved them
+    to the live path.
+    """
     source = RadioSource(config)
+    source._station_data._data_file = tmp_path / "radio_data.json"
 
     # Mock service manager
     source._service_manager = Mock()
