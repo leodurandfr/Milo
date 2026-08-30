@@ -52,8 +52,17 @@
           <h2 class="heading-4">{{ header.title }}</h2>
           <span v-if="header.badge" class="gallery__badge text-mono-small">{{ header.badge }}</span>
           <code class="gallery__path text-mono-small">{{ header.path }}</code>
+          <IconButton
+            :icon="summaryOpen ? 'caretUp' : 'caretDown'"
+            variant="ghost"
+            size="small"
+            color="var(--color-text-light)"
+            :aria-expanded="summaryOpen"
+            aria-label="Toggle description"
+            @click="summaryOpen = !summaryOpen"
+          />
         </div>
-        <p class="gallery__summary text-mono-small">{{ header.summary }}</p>
+        <p v-if="summaryOpen" class="gallery__summary text-mono-small">{{ header.summary }}</p>
         <div v-if="tabOptions.length > 1" class="gallery__tabs">
           <button
             v-for="option in tabOptions"
@@ -131,6 +140,7 @@ import GallerySidebar from '@/components/gallery/GallerySidebar.vue';
 import GalleryCanvas from '@/components/gallery/GalleryCanvas.vue';
 import FoundationsPage from '@/components/gallery/FoundationsPage.vue';
 import GalleryControls from '@/components/gallery/GalleryControls.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import ActionsDemo from '@/components/gallery/demos/ActionsDemo.vue';
 import ControlsDemo from '@/components/gallery/demos/ControlsDemo.vue';
 import FeedbackDemo from '@/components/gallery/demos/FeedbackDemo.vue';
@@ -171,6 +181,13 @@ const query = ref('');
 const tab = ref('playground');
 /** Drives the mobile drawer only; the desktop grid ignores it. */
 const navOpen = ref(false);
+/**
+ * The header summary is one click away rather than always on. Kept across
+ * selections on purpose — it is a reading preference, not part of the
+ * selection, so neither the `watch(selected)` reset below nor the `?c=` link
+ * touches it.
+ */
+const summaryOpen = ref(false);
 const args = ref({});
 const slotChoices = ref({});
 const presetChoices = ref({});
