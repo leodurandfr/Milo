@@ -111,6 +111,16 @@
                         : t('updates.updating') }}
                     </Button>
                     <template v-else>
+                      <!-- Only on a unit deliberately moved past the manifest —
+                           and then it is the only thing saying so. First, so
+                           that the row's rightmost button is the one that moves
+                           forward, wherever the two appear together. -->
+                      <Button v-if="rows[key].revertTo" size="small" variant="background-strong"
+                        class="program-button"
+                        @click="startLocalUpdate(key, 'validated')"
+                        :disabled="isLocalUpdateBusy()">
+                        {{ t('updates.revertTo', { version: rows[key].revertTo }) }}
+                      </Button>
                       <!-- One button for both kinds of update: the manifest's
                            version, and what upstream published past it. Which
                            one it is comes from the backend, never from a
@@ -120,14 +130,6 @@
                         @click="startLocalUpdate(key, rows[key].update.target)"
                         :disabled="isLocalUpdateBusy()">
                         {{ t('updates.update') }}
-                      </Button>
-                      <!-- Only on a unit deliberately moved past the manifest —
-                           and then it is the only thing saying so. -->
-                      <Button v-if="rows[key].revertTo" size="small" variant="background-strong"
-                        class="program-button"
-                        @click="startLocalUpdate(key, 'validated')"
-                        :disabled="isLocalUpdateBusy()">
-                        {{ t('updates.revertTo', { version: rows[key].revertTo }) }}
                       </Button>
                       <Button v-if="!rows[key].update && !rows[key].revertTo"
                         size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
