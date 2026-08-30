@@ -14,62 +14,67 @@
     </template>
 
     <template v-else>
-      <!-- Section 1: Operating System (Milo OS only) -->
-      <SettingsSection v-if="localProgramsLoading || localPrograms.milo" :title="t('updates.osTitle')">
-        <!-- Shown only alongside the button, because it describes what pressing
-             it does: one Milō update carries the whole validated set, and the
-             satellites with it — but only say so where there are any. -->
-        <p v-if="!localProgramsLoading && localPrograms.milo?.update_available && !isLocalUpdateCompleted('milo')"
-          class="text-mono section-note">
-          {{ t('updates.dependenciesHint') }}
-          <template v-if="anticipatedSatellites.length"> {{ t('updates.clientsHint') }}</template>
-        </p>
-        <div class="crossfade-wrapper">
-          <Transition name="crossfade">
-            <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
-              <div class="program-item-skeleton">
-                <div class="skeleton-icon shimmer"></div>
-                <div class="skeleton-text shimmer skeleton-name"></div>
-                <div class="skeleton-text shimmer skeleton-version"></div>
-                <div class="skeleton-button shimmer"></div>
-              </div>
-            </div>
-
-            <div v-else key="content" class="programs-list">
-              <div class="program-item">
-                <div class="program-info">
-                  <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
-                  <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
-                  <span class="program-version text-mono">
-                    milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
-                    <template
-                      v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
-                      <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
-                    </template>
-                  </span>
-                </div>
-
-                <div class="program-actions">
-                  <Button
-                    v-if="isLocalUpdating('milo') || debugForceUpdating || (localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))"
-                    size="small" variant="brand" class="program-button"
-                    :loading="isLocalUpdating('milo') || debugForceUpdating"
-                    @click="startLocalUpdate('milo')"
-                    :disabled="debugForceUpdating || isLocalUpdateBusy()">
-                    {{ (isLocalUpdating('milo') || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
-                  </Button>
-                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                    {{ t('updates.upToDate') }}
-                  </Button>
+      <!-- The operating system and the individual programs share one card:
+           a divider tells the two groups apart. -->
+      <SettingsSection>
+        <template v-if="localProgramsLoading || localPrograms.milo">
+          <h2 class="heading-2">{{ t('updates.osTitle') }}</h2>
+          <!-- Shown only alongside the button, because it describes what pressing
+               it does: one Milō update carries the whole validated set, and the
+               satellites with it — but only say so where there are any. -->
+          <p v-if="!localProgramsLoading && localPrograms.milo?.update_available && !isLocalUpdateCompleted('milo')"
+            class="text-mono section-note">
+            {{ t('updates.dependenciesHint') }}
+            <template v-if="anticipatedSatellites.length"> {{ t('updates.clientsHint') }}</template>
+          </p>
+          <div class="crossfade-wrapper">
+            <Transition name="crossfade">
+              <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
+                <div class="program-item-skeleton">
+                  <div class="skeleton-icon shimmer"></div>
+                  <div class="skeleton-text shimmer skeleton-name"></div>
+                  <div class="skeleton-text shimmer skeleton-version"></div>
+                  <div class="skeleton-button shimmer"></div>
                 </div>
               </div>
-            </div>
-          </Transition>
-        </div>
-      </SettingsSection>
 
-      <!-- Section 2: the individual programs — a maintainer surface. -->
-      <SettingsSection :title="t('updates.programsTitle')">
+              <div v-else key="content" class="programs-list">
+                <div class="program-item">
+                  <div class="program-info">
+                    <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
+                    <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
+                    <span class="program-version text-mono">
+                      milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
+                      <template
+                        v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
+                        <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
+                      </template>
+                    </span>
+                  </div>
+
+                  <div class="program-actions">
+                    <Button
+                      v-if="isLocalUpdating('milo') || debugForceUpdating || (localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))"
+                      size="small" variant="brand" class="program-button"
+                      :loading="isLocalUpdating('milo') || debugForceUpdating"
+                      @click="startLocalUpdate('milo')"
+                      :disabled="debugForceUpdating || isLocalUpdateBusy()">
+                      {{ (isLocalUpdating('milo') || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                    </Button>
+                    <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                      {{ t('updates.upToDate') }}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <div class="section-divider"></div>
+        </template>
+
+        <!-- The individual programs — a maintainer surface. -->
+        <h2 class="heading-2">{{ t('updates.programsTitle') }}</h2>
         <div class="crossfade-wrapper">
           <Transition name="crossfade">
             <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
@@ -493,6 +498,12 @@ onMounted(async () => {
 
 .error-message {
   color: var(--color-text-secondary);
+}
+
+.section-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: var(--space-04) 0 var(--space-02) 0;
 }
 
 .programs-list {
