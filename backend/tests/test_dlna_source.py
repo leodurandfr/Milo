@@ -60,6 +60,17 @@ def test_to_ms(value, expected):
 
 # === _dispatch_state change-detection ========================================
 
+class _RunningBg:
+    """Runs what it is handed, for the tests that need the effect of a spawned
+    callback rather than the fact that one was scheduled."""
+
+    def __init__(self):
+        self.tasks = []
+
+    def spawn(self, coro, label=None):
+        self.tasks.append(asyncio.create_task(coro))
+
+
 class _FakeBg:
     """Stand-in for BackgroundTaskSet: _dispatch_state hands us the callback
     coroutines via spawn(); close them so the AsyncMock callbacks record their
@@ -332,30 +343,75 @@ async def test_the_senders_own_cover_wins_over_a_looked_up_one():
 
 
 @pytest.mark.asyncio
-async def test_a_looked_up_cover_does_not_follow_the_next_track():
-    """A cover found for one track must not caption the one after it.
+async def test_a_lookup_still_in_flight_does_not_displace_the_senders_cover():
+    """The same rule in the order that actually breaks it.
 
-    The lookup is keyed to the track it was made for and paired again at
-    publish time, which is what enforces this: a track change alone publishes
-    a state, and the previous track's cover is exactly what would ride out on
-    it. Same defect as the sender's own cover outliving its track, reached
-    from the other side.
+    The lookup is spawned the moment the sender is known to have nothing, and
+    it outlives that: a later GENA event can deliver a real cover while iTunes
+    is still being asked. Landing afterwards, the guess would overwrite the
+    thing it was standing in for.
     """
     src = DlnaSource()
-    src._artwork.resolve = AsyncMock(return_value="https://itunes/600x600bb.jpg")
+    answered = asyncio.Event()
+
+    async def slow_resolve(artist, title, album):
+        await answered.wait()
+        return "https://itunes/600x600bb.jpg"
+
+    src._artwork.resolve = slow_resolve
     await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
     await src._on_artwork(None)
     await _let_the_lookup_run()
-    assert src.metadata["album_art_url"] == "https://itunes/600x600bb.jpg"
 
-    # The next track, before any lookup of its own has answered.
-    src._artwork.resolve = AsyncMock(return_value=None)
+    # The renderer's own cover lands while the lookup is still waiting.
+    src._fetch_artwork = AsyncMock(return_value=_PNG)
+    await src._on_artwork("http://nas/spaces.jpg")
+    answered.set()
+    await _let_the_lookup_run()
+
+    assert src.metadata["album_art_url"].startswith("/api/dlna/artwork?v=")
+    assert src.metadata["album_art_width"] == 600
+
+
+@pytest.mark.asyncio
+async def test_the_cover_is_held_across_the_lookup_too():
+    """The hold has to cover the text lookup, not only the sender's fetch.
+
+    Both replacements are HTTP round trips. The first version of this held the
+    fetch and left the lookup exposed, so on a sender that publishes no art —
+    the common case the lookup exists for — every track change blanked the
+    cover for the length of an iTunes call and the player was swapped for the
+    status card and back. Seen on the unit, on a `next`.
+    """
+    src = DlnaSource()
+    src._artwork.resolve = AsyncMock(return_value="https://itunes/says.jpg")
+    await src._on_metadata_update({"title": "Says", "artist": "Nils Frahm", "album": "Spaces"})
+    await src._on_artwork(None)
+    await _let_the_lookup_run()
+    held = src.metadata["album_art_url"]
+
+    # The next track, with its own lookup still in flight.
+    answered = asyncio.Event()
+
+    async def slow_resolve(artist, title, album):
+        await answered.wait()
+        return "https://itunes/brush.jpg"
+
+    src._artwork.resolve = slow_resolve
     await src._on_metadata_update(
         {"title": "Toilet Brush", "artist": "Nils Frahm", "album": "Spaces"}
     )
+    await src._on_artwork(None)
+    await _let_the_lookup_run()
 
     assert src.metadata["title"] == "Toilet Brush"
-    assert "album_art_url" not in src.metadata
+    assert src.metadata["album_art_url"] == held
+
+    # And the answer, when it comes, takes the hold's place.
+    answered.set()
+    await _let_the_lookup_run()
+
+    assert src.metadata["album_art_url"] == "https://itunes/brush.jpg"
 
 
 @pytest.mark.asyncio
@@ -942,6 +998,29 @@ class TestPolling:
         await asyncio.wait_for(bridge._poll_once(), 2.0)
         bridge._on_progress.assert_awaited_once_with(30_000, 300_000)
 
+    async def test_a_track_change_polls_the_playhead_at_once(self):
+        """The GENA event that announces a track carries no position.
+
+        Only GetPositionInfo does, so without polling on the change the new
+        track's playhead waits for the next scheduled poll — and the source has
+        just dropped the previous track's rather than publish it as this one's,
+        so that wait is a bar missing rather than a bar wrong.
+        """
+        bridge = _make_bridge()
+        bridge._bg = _RunningBg()
+        bridge._dmr = _make_dmr(
+            transport_state="PLAYING", media_title="Says", media_artist="Nils Frahm",
+        )
+        bridge._dmr.async_update = AsyncMock()
+        bridge._dmr.media_position = 3
+        bridge._dmr.media_duration = 220
+
+        bridge._dispatch_state()
+        await asyncio.gather(*bridge._bg.tasks)
+
+        bridge._dmr.async_update.assert_awaited_once()
+        bridge._on_progress.assert_awaited_once_with(3_000, 220_000)
+
     async def test_the_renderer_is_refreshed_before_it_is_read(self):
         """`async_update` is the SOAP call; without it the properties answer
         whatever the last GENA event left behind and the bar never moves."""
@@ -1144,11 +1223,50 @@ class TestPolledProgress:
     async def test_a_snapshot_past_the_window_is_broadcast_again(self):
         src = _dlna_source()
         await src._on_progress(30_000, 300_000)
+        # Both clocks moved, so the new position is exactly where the frontend
+        # would have interpolated to: no jump, and the window alone is what
+        # this pins.
         src._last_progress_broadcast -= 31.0
+        src._last_poll_at -= 31.0
         src.broadcast_position_update = Mock()
 
         await src._on_progress(61_000, 300_000)
         src.broadcast_position_update.assert_called_once()
+
+    async def test_a_jump_is_broadcast_without_waiting_for_the_window(self):
+        """A jump is the one thing local interpolation cannot guess, so holding
+        it for the window leaves a playhead that is simply wrong.
+
+        Measured on the unit before this existed: a track change opened the new
+        track at 220 s of 263 s — the previous one's position and duration —
+        and the bar stayed there 12.7 s, because the poll interval and the rate
+        limit had to elapse in turn.
+        """
+        src = _dlna_source()
+        await src._on_progress(220_000, 263_000)
+        src._last_poll_at -= 10.0          # ten seconds of playback later
+        src.broadcast_position_update = Mock()
+
+        await src._on_progress(3_000, 220_000)   # a new track, from its start
+
+        src.broadcast_position_update.assert_called_once_with(3_000, 220_000)
+
+    async def test_a_track_change_drops_the_previous_playhead(self):
+        """Position and duration belong to the track that ended.
+
+        Republished with the new track's title they are read as its own, and
+        the bar opens near the end of something that just started. Dropping
+        them shows no bar for the round trip it takes to poll a real one.
+        """
+        src = _dlna_source()
+        await src._on_progress(220_000, 263_000)
+
+        await src._on_metadata_update(
+            {"title": "Travelling Without Moving", "artist": "Jamiroquai", "album": "TWM"}
+        )
+
+        assert "position" not in src.metadata
+        assert "duration" not in src.metadata
 
     async def test_a_track_with_no_duration_is_dropped(self):
         """An internet radio pushed over DLNA has none; taken as 0 the player

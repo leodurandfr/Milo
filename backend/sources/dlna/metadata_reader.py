@@ -176,6 +176,12 @@ class DlnaBridge:
                 self._on_metadata({"title": title, "artist": artist, "album": album}),
                 label="metadata",
             )
+            # The event that announced the track carries no playhead — only
+            # GetPositionInfo does — so without polling now the new track's
+            # position waits for the next scheduled poll, and the source has
+            # just dropped the previous track's rather than publish it as this
+            # one's. That is a bar missing for up to poll_interval seconds.
+            self._bg.spawn(self._poll_once(), label="progress_poll")
 
         art = dmr.media_image_url
         if art and art != self._last_art:
