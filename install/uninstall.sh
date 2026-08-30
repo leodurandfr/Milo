@@ -117,6 +117,7 @@ uninstall_milo() {
     sudo rm -f /usr/local/bin/milo-apply-ir-keymap
     sudo rm -f /usr/local/bin/milo-ir-keytable-setup
     sudo rm -f /usr/local/bin/milo-tidal-connect
+    sudo rm -f /usr/local/bin/milo-qobuz
     sudo rm -rf /usr/local/lib/milo
     # Whole Tidal Connect runtime tree — it is self-contained by design.
     sudo rm -rf /opt/milo/tidal-connect

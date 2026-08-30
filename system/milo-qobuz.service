@@ -9,7 +9,11 @@ Type=simple
 User=milo
 Group=audio
 
-ExecStart=/var/lib/milo/qobuz/venv/bin/qobuz-proxy --config /var/lib/milo/qobuz/config.yaml
+# Through Milō's launcher, not the console script: it applies the two
+# adaptations upstream has no setting for (unity-gain volume policy,
+# position/duration in /api/status) and refuses to start on a release
+# that moved either of them.
+ExecStart=/var/lib/milo/qobuz/venv/bin/python /usr/local/bin/milo-qobuz --config /var/lib/milo/qobuz/config.yaml
 Environment=HOME=/home/milo
 # Force qobuz-proxy's config + OAuth token cache under the D3 data dir
 # (/var/lib/milo/qobuz), owned/writable by the milo user (see PLAN_QOBUZ D3).
