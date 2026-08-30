@@ -509,7 +509,11 @@ onMounted(async () => {
 
 .program-item {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* The actions hug their label; everything left over goes to the version line,
+     which is the part that grows — a satellite's reads
+     "milo 0.1.0 (c6247d94) > 0.1.0 (2e21c957)". Two equal columns wrapped it
+     while half the row sat empty. */
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: var(--space-03);
 }
