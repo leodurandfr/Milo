@@ -13,6 +13,13 @@
   Props section rather than a fourth one, because it *is* a prop — the reader
   needs to see it beside the booleans that switch on it.
 
+  Nor is the note under a control. Half the controls here are read only under a
+  condition — a branch the other props pick (`showProgress` is read only when
+  `showControls` is off), a mode, a viewport, an animation that plays on the way
+  out — and a panel built from `Component.props` cannot see any of it: it offers
+  a switch that does nothing and says nothing. The descriptor names the condition
+  in one line, which is the only per-control text on this panel.
+
   The chrome here is deliberately its own dense set of small controls rather than
   the app's primitives. That reverses the first version of this page, and for a
   reason: `Button` and `InputText` are sized for a finger on a 7-inch panel, and a
@@ -75,6 +82,8 @@
         >
 
         <code v-else class="controls__fixed text-mono-small">{{ preview(args[prop.name]) }}</code>
+
+        <p v-if="notes[prop.name]" class="controls__note text-mono-small">{{ notes[prop.name] }}</p>
       </div>
     </section>
 
@@ -88,7 +97,14 @@
         <div class="controls__head">
           <span class="controls__name text-mono-small">{{ name }}</span>
         </div>
+        <!-- One filling and nothing to pick from: a select with a single option
+             is a control the reader cannot operate. It is still worth naming,
+             because the slot is part of the component's surface. -->
+        <code v-if="slotOptions[name].length < 2" class="controls__fixed text-mono-small">
+          {{ slotOptions[name][0] }}
+        </code>
         <select
+          v-else
           class="controls__select text-mono-small"
           :value="asSelectValue(slotChoices[name] ?? slotOptions[name][0])"
           @change="emitPatch('slot', { [name]: $event.target.value })"
@@ -97,6 +113,8 @@
             {{ option.label }}
           </option>
         </select>
+
+        <p v-if="notes[name]" class="controls__note text-mono-small">{{ notes[name] }}</p>
       </div>
     </section>
 
@@ -138,6 +156,8 @@
           :value="stateValues[name] ?? state[name].default"
           @input="emitPatch('state', { [name]: numberOrNull($event.target.value) })"
         >
+
+        <p v-if="notes[name]" class="controls__note text-mono-small">{{ notes[name] }}</p>
       </div>
     </section>
 
@@ -226,6 +246,11 @@ const props = defineProps({
   },
   /** state name -> current value. */
   stateValues: {
+    type: Object,
+    default: () => ({})
+  },
+  /** control name -> the one-line condition the descriptor states for it. */
+  notes: {
     type: Object,
     default: () => ({})
   },
@@ -349,6 +374,14 @@ function preview(value) {
 .controls__hint {
   margin: 0;
   color: var(--color-text-light);
+}
+
+/* Reads as an annotation of the control above it, not as a second control. */
+.controls__note {
+  margin: 0;
+  color: var(--color-text-light);
+  border-left: 2px solid var(--color-border);
+  padding-left: var(--space-02);
 }
 
 .controls__input {

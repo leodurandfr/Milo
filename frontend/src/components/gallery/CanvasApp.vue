@@ -237,18 +237,39 @@ const listeners = computed(() => {
   return handlers;
 });
 
+/**
+ * What each state control last wrote, so a writer's props are applied on the
+ * change alone. Every args edit brings another `render` message back through
+ * here, and re-applying them then would snap a prop the reader had just moved.
+ */
+let appliedState = {};
+
 /** Runs each `state` descriptor's own writer with the value the panel holds. */
 function applyState(values) {
   const descriptors = entry.value?.state;
   if (!descriptors) return;
 
+  const patch = {};
   for (const [name, descriptor] of Object.entries(descriptors)) {
     const value = values?.[name] ?? descriptor.default;
+    const changed = appliedState[name] !== value;
+    appliedState[name] = value;
     try {
-      descriptor.apply(value, context);
+      // A writer may answer with the props that belong with the state it wrote.
+      // AudioPlayerFull's records are the case: the player reads its own
+      // `source` prop for the snapshot, buffering and progress rules, so a
+      // record naming another source has to move the prop or it renders under
+      // the wrong ones.
+      const props = descriptor.apply(value, context);
+      if (changed && props) Object.assign(patch, props);
     } catch (error) {
       post({ type: 'event', name: `state:${name} failed`, arg: String(error?.message ?? error) });
     }
+  }
+
+  if (Object.entries(patch).some(([name, value]) => args.value[name] !== value)) {
+    args.value = { ...args.value, ...patch };
+    postArgs();
   }
 }
 
@@ -269,6 +290,9 @@ function handleMessage(event) {
   if (data?.source !== 'milo-gallery') return;
 
   if (data.type === 'render') {
+    // A new selection starts from no applied state, or its first record would
+    // look unchanged and leave the props on the previous primitive's values.
+    if ((data.id ?? '') !== id.value) appliedState = {};
     id.value = data.id ?? '';
     args.value = data.args ?? {};
     slotChoices.value = data.slots ?? {};

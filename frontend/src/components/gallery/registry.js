@@ -105,6 +105,7 @@ import SettingsSample from './samples/SettingsSample.vue';
 import SourceStage from './SourceStage.vue';
 import { SOURCE_PAGES } from './sources';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { PODCAST_GENRE_IDS } from '@/constants/podcastGenres';
 import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
 import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import stationImageTurntable from './samples/station-image-turntable.webp';
@@ -131,8 +132,12 @@ const SELECT_OPTIONS = [
  * renaming `album_art_url` in the component turns the guardrail red instead of
  * leaving a beautiful player rendering from a record nothing consumes.
  *
- * `source` travels with the record because `useSourceProgress` only ticks while
- * `active_source` matches, so the two have to be written together.
+ * `source` travels with the record and is applied to the `source` **prop** as
+ * well, because three of the player's rules are per-source and read the prop,
+ * not the store: the snapshot relaxation for CD, the buffering window, and the
+ * progress gate. Left to disagree, a CD record rendered under Spotify's rules —
+ * the disc's glyph replaced by Spotify's, and no spinner where the point of the
+ * record was the spinner.
  */
 const NOW_PLAYING = {
   'Spotify — playing': {
@@ -173,7 +178,23 @@ const NOW_PLAYING = {
       duration: 297000
     }
   },
-  'Nothing playing yet': { source: 'spotify', metadata: {} }
+  // The one shape that reaches this player with no artist: useRichDisplay admits
+  // CD on disc_present + cache_ready alone, and an unidentified disc comes back
+  // from `_build_fallback_disc_info` with a real "Track N" title and nothing
+  // else. Spotify cannot be here without a title AND an artist, so the empty
+  // record this replaces documented a state the app cannot produce.
+  'CD — unidentified disc': {
+    source: 'cd',
+    metadata: {
+      title: 'Track 3',
+      album_art_url: '',
+      is_playing: true,
+      position: 64000,
+      duration: 264000,
+      disc_present: true,
+      cache_ready: true
+    }
+  }
 };
 
 /** The files that read what NOW_PLAYING writes. Checked by the guardrail. */
@@ -220,6 +241,9 @@ export const REGISTRY = {
   ListItemButton: {
     component: ListItemButton,
     args: { title: 'Loudness', subtitle: 'A subtitle stacks under the title', action: 'toggle' },
+    notes: {
+      iconVariant: 'Sizes what the icon slot holds, so it changes nothing until that slot is filled.'
+    },
     // The leading icon is a slot, not a prop, so it cannot appear in the props
     // table — these are the choices the Slots section offers instead. `title`
     // and `subtitle` are slots *over* props of the same name: filling one
@@ -382,7 +406,12 @@ export const REGISTRY = {
 
   Modal: {
     component: Modal,
-    args: { isOpen: true },
+    // Closed on purpose. `isVisible` starts false and the watcher on `isOpen`
+    // has no `immediate`, so a modal mounted already-open never opens — the app
+    // never does that (every call site keeps it mounted and flips the prop), and
+    // opening it from the panel is also the only way to see its entrance.
+    args: { isOpen: false },
+    notes: { isOpen: 'Mounted closed: the modal opens on the prop changing, so tick this to play its entrance.' },
     slots: { default: 'Modal content. It springs to the height of what it holds.' }
   },
 
@@ -390,6 +419,10 @@ export const REGISTRY = {
     component: NavigationHeader,
     args: { title: 'Radio Nova', subtitle: 'Paris, France', showBack: true },
     overrides: { icon: OPTIONAL_ICON },
+    notes: {
+      icon: 'The icon is the header\u2019s other lead-in, so it is drawn only while showBack is off.',
+      titleMuted: 'Only the single-line title is muted \u2014 with a subtitle set, the pair replaces it.'
+    },
     // The slot hands down the icon variant matching the header's own — a scoped
     // prop the canvas cannot pass to a fixed choice, so the variant is pinned
     // here and the Variants tab is where that wiring is shown.
@@ -403,6 +436,9 @@ export const REGISTRY = {
 
   Dock: {
     component: Dock,
+    notes: {
+      activeSource: 'Drawn by the indicator under the dock, which is only positioned while the dock is revealed \u2014 run the Reveal action first.'
+    },
     state: {
       activeSource: {
         kind: 'enum',
@@ -498,6 +534,9 @@ export const REGISTRY = {
   TrackRow: {
     component: TrackRow,
     args: { number: 4, showArtist: true, showMenu: true, coverUrl: albumPlaceholder, class: 'canvas-column' },
+    notes: {
+      playing: 'Swaps the number for the equaliser bars, so it is only read on the current row.'
+    },
     // `duration` is seconds here, unlike ProgressBar's milliseconds — the row
     // formats what the catalogue hands it, and Subsonic reports seconds.
     presets: {
@@ -548,6 +587,10 @@ export const REGISTRY = {
       swipeEnabled: true,
       currentIndex: 1
     },
+    notes: {
+      swipeEnabled: 'The swipe carousel is the mobile form of this player \u2014 switch the stage to the Phone viewport to reach it.',
+      tracks: 'Read by the swipe carousel alone, so it follows swipeEnabled and the Phone viewport.'
+    },
     presets: {
       // Read only when swipeEnabled: the carousel renders the neighbours' text
       // locally so a swipe never waits for the backend echo.
@@ -597,6 +640,12 @@ export const REGISTRY = {
   AudioPlayerFull: {
     component: AudioPlayerFull,
     args: { source: 'spotify', showControls: true, class: 'canvas-fill' },
+    notes: {
+      showProgress: 'Read only while showControls is off \u2014 the transport already draws a bar above its buttons.',
+      seekable: 'Read only while showControls is on \u2014 the bar the receiver sources draw is never interactive.',
+      nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it.',
+      'content-replace': 'Takes the place of the whole info column, and only while hideContent is on.'
+    },
     state: {
       nowPlaying: {
         kind: 'enum',
@@ -606,6 +655,9 @@ export const REGISTRY = {
           const record = NOW_PLAYING[value] ?? NOW_PLAYING['Spotify — playing'];
           stores.unified.systemState.active_source = record.source;
           stores.unified.systemState.metadata = { ...record.metadata };
+          // Applied to the props too — see NOW_PLAYING. Only on the change, so
+          // pointing the prop elsewhere by hand still holds.
+          return { source: record.source };
         },
         // What the writer above invents, and where it is read. Declared so the
         // guardrail can check the two still agree — see gallery.test.js.
@@ -641,6 +693,10 @@ export const REGISTRY = {
       class: 'canvas-fill'
     },
     overrides: { headerIcon: OPTIONAL_ICON },
+    notes: {
+      headerIcon: 'Forwarded to NavigationHeader, which draws an icon only while headerShowBack is off.',
+      headerTitleMuted: 'Forwarded too, and it mutes the single-line title only \u2014 clear headerSubtitle to see it.'
+    },
     slots: {
       // Taller than the stage on purpose: the gradient sits in the top 66% and
       // the scroll-crossing fade only means something with somewhere to scroll.
@@ -707,6 +763,11 @@ export const REGISTRY = {
       subtitle: 'Alain Bashung',
       stationName: 'Radio Nova',
       sourceType: 'bluetooth'
+    },
+    notes: {
+      sourceType: 'Simple mode only \u2014 in media mode the artwork stands where the icon would.',
+      artworkRises: 'A leave rule: the artwork lifts only while the overlay closes \u2014 turn isVisible off to see it.',
+      progressConverges: 'A leave rule too, and it needs a progress record \u2014 the bar it lifts is not drawn without one.'
     },
     overrides: {
       // Doubles as an AppIcon name in simple mode, and has no validator of its
@@ -831,18 +892,11 @@ export const REGISTRY = {
 
   GenreCard: {
     component: GenreCard,
-    args: { label: 'True Crime', value: 'true_crime' },
-    // The twelve artworks live in the component; `value` picks one, and a value
-    // it does not know renders the tile with no image at all.
-    overrides: {
-      value: {
-        kind: 'enum',
-        options: [
-          'comedy', 'society_and_culture', 'news', 'true_crime', 'business', 'education',
-          'health_and_fitness', 'sports', 'arts', 'science', 'tv_and_film', 'music', 'unknown'
-        ]
-      }
-    }
+    args: { label: 'True Crime', value: 'PODCASTSERIES_TRUE_CRIME' },
+    // Borrowed, never restated: the ids are the Podcast Index vocabulary, and a
+    // select written from the labels instead (`comedy` for PODCASTSERIES_COMEDY)
+    // is what left every tile here imageless, the default included.
+    overrides: { value: { kind: 'enum', options: PODCAST_GENRE_IDS } }
   },
 
   SkeletonPodcastDetails: {

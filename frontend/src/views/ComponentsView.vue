@@ -106,6 +106,7 @@
         :preset-choices="presetChoices"
         :state="playground?.state || {}"
         :state-values="stateValues"
+        :notes="playground?.notes || {}"
         :action-names="actionNames"
         :log="log"
         @update="mergeArgs"
