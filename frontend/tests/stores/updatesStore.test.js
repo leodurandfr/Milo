@@ -9,7 +9,9 @@
  * the Pi, so resyncing a store no view has opened is pure cost. And what
  * happens to a satellite between the moment it reports an update finished and
  * the moment its own API answers again — the window that left a row showing a
- * skeleton for a fetch nobody would ever make.
+ * skeleton for a fetch nobody would ever make. Plus the two pieces of update
+ * state the row reads back: how long "completed" lasts, and which release an
+ * in-flight install is putting on.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useUpdatesStore } from '@/stores/updatesStore';
@@ -133,5 +135,63 @@ describe('updatesStore satellite return', () => {
 
     release(withSatellite());
     await inFlight;
+  });
+});
+
+
+describe('updatesStore in-flight update state', () => {
+  let store;
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useUpdatesStore();
+  });
+
+  it('forgets a completed update as soon as the list is refetched', async () => {
+    // "Completed" suppresses exactly one stale frame — the window between the
+    // completion event and the refetch it triggers. Kept past that refetch it
+    // stops describing anything: a program returned to the manifest reads as
+    // up to date while upstream is offering a release again, for the rest of
+    // the session, with the button that would install it hidden.
+    apiCall.get.mockResolvedValue(ok({ programs: {}, active_updates: [] }));
+    await store.loadLocalPrograms();
+
+    await store.handleProgramUpdateComplete({ program: 'shairport-sync', success: true });
+
+    expect(store.isLocalUpdateCompleted('shairport-sync')).toBe(false);
+  });
+
+  it('remembers which release an update is installing', async () => {
+    // The button that was pressed says what it is doing rather than being
+    // joined by a second one: a return and an update are the same flow, and
+    // only the target separates them.
+    apiCall.get.mockResolvedValue(ok({ programs: { 'shairport-sync': {} }, active_updates: [] }));
+    await store.loadLocalPrograms();
+    apiCall.post.mockResolvedValue(ok({ message: 'started' }));
+
+    await store.startLocalUpdate('shairport-sync', 'validated');
+
+    expect(apiCall.post).toHaveBeenCalledWith(
+      '/api/programs/shairport-sync/update',
+      { target: 'validated' },
+      expect.anything()
+    );
+    expect(store.localUpdateTarget('shairport-sync')).toBe('validated');
+  });
+
+  it('lets a satellite update run beside anything but the app update', async () => {
+    // A satellite is a separate machine: blocking the whole screen while one
+    // updates makes a two-speaker house a queue. The app update is the one
+    // exception — it reconciles the set, pushes the client app and reboots.
+    apiCall.get.mockResolvedValue(ok({ programs: { milo: {} }, active_updates: [] }));
+    await store.loadLocalPrograms();
+    apiCall.post.mockResolvedValue(ok({ message: 'started' }));
+
+    await store.startSatelliteUpdate('aa:bb:cc:dd:ee:ff');
+
+    expect(store.isSatelliteBusy('aa:bb:cc:dd:ee:ff')).toBe(true);
+    expect(store.isSatelliteBusy('11:22:33:44:55:66')).toBe(false);
+    expect(store.isLocalUpdateBusy()).toBe(false);
+    expect(store.isMiloUpdating()).toBe(false);
   });
 });

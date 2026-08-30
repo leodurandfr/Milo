@@ -49,18 +49,19 @@
                   </span>
                 </div>
 
-                <!-- Update button (loading state during update) -->
-                <Button
-                  v-if="isLocalUpdating('milo') || debugForceUpdating || (localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))"
-                  size="small" variant="brand" class="program-button"
-                  :loading="isLocalUpdating('milo') || debugForceUpdating"
-                  @click="startLocalUpdate('milo')"
-                  :disabled="debugForceUpdating || isAnyUpdateInProgress()">
-                  {{ (isLocalUpdating('milo') || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
-                </Button>
-                <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                  {{ t('updates.upToDate') }}
-                </Button>
+                <div class="program-actions">
+                  <Button
+                    v-if="isLocalUpdating('milo') || debugForceUpdating || (localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))"
+                    size="small" variant="brand" class="program-button"
+                    :loading="isLocalUpdating('milo') || debugForceUpdating"
+                    @click="startLocalUpdate('milo')"
+                    :disabled="debugForceUpdating || isLocalUpdateBusy()">
+                    {{ (isLocalUpdating('milo') || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                  </Button>
+                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                    {{ t('updates.upToDate') }}
+                  </Button>
+                </div>
               </div>
             </div>
           </Transition>
@@ -93,30 +94,41 @@
                   </div>
 
                   <div class="program-actions">
-                    <!-- One button for both kinds of update: the manifest's
-                         version, and what upstream published past it. Which one
-                         it is comes from the backend, never from a comparison
-                         here. -->
-                    <Button
-                      v-if="isLocalUpdating(key) || debugForceUpdating || (rows[key].update && canUpdateLocal(key))"
-                      size="small" variant="brand" class="program-button"
-                      :loading="isLocalUpdating(key) || debugForceUpdating"
-                      @click="startLocalUpdate(key, rows[key].update?.target)"
-                      :disabled="debugForceUpdating || isAnyUpdateInProgress()">
-                      {{ (isLocalUpdating(key) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                    <!-- While an install runs there is one button, and it is the
+                         one that was pressed: it keeps its own label and colour
+                         rather than being joined by a second, still-clickable
+                         one the backend would refuse. -->
+                    <Button v-if="isLocalUpdating(key) || debugForceUpdating"
+                      size="small" :variant="isReverting(key) ? 'background-strong' : 'brand'"
+                      class="program-button" loading disabled>
+                      {{ isReverting(key)
+                        ? t('updates.revertingTo', { version: rows[key].revertTo })
+                        : t('updates.updating') }}
                     </Button>
-                    <!-- Only on a unit deliberately moved past the manifest —
-                         and then it is the only thing saying so. -->
-                    <Button v-if="rows[key].revertTo" size="small" variant="background-strong"
-                      class="program-button"
-                      @click="startLocalUpdate(key, 'validated')"
-                      :disabled="debugForceUpdating || isAnyUpdateInProgress()">
-                      {{ t('updates.revertTo', { version: rows[key].revertTo }) }}
-                    </Button>
-                    <Button v-if="!rows[key].update && !rows[key].revertTo && !isLocalUpdating(key) && !debugForceUpdating"
-                      size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                      {{ t('updates.upToDate') }}
-                    </Button>
+                    <template v-else>
+                      <!-- One button for both kinds of update: the manifest's
+                           version, and what upstream published past it. Which
+                           one it is comes from the backend, never from a
+                           comparison here. -->
+                      <Button v-if="rows[key].update && canUpdateLocal(key)"
+                        size="small" variant="brand" class="program-button"
+                        @click="startLocalUpdate(key, rows[key].update.target)"
+                        :disabled="isLocalUpdateBusy()">
+                        {{ t('updates.update') }}
+                      </Button>
+                      <!-- Only on a unit deliberately moved past the manifest —
+                           and then it is the only thing saying so. -->
+                      <Button v-if="rows[key].revertTo" size="small" variant="background-strong"
+                        class="program-button"
+                        @click="startLocalUpdate(key, 'validated')"
+                        :disabled="isLocalUpdateBusy()">
+                        {{ t('updates.revertTo', { version: rows[key].revertTo }) }}
+                      </Button>
+                      <Button v-if="!rows[key].update && !rows[key].revertTo"
+                        size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                        {{ t('updates.upToDate') }}
+                      </Button>
+                    </template>
                   </div>
                 </div>
               </template>
@@ -184,17 +196,19 @@
                     </span>
                   </div>
 
-                  <Button
-                    v-if="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].app_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteAppUpdateCompleted(client.mac_id))"
-                    size="small" variant="brand" class="program-button"
-                    :loading="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating"
-                    @click="startSatelliteAppUpdate(client.mac_id)"
-                    :disabled="debugForceUpdating || isAnyUpdateInProgress()">
-                    {{ (isSatelliteAppUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
-                  </Button>
-                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                    {{ t('updates.upToDate') }}
-                  </Button>
+                  <div class="program-actions">
+                    <Button
+                      v-if="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].app_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteAppUpdateCompleted(client.mac_id))"
+                      size="small" variant="brand" class="program-button"
+                      :loading="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating"
+                      @click="startSatelliteAppUpdate(client.mac_id)"
+                      :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)">
+                      {{ (isSatelliteAppUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                    </Button>
+                    <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                      {{ t('updates.upToDate') }}
+                    </Button>
+                  </div>
                 </div>
 
                 <!-- Snapclient row -->
@@ -211,17 +225,19 @@
                     </span>
                   </div>
 
-                  <Button
-                    v-if="isSatelliteUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].update_available && satelliteByMacId[client.mac_id].online && !isSatelliteUpdateCompleted(client.mac_id))"
-                    size="small" variant="brand" class="program-button"
-                    :loading="isSatelliteUpdating(client.mac_id) || debugForceUpdating"
-                    @click="startSatelliteUpdate(client.mac_id)"
-                    :disabled="debugForceUpdating || isAnyUpdateInProgress()">
-                    {{ (isSatelliteUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
-                  </Button>
-                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                    {{ t('updates.upToDate') }}
-                  </Button>
+                  <div class="program-actions">
+                    <Button
+                      v-if="isSatelliteUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].update_available && satelliteByMacId[client.mac_id].online && !isSatelliteUpdateCompleted(client.mac_id))"
+                      size="small" variant="brand" class="program-button"
+                      :loading="isSatelliteUpdating(client.mac_id) || debugForceUpdating"
+                      @click="startSatelliteUpdate(client.mac_id)"
+                      :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)">
+                      {{ (isSatelliteUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                    </Button>
+                    <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                      {{ t('updates.upToDate') }}
+                    </Button>
+                  </div>
                 </div>
 
                 <!-- CamillaDSP row -->
@@ -238,17 +254,19 @@
                     </span>
                   </div>
 
-                  <Button
-                    v-if="isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].camilladsp_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteCamillaUpdateCompleted(client.mac_id))"
-                    size="small" variant="brand" class="program-button"
-                    :loading="isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating"
-                    @click="startSatelliteCamillaUpdate(client.mac_id)"
-                    :disabled="debugForceUpdating || isAnyUpdateInProgress()">
-                    {{ (isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
-                  </Button>
-                  <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                    {{ t('updates.upToDate') }}
-                  </Button>
+                  <div class="program-actions">
+                    <Button
+                      v-if="isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].camilladsp_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteCamillaUpdateCompleted(client.mac_id))"
+                      size="small" variant="brand" class="program-button"
+                      :loading="isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating"
+                      @click="startSatelliteCamillaUpdate(client.mac_id)"
+                      :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)">
+                      {{ (isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                    </Button>
+                    <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                      {{ t('updates.upToDate') }}
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -349,7 +367,8 @@ const {
   isSatelliteUpdating, isSatelliteUpdateCompleted,
   isSatelliteAppUpdating, isSatelliteAppUpdateCompleted,
   isSatelliteCamillaUpdating, isSatelliteCamillaUpdateCompleted,
-  isSatelliteAwaitingReturn, isAnyUpdateInProgress,
+  isSatelliteAwaitingReturn, localUpdateTarget,
+  isMiloUpdating, isLocalUpdateBusy, isSatelliteBusy,
 } = updatesStore;
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -410,6 +429,13 @@ function getLocalInstalledVersion(program) {
 
 function getLocalLatestVersion(program) {
   return program.latest?.version || null;
+}
+
+// Which of the two gestures the running install is. The row still carries
+// `revertTo` while it runs — the list is refetched only once it ends — so the
+// button keeps saying what it was pressed to do.
+function isReverting(programKey) {
+  return localUpdateTarget(programKey) === 'validated' && !!rows.value[programKey]?.revertTo;
 }
 
 // The two decisions a program row can offer, taken once per program.

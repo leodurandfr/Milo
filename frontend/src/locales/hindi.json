@@ -357,7 +357,8 @@
     "upToDate": "अप टू डेट",
     "dependenciesHint": "ऐप और उसके साथ मान्य किए गए प्रोग्राम संस्करण इंस्टॉल करता है।",
     "clientsHint": "Milō Clients को भी यह मिलता है।",
-    "revertTo": "{version} पर लौटें"
+    "revertTo": "{version} पर लौटें",
+    "revertingTo": "{version} पर लौट रहे हैं…"
   },
   "info": {
     "temperature": "तापमान",
