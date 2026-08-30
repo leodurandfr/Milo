@@ -39,6 +39,13 @@ DLNA_CLIENT_NAME = "DLNA"
 # across its fetch.
 TRACK_IDENTITY_KEYS = ("title", "artist", "album")
 
+# A polled position further than this from where the frontend's own
+# interpolation would have put it is a real jump — a track change, a seek on
+# the controller — rather than routine confirmation. Generous because the
+# renderer reports RelTime at one-second granularity and the poll is spaced by
+# seconds, so a couple of hundred milliseconds of slack is noise, not movement.
+POSITION_JUMP_TOLERANCE_MS = 2000
+
 
 class DlnaSource(BaseAudioSource):
     NETWORK_REQUIREMENT = NetworkRequirement.LAN
@@ -78,20 +85,33 @@ class DlnaSource(BaseAudioSource):
         self._server_name: Optional[str] = None
         self._server_host: Optional[str] = None
 
-        # Artwork served via dedicated endpoint
-        # A cover Milō looked up from the track text, held apart from the one
-        # the sender supplied: many control points publish DIDL-Lite with no
-        # albumArtURI at all, which leaves a fully tagged track on the status
-        # card. Same fallback Bluetooth and Radio run on.
+        # One cover, whichever supplied it: the sender's — fetched and served
+        # from /api/dlna/artwork — or one looked up from the track text, for
+        # the many control points that publish no albumArtURI at all. Held
+        # apart from _metadata, which is the last publish handed back: a cover
+        # left in it round-trips and captions the track after.
+        #
+        # _cover_answered is what makes holding it safe with no timer. The
+        # cover stays while the current track's artwork question is open, and
+        # the moment it is settled — one arrived, or there is none — the answer
+        # decides. Both replacements cost an HTTP round trip (a fetch of up to
+        # 10 s, an iTunes lookup), and a state published with no cover across
+        # either is read by the frontend's untrusted-sender gate as "this
+        # sender has none": the whole player is swapped for the status card and
+        # back, which is what a track change looked like.
         self._artwork = ArtworkResolver()
-        self._resolved_url: Optional[str] = None
-        self._resolved_key: Tuple[str, ...] = ()
+        self._cover_url: Optional[str] = None
+        self._cover_width: int = 0
+        self._cover_key: Tuple[str, ...] = ()
+        self._cover_answered: Tuple[str, ...] = ()
 
         self._artwork_data: Optional[bytes] = None
         self._artwork_mime: Optional[str] = None
         self._artwork_hash: Optional[str] = None
+        self._artwork_width: int = 0
 
         self._last_progress_broadcast: float = 0.0
+        self._last_poll_at: Optional[float] = None
 
         # Auto-stop (uses BaseAudioSource timer infrastructure)
         self.auto_stop_enabled = True
@@ -105,6 +125,7 @@ class DlnaSource(BaseAudioSource):
         # (forget_last_seen), and the resolver answers that from cache.
         self._server_name = None
         self._server_host = None
+        self._cover_answered = ()
         self._clear_artwork()
 
     async def _do_start(self) -> bool:
@@ -157,15 +178,21 @@ class DlnaSource(BaseAudioSource):
             key: metadata.get(key, self._metadata.get(key, ""))
             for key in TRACK_IDENTITY_KEYS
         }
-        # The cover is deliberately NOT dropped here. A cover belongs to the
-        # track it was fetched for, but the fetch behind the replacement runs
-        # up to 10 s, and a state published with no album_art_url in the
-        # meantime is read by the frontend's untrusted-sender gate as "this
-        # sender pushes no real cover": AudioPlayerFull is swapped for the
-        # status card and back, for the length of an HTTP fetch. So the cover
-        # in hand is held until the bridge says what replaces it — a URL, or
-        # None for a track that has none. DlnaBridge dispatches both, which is
-        # what makes the answer deterministic here where AirPlay can only wait.
+        if any(track[key] != self._metadata.get(key, "") for key in track):
+            # The playhead belongs to the track that just ended. Left in place
+            # it is published as this one's: measured on the unit, a new track
+            # opened at 220 s of 263 s — the previous track's position and
+            # duration — and stayed wrong for 12.7 s, until a poll and the
+            # broadcast rate limit both allowed a correction. Dropping them
+            # shows no bar rather than a false one, and the poll the bridge
+            # fires on this same change fills it within a round trip.
+            #
+            # The cover is deliberately NOT dropped here, for the opposite
+            # reason: it is what the rich player is gated on, so its absence
+            # unmounts the player rather than blanking a bar. See the publish.
+            self._metadata.pop("position", None)
+            self._metadata.pop("duration", None)
+            self._last_poll_at = None
 
         self._metadata.update({**track, "is_playing": self._is_playing})
         self._device_connected = True
@@ -215,97 +242,88 @@ class DlnaSource(BaseAudioSource):
 
     @handle_errors(default=None)
     async def _on_artwork(self, url: Optional[str]) -> None:
-        """Fetch the DIDL-Lite album-art URL, cache it, and serve via endpoint.
+        """Settle this track's artwork question: fetch the sender's, or look one up.
 
-        Also decodes pixel dimensions so the frontend can gate the rich player on
-        artwork quality (same policy as AirPlay): dimensions ride as
-        album_art_width; the display decision lives on the frontend.
+        `None` is the bridge saying the renderer publishes no art for the new
+        track — the signal that lets this stay deterministic instead of waiting
+        out a timer, since _dispatch_state reads the track identity and the art
+        URL off one DmrDevice snapshot and already knows.
 
-        The bridge dispatches each callback as its own task and the fetch runs
-        up to 10 s, so the next track can land while this one is still in
-        flight. The track identity is therefore captured before the await and
-        re-checked after: without it the outgoing cover is published over the
-        incoming track and nothing corrects it until the track after that.
-        Bluetooth re-checks the same way; AirPlay pairs by track_id. Dropping a
-        cover here costs nothing — the bridge re-emits the art URL on every
-        track change (see _on_metadata_update).
+        The fetch runs up to 10 s and each callback is its own task, so the next
+        track can land mid-flight; the identity is captured before the await and
+        re-checked after, because that newer track owns the answer now.
         """
         if url is None:
-            self._no_cover_from_sender()
+            self._look_up_cover()
             return
 
         track = self._track_key()
         data = await self._fetch_artwork(url)
-        if not data:
-            # The fetch broke the promise the hold was granted on. The track
-            # having moved on is the one case to leave alone: the newer track
-            # has its own dispatch, and it owns the cover now.
-            if self._track_key() == track:
-                self._no_cover_from_sender()
-            return
-
         if self._track_key() != track:
             self._logger.debug("Discarding artwork: the track moved on during the fetch")
             return
-
-        new_hash = hashlib.md5(data).hexdigest()[:12]
-        if new_hash == self._artwork_hash:
+        if not data:
+            # Announced and undeliverable — a 404, a host gone. The text is the
+            # only thing left, and it is what the lookup runs on.
+            self._look_up_cover()
             return
 
-        if data[:8] == b'\x89PNG\r\n\x1a\n':
-            self._artwork_mime = "image/png"
-        else:
-            self._artwork_mime = "image/jpeg"
+        new_hash = hashlib.md5(data).hexdigest()[:12]
+        if new_hash != self._artwork_hash:
+            # Detect format from magic bytes (shairport aside, senders vary).
+            if data[:8] == b'\x89PNG\r\n\x1a\n':
+                self._artwork_mime = "image/png"
+            else:
+                self._artwork_mime = "image/jpeg"
+            width, height = decode_artwork_dimensions(data, self._logger, "DLNA")
+            self._artwork_data = data
+            self._artwork_hash = new_hash
+            self._artwork_width = width
+            self._logger.info(f"DLNA artwork {width}x{height} ({self._artwork_mime})")
 
-        width, height = decode_artwork_dimensions(data, self._logger, "DLNA")
-
-        self._artwork_data = data
-        self._artwork_hash = new_hash
-        self._metadata["album_art_url"] = f"/api/dlna/artwork?v={new_hash}"
-        self._metadata["album_art_width"] = width
-        self._logger.info(f"DLNA artwork {width}x{height} ({self._artwork_mime})")
+        # Re-stamped even when the image is unchanged: two tracks off one album
+        # send the identical bytes, and the picture that changed nothing still
+        # moved which track the cover belongs to.
+        self._cover_url = f"/api/dlna/artwork?v={self._artwork_hash}"
+        self._cover_width = self._artwork_width
+        self._cover_key = track
+        self._cover_answered = track
         self._update_connection_state()
 
-    def _no_cover_from_sender(self) -> None:
-        """The sender has nothing for this track: release the hold, then look.
+    def _look_up_cover(self) -> None:
+        """The sender has nothing for this track: ask the track text instead.
 
-        Both ways of learning it land here — the bridge's None dispatch for a
-        track the renderer publishes no art for, and a fetch that came back
-        empty. Measured on a live controller pushing full title/artist/album
-        and no albumArtURI whatsoever: the text is then the only thing left,
-        and it is enough.
+        Deliberately does not drop the cover in hand first — the question is
+        still open until the lookup answers, and blanking it meanwhile is the
+        flicker this whole arrangement exists to avoid.
         """
-        self._drop_held_cover()
         self._bg.spawn(self._resolve_artwork(self._track_key()), label="artwork_resolve")
 
     async def _resolve_artwork(self, track: Tuple[str, ...]) -> None:
-        """Look a cover up from the track text and publish it if still current.
+        """Look a cover up from the track text and settle the question.
 
-        The re-check spares a broadcast when the track moved on mid-lookup;
-        what actually keeps the cover off the wrong track is the pairing at
-        publish time, which also covers the track changing afterwards. A miss
-        is silent: the status card is what a track with no cover gets.
+        A newer track that landed during the lookup owns the answer, so this one
+        says nothing at all. Otherwise the question closes either way: with a
+        cover, or with the held one released.
         """
         title, artist, album = track
         url = await self._artwork.resolve(artist, title, album)
-        if not url or track != self._track_key():
+        if track != self._track_key() or self._cover_answered == track:
+            # A newer track owns the answer, or the sender delivered one of its
+            # own while this was in flight — a later GENA event, a slow server.
+            # Either way this lookup is moot, and applying it would displace a
+            # real cover with one guessed from text.
             return
 
-        self._resolved_url = url
-        self._resolved_key = track
-        self._update_connection_state()
-
-    def _drop_held_cover(self) -> None:
-        """Release the cover held across a track change, and publish that.
-
-        The hold in _on_metadata_update is granted on the promise that
-        something will replace it. This is what keeps the promise honest: with
-        nothing coming, what is held belongs to the previous track and would
-        otherwise be what the player draws for the whole of this one.
-        """
-        if not self._artwork_data:
-            return
-        self._clear_artwork()
+        if url:
+            self._cover_url = url
+            self._cover_width = RESOLVED_ARTWORK_PX
+            self._cover_key = track
+        else:
+            # Nothing is coming. Release the held cover *and* the bytes behind
+            # it, so /api/dlna/artwork stops serving a track left the screen.
+            self._clear_artwork()
+        self._cover_answered = track
         self._update_connection_state()
 
     @handle_errors(default=None)
@@ -356,16 +374,29 @@ class DlnaSource(BaseAudioSource):
             return None
 
     async def _on_progress(self, position: int, duration: int) -> None:
-        """Handle polled position (ms). Broadcasts are rate-limited to 30s;
-        the frontend interpolates locally via useSourceProgress."""
+        """Handle polled position (ms).
+
+        A snapshot that merely confirms the frontend's own interpolation
+        (useSourceProgress) is rate-limited to 30 s. A jump cannot be
+        interpolated — a new track, or a seek on the controller — so it goes
+        out at once. Without that, a track change waited on the poll AND on the
+        rate limit: 12.7 s of the previous track's playhead, measured on the
+        unit.
+        """
         if not duration or duration <= 0:
             return
 
+        now = asyncio.get_running_loop().time()
+        predicted = self._metadata.get("position")
+        if predicted is not None and self._last_poll_at is not None:
+            predicted += (now - self._last_poll_at) * 1000
+
         self._metadata["position"] = position
         self._metadata["duration"] = duration
+        self._last_poll_at = now
 
-        now = asyncio.get_running_loop().time()
-        if now - self._last_progress_broadcast >= 30.0:
+        jumped = predicted is None or abs(position - predicted) > POSITION_JUMP_TOLERANCE_MS
+        if jumped or now - self._last_progress_broadcast >= 30.0:
             self._last_progress_broadcast = now
             self.broadcast_position_update(position, duration)
 
@@ -401,20 +432,21 @@ class DlnaSource(BaseAudioSource):
         """
         core, extras = PlaybackMetadata.split(self._metadata)
         core.is_playing = self._is_playing
-        # The looked-up cover is merged in here rather than stored, and dropped
-        # again first: _metadata is the last publish handed back, so one left in
-        # it round-trips and outlives the pairing that put it there — the track
-        # after would wear it. Same trap AirPlay's publish documents, reached by
-        # a different road. The sender's own cover is written into _metadata by
-        # _on_artwork and is untouched by this, so it always wins. The width has
-        # to be stated too: a cover of unstated size is judged by the frontend
-        # gate exactly as if there were none.
-        if self._resolved_url and core.album_art_url == self._resolved_url:
-            core.album_art_url = None
-            extras.pop("album_art_width", None)
-        if not core.album_art_url and self._resolved_url and self._resolved_key == self._track_key():
-            core.album_art_url = self._resolved_url
-            extras["album_art_width"] = RESOLVED_ARTWORK_PX
+        # The cover is merged in here and never stored: _metadata is the last
+        # publish handed back, so one left in it round-trips and captions the
+        # track after. Shown while it is this track's, or while this track's
+        # artwork question is still open — that second clause is the hold, and
+        # what spares a timer. Its width travels with it because the frontend
+        # gate reads album_art_width and judges a cover of unstated size
+        # exactly as if there were none.
+        core.album_art_url = None
+        extras.pop("album_art_width", None)
+        if self._cover_url and (
+            self._cover_key == self._track_key()
+            or self._cover_answered != self._track_key()
+        ):
+            core.album_art_url = self._cover_url
+            extras["album_art_width"] = self._cover_width
         extras["client_name"] = self._server_name or DLNA_CLIENT_NAME
         self.emit_connection_state(self._device_connected, core, extras)
 
@@ -429,12 +461,17 @@ class DlnaSource(BaseAudioSource):
         self._reset_playback_state()
 
     def _clear_artwork(self) -> None:
-        """Drop the stored cover and the metadata pointing at it."""
+        """Drop the cover, its bytes, and the question it was the answer to."""
         self._artwork_data = None
         self._artwork_mime = None
         self._artwork_hash = None
-        self._metadata.pop("album_art_url", None)
-        self._metadata.pop("album_art_width", None)
+        self._artwork_width = 0
+        self._cover_url = None
+        self._cover_width = 0
+        self._cover_key = ()
+        # _metadata is not touched: the publish decides the cover fields from
+        # scratch every time, so clearing them here would be a second mechanism
+        # for one rule — and the one that is not exercised is the one that rots.
 
     # === Public API ===
 
