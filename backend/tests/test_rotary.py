@@ -105,7 +105,10 @@ class Clock:
 @pytest.fixture
 def gpio(monkeypatch):
     fake = FakeLgpio({CLK: 0, DT: 0, SW: 1})
-    monkeypatch.setattr(rotary_module, "lgpio", fake)
+    # `raising=False`: requirements.txt installs lgpio on aarch64 only, so off the
+    # appliance `rotary` never binds the name and a plain setattr is an
+    # AttributeError -- every test here errored on CI while passing on the unit.
+    monkeypatch.setattr(rotary_module, "lgpio", fake, raising=False)
     monkeypatch.setattr(rotary_module, "LGPIO_AVAILABLE", True)
     return fake
 
