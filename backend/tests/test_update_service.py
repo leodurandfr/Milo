@@ -934,6 +934,43 @@ class TestUpdateMultiroom:
         assert "manual intervention" in stranded["error"].lower()
 
     @pytest.mark.asyncio
+    async def test_a_unit_that_will_not_stop_aborts_before_the_deb(self, update_service):
+        """The only stop in the subsystem whose verdict used to be dropped.
+
+        A unit that refuses to stop keeps its image loaded, so the .deb lands
+        under the running process; `_restore_multiroom_services` then "starts"
+        something that never stopped and reports it restored, and the update
+        answers success. The row reads the new version off the new binary on
+        disk while the process serving audio is still the old one.
+        """
+        active = dict.fromkeys(self.SERVICES, True)
+
+        with self._flow(update_service, active=active) as mocks:
+            mocks["_stop_service"].return_value = False
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is False
+        assert self.SERVICES[0] in result["error"]
+        assert mocks["_install_deb_package"].await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_the_units_stopped_before_that_one_are_started_back(self, update_service):
+        """Aborting mid-phase must leave the appliance as it was, not half stopped.
+
+        The second unit refuses; the first was already stopped by then, and is
+        the one the room needs back.
+        """
+        active = dict.fromkeys(self.SERVICES, True)
+
+        with self._flow(update_service, active=active) as mocks:
+            mocks["_stop_service"].side_effect = [True, False]
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is False
+        assert self._started(mocks) == list(self.SERVICES)
+        assert "restored" in result["error"].lower()
+
+    @pytest.mark.asyncio
     async def test_server_download_failure(self, update_service):
         status = {
             "installed": {"versions": {"main": "0.27.0"}},

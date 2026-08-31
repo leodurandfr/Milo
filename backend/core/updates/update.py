@@ -800,10 +800,23 @@ class UpdateService(VersionService):
                 return {"success": False, "error": f"Failed to download snapclient: {client_download.get('error')}"}
 
             # Phase 2: Stop all services (30-40%)
+            #
+            # The verdict is read here as it is in every other install flow: a
+            # unit that would not stop keeps its image loaded, so the .deb lands
+            # under the running process, `_restore_multiroom_services` "starts"
+            # something that never stopped and reports it restored, and the row
+            # then reads the new version off the new binary on disk while the
+            # process serving audio is still the old one.
             for service in config["services"]:
                 services_were_active[service] = await self._is_service_active(service)
                 self.update_logger.info(f"Service {service} was {'active' if services_were_active[service] else 'inactive'} before update")
-                await self._stop_service(service)
+                if not await self._stop_service(service):
+                    restored = await self._restore_multiroom_services(services_were_active)
+                    await self._cleanup_temp_files(server_download.get("temp_dir"))
+                    await self._cleanup_temp_files(client_download.get("temp_dir"))
+                    return self._failure_after_restore(
+                        f"Failed to stop {service}.", restored
+                    )
 
             # Phase 3: Install snapserver (40-60%)
             server_install = await self._install_deb_package(server_download["deb_path"])
