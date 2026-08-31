@@ -37,7 +37,6 @@ const genreImage = computed(() => genreArtwork(props.value))
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
   cursor: pointer;
-  transition: background var(--transition-fast);
 }
 
 .genre-image {
