@@ -153,29 +153,32 @@ configure_plymouth_splash() {
     # Install Plymouth
     sudo apt install -y plymouth plymouth-themes
 
-    # Create Milo theme directory
-    sudo mkdir -p /usr/share/plymouth/themes/milo
-
-    # Copy all Plymouth theme files from rootfs/
-    log_info "Installing Plymouth theme files..."
-    if [[ -d "$MILO_APP_DIR/rootfs/usr/share/plymouth/themes/milo" ]]; then
-        for theme_file in "$MILO_APP_DIR/rootfs/usr/share/plymouth/themes/milo"/*; do
-            if [[ -f "$theme_file" ]]; then
-                local filename
-                filename=$(basename "$theme_file")
-                sudo cp "$theme_file" /usr/share/plymouth/themes/milo/
-                log_success "Installed Plymouth: $filename"
-            fi
-        done
-    else
-        log_error "Plymouth theme directory not found: $MILO_APP_DIR/rootfs/usr/share/plymouth/themes/milo/"
+    local theme_src="$MILO_APP_DIR/rootfs/usr/share/plymouth/themes/milo"
+    if [[ ! -d "$theme_src" ]]; then
+        log_error "Plymouth theme directory not found: $theme_src"
         return 1
     fi
+
+    # Mirror the theme rather than copy into it. This function also runs when an
+    # installed unit is reinstalled, and copy-only leaves behind assets the theme
+    # no longer ships: the fill was three sliced PNGs for one commit before going
+    # back to a single image, and those slices would still be sitting next to
+    # milo.script. Copy first, then drop the strays — never a moment where the
+    # theme is absent, so an install that aborts here still boots with a splash.
+    log_info "Installing Plymouth theme files..."
+    sudo mkdir -p /usr/share/plymouth/themes/milo
+    sudo cp "$theme_src"/* /usr/share/plymouth/themes/milo/
+    for installed in /usr/share/plymouth/themes/milo/*; do
+        [[ -f "$theme_src/$(basename "$installed")" ]] || sudo rm -f "$installed"
+    done
+    log_success "Plymouth theme installed ($(ls -1 "$theme_src" | wc -l) files)"
 
     # Set Milo theme as default
     sudo plymouth-set-default-theme milo
 
-    # Update initramfs to apply theme
+    # The theme is read from the initramfs — that is what lets the splash paint
+    # at ~2.9 s, well before the root filesystem's own units are up. A theme
+    # change that skips this reaches /usr/share and is never seen at boot.
     sudo update-initramfs -u
 
     # Configure boot display (cmdline.txt + config.txt) based on screen type
