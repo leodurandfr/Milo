@@ -130,14 +130,17 @@ class NavidromeClient:
         self._password = password
         self._base_url = base_url.rstrip("/")
         self._session: Optional[aiohttp.ClientSession] = None
-        # Cover ids confirmed to carry real artwork, so the two probe fetches in
-        # _is_placeholder are paid once per item rather than once per request.
-        # Dropped by invalidate_cover_memo() when the library is rescanned, since
-        # an album can lose its art. A *placeholder* verdict is deliberately not
-        # remembered: Navidrome re-asks its metadata agent on every request, so an
-        # artist it could not resolve this minute can have a photo the next, and
-        # caching the miss would freeze the gap for as long as the process lives.
-        self._real_art: set = set()
+        # cover id → does it carry real artwork? Remembered so the two probe
+        # fetches in _is_placeholder are paid once per item rather than once per
+        # request. Dropped by invalidate_cover_memo() on a rescan, which is the
+        # only event that can change either answer: every tier Navidrome serves
+        # art from is now a local file — CoverArtPriority has never listed
+        # `external`, and ArtistArtPriority stopped listing it once Milō took the
+        # online tier over (see artist_images.py). While Navidrome still went
+        # online for artists, a *placeholder* verdict could not be remembered at
+        # all: it re-asked its agent on every request, so an artist unresolved
+        # this minute could have a photo the next.
+        self._cover_verdict: Dict[str, bool] = {}
 
     @classmethod
     def from_cred_file(
@@ -511,12 +514,16 @@ class NavidromeClient:
         return self._build_url("stream", {"id": song_id, "format": "raw"})
 
     def invalidate_cover_memo(self) -> None:
-        """Forget which covers were confirmed real (called on a library rescan).
+        """Forget which covers carry real artwork (called on a library rescan).
 
-        A rescan is when an album can gain or lose its art, which is the one
-        event that makes the memo wrong.
+        A rescan is when an item can gain or lose its art, which is the one event
+        that makes the memo wrong — art now comes only from files on disk, and a
+        scan is what notices those. The gap that leaves is Navidrome's own
+        periodic scan, which Milō is not told about: art dropped beside the music
+        and picked up there shows after the next rescan from the UI, or a
+        restart.
         """
-        self._real_art.clear()
+        self._cover_verdict.clear()
 
     async def _is_placeholder(self, cover_id: str) -> bool:
         """True when Navidrome is standing in for artwork it does not have.
@@ -600,19 +607,22 @@ class NavidromeClient:
         Navidrome answers 200 with a picture for an artist it could not resolve,
         so without this every such artist would look like it had a photo.
 
-        A cover confirmed real is remembered (``_real_art``), which is what keeps
-        the two probe fetches to once per item instead of once per request. A
-        placeholder verdict is not remembered — see the note on that field.
+        Both verdicts are remembered (``_cover_verdict``), which is what keeps the
+        two probe fetches to once per item instead of once per request — and the
+        stand-in verdict is the one that matters most now, because it is the
+        answer for nearly every artist: Navidrome no longer looks for artist art
+        anywhere but on disk, so an artist with no ``artist.*`` file beside the
+        music is a stand-in on every request until a rescan.
         """
-        if cover_id not in self._real_art and await self._is_placeholder(cover_id):
+        verdict = self._cover_verdict.get(cover_id)
+        if verdict is None:
+            verdict = not await self._is_placeholder(cover_id)
+            self._cover_verdict[cover_id] = verdict
+        if not verdict:
             self.logger.debug(
                 "Cover %s is one of Navidrome's stand-ins — reporting as missing",
                 cover_id,
             )
             return None
 
-        result = await self._fetch_cover_bytes(cover_id, size)
-        if result is None:
-            return None
-        self._real_art.add(cover_id)
-        return result
+        return await self._fetch_cover_bytes(cover_id, size)
