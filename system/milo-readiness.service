@@ -1,16 +1,19 @@
 [Unit]
-Description=Milo Readiness Check (waits for backend and frontend before quitting Plymouth)
-After=milo-backend.service nginx.service
+Description=Milo Boot Splash (drives the Plymouth progress bar, quits it when the UI can take over)
+# Starts with the splash, not with the services it waits on: the bar has to move
+# from the moment Plymouth paints. Both services are Requires= without After=,
+# so they come up in parallel while the script polls them.
+After=plymouth-start.service
+Wants=plymouth-start.service
 Requires=milo-backend.service nginx.service
-Before=getty@tty1.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/bin/milo-wait-ready.sh
 
-# Timeout after 90s if services don't start
-TimeoutStartSec=90
+# The script fails open on its own 45s deadline; this is the outer bound.
+TimeoutStartSec=60
 
 StandardOutput=journal
 StandardError=journal

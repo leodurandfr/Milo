@@ -1,84 +1,140 @@
-# Milo Plymouth Theme Script
-# Boot: logo + progress bar / Shutdown: logo only
+# Milo Plymouth theme — black background, white logo, one progress bar.
+#
+# The bar is driven from outside, by milo-wait-ready.sh sending
+# `plymouth system-update --progress=N`. Plymouth's own boot estimator
+# (SetBootProgressFunction) is deliberately unused: its timebase is
+# /var/lib/plymouth/boot-duration, measured at 0.73 s on a unit whose splash
+# lives ~15 s, so the bar filled inside the first second and then froze full.
 
-# Background color (#000000)
 Window.SetBackgroundTopColor(0, 0, 0);
 Window.SetBackgroundBottomColor(0, 0, 0);
 
-# Load images
 logo_image = Image("logo.png");
-progress_bar_image = Image("progress-bar.png");
-progress_fill_image = Image("progress-fill.png");
+bar_image = Image("progress-bar.png");
 
-# Calculate center positions
+# The fill is a pill, and it ships in three pieces because Plymouth's script API
+# has no Crop. Scaling one whole pill image would shrink its 3 px end caps in
+# proportion to the width — at a tenth of the bar the radius lands under half a
+# pixel and the end reads as square. A fixed cap at each end with a stretched
+# body between them keeps the same radius at every width.
+fill_left_image = Image("progress-fill-left.png");
+fill_body_image = Image("progress-fill-body.png");
+fill_right_image = Image("progress-fill-right.png");
+
 screen_width = Window.GetWidth();
 screen_height = Window.GetHeight();
+bar_width = bar_image.GetWidth();
+cap_width = fill_left_image.GetWidth();
+fill_height = fill_left_image.GetHeight();
 
-logo_width = logo_image.GetWidth();
-logo_height = logo_image.GetHeight();
+# Boot lifts the logo to make room for the bar below it; every other mode
+# (shutdown, suspend, resume) shows the logo alone, centred.
+boot = Plymouth.GetMode() == "boot";
+logo_x = (screen_width - logo_image.GetWidth()) / 2;
+logo_y = (screen_height - logo_image.GetHeight()) / 2;
+if (boot)
+    logo_y = logo_y - 24;
 
-bar_width = progress_bar_image.GetWidth();
-bar_height = progress_bar_image.GetHeight();
-
-# Check mode (boot vs shutdown/suspend/resume)
-mode = Plymouth.GetMode();
-
-# Create logo sprite (always shown)
 logo_sprite = Sprite(logo_image);
+logo_sprite.SetX(logo_x);
+logo_sprite.SetY(logo_y);
 logo_sprite.SetZ(1);
 
-if (mode == "boot") {
-    # Boot mode: logo slightly above center with progress bar below
-
-    # Logo position (centered, slightly above middle)
-    logo_x = (screen_width - logo_width) / 2;
-    logo_y = (screen_height - logo_height) / 2 - 24;
-
-    logo_sprite.SetX(logo_x);
-    logo_sprite.SetY(logo_y);
-
-    # Progress bar position (centered, 48px below logo)
+if (boot) {
     bar_x = (screen_width - bar_width) / 2;
-    bar_y = logo_y + logo_height + 48;
+    bar_y = logo_y + logo_image.GetHeight() + 48;
 
-    # Create and position progress bar background sprite
-    bar_sprite = Sprite(progress_bar_image);
+    bar_sprite = Sprite(bar_image);
     bar_sprite.SetX(bar_x);
     bar_sprite.SetY(bar_y);
     bar_sprite.SetZ(1);
 
-    # Create progress fill sprite (will be scaled based on progress)
-    fill_sprite = Sprite();
-    fill_sprite.SetX(bar_x);
-    fill_sprite.SetY(bar_y);
-    fill_sprite.SetZ(2);
+    fill_left = Sprite(fill_left_image);
+    fill_left.SetX(bar_x);
+    fill_left.SetY(bar_y);
+    fill_left.SetZ(2);
+    fill_left.SetOpacity(0);
 
-    # Progress callback - called by Plymouth with boot progress (0.0 to 1.0)
-    fun boot_progress_callback(time, progress) {
-        if (progress >= 0 && progress <= 1) {
-            # Scale the fill image width based on progress
-            fill_width = progress_fill_image.GetWidth() * progress;
-            if (fill_width > 0) {
-                scaled_fill = progress_fill_image.Scale(fill_width, progress_fill_image.GetHeight());
-                fill_sprite.SetImage(scaled_fill);
+    fill_body = Sprite();
+    fill_body.SetX(bar_x + cap_width);
+    fill_body.SetY(bar_y);
+    fill_body.SetZ(2);
+    fill_body.SetOpacity(0);
+
+    fill_right = Sprite(fill_right_image);
+    fill_right.SetX(bar_x + bar_width - cap_width);
+    fill_right.SetY(bar_y);
+    fill_right.SetZ(2);
+    fill_right.SetOpacity(0);
+
+    # Narrower than two caps the ends would overlap, so the pill opens as a
+    # round dot of exactly that width instead of a sliver.
+    MIN_FILL = cap_width * 2;
+
+    fun draw_fill(width) {
+        if (width < 1) {
+            fill_left.SetOpacity(0);
+            fill_body.SetOpacity(0);
+            fill_right.SetOpacity(0);
+        } else {
+            width = Math.Max(width, MIN_FILL);
+            fill_left.SetOpacity(1);
+            fill_right.SetOpacity(1);
+            fill_right.SetX(bar_x + width - cap_width);
+
+            body_width = width - MIN_FILL;
+            if (body_width >= 1) {
+                fill_body.SetImage(fill_body_image.Scale(body_width, fill_height));
+                fill_body.SetOpacity(1);
+            } else {
+                fill_body.SetOpacity(0);
             }
         }
     }
 
-    Plymouth.SetBootProgressFunction(boot_progress_callback);
-} else {
-    # Shutdown/suspend/resume: logo centered, no progress bar
+    target_width = 0;
+    shown_width = 0;
+    drawn_width = -1;
+    driven = 0;
 
-    logo_x = (screen_width - logo_width) / 2;
-    logo_y = (screen_height - logo_height) / 2;
+    # Never backwards: the splash creeps on its own until the first milestone
+    # arrives, and that milestone must not yank the bar back to where the boot
+    # actually is.
+    fun system_update_callback(progress) {
+        driven = 1;
+        width = bar_width * progress / 100;
+        if (width > target_width)
+            target_width = width;
+    }
 
-    logo_sprite.SetX(logo_x);
-    logo_sprite.SetY(logo_y);
+    # Plymouth paints ~4 s before milo-wait-ready.sh gets scheduled (measured:
+    # splash at 2.9 s, basic.target at 4.9 s, the script at 7.2 s), so without
+    # this the splash would open on a bar frozen at zero for its first third.
+    # A tenth of the bar over that gap, then the real milestones take it.
+    CREEP_CAP = bar_width * 0.1;
+    CREEP_STEP = CREEP_CAP / 200;     # ~4 s at the ~50 Hz refresh rate
+
+    # Milestones land as steps; this glides between them so the bar reads as
+    # motion rather than as a sequence of jumps, and redraws only when the
+    # rounded width actually changed.
+    fun refresh_callback() {
+        if (driven == 0) {
+            if (target_width < CREEP_CAP)
+                target_width = target_width + CREEP_STEP;
+        }
+
+        if (Math.Abs(target_width - shown_width) < 1)
+            shown_width = target_width;
+        else
+            shown_width = shown_width + (target_width - shown_width) * 0.2;
+
+        width = Math.Int(shown_width);
+        if (width != drawn_width) {
+            drawn_width = width;
+            draw_fill(width);
+        }
+    }
+
+    Plymouth.SetSystemUpdateFunction(system_update_callback);
+    Plymouth.SetRefreshFunction(refresh_callback);
 }
-
-# Quit callback - fade out
-fun quit_callback() {
-    logo_sprite.SetOpacity(0);
-}
-
-Plymouth.SetQuitFunction(quit_callback);

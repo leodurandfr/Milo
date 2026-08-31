@@ -123,10 +123,14 @@ const BOOT_FAILED_MS = 12000;        // Show "unavailable" after 12s total
 const DOM_REMOVE_DELAY = 400;
 const DOCK_AUTO_SHOW_DELAY = 1000;
 
-// Fast boot: skip logo animation on refresh (user already saw it this session)
-const isFastBoot = document.documentElement.classList.contains('fast-boot');
-const LOGO_FADE_DELAY = isFastBoot ? 0 : 400;
-const SCREEN_FADE_DELAY = isFastBoot ? 100 : 500;
+// The boot screen only draws a logo on a remote browser's first load of the
+// session. A refresh has already shown it, and the kiosk never does: there
+// Plymouth carried the logo and the progress bar right up to this frame. With no
+// logo there is nothing to choreograph, so the screen just clears.
+const bootClasses = document.documentElement.classList;
+const hasBootLogo = !bootClasses.contains('fast-boot') && !bootClasses.contains('kiosk-boot');
+const LOGO_FADE_DELAY = hasBootLogo ? 400 : 0;
+const SCREEN_FADE_DELAY = hasBootLogo ? 500 : 100;
 
 const { t } = useI18n();
 const route = useRoute();
@@ -389,7 +393,7 @@ watch(isReady, (ready) => {
     clearBootTimeout();
     hideBootMessage();
 
-    if (!isFastBoot) {
+    if (hasBootLogo) {
       timer.setTimeout(() => {
         bootScreenEl.classList.add('logo-exit');
       }, LOGO_FADE_DELAY);
