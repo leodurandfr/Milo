@@ -561,6 +561,121 @@ class TestForcedVersions:
         assert await version_service.get_forced_versions() == {}
 
 
+class TestOffPinByAccident:
+    """A unit running a version ABOVE the pin, with nothing recording a trial.
+
+    Two ways in and neither writes `updates.forced_versions`: a manifest
+    deliberately rolled back (a yanked release), and a strict record write that
+    failed after the install went through — the branch `f31048a1` added so that
+    state would at least be reported.
+
+    What broke: `_apply_pin` emits the `validated` block only while an override
+    is active, so the row had no return button, `update_available` was false
+    (the pin is older than what runs), and the screen read "up to date" on a
+    release nobody validated. `_reconcile_dependencies` brings such a unit back,
+    but only during a Milo app update — never from this screen.
+    """
+
+    @staticmethod
+    def _installed(version: str):
+        return patch.object(VersionService, "get_installed_version", return_value={
+            "status": "installed",
+            "versions": {"main": version},
+            "errors": [],
+            "name": "go-librespot",
+            "description": "updates.spotifyConnect",
+        })
+
+    @pytest.mark.asyncio
+    async def test_a_unit_above_the_pin_is_offered_the_way_back(self, version_service):
+        """The pin is named as `validated`, which is what the return button installs."""
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+
+        with _patch_github_release("v0.9.9"), self._installed("0.9.9"):
+            result = await version_service.get_program_full_status("go-librespot")
+
+        latest = result["latest"]
+        assert result["update_available"] is False
+        assert latest["version"] == "0.7.2"
+        assert latest["validated"]["version"] == "0.7.2"
+        assert latest["validated"]["tag_name"] == "v0.7.2"
+        # And the row stops offering an update to the release it already runs:
+        # `ahead` is measured against the pin, which is right for a unit behind
+        # the set and wrong for this one — it drew "0.9.9 > 0.9.9".
+        assert latest["upstream"]["version"] == "0.9.9"
+        assert latest["upstream"]["ahead"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_unit_above_a_rolled_back_pin_is_offered_the_way_back(self, version_service):
+        """The worst variant: upstream came back down too, so nothing was offered at all.
+
+        A yanked release disappears from `releases/latest`, so the fetch answers
+        the manifest's own version and `upstream.ahead` is false. Without a
+        `validated` block the row had no button of any kind and said "up to
+        date" while the unit ran the yanked release.
+        """
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+
+        with _patch_github_release("v0.7.2"), self._installed("0.9.9"):
+            result = await version_service.get_program_full_status("go-librespot")
+
+        assert result["update_available"] is False
+        assert result["latest"]["validated"]["version"] == "0.7.2"
+        assert result["latest"]["upstream"]["ahead"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_recorded_trial_is_untouched(self, version_service, mock_settings_service):
+        """The deliberate off-pin unit already had all of this, and must keep it.
+
+        `_apply_pin` names the forced version as the offer and the manifest as
+        `validated`; the correction above must not overwrite either, or the
+        return button would install the trial it is meant to end.
+        """
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+        mock_settings_service._storage["updates.forced_versions"] = {"go-librespot": "0.9.9"}
+
+        with _patch_github_release("v0.9.9"), self._installed("0.9.9"):
+            result = await version_service.get_program_full_status("go-librespot")
+
+        latest = result["latest"]
+        assert latest["version"] == "0.9.9"
+        assert latest["validated"]["version"] == "0.7.2"
+        assert latest["upstream"]["ahead"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_unit_behind_the_pin_keeps_the_ordinary_update(self, version_service):
+        """Catching up is not a return: no `validated` block, and the trial stays on offer."""
+        version_service.programs["go-librespot"]["validated_version"] = "0.7.2"
+
+        with _patch_github_release("v0.9.9"), self._installed("0.5.0"):
+            result = await version_service.get_program_full_status("go-librespot")
+
+        assert result["update_available"] is True
+        assert "validated" not in result["latest"]
+        assert result["latest"]["upstream"]["ahead"] is True
+
+    @pytest.mark.asyncio
+    async def test_the_app_itself_is_never_given_a_return_button(self, version_service):
+        """`milo` has no pin, so "above the offered release" means nothing for it.
+
+        A dev unit sits on a tag GitHub has not released, which would otherwise
+        grow a return button offering to install the app's own past.
+        """
+        with _patch_github_release("v0.1.0"), patch.object(
+            VersionService, "get_installed_version", return_value={
+                "status": "installed",
+                "versions": {"main": "0.2.0"},
+                "errors": [],
+                "name": "Milō",
+                "description": "updates.miloApp",
+            }
+        ):
+            result = await version_service.get_program_full_status("milo")
+
+        assert "validated" not in result["latest"]
+        assert "upstream" not in result["latest"]
+
+
 class TestGetProgramFullStatus:
     """Tests for get_program_full_status()"""
 

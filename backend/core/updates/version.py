@@ -312,6 +312,53 @@ class VersionService:
 
         return results
 
+    def _reconcile_offer(
+        self,
+        program_key: str,
+        latest: Dict[str, Any],
+        installed: str,
+        update_available: bool,
+    ) -> None:
+        """Make the offer readable on a unit sitting ABOVE the version it is pinned to.
+
+        Two ways in, and neither records a trial: a manifest deliberately rolled
+        back (a yanked release), and a `forced_versions` write that failed after
+        the install went through. `_apply_pin` emits the `validated` block — the
+        one the return button is built from — only while an override is active,
+        so such a unit is offered nothing at all: `update_available` is false
+        (the pin is older than what it runs) and the row reads "up to date" on a
+        release nobody validated. That is the exact state this whole surface
+        exists to make impossible, and `_reconcile_dependencies` only undoes it
+        during a Milo app update — never from the screen.
+
+        Two corrections, both of them about what the row may claim:
+
+          * name the pin as `validated`, so the return button appears and
+            `_select_target(status, "validated")` installs it;
+          * drop `upstream.ahead` when the unit already runs that upstream
+            release. `ahead` is measured against the pin on purpose — a unit
+            *behind* the set still sees what there is to try — and this is the
+            one case it gets wrong, drawing "1.6.0 > 1.6.0" beside an Update
+            button that reinstalls what is already installed.
+
+        A pinned program only: `milo` is the app, not a dependency, and the
+        latest release is simply what it offers.
+        """
+        if not self.programs[program_key].get("validated_version"):
+            return
+
+        upstream = latest.get("upstream")
+        if upstream and upstream.get("version") == installed:
+            upstream["ahead"] = False
+
+        if update_available or installed == latest.get("version") or "validated" in latest:
+            return
+
+        latest["validated"] = {
+            key: latest.get(key)
+            for key in ("version", "tag_name", "html_url", "published_at")
+        }
+
     @staticmethod
     def installed_version(status: Dict[str, Any]) -> Optional[str]:
         """The one version a full status reports as installed.
@@ -362,6 +409,10 @@ class VersionService:
 
                 if installed_version and latest_version:
                     result["update_available"] = compare_versions(installed_version, latest_version)
+                    self._reconcile_offer(
+                        program_key, github_result, installed_version,
+                        result["update_available"],
+                    )
 
             return result
 
