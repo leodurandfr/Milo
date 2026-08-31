@@ -125,6 +125,20 @@ EnableExternalServices = true
 # deliberately omitted (never surface the back cover as album art).
 CoverArtPriority = "cover.*, folder.*, front.*, embedded, *front*, *cover*, *folder*, *album*"
 
+# Artist photos. The default is "artist.*, album/artist.*, external"; `external`
+# is dropped here so Navidrome only ever serves artist art the user actually
+# shipped, and Milō owns the online tier (backend/sources/music_library/
+# artist_images.py). Not a preference — the upstream agent picks the wrong
+# person. It searches Deezer by name and keeps the FIRST hit whose name matches,
+# while Deezer's search is not ordered by popularity: the first "Amy Winehouse"
+# is a 741-fan duplicate with no photo, the real one (3.8 M fans) is second.
+# Measured on a 108-artist library, 25 artists wore someone else's face and a
+# dozen wore Deezer's grey silhouette, which is a genuine image no byte-level
+# rule downstream can tell from a photo. Deezer returns `nb_fan` on every hit and
+# Navidrome ignores it; ranking by it resolves 105 of those 108 correctly.
+# The local tiers stay first, so a user's own artist.jpg still wins over both.
+ArtistArtPriority = "artist.*, album/artist.*"
+
 LogLevel = "info"
 
 # EVERY key below must sit under [Scanner]: 0.63.2 reads Scanner.Schedule and
