@@ -647,6 +647,163 @@ def test_every_key_in_a_literal_body_is_read_by_milo_client(method, path):
 
 
 # --------------------------------------------------------------------------- #
+# The one body that does not cross as JSON.
+#
+# `POST /app/update` ships the client tarball as multipart/form-data, so neither
+# extractor above sees it: there is no `json=` dict and no Pydantic model. The
+# endpoint was covered by the route check alone, which passes while the two
+# sides disagree on every field name in it. A rename fails loudly here rather
+# than as a 422 the server reports as "Satellite rejected update: HTTP 422" —
+# on a second physical unit, after the push that carried it.
+# --------------------------------------------------------------------------- #
+
+_FORM_PARAM_FACTORIES = {"File", "Form"}
+
+
+def _multipart_calls(tree, markers) -> dict[tuple[str, str], set[str]]:
+    """(method, path) → the form-field names a multipart call puts on the wire.
+
+    Per function scope: the fields a `FormData()` local collects through
+    `add_field("name", …)`, attributed to the satellite endpoint that same scope
+    hands it to as `data=`.
+    """
+    calls = {}
+    for scope in ast.walk(tree):
+        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+
+        forms: dict[str, set[str]] = {}
+        for node in ast.walk(scope):
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                    and isinstance(node.value, ast.Call)
+                    and getattr(node.value.func, "attr", getattr(node.value.func, "id", None))
+                    == "FormData"):
+                forms[node.targets[0].id] = set()
+        for node in ast.walk(scope):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            if node.func.attr != "add_field" or not isinstance(node.func.value, ast.Name):
+                continue
+            if node.func.value.id not in forms or not node.args:
+                continue
+            if isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                forms[node.func.value.id].add(node.args[0].value)
+        if not forms:
+            continue
+
+        bound = {
+            target.id: _join(node.value)
+            for node in ast.walk(scope)
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.JoinedStr)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for node in ast.walk(scope):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            verb = node.func.attr.upper()
+            if verb not in _HTTP_METHODS or not node.args:
+                continue
+            data = next((kw.value for kw in node.keywords if kw.arg == "data"), None)
+            if not (isinstance(data, ast.Name) and data.id in forms):
+                continue
+            arg = node.args[0]
+            url = (
+                _join(arg) if isinstance(arg, ast.JoinedStr)
+                else bound.get(arg.id, "") if isinstance(arg, ast.Name)
+                else ""
+            )
+            marker = next((m for m in markers if m in url), None)
+            if marker is None:
+                continue
+            suffix = _normalise(url.split(marker, 1)[1])
+            calls.setdefault((verb, suffix), set()).update(forms[data.id])
+    return calls
+
+
+def _multipart_surface() -> dict[tuple[str, str], set[str]]:
+    surface = {}
+    for path in _backend_modules():
+        tree = ast.parse(path.read_text())
+        for endpoint, fields in _multipart_calls(tree, _port_markers(tree)).items():
+            surface.setdefault(endpoint, set()).update(fields)
+    return surface
+
+
+def _client_form_fields_by_route() -> dict[tuple[str, str], set[str]]:
+    """(method, path) → the form parameters milo-client's handler declares.
+
+    A `File(...)` / `Form(...)` default is what makes a parameter part of the
+    multipart body rather than a query argument, and FastAPI makes each of them
+    required — so a field the server stops sending is a 422, and one it renames
+    is a 422 too.
+    """
+    by_route = {}
+    for path in sorted(CLIENT_ROUTES_DIR.glob("*.py")):
+        source = path.read_text()
+        prefix_match = re.search(r'APIRouter\((?:[^)]*?)prefix\s*=\s*"([^"]*)"', source, re.S)
+        prefix = prefix_match.group(1) if prefix_match else ""
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            args = node.args
+            pairs = list(zip(args.args[len(args.args) - len(args.defaults):], args.defaults))
+            pairs += [
+                (arg, default)
+                for arg, default in zip(args.kwonlyargs, args.kw_defaults)
+                if default is not None
+            ]
+            fields = {
+                arg.arg for arg, default in pairs
+                if isinstance(default, ast.Call)
+                and getattr(default.func, "id", None) in _FORM_PARAM_FACTORIES
+            }
+            if not fields:
+                continue
+            for dec in node.decorator_list:
+                if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)):
+                    continue
+                if dec.func.attr.upper() not in _HTTP_METHODS or not dec.args:
+                    continue
+                route = dec.args[0]
+                if isinstance(route, ast.Constant) and isinstance(route.value, str):
+                    by_route[(dec.func.attr.upper(), _normalise(prefix + route.value))] = fields
+    return by_route
+
+
+_MULTIPART_SENT = _multipart_surface()
+_MULTIPART_ACCEPTED = _client_form_fields_by_route()
+
+
+def test_multipart_extractors_are_not_vacuous():
+    """Either half going quiet must fail here, not shrink the check to nothing."""
+    endpoint = ("POST", "/app/update")
+    assert _MULTIPART_SENT.get(endpoint), (
+        "the client-app push's form fields were not captured — the backend stopped "
+        f"building a FormData for a satellite endpoint, or the walk broke: {_MULTIPART_SENT}"
+    )
+    assert _MULTIPART_ACCEPTED.get(endpoint), (
+        "milo-client's app-update handler declares no File()/Form() parameter — "
+        f"either it stopped taking a multipart body, or the walk broke: {_MULTIPART_ACCEPTED}"
+    )
+
+
+@pytest.mark.parametrize("method,path", sorted(_MULTIPART_SENT))
+def test_every_form_field_the_backend_sends_is_declared_by_milo_client(method, path):
+    """A form field the handler does not declare is a 422 on a real satellite only."""
+    accepted = _MULTIPART_ACCEPTED.get((method, path))
+    assert accepted is not None, f"no milo-client multipart handler found for {method} {path}"
+
+    unread = _MULTIPART_SENT[(method, path)] - accepted
+    assert not unread, (
+        f"backend sends the form field(s) {sorted(unread)} to {method} {path}, but "
+        f"milo-client's handler declares {sorted(accepted)} — FastAPI answers 422 and "
+        "the push never lands"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Side D: the answer, not just the question.
 #
 # The two checks above cover what the backend SENDS. Nothing covered what it
