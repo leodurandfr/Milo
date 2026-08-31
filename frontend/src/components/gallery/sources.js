@@ -1,6 +1,6 @@
 // frontend/src/components/gallery/sources.js
 /**
- * The ten audio sources, as pages of the gallery — the second axis.
+ * The 11 audio sources, as pages of the gallery — the second axis.
  *
  * The catalogue next door answers "what does this component do"; this file
  * answers "what does a source look like, in every state it can reach". The two
@@ -105,7 +105,7 @@
  * checked against what the store actually exports *and* whether it can be
  * written, which is the check that caught `favoriteStations` being derived.
  *
- * Plain data, no `.vue` import: the guardrail reads this file to check the ten
+ * Plain data, no `.vue` import: the guardrail reads this file to check the pages
  * against ALL_AUDIO_SOURCES, every event against the backend's own models, and
  * every fabricated metadata key against the files that read it.
  * `SourceStage.vue` is what turns a scenario into a mounted component.
@@ -532,6 +532,11 @@ const ML_PLAYLISTS = [
  * rather than hardcoded into the stage: the store fetches it at mount and the
  * dropdown maps whatever comes back, so the gallery cannot drift into offering
  * a set the appliance does not.
+ *
+ * Served on one scenario only, and that is the rule rather than an oversight:
+ * the dropdown sits inside the transport, so a scenario with no player pane has
+ * nothing that could read this — a fixture nobody fetches documents nothing and
+ * outlives the call it stands in for.
  */
 const PODCAST_SPEEDS = [0.8, 1.0, 1.2, 1.5, 1.8, 2.0];
 
@@ -705,7 +710,7 @@ export const SOURCE_PAGES = [
       ),
       errored(
         'qobuz',
-        'The proxy sidecar will not start, which is also the moment the account state stops being knowable — so the connect CTA gives way to the retry one. The card\'s three CTAs are mutually exclusive and error is checked first, which is what makes that swap automatic rather than a fourth branch.',
+        'The proxy sidecar will not start, which is also the moment the account state stops being knowable — so the connect CTA gives way to the retry one. Not because error outranks the account — the card resolves a missing prerequisite first, so an explicit account_authenticated false would still win here. There is none: a source that failed to start publishes no metadata at all, so the reason resolves to null and the error branch is what is left.',
         'qobuz-proxy failed to start'
       )
     ]
@@ -769,7 +774,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (showControls false, showProgress FALSE)',
     via: 'dispatcher',
     summary:
-      'The one passive player with no progress bar: an AirPlay sender that pauses announces it on no channel shairport-sync can pass on (measured 2026-08-07 — pfls/pend never fire, core/caps holds 0x01, D-Bus PlayerState still says "Playing" 96 s in, FramePosition keeps counting because shairport writes silence), so is_playing stays true and the bar ran on through a paused track. The sender draws its own position. The untrusted-sender gate lives here too: title, artist AND a cover above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). The cover size is the whole of it — a sender that publishes a real one is a media app, one that publishes a favicon is a browser tab. What the gate deliberately does *not* read is is_playing: a sender that quits ends the session and the source publishes READY on its own, so the only thing left carrying is_playing=false is a pause, and the card is not the answer to a pause. One state is missing from the tabs on purpose: ACTIVE is reached on shairport\'s `conn`, before any audio flows, carrying nothing but the name off X-Apple-Client-Name — the window Qobuz documents as "Active, before now_playing". It has no tab because it draws the same "Connecté à / Leo’s iPhone" as the declined-cover scenario below, and a tab that repeats a screen teaches a reader to stop trusting that a new tab is a new screen.',
+      'The one passive player with no progress bar: an AirPlay sender that pauses announces it on no channel shairport-sync can pass on (measured 2026-08-07 — pfls/pend never fire, core/caps holds 0x01, D-Bus PlayerState still says "Playing" 96 s in, FramePosition keeps counting because shairport writes silence), so is_playing stays true and the bar ran on through a paused track. The sender draws its own position. The untrusted-sender gate lives here too: title, artist AND a cover above UNTRUSTED_SENDER_MIN_ARTWORK_PX (300). The cover size is the whole of it — a sender that publishes a real one is a media app, one that publishes a favicon is a browser tab. What the gate deliberately does *not* read is is_playing: a sender that quits ends the session and the source publishes READY on its own, so the only thing left carrying is_playing=false is a pause, and the card is not the answer to a pause. Two states are missing from the tabs on purpose. The first: ACTIVE is reached on shairport\'s `conn`, before any audio flows, carrying nothing but the name off X-Apple-Client-Name — the window Qobuz documents as "Active, before now_playing". It has no tab because it draws the same "Connecté à / Leo’s iPhone" as the declined-cover scenario below, and a tab that repeats a screen teaches a reader to stop trusting that a new tab is a new screen. A pause has no tab for the same reason, and it is the sharper case of the two: the gate has no is_playing clause — a sender that really quits sends `disc`, which clears the track, the cover and the name and publishes READY, so the card comes back on its own — and with showControls and showProgress both off, this player reads the flag nowhere else either. No transport to flip, no bar to freeze. A paused sender therefore draws the playing tab below, to the pixel: same markup, same computed styles, measured.',
     scenarios: [
       starting('airplay'),
       ready('airplay', 'Ready', 'shairport-sync advertising, nobody streaming.'),
@@ -784,21 +789,6 @@ export const SOURCE_PAGES = [
           is_playing: true,
           client_name: 'Leo’s iPhone',
           album_art_width: FAVICON_COVER_PX
-        }
-      ),
-      active(
-        'airplay',
-        'Paused',
-        'Same record, is_playing false — and the player stays. The gate has no playing clause: a sender that really quits sends `disc`, which clears the track, the cover and the name and publishes READY, so the card comes back on its own. This is a pause, and taking the cover away here would delete the screen on the gesture that is most likely to be undone next. useSourceProgress stops ticking, nothing else moves.',
-        {
-          title: 'Ainsi parlait Zarathoustra',
-          artist: 'Alain Bashung',
-          album_art_url: musicPlaceholder,
-          is_playing: false,
-          client_name: 'Leo’s iPhone',
-          album_art_width: MEDIA_APP_COVER_PX,
-          position: 41000,
-          duration: 297000
         }
       ),
       active('airplay', 'Playing', 'All three conditions met. The source bar carries the sender name. position and duration ride the record — the source ages them for a client connecting mid-track — but no bar is drawn from them, because nothing tells this source when the sender paused.', {
@@ -892,7 +882,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (+ both slots)',
     via: 'dispatcher',
     summary:
-      'The widest state matrix of the ten, and the one source whose rich-display rule ignores source_state entirely: a disc that is loaded and ready shows the player whether it is playing or idle. Three of the screens below exist nowhere in the backend enum, all derived by useSourceStatusDisplay from the metadata of a READY record — which is exactly why those scenarios are named by the fields they set rather than by a state. Two of them are operations under way, loading_disc and ejecting, and they join the four backend members in DISPLAY_STATES. The third, an empty drive bay, is not a state at all but a missing prerequisite, and it sits with no_network / no_internet / no_account in UNAVAILABLE_REASONS — the one of the four with no CTA, since plugging a drive in is not something the UI can offer.',
+      'The widest state matrix of any source here, and the one whose rich-display rule ignores source_state entirely: a disc that is loaded and ready shows the player whether it is playing or idle. Three of the screens below exist nowhere in the backend enum, all derived by useSourceStatusDisplay from the metadata of a READY record — which is exactly why those scenarios are named by the fields they set rather than by a state. Two of them are operations under way, loading_disc and ejecting, and they join the four backend members in DISPLAY_STATES. The third, an empty drive bay, is not a state at all but a missing prerequisite, and it sits with no_network / no_internet / no_account in UNAVAILABLE_REASONS — the one of the four with no CTA, since plugging a drive in is not something the UI can offer.',
     scenarios: [
       starting('cd'),
       ready(
@@ -916,7 +906,7 @@ export const SOURCE_PAGES = [
       active(
         'cd',
         'Spinning up the drive',
-        'The window `_preload_track_1` opens on every start with a disc in: reader and mpv are loaded *paused* so a play tap resumes instantly, and while the drive spins up `_is_buffering` alone carries the record into ACTIVE — `is_playing` and `is_paused` are both still false. So the player is on screen with the spinner over the glyph and no bar at all, since `_build_metadata` only publishes position and duration once a session is live or paused. It settles into the tab below a second later, when the preload parks itself paused.',
+        'The window `_preload_track_1` opens on every start with a disc in: reader and mpv are loaded *paused* so a play tap resumes instantly, and while the drive spins up `_is_buffering` alone carries the record into ACTIVE — `is_playing` and `is_paused` are both still false. So the player is on screen with the spinner over the glyph and no bar at all: `_build_metadata` zeroes position and duration until a session is live or paused, and ProgressBar hides itself on a zero duration. Both fields are on the record — at 0 — which is why they are on the fixture too. It settles into the tab below a second later, when the preload parks itself paused.',
         {
           ...CD_DISC,
           drive_connected: true,
@@ -1125,7 +1115,9 @@ export const SOURCE_PAGES = [
         condition: ['favoritesInitialized=false'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
-        props: { isLoading: true },
+        // The view's guard is `isLoading || !favoritesInitialized`, so a prop
+        // and a seed here would be one fact told twice — either alone draws the
+        // skeletons. The seed is the half kept: it is the half the name states.
         seed: { radio: { favoritesInitialized: false } },
         player: null
       }),
@@ -1145,18 +1137,20 @@ export const SOURCE_PAGES = [
         prime: [['radio', 'loadStations', true]],
         player: null
       }),
-      browsing('radio', 'Tuning a station', 'ACTIVE before a single byte of audio: `_handle_play_station` sets the station and `_is_buffering` and publishes *before* trying the stream, so `emit_connection_state(bool(_current_station))` is already true. The pane is therefore in — the app shows it on ACTIVE, not on is_playing — with the station drawn and the transport spinning, while bufferingStationId marks the same card in the grid and the rest of it stays live, so a second tap goes somewhere rather than being swallowed by a full-screen loader. The one scenario here whose record carries metadata: `is_buffering` is what separates this from the playing tab, and it is read by the same isSourceBuffering the full players use.', {
+      browsing('radio', 'Tuning a station', 'ACTIVE before a single byte of audio: `_handle_play_station` sets the station and `_is_buffering` and publishes *before* trying the stream, so `emit_connection_state(bool(_current_station))` is already true. The pane is therefore in — the app shows it on ACTIVE, not on is_playing — with the station drawn and the transport spinning, while bufferingStationId marks the same card in the grid and the rest of it stays live, so a second tap goes somewhere rather than being swallowed by a full-screen loader. The one scenario here whose record carries metadata: `is_buffering` is what separates this from the playing tab *in the name*, and on a unit it is what isSourceBuffering reads. Not here — hasRichDisplay has already returned true for a browser source, so no decider looks at the record again, and the spinner on this page is the pane\'s own isLoading, transcribed below.', {
         condition: ['bufferingStationId'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
         metadata: { is_buffering: true },
-        // Both halves of the buffering screen, as the app derives them: the grid
-        // gets the marked card from RadioSource's own computed (isBuffering +
-        // metadata.station_id), which lives in the wrapper the stage replaces —
-        // hence the prop — and the pane gets the station because
-        // radioStore.currentStation is keyed on station_id, which is set the
-        // moment the tune starts.
-        props: { isPlaying: false, bufferingStationId: 'st-nova', currentStation: RADIO_STATION_WITH_IMAGE },
+        // The marked card in the grid, and only that: it comes from
+        // RadioSource's own computed (isBuffering + metadata.station_id), which
+        // lives in the wrapper the stage replaces — hence the prop.
+        // `currentStation` and `isPlaying` are deliberately not passed, though
+        // the wrapper does pass them: FavoritesView reads the first only as
+        // `currentStation?.id === station.id && isPlaying`, and nothing is
+        // playing yet, so neither would change anything on screen. The pane's
+        // station is the fixture's, below.
+        props: { bufferingStationId: 'st-nova' },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
         player: {
@@ -1245,10 +1239,8 @@ export const SOURCE_PAGES = [
         view: 'podcast-home',
         api: {
           '/api/podcast/discover/top-charts': { results: PODCAST_CHARTS },
-          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
-          '/api/podcast/playback-speeds': { speeds: PODCAST_SPEEDS }
+          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS }
         },
-        prime: [['podcast', 'loadPlaybackSpeeds']],
         player: null
       }),
       browsing('podcast', 'Catalogue unavailable', 'Podcast Index did not answer, so the backend sets `api_error` instead of failing — a distinct branch from "no results", and the only one that says why the chart is empty. Deliberately not the status card: the loss is one block. The subscriptions above it are local data and still play, which is the whole reason this stays a per-view message with a retry.', {
@@ -1257,10 +1249,8 @@ export const SOURCE_PAGES = [
         view: 'podcast-home',
         api: {
           '/api/podcast/discover/top-charts': { api_error: true },
-          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
-          '/api/podcast/playback-speeds': { speeds: PODCAST_SPEEDS }
+          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS }
         },
-        prime: [['podcast', 'loadPlaybackSpeeds']],
         player: null
       }),
       browsing('podcast', 'Playing an episode', 'Player pane in, progress bar drawn. On the Phone viewport this becomes a mini-bar teleported to body, with the bar as a 2 px strip on the card’s bottom edge.', {
@@ -1377,7 +1367,7 @@ export function isSourcePageId(id) {
   return typeof id === 'string' && id.startsWith(SOURCE_PAGE_PREFIX);
 }
 
-/** Every envelope the ten pages can emit, for the checks against the models. */
+/** Every envelope the 11 pages can emit, for the checks against the models. */
 export function allEvents() {
   return SOURCE_PAGES.flatMap(page => page.scenarios.flatMap(entry => entry.events));
 }

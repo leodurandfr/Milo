@@ -5,7 +5,7 @@
 
   It does two things and delegates everything else. It writes the scenario's
   snapshot into the canvas's own `unifiedAudioStore`, and then it gets out of
-  the way: for seven of the ten sources it mounts the real `AudioSourceView`,
+  the way: for 8 of the 11 sources it mounts the real `AudioSourceView`,
   the app's own dispatcher, and whatever appears is whatever `useRichDisplay()`,
   `useSourceStatusDisplay()` and `currentDeviceName` decide from that record.
   Nothing here chooses a player or draws a card, which is why a scenario cannot
