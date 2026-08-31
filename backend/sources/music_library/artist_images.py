@@ -26,7 +26,9 @@ file the user put beside their music). This is only the online tier, reached
 when Navidrome has nothing — so a user who ships their own art keeps it.
 """
 import asyncio
+import contextlib
 import hashlib
+import itertools
 import logging
 import os
 import re
@@ -48,6 +50,14 @@ _HTTP_TIMEOUT = 10
 # an `error` body — see _search. Calls are serialised and spaced well under that
 # ceiling: 108 artists resolved back to back at this interval, zero refusals.
 _MIN_INTERVAL = 0.15
+# How long every search is parked after Deezer fails to answer usefully. Without
+# it a unit with no outbound HTTPS pays one 10 s timeout per artist, serialised
+# behind the lock below, on every single render — the whole list stalling with no
+# backoff. One failure parks the resolver instead, and because the pause is on
+# the *service* rather than on a name, no individual artist is ever remembered as
+# having no photo.
+_BACKOFF_AFTER_FAILURE = 60.0
+
 # How many hits to consider. The right artist is never far down when the name
 # matches exactly; 25 is Deezer's own page size.
 _SEARCH_LIMIT = 25
@@ -70,6 +80,31 @@ _PICTURE_FIELD = "picture_big"
 _ARTIST_COVER_PREFIX = "ar-"
 
 _WHITESPACE_RE = re.compile(r"\s+")
+
+# Distinguishes one cache write from another; see _write_cache.
+_temp_counter = itertools.count()
+
+
+def _write_bytes_atomically(path: str, data: bytes, temp_path: str) -> None:
+    """Write, fsync and rename into place. Blocking — call via ``to_thread``.
+
+    Every syscall runs on the same worker thread. Offloading only the write would
+    leave mkdir, fsync and replace on the event-loop thread, where an fsync on a
+    busy SD card stalls every WS, HTTP and monitor task — the measurement
+    ``shared/persistence.py::_write_atomically`` was written from.
+    """
+    os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+    try:
+        with open(temp_path, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+    finally:
+        # Renamed away on success (unlink → FileNotFoundError, suppressed); on any
+        # failure or cancellation, drop our own temp so it cannot leak.
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temp_path)
 
 
 def normalize_name(name: str) -> str:
@@ -134,11 +169,20 @@ class ArtistImageService:
         # rescan (invalidate), the one moment the artist list itself changes.
         # A *transient* failure — offline, quota — is deliberately never
         # recorded here, or one bad minute would freeze the gap until a rescan.
+        # It parks every search for a moment instead; see _BACKOFF_AFTER_FAILURE.
         self._missing: set = set()
+        self._backoff_until = 0.0
 
     def invalidate(self) -> None:
-        """Give the artists with no photo another chance (called on a rescan)."""
+        """Forget what a rescan can change: which artists had no photo, and what
+        each artist id is called.
+
+        The names go too because a rescan is exactly when a retag lands, and an
+        id that outlives the rename would keep this searching the old spelling
+        until the backend restarts.
+        """
         self._missing.clear()
+        self._names.clear()
 
     async def get_cover(self, cover_id: str) -> Optional[Tuple[bytes, str]]:
         """Photo bytes + content type for a Navidrome *artist* cover id, or None.
@@ -219,6 +263,9 @@ class ArtistImageService:
         unless the error is looked for. Reporting it as None is what stops one
         burst of throttling from being remembered as a permanent miss.
         """
+        if time.monotonic() < self._backoff_until:
+            return None
+
         async with self._lock:
             await self._space_out()
             try:
@@ -232,6 +279,7 @@ class ArtistImageService:
                             logger.warning(
                                 "Deezer artist search HTTP %s for %r", resp.status, name
                             )
+                            self._pause_searches()
                             return None
                         payload = await resp.json(content_type=None)
             except Exception as exc:
@@ -239,12 +287,25 @@ class ArtistImageService:
                     logger.info("Deezer not reachable for artist %r: %s", name, exc)
                 else:
                     logger.warning("Deezer artist search failed for %r: %s", name, exc)
+                self._pause_searches()
                 return None
 
+        if not isinstance(payload, dict):
+            # Not Deezer answering: a captive portal or a proxy. Guarded because
+            # the AttributeError would escape the route's api_error_handler as a
+            # 500 and paint an error banner, where a missing photo is a 404.
+            logger.warning("Deezer answered %r for %r, not a search result", payload, name)
+            self._pause_searches()
+            return None
         if "error" in payload:
             logger.warning("Deezer refused the search for %r: %s", name, payload["error"])
+            self._pause_searches()
             return None
         return payload.get("data") or []
+
+    def _pause_searches(self) -> None:
+        """Stop asking Deezer for a moment after it failed to answer usefully."""
+        self._backoff_until = time.monotonic() + _BACKOFF_AFTER_FAILURE
 
     async def _download(self, url: str) -> Optional[bytes]:
         """Picture bytes from Deezer's CDN, or None on any failure."""
@@ -292,15 +353,17 @@ class ArtistImageService:
 
     @staticmethod
     async def _write_cache(path: str, data: bytes) -> None:
-        """Store the photo, atomically — a picture truncated by a power cut would
-        be served forever, since a cache hit is decided by the file existing."""
+        """Store the photo, atomically and off the event loop.
+
+        The temp name is unique per write, not a shared ``<path>.tmp``: the same
+        artist is resolved by two concurrent requests as soon as it appears in
+        both the A–Z list and a search, and a shared temp lets one writer
+        truncate the other's file so ``os.replace`` publishes a half-written
+        JPEG. That would be permanent — a cache hit is decided by the file
+        existing, and nothing ever re-reads it.
+        """
+        temp_path = f"{path}.{os.getpid()}.{next(_temp_counter)}.tmp"
         try:
-            os.makedirs(str(ARTIST_IMAGES_DIR), exist_ok=True)
-            temp_path = f"{path}.tmp"
-            async with aiofiles.open(temp_path, "wb") as f:
-                await f.write(data)
-                await f.flush()
-                os.fsync(f.fileno())
-            os.replace(temp_path, path)
+            await asyncio.to_thread(_write_bytes_atomically, path, data, temp_path)
         except OSError as exc:
             logger.warning("Could not cache artist photo %s: %s", path, exc)

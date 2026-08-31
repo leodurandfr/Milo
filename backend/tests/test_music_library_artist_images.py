@@ -132,6 +132,11 @@ def service(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "backend.sources.music_library.artist_images.ARTIST_IMAGES_DIR", tmp_path
     )
+    # Both are politeness budgets rather than behaviour under test — the spacing
+    # between calls and the pause after a failure. The pause has its own test.
+    monkeypatch.setattr(
+        "backend.sources.music_library.artist_images._BACKOFF_AFTER_FAILURE", 0
+    )
     svc = ArtistImageService(get_client=lambda: asyncio.sleep(0, result=None))
     monkeypatch.setattr(svc, "_space_out", lambda: asyncio.sleep(0))
     return svc
@@ -184,6 +189,27 @@ class TestQuotaIsNotAMiss:
         service.invalidate()
 
         assert await service.get_image("Moussa") == (b"jpeg", "image/jpeg")
+
+
+class TestBackoff:
+    async def test_one_failure_parks_every_later_search(self, monkeypatch, tmp_path):
+        """A unit with no outbound HTTPS would otherwise pay one 10 s timeout per
+        artist, serialised, on every render — the whole list stalling with no
+        backoff. The pause is on the service, not on a name, so no artist is
+        remembered as photo-less because the network was down."""
+        monkeypatch.setattr(
+            "backend.sources.music_library.artist_images.ARTIST_IMAGES_DIR", tmp_path
+        )
+        svc = ArtistImageService(get_client=lambda: asyncio.sleep(0, result=None))
+        monkeypatch.setattr(svc, "_space_out", lambda: asyncio.sleep(0))
+        session = FakeSession([{"error": {"code": 4}}])
+        install_session(monkeypatch, session)
+
+        assert await svc.get_image("Sade") is None
+        assert await svc.get_image("Nas") is None
+        assert session.calls == 1
+        # Parked, never remembered: neither artist is filed as having no photo.
+        assert svc._missing == set()
 
 
 class TestServesFromDisk:

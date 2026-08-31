@@ -432,16 +432,29 @@ class TestCoverArtResilience:
         assert await client.get_cover_art("al-1", size=300) == (b"cover", "image/jpeg")
         assert len(session.calls) == 1
 
-    async def test_a_stand_in_is_re_probed_every_time(self, client):
-        """Navidrome re-asks its metadata agent on every request, so an artist
-        with no photo this minute can have one the next. Remembering the miss
-        would freeze that gap for the life of the process."""
+    async def test_a_stand_in_is_not_probed_again_either(self, client):
+        """The verdict that repeats. Navidrome serves artist art from local files
+        only (Milō owns the online tier — see artist_images.py), so an artist
+        with no `artist.*` beside the music is a stand-in on every request until
+        a rescan. Re-probing it would cost the whole artist list two extra
+        localhost fetches per thumbnail, forever."""
         attach(client, image(b"stand-in"), image(b"stand-in"))
         assert await client.get_cover_art("ar-1", size=160) is None
 
-        session = attach(client, image(b"now"), image(b"resized"), image(b"real"))
+        session = attach(client, image(b"a"), image(b"b"), image(b"real"))
+        assert await client.get_cover_art("ar-1", size=160) is None
+        assert session.calls == []
+
+    async def test_a_rescan_lets_a_stand_in_become_art(self, client):
+        """The other half: dropping the memo is what makes the verdict provisional
+        rather than permanent, so art added beside the music does appear."""
+        attach(client, image(b"stand-in"), image(b"stand-in"))
+        assert await client.get_cover_art("ar-1", size=160) is None
+
+        client.invalidate_cover_memo()
+
+        attach(client, image(b"a"), image(b"b"), image(b"real"))
         assert await client.get_cover_art("ar-1", size=160) == (b"real", "image/jpeg")
-        assert len(session.calls) == 3
 
     async def test_a_probe_that_fails_hides_nothing(self, client):
         """Fail open. A Navidrome hiccup during the probe must not turn a real
@@ -453,11 +466,15 @@ class TestCoverArtResilience:
     async def test_a_rescan_forgets_which_covers_were_confirmed_real(self, client):
         """A rescan is the one event that can take an album's art away; keeping
         the memo would serve the placeholder as real art until a restart."""
-        client._real_art.add("cov-1")
+        attach(client, image(b"a"), image(b"b"), image(b"cover"))
+        assert await client.get_cover_art("al-1", size=300) == (b"cover", "image/jpeg")
 
         client.invalidate_cover_memo()
 
-        assert client._real_art == set()
+        # Probed from scratch: the two probes are paid again before the fetch.
+        session = attach(client, image(b"a"), image(b"b"), image(b"cover"))
+        assert await client.get_cover_art("al-1", size=300) == (b"cover", "image/jpeg")
+        assert len(session.calls) == 3
 
 
 class TestSessionLifecycle:
