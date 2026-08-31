@@ -724,13 +724,21 @@ onUnmounted(() => {
   transform: translateX(-50%);
   width: 96px;
   height: var(--space-01);
-  background: var(--color-background-medium-16);
+  background: var(--color-background-medium-32);
   border-radius: var(--radius-full);
   z-index: 998;
   opacity: 0;
   pointer-events: none;
   cursor: pointer;
   transition: opacity var(--transition-normal), transform var(--transition-spring);
+}
+
+/* The bar is 4px tall: padding would grow the visible pill, so the touch
+   target is widened by an overlay that paints nothing. */
+.dock-indicator::after {
+  content: '';
+  position: absolute;
+  inset: calc(var(--space-05) * -1) calc(var(--space-04) * -1);
 }
 
 .dock-indicator.visible {
