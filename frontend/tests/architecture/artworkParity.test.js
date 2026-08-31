@@ -96,7 +96,12 @@ describe('artwork parity between the player and the screensaver', () => {
     const found = [...screensaver.matchAll(/^\s*artwork:\s*(.+?),?\s*$/gm)].map((m) => m[1]);
 
     // The extractor must find a real surface, or every assertion below is vacuous.
-    expect(found.length).toBeGreaterThanOrEqual(7);
+    // Six, not one per source: the four receivers share a single `receiver()`
+    // helper, so they contribute one expression between them. That is stricter
+    // than four identical lines, not looser — a fifth receiver cannot introduce
+    // a cover expression of its own without leaving this branch, and leaving it
+    // means a new line here for a reviewer to see.
+    expect(found.length).toBeGreaterThanOrEqual(6);
     for (const expression of found) {
       expect(ALLOWED).toContain(expression);
     }
