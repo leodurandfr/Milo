@@ -11,21 +11,23 @@ Window.SetBackgroundBottomColor(0, 0, 0);
 
 logo_image = Image("logo.png");
 bar_image = Image("progress-bar.png");
-
-# The fill is a pill, and it ships in three pieces because Plymouth's script API
-# has no Crop. Scaling one whole pill image would shrink its 3 px end caps in
-# proportion to the width — at a tenth of the bar the radius lands under half a
-# pixel and the end reads as square. A fixed cap at each end with a stretched
-# body between them keeps the same radius at every width.
-fill_left_image = Image("progress-fill-left.png");
-fill_body_image = Image("progress-fill-body.png");
-fill_right_image = Image("progress-fill-right.png");
+fill_image = Image("progress-fill.png");
 
 screen_width = Window.GetWidth();
 screen_height = Window.GetHeight();
 bar_width = bar_image.GetWidth();
-cap_width = fill_left_image.GetWidth();
-fill_height = fill_left_image.GetHeight();
+fill_width = fill_image.GetWidth();
+fill_height = fill_image.GetHeight();
+
+# The fill is a pill, so it is drawn as a fixed cap at each end with a stretched
+# slice of the middle between them. Scaling the whole image instead would shrink
+# the caps in proportion to the width — at a tenth of the bar the radius lands
+# under half a pixel and the end reads square. A pill's radius is half its
+# height, which is what makes the cap width derivable rather than measured.
+cap_width = fill_height / 2;
+fill_left_image = fill_image.Crop(0, 0, cap_width, fill_height);
+fill_right_image = fill_image.Crop(fill_width - cap_width, 0, cap_width, fill_height);
+fill_body_image = fill_image.Crop(cap_width, 0, 8, fill_height);
 
 # Boot lifts the logo to make room for the bar below it; every other mode
 # (shutdown, suspend, resume) shows the logo alone, centred.
@@ -107,21 +109,24 @@ if (boot) {
             target_width = width;
     }
 
-    # Plymouth paints ~4 s before milo-wait-ready.sh gets scheduled (measured:
-    # splash at 2.9 s, basic.target at 4.9 s, the script at 7.2 s), so without
-    # this the splash would open on a bar frozen at zero for its first third.
-    # A tenth of the bar over that gap, then the real milestones take it.
-    CREEP_CAP = bar_width * 0.1;
-    CREEP_STEP = CREEP_CAP / 200;     # ~4 s at the ~50 Hz refresh rate
+    # Plymouth paints before milo-wait-ready.sh gets scheduled (measured: splash
+    # at 2.9 s, basic.target at 4.9 s, the script at 7.2 s), so without this the
+    # splash would open on a bar frozen at zero for its first third. The gap is
+    # not bounded either: milo-first-boot.service runs Before=milo-readiness with
+    # TimeoutStartSec=180, so on a freshly flashed unit its carrier wait and mDNS
+    # probe can hold the script off for minutes. Hence asymptotic rather than
+    # capped — it always advances, ever more slowly, where a ceiling would park
+    # the bar and reproduce the frozen bar this theme exists to remove. It cannot
+    # overtake the first milestone either: that one is 25%.
+    CREEP_CEILING = bar_width * 0.2;
+    CREEP_RATE = 0.0035;              # half the ceiling in ~4 s at the ~50 Hz refresh
 
     # Milestones land as steps; this glides between them so the bar reads as
     # motion rather than as a sequence of jumps, and redraws only when the
     # rounded width actually changed.
     fun refresh_callback() {
-        if (driven == 0) {
-            if (target_width < CREEP_CAP)
-                target_width = target_width + CREEP_STEP;
-        }
+        if (driven == 0)
+            target_width = target_width + (CREEP_CEILING - target_width) * CREEP_RATE;
 
         if (Math.Abs(target_width - shown_width) < 1)
             shown_width = target_width;
