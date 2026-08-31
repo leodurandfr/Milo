@@ -1,41 +1,62 @@
 // frontend/tests/pure/nowPlayingArtwork.test.js
 /**
- * The cover-selection rule shared by AudioPlayerFull and the screensaver.
+ * The two cover rules shared by AudioPlayer, AudioPlayerFull and the
+ * screensaver: which URL is the cover, and what fills the slot when there is
+ * none.
  *
  * Only the branches that decide something are asserted — handing the helper an
  * album_art_url and checking it comes back would assert the language, not the
- * rule. What matters is which source gets a static placeholder when there is no
- * cover, and that the answer is per-source rather than global: a Bluetooth track
- * with no resolved cover must reach its own glyph fallback, not a CD sleeve.
+ * rule. What matters is that the no-cover answer is *per source*: the generated
+ * station avatar belongs to radio alone (a DLNA renderer announced full-screen
+ * as the word "DLNA" is what a global answer produced), the bundled disc and
+ * microphone belong to the sources that ship them, and everyone else falls to
+ * their own glyph.
  */
 import { describe, it, expect } from 'vitest';
-import { nowPlayingArtwork } from '@/utils/nowPlayingArtwork';
+import { nowPlayingArtwork, artworkFallback } from '@/utils/nowPlayingArtwork';
 
 describe('nowPlayingArtwork', () => {
-  it('gives the CD its disc placeholder when the lookup found no cover', () => {
-    const url = nowPlayingArtwork('cd', { title: 'Ain’t No Sunshine' });
-
-    expect(url).toBeTruthy();
-    expect(url).toMatch(/cd-placeholder/);
-  });
-
-  it('leaves every other source empty rather than borrowing that placeholder', () => {
-    // '' is what routes the caller to its own fallback — the player's source
-    // glyph, the screensaver's generated avatar. They are not interchangeable,
-    // so there is deliberately no shared default here.
-    expect(nowPlayingArtwork('bluetooth', { title: 'Says', artist: 'Nils Frahm' })).toBe('');
-    expect(nowPlayingArtwork('spotify', {})).toBe('');
-  });
-
-  it('prefers a real cover over the placeholder', () => {
-    expect(nowPlayingArtwork('cd', { album_art_url: '/api/cd/cover/abc' }))
-      .toBe('/api/cd/cover/abc');
+  it('reports no cover as the empty string, not as undefined', () => {
+    // '' is what routes the caller into artworkFallback below; undefined would
+    // render an <img> with no src, which reads as a broken image.
+    expect(nowPlayingArtwork({ title: 'Says', artist: 'Nils Frahm' })).toBe('');
   });
 
   it('survives the metadata being absent entirely', () => {
     // The screensaver reads this during transitions, when the store's metadata
     // is briefly null — a throw there blanks the whole screen.
-    expect(nowPlayingArtwork('spotify', null)).toBe('');
-    expect(nowPlayingArtwork('cd', null)).toMatch(/cd-placeholder/);
+    expect(nowPlayingArtwork(null)).toBe('');
+  });
+});
+
+describe('artworkFallback', () => {
+  it('gives the generated station avatar to radio and to nothing else', () => {
+    expect(artworkFallback('radio')).toEqual({ kind: 'avatar' });
+
+    for (const source of ['dlna', 'qobuz', 'bluetooth', 'airplay', 'spotify', 'tidal', 'mac']) {
+      expect(artworkFallback(source).kind).not.toBe('avatar');
+    }
+  });
+
+  it('ships a disc for the musical sources and a microphone for podcasts', () => {
+    const music = artworkFallback('music_library');
+    const cd = artworkFallback('cd');
+    const podcast = artworkFallback('podcast');
+
+    expect(music.kind).toBe('image');
+    // CD and the library are the same silence, so they are the same drawing —
+    // they were two files, and the two drifted apart in format and in ground.
+    expect(cd).toEqual(music);
+
+    expect(podcast.kind).toBe('image');
+    expect(podcast.src).not.toBe(music.src);
+  });
+
+  it('sends every remaining source to its own glyph', () => {
+    // The receivers and the connect players: their identity is the source, not
+    // a stand-in cover, and AudioPlayerFull already paints exactly that.
+    for (const source of ['spotify', 'tidal', 'bluetooth', 'airplay', 'dlna', 'qobuz', 'mac']) {
+      expect(artworkFallback(source)).toEqual({ kind: 'glyph' });
+    }
   });
 });

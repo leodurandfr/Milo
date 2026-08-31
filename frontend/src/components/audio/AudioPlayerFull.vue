@@ -14,10 +14,15 @@
                never carry a cover over the link (AVRCP puts images behind an
                OBEX channel BlueZ gives no client for), so when the lookup that
                replaces it finds nothing, this is what the slot shows instead of
-               a blank square reading as a failed image. -->
+               a blank square reading as a failed image. Which of the two it is
+               comes from the shared helper, not from here — the screensaver
+               resolves it the same way, and a fallback chosen per view is how
+               the two came to disagree in the first place. -->
           <div class="artwork" :class="{ 'artwork-pending': artworkPending }">
             <img v-if="shownArtwork" :src="shownArtwork"
               alt="Artwork" />
+            <img v-else-if="fallback.kind === 'image'" :src="fallback.src"
+              alt="" class="artwork-placeholder" />
             <div v-else class="artwork-fallback">
               <AppIcon :name="source" :size="112" />
             </div>
@@ -104,7 +109,7 @@ import { useI18n } from '@/services/i18n';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
-import { nowPlayingArtwork } from '@/utils/nowPlayingArtwork';
+import { nowPlayingArtwork, artworkFallback } from '@/utils/nowPlayingArtwork';
 import { nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
 
 import PlaybackControls from './PlaybackControls.vue';
@@ -220,7 +225,10 @@ const sourceBarName = computed(
 // === ARTWORK TRANSITION ===
 // Which cover this source shows is decided in one place, shared with
 // useScreensaver so the two views can never disagree — see the util.
-const targetArtwork = computed(() => nowPlayingArtwork(props.source, persistentMetadata.value));
+const targetArtwork = computed(() => nowPlayingArtwork(persistentMetadata.value));
+// What the slot shows with no cover at all — a bundled placeholder for the
+// sources that ship one, this source's own glyph otherwise.
+const fallback = computed(() => artworkFallback(props.source));
 
 // Holding the outgoing cover under a veil while the next one decodes is shared
 // with the screensaver — the two are superimposed during its leave crossfade,
@@ -402,6 +410,13 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   justify-content: center;
   background: var(--color-background-strong);
   color: var(--color-text-light);
+}
+
+/* Bundled placeholder. It is transparent by design — the same file sits on
+   cards of two different colours elsewhere — so it needs the ground the glyph
+   fallback gets, or the blurred backdrop shows through it. */
+.artwork-placeholder {
+  background: var(--color-background-strong);
 }
 
 /* Held cover while the next one decodes. The scale is not decoration: a blur

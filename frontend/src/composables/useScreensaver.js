@@ -16,7 +16,7 @@ import { isKiosk } from '@/utils/kiosk';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
 import { nowPlayingArtwork } from '@/utils/nowPlayingArtwork';
-import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
+import { useRichDisplay } from '@/composables/useRichDisplay';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 /** Minimum ms between activity event processing. */
@@ -162,20 +162,38 @@ export function useScreensaver() {
 
   // --- Screensaver display data ---
 
-  const screensaverData = computed(() => {
-    const source = unifiedStore.systemState.active_source;
+  // Which layout the screensaver draws is not its own decision: it mirrors
+  // useRichDisplay, the rule that already picks between a rich player and the
+  // AudioSourceStatus card for the view sitting behind this overlay. Deciding
+  // it twice is exactly how DLNA came to draw a full media card — with a
+  // generated text avatar standing in for the cover it did not have — over a
+  // status card that had already refused it for want of one. AirPlay and
+  // Bluetooth used to restate the rule here verbatim; they now read it from
+  // the same place as every other source, and the copies are gone.
+  const { richSource } = useRichDisplay();
 
+  /**
+   * The full-screen restatement of a rich player: cover, title, subtitle, and
+   * for the receivers a bottom bar naming the other end.
+   *
+   * No branch resolves its own no-cover fallback — `artwork` may be empty and
+   * AudioScreensaver asks the shared helper what fills the slot, so the player
+   * behind it cannot be showing something else.
+   */
+  function mediaData(source) {
     if (source === 'radio') {
       const station = radioStore.currentStation;
       const track = radioStore.trackInfo;
 
-      // Favicon URL only — AudioScreensaver renders the inline SVG fallback
-      // from `stationName` so the avatar font cascades correctly.
+      // Favicon URL only — AudioScreensaver renders the inline SVG avatar from
+      // `stationName` so the font cascades correctly. Radio is the one source
+      // the helper answers 'avatar' for.
       const stationArt = getFaviconUrl(station?.favicon);
 
       if (track) {
         return {
           mode: 'media',
+          sourceType: source,
           artwork: track.artwork || stationArt,
           title: track.title,
           subtitle: track.artist || null,
@@ -192,6 +210,7 @@ export function useScreensaver() {
 
       return {
         mode: 'media',
+        sourceType: source,
         artwork: stationArt,
         title: station?.name || t('radio.unknownStation'),
         subtitle: metaParts.length > 0 ? metaParts.join(' \u2022 ') : t('radio.live'),
@@ -205,6 +224,7 @@ export function useScreensaver() {
       const episode = podcastStore.displayEpisode;
       return {
         mode: 'media',
+        sourceType: source,
         artwork: episode?.image_url || null,
         title: episode?.name || t('podcasts.noEpisode'),
         subtitle: episode?.podcast?.name || null,
@@ -217,6 +237,7 @@ export function useScreensaver() {
       const track = musicLibraryStore.displayTrack;
       return {
         mode: 'media',
+        sourceType: source,
         artwork: track?.albumArtUrl || null,
         title: track?.title || '',
         subtitle: track?.artist || null,
@@ -225,135 +246,119 @@ export function useScreensaver() {
       };
     }
 
-    // Spotify + Tidal + CD: active players with rich metadata, rendered exactly
+    const metadata = unifiedStore.systemState.metadata || {};
+
+    // Spotify, Tidal and CD: active players with rich metadata, rendered exactly
     // like music_library (cover + title/artist + progress bar, no bottom bar),
     // read straight from the shared metadata mirror. Every cover below comes
     // from nowPlayingArtwork, which is also what AudioPlayerFull paints — the
     // screensaver crossfades into that view, so anything else reads as a glitch.
-    if (source === 'spotify' || source === 'tidal') {
-      const metadata = unifiedStore.systemState.metadata || {};
+    if (source === 'spotify' || source === 'tidal' || source === 'cd') {
       return {
         mode: 'media',
-        artwork: nowPlayingArtwork(source, metadata),
+        sourceType: source,
+        artwork: nowPlayingArtwork(metadata),
         title: metadata.title || '',
         subtitle: metadata.artist || null,
       };
     }
 
-    if (source === 'cd') {
-      const metadata = unifiedStore.systemState.metadata || {};
+    // The four receivers. The bottom bar mirrors their main view's source bar
+    // down to the fallback: DLNA names the media server once resolved and Qobuz
+    // names nobody at all, so with no name on the record both read the source's
+    // own label rather than leaving the slot empty. Bluetooth and AirPlay name
+    // the sender. No progress bar — none of them shows one in its main view.
+    if (source === 'bluetooth') {
       return {
         mode: 'media',
-        artwork: nowPlayingArtwork(source, metadata),
-        title: metadata.title || '',
-        subtitle: metadata.artist || null,
-      };
-    }
-
-    // Qobuz + DLNA: passive players (external control, rich metadata) like
-    // AirPlay. Visibility is gated on is_playing, so a bare media layout suffices
-    // here — no "connected but idle" fallback. The bottom bar mirrors their main
-    // view's source bar down to the fallback: DLNA names the media server once
-    // resolved and Qobuz names nobody at all, so with no name on the record both
-    // read the source's own label rather than leaving the slot empty. No progress
-    // bar — neither shows one in its main view (showControls=false).
-    if (source === 'qobuz' || source === 'dlna') {
-      const metadata = unifiedStore.systemState.metadata || {};
-      return {
-        mode: 'media',
-        artwork: nowPlayingArtwork(source, metadata),
+        sourceType: source,
+        artwork: nowPlayingArtwork(metadata),
         title: metadata.title || '',
         subtitle: metadata.artist || null,
         stationIcon: source,
-        stationName: metadata.client_name || t(AUDIO_SOURCE_LABEL_KEYS[source]),
+        stationName: formatDeviceNames(metadata.device_name),
       };
     }
 
-    if (source === 'airplay') {
-      const metadata = unifiedStore.systemState.metadata || {};
-      const deviceName = metadata.client_name || null;
-
-      // Visibility already guarantees is_playing (a pause closes the screensaver).
-      // Show the rich media card only when the sender also pushes real metadata +
-      // a real cover (>300px — same gate as the main now-playing view); a stream
-      // that plays with no usable metadata (e.g. a game or web video) falls back
-      // to the simple "Connected to <device>" card instead of an empty cover.
-      const showRichMedia = !!metadata.title && !!metadata.artist &&
-        (metadata.album_art_width || 0) > UNTRUSTED_SENDER_MIN_ARTWORK_PX;
-
-      if (showRichMedia) {
-        return {
-          mode: 'media',
-          artwork: nowPlayingArtwork(source, metadata),
-          title: metadata.title,
-          subtitle: metadata.artist || null,
-          // Bottom bar shows the AirPlay glyph + sender name, in the same slot
-          // the radio layout uses for station favicon + station name.
-          stationIcon: 'airplay',
-          stationName: deviceName,
-        };
-      }
-
+    if (source === 'airplay' || source === 'qobuz' || source === 'dlna') {
       return {
-        mode: 'simple',
-        sourceType: 'airplay',
-        title: t('status.connectedTo'),
-        subtitle: deviceName,
+        mode: 'media',
+        sourceType: source,
+        artwork: nowPlayingArtwork(metadata),
+        title: metadata.title || '',
+        subtitle: metadata.artist || null,
+        stationIcon: source,
+        stationName: source === 'airplay'
+          ? metadata.client_name || null
+          : metadata.client_name || t(AUDIO_SOURCE_LABEL_KEYS[source]),
       };
     }
 
-    if (source === 'bluetooth') {
-      const metadata = unifiedStore.systemState.metadata || {};
-      const deviceName = formatDeviceNames(metadata.device_name);
-
-      // Same hybrid as AirPlay, on the gate Bluetooth can actually satisfy:
-      // title + artist, since AVRCP carries no cover of its own. The artwork is
-      // whatever the backend resolved from the track text — through the shared
-      // helper like every other branch, so it is by construction the cover
-      // AudioPlayerFull is showing behind this screensaver. It stays a
-      // PASSIVE_SOURCE for *visibility* though: a sender exposing no AVRCP
-      // player never sets is_playing, and gating on it would mean a connected
-      // phone that simply never gets a screensaver.
-      if (metadata.title && metadata.artist) {
-        return {
-          mode: 'media',
-          artwork: nowPlayingArtwork(source, metadata),
-          title: metadata.title,
-          subtitle: metadata.artist,
-          stationIcon: 'bluetooth',
-          stationName: deviceName,
-        };
-      }
-
-      return {
-        mode: 'simple',
-        sourceType: 'bluetooth',
-        title: t('status.connectedTo'),
-        subtitle: deviceName,
-      };
-    }
-
-    if (source === 'mac') {
-      const metadata = unifiedStore.systemState.metadata || {};
-      return {
-        mode: 'simple',
-        sourceType: 'mac',
-        title: t('status.audioReceivedFrom'),
-        subtitle: formatDeviceNames(metadata.client_names),
-      };
-    }
-
-    // Fallback (unreachable: shouldMonitorInactivity gates the screensaver).
-    // Carries no `artwork` key on purpose — the prop defaults to null, and a
-    // literal here would be the one thing the parity guard cannot tell apart
-    // from a source that forgot to derive its cover.
+    // Unreachable: a source with no branch here has no rich view either, so
+    // richSource sent it to simpleData. Carries no `artwork` key on purpose —
+    // the prop defaults to null, and a literal here would be the one thing the
+    // parity guard cannot tell apart from a source that forgot to derive its
+    // cover.
     return {
       mode: 'media',
+      sourceType: null,
       title: '',
       subtitle: null,
       stationFavicon: null,
       stationName: null,
     };
+  }
+
+  /**
+   * The full-screen restatement of the AudioSourceStatus card: the source
+   * glyph, a status line, and whoever is on the other end.
+   *
+   * Only the receivers genuinely reach it — every other source earns a rich
+   * view whenever it is active — but the default keeps a transition or an
+   * unavailable source from rendering a blank overlay.
+   */
+  function simpleData(source) {
+    const metadata = unifiedStore.systemState.metadata || {};
+
+    if (source === 'mac') {
+      return {
+        mode: 'simple',
+        sourceType: source,
+        title: t('status.audioReceivedFrom'),
+        subtitle: formatDeviceNames(metadata.client_names),
+      };
+    }
+
+    if (source === 'bluetooth') {
+      return {
+        mode: 'simple',
+        sourceType: source,
+        title: t('status.connectedTo'),
+        subtitle: formatDeviceNames(metadata.device_name),
+      };
+    }
+
+    if (source === 'airplay' || source === 'dlna' || source === 'qobuz') {
+      return {
+        mode: 'simple',
+        sourceType: source,
+        title: t('status.connectedTo'),
+        subtitle: metadata.client_name || null,
+      };
+    }
+
+    const labelKey = AUDIO_SOURCE_LABEL_KEYS[source];
+    return {
+      mode: 'simple',
+      sourceType: labelKey ? source : null,
+      title: labelKey ? t(labelKey) : '',
+      subtitle: null,
+    };
+  }
+
+  const screensaverData = computed(() => {
+    const source = unifiedStore.systemState.active_source;
+    return richSource.value === null ? simpleData(source) : mediaData(source);
   });
 
   const screensaverProgress = computed(() => {

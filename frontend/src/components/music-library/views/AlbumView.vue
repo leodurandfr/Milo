@@ -8,7 +8,7 @@
         <div v-else key="loaded" class="content-stack">
           <DetailHeader
             :image-src="store.coverUrl(album.coverArt, 600)"
-            :fallback="albumPlaceholder"
+            :fallback="musicPlaceholder"
             :title="album.name"
             :subtitle="subtitleArtist"
             :subtitle-meta="subtitleMeta"
@@ -53,7 +53,7 @@ import { totalMinutes, formatAudioQuality } from '../format.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
   albumId: {

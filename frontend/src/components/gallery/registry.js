@@ -107,8 +107,8 @@ import { SOURCE_PAGES } from './sources';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import { PODCAST_GENRE_IDS } from '@/constants/podcastGenres';
 import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import stationImageTurntable from './samples/station-image-turntable.webp';
+import { musicPlaceholder, podcastPlaceholder } from '@/constants/placeholders';
 
 /** `null` first so a nullable icon prop can be cleared from the select. */
 const OPTIONAL_ICON = { kind: 'enum', options: [null, ...ICON_NAMES] };
@@ -152,7 +152,7 @@ const NOW_PLAYING = {
     metadata: {
       title: 'Says',
       artist: 'Nils Frahm',
-      album_art_url: albumPlaceholder,
+      album_art_url: musicPlaceholder,
       is_playing: true,
       position: 192000,
       duration: 511000
@@ -163,7 +163,7 @@ const NOW_PLAYING = {
     metadata: {
       title: 'Ambre',
       artist: 'Nils Frahm',
-      album_art_url: albumPlaceholder,
+      album_art_url: musicPlaceholder,
       is_playing: false,
       position: 64000,
       duration: 264000
@@ -178,7 +178,7 @@ const NOW_PLAYING = {
     metadata: {
       title: 'Ainsi parlait Zarathoustra',
       artist: 'Alain Bashung',
-      album_art_url: albumPlaceholder,
+      album_art_url: musicPlaceholder,
       is_playing: true,
       client_name: 'Leo’s iPhone',
       position: 41000,
@@ -368,7 +368,7 @@ export const REGISTRY = {
     component: LazyImage,
     // The class goes on the component: its layers are absolutely positioned, so
     // the root collapses unless something sizes it.
-    args: { src: albumPlaceholder, alt: 'Artwork', class: 'canvas-artwork' },
+    args: { src: musicPlaceholder, alt: 'Artwork', class: 'canvas-artwork' },
     overrides: { priority: { kind: 'enum', options: ['auto', 'high', 'low'] } },
     // The default slot lays over the image rather than beside it — where a
     // caller puts a play affordance or a badge on top of the artwork.
@@ -540,7 +540,7 @@ export const REGISTRY = {
 
   TrackRow: {
     component: TrackRow,
-    args: { number: 4, showArtist: true, showMenu: true, coverUrl: albumPlaceholder, class: 'canvas-column' },
+    args: { number: 4, showArtist: true, showMenu: true, coverUrl: musicPlaceholder, class: 'canvas-column' },
     notes: {
       playing: 'Swaps the number for the equaliser bars, so it is only read on the current row.'
     },
@@ -562,7 +562,7 @@ export const REGISTRY = {
   DetailHeader: {
     component: DetailHeader,
     args: {
-      imageSrc: albumPlaceholder,
+      imageSrc: musicPlaceholder,
       title: 'Spaces',
       subtitle: 'Nils Frahm',
       subtitleMeta: '2013 · 17 tracks · 1 h 21',
@@ -588,7 +588,7 @@ export const REGISTRY = {
     args: {
       source: 'music_library',
       visible: true,
-      artwork: albumPlaceholder,
+      artwork: musicPlaceholder,
       title: 'Says',
       isPlaying: true,
       swipeEnabled: true,
@@ -765,7 +765,7 @@ export const REGISTRY = {
     args: {
       isVisible: true,
       mode: 'media',
-      artwork: albumPlaceholder,
+      artwork: musicPlaceholder,
       title: 'Ainsi parlait Zarathoustra',
       subtitle: 'Alain Bashung',
       stationName: 'Radio Nova',
@@ -843,14 +843,14 @@ export const REGISTRY = {
           uuid: 'a1',
           name: 'Le Code a changé',
           publisher: 'France Inter',
-          image_url: albumPlaceholder,
+          image_url: podcastPlaceholder,
           is_subscribed: false
         },
         'Subscribed': {
           uuid: 'a2',
           name: 'Le Code a changé',
           publisher: 'France Inter',
-          image_url: albumPlaceholder,
+          image_url: podcastPlaceholder,
           is_subscribed: true
         },
         'No artwork': { uuid: 'a3', name: 'Affaires sensibles', publisher: 'France Inter' }
@@ -875,10 +875,10 @@ export const REGISTRY = {
         'With show and date': {
           uuid: 'e1',
           name: 'Les gens qui parlent à leurs plantes',
-          image_url: albumPlaceholder,
+          image_url: podcastPlaceholder,
           duration: 2940,
           date_published: 1750000000,
-          podcast: { name: 'Le Code a changé', image_url: albumPlaceholder }
+          podcast: { name: 'Le Code a changé', image_url: podcastPlaceholder }
         },
         'No date, no show': { uuid: 'e2', name: 'Épisode sans métadonnées', duration: 1800 },
         'Long title': {

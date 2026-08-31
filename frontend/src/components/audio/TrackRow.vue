@@ -9,7 +9,7 @@
         </div>
         <span v-else class="track-number text-mono">{{ number }}</span>
       </div>
-      <LazyImage v-if="showCover" :src="coverUrl" :fallback="albumPlaceholder"
+      <LazyImage v-if="showCover" :src="coverUrl" :fallback="musicPlaceholder"
         :alt="displayTitle" lazy class="track-cover" />
     </div>
 
@@ -47,7 +47,7 @@ import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
   // The catalogue record: { title | name, artist, duration }. `duration` is in

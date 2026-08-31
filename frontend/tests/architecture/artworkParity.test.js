@@ -9,14 +9,19 @@
  * Bluetooth ended up publishing a resolved cover that the player drew and the
  * screensaver replaced with a generated text avatar.
  *
- * So the rule now lives once, in utils/nowPlayingArtwork, and this asserts both
- * consumers still go through it — the failure mode being silent and visual, the
+ * So the rule now lives once, in utils/nowPlayingArtwork, and this asserts every
+ * consumer still goes through it — the failure mode being silent and visual, the
  * kind CI cannot see and a mounted-component test would not catch either (it
  * would assert markup, which this suite deliberately does not do).
  *
- * Scope: the sources whose artwork rides on `systemState.metadata`. The three
- * browser sources read their own Pinia store in both places, which is already a
- * single source of truth.
+ * Two halves, and the second was added after the first had been green for
+ * months while the views disagreed anyway: *which URL is the cover* (scoped to
+ * the sources whose artwork rides on `systemState.metadata` — the three browser
+ * sources read their own Pinia store in both places, already a single source of
+ * truth), and *what fills the slot when there is no cover*, which is every
+ * source there is. The second is what let a DLNA renderer be announced
+ * full-screen as the word "DLNA" in a coloured tile while the player behind it
+ * showed the DLNA glyph.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -30,6 +35,8 @@ const SRC_DIR = resolve(HERE, '../../src');
 const screensaver = readFileSync(join(SRC_DIR, 'composables/useScreensaver.js'), 'utf8');
 const player = readFileSync(join(SRC_DIR, 'components/audio/AudioPlayerFull.vue'), 'utf8');
 const screensaverView = readFileSync(join(SRC_DIR, 'components/audio/AudioScreensaver.vue'), 'utf8');
+const browserPlayer = readFileSync(join(SRC_DIR, 'components/audio/AudioPlayer.vue'), 'utf8');
+const richDisplay = readFileSync(join(SRC_DIR, 'composables/useRichDisplay.js'), 'utf8');
 const transition = readFileSync(join(SRC_DIR, 'composables/useArtworkTransition.js'), 'utf8');
 
 // Every rule below that asserts a *name is absent* reads these, not the raw
@@ -40,14 +47,18 @@ const transition = readFileSync(join(SRC_DIR, 'composables/useArtworkTransition.
 const screensaverCode = stripComments(screensaver);
 const playerCode = stripComments(player);
 const screensaverViewCode = stripComments(screensaverView);
+const browserPlayerCode = stripComments(browserPlayer);
 
 describe('artwork parity between the player and the screensaver', () => {
   it('extracts a plausible surface first', () => {
     // A rename that emptied either file would otherwise make every assertion
     // below pass on nothing.
     expect(screensaver).toMatch(/screensaverData\s*=\s*computed/);
+    expect(screensaver).toMatch(/function mediaData\(/);
+    expect(screensaver).toMatch(/function simpleData\(/);
     expect(player).toMatch(/artwork-container/);
     expect(transition).toMatch(/export function useArtworkTransition/);
+    expect(richDisplay).toMatch(/export function useRichDisplay/);
   });
 
   it('derives the cover from the one shared helper on both sides', () => {
@@ -73,7 +84,7 @@ describe('artwork parity between the player and the screensaver', () => {
     // library read the same Pinia store their player does, which is already a
     // single source of truth. Everything else must go through the helper.
     const ALLOWED = [
-      'nowPlayingArtwork(source, metadata)',
+      'nowPlayingArtwork(metadata)',
       'track.artwork || stationArt',
       'stationArt',
       'episode?.image_url || null',
@@ -85,7 +96,7 @@ describe('artwork parity between the player and the screensaver', () => {
     const found = [...screensaver.matchAll(/^\s*artwork:\s*(.+?),?\s*$/gm)].map((m) => m[1]);
 
     // The extractor must find a real surface, or every assertion below is vacuous.
-    expect(found.length).toBeGreaterThanOrEqual(8);
+    expect(found.length).toBeGreaterThanOrEqual(7);
     for (const expression of found) {
       expect(ALLOWED).toContain(expression);
     }
@@ -130,10 +141,51 @@ describe('artwork parity between the player and the screensaver', () => {
     }
   });
 
-  it('lets neither own a placeholder image', () => {
-    // A placeholder imported separately by each file is two chances to pick a
-    // different image for the same silence.
+  it('lets no view own a placeholder image', () => {
+    // A placeholder imported separately by each file is as many chances to pick
+    // a different image for the same silence. The helper owns the choice; a view
+    // only renders what it is handed, so none of them may reach for an asset or
+    // for the constants module behind the helper's back.
     expect(screensaverCode).not.toMatch(/placeholder/);
-    expect(playerCode).not.toMatch(/from '@\/assets\//);
+    for (const view of [playerCode, screensaverViewCode, browserPlayerCode]) {
+      expect(view).not.toMatch(/from '@\/assets\//);
+      expect(view).not.toMatch(/constants\/placeholders/);
+    }
+  });
+
+  it('resolves the no-cover fallback through the same helper in all three views', () => {
+    // The half the URL assertions above cannot see. Both views called
+    // nowPlayingArtwork and were still showing different things the moment it
+    // answered '': the player painted its source glyph, the screensaver painted
+    // a text avatar generated from whatever string was in `title` — an episode
+    // name, a track name, a phone's name, or the literal "DLNA".
+    // Asserted on the import as well as the call: a view that shadows the name
+    // with a local `const artworkFallback = …` still mentions it everywhere, so
+    // matching the call alone stays green through the regression. Measured — it
+    // did, on the first version of this assertion.
+    for (const view of [playerCode, screensaverViewCode, browserPlayerCode]) {
+      expect(view).toMatch(/import \{[^}]*artworkFallback[^}]*\} from '@\/utils\/nowPlayingArtwork'/);
+      expect(view).toMatch(/artworkFallback\(/);
+    }
+
+    // And the generated avatar is reachable from that verdict only. Matching the
+    // import alone would stay green through exactly the regression this guards,
+    // since the fixed code imports it too — for radio.
+    expect(screensaverViewCode).toMatch(/kind !== 'avatar'/);
+    expect(browserPlayerCode).toMatch(/kind === 'avatar'/);
+  });
+
+  it('takes the screensaver layout from useRichDisplay instead of deciding again', () => {
+    // Media card or status card is already answered, once, for the view sitting
+    // behind the overlay. AirPlay and Bluetooth used to restate that rule here
+    // verbatim and DLNA never restated it at all — so DLNA drew a full media
+    // card over a status card that had refused it for want of a cover.
+    expect(screensaver).toMatch(/useRichDisplay\(\)/);
+    expect(screensaver).toMatch(/richSource\.value === null \? simpleData/);
+
+    // No second gate: the quality threshold that decides a rich view belongs to
+    // useRichDisplay, and a copy here is the drift itself.
+    expect(screensaverCode).not.toMatch(/UNTRUSTED_SENDER_MIN_ARTWORK_PX/);
+    expect(richDisplay).toMatch(/UNTRUSTED_SENDER_MIN_ARTWORK_PX/);
   });
 });

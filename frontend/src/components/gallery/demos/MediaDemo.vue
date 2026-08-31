@@ -2,14 +2,14 @@
 <template>
   <GalleryItem id="LazyImage">
     <GalleryVariant label="src resolves / fallbackName generates an avatar / src 404s onto fallback">
-      <LazyImage class="art" :src="albumPlaceholder" alt="A resolving source" />
+      <LazyImage class="art" :src="musicPlaceholder" alt="A resolving source" />
       <LazyImage class="art" fallback-name="Radio Nova" alt="Generated from a name" />
-      <LazyImage class="art" src="/does-not-exist.jpg" :fallback="albumPlaceholder"
+      <LazyImage class="art" src="/does-not-exist.jpg" :fallback="musicPlaceholder"
         alt="Falls back to a static asset" />
       <LazyImage class="art" src="/does-not-exist.jpg" fallback-name="Nick Cave" alt="Falls back to an avatar" />
     </GalleryVariant>
     <GalleryVariant label="the default slot overlays the image">
-      <LazyImage class="art" :src="albumPlaceholder" alt="With an overlay">
+      <LazyImage class="art" :src="musicPlaceholder" alt="With an overlay">
         <div class="art__overlay">
           <LoadingSpinner :size="48" />
         </div>
@@ -92,7 +92,7 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import SvgIcon, { ICON_NAMES } from '@/components/ui/SvgIcon.vue';
 import AppIcon, { APP_ICON_NAMES } from '@/components/ui/AppIcon.vue';
 import Logo from '@/components/ui/Logo.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 // The keyboard glyphs get their own strip, and it is not cosmetic. SvgIcon
 // rewrites every `fill="#…"` to currentColor, including one inside a <mask>, so

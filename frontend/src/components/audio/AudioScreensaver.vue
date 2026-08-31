@@ -6,11 +6,11 @@
       <!-- Full-screen blurred background -->
       <div class="artwork-background">
         <img v-if="shownArtwork" :src="shownArtwork" alt="" class="background-image" />
-        <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
+        <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="background-image" />
       </div>
 
       <!-- Centered blur halo. Heavy blur + 0.12 opacity make the font of the
-           SVG fallback effectively invisible, so encoding it as a data URL for
+           station avatar effectively invisible, so encoding it as a data URL for
            CSS background-image is fine here (no font-cascade requirement). -->
       <div class="artwork-blur"
         :style="{ backgroundImage: haloUrl ? `url(${haloUrl})` : 'none' }">
@@ -23,7 +23,9 @@
           <div class="artwork-container">
             <div class="artwork" :class="{ 'artwork-pending': artworkPending }">
               <img v-if="shownArtwork" :src="shownArtwork" :alt="title" />
-              <div v-else-if="fallbackSvg" v-html="fallbackSvg" :aria-label="title" class="artwork-fallback" />
+              <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" :aria-label="title" class="artwork-fallback" />
+              <img v-else-if="fallback.kind === 'image'" :src="fallback.src" alt="" class="artwork-placeholder" />
+              <div v-else-if="sourceType" class="artwork-glyph"><AppIcon :name="sourceType" :size="112" /></div>
 
               <!-- Held over the outgoing cover until the incoming one decodes,
                    so a track change never flashes the generated avatar between
@@ -90,6 +92,7 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import ProgressBar from './ProgressBar.vue';
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
+import { artworkFallback } from '@/utils/nowPlayingArtwork';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 
 const props = defineProps({
@@ -110,7 +113,8 @@ const props = defineProps({
     default: 'media',
     validator: (value) => ['media', 'simple'].includes(value)
   },
-  // Simple mode only, where it is both the AppIcon name and the Mac test.
+  // The active source id. In simple mode it is both the AppIcon name and the
+  // Mac test; in media mode it is what resolves the no-cover fallback.
   sourceType: {
     type: String,
     default: null,
@@ -164,7 +168,18 @@ const trackKey = computed(() => `${props.title}|${props.subtitle}`);
 const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
   useArtworkTransition(artworkTarget, trackKey);
 
-const fallbackSvg = computed(() => {
+// What fills the slot with no cover — resolved by the shared helper, exactly as
+// AudioPlayerFull resolves it, so the two views cannot answer differently for
+// the same silence.
+const fallback = computed(() => artworkFallback(props.sourceType));
+
+// The generated station avatar, and only for radio: it is the station's
+// identity, not a stand-in. Reading `title` as well as `stationName` is
+// deliberate — a station with no recognised track puts its own name in `title`
+// — but the helper is what decides this branch is reachable at all, which is
+// what stops a DLNA renderer being announced as the word "DLNA" in a tile.
+const stationAvatarSvg = computed(() => {
+  if (fallback.value.kind !== 'avatar') return '';
   const name = props.stationName || props.title;
   return name ? generateStationAvatarSvg(name) : '';
 });
@@ -173,7 +188,7 @@ const fallbackSvg = computed(() => {
 // font-cascade difference.
 const haloUrl = computed(() => {
   if (shownArtwork.value) return shownArtwork.value;
-  if (fallbackSvg.value) return `data:image/svg+xml;utf8,${encodeURIComponent(fallbackSvg.value)}`;
+  if (stationAvatarSvg.value) return `data:image/svg+xml;utf8,${encodeURIComponent(stationAvatarSvg.value)}`;
   return null;
 });
 // The name alone gates the bar: a glyph with nothing to label is not a bar.
@@ -421,9 +436,27 @@ function handleClose() {
   object-fit: cover;
 }
 
-/* Inline-SVG fallback fills its wrapper like the real artwork. */
+/* Inline-SVG station avatar fills its wrapper like the real artwork. */
 .artwork-fallback {
   display: block;
+}
+
+/* The two non-avatar fallbacks. Both are drawn for contrast against a card
+   rather than against this overlay's black, so they get the same ground
+   AudioPlayerFull gives them — which is also what makes the leave crossfade
+   land on an identical square instead of on a lighter or darker one. */
+.artwork-placeholder,
+.artwork-glyph {
+  background: var(--color-background-strong);
+}
+
+.artwork-glyph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-light);
 }
 
 /* Held cover while the next one decodes — the same veil AudioPlayerFull draws,
@@ -431,14 +464,16 @@ function handleClose() {
    samples past the element's edge, and without it the rounded corners show a
    translucent halo. */
 .artwork > img,
-.artwork > .artwork-fallback {
+.artwork > .artwork-fallback,
+.artwork > .artwork-glyph {
   transition:
     filter var(--transition-medium),
     transform var(--transition-medium);
 }
 
 .artwork-pending > img,
-.artwork-pending > .artwork-fallback {
+.artwork-pending > .artwork-fallback,
+.artwork-pending > .artwork-glyph {
   filter: blur(var(--blur-02));
   transform: scale(1.06);
 }

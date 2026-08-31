@@ -79,7 +79,6 @@
               visible
               :artwork="playerArtwork"
               :fallback-name="playerFallbackName"
-              :placeholder-artwork="playerPlaceholder"
               :title="playerTitle"
               :is-playing="!!player.isPlaying"
               :is-loading="!!player.isLoading"
@@ -275,7 +274,6 @@ import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 
 const props = defineProps({
   /**
@@ -363,15 +361,6 @@ const playerTitle = computed(() => {
 /** Only radio seeds the generated avatar, and only from the station's name. */
 const playerFallbackName = computed(() =>
   page.value?.source === 'radio' ? player.value.station?.name || null : null
-);
-
-/**
- * Podcasts leave this at AudioPlayer's own default (the bundled episode
- * placeholder); music library overrides it with the album one. Radio never
- * reaches it — `fallbackName` above wins first.
- */
-const playerPlaceholder = computed(() =>
-  page.value?.source === 'music_library' ? albumPlaceholder : undefined
 );
 
 /**

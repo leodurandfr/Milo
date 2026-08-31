@@ -46,7 +46,7 @@
       <!-- Docked player -->
       <template #player>
         <AudioPlayer :visible="shouldShowPlayer" source="music_library"
-          :artwork="playerArtwork" :placeholder-artwork="albumPlaceholder"
+          :artwork="playerArtwork"
           :title="playerTitle"
           :is-playing="isPlaying" :is-loading="isBuffering" swipe-enabled
           :tracks="store.queue" :current-index="store.queueIndex"
@@ -116,7 +116,6 @@ import IconButton from '@/components/ui/IconButton.vue';
 import AudioPlayer from '@/components/audio/AudioPlayer.vue';
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue';
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
 
 import LibraryHome from './views/LibraryHome.vue';

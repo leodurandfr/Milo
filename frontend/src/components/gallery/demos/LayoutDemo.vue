@@ -3,7 +3,7 @@
   <GalleryItem id="AudioPlayer">
     <GalleryVariant label="desktop — the docked sidebar card, slots filled as the three sources fill them" contain :contain-height="420">
       <div class="player-pane">
-        <AudioPlayer source="music_library" visible :artwork="albumPlaceholder" title="Says" is-playing>
+        <AudioPlayer source="music_library" visible :artwork="musicPlaceholder" title="Says" is-playing>
           <template #info>
             <PlayerInfoText kicker="Liked Songs" title="Says" secondary="Nils Frahm" />
           </template>
@@ -16,7 +16,7 @@
     </GalleryVariant>
     <GalleryVariant label="controls slot — replaces the built-in play/pause" contain :contain-height="420">
       <div class="player-pane">
-        <AudioPlayer source="radio" visible :artwork="albumPlaceholder" title="Radio Nova" is-playing>
+        <AudioPlayer source="radio" visible :artwork="musicPlaceholder" title="Radio Nova" is-playing>
           <template #info>
             <PlayerInfoText kicker="Radio Nova" title="Ainsi parlait Zarathoustra" secondary="Alain Bashung" />
           </template>
@@ -28,7 +28,7 @@
     </GalleryVariant>
     <GalleryVariant label=":is-loading — the built-in play/pause spins" contain :contain-height="420">
       <div class="player-pane">
-        <AudioPlayer source="podcast" visible :artwork="albumPlaceholder" title="Épisode 214" is-loading>
+        <AudioPlayer source="podcast" visible :artwork="musicPlaceholder" title="Épisode 214" is-loading>
           <template #info>
             <PlayerInfoText kicker="Le Code a changé" title="Épisode 214" secondary="France Inter" />
           </template>
@@ -125,7 +125,7 @@
 
   <GalleryItem id="AudioScreensaver">
     <GalleryVariant label=":mode=&quot;media&quot; — artwork, title, station bar" contain :contain-height="300">
-      <AudioScreensaver is-visible :artwork="albumPlaceholder"
+      <AudioScreensaver is-visible :artwork="musicPlaceholder"
         title="Ainsi parlait Zarathoustra" subtitle="Alain Bashung" station-name="Radio Nova" />
     </GalleryVariant>
     <GalleryVariant label="no artwork — the generated station avatar takes its place" contain :contain-height="300">
@@ -133,7 +133,7 @@
         station-name="France Inter" use-mono-subtitle />
     </GalleryVariant>
     <GalleryVariant label=":progress — the read-only bar at the bottom right" contain :contain-height="300">
-      <AudioScreensaver is-visible :artwork="albumPlaceholder" title="Épisode 214"
+      <AudioScreensaver is-visible :artwork="musicPlaceholder" title="Épisode 214"
         subtitle="Le Code a changé" :progress="progress" />
     </GalleryVariant>
     <GalleryVariant label=":mode=&quot;simple&quot; — icon and two lines (Bluetooth, Mac)" contain :contain-height="300">
@@ -157,7 +157,7 @@ import AudioSourceStatus from '@/components/audio/AudioSourceStatus.vue';
 import AudioScreensaver from '@/components/audio/AudioScreensaver.vue';
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 const playerShown = ref(false);
 const viewIndex = ref(1);

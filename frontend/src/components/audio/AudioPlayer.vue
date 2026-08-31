@@ -9,13 +9,15 @@
         <!-- Background image - heavily zoomed and blurred -->
         <div class="player-art-background">
           <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
-          <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
-          <img v-else-if="placeholderArtwork" :src="placeholderArtwork" alt="" class="background-image" />
+          <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="background-image" />
+          <img v-else-if="fallbackImage" :src="fallbackImage" alt="" class="background-image" />
         </div>
 
         <div class="player-content">
-          <!-- Artwork: falls back to inline-SVG avatar (font-aware) when no valid artwork,
-             then to placeholderArtwork for sources that ship a static image (e.g. podcasts).
+          <!-- Artwork: with none valid, the shared helper says what the slot shows —
+             radio's font-aware inline avatar, or the bundled placeholder for the other
+             two. The player never picks that itself; AudioPlayerFull and the screensaver
+             ask the same helper, so the three cannot disagree on one silence.
              Frame hosts an optional #artwork-badge (mobile radio: station icon sitting
              behind the track artwork, which rides on top) — needs a real box since two of
              the three branches below are void <img> elements and can't host a child. -->
@@ -24,8 +26,8 @@
             @click="onMiniArtworkClick">
             <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
               :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
-            <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
-            <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
+            <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork" :aria-label="title" />
+            <img v-else-if="fallbackImage" :src="fallbackImage" :alt="title" class="player-artwork placeholder" />
             <slot name="artwork-badge"></slot>
           </div>
 
@@ -93,16 +95,16 @@
           @touchstart="onExpandTouchStart" @touchmove="onExpandTouchMove" @touchend="onExpandTouchEnd">
           <div class="player-art-background">
             <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
-            <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="background-image" />
-            <img v-else-if="placeholderArtwork" :src="placeholderArtwork" alt="" class="background-image" />
+            <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="background-image" />
+            <img v-else-if="fallbackImage" :src="fallbackImage" alt="" class="background-image" />
           </div>
 
           <div class="expanded-content">
             <div class="player-artwork-frame" :class="{ clickable: hasEntityLinks }" @click="onExpandedArtworkClick">
               <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
                 :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
-              <div v-else-if="fallbackSvg" v-html="fallbackSvg" class="player-artwork" :aria-label="title" />
-              <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
+              <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork" :aria-label="title" />
+              <img v-else-if="fallbackImage" :src="fallbackImage" :alt="title" class="player-artwork placeholder" />
             </div>
 
             <div class="expanded-info" @click="onExpandedInfoClick">
@@ -133,11 +135,11 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useTimer } from '@/composables/useTimer'
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal'
 import { generateStationAvatarSvg } from '@/utils/stationAvatar'
+import { artworkFallback } from '@/utils/nowPlayingArtwork'
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 import { useI18n } from '@/services/i18n'
 
@@ -175,21 +177,11 @@ const props = defineProps({
     default: null
   },
 
-  /**
-   * Placeholder artwork URL — used when no valid artwork and no fallbackName.
-   * Sources with a deterministic name (radio stations) should pass fallbackName
-   * instead so the avatar is generated inline with the correct font; this prop
-   * stays for sources that ship a static placeholder asset (e.g. podcasts).
-   */
-  placeholderArtwork: {
-    type: String,
-    default: episodePlaceholder
-  },
-
-  /**
-   * Name used to generate an inline SVG avatar when no valid artwork loads.
-   * Inline rendering (v-html) inherits document @font-face — using an <img>
-   * data URL would lose Space Mono Bold and fall back to the system monospace.
+   /**
+   * Station name for the generated inline SVG avatar. Radio only — the helper
+   * decides that, this prop only supplies the text. Inline rendering (v-html)
+   * inherits document @font-face; an <img> data URL would lose Space Mono Bold
+   * and fall back to the system monospace.
    */
   fallbackName: {
     type: String,
@@ -452,7 +444,14 @@ const artworkError = ref(false)
 const artworkLoaded = ref(false)
 watch(() => props.artwork, () => { artworkError.value = false; artworkLoaded.value = false })
 const validArtwork = computed(() => props.artwork && !artworkError.value ? props.artwork : null)
-const fallbackSvg = computed(() => props.fallbackName ? generateStationAvatarSvg(props.fallbackName) : '')
+// What fills the slot with no usable artwork, straight from the shared helper.
+const fallback = computed(() => artworkFallback(props.source))
+const stationAvatarSvg = computed(() =>
+  fallback.value.kind === 'avatar' && props.fallbackName
+    ? generateStationAvatarSvg(props.fallbackName)
+    : ''
+)
+const fallbackImage = computed(() => fallback.value.kind === 'image' ? fallback.value.src : '')
 
 function handleArtworkLoad(e) {
   if (e.target.naturalWidth < MIN_IMAGE_SIZE || e.target.naturalHeight < MIN_IMAGE_SIZE) {

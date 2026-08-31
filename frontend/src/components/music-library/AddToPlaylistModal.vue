@@ -40,7 +40,7 @@
           @click="toggleIn(pl)"
         >
           <template #icon>
-            <LazyImage class="add-to-playlist__cover" :src="store.thumbUrl(pl.coverArt)" :fallback="albumPlaceholder" :alt="pl.name" lazy />
+            <LazyImage class="add-to-playlist__cover" :src="store.thumbUrl(pl.coverArt)" :fallback="musicPlaceholder" :alt="pl.name" lazy />
           </template>
         </ListItemButton>
 
@@ -79,7 +79,7 @@ import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
   isOpen: {

@@ -68,7 +68,7 @@ import DetailHeader from '@/components/audio/DetailHeader.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
 import SkeletonPodcastDetails from './SkeletonPodcastDetails.vue'
-import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
+import { podcastPlaceholder } from '@/constants/placeholders'
 
 const { t } = useI18n()
 
