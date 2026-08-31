@@ -3,8 +3,11 @@ Description=Milo Boot Splash (drives the Plymouth progress bar, quits it when th
 # Starts with the splash, not with the services it waits on: the bar has to move
 # from the moment Plymouth paints. Both services are Requires= without After=,
 # so they come up in parallel while the script polls them.
+#
+# After= without Wants=: plymouth-start.service has no [Install], so pulling it in
+# would mean a later `systemctl restart milo-readiness` relaunching the splash over
+# the running kiosk. Ordering is all that is wanted here.
 After=plymouth-start.service
-Wants=plymouth-start.service
 Requires=milo-backend.service nginx.service
 
 [Service]

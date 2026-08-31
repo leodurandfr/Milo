@@ -69,7 +69,15 @@ prewarm=$!
 ramp_until 0 25 4 "nginx" responds "$FRONTEND_URL"
 ramp_until 25 95 13 "backend" responds "$BACKEND_URL"
 
-wait "$prewarm" 2>/dev/null
+# The prewarm is an optimisation, never a gate. Waiting on it unbounded holds the
+# splash at 95% for as long as the read takes, and a `cat` stuck in uninterruptible
+# I/O past its own timeout would hold it past TimeoutStartSec — a oneshot killed
+# there never reaches `plymouth quit`, and plymouth-quit.service is masked, so that
+# is a splash frozen for good. Past the deadline the screen goes to the kiosk and
+# the read finishes behind it.
+while kill -0 "$prewarm" 2>/dev/null && (( SECONDS < DEADLINE )); do
+    sleep "$TICK"
+done
 
 progress 100
 sleep 0.4                      # let the bar glide to full before the screen changes
