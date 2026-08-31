@@ -297,17 +297,13 @@ class TestNavidromeCoverArt:
 
         def _get(url, **kwargs):
             params = kwargs.get("params") or []
-            cover_id = (
-                params.get("id")
-                if isinstance(params, dict)
-                else next((v for k, v in params if k == "id"), None)
-            )
-            # get_cover_art also probes an empty id to learn Navidrome's generic
-            # placeholder signature — serve that a body distinct from the real
-            # cover so the signature never collides with actual artwork.
-            if not cover_id:
-                return _Resp(200, "image/png", b"PLACEHOLDER")
-            return _Resp(status, content_type, body)
+            d = params if isinstance(params, dict) else {k: v for k, v in params}
+            # Navidrome resizes real artwork, so the same cover asked for at two
+            # sizes answers with two different bodies. get_cover_art relies on
+            # exactly that to tell art from a stand-in, and a stub that ignored
+            # `size` would make every cover here look like one.
+            suffix = str(d.get("size") or "full").encode()
+            return _Resp(status, content_type, body + b"@" + suffix)
 
         client._ensure_session = AsyncMock()
         client._session = MagicMock()
@@ -316,7 +312,7 @@ class TestNavidromeCoverArt:
     async def test_cover_art_returns_bytes_and_type(self, client):
         self._stub_session(client, content_type="image/png", body=b"PNGDATA")
         result = await client.get_cover_art("al-1", size=300)
-        assert result == (b"PNGDATA", "image/png")
+        assert result == (b"PNGDATA@300", "image/png")
 
     async def test_cover_art_json_error_body_is_none(self, client):
         # Subsonic replies with a JSON error body (not an image) on a bad id.
@@ -326,48 +322,6 @@ class TestNavidromeCoverArt:
     async def test_cover_art_http_error_is_none(self, client):
         self._stub_session(client, status=404)
         assert await client.get_cover_art("al-1") is None
-
-    def _stub_placeholder_session(self, client, full_ph, thumb_ph, real):
-        """Model Navidrome's placeholder behaviour: the empty-id reference and any
-        art-less entity return ``full_ph`` at full size, but a *resized* art-less
-        cover returns ``thumb_ph`` (different bytes) — the trap the size-aware
-        check must catch. A real cover returns ``real`` at any size."""
-        class _Resp:
-            def __init__(self, ct, body):
-                self.status, self.headers, self._body = 200, {"Content-Type": ct}, body
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *exc):
-                return False
-
-            async def read(self):
-                return self._body
-
-        def _get(url, **kwargs):
-            params = kwargs.get("params") or []
-            d = params if isinstance(params, dict) else {k: v for k, v in params}
-            cid, size = d.get("id"), d.get("size")
-            if not cid or cid == "pl-empty":  # empty-id ref + art-less playlist
-                return _Resp("image/webp", full_ph) if size is None else _Resp("image/jpeg", thumb_ph)
-            return _Resp("image/jpeg", real)
-
-        client._ensure_session = AsyncMock()
-        client._session = MagicMock()
-        client._session.get = MagicMock(side_effect=_get)
-
-    async def test_resized_placeholder_suppressed_at_thumb_size(self, client):
-        # The regression: an art-less playlist's blue-vinyl default, resized for a
-        # thumbnail, doesn't match the full-size signature — must still be a miss.
-        self._stub_placeholder_session(
-            client, full_ph=b"FULL-PLACEHOLDER", thumb_ph=b"tiny-ph", real=b"REALART"
-        )
-        assert await client.get_cover_art("pl-empty", size=300) is None
-        # A real cover at the same size still comes through.
-        assert await client.get_cover_art("real", size=300) == (b"REALART", "image/jpeg")
-        # Full-size placeholder is suppressed too.
-        assert await client.get_cover_art("pl-empty") is None
 
 
 # =============================================================================

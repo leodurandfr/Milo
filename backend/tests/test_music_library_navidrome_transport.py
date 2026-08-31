@@ -45,6 +45,11 @@ def ok(payload):
     return {"subsonic-response": {"status": "ok", **payload}}
 
 
+def image(data, content_type="image/jpeg"):
+    """A cover-art 200 carrying bytes, which is what getCoverArt answers."""
+    return _Response(data=data, content_type=content_type)
+
+
 def failed(code, message="nope"):
     """A Subsonic 200 whose envelope reports an API error (the usual shape)."""
     return {
@@ -56,14 +61,20 @@ def failed(code, message="nope"):
 
 
 class _Response:
-    def __init__(self, status=200, *, json_body=None, body="", raises=None):
+    def __init__(self, status=200, *, json_body=None, body="", raises=None,
+                 data=None, content_type="application/json"):
         self.status = status
         self._json = json_body
         self._body = body
         self._raises = raises
+        self._data = data
+        self.headers = {"Content-Type": content_type}
 
     async def text(self):
         return self._body
+
+    async def read(self):
+        return self._data
 
     async def json(self, content_type=None):
         if self._raises is not None:
@@ -380,6 +391,64 @@ class TestCoverArtResilience:
             assert await client._fetch_cover_bytes("cov-1", None) is None
 
         assert {r.levelno for r in caplog.records} == {logging.ERROR}
+
+    async def test_the_same_bytes_at_two_sizes_is_a_stand_in_not_a_cover(self, client):
+        """Navidrome answers 200 with a picture for an artist it could not
+        resolve. Reporting that as a cover is how a whole index came to look
+        like every artist had a photo — so it is the route's 404, and Milō's own
+        placeholder, that must come out of it.
+
+        The probe is the entire rule: real artwork is resized, a stand-in is
+        passed through, so two sizes tell them apart with nothing hardcoded.
+        """
+        session = attach(client, image(b"stand-in"), image(b"stand-in"))
+
+        assert await client.get_cover_art("ar-1", size=160) is None
+
+        # Two probes and no third fetch: the requested size is never asked for,
+        # because there is nothing to deliver.
+        assert len(session.calls) == 2
+        # getCoverArt takes a plain dict here, not the repeated-key pairs the
+        # scoped browse calls need, so read it directly rather than via params().
+        probes = [session.calls[i][1]["params"]["size"] for i in range(2)]
+        assert probes[0] != probes[1]
+
+    async def test_artwork_that_resizes_is_served_at_the_size_asked_for(self, client):
+        session = attach(client, image(b"small"), image(b"smaller"), image(b"the-cover"))
+
+        result = await client.get_cover_art("al-1", size=300)
+
+        assert result == (b"the-cover", "image/jpeg")
+        assert session.calls[2][1]["params"]["size"] == 300
+
+    async def test_a_confirmed_cover_is_not_probed_again(self, client):
+        """The probe costs two fetches. Paying them once per item rather than
+        once per request is the whole reason the memo exists — a grid scrolling
+        past 200 albums would otherwise triple its traffic."""
+        attach(client, image(b"a"), image(b"b"), image(b"cover"))
+        await client.get_cover_art("al-1", size=300)
+
+        session = attach(client, image(b"cover"))
+        assert await client.get_cover_art("al-1", size=300) == (b"cover", "image/jpeg")
+        assert len(session.calls) == 1
+
+    async def test_a_stand_in_is_re_probed_every_time(self, client):
+        """Navidrome re-asks its metadata agent on every request, so an artist
+        with no photo this minute can have one the next. Remembering the miss
+        would freeze that gap for the life of the process."""
+        attach(client, image(b"stand-in"), image(b"stand-in"))
+        assert await client.get_cover_art("ar-1", size=160) is None
+
+        session = attach(client, image(b"now"), image(b"resized"), image(b"real"))
+        assert await client.get_cover_art("ar-1", size=160) == (b"real", "image/jpeg")
+        assert len(session.calls) == 3
+
+    async def test_a_probe_that_fails_hides_nothing(self, client):
+        """Fail open. A Navidrome hiccup during the probe must not turn a real
+        cover into a 404 — the appliance shows the art it has."""
+        attach(client, aiohttp.ClientOSError(111, "refused"), image(b"cover"))
+
+        assert await client.get_cover_art("al-1", size=300) == (b"cover", "image/jpeg")
 
     async def test_a_rescan_forgets_which_covers_were_confirmed_real(self, client):
         """A rescan is the one event that can take an album's art away; keeping
