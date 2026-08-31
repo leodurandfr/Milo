@@ -612,12 +612,14 @@ function togglePowerMenu() {
   if (!showPowerMenu.value) resetPowerActions();
 }
 
-// First tap arms the button, second sends. On success the unit goes down, so
-// only a failure has to put the button back.
+// First tap arms the button, second sends. Arming one disarms the other: two
+// buttons reading "confirm" at once say nothing about which the next tap fires.
+// On success the unit goes down, so only a failure has to put the button back.
 async function runPowerAction(action) {
   const state = powerState[action.key];
   if (state.running) return;
   if (!state.confirming) {
+    for (const other of POWER_ACTIONS) powerState[other.key].confirming = false;
     state.confirming = true;
     return;
   }
