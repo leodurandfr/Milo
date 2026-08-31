@@ -132,6 +132,13 @@ const SELECT_OPTIONS = [
  * renaming `album_art_url` in the component turns the guardrail red instead of
  * leaving a beautiful player rendering from a record nothing consumes.
  *
+ * A record exists for a *component* behaviour — the transport, a pause, the
+ * buffering spinner, the receiver's source bar, the snapshot rule with no artist
+ * to store — never for a source. What a given source reaches, in the states it
+ * actually reaches, is the source pages' subject (sources.js), and they hold the
+ * fixtures and the guardrails for it. Adding a record here to document a source
+ * is how the two surfaces start drifting, one of them wrong.
+ *
  * `source` travels with the record and is applied to the `source` **prop** as
  * well, because three of the player's rules are per-source and read the prop,
  * not the store: the snapshot relaxation for CD, the buffering window, and the

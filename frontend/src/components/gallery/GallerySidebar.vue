@@ -69,7 +69,9 @@ const SOURCE_NAMES = SOURCE_PAGES.map(page => page.title.toLowerCase());
 const SOURCE_GROUP = {
   id: 'sources',
   title: 'Audio sources',
-  pages: [{ id: AUDIO_SOURCES_ID, label: 'Audio sources' }]
+  // Named for what it opens rather than for the heading above it: the one group
+  // whose single row repeated its own title said nothing twice.
+  pages: [{ id: AUDIO_SOURCES_ID, label: 'Every source, state by state' }]
 };
 
 /**
@@ -109,6 +111,7 @@ const visibleGroups = computed(() => {
   };
 
   const matchesSources = !needle
+    || SOURCE_GROUP.title.toLowerCase().includes(needle)
     || SOURCE_GROUP.pages.some(page => page.label.toLowerCase().includes(needle))
     || SOURCE_NAMES.some(name => name.includes(needle));
 
