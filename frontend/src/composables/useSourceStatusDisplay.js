@@ -2,8 +2,11 @@
 // The single owner of the vocabulary AudioSourceStatus renders.
 //
 // The card does not read `source_state`: it reads a *display* state, which is
-// the backend enum plus the three screens CD reaches through metadata alone and
-// no backend member describes (no drive, reading the disc, ejecting). Both
+// the backend enum plus the two operations CD reaches through metadata alone
+// and no backend member describes (reading the disc, ejecting). The third
+// screen a drive can produce — no drive at all — is not an operation under way
+// but a missing prerequisite, so it is a reason below rather than a member of
+// DISPLAY_STATES, and the gallery's CD page says the same. Both
 // vocabularies used to arrive through the same string prop, derived in
 // AudioSourceView and re-narrated in the gallery — two places deciding one
 // thing. They are declared here instead, so the card's validator, the gallery's

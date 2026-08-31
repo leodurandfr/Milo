@@ -36,9 +36,9 @@ import { createPinia, setActivePinia } from 'pinia';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
-import { GROUPS, ENTRIES, SCOPE, EXCLUDED, isScreen, entriesOf } from '../../src/components/gallery/catalog.js';
+import { GROUPS, ENTRIES, SCOPE, EXCLUDED, isScreen, entriesOf, entryById } from '../../src/components/gallery/catalog.js';
 import { REGISTRY, SOURCE_REGISTRY, entryFor, overridesFor, AUDIO_SOURCES_ID } from '../../src/components/gallery/registry.js';
-import { describeProps } from '../../src/components/gallery/controls.js';
+import { describeProps, describeEvents } from '../../src/components/gallery/controls.js';
 import {
   SOURCE_PAGES,
   METADATA_READERS,
@@ -63,6 +63,8 @@ import {
   foundationPageById
 } from '../../src/components/gallery/foundations.js';
 import { ALL_AUDIO_SOURCES } from '../../src/constants/audioSources.js';
+import { PODCAST_GENRE_IDS } from '../../src/constants/podcastGenres.js';
+import { DISPLAY_STATES } from '../../src/composables/useSourceStatusDisplay.js';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '../../src/constants/imageQuality.js';
 import { useRadioStore } from '../../src/stores/radioStore.js';
 import { useMusicLibraryStore } from '../../src/stores/musicLibraryStore.js';
@@ -119,6 +121,28 @@ const SCANNED_FILES = SCOPE
  * directory keeps beside its parts, told apart by name (see isScreen).
  */
 const SCOPED_FILES = SCANNED_FILES.filter(file => !isScreen(file));
+
+/** Every `.vue` and `.js` under src/, for the two counts read off the tree. */
+function walk(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const full = join(dir, entry.name);
+    return entry.isDirectory() ? walk(full) : [full];
+  });
+}
+
+const SRC_FILES = walk(SRC_DIR).filter(file => file.endsWith('.vue') || file.endsWith('.js'));
+
+/**
+ * How many files import a module, the gallery excluded: it documents these
+ * components, it does not consume them, so counting its own demo would inflate
+ * every "most-imported" claim by one.
+ */
+function importerCount(path) {
+  return SRC_FILES.filter(file =>
+    !file.includes('/components/gallery/') &&
+    readFileSync(file, 'utf8').includes(`from '@/${path}'`)
+  ).length;
+}
 
 const VIEW = readFileSync(join(SRC_DIR, 'views/ComponentsView.vue'), 'utf8');
 const CANVAS = readFileSync(join(SRC_DIR, 'components/gallery/CanvasApp.vue'), 'utf8');
@@ -252,6 +276,95 @@ describe('component gallery catalogue', () => {
     const thin = ENTRIES.filter(entry => (entry.summary || '').length < 40).map(entry => entry.id);
 
     expect(thin).toEqual([]);
+  });
+
+  /**
+   * A number written into a summary is a copy of something the code already
+   * owns, and copies rot silently: seven summaries carried one and four of the
+   * seven had drifted — the CTA count, the header props, both importer counts —
+   * while the page went on stating them with confidence, in the entries a reader
+   * of the source pages leans on hardest.
+   *
+   * The number stays in the prose rather than being interpolated, because
+   * catalog.js declares itself free of imports so the page and this file can
+   * both read it cheaply. What is derived is the *expectation*: the count comes
+   * from the list, the props or the tree, and the sentence has to agree with it.
+   * Not a restated constant — nothing here spells a number out; each one is
+   * recomputed from what it describes, so adding a display state or a seventh
+   * source turns this red instead of leaving a confident lie on screen.
+   */
+  const COUNT_CLAIMS = [
+    { id: 'AudioSourceStatus', what: 'sources the card names', phrase: `${ALL_AUDIO_SOURCES.length} sources`, count: ALL_AUDIO_SOURCES.length },
+    { id: 'AudioSourceStatus', what: 'display states', phrase: `${DISPLAY_STATES.length} states`, count: DISPLAY_STATES.length },
+    // Every event this card emits is one of its CTAs, so the emit list is the
+    // count. A non-CTA event would turn this red, and the sentence would need
+    // rewording rather than the number bumping.
+    {
+      id: 'AudioSourceStatus',
+      what: 'mutually exclusive CTAs',
+      phrase: `${describeEvents(REGISTRY.AudioSourceStatus.component).length} mutually exclusive CTAs`,
+      count: describeEvents(REGISTRY.AudioSourceStatus.component).length
+    },
+    // Every override on this descriptor is an enum, so the override count is
+    // the number of selects the panel draws for it.
+    {
+      id: 'AudioSourceStatus',
+      what: 'selects on the panel',
+      phrase: `${Object.keys(overridesFor(REGISTRY.AudioSourceStatus)).length} selects`,
+      count: Object.keys(overridesFor(REGISTRY.AudioSourceStatus)).length
+    },
+    {
+      id: 'AudioSourceLayout',
+      what: 'header* props forwarded to NavigationHeader',
+      phrase: `${describeProps(REGISTRY.AudioSourceLayout.component).filter(prop => prop.name.startsWith('header')).length} header* props`,
+      count: describeProps(REGISTRY.AudioSourceLayout.component).filter(prop => prop.name.startsWith('header')).length
+    },
+    {
+      id: 'AudioPlayerFull',
+      what: 'sources that mount it',
+      phrase: `${importerCount('components/audio/AudioPlayerFull.vue')} sources with nothing to browse`,
+      count: importerCount('components/audio/AudioPlayerFull.vue')
+    },
+    {
+      id: 'TrackRow',
+      what: 'boolean state props',
+      phrase: `${describeProps(REGISTRY.TrackRow.component).filter(prop => prop.kind === 'boolean').length} boolean props`,
+      count: describeProps(REGISTRY.TrackRow.component).filter(prop => prop.kind === 'boolean').length
+    },
+    { id: 'GenreCard', what: 'genre artworks', phrase: `${PODCAST_GENRE_IDS.length} artworks`, count: PODCAST_GENRE_IDS.length },
+    {
+      id: 'SettingsContainer',
+      what: 'its own length',
+      phrase: `${readFileSync(join(SRC_DIR, 'components/settings/SettingsContainer.vue'), 'utf8').trimEnd().split('\n').length} lines`,
+      count: readFileSync(join(SRC_DIR, 'components/settings/SettingsContainer.vue'), 'utf8').trimEnd().split('\n').length
+    },
+    {
+      id: 'SettingsContainer',
+      what: 'consumers',
+      phrase: `${importerCount('components/settings/SettingsContainer.vue')} consumers`,
+      count: importerCount('components/settings/SettingsContainer.vue')
+    },
+    {
+      id: 'SettingsSection',
+      what: 'consumers',
+      phrase: `(${importerCount('components/settings/SettingsSection.vue')})`,
+      count: importerCount('components/settings/SettingsSection.vue')
+    }
+  ];
+
+  it('states no count the code contradicts', () => {
+    // The extractors first: a derivation that has stopped finding what it reads
+    // answers zero, and zero would match nothing and pass by saying nothing.
+    expect(COUNT_CLAIMS.length).toBeGreaterThan(0);
+    for (const claim of COUNT_CLAIMS) {
+      expect(claim.count, `${claim.id} — ${claim.what}`).toBeGreaterThan(0);
+    }
+
+    const wrong = COUNT_CLAIMS
+      .filter(claim => !(entryById(claim.id)?.summary ?? '').includes(claim.phrase))
+      .map(claim => `${claim.id}: expected "${claim.phrase}" (${claim.what})`);
+
+    expect(wrong).toEqual([]);
   });
 });
 

@@ -71,7 +71,7 @@
         </li>
       </ul>
 
-      <!-- The eight utility classes, each drawn with itself. -->
+      <!-- Every utility class the stylesheet declares, each drawn with itself. -->
       <ul v-else-if="block.kind === 'specimen'" class="foundations__rows foundations__rows--specimen">
         <li v-for="style in block.styles" :key="style.className" class="foundations__specimen">
           <p :class="style.className" class="foundations__sample">{{ SAMPLE }}</p>

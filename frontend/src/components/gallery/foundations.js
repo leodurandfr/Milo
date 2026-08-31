@@ -223,7 +223,7 @@ const PAGES = [
   {
     id: 'elevation',
     title: 'Elevation & blur',
-    summary: 'What lifts a surface off the one below it: the shadow casts across their three intents (ambient, raised, hairline), the blur radii, and the two glass utilities that combine a blur with a stroke.',
+    summary: 'What lifts a surface off the one below it: the shadow casts across their four intents (ambient, raised, the artwork halo, hairline), the blur radii, and the two glass utilities that combine a blur with a stroke.',
     sections: ['SHADOWS', 'BLUR'],
     extras: [
       {
