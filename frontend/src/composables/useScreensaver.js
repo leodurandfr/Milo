@@ -263,35 +263,31 @@ export function useScreensaver() {
       };
     }
 
-    // The four receivers. The bottom bar mirrors their main view's source bar
-    // down to the fallback: DLNA names the media server once resolved and Qobuz
-    // names nobody at all, so with no name on the record both read the source's
-    // own label rather than leaving the slot empty. Bluetooth and AirPlay name
-    // the sender. No progress bar — none of them shows one in its main view.
-    if (source === 'bluetooth') {
-      return {
-        mode: 'media',
-        sourceType: source,
-        artwork: nowPlayingArtwork(metadata),
-        title: metadata.title || '',
-        subtitle: metadata.artist || null,
-        stationIcon: source,
-        stationName: formatDeviceNames(metadata.device_name),
-      };
-    }
+    // The four receivers, all drawn the same way — cover, title/artist, and a
+    // bottom bar naming the other end. No progress bar: none of them shows one
+    // in its main view either. They differ only in what fills that bar, and the
+    // split below is the difference itself rather than a ternary hiding it.
+    const receiver = (stationName) => ({
+      mode: 'media',
+      sourceType: source,
+      artwork: nowPlayingArtwork(metadata),
+      title: metadata.title || '',
+      subtitle: metadata.artist || null,
+      stationIcon: source,
+      stationName,
+    });
 
-    if (source === 'airplay' || source === 'qobuz' || source === 'dlna') {
-      return {
-        mode: 'media',
-        sourceType: source,
-        artwork: nowPlayingArtwork(metadata),
-        title: metadata.title || '',
-        subtitle: metadata.artist || null,
-        stationIcon: source,
-        stationName: source === 'airplay'
-          ? metadata.client_name || null
-          : metadata.client_name || t(AUDIO_SOURCE_LABEL_KEYS[source]),
-      };
+    // Named by the sender. With no name on the record the bar hides itself
+    // (showBottomBar reads the name, not the icon) — a phone or a Mac always
+    // publishes one, so an empty slot here means the session is not really up.
+    if (source === 'bluetooth') return receiver(formatDeviceNames(metadata.device_name));
+    if (source === 'airplay') return receiver(metadata.client_name || null);
+
+    // Named by the service. DLNA names the media server once resolved and Qobuz
+    // names nobody at all, so with no name on the record both read the source's
+    // own label rather than leaving a bar the user cannot interpret.
+    if (source === 'qobuz' || source === 'dlna') {
+      return receiver(metadata.client_name || t(AUDIO_SOURCE_LABEL_KEYS[source]));
     }
 
     // Unreachable: a source with no branch here has no rich view either, so
