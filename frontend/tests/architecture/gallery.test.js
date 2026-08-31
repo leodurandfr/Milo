@@ -270,6 +270,77 @@ describe('component gallery catalogue', () => {
     expect(mapped.sort()).toEqual(GROUPS.map(group => group.id).sort());
   });
 
+  /**
+   * The nine demo files are the one gallery surface nothing derives: every other
+   * pane is built from the component's own props, its registry, or the
+   * stylesheet, while these are written by hand, component by component. So the
+   * failure they allow is a value that looks right and is not — and it happened:
+   * every GenreCard tile on the Variants tab rendered with no artwork at all,
+   * because the demo passed `true_crime` where the Podcast Index vocabulary says
+   * `PODCASTSERIES_TRUE_CRIME`. Nothing disagreed. The playground next door had
+   * the same bug and it was caught, because the playground borrows its select
+   * from the constant.
+   *
+   * This gives the demos the same footing without deriving them: wherever the
+   * playground offers a prop as a select, a literal the demo writes for that
+   * prop has to be one of the options that select offers. Both sides are read
+   * from the code — the options from the descriptor, the literals from the
+   * template — so neither is a list anybody maintains.
+   *
+   * Bound props (`:size="48"`, `v-model`) are skipped: an expression has no
+   * value at test time, and guessing one is how a guardrail starts lying.
+   */
+  const DEMO_DIR = join(SRC_DIR, 'components/gallery/demos');
+
+  /** `show-actions` -> `showActions`, the name the props table carries. */
+  function camelCase(attribute) {
+    return attribute.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+  }
+
+  /** The options the playground's select offers for one prop, or null. */
+  function selectOptions(componentId, prop) {
+    const descriptor = REGISTRY[componentId];
+    if (!descriptor) return null;
+    const found = describeProps(descriptor.component, overridesFor(descriptor))
+      .find(candidate => candidate.name === prop);
+    return found?.options?.length ? found.options.map(String) : null;
+  }
+
+  /** Every `<Catalogued prop="literal">` a demo file writes. */
+  function literalProps(text) {
+    const written = [];
+    for (const [, componentId, attributes] of text.matchAll(/<([A-Z][A-Za-z]*)\b([^>]*?)\/?>/g)) {
+      for (const [, attribute, value] of attributes.matchAll(/(?:^|\s)([a-z][a-z0-9-]*)="([^"]*)"/g)) {
+        written.push({ componentId, prop: camelCase(attribute), value });
+      }
+    }
+    return written;
+  }
+
+  it('writes no demo value the playground would refuse', () => {
+    const checked = [];
+    const wrong = [];
+
+    for (const file of readdirSync(DEMO_DIR).filter(name => name.endsWith('.vue'))) {
+      const text = readFileSync(join(DEMO_DIR, file), 'utf8');
+      for (const { componentId, prop, value } of literalProps(text)) {
+        const options = selectOptions(componentId, prop);
+        if (!options) continue;
+        checked.push(`${file}:${componentId}.${prop}`);
+        if (!options.includes(value)) {
+          wrong.push(`${file}: <${componentId} ${prop}="${value}"> — offered: ${options.slice(0, 6).join(', ')}…`);
+        }
+      }
+    }
+
+    // The extractor first: a template regex that stops matching would find
+    // nothing to check and pass by saying nothing.
+    expect(checked.length).toBeGreaterThan(30);
+    expect(new Set(checked.map(entry => entry.split(':')[0])).size).toBeGreaterThan(4);
+
+    expect(wrong).toEqual([]);
+  });
+
   it('says something substantive about every primitive', () => {
     // The summary is the only prose a reader gets, and it is what explains why a
     // `coupling` primitive behaves unlike the rest.

@@ -118,13 +118,15 @@
   </GalleryItem>
 
   <GalleryItem id="GenreCard">
+    <!--
+      No "unknown value" variant: HomeView builds its grid *from*
+      PODCAST_GENRE_IDS, so a card carrying a value with no artwork is a screen
+      the app cannot produce, and a tile drawn here for it would be an invention.
+    -->
     <GalleryVariant label="the artwork is picked from value, not passed in">
-      <div class="tile"><GenreCard label="True Crime" value="true_crime" /></div>
-      <div class="tile"><GenreCard label="Comedy" value="comedy" /></div>
-      <div class="tile"><GenreCard label="Science" value="science" /></div>
-    </GalleryVariant>
-    <GalleryVariant label="a value the component has no artwork for — the tile stays, the image does not">
-      <div class="tile"><GenreCard label="Unknown genre" value="not_a_genre" /></div>
+      <div v-for="genre in sampleGenres" :key="genre.value" class="tile">
+        <GenreCard :label="genre.label" :value="genre.value" />
+      </div>
     </GalleryVariant>
   </GalleryItem>
 
@@ -146,6 +148,9 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
+import { useI18n } from '@/services/i18n';
+import { PODCAST_GENRE_IDS, genreSlug } from '@/constants/podcastGenres';
 import GalleryItem from '../GalleryItem.vue';
 import GalleryVariant from '../GalleryVariant.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -160,6 +165,16 @@ import GenreCard from '@/components/podcasts/GenreCard.vue';
 import SkeletonPodcastDetails from '@/components/podcasts/SkeletonPodcastDetails.vue';
 import SkeletonEpisodeDetails from '@/components/podcasts/SkeletonEpisodeDetails.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
+
+const { t } = useI18n();
+
+// Assembled exactly as HomeView assembles its grid: the id is the Podcast Index
+// vocabulary and the label is its translation. Three ids written out by hand is
+// what left every tile here imageless — `comedy` is the slug the file is named
+// after, never the key the artwork is stored under.
+const sampleGenres = computed(() =>
+  PODCAST_GENRE_IDS.slice(0, 3).map(id => ({ value: id, label: t(`podcasts.genres.${genreSlug(id)}`) }))
+);
 
 // `favicon: ''` takes the generated-avatar path, so nothing here needs network.
 const station = { name: 'Radio Nova', favicon: '', countrycode: 'FR', genre: 'eclectic' };
