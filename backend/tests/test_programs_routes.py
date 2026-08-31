@@ -112,15 +112,83 @@ async def test_the_satellite_routes_claim_their_key_too(router):
     """
     Two of the three now resolve the version to install inside the window, and
     all three share the claim helper — a second request must still be refused.
+
+    One MAC per route on purpose: the three keys of a single satellite now
+    exclude each other (the row's own three buttons), which the next test pins.
     """
-    for path, key_prefix in (
-        ("/api/programs/satellites/{mac_id}/update", "satellite_"),
-        ("/api/programs/satellites/{mac_id}/update-app", "satellite_app_"),
-        ("/api/programs/satellites/{mac_id}/update-camilladsp", "satellite_camilladsp_"),
+    for path, mac in (
+        ("/api/programs/satellites/{mac_id}/update", "aa:bb:cc:dd:ee:01"),
+        ("/api/programs/satellites/{mac_id}/update-app", "aa:bb:cc:dd:ee:02"),
+        ("/api/programs/satellites/{mac_id}/update-camilladsp", "aa:bb:cc:dd:ee:03"),
     ):
         endpoint = _endpoint(router, path)
-        assert (await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "success"
-        assert (await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "error"
+        assert (await endpoint(mac, BackgroundTasks()))["status"] == "success"
+        assert (await endpoint(mac, BackgroundTasks()))["status"] == "error"
+
+
+async def test_the_milo_update_blocks_every_other_one(router):
+    """The one update that must be alone, enforced where a second device cannot walk around it.
+
+    It reconciles the whole dependency set, pushes the client app to every
+    satellite and then reboots the unit. The update screen already disables the
+    other buttons; that is one client's DOM, and `_claim_update`'s own docstring
+    says why it cannot be the enforcement.
+    """
+    program = _endpoint(router, "/api/programs/{program_key}/update")
+    satellite = _endpoint(router, "/api/programs/satellites/{mac_id}/update-app")
+
+    assert (await program("milo", VALIDATED, BackgroundTasks()))["status"] == "success"
+
+    refused = await satellite("aa:bb:cc:dd:ee:ff", BackgroundTasks())
+    assert refused["status"] == "error"
+    assert "milo" in refused["message"]
+
+    refused = await program("go-librespot", VALIDATED, BackgroundTasks())
+    assert refused["status"] == "error"
+    assert "milo" in refused["message"]
+
+
+async def test_a_running_satellite_update_blocks_the_milo_one(router):
+    """The reverse direction — the pair `f31048a1` closed on the frontend only.
+
+    Starting the app update mid-satellite-update reaches that satellite's own
+    `POST /app/update` a second time (409), then reboots the server out from
+    under the task polling it.
+    """
+    satellite = _endpoint(router, "/api/programs/satellites/{mac_id}/update")
+    program = _endpoint(router, "/api/programs/{program_key}/update")
+
+    assert (await satellite("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "success"
+
+    refused = await program("milo", VALIDATED, BackgroundTasks())
+    assert refused["status"] == "error"
+    assert "aa:bb:cc:dd:ee:ff" in refused["message"]
+
+
+async def test_two_local_programs_exclude_each_other(router):
+    """They share the deploy wrapper, and the screen says they exclude each other."""
+    endpoint = _endpoint(router, "/api/programs/{program_key}/update")
+
+    assert (await endpoint("go-librespot", VALIDATED, BackgroundTasks()))["status"] == "success"
+
+    refused = await endpoint("navidrome", VALIDATED, BackgroundTasks())
+    assert refused["status"] == "error"
+    assert "go-librespot" in refused["message"]
+
+
+async def test_a_satellite_blocks_its_own_three_keys_and_no_one_else(router):
+    """A satellite is a separate machine: it blocks its own row, not the fleet."""
+    snapclient = _endpoint(router, "/api/programs/satellites/{mac_id}/update")
+    app = _endpoint(router, "/api/programs/satellites/{mac_id}/update-app")
+    camilladsp = _endpoint(router, "/api/programs/satellites/{mac_id}/update-camilladsp")
+
+    assert (await snapclient("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "success"
+
+    assert (await app("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "error"
+    assert (await camilladsp("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "error"
+
+    # A second speaker is untouched — updating one room must not lock the other.
+    assert (await app("11:22:33:44:55:66", BackgroundTasks()))["status"] == "success"
 
 
 async def test_a_satellite_update_with_no_resolvable_version_never_starts(router):
