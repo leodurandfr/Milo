@@ -17,9 +17,11 @@
   <meta name="apple-mobile-web-app-title" content="Milō">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
 
-  <!-- Boot mode: fast-boot (reload), PWA cold start (delayed logo), kiosk cold start (immediate logo) -->
+  <!-- Boot mode: kiosk (no logo, Plymouth carried it), fast-boot (reload), PWA cold start (delayed logo), remote cold start (immediate logo) -->
   <script>
-    if(sessionStorage.getItem('milo_booted')){
+    if(location.hostname==='localhost'){
+      document.documentElement.classList.add('kiosk-boot')
+    } else if(sessionStorage.getItem('milo_booted')){
       document.documentElement.classList.add('fast-boot')
     } else if(window.navigator.standalone||matchMedia('(display-mode: standalone)').matches){
       document.addEventListener('DOMContentLoaded',function(){requestAnimationFrame(function(){requestAnimationFrame(function(){setTimeout(function(){document.documentElement.classList.add('logo-ready')},100)})})})
@@ -66,6 +68,19 @@
 
     /* Fast boot: hide logo (user already saw it this session) */
     .fast-boot .boot-logo {
+      display: none;
+    }
+
+    /* Kiosk: the Pi screen already showed the logo and the progress bar in
+       Plymouth, which held the display until the backend answered. This is only
+       a black holding frame continuing the retained splash — no second logo, and
+       black on black hides the compositor's own startup frame in between. */
+    .kiosk-boot,
+    .kiosk-boot #boot-screen {
+      background: #000000;
+    }
+
+    .kiosk-boot .boot-logo {
       display: none;
     }
 

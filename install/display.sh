@@ -227,6 +227,12 @@ configure_silent_login() {
     # Mask getty@tty1 as milo-kiosk.service takes control of tty1
     sudo systemctl mask getty@tty1.service
 
+    # Raspberry Pi OS's first-boot user wizard. The milo user is pre-created, so
+    # it has nothing to ask, but it holds a whiptail prompt on a tty forever and
+    # multi-user.target never finishes behind it. pi-gen/stage-milo disables it
+    # too — a unit installed by this script must not differ.
+    sudo systemctl disable userconfig.service 2>/dev/null || true
+
     sudo systemctl daemon-reload
 
     log_success "getty@tty1 masked (milo-kiosk.service manages tty1)"
