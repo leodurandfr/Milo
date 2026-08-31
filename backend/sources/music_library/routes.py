@@ -495,6 +495,11 @@ async def get_cover(
         client = await _require_client(source)
         result = await client.get_cover_art(cover_id, size=size)
         if result is None:
+            # An artist Navidrome has no local art for: Milō resolves the photo
+            # itself, because Navidrome's online tier is off (it picked the wrong
+            # person — see artist_images.py). Answers None for any other id.
+            result = await source.artist_images.get_cover(cover_id)
+        if result is None:
             # Expected, not an error: the album has no art (never had any, or its
             # folder image was removed) — the frontend shows its own placeholder.
             # Kept below ERROR so it never reaches the WebSocketLogHandler banner.

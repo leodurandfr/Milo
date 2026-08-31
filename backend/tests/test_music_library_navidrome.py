@@ -362,6 +362,10 @@ def source(nav_client):
     src.shares.forget_playlist = AsyncMock()
     src.shares.record_playlist_storage = AsyncMock()
     src.shares.note_scan_started = AsyncMock()
+    # Milō's own artist-photo resolver, which the cover route falls through to
+    # whenever Navidrome has no art. Silent by default so the album cases below
+    # read as they did before it existed (it only ever claims `ar-` ids).
+    src.artist_images.get_cover = AsyncMock(return_value=None)
     # The browse scope every catalog route resolves first: one mounted storage
     # space, whose catalog holds the single album "al-1".
     src.browse_scope = AsyncMock(return_value=[2])
@@ -615,6 +619,27 @@ class TestCoverRoute:
     def test_cover_404_when_unavailable(self, api, nav_client):
         nav_client.get_cover_art = AsyncMock(return_value=None)
         assert api.get("/api/music-library/cover/al-1").status_code == 404
+
+    def test_artist_with_no_navidrome_art_gets_milos_photo(self, api, nav_client, source):
+        """Navidrome's online tier for artist art is off (it picked the wrong
+        person), so an artist it has nothing local for is Milō's to resolve —
+        without that fallthrough every artist would render as a placeholder."""
+        nav_client.get_cover_art = AsyncMock(return_value=None)
+        source.artist_images.get_cover = AsyncMock(return_value=(b"PHOTO", "image/jpeg"))
+
+        r = api.get("/api/music-library/cover/ar-1_0")
+
+        assert r.status_code == 200
+        assert r.content == b"PHOTO"
+        source.artist_images.get_cover.assert_awaited_once_with("ar-1_0")
+
+    def test_navidromes_own_art_is_never_overridden(self, api, source):
+        """The local tiers still come first: an `artist.*` file the user shipped
+        beside their music wins over anything fetched online."""
+        r = api.get("/api/music-library/cover/ar-1_0")
+
+        assert r.content == b"IMG"
+        source.artist_images.get_cover.assert_not_awaited()
 
 
 class TestStarRoutes:

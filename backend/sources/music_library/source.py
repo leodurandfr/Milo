@@ -50,6 +50,7 @@ from backend.sources.music_library.models import (
     SeekParams,
     SetShuffleParams,
 )
+from backend.sources.music_library.artist_images import ArtistImageService
 from backend.sources.music_library.navidrome_client import NavidromeClient
 from backend.sources.music_library.shares import NetworkShareService
 
@@ -124,6 +125,12 @@ class MusicLibrarySource(MpvAudioSource):
         # daemon has provisioned its service account) and shared by all three —
         # routes read the catalog even while music_library is not active.
         self._navidrome: Optional[NavidromeClient] = None
+        # Artist photos, resolved from Deezer by Milō because Navidrome's own
+        # online tier picks the wrong person (see artist_images.py). Like the
+        # client above it outlives playback — the cover route reaches it while
+        # the source is inactive — and it borrows the same lazy accessor to turn
+        # a cover id into an artist name.
+        self._artist_images = ArtistImageService(self.get_navidrome_client)
         # Merged (multi-disc) album catalog, cached for the alphabetical grid —
         # one entry per browse scope (the sorted library ids → (built_at,
         # albums)), so the merged view and the "everything mounted" view of the
@@ -412,10 +419,12 @@ class MusicLibrarySource(MpvAudioSource):
 
         The playlist→album memo goes with it: both answer "what is in this
         storage space", and a rescan is exactly when that changes. So does the
-        client's cover memo — a rescan is when an album gains or loses its art.
+        client's cover memo — a rescan is when an album gains or loses its art,
+        and the one moment an artist Deezer had no photo for is worth re-asking.
         """
         self._album_cache.clear()
         self._playlist_album.clear()
+        self._artist_images.invalidate()
         if self._navidrome is not None:
             self._navidrome.invalidate_cover_memo()
 
@@ -1103,3 +1112,9 @@ class MusicLibrarySource(MpvAudioSource):
         """Where the music comes from: the configured SMB/NFS shares and the USB
         volumes mounted beside them. Read by routes.py (see shares.py)."""
         return self._shares
+
+    @property
+    def artist_images(self) -> ArtistImageService:
+        """Artist photos from Deezer, for the artists Navidrome has no local art
+        for. Read by the cover route (see artist_images.py)."""
+        return self._artist_images
