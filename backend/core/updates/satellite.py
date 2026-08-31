@@ -136,7 +136,9 @@ class SatelliteUpdateService:
                         # `started` is the satellite's answer to "did I begin
                         # one" — false is the legitimate already-up-to-date
                         # branch, not a failure. What it would install is no
-                        # longer in question: it is what this call named.
+                        # longer in question: it is what this call named, so
+                        # the satellite's own version is what separates the two
+                        # readings of `false`.
                         if data.get("started"):
                             update_result = await self._wait_for_update_completion(
                                 mac_id,
@@ -145,11 +147,21 @@ class SatelliteUpdateService:
                             )
 
                             return update_result
-                        else:
+                        if data.get("current_version") == target_version:
+                            # Nothing to do, and reporting it as a failure was
+                            # self-perpetuating: the UI refetches the inventory
+                            # only on success, so the stale row that offered the
+                            # button kept offering it, and every press failed
+                            # the same way until the page was reloaded.
                             return {
-                                "success": False,
-                                "error": data.get("message", "Update failed")
+                                "success": True,
+                                "message": f"Satellite {mac_id} already runs {target_version}",
+                                "new_version": target_version
                             }
+                        return {
+                            "success": False,
+                            "error": data.get("message", "Update failed")
+                        }
                     else:
                         return {
                             "success": False,
@@ -454,15 +466,22 @@ class SatelliteUpdateService:
                     if response.status == 200:
                         data = await response.json()
 
+                        # Same reading of `started: false` as the snapclient
+                        # update above.
                         if data.get("started"):
                             return await self._wait_for_camilladsp_update_completion(
                                 mac_id, ip, target_version
                             )
-                        else:
+                        if data.get("current_version") == target_version:
                             return {
-                                "success": False,
-                                "error": data.get("message", "Update failed")
+                                "success": True,
+                                "message": f"Satellite {mac_id} already runs CamillaDSP {target_version}",
+                                "new_version": target_version
                             }
+                        return {
+                            "success": False,
+                            "error": data.get("message", "Update failed")
+                        }
                     else:
                         return {
                             "success": False,
