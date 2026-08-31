@@ -107,7 +107,6 @@ async function handlePlayClick() {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
   padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
-  transition: all var(--transition-fast);
 }
 
 .episode-card.clickable {

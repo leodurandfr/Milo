@@ -77,7 +77,6 @@ const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.coverId);
   cursor: pointer;
   background: var(--color-background-neutral-50);
   min-width: 0;
-  transition: background var(--transition-fast);
 }
 
 .media-cover {

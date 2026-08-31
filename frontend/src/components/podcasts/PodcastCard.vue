@@ -1,5 +1,5 @@
 <template>
-  <div v-press="clickable" class="podcast-card" :class="{ 'is-subscribed': isSubscribed, clickable }"
+  <div v-press="clickable" class="podcast-card" :class="{ clickable }"
     @click="handleCardClick">
     <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" lazy class="card-image">
       <div v-if="isLoading" class="card-loading-overlay">
@@ -93,7 +93,6 @@ function handleCardClick() {
   overflow: hidden;
   padding: var(--space-03) var(--space-03) var(--space-04) var(--space-03);
   gap: var(--space-03);
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .podcast-card.clickable {
