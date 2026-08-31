@@ -302,6 +302,50 @@ class TestSnapclientUpdateOutcome:
         assert result["new_version"] == "0.28.0"
 
 
+    async def test_a_satellite_already_on_the_target_is_not_a_failure(self, satellite_service):
+        """`started: false` on a matching version is a no-op, and the row must heal.
+
+        The satellite answers that when the version this call named is the one
+        it already runs — a stale row, a second device that just ran it. Calling
+        that a failure was self-perpetuating: the UI refetches the inventory only
+        on success, so the row kept offering the button and every press failed
+        the same way until the page was reloaded.
+        """
+        satellite = _FakeSatellite(
+            status_payload={"snapclient": {"version": SNAPCLIENT_TARGET, "running": True}},
+            post_payload={
+                "status": "success", "started": False, "message": "Already up to date",
+                "current_version": SNAPCLIENT_TARGET, "target_version": SNAPCLIENT_TARGET,
+            },
+        )
+
+        with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
+
+        assert result["success"] is True
+        assert result["new_version"] == SNAPCLIENT_TARGET
+
+    async def test_a_refusal_on_another_version_stays_a_failure(self, satellite_service):
+        """Only the matching version reads as a no-op — anything else is a refusal.
+
+        A satellite that declined for its own reason has not installed what the
+        row named, and saying otherwise would leave the fleet looking current.
+        """
+        satellite = _FakeSatellite(
+            status_payload={"snapclient": {"version": "0.27.0", "running": True}},
+            post_payload={
+                "status": "success", "started": False, "message": "Busy",
+                "current_version": "0.27.0", "target_version": SNAPCLIENT_TARGET,
+            },
+        )
+
+        with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET)
+
+        assert result["success"] is False
+        assert result["error"] == "Busy"
+
+
 class TestCamillaDspUpdateOutcome:
     """Same gate on the DSP binary: a satellite left on the old CamillaDSP is a
     speaker whose EQ pipeline silently differs from every other."""
@@ -329,6 +373,25 @@ class TestCamillaDspUpdateOutcome:
 
         assert result["success"] is True
         assert result["new_version"] == "3.1.0"
+
+
+    async def test_a_satellite_already_on_the_target_is_not_a_failure(self, satellite_service):
+        """Same reading of `started: false` as the snapclient update."""
+        satellite = _FakeSatellite(
+            status_payload={"camilladsp": {"version": CAMILLADSP_TARGET}, "snapclient": {"version": "0.28.0"}},
+            post_payload={
+                "status": "success", "started": False, "message": "Already up to date",
+                "current_version": CAMILLADSP_TARGET, "target_version": CAMILLADSP_TARGET,
+            },
+        )
+
+        with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await satellite_service.update_satellite_camilladsp(
+                "dc:a6:32:7e:d3:43", CAMILLADSP_TARGET
+            )
+
+        assert result["success"] is True
+        assert result["new_version"] == CAMILLADSP_TARGET
 
 
 class TestAppUpdateAvailableFlag:
