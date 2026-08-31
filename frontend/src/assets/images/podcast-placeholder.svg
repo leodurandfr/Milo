@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" role="img" aria-label="No episode art">
+  <!-- Minimalist microphone — the podcast counterpart to music-placeholder.svg,
+       drawn in the same neutral gray with opacity so the two read as one family
+       and both sit on any card colour. -->
+  <g stroke="#8a9099" stroke-opacity="0.34" stroke-width="20" fill="none"
+     stroke-linecap="round">
+    <rect x="204" y="98" width="104" height="196" rx="52"/>
+    <path d="M158 232a98 98 0 0 0 196 0"/>
+    <path d="M256 330v54"/>
+  </g>
+</svg>

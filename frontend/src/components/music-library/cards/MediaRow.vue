@@ -7,7 +7,7 @@
       v-else
       ref="lazyImg"
       :src="store.thumbUrl(coverId)"
-      :fallback="roundedCover ? artistPlaceholder : albumPlaceholder"
+      :fallback="musicPlaceholder"
       :alt="title"
       lazy
       :class="['media-cover', { rounded: roundedCover }]"
@@ -28,14 +28,14 @@ import { ref } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
-import artistPlaceholder from '@/assets/images/artist-placeholder.svg';
 import { useLazyImageSkeleton } from '@/composables/useLazyImageSkeleton';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
-  // Navidrome coverArt id (may be empty → placeholder fallback). Album/playlist/
-  // song rows fall back to the CD placeholder; artist rows (roundedCover) fall
-  // back to the static artist placeholder.
+  // Navidrome coverArt id (may be empty → placeholder fallback). One drawing for
+  // every row here, artist rows included: the disc sits inside the round crop as
+  // readably as a square one, and a second file was a second thing to keep in
+  // step with the player's.
   coverId: {
     type: String,
     default: '',

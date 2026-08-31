@@ -11,7 +11,7 @@
         <div v-if="!loading && episode" key="loaded" class="details-content">
           <DetailHeader
             :image-src="episode.image_url || episode.podcast?.image_url"
-            :fallback="episodePlaceholder"
+            :fallback="podcastPlaceholder"
             :title="episode.name"
             :subtitle="episode.podcast?.name"
             :subtitle-clickable="!!episode.podcast"
@@ -46,7 +46,7 @@ import { useAsyncData } from '@/composables/useAsyncData'
 import DetailHeader from '@/components/audio/DetailHeader.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import SkeletonEpisodeDetails from './SkeletonEpisodeDetails.vue'
-import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
+import { podcastPlaceholder } from '@/constants/placeholders'
 
 const { t } = useI18n()
 

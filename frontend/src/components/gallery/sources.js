@@ -110,9 +110,9 @@
  * every fabricated metadata key against the files that read it.
  * `SourceStage.vue` is what turns a scenario into a mounted component.
  */
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import stationImageTurntable from './samples/station-image-turntable.webp';
 import stationImageCapsule from './samples/station-image-capsule.webp';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 /** Prefix that tells a source page apart from a catalogue entry in `?c=`. */
 export const SOURCE_PAGE_PREFIX = 'source:';
@@ -434,7 +434,7 @@ const CD_DISC = {
   disc_album: 'Felt',
   disc_artist: 'Nils Frahm',
   disc_year: '2011',
-  disc_cover_url: albumPlaceholder,
+  disc_cover_url: musicPlaceholder,
   track_count: 4,
   tracks: [
     { number: 1, title: 'Keep', duration: 312000 },
@@ -625,7 +625,7 @@ export const SOURCE_PAGES = [
       active('spotify', 'Playing', 'Rich display earned: AudioPlayerFull, progress bar and transport. The buttons report to the event log instead of reaching the unit.', {
         title: 'Says',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: true,
         position: 192000,
         duration: 511000
@@ -633,7 +633,7 @@ export const SOURCE_PAGES = [
       active('spotify', 'Paused', 'Same record, is_playing false — the glyph flips and useSourceProgress stops ticking.', {
         title: 'Says',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: false,
         position: 192000,
         duration: 511000
@@ -641,7 +641,7 @@ export const SOURCE_PAGES = [
       active('spotify', 'Buffering', 'is_buffering swaps the play/pause glyph for a spinner (isSourceBuffering). The bar keeps its last position.', {
         title: 'Says',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: true,
         is_buffering: true,
         position: 0,
@@ -692,7 +692,7 @@ export const SOURCE_PAGES = [
       active('qobuz', 'Playing', 'Trusted CDN cover, so no album_art_width gate — title + artist is enough. Read-only bar above the source bar, which names no device: with no client_name on the record the bar falls back to the source\'s own label, "Qobuz".', {
         title: 'Ambre',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: true,
         account_authenticated: true,
         position: 64000,
@@ -726,7 +726,7 @@ export const SOURCE_PAGES = [
       active('tidal', 'Playing', 'Rich display earned: transport plus a bar that draws position but refuses a scrub. The buttons report to the event log instead of reaching the unit.', {
         title: 'Says',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: true,
         position: 192000,
         duration: 511000
@@ -734,7 +734,7 @@ export const SOURCE_PAGES = [
       active('tidal', 'Paused', 'Same record, is_playing false. A paused track keeps its session and its cover — the daemon reports the end of one explicitly, so nothing here is a stale leftover.', {
         title: 'Says',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: false,
         position: 192000,
         duration: 511000
@@ -742,7 +742,7 @@ export const SOURCE_PAGES = [
       active('tidal', 'Buffering', 'The daemon passes through BUFFERING on every track change, so this is a normal step rather than a stall: the spinner replaces the glyph and the bar holds its last position.', {
         title: 'Says',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: true,
         is_buffering: true,
         position: 0,
@@ -780,7 +780,7 @@ export const SOURCE_PAGES = [
         {
           title: 'Ainsi parlait Zarathoustra',
           artist: 'Alain Bashung',
-          album_art_url: albumPlaceholder,
+          album_art_url: musicPlaceholder,
           is_playing: true,
           client_name: 'Leo’s iPhone',
           album_art_width: FAVICON_COVER_PX
@@ -793,7 +793,7 @@ export const SOURCE_PAGES = [
         {
           title: 'Ainsi parlait Zarathoustra',
           artist: 'Alain Bashung',
-          album_art_url: albumPlaceholder,
+          album_art_url: musicPlaceholder,
           is_playing: false,
           client_name: 'Leo’s iPhone',
           album_art_width: MEDIA_APP_COVER_PX,
@@ -804,7 +804,7 @@ export const SOURCE_PAGES = [
       active('airplay', 'Playing', 'All three conditions met. The source bar carries the sender name. position and duration ride the record — the source ages them for a client connecting mid-track — but no bar is drawn from them, because nothing tells this source when the sender paused.', {
         title: 'Ainsi parlait Zarathoustra',
         artist: 'Alain Bashung',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: true,
         client_name: 'Leo’s iPhone',
         album_art_width: MEDIA_APP_COVER_PX,
@@ -849,7 +849,7 @@ export const SOURCE_PAGES = [
       active('dlna', 'Playing', 'A full-fat controller: cover above the floor, audio flowing, and the SSDP sweep has come back — so the source bar names the media server the track is streamed from instead of the source. Position is corrected every 30 s — the longest interval of any source that has one — so most of what the bar shows here is useSourceProgress interpolating.', {
         title: 'Hammers',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: true,
         client_name: 'Freebox Server',
         album_art_width: MEDIA_APP_COVER_PX,
@@ -863,7 +863,7 @@ export const SOURCE_PAGES = [
         {
           title: 'Hammers',
           artist: 'Nils Frahm',
-          album_art_url: albumPlaceholder,
+          album_art_url: musicPlaceholder,
           is_playing: false,
           client_name: 'Freebox Server',
           album_art_width: MEDIA_APP_COVER_PX,
@@ -922,7 +922,7 @@ export const SOURCE_PAGES = [
           drive_connected: true,
           title: 'Keep',
           artist: 'Nils Frahm',
-          album_art_url: albumPlaceholder,
+          album_art_url: musicPlaceholder,
           is_playing: false,
           is_buffering: true,
           current_track: 1,
@@ -940,7 +940,7 @@ export const SOURCE_PAGES = [
           is_playing: false,
           title: 'Keep',
           artist: 'Nils Frahm',
-          album_art_url: albumPlaceholder,
+          album_art_url: musicPlaceholder,
           current_track: 1,
           position: 0,
           duration: 0
@@ -984,7 +984,7 @@ export const SOURCE_PAGES = [
           drive_connected: true,
           title: 'Kind',
           artist: 'Nils Frahm',
-          album_art_url: albumPlaceholder,
+          album_art_url: musicPlaceholder,
           is_playing: true,
           is_buffering: true,
           current_track: 3,
@@ -997,7 +997,7 @@ export const SOURCE_PAGES = [
         drive_connected: true,
         title: 'Kind',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: true,
         current_track: 3,
         position: 74000,
@@ -1012,7 +1012,7 @@ export const SOURCE_PAGES = [
           drive_connected: true,
           title: 'Kind',
           artist: 'Nils Frahm',
-          album_art_url: albumPlaceholder,
+          album_art_url: musicPlaceholder,
           is_playing: false,
           current_track: 3,
           position: 74000,
@@ -1052,7 +1052,7 @@ export const SOURCE_PAGES = [
         device_name: 'Leo’s iPhone',
         title: 'Says',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: true,
         position: 192000,
         duration: 511000
@@ -1061,7 +1061,7 @@ export const SOURCE_PAGES = [
         device_name: 'Leo’s iPhone',
         title: 'Says',
         artist: 'Nils Frahm',
-        album_art_url: albumPlaceholder,
+        album_art_url: musicPlaceholder,
         is_playing: false,
         position: 192000,
         duration: 511000
@@ -1210,7 +1210,7 @@ export const SOURCE_PAGES = [
           // The kicker (and the mobile badge) are gated on the *track* having
           // artwork, not on the station having any — so this is the only shape
           // that reaches either.
-          track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: albumPlaceholder },
+          track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: musicPlaceholder },
           isPlaying: true,
           controls: { favorite: false }
         }
@@ -1277,8 +1277,8 @@ export const SOURCE_PAGES = [
           podcastName: 'Le Code a changé',
           episodeName: 'Épisode 214',
           // Left unset: the source passes displayEpisode.image_url, and with no
-          // episode image AudioPlayer falls back to its bundled placeholder,
-          // which is what an episode with no artwork shows on the unit.
+          // episode image the shared fallback helper answers with the bundled
+          // microphone, which is what an episode with no artwork shows on the unit.
           episodeImage: null,
           isPlaying: true,
           progress: { currentPosition: 812000, duration: 2940000, progressPercentage: 27.6 }
@@ -1346,7 +1346,7 @@ export const SOURCE_PAGES = [
           // reaches this player's info block.
           title: 'Says',
           artist: 'Nils Frahm',
-          artwork: albumPlaceholder,
+          artwork: musicPlaceholder,
           isPlaying: true,
           currentIndex: 1,
           tracks: [

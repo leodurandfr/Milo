@@ -3,7 +3,7 @@
     <LazyImage
       ref="lazyImg"
       :src="store.gridUrl(album.coverArt)"
-      :fallback="albumPlaceholder"
+      :fallback="musicPlaceholder"
       :alt="album.name"
       lazy
       class="album-cover"
@@ -23,8 +23,8 @@
 import { ref } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import LazyImage from '@/components/ui/LazyImage.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
 import { useLazyImageSkeleton } from '@/composables/useLazyImageSkeleton';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
   album: {

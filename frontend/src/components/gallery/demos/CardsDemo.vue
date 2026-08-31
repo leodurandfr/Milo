@@ -84,7 +84,7 @@
     <GalleryVariant label='variant="row" beside its real counterpart — DetailHeader, not a PodcastCard' stacked>
       <div class="column">
         <SkeletonPodcastCard variant="row" />
-        <DetailHeader :image-src="albumPlaceholder" title="Le Code a changé" subtitle="France Inter"
+        <DetailHeader :image-src="musicPlaceholder" title="Le Code a changé" subtitle="France Inter"
           subtitle-meta="214 épisodes" :show-play="false" :show-shuffle="false" />
       </div>
     </GalleryVariant>
@@ -159,7 +159,7 @@ import SkeletonEpisodeCard from '@/components/podcasts/SkeletonEpisodeCard.vue';
 import GenreCard from '@/components/podcasts/GenreCard.vue';
 import SkeletonPodcastDetails from '@/components/podcasts/SkeletonPodcastDetails.vue';
 import SkeletonEpisodeDetails from '@/components/podcasts/SkeletonEpisodeDetails.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 // `favicon: ''` takes the generated-avatar path, so nothing here needs network.
 const station = { name: 'Radio Nova', favicon: '', countrycode: 'FR', genre: 'eclectic' };
@@ -169,7 +169,7 @@ const podcast = {
   uuid: 'p1',
   name: 'Le Code a changé',
   publisher: 'France Inter',
-  image_url: albumPlaceholder,
+  image_url: musicPlaceholder,
   is_subscribed: false
 };
 
@@ -178,10 +178,10 @@ const podcast = {
 const episode = {
   uuid: 'e1',
   name: 'Les gens qui parlent à leurs plantes',
-  image_url: albumPlaceholder,
+  image_url: musicPlaceholder,
   duration: 2940,
   date_published: 1750000000,
-  podcast: { name: 'Le Code a changé', image_url: albumPlaceholder }
+  podcast: { name: 'Le Code a changé', image_url: musicPlaceholder }
 };
 </script>
 

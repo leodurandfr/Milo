@@ -42,7 +42,7 @@
       <PlayerInfoText kicker="Radio Nova" title="Ainsi parlait Zarathoustra" secondary="Alain Bashung" />
     </GalleryVariant>
     <GalleryVariant label="kicker with its own thumbnail (kickerIcon)" stacked>
-      <PlayerInfoText :kicker-icon="albumPlaceholder" kicker="Le Code a changé"
+      <PlayerInfoText :kicker-icon="musicPlaceholder" kicker="Le Code a changé"
         title="Épisode 214 — Les gens qui parlent aux plantes" secondary="France Inter" />
     </GalleryVariant>
   </GalleryItem>
@@ -56,7 +56,7 @@
       <TrackRow :song="track" :number="4" current />
     </GalleryVariant>
     <GalleryVariant label=":show-artist :show-cover :show-menu" stacked>
-      <TrackRow :song="track" :number="4" show-artist show-menu show-cover :cover-url="albumPlaceholder" />
+      <TrackRow :song="track" :number="4" show-artist show-menu show-cover :cover-url="musicPlaceholder" />
     </GalleryVariant>
     <GalleryVariant label=":editing — duration + menu give way to remove + drag grip" stacked>
       <TrackRow :song="track" :number="4" show-artist editing />
@@ -68,7 +68,7 @@
 
   <GalleryItem id="DetailHeader">
     <GalleryVariant label="cover + three lines + the built-in shuffle / play" stacked>
-      <DetailHeader :image-src="albumPlaceholder" title="Spaces" subtitle="Nils Frahm"
+      <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm"
         subtitle-meta="2013 · 17 tracks · 1 h 21" />
     </GalleryVariant>
     <GalleryVariant label=":icon — a tinted tile instead of a cover (the virtual headers)" stacked>
@@ -76,7 +76,7 @@
         :show-shuffle="false" show-favorite is-favorite />
     </GalleryVariant>
     <GalleryVariant label="actions slot — renders before the built-in buttons" stacked>
-      <DetailHeader :image-src="albumPlaceholder" title="Morning playlist" subtitle="42 tracks"
+      <DetailHeader :image-src="musicPlaceholder" title="Morning playlist" subtitle="42 tracks"
         :show-shuffle="false">
         <template #actions>
           <IconButton icon="threeDots" variant="on-dark" size="small" />
@@ -84,7 +84,7 @@
       </DetailHeader>
     </GalleryVariant>
     <GalleryVariant label=":subtitle-clickable — the artist line becomes a link" stacked>
-      <DetailHeader :image-src="albumPlaceholder" title="Spaces" subtitle="Nils Frahm"
+      <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm"
         subtitle-clickable :show-play="false" :show-shuffle="false"
         @select-artist="artistHits++" />
       <span class="text-mono-small">select-artist: {{ artistHits }}</span>
@@ -102,7 +102,7 @@ import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import IconButton from '@/components/ui/IconButton.vue';
-import albumPlaceholder from '@/assets/images/album-placeholder.svg';
+import { musicPlaceholder } from '@/constants/placeholders';
 
 const position = ref(192000);
 const artistHits = ref(0);

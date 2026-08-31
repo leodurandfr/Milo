@@ -115,7 +115,6 @@ import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
-import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 // Views
 import HomeView from './HomeView.vue'
@@ -126,6 +125,7 @@ import GenreView from './GenreView.vue'
 import PodcastDetails from './PodcastDetails.vue'
 import EpisodeDetails from './EpisodeDetails.vue'
 import ProgressBar from '@/components/audio/ProgressBar.vue'
+import { podcastPlaceholder } from '@/constants/placeholders'
 
 const podcastStore = usePodcastStore()
 const unifiedStore = useUnifiedAudioStore()
@@ -287,7 +287,7 @@ async function playEpisode(episode) {
 
 // Episode artwork - use displayEpisode for fade-out animation preservation
 const episodeImage = computed(() => {
-  return podcastStore.displayEpisode?.image_url || episodePlaceholder
+  return podcastStore.displayEpisode?.image_url || podcastPlaceholder
 })
 
 // Episode name - use displayEpisode for fade-out animation preservation

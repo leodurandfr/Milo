@@ -2,7 +2,7 @@
   <div v-press class="episode-card" :class="{ clickable }" @click="handleCardClick">
     <LazyImage
       :src="episode.image_url || episode.podcast?.image_url"
-      :fallback="episodePlaceholder"
+      :fallback="podcastPlaceholder"
       :alt="episode.name"
       lazy
       class="card-image"
@@ -43,7 +43,7 @@ import { useEpisodePlaybackStatus } from '@/composables/useEpisodePlaybackStatus
 import { useI18n } from '@/services/i18n'
 import IconButton from '@/components/ui/IconButton.vue'
 import LazyImage from '@/components/ui/LazyImage.vue'
-import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
+import { podcastPlaceholder } from '@/constants/placeholders'
 
 const { t } = useI18n()
 

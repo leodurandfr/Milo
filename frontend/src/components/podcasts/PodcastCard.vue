@@ -30,7 +30,7 @@ import { useI18n } from '@/services/i18n'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import LazyImage from '@/components/ui/LazyImage.vue'
-import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
+import { podcastPlaceholder } from '@/constants/placeholders'
 
 const { t } = useI18n()
 
