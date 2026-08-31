@@ -205,6 +205,10 @@ export const useUpdatesStore = defineStore('updates', () => {
   // share dpkg/apt through the deploy wrapper. A satellite is a separate
   // machine — it blocks only its own three buttons, which its API enforces
   // anyway (409 while one runs).
+  //
+  // The same rule is enforced in `_claim_update` (backend/api/programs.py),
+  // which is where it holds: what follows only disables buttons in one
+  // client's DOM, and a second device does not see them.
   function isMiloUpdating() {
     return localUpdateStates.value['milo']?.updating || false;
   }

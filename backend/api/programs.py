@@ -4,7 +4,7 @@ API routes for program management — Full version with satellites
 """
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from fastapi import APIRouter, BackgroundTasks
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import (
@@ -59,8 +59,20 @@ def create_programs_router(
     # payload lived here unread for as long as it existed.
     active_updates: set[str] = set()
 
-    def _claim_update(update_key: str) -> bool:
-        """Reserve an update key, or refuse if one is already in flight.
+    # An update key belongs to the server ("local") or to one satellite. The
+    # longest prefix first: a MAC never contains "app_" or "camilladsp_", but
+    # the bare "satellite_" would swallow both.
+    satellite_key_prefixes = ("satellite_app_", "satellite_camilladsp_", "satellite_")
+
+    def _scope(update_key: str) -> str:
+        """"local", or the satellite this key drives."""
+        for prefix in satellite_key_prefixes:
+            if update_key.startswith(prefix):
+                return update_key[len(prefix):]
+        return "local"
+
+    def _claim_update(update_key: str) -> Optional[str]:
+        """Reserve an update key, or name the in-flight update that forbids it.
 
         Synchronous on purpose, and called by the route rather than by
         _create_background_update: `update_program` awaits GitHub
@@ -69,11 +81,37 @@ def create_programs_router(
         pass. The frontend store blocks a same-client double click; it cannot
         block a second device. Every path out of a route between the claim and
         `background_tasks.add_task` must release the key.
+
+        The policy is the one the update screen draws, enforced here because
+        that is the side a second device cannot walk around. `milo` blocks
+        everything and is blocked by everything: it reconciles the whole
+        dependency set — so a program update running beside it is installed
+        twice, each run stopping the service the other started — pushes the
+        client app to every satellite, colliding with that satellite's own 409,
+        and then reboots the unit out from under the task polling it. Two local
+        programs block each other for the deploy wrapper they share. A
+        satellite is a separate machine, so it blocks only its own three keys.
+
+        Returns None once the key is claimed.
         """
-        if update_key in active_updates:
-            return False
+        scope = _scope(update_key)
+        for running in active_updates:
+            if "milo" in (running, update_key) or _scope(running) == scope:
+                return running
         active_updates.add(update_key)
-        return True
+        return None
+
+    def _refuse(blocker: str, update_key: str) -> dict:
+        """The refusal envelope, naming what is in the way when it is not this key."""
+        if blocker == update_key:
+            return {
+                "status": "error",
+                "message": f"Update already in progress for {update_key}",
+            }
+        return {
+            "status": "error",
+            "message": f"An update is already in progress for {blocker}; it must finish first",
+        }
 
     def _create_background_update(
         update_key: str,
@@ -243,11 +281,9 @@ def create_programs_router(
 
         satellite_key = f"satellite_{mac_id}"
 
-        if not _claim_update(satellite_key):
-            return {
-                "status": "error",
-                "message": f"Update already in progress for {mac_id}"
-            }
+        blocker = _claim_update(satellite_key)
+        if blocker:
+            return _refuse(blocker, satellite_key)
 
         target_version = await _fleet_target("multiroom")
         if not target_version:
@@ -278,11 +314,9 @@ def create_programs_router(
 
         satellite_key = f"satellite_app_{mac_id}"
 
-        if not _claim_update(satellite_key):
-            return {
-                "status": "error",
-                "message": f"App update already in progress for {mac_id}"
-            }
+        blocker = _claim_update(satellite_key)
+        if blocker:
+            return _refuse(blocker, satellite_key)
 
         do_update = _create_background_update(
             update_key=satellite_key,
@@ -305,11 +339,9 @@ def create_programs_router(
 
         satellite_key = f"satellite_camilladsp_{mac_id}"
 
-        if not _claim_update(satellite_key):
-            return {
-                "status": "error",
-                "message": f"CamillaDSP update already in progress for {mac_id}"
-            }
+        blocker = _claim_update(satellite_key)
+        if blocker:
+            return _refuse(blocker, satellite_key)
 
         target_version = await _fleet_target("camilladsp")
         if not target_version:
@@ -362,11 +394,9 @@ def create_programs_router(
     ):
         """Launch a local program update in the background"""
 
-        if not _claim_update(program_key):
-            return {
-                "status": "error",
-                "message": "Update already in progress for this program"
-            }
+        blocker = _claim_update(program_key)
+        if blocker:
+            return _refuse(blocker, program_key)
 
         try:
             can_update = await update_service.can_update_program(program_key, payload.target)
