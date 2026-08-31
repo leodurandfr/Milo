@@ -52,7 +52,7 @@ const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.album.cover
 .album-cover {
   aspect-ratio: 1;
   width: 100%;
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-02);
   background: var(--color-background-neutral-50);
 }
 
