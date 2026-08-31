@@ -852,6 +852,27 @@ describe('component gallery source pages', () => {
     expect(covered).toEqual([...ALL_AUDIO_SOURCES].sort());
   });
 
+  it('states no page count its own list contradicts', () => {
+    // The same rot as the catalogue's, one file over and worse: "the ten audio
+    // sources" was written four times across these two files and was wrong in
+    // all four, having survived at least one source being added — and the stage
+    // said it mounted the dispatcher "for seven of the ten" when it is eight of
+    // eleven. Prose that counts something the file itself lists is a copy, so
+    // the expectation is recomputed from the list rather than typed out.
+    const dispatcher = SOURCE_PAGES.filter(page => page.via === 'dispatcher').length;
+    const sources = readFileSync(join(SRC_DIR, 'components/gallery/sources.js'), 'utf8');
+    const stage = readFileSync(join(SRC_DIR, 'components/gallery/SourceStage.vue'), 'utf8');
+
+    // Both derivations first: a list that came back empty would match nothing
+    // and pass by finding nothing to disagree with.
+    expect(SOURCE_PAGES.length).toBeGreaterThan(5);
+    expect(dispatcher).toBeGreaterThan(0);
+
+    expect(sources).toContain(`${SOURCE_PAGES.length} audio sources`);
+    expect(sources).toContain(`${SOURCE_PAGES.length} pages`);
+    expect(stage).toContain(`${dispatcher} of the ${SOURCE_PAGES.length} sources`);
+  });
+
   it('derives every scenario name instead of writing one', () => {
     // The rule the page is built on, and the one worth a test of its own: an id
     // is `scenarioId(events)` and nothing else. A hand-written one is how
