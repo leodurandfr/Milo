@@ -67,6 +67,21 @@ class MpvController:
         could run for ~55s under a 10s caller budget). What the caller has is
         time, so that is what this spends.
 
+        Running out of that time is a warning, not an error. It is the one log
+        line on this path under the `backend` hierarchy, which is what
+        WebSocketLogHandler forwards to the UI banner wholesale (main.py) -- the
+        source's own logger is rooted at `source` and raises nothing. So an
+        ERROR here is a *second* user-facing report of a failure the state
+        machine already broadcasts as a typed SystemErrorEvent, and being a raw
+        log line it races that event for App.vue's single banner slot. The same
+        reasoning, and the same conclusion, as AudioStateMachine's own
+        "Transition failed" warning. What is genuinely broken still shouts: the
+        unexpected-exception arm below stays an error.
+
+        Every give-up says how long it actually waited, because that number is
+        the only evidence from which the budget could ever be re-sized, and it
+        is only produced by the boots that fail.
+
         Args:
             timeout: Total budget for the whole retry loop (seconds)
             retry_delay: Delay between attempts (seconds)
@@ -74,7 +89,8 @@ class MpvController:
         Returns:
             True if connection successful
         """
-        deadline = time.monotonic() + timeout
+        started = time.monotonic()
+        deadline = started + timeout
 
         def can_retry() -> bool:
             """Room for another delay + probe before the deadline."""
@@ -86,7 +102,10 @@ class MpvController:
                     if can_retry():
                         await asyncio.sleep(retry_delay)
                         continue
-                    self.logger.error(f"IPC socket not found: {self.ipc_socket_path}")
+                    self.logger.warning(
+                        f"IPC socket never appeared in "
+                        f"{time.monotonic() - started:.1f}s: {self.ipc_socket_path}"
+                    )
                     return False
 
                 self.reader, self.writer = await asyncio.open_unix_connection(self.ipc_socket_path)
@@ -103,7 +122,10 @@ class MpvController:
                     if can_retry():
                         await asyncio.sleep(retry_delay)
                         continue
-                    self.logger.error("mpv connected but never responded to commands")
+                    self.logger.warning(
+                        f"mpv never answered a command in "
+                        f"{time.monotonic() - started:.1f}s"
+                    )
                     return False
 
                 # Capture the launch-time reconnect options once, while mpv is
@@ -113,7 +135,10 @@ class MpvController:
                         "stream-lavf-o", timeout=PROBE_TIMEOUT
                     )
 
-                self.logger.info(f"Connected to mpv IPC socket: {self.ipc_socket_path}")
+                self.logger.info(
+                    f"Connected to mpv IPC socket in "
+                    f"{time.monotonic() - started:.1f}s: {self.ipc_socket_path}"
+                )
                 return True
 
             except (ConnectionRefusedError, FileNotFoundError) as e:
@@ -121,7 +146,10 @@ class MpvController:
                     self.logger.debug(f"Retry: {e}")
                     await asyncio.sleep(retry_delay)
                     continue
-                self.logger.error(f"Failed to connect to mpv within {timeout}s")
+                self.logger.warning(
+                    f"Failed to connect to mpv in "
+                    f"{time.monotonic() - started:.1f}s: {e}"
+                )
                 return False
             except Exception as e:
                 self.logger.error(f"Unexpected error connecting to mpv: {e}")
@@ -226,7 +254,8 @@ class MpvController:
                 # load or rapid station change it can burst many events before the
                 # reply, so bound the search by a wall-clock deadline rather than a
                 # fixed line count and keep skipping events until our reply arrives.
-                deadline = time.monotonic() + timeout
+                started = time.monotonic()
+                deadline = started + timeout
                 try:
                     while True:
                         timeout = deadline - time.monotonic()
@@ -416,7 +445,8 @@ class MpvController:
         not-yet-moving playhead. Bounded by `timeout` so a stalled source can't
         hang the caller. Returns True once advancing, False on timeout.
         """
-        deadline = time.monotonic() + timeout
+        started = time.monotonic()
+        deadline = started + timeout
         while time.monotonic() < deadline:
             time_pos = await self.get_property("time-pos")
             if isinstance(time_pos, (int, float)) and time_pos > 0:
