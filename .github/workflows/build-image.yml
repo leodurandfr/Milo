@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - 'v*'
+  # Weekly, because a build that only runs on a tag is a build nobody runs. This
+  # one was broken for three months — `dependencies.env` landed on 2026-08-19 and
+  # the stage had sourced a file no builder copied ever since — and the only
+  # reason it went unnoticed is that the last tag is v0.1.0. A schedule turns
+  # that into a week. Off the top of the hour, and off lint.yml's day, for the
+  # reason lint.yml gives: GitHub drops on-the-hour scheduled runs under load.
+  schedule:
+    - cron: '23 3 * * 3'
   workflow_dispatch:
     inputs:
       branch:
