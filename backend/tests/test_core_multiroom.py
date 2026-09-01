@@ -3393,3 +3393,111 @@ class TestEqIndependentFlag:
 
         assert await registry.set_client_eq_independent("no:such:client", True) is None
         assert settings.writes == writes_before
+
+
+@pytest.mark.asyncio
+class TestTheZoneAClientLeavesIsAnnounced:
+    """Membership moves have two sides, and the registry used to announce one.
+
+    `add_client_to_zone` and `create_zone` both take a client out of the zone it
+    was in. Only the zone a departure *destroyed* was ever emitted, so a
+    surviving one went stale in every subscriber at once — and silently: the
+    registry's own state stayed consistent, no route failed, nothing went red.
+    """
+
+    @staticmethod
+    async def _registry():
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_settings = AsyncMock()
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        for i in range(5):
+            await registry.register_client(f"c{i}", f"Client {i}", f"192.168.1.1{i}")
+        return registry
+
+    @staticmethod
+    def _zone_events(registry):
+        """Every zone id the registry announced, in order."""
+        seen = []
+
+        async def spy(event_type, data):
+            if event_type in (
+                RegistryEventType.ZONE_CREATED,
+                RegistryEventType.ZONE_UPDATED,
+                RegistryEventType.ZONE_DELETED,
+            ):
+                seen.append((event_type, data["zone_id"]))
+
+        registry.subscribe(spy)
+        return seen
+
+    async def test_moving_out_of_a_surviving_zone_announces_it(self):
+        """The zone that lost a member changed as much as the one that gained it.
+
+        Nothing else recomputes it: the volume store keeps the mover in the old
+        zone's member list — and the ownership rule commits a zone delta to an
+        absent client unconditionally — while the crossover service never
+        recalculates the band split the departure changed.
+        """
+        registry = await self._registry()
+        await registry.create_zone("z1", "Salon", ["c0", "c1", "c2"])
+        await registry.create_zone("z2", "Bureau", ["c3", "c4"])
+        seen = self._zone_events(registry)
+
+        await registry.add_client_to_zone("z2", "c2")
+
+        assert registry.get_zone("z1").client_ids == ["c0", "c1"]
+        assert ("zone_updated", "z1") in seen
+        # The departure lands before the arrival, so no subscriber that keys
+        # clients by zone ever holds the same mac in two zones.
+        assert seen.index(("zone_updated", "z1")) < seen.index(("zone_updated", "z2"))
+
+    async def test_the_volume_store_stops_moving_a_client_that_left(self):
+        """Driven through the real subscriber, because the fault is what the
+        subscriber ends up holding, not what the registry returns."""
+        from backend.core.models.volume import VolumeConfig
+        from backend.core.volume.state import VolumeStateStore
+
+        registry = await self._registry()
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        store = VolumeStateStore(settings)
+        store.set_volume_config(VolumeConfig())
+        store.set_registry(registry)
+
+        await registry.create_zone("z1", "Salon", ["c0", "c1", "c2"])
+        await registry.create_zone("z2", "Bureau", ["c3", "c4"])
+        await registry.add_client_to_zone("z2", "c2")
+
+        assert "c2" not in store._zones["z1"].client_ids
+        assert "c2" in store._zones["z2"].client_ids
+
+    async def test_creating_a_zone_from_a_client_that_is_in_one_moves_it(self):
+        """A client in two zones at once is unrecoverable through the UI: both
+        zones fan EQ and volume at it, `get_zone_for_client` can only name one,
+        and the zone editor refuses to drop a zone below two members."""
+        registry = await self._registry()
+        await registry.create_zone("z1", "Salon", ["c0", "c1", "c2"])
+        seen = self._zone_events(registry)
+
+        await registry.create_zone("z2", "Bureau", ["c0", "c3"])
+
+        listing_c0 = [z.id for z in registry.get_all_zones().values() if "c0" in z.client_ids]
+        assert listing_c0 == ["z2"]
+        assert registry.get_client("c0").zone_id == "z2"
+        assert ("zone_updated", "z1") in seen
+
+    async def test_a_move_that_empties_the_old_zone_still_dissolves_it(self):
+        """The branch that already worked, kept: two members minus one is not a
+        zone, and its remaining member goes standalone."""
+        registry = await self._registry()
+        await registry.create_zone("z1", "Salon", ["c0", "c1"])
+        await registry.create_zone("z2", "Bureau", ["c2", "c3"])
+        seen = self._zone_events(registry)
+
+        await registry.add_client_to_zone("z2", "c1")
+
+        assert registry.get_zone("z1") is None
+        assert registry.get_client("c0").zone_id is None
+        assert ("zone_deleted", "z1") in seen
