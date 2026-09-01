@@ -49,7 +49,7 @@
             <Transition name="content-swap">
               <div v-if="!store.displayedArtistIndex.length && (store.artistsLoading || !store.artistsLoaded)"
                 key="loading" class="rows-list">
-                <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" rounded-cover />
+                <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
               </div>
               <MessageContent v-else-if="!store.displayedArtistIndex.length" key="empty"
                 v-bind="emptyState('musicLibrary.noArtists')" />
@@ -59,7 +59,7 @@
                     <p class="index-label text-mono">{{ bucket.name }}</p>
                     <MediaRow v-for="artist in bucket.artist" :key="artist.id" :cover-id="artist.coverArt"
                       :title="artist.name" :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
-                      rounded-cover @click="$emit('select-artist', artist)" />
+                      @click="$emit('select-artist', artist)" />
                   </div>
                 </div>
                 <div ref="artistsSentinelRef" class="scroll-sentinel"></div>

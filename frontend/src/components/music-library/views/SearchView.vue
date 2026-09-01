@@ -23,7 +23,6 @@
                 :cover-id="artist.coverArt"
                 :title="artist.name"
                 :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
-                rounded-cover
                 @click="$emit('select-artist', artist)"
               />
             </div>
