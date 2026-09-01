@@ -465,6 +465,8 @@ class ClientRegistryService:
         if len(client_ids) < 2:
             raise ValueError("Zone requires at least 2 clients")
 
+        detachments: List[Optional[tuple]] = []
+
         async with self._lock:
             if zone_id in self._zones:
                 raise ValueError(f"Zone {zone_id} already exists")
@@ -473,6 +475,15 @@ class ClientRegistryService:
             for cid in client_ids:
                 if cid not in self._clients:
                     raise ValueError(f"Client {cid} not found")
+
+            # Validation first, then the detach: a create that raises must leave
+            # no zone half-emptied. A member already in another zone leaves it
+            # here — without this the old zone kept listing the mac while
+            # client.zone_id pointed at the new one, so both zones fanned EQ and
+            # volume at it and get_zone_for_client could only ever name one, which
+            # left no way to take it out of the other.
+            for cid in client_ids:
+                detachments.append(self._detach_from_zone(cid))
 
             zone = Zone(
                 id=zone_id,
@@ -487,6 +498,7 @@ class ClientRegistryService:
                 self._clients[cid].zone_id = zone_id
 
         await self._persist_state()
+        await self._emit_detachments(detachments)
         await self._emit_event(RegistryEventType.ZONE_CREATED, {
             "action": "created",
             "zone_id": zone_id,
@@ -508,6 +520,74 @@ class ClientRegistryService:
             if mac_id in self._clients:
                 self._clients[mac_id].zone_id = None
                 self._clients[mac_id].eq_independent = False
+
+    def _detach_from_zone(self, mac_id: str) -> Optional[tuple]:
+        """Take a client out of the zone it is in, if any.
+
+        The one detach path, shared by ``add_client_to_zone`` and ``create_zone``:
+        a client that joins somewhere else has to *leave* where it was, and the
+        zone it left has to be announced. Announcing only the zones a departure
+        destroyed left a surviving one stale in every subscriber at once —
+        VolumeStateStore kept moving the mover's level with its old zone (and the
+        ownership rule commits that write even for a client nothing reached),
+        CrossoverService never recomputed the band split the departure changed,
+        and the frontend and Milo-Mac both kept drawing the client where it no
+        longer was.
+
+        Must be called inside ``self._lock``. Returns the
+        ``(deleted, zone_id, zone_dict)`` the caller has to announce once the lock
+        is released, or None when the client was standalone. The zone dict is
+        snapshotted *after* the removal, so the payload states what the zone now
+        is rather than what it was.
+        """
+        client = self._clients.get(mac_id)
+        if not client or not client.zone_id:
+            return None
+
+        zone = self._zones.get(client.zone_id)
+        if not zone:
+            # Dangling reference: clear it rather than carry it into the new zone.
+            client.zone_id = None
+            return None
+
+        zone_id = zone.id
+        if mac_id in zone.client_ids:
+            zone.client_ids.remove(mac_id)
+        self._make_clients_standalone([mac_id])
+
+        if not zone.is_valid():
+            zone_dict = self.zone_to_enriched_dict(zone)
+            self._make_clients_standalone(zone.client_ids)
+            del self._zones[zone_id]
+            return (True, zone_id, zone_dict)
+
+        return (False, zone_id, self.zone_to_enriched_dict(zone))
+
+    async def _emit_detachments(self, detachments: List[Optional[tuple]]) -> None:
+        """Announce what _detach_from_zone collected, before the arrival.
+
+        The two event types are named literally rather than carried in the tuple:
+        tests/architecture/test_registry_events.py resolves every _emit_event
+        call's type statically, and a variable it cannot trace is a producer it
+        cannot check against its consumers.
+        """
+        for detached in detachments:
+            if not detached:
+                continue
+            deleted, zone_id, zone_dict = detached
+            if deleted:
+                await self._emit_event(RegistryEventType.ZONE_DELETED, {
+                    "action": "deleted",
+                    "zone_id": zone_id,
+                    "zone": zone_dict
+                })
+                self.logger.info(f"Zone {zone_id} deleted (less than 2 clients after move)")
+            else:
+                await self._emit_event(RegistryEventType.ZONE_UPDATED, {
+                    "action": "updated",
+                    "zone_id": zone_id,
+                    "zone": zone_dict
+                })
 
     async def delete_zone(self, zone_id: str) -> bool:
         """
@@ -597,9 +677,7 @@ class ClientRegistryService:
         Returns:
             True if client was added, False if zone/client not found
         """
-        old_zone_deleted = False
-        old_zone_id = None
-        old_zone_dict = None
+        detached = None
 
         async with self._lock:
             zone = self._zones.get(zone_id)
@@ -615,19 +693,9 @@ class ClientRegistryService:
             if mac_id in zone.client_ids:
                 return False
 
-            # Remove from current zone if in one
-            if client.zone_id and client.zone_id in self._zones:
-                old_zone = self._zones[client.zone_id]
-                old_zone_id = client.zone_id
-                # Snapshot before removal for consistent ZONE_DELETED payload
-                old_zone_dict = self.zone_to_enriched_dict(old_zone)
-                if mac_id in old_zone.client_ids:
-                    old_zone.client_ids.remove(mac_id)
-                # Clean up orphan zone (< 2 members)
-                if not old_zone.is_valid():
-                    old_zone_deleted = True
-                    self._make_clients_standalone(old_zone.client_ids)
-                    del self._zones[old_zone_id]
+            # Leave the previous zone, if any — announced by _emit_detachments
+            # below whether that zone survived the departure or not.
+            detached = self._detach_from_zone(mac_id)
 
             zone.client_ids.append(mac_id)
             client.zone_id = zone_id
@@ -639,13 +707,9 @@ class ClientRegistryService:
 
         await self._persist_state()
 
-        if old_zone_deleted:
-            await self._emit_event(RegistryEventType.ZONE_DELETED, {
-                "action": "deleted",
-                "zone_id": old_zone_id,
-                "zone": old_zone_dict
-            })
-            self.logger.info(f"Zone {old_zone_id} deleted (less than 2 clients after move)")
+        # The departure is announced before the arrival, so a subscriber that
+        # keys clients by zone never sees the same mac in two zones at once.
+        await self._emit_detachments([detached])
 
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
             "action": "updated",
