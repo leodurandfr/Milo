@@ -75,11 +75,34 @@ ROLES = {
     },
 }
 
-HELPER_DIRS = ("usr/local/bin", "usr/local/lib/milo")
+# What a role needs on disk before it can work: its helpers, and the sudoers
+# policy that makes them runnable. The policy belongs here for the same reason
+# the helpers do — the conversion path removed the server's and installed no
+# replacement, leaving a satellite on whatever the image baked, which nothing
+# refreshes. Measured on a unit flashed 2026-06-20: June's policy, carrying no
+# `PASSWD: ALL` withdrawal at all.
+HELPER_DIRS = ("usr/local/bin", "usr/local/lib/milo", "etc/sudoers.d")
 
 
 def _pi_gen_text() -> str:
-    return "\n".join(p.read_text() for p in sorted((REPO_ROOT / "pi-gen").rglob("*run.sh")))
+    """The stage scripts, plus the `install/` modules they source.
+
+    The stage deploys most files with its own glob loops, but not all: it
+    sources `install/ir-remote.sh` and calls `install_ir_helpers`, which is what
+    puts `milo-ir-remote` in `/etc/sudoers.d`. Reading the stage alone reported
+    that as undeployed — a miss the stage would have to restate to satisfy,
+    which is the drift this directory exists to prevent. Only the modules the
+    stage actually sources are included: pulling in all of `install/` would make
+    every file look deployed by pi-gen.
+    """
+    stages = sorted((REPO_ROOT / "pi-gen").rglob("*run.sh"))
+    text = "\n".join(p.read_text() for p in stages)
+    sourced = {
+        REPO_ROOT / rel
+        for rel in re.findall(r"^\s*(?:source|\.)\s+(install/\S+)\s*$", text, re.MULTILINE)
+    }
+    assert sourced, "no install/ module sourced from pi-gen; the extractor is broken"
+    return "\n".join([text] + [m.read_text() for m in sorted(sourced) if m.is_file()])
 
 
 def _install_closure_text(entry: Path, module_dir: Path) -> str:
@@ -133,9 +156,17 @@ def _deploys(text: str, tree: Path, helper: Path) -> bool:
     everything the directory holds, which is the point of writing it that way —
     pi-gen's own comment says a hand-maintained allowlist is what dropped three
     scripts from the image.
+
+    The match is on the *tree-relative path*, never the bare basename. A
+    basename can be an ordinary word of the script: `milo-first-boot` says
+    "milo-client" on almost every line — the account, the hostname, the unit
+    names — so basename matching reported `etc/sudoers.d/milo-client` as
+    deployed by a script that never touched it, and the rule silently proved
+    nothing for that file. Every deployment in the tree writes the path.
     """
     body = _uncommented(text)
-    if helper.name in body:
+    relative = str(helper.relative_to(tree))
+    if relative in body:
         return True
     directory = str(helper.parent.relative_to(tree))
     return bool(re.search(rf"{re.escape(directory)}/?\*", body)) or f"{directory}/*" in body
@@ -171,8 +202,11 @@ def test_both_deployment_spellings_are_exercised():
 
     assert _deploys('sudo cp "$X/rootfs/usr/local/bin/milo-apply-hardware" /usr/local/bin/', tree, named)
     assert _deploys("for s in $X/rootfs/usr/local/bin/*; do cp $s /usr/local/bin/; done", tree, named)
-    assert not _deploys("# milo-apply-hardware is mentioned in a comment", tree, named)
+    assert not _deploys("# usr/local/bin/milo-apply-hardware is in a comment", tree, named)
     assert not _deploys("nothing to see here", tree, named)
+    # The bare basename must NOT satisfy the rule — that is what made it vacuous
+    # for a file whose name is also an ordinary word of the deploying script.
+    assert not _deploys("milo-apply-hardware", tree, named)
 
 
 # --------------------------------------------------------------------------- #
