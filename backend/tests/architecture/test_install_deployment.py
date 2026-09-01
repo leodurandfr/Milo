@@ -468,3 +468,50 @@ def test_an_unpinned_download_cannot_abort_an_install_chain():
         "install under `set -e`; guard them so the failure costs only the "
         "feature:\n" + "\n".join(unguarded)
     )
+
+
+# `apt install … || true` turns a package that no longer exists into a silent
+# no-op. `install/common.sh` carried one for months: it named `libflac12t64`
+# with a `libflac12` fallback, neither of which trixie has, so the call failed
+# and took `libavahi-client3`/`libavahi-common3` down with it — and said
+# nothing. The first CI image build is what surfaced it, in a log nobody reads
+# when the build is green.
+#
+# A fallback onto a *different package name* is a different thing and stays
+# allowed: `chromium || chromium-browser` is real cross-distro variance, and it
+# is not silenced — if both fail, `set -e` ends the run, which is right.
+
+APT_INSTALL_RE = re.compile(r"apt(?:-get)?\s+install\b")
+
+
+def test_no_apt_install_is_silenced():
+    """A package that vanished upstream must end the run, not be swallowed."""
+    silenced = []
+    for tree, paths in FETCH_TREES.items():
+        for path in paths:
+            for line in _statements(path):
+                if not APT_INSTALL_RE.search(line):
+                    continue
+                # Only the trailing `|| true` silences it; `|| apt install <other>`
+                # is a fallback that still fails loudly when both arms fail.
+                if re.search(r"\|\|\s*true\s*$", line.strip()):
+                    silenced.append(f"{tree}: {path.relative_to(REPO_ROOT)}: {line.strip()[:90]}")
+    assert not silenced, (
+        "these apt installs are swallowed, so a package that no longer exists "
+        "becomes a silent no-op:\n" + "\n".join(silenced)
+    )
+
+
+def test_the_apt_extractor_sees_the_installs():
+    """The rule above is vacuous if no `apt install` is extracted at all."""
+    found = [
+        line
+        for paths in FETCH_TREES.values()
+        for path in paths
+        for line in _statements(path)
+        if APT_INSTALL_RE.search(line)
+    ]
+    assert len(found) >= 10, f"only {len(found)} apt install statements extracted"
+    # ...and the matcher must discriminate.
+    assert re.search(r"\|\|\s*true\s*$", "apt install -y x || true")
+    assert not re.search(r"\|\|\s*true\s*$", "apt install -y x || apt install -y y")

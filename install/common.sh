@@ -206,9 +206,12 @@ install_snapcast_packages() {
             fi
         done
 
-        log_info "Installing dependencies..."
-        sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
-
+        # No dependency pre-install: `apt install ./*.deb` below resolves what the
+        # packages declare. The line that used to sit here named libflac12t64 with
+        # a libflac12 fallback — neither exists on trixie, so the whole call failed
+        # and took libavahi-client3/libavahi-common3 with it, and `|| true` hid
+        # that. Measured on a unit: libflac14 arrives anyway, via the .deb's own
+        # dependencies (and via chromium).
         if sudo apt install -y ./*.deb; then
             log_success "Snapcast ($label) installed from GitHub packages ($deb_version)"
             return 0
