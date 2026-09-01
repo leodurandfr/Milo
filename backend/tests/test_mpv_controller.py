@@ -31,7 +31,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from backend.core.log_handler import WebSocketLogHandler
-from backend.shared.mpv import MpvController
+from backend.shared.mpv import PROBE_TIMEOUT, MpvController
 
 
 @pytest.fixture
@@ -173,10 +173,12 @@ class TestConnectBudget:
     On the margin these budgets carry, since a wall-clock assertion on the
     appliance is a fair thing to be suspicious of: `can_retry` refuses to start
     an attempt it cannot afford to finish, so the loop returns at least
-    `retry_delay + PROBE_TIMEOUT` -- 1.1s -- before the deadline, by
-    construction and not by luck. Both tests below measure 0.90s against a 2.0s
-    bound. Failing one would take losing more than a second of scheduling
-    inside a 0.9s window, and by then the appliance has worse problems.
+    `retry_delay` plus that attempt's own cost before the deadline, by
+    construction and not by luck. The reserve is per branch -- a probe's width
+    where the next attempt opens the socket and waits on mpv, nothing where it
+    only stats a path -- so the two tests below sit 0.5s and 1.1s clear of their
+    2.0s bound respectively. Failing one would take losing half a second of
+    scheduling inside that window, and by then the appliance has worse problems.
 
     The bound is still the weaker half of what is asserted, so the case that
     matters -- an attempt-counter implementation, which is the regression these
@@ -187,7 +189,7 @@ class TestConnectBudget:
     async def test_missing_socket_gives_up_within_timeout(self, controller):
         """Socket never appears: retries, then gives up inside the budget."""
         started = time.monotonic()
-        result = await controller.connect(timeout=2.0, retry_delay=0.1)
+        result = await controller.connect(timeout=2.0, retry_delay=0.5)
         elapsed = time.monotonic() - started
 
         assert result is False
@@ -258,6 +260,95 @@ class TestConnectBudget:
 
         # _start_service_and_wait settles for 0.5s before connect() is called.
         assert CONNECT_TIMEOUT + PROBE_TIMEOUT + 0.5 < AudioStateMachine.TRANSITION_TIMEOUT
+
+
+class TestReserveIsPerBranch:
+    """What `can_retry` holds back is the cost of the attempt it authorises.
+
+    One reserve for all three branches meant the cheapest of them -- does this
+    path exist -- was charged for a probe it never runs, and the loop gave up a
+    whole PROBE_TIMEOUT before its own deadline. Measured on the appliance: the
+    boot of 2026-09-01 abandoned a cold mpv 5.08s into a 6.0s budget, and the
+    start that followed two seconds later succeeded. No constant changes here;
+    the budget is simply spent.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_cheap_branch_outlasts_the_expensive_one(self, controller, tmp_path):
+        """Same budget, two branches, and the counts are the loop's own.
+
+        Neither number is written by this test: one is how many times the loop
+        asked whether a path exists, the other how many probes it sent. What is
+        asserted is only that they differ -- which is exactly what a shared
+        reserve made impossible.
+        """
+        budget, retry_delay = 2.0, 0.5
+
+        stats = {"n": 0}
+
+        class CountingPath:
+            def __init__(self, _path):
+                pass
+
+            def exists(self):
+                stats["n"] += 1
+                return False
+
+        with patch("backend.shared.mpv.Path", CountingPath):
+            assert await controller.connect(budget, retry_delay) is False
+
+        async def wedged_probe(*args, **kwargs):
+            await asyncio.sleep(0.05)
+            return None
+
+        with patch("backend.shared.mpv.Path") as mock_path, \
+             patch("asyncio.open_unix_connection", new_callable=AsyncMock) as mock_open, \
+             patch.object(MpvController, "_send_command", side_effect=wedged_probe) as probe:
+            mock_path.return_value.exists.return_value = True
+            mock_open.return_value = (Mock(), Mock())
+            assert await controller.connect(budget, retry_delay) is False
+
+        assert stats["n"] > probe.await_count
+
+    @pytest.mark.asyncio
+    async def test_a_missing_socket_is_waited_for_to_the_deadline(self, controller, caplog):
+        """The wait connect() reports must fill the budget it was given.
+
+        Read off the give-up line rather than the clock around the call, so what
+        is checked is what an operator reading the journal after a failed boot
+        would see. Under the shared reserve this came back a whole PROBE_TIMEOUT
+        short.
+        """
+        budget, retry_delay = 3.0, 0.5
+        with caplog.at_level(logging.WARNING, logger="backend.shared.mpv"):
+            assert await controller.connect(budget, retry_delay) is False
+
+        waited = float(re.search(r"in ([\d.]+)s", caplog.records[-1].getMessage()).group(1))
+        assert budget - retry_delay - PROBE_TIMEOUT < waited <= budget
+
+    @pytest.mark.asyncio
+    async def test_a_re_attach_is_still_one_attempt(self, controller):
+        """ensure_connected must not start polling because the reserve shrank.
+
+        Its whole point is that a play command gets an honest immediate answer
+        instead of a frozen button. That used to hold because PROBE_TIMEOUT was
+        the reserve on every branch; it holds now because ensure_connected
+        spends its budget as the retry delay too.
+        """
+        stats = {"n": 0}
+
+        class CountingPath:
+            def __init__(self, _path):
+                pass
+
+            def exists(self):
+                stats["n"] += 1
+                return False
+
+        with patch("backend.shared.mpv.Path", CountingPath):
+            assert await controller.ensure_connected() is False
+
+        assert stats["n"] == 1
 
 
 class TestGiveUpIsNotABanner:

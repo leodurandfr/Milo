@@ -28,10 +28,13 @@ CONNECT_TIMEOUT = 6.0
 # CONNECT_TIMEOUT, which buys patience for a cold start where mpv was forked half
 # a second ago and its socket may not exist yet. A play command has nothing to
 # wait for: either mpv is listening now or systemd has not restarted it yet, and
-# an honest immediate failure beats a frozen button. Equal to PROBE_TIMEOUT,
-# which makes connect()'s can_retry() false on the first pass (retry_delay +
-# PROBE_TIMEOUT is never below PROBE_TIMEOUT): one attempt, whatever those two
-# constants later become.
+# an honest immediate failure beats a frozen button.
+#
+# "One attempt" is spent, not inferred: ensure_connected passes this as the retry
+# delay as well, so can_retry's `retry_delay + attempt_cost < timeout` is false on
+# the first pass for every branch and for any attempt cost. It used to rest on
+# PROBE_TIMEOUT being the reserve on all three branches, which stopped being true
+# the moment the cheap branch got the reserve it actually costs.
 RECONNECT_TIMEOUT = PROBE_TIMEOUT
 
 
@@ -92,14 +95,28 @@ class MpvController:
         started = time.monotonic()
         deadline = started + timeout
 
-        def can_retry() -> bool:
-            """Room for another delay + probe before the deadline."""
-            return time.monotonic() + retry_delay + PROBE_TIMEOUT < deadline
+        def can_retry(attempt_cost: float) -> bool:
+            """Room for another delay plus what the *next* attempt will cost.
+
+            Per branch, not one reserve for all of them. An attempt that opens
+            the socket and waits on mpv can burn a whole PROBE_TIMEOUT, so those
+            branches keep it — and they are not the rare case: mpv does not
+            unlink its IPC socket on SIGTERM and the unit carries
+            RuntimeDirectoryPreserve=yes, so every restart that is not a first
+            boot finds the previous file sitting there and is refused by it.
+
+            The branch that only asks whether a path exists costs a stat. Made
+            to reserve a probe as well, it stopped polling a whole PROBE_TIMEOUT
+            early and gave up holding budget it was never going to spend: on the
+            boot of 2026-09-01 the connect abandoned a cold mpv 5.08s into a
+            6.0s budget. Same constants, the whole of them.
+            """
+            return time.monotonic() + retry_delay + attempt_cost < deadline
 
         while True:
             try:
                 if not Path(self.ipc_socket_path).exists():
-                    if can_retry():
+                    if can_retry(0.0):
                         await asyncio.sleep(retry_delay)
                         continue
                     self.logger.warning(
@@ -119,7 +136,7 @@ class MpvController:
                 if test_response is None:
                     self.logger.debug("mpv socket connected but not responding, retrying...")
                     await self.disconnect()
-                    if can_retry():
+                    if can_retry(PROBE_TIMEOUT):
                         await asyncio.sleep(retry_delay)
                         continue
                     self.logger.warning(
@@ -142,7 +159,7 @@ class MpvController:
                 return True
 
             except (ConnectionRefusedError, FileNotFoundError) as e:
-                if can_retry():
+                if can_retry(PROBE_TIMEOUT):
                     self.logger.debug(f"Retry: {e}")
                     await asyncio.sleep(retry_delay)
                     continue
@@ -200,7 +217,9 @@ class MpvController:
         socket path a few seconds after a crash. connect() is not idempotent (it
         would open a second socket and leak the first), hence the short-circuit.
         """
-        return self.is_connected or await self.connect(timeout=RECONNECT_TIMEOUT)
+        return self.is_connected or await self.connect(
+            timeout=RECONNECT_TIMEOUT, retry_delay=RECONNECT_TIMEOUT
+        )
 
     async def _send_command(
         self, command: str, *args, timeout: float = COMMAND_TIMEOUT
