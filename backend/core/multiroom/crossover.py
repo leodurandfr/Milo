@@ -114,7 +114,8 @@ class CrossoverService:
         elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
             mac_id = data.get("mac_id")
             if mac_id:
-                # Disconnect changes crossover_enabled state for the client's zones
+                # A disconnect can remove the zone's only subwoofer, which is what
+            # decides whether the crossover applies at all
                 await self._recalculate_zones_for_client(mac_id)
 
         elif event_type == RegistryEventType.CLIENT_UPDATED:
@@ -217,7 +218,7 @@ class CrossoverService:
         return {
             "frequency": self._resolve_frequency(zone),
             "auto": zone.crossover_frequency is None,
-            "enabled": zone.crossover_enabled if zone.crossover_enabled is not None else has_subwoofer,
+            "enabled": has_subwoofer,
             "has_subwoofer": has_subwoofer
         }
 
@@ -293,18 +294,14 @@ class CrossoverService:
             for cid in client_ids
         )
 
-        # Determine if crossover should be applied
-        # Auto mode (None): enable when there's an online subwoofer
-        # Explicit mode: respect the setting but still require subwoofer
-        if zone.crossover_enabled is not None:
-            should_apply_crossover = has_subwoofer and zone.crossover_enabled
-        else:
-            # Auto mode: enable crossover when there's an online subwoofer
-            should_apply_crossover = has_subwoofer
+        # An online subwoofer in the zone is the whole condition: it is what the
+        # highpass hands the low band to. No stored override — a zone carries no
+        # crossover_enabled of its own.
+        should_apply_crossover = has_subwoofer
 
         self.logger.info(
             f"Applying crossover to zone {zone_id}: "
-            f"has_sub={has_subwoofer}, zone_setting={zone.crossover_enabled}, "
+            f"has_sub={has_subwoofer}, "
             f"should_apply={should_apply_crossover}, freq={frequency}Hz, "
             f"available_clients={list(available_clients)}"
         )

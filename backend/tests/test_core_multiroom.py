@@ -1637,7 +1637,6 @@ class TestAutoCrossover:
         zone = MagicMock()
         zone.id = "zone-1"
         zone.client_ids = ["speaker-1", "speaker-2", "subwoofer-1"]
-        zone.crossover_enabled = True
 
         registry._clients = clients
         registry.get_zone.return_value = zone
@@ -1680,7 +1679,6 @@ class TestAutoCrossover:
         zone = MagicMock()
         zone.id = "zone-1"
         zone.client_ids = ["speaker-1", "speaker-2", "tower-1"]
-        zone.crossover_enabled = True
 
         registry.get_zone.return_value = zone
         registry.get_zone_for_client.return_value = zone
