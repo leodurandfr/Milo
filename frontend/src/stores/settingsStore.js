@@ -467,12 +467,18 @@ export const useSettingsStore = defineStore('settings', () => {
       appEl.style.width = '';
       appEl.style.height = '';
       appEl.style.overflow = '';
+      appEl.style.removeProperty('--ui-scale');
     } else {
       appEl.style.transform = `scale(${scale})`;
       appEl.style.transformOrigin = 'top left';
       appEl.style.width = `calc(100vw / ${scale})`;
       appEl.style.height = `calc(100vh / ${scale})`;
       appEl.style.overflow = 'hidden';
+      // Published for the CSS under the transform: the app is laid out in
+      // 100vh/scale pixels, so a rule sizing anything against dvh counts screen
+      // pixels the layout never gets. Dividing by this is how such a rule reads
+      // the height the app actually has.
+      appEl.style.setProperty('--ui-scale', String(scale));
     }
   }
   const updateRadioSettings = makeUpdater(radioSettings);

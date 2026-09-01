@@ -268,6 +268,62 @@ describe('musicLibraryStore — artists render window', () => {
 
     expect(rendered()).toBe(40);
   });
+
+  /**
+   * The A-Z rail jumps to a letter whose rows the window has not mounted, so
+   * these two are what make it land anywhere at all: the rail must offer the
+   * WHOLE index, and a jump must widen the window through its target. Broken,
+   * the rail silently does nothing for every letter past the first chunk.
+   */
+  it('offers the whole index on the rail, not the mounted part of it', () => {
+    expect(store.artistRailLetters).toEqual(['A', 'B', 'C']);
+    expect(store.displayedArtistIndex.map((b) => b.name)).toEqual(['A', 'B']);
+  });
+
+  // Five 30-artist buckets: 'E' sits three chunks past the window, so a jump that
+  // widens by one chunk lands short of it — which a one-chunk index would hide.
+  const DEEP_INDEX = ['A', 'B', 'C', 'D', 'E'].map((name) => ({
+    name,
+    artist: Array.from({ length: 30 }, (_, i) => ({ id: `${name}${i}`, name: `${name}${i}` })),
+  }));
+
+  async function loadDeepIndex() {
+    apiCall.get.mockResolvedValueOnce(ok({ index: DEEP_INDEX }));
+    await store.loadArtists({ force: true });
+  }
+
+  it('mounts through the bucket a jump targets, however far down it sits', async () => {
+    await loadDeepIndex();
+
+    store.renderArtistsThrough('E');
+
+    expect(rendered()).toBe(150);
+    expect(store.displayedArtistIndex.at(-1).name).toBe('E');
+  });
+
+  it('never shrinks the window when the drag comes back up the rail', async () => {
+    await loadDeepIndex();
+
+    store.renderArtistsThrough('E');
+    store.renderArtistsThrough('A');
+
+    expect(rendered()).toBe(150);
+  });
+
+  it('leaves the window alone for a letter the index does not carry', () => {
+    store.renderArtistsThrough('Z');
+
+    expect(rendered()).toBe(40);
+  });
+
+  it('offers no rail while the list barely outgrows one screenful', async () => {
+    apiCall.get.mockResolvedValueOnce(ok({
+      index: [{ name: 'A', artist: Array.from({ length: 40 }, (_, i) => ({ id: `a${i}`, name: `A${i}` })) }],
+    }));
+    await store.loadArtists({ force: true });
+
+    expect(store.artistRailLetters).toEqual([]);
+  });
 });
 
 /**

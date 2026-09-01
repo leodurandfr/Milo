@@ -139,6 +139,16 @@ CoverArtPriority = "cover.*, folder.*, front.*, embedded, *front*, *cover*, *fol
 # The local tiers stay first, so a user's own artist.jpg still wins over both.
 ArtistArtPriority = "artist.*, album/artist.*"
 
+# One group per letter. Navidrome's default ends "... W X-Z(XYZ)", the Subsonic
+# convention of folding the three thin letters into one bucket — which reaches
+# the UI as a literal "X-Z" heading in the Artists list and a three-character
+# rung on its A-Z rail, where every other rung is one letter. The buckets ARE
+# the rail (frontend/src/components/music-library/ArtistIndexRail.vue draws the
+# names this returns, never a hardcoded alphabet), so the fix belongs here and
+# nowhere else. Empty groups are not returned, so the letters nobody has cost
+# nothing. "[Unknown]([)" is kept from the default.
+IndexGroups = "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z [Unknown]([)"
+
 LogLevel = "info"
 
 # EVERY key below must sit under [Scanner]: 0.63.2 reads Scanner.Schedule and

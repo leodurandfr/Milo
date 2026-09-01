@@ -98,6 +98,28 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
 
+      # A green build proves the stage scripts ran; it does not prove the image is
+      # right. `set -e` catches a command that fails, never one that succeeds
+      # while doing the wrong thing. This runs before compression because it
+      # needs the raw .img, and it does not stop the job — the artifact uploads
+      # either way, so a bad image can still be pulled down and looked at. The
+      # verdict is enforced at the end.
+      #
+      # It compares against this checkout, which for a tag build and for a
+      # dispatch of `main` is the same tree the image cloned.
+      - name: Inspect image
+        id: inspect
+        continue-on-error: true
+        run: |
+          IMAGE=$(ls pi-gen-build/deploy/*.img 2>/dev/null | head -1)
+          if [ -z "$IMAGE" ]; then
+            ZIP=$(ls pi-gen-build/deploy/*.zip 2>/dev/null | head -1)
+            [ -n "$ZIP" ] && sudo unzip -o "$ZIP" -d pi-gen-build/deploy/
+            IMAGE=$(ls pi-gen-build/deploy/*.img 2>/dev/null | head -1)
+          fi
+          [ -n "$IMAGE" ] || { echo "no .img to inspect"; exit 1; }
+          sudo ./pi-gen/inspect-image.sh --img "$IMAGE"
+
       - name: Compress image
         run: |
           # pi-gen outputs as root — fix permissions first
@@ -130,6 +152,14 @@ jobs:
           name: ${{ steps.vars.outputs.image_name }}
           path: ${{ env.compressed_image }}
           retention-days: 14
+
+      # After the upload, so a failed inspection still leaves an image to examine.
+      - name: Fail if the image did not pass inspection
+        if: steps.inspect.outcome == 'failure'
+        run: |
+          echo "The image built but does not contain what it should — see the"
+          echo "\"Inspect image\" step above. The artifact was uploaded anyway."
+          exit 1
 
       - name: Create GitHub Release
         if: steps.vars.outputs.is_release == 'true'
