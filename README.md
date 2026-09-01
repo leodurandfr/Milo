@@ -143,6 +143,20 @@ Prefer Ethernet over WiFi — network jitter is what makes rooms drift apart.
 <details>
 <summary>Install from Raspberry Pi OS Lite instead of using the pre-built image</summary>
 
+**This is the development path, not a second supported way to get a Milō.** The
+image is what a unit ships as, it is built and published by CI, and it is the
+only path the release process exercises. `install.sh` exists for the two cases
+the image cannot serve: a machine you cannot reflash, and a fast run of the
+`install/` modules — which the image build itself sources for most of its
+work — without waiting on a full build.
+
+Both paths write the same files and enable the same units, and a set of offline
+guardrails keeps them from drifting (`backend/tests/architecture/test_provisioning_parity.py`,
+`test_helper_deployment.py`, `test_install_deployment.py`). What no test can
+check is that either script *runs*: they are shell, on hardware CI never
+touches. Treat a successful install as evidence about the tree you ran it from,
+and nothing more.
+
 Flash **Raspberry Pi OS (64-bit) Lite** (Debian Trixie) with Raspberry Pi Imager. In "Edit Settings", set hostname and username to `milo`.
 
 The installer is split across modules under `install/`, so it must be run from a clone of the repository rather than downloaded on its own. It clones its own copy into `/home/milo/milo`, so any working directory will do:

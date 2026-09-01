@@ -473,6 +473,28 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (artistsHasMore.value) artistsRendered.value += ARTISTS_RENDER_CHUNK;
   }
 
+  // Letters for the A-Z rail: the WHOLE index's, never the window's — a letter
+  // has to be reachable before its rows are mounted. Below one render chunk the
+  // list is a screenful or two away and a strip of four letters is furniture,
+  // so there is no rail at all.
+  const artistRailLetters = computed(() =>
+    artistCount.value > ARTISTS_RENDER_CHUNK ? artistIndex.value.map((b) => b.name) : []
+  );
+
+  // A rail jump lands on rows the window may not have mounted, so it widens
+  // through that bucket first (plus one chunk, so the scroll sentinel is not
+  // already at the tail when the jump arrives). Monotonic: dragging down the
+  // rail mounts in increments and dragging back up mounts nothing.
+  function renderArtistsThrough(bucketName) {
+    let through = 0;
+    for (const bucket of artistIndex.value) {
+      through += bucket.artist?.length || 0;
+      if (bucket.name !== bucketName) continue;
+      artistsRendered.value = Math.max(artistsRendered.value, through + ARTISTS_RENDER_CHUNK);
+      return;
+    }
+  }
+
   // =========================================================================
   // CATALOG — Genres (getGenres, single call)
   // =========================================================================
@@ -1038,6 +1060,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     displayedArtistIndex,
     artistsHasMore,
     renderMoreArtists,
+    artistRailLetters,
+    renderArtistsThrough,
     artistsLoading,
     artistsLoaded,
     loadArtists,

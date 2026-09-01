@@ -54,13 +54,18 @@
               <MessageContent v-else-if="!store.displayedArtistIndex.length" key="empty"
                 v-bind="emptyState('musicLibrary.noArtists')" />
               <div v-else key="loaded">
-                <div class="index-list">
-                  <div v-for="bucket in store.displayedArtistIndex" :key="bucket.name" class="index-bucket">
-                    <p class="index-label text-mono">{{ bucket.name }}</p>
-                    <MediaRow v-for="artist in bucket.artist" :key="artist.id" :cover-id="artist.coverArt"
-                      :title="artist.name" :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
-                      @click="$emit('select-artist', artist)" />
+                <div class="artists-layout">
+                  <div class="index-list">
+                    <div v-for="bucket in store.displayedArtistIndex" :key="bucket.name"
+                      :ref="(el) => setBucketRef(bucket.name, el)" class="index-bucket">
+                      <p class="index-label text-mono">{{ bucket.name }}</p>
+                      <MediaRow v-for="artist in bucket.artist" :key="artist.id" :cover-id="artist.coverArt"
+                        :title="artist.name" :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
+                        @click="$emit('select-artist', artist)" />
+                    </div>
                   </div>
+                  <ArtistIndexRail v-if="store.artistRailLetters.length" :letters="store.artistRailLetters"
+                    @jump="jumpToLetter" />
                 </div>
                 <div ref="artistsSentinelRef" class="scroll-sentinel"></div>
               </div>
@@ -128,7 +133,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll';
@@ -141,6 +146,8 @@ import SkeletonAlbumCard from '../cards/SkeletonAlbumCard.vue';
 import SkeletonMediaRow from '../cards/SkeletonMediaRow.vue';
 import SkeletonGenreRow from '../cards/SkeletonGenreRow.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
+import ArtistIndexRail from '../ArtistIndexRail.vue';
+import { offsetWithin, scrollParentOf } from '../indexRail';
 
 defineEmits(['select-album', 'select-artist', 'select-genre', 'select-playlist', 'select-liked']);
 
@@ -249,6 +256,33 @@ function loadTab(tab) {
 
 watch(() => store.activeTab, loadTab);
 
+// A-Z rail. The bucket elements are held by name so a jump can scroll to one
+// without querying the DOM, and the window is widened THROUGH the target first
+// — the letter's rows do not exist until it is. A drag has several jumps in
+// flight at once, so the last one asked for is the one that gets to scroll.
+const bucketEls = new Map();
+let jumpSeq = 0;
+
+function setBucketRef(name, el) {
+  if (el) bucketEls.set(name, el);
+  else bucketEls.delete(name);
+}
+
+async function jumpToLetter(letter) {
+  const seq = (jumpSeq += 1);
+  store.renderArtistsThrough(letter);
+  await nextTick();
+  if (seq !== jumpSeq) return;
+  const bucket = bucketEls.get(letter);
+  const scroller = scrollParentOf(bucket);
+  if (!scroller) return;
+  // scroll-margin-top is the CSS property for exactly this, so the gap the
+  // letter lands with is a design token in the stylesheet rather than a number
+  // here — it is only applied by hand because the scroll is.
+  const margin = parseFloat(getComputedStyle(bucket).scrollMarginTop) || 0;
+  scroller.scrollTop = Math.max(0, offsetWithin(bucket, scroller) - margin);
+}
+
 // Infinite scroll for the albums grid.
 const { sentinelRef } = useInfiniteScroll({
   onLoadMore: () => store.loadMoreAlbums(),
@@ -341,7 +375,17 @@ onMounted(async () => {
   height: 1px;
 }
 
+/* The rail sits beside the list rather than over it: a 32px gutter costs less
+   than rows whose titles run under a floating strip. */
+.artists-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-03);
+}
+
 .index-list {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
@@ -351,6 +395,9 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
+  /* The gap a letter jumped to from the rail lands with, instead of flush
+     against the top edge (read back by jumpToLetter). */
+  scroll-margin-top: var(--space-06);
 }
 
 .index-label {
