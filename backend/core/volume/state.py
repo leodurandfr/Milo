@@ -139,14 +139,31 @@ class VolumeStateStore:
                 if is_local:
                     self._local_mac_id = mac_id
 
+                # CLIENT_CONNECTED is emitted twice for the same client, and the
+                # payload is what tells them apart: once when it is *registered*
+                # (online False — the admission has not confirmed the hardware
+                # yet) and once when it is announced online. Reading `online`
+                # instead of assuming True is what keeps a client mid-admission
+                # out of the averages get_complete_state() computes over
+                # `available`.
+                online = bool(client_data.get("online", False))
+
                 if mac_id not in self._clients:
+                    # Seed at the configured startup level, never at
+                    # DEFAULT_VOLUME_DB: _resolve_target_volume reads this store
+                    # to decide what a client comes back at, so a fabricated -45
+                    # here *is* the level the speaker gets — and it shadowed the
+                    # startup_volume_db branch that exists for exactly this case.
                     await self.register_client(
                         mac_id,
-                        volume_db=None,  # Use default
-                        available=True
+                        volume_db=(
+                            self._volume_config.startup_volume_db
+                            if self._volume_config else DEFAULT_VOLUME_DB
+                        ),
+                        available=online
                     )
                 else:
-                    await self.set_client_availability(mac_id, True)
+                    await self.set_client_availability(mac_id, online)
 
         elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
             # Handle client disconnected - check if deleted or just offline

@@ -618,18 +618,14 @@ class VolumeService:
         restore_enabled = self._volume_config.restore_last_volume
         startup_volume = self._volume_config.startup_volume_db
 
-        local_volume = None  # Lazy-loaded if needed
         for cid in client_ids:
+            # Its own level, or the configured startup one — the two answers the
+            # docstring names, and no third. Reading the *local* CamillaDSP for a
+            # client the store does not know was the last surviving path that
+            # derived one speaker's level from another's; the store now seeds an
+            # unknown client at startup_volume_db, so it never even ran.
             persisted = self._state_store.get_client_volume(cid) if restore_enabled else None
-            if persisted is not None:
-                updates[cid] = persisted
-            elif restore_enabled:
-                if local_volume is None:
-                    volume_state = await self._camilladsp_service.get_volume()
-                    local_volume = volume_state.get("main", DEFAULT_VOLUME_DB) if volume_state else DEFAULT_VOLUME_DB
-                updates[cid] = local_volume
-            else:
-                updates[cid] = startup_volume
+            updates[cid] = persisted if persisted is not None else startup_volume
 
         self.logger.info(f"Pushing {'persisted' if restore_enabled else f'startup ({startup_volume:.1f}dB)'} volumes to {len(updates)} clients")
 
