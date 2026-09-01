@@ -8,11 +8,6 @@ if ! apt-get install -y chromium 2>/dev/null; then
 fi
 CHROOT
 
-# Install libflac (package name varies by version)
-on_chroot << 'CHROOT'
-apt-get install -y libflac12t64 2>/dev/null || apt-get install -y libflac12 || true
-CHROOT
-
 # Upgrade Node.js to latest stable via n
 on_chroot << 'CHROOT'
 npm install -g n
