@@ -15,6 +15,8 @@ import asyncio
 import json
 import logging
 import os
+from pathlib import Path
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from typing import Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field
@@ -32,6 +34,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 PENDING_CLIENT_ROLE_FILE = MILO_DATA_DIR / "pending_client_role.json"
+
+# The marker's only consumer. It is deployed by `pi-gen/stage-milo` and by
+# nothing else — `install.sh` builds a server and never installs it, because on
+# that path the role is chosen by which installer was run rather than detected.
+# So on a script-installed unit the adoption below would write a marker no boot
+# ever reads: the device reboots, comes back a server, and the adopting server
+# waits for a speaker that never appears. Checked, not assumed.
+FIRST_BOOT_HELPER = Path("/usr/local/bin/milo-first-boot")
 
 # Serializes /api/setup/become-client so two concurrent adopters can't race on
 # the marker write + wifi profile + setup_completed sequence.
@@ -191,6 +201,22 @@ def create_setup_router(
             )
 
         async with _become_client_lock:
+            if not FIRST_BOOT_HELPER.is_file():
+                logger.error(
+                    "become-client: %s is absent — this unit was not provisioned "
+                    "from the Milo image and cannot apply a client role at boot",
+                    FIRST_BOOT_HELPER,
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"This device cannot be adopted over WiFi: {FIRST_BOOT_HELPER} "
+                        "is not installed, so the client role would never be applied. "
+                        "Install it as a satellite with milo-client/install-client.sh, "
+                        "or flash the Milo image."
+                    ),
+                )
+
             already_done = await settings_service.get_setting("setup_completed")
             if already_done:
                 raise HTTPException(
