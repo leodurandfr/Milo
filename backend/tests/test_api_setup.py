@@ -54,16 +54,26 @@ ADOPT = {
 
 @pytest.fixture
 def marker(tmp_path, monkeypatch):
-    """Point the marker file at tmp_path.
+    """Point the marker file — and the helper that consumes it — at tmp_path.
 
     Not a convenience: this checkout is the appliance, and the real path is
     `/var/lib/milo/pending_client_role.json`, which `milo-first-boot` acts on at
     the next boot. The fourth conftest guard would refuse the write and fail the
     test — pointing it here is what makes the route runnable at all.
+
+    `FIRST_BOOT_HELPER` is stood in for the same way and for a sharper reason:
+    the route now refuses when it is absent, and whether
+    `/usr/local/bin/milo-first-boot` exists depends on whether the machine
+    running the suite happens to be a flashed unit. Pinning it here is what makes
+    every test below answer the same on a laptop, in CI and on the appliance.
     """
     monkeypatch.setattr(api_setup, "MILO_DATA_DIR", tmp_path)
     path = tmp_path / "pending_client_role.json"
     monkeypatch.setattr(api_setup, "PENDING_CLIENT_ROLE_FILE", path)
+
+    helper = tmp_path / "milo-first-boot"
+    helper.write_text("#!/bin/bash\n")
+    monkeypatch.setattr(api_setup, "FIRST_BOOT_HELPER", helper)
     return path
 
 
@@ -255,6 +265,41 @@ class TestBecomeClientOrder:
 
 
 class TestBecomeClientGuards:
+
+    def test_a_unit_without_the_first_boot_helper_refuses_the_adoption(
+        self, client, marker, services, tmp_path, monkeypatch
+    ):
+        """The marker has one consumer, and only the image installs it.
+
+        `install.sh` never copies `/usr/local/bin/milo-first-boot` and never
+        enables its unit — on that path the role is chosen by which installer was
+        run. Without this guard the route succeeds on such a unit: the marker is
+        written, `setup_completed` flips, the WiFi profile is saved, the device
+        reboots, and it comes back a plain server with the marker still on disk
+        while the adopting server waits for a speaker that never appears.
+        """
+        monkeypatch.setattr(
+            api_setup, "FIRST_BOOT_HELPER", tmp_path / "absent" / "milo-first-boot"
+        )
+
+        response = client.post("/api/setup/become-client", json=ADOPT)
+
+        assert response.status_code == 409
+        assert "milo-first-boot" in response.json()["detail"]
+        assert not marker.exists()
+        services.network.save_network.assert_not_awaited()
+        services.settings.set_setting.assert_not_awaited()
+        services.systemd.power.assert_not_called()
+
+    def test_the_helper_the_route_checks_for_is_the_one_first_boot_ships_as(self):
+        """A rename on either side turns the guard into a permanent refusal.
+
+        The route refuses on a missing helper, so a path that stops matching the
+        deployed name does not fail loudly — it makes every adoption answer 409
+        on units that are perfectly able to convert.
+        """
+        assert api_setup.FIRST_BOOT_HELPER.name == FIRST_BOOT.name
+        assert FIRST_BOOT.is_file(), f"{FIRST_BOOT} is no longer in the repo tree"
 
     def test_an_already_configured_device_answers_409(self, client, marker, services):
         """`WifiAdoptionService._push_config` reads this exact status to raise
