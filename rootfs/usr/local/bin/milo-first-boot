@@ -367,6 +367,33 @@ EOF
         fi
     done
 
+    # 8c. Install the client's own sudoers policy, from the repo.
+    #
+    # Step 8a above removes the server's; without this the unit is left with
+    # whatever the image baked, which nothing refreshes — milo-deploy-update
+    # walks the server tree only. Measured on a unit flashed 2026-06-20: the
+    # on-disk milo-client policy was June's, carrying no `PASSWD: ALL` rule at
+    # all, so the blanket NOPASSWD Raspberry Pi OS grants the image's first user
+    # was never taken back and every argument-scoped grant below it was
+    # decorative — the exact state 88c3c870 exists to prevent.
+    #
+    # Validated before it can take effect: sudo skips a policy with a syntax
+    # error rather than refusing to run, so a malformed one drops every grant it
+    # holds in silence. Same order as configure_server's restore path.
+    local client_policy="$MILO_APP_DIR/milo-client/rootfs/etc/sudoers.d/milo-client"
+    if [[ -f "$client_policy" ]]; then
+        cp "$client_policy" /etc/sudoers.d/milo-client
+        if visudo -c -f /etc/sudoers.d/milo-client >/dev/null; then
+            chmod 0440 /etc/sudoers.d/milo-client
+            log "Client sudoers policy installed"
+        else
+            rm -f /etc/sudoers.d/milo-client
+            log "Warning: client sudoers policy failed visudo — not installed"
+        fi
+    else
+        log "WARNING: $client_policy missing — client sudoers not installed"
+    fi
+
     # 8b. Switch mDNS interface selection to the client mechanism
     apply_avahi_role client
 
