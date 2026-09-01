@@ -10,7 +10,7 @@
       :fallback="musicPlaceholder"
       :alt="title"
       lazy
-      :class="['media-cover', { rounded: roundedCover }]"
+      class="media-cover"
     >
       <transition name="content-fade">
         <div v-if="!contentReady" class="cover-skeleton shimmer"></div>
@@ -33,9 +33,8 @@ import { musicPlaceholder } from '@/constants/placeholders';
 
 const props = defineProps({
   // Navidrome coverArt id (may be empty → placeholder fallback). One drawing for
-  // every row here, artist rows included: the disc sits inside the round crop as
-  // readably as a square one, and a second file was a second thing to keep in
-  // step with the player's.
+  // every row here, artist rows included: a second file was a second thing to
+  // keep in step with the player's.
   coverId: {
     type: String,
     default: '',
@@ -47,11 +46,6 @@ const props = defineProps({
   subtitle: {
     type: String,
     default: '',
-  },
-  // Circular cover for artist rows.
-  roundedCover: {
-    type: Boolean,
-    default: false,
   },
   icon: {
     type: String,
@@ -85,10 +79,6 @@ const { contentReady } = useLazyImageSkeleton(lazyImg, () => !!props.coverId);
   height: 60px;
   border-radius: var(--radius-02);
   background: var(--color-background-neutral-12);
-}
-
-.media-cover.rounded {
-  border-radius: 50%;
 }
 
 .media-cover--icon {
