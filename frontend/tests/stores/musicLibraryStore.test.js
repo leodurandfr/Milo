@@ -404,3 +404,60 @@ describe('musicLibraryStore — a loader that lands out of scope', () => {
     expect(store.albumsLoading).toBe(false);
   });
 });
+
+/**
+ * A revalidation is not a first load. LibraryHome asks for a scan every time it
+ * mounts, and the store refetches every cached list when that scan ends — so
+ * emptying the grid first swapped it for the skeleton and remounted every cover
+ * on a plain page load, three seconds in, for a scan that had found nothing.
+ * The three sibling loaders (artists, genres, playlists) already replace their
+ * list on arrival; these hold the albums grid to the same rule.
+ */
+describe('musicLibraryStore — revalidating the albums grid', () => {
+  let store;
+  const page = (prefix, n) => Array.from({ length: n }, (_, i) => ({ id: `${prefix}-${i}` }));
+
+  beforeEach(async () => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS] }));
+    await store.loadStorages();
+    await nextTick();
+  });
+
+  it('keeps the covers on screen while the refetch is in flight', async () => {
+    apiCall.get.mockResolvedValueOnce(ok({ albums: page('a', 40) }));
+    await store.loadAlbums();
+
+    let release;
+    apiCall.get.mockReturnValueOnce(
+      new Promise((resolve) => { release = () => resolve(ok({ albums: page('a', 40) })); })
+    );
+    const inFlight = store.loadAlbums({ force: true });
+    await nextTick();
+
+    // The grid must never fall back to the empty state a skeleton is drawn for.
+    expect(store.albums).toHaveLength(40);
+    release();
+    await inFlight;
+    expect(store.albums).toHaveLength(40);
+  });
+
+  it('re-reads every page the user has already scrolled open', async () => {
+    apiCall.get.mockResolvedValueOnce(ok({ albums: page('a', 40) }));
+    await store.loadAlbums();
+    apiCall.get.mockResolvedValueOnce(ok({ albums: page('b', 40) }));
+    await store.loadMoreAlbums();
+    expect(store.albums).toHaveLength(80);
+
+    apiCall.get.mockResolvedValueOnce(ok({ albums: page('c', 80) }));
+    await store.loadAlbums({ force: true });
+
+    // Asking for one page would drop 40 albums out from under the scroll.
+    expect(paramsOf('/albums').size).toBe(80);
+    expect(paramsOf('/albums').offset).toBe(0);
+    expect(store.albums).toHaveLength(80);
+    // A full answer at that size is not evidence of a further page.
+    expect(store.albumsHasMore).toBe(true);
+  });
+});
