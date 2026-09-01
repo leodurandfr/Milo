@@ -745,8 +745,15 @@ class SnapcastWebSocketService:
         the same split, moved one path over.
 
         Resolution order:
-        1. restore_last_volume on and the store knows this client → its own level
-        2. Configured startup_volume_db
+        1. restore_last_volume on → the volume store's level for this client. The
+           store is seeded at startup_volume_db when the registry first admits a
+           client, so this answers startup_volume_db for one nobody has set and
+           its own level for one someone has — which is why the message says
+           where the number came from rather than claiming it was "stored"
+           (measured on the unit: a fresh satellite reads startup_volume_db here,
+           and a log line calling that "stored" is the one place the two are
+           indistinguishable).
+        2. restore_last_volume off → the configured startup_volume_db.
         3. DEFAULT_VOLUME_DB constant (no volume service at all)
         """
         if self._volume_service:
@@ -756,7 +763,7 @@ class SnapcastWebSocketService:
                 if config.restore_last_volume else None
             )
             if stored is not None:
-                self.logger.info(f"Using stored volume {stored:.1f} dB for {mac_id}")
+                self.logger.info(f"Volume store holds {stored:.1f} dB for {mac_id}")
                 return stored
 
             self.logger.info(f"Using startup volume {config.startup_volume_db:.1f} dB for {mac_id}")
