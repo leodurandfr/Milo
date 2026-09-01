@@ -190,6 +190,7 @@ def test_twin_files_have_not_drifted():
 
 PI_GEN_DIR = REPO_ROOT / "pi-gen"
 STAGE_DIR = PI_GEN_DIR / "stage-milo"
+PI_GEN_DIR_BUILD_SH = PI_GEN_DIR / "build.sh"
 
 # `source "$(dirname "${BASH_SOURCE[0]}")/<rel>"` — a sibling of the stage script.
 SIBLING_SOURCE_RE = re.compile(
@@ -200,8 +201,21 @@ SIBLING_SOURCE_RE = re.compile(
 # `source install/foo.sh`, run after `cd /home/milo/milo` inside the chroot.
 REPO_SOURCE_RE = re.compile(r"^\s*(?:source|\.)\s+(install/\S+)\s*$", re.MULTILINE)
 
-# What `build.sh` places inside the copied stage: `cp <src> "${PIGEN_DIR}/stage-milo/<name>"`.
-STAGE_COPY_RE = re.compile(r'\$\{PIGEN_DIR\}/stage-milo/(\S+?)"')
+# A copy *into* the stage directory, whatever the builder calls its checkout:
+# `cp <src> "${PIGEN_DIR}/stage-milo/<name>"`, `cp <src> pi-gen-build/stage-milo/<name>`.
+# A recursive copy OF the stage (`cp -r pi-gen/stage-milo pi-gen-build/stage-milo`)
+# has no name after the directory and correctly matches nothing.
+STAGE_COPY_RE = re.compile(r'stage-milo/([A-Za-z0-9_.-]+)')
+
+# Everything that populates a stage before pi-gen runs it. There are two, and
+# only one of them was ever pinned: the GitHub workflow restates build.sh's
+# configure step inline, and it went three months without the dependencies.env
+# copy — a build that aborts on the first line of 01-install-audio, unnoticed
+# because it only runs on a `v*` tag or a manual dispatch.
+STAGE_BUILDERS = {
+    "pi-gen/build.sh": PI_GEN_DIR_BUILD_SH,
+    ".github/workflows/build-image.yml": REPO_ROOT / ".github" / "workflows" / "build-image.yml",
+}
 
 
 def _stage_scripts() -> list[Path]:
@@ -223,18 +237,25 @@ def test_the_pi_gen_extractors_see_a_real_tree():
     repo_sources = REPO_SOURCE_RE.findall(_stage_text())
     assert len(repo_sources) >= 5, f"only {repo_sources} repo-relative sources extracted"
 
-    copied = STAGE_COPY_RE.findall((PI_GEN_DIR / "build.sh").read_text())
-    assert copied, "no stage copy extracted from pi-gen/build.sh"
+    for name, path in STAGE_BUILDERS.items():
+        assert path.is_file(), f"{name} is missing"
+        copied = STAGE_COPY_RE.findall(path.read_text())
+        assert copied, f"no stage copy extracted from {name}"
 
 
-def test_every_sibling_a_stage_sources_is_placed_there_by_the_build():
-    """A sibling `build.sh` does not copy is a file the stage cannot reach.
+@pytest.mark.parametrize("builder", sorted(STAGE_BUILDERS))
+def test_every_sibling_a_stage_sources_is_placed_there_by_every_builder(builder):
+    """A sibling a builder does not copy is a file the stage cannot reach.
 
     It is not in the repo at that path either — `pi-gen/stage-milo/` holds no
     `dependencies.env` — so a filesystem check would be wrong here. What has to
-    hold is that the build puts it there.
+    hold is that the builder puts it there.
+
+    Parametrised over *every* builder because that is precisely how this broke:
+    `pi-gen/build.sh` copied it and the GitHub workflow, which restates the same
+    configure step in YAML, did not.
     """
-    copied = {c.lstrip("./") for c in STAGE_COPY_RE.findall((PI_GEN_DIR / "build.sh").read_text())}
+    copied = {c.lstrip("./") for c in STAGE_COPY_RE.findall(STAGE_BUILDERS[builder].read_text())}
     missing = []
     for script in _stage_scripts():
         for rel in SIBLING_SOURCE_RE.findall(script.read_text()):
@@ -244,8 +265,8 @@ def test_every_sibling_a_stage_sources_is_placed_there_by_the_build():
             if name in copied or (STAGE_DIR / rel.replace("../", "")).is_file():
                 continue
             missing.append(
-                f"{script.relative_to(REPO_ROOT)} sources {rel}, which "
-                "pi-gen/build.sh does not copy into the stage"
+                f"{script.relative_to(REPO_ROOT)} sources {rel}, "
+                f"which {builder} does not copy into the stage"
             )
     assert not missing, "\n".join(missing)
 

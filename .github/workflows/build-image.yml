@@ -67,6 +67,15 @@ jobs:
           # Copy custom stage
           cp -r pi-gen/stage-milo pi-gen-build/stage-milo
 
+          # The validated dependency set travels with the stage. 01-install-audio
+          # sources it as a sibling under `bash -e`, so without this the build
+          # aborts on its first line — which is what it has been doing, unnoticed,
+          # since dependencies.env landed: this workflow only runs on a `v*` tag
+          # or a manual dispatch. pi-gen/build.sh does the same copy for a local
+          # build; the two are pinned together by
+          # backend/tests/architecture/test_rootfs_deployment.py.
+          cp dependencies.env pi-gen-build/stage-milo/dependencies.env
+
           # Prevent intermediate image exports
           touch pi-gen-build/stage2/SKIP_IMAGES
 
