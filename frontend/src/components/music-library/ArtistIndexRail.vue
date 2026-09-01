@@ -57,7 +57,7 @@ const shownLetters = computed(() =>
 // Where the rail comes to rest — the top of the list — in the scrollport's own
 // laid-out pixels. It is the one thing CSS cannot know: the band's height and
 // its centring are plain calc() from there, so a resized window re-lays the rail
-// on its own. A stale value costs a few pixels of centring and nothing else —
+// on its own. A stale value costs where the strip is centred and nothing else —
 // the band's bottom is a calc() from the window, so it lands right either way.
 
 // Read back from the box CSS just laid out, never computed against the window:
@@ -66,9 +66,14 @@ const shownLetters = computed(() =>
 function measureBand() {
   const el = railRef.value;
   if (!el) return;
-  // Re-anchored here too, and only on a real change: any layout that moves the
-  // list also resizes the band, so this heals a stale offset without a second
-  // observer — and without looping, since the second pass finds it unchanged.
+  // Re-anchored here too, and only on a real change — which also keeps the
+  // observer from looping, since the second pass finds it unchanged. This alone
+  // does NOT heal every drift: the band's height is a calc() from this offset
+  // and nothing else, so a layout that moves the list without resizing it (a
+  // storage-space row appearing above the tabs) resizes nothing and wakes no
+  // observer. The gesture handler re-reads it for that, and until then the cost
+  // is where the strip is centred, not where the band ends — the bottom is a
+  // calc() from the window.
   // Measured on the ROW, never on the rail: Chrome folds the sticky shift into a
   // sticky element's own offsetTop, so reading it here would feed the offset
   // back into itself and hold whatever drift it had.
@@ -109,6 +114,9 @@ function onPointerDown(e) {
   // Capture: past the first press the gesture belongs to the rail, so sliding
   // off its width mid-drag keeps scrubbing instead of ending it.
   railRef.value?.setPointerCapture?.(e.pointerId);
+  // The one moment the anchor has to be right, and the only one that catches a
+  // list moved by something that resized nothing (see measureBand).
+  measureBand();
   refreshRect();
   track(e.clientY);
 }
@@ -133,10 +141,14 @@ onMounted(() => {
   // back, to know how many letters that height holds.
   observer = new ResizeObserver(measureBand);
   observer.observe(railRef.value);
+  // A window change moves what is laid out above the list as often as it resizes
+  // the band, and the observer only sees the second.
+  window.addEventListener('resize', measureBand);
 });
 
 onBeforeUnmount(() => {
   observer?.disconnect();
+  window.removeEventListener('resize', measureBand);
   cancelAnimationFrame(rectFrame);
 });
 </script>
