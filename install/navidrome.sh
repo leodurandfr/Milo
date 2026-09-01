@@ -146,8 +146,14 @@ ArtistArtPriority = "artist.*, album/artist.*"
 # the rail (frontend/src/components/music-library/ArtistIndexRail.vue draws the
 # names this returns, never a hardcoded alphabet), so the fix belongs here and
 # nowhere else. Empty groups are not returned, so the letters nobody has cost
-# nothing. "[Unknown]([)" is kept from the default.
-IndexGroups = "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z [Unknown]([)"
+# nothing.
+#
+# The default's "[Unknown]([)" goes for the same reason: it is a NINE-character
+# bucket name, and the rail's gutter is 32px (24 on the panel). Dropped, a name
+# starting with "[" falls to Navidrome's own "#" bucket, where every name that
+# matches no group already goes — so every rung is one character by
+# construction, which is the whole point of the line.
+IndexGroups = "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z"
 
 LogLevel = "info"
 
