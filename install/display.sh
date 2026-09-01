@@ -258,11 +258,23 @@ install_screen_brightness_control() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    wget https://files.waveshare.com/wiki/common/Brightness.zip
-    unzip Brightness.zip
-    cd Brightness
-    sudo chmod +x install.sh
-    ./install.sh
+    # The only third-party download in the whole chain, and the only optional one:
+    # the vendor's own site rather than a release dependencies.env pins, for a
+    # panel most units do not have. Unguarded under `set -e` it aborted install.sh
+    # at step 159 of 166 — after everything is installed and *before*
+    # enable_services — leaving the whole stack on disk with nothing enabled, no
+    # graphical.target and a black screen. It also sat before the udev rule below,
+    # so a Waveshare outage took the 7" backlight with it. pi-gen already tolerates
+    # this; the two paths must produce the same unit.
+    if wget -q https://files.waveshare.com/wiki/common/Brightness.zip \
+        && unzip -o -q Brightness.zip \
+        && cd Brightness \
+        && sudo chmod +x install.sh \
+        && ./install.sh; then
+        log_success "8\" DSI brightness control installed"
+    else
+        log_warning "Waveshare 8\" DSI driver unavailable — 8\" backlight control not installed"
+    fi
 
     popd > /dev/null
 
