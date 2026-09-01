@@ -85,7 +85,7 @@ class TestPodcastSourceLifecycle:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
-                    with patch('backend.sources.podcast.source.MpvController') as mock_mpv_class:
+                    with patch('backend.shared.mpv_audio_source.MpvController') as mock_mpv_class:
                         mock_mpv = Mock()
                         mock_mpv.connect = AsyncMock(return_value=True)
                         mock_mpv.is_connected = True
@@ -108,7 +108,7 @@ class TestPodcastSourceLifecycle:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
-                    with patch('backend.sources.podcast.source.MpvController') as mock_mpv_class:
+                    with patch('backend.shared.mpv_audio_source.MpvController') as mock_mpv_class:
                         mock_mpv = Mock()
                         mock_mpv.connect = AsyncMock(return_value=False)
                         mock_mpv.disconnect = AsyncMock()

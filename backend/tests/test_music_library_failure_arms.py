@@ -83,13 +83,13 @@ class TestDoStart:
         the state machine reporting a source that could not start."""
         mpv = _mpv(connect=AsyncMock(return_value=False))
 
-        with patch("backend.sources.music_library.source.MpvController", return_value=mpv):
+        with patch("backend.shared.mpv_audio_source.MpvController", return_value=mpv):
             assert await source._do_start() is False
 
     async def test_a_service_that_never_comes_up_is_a_failed_start(self, source):
         source._start_service_and_wait = AsyncMock(return_value=False)
 
-        with patch("backend.sources.music_library.source.MpvController", return_value=_mpv()):
+        with patch("backend.shared.mpv_audio_source.MpvController", return_value=_mpv()):
             assert await source._do_start() is False
 
     async def test_an_unexpected_failure_tears_down_what_it_started(self, source):
@@ -99,7 +99,7 @@ class TestDoStart:
         source._load_auto_stop_config = AsyncMock(side_effect=RuntimeError("boom"))
         source._cleanup = AsyncMock()
 
-        with patch("backend.sources.music_library.source.MpvController", return_value=_mpv()):
+        with patch("backend.shared.mpv_audio_source.MpvController", return_value=_mpv()):
             assert await source._do_start() is False
 
         source._cleanup.assert_awaited_once()

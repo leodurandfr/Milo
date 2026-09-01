@@ -62,6 +62,28 @@ class MpvAudioSource(BaseAudioSource):
             return True
         return False
 
+    async def _attach_mpv(self) -> bool:
+        """Build this source's mpv controller and open its IPC link.
+
+        The one attach for the four mpv sources, across five call sites (CD does
+        it twice: once for playback, once for its pre-start warm-up). It replaces
+        four copies of the same three lines, whose failure report had drifted
+        into two spellings of the same sentence at two different levels — and
+        which said nothing `connect()` had not already said.
+
+        Silent on failure on purpose: connect() logs what it waited for and how
+        long, and `start()` turns this False into the source's single report. A
+        line here would be the second one in the journal for one event.
+
+        The caller starts the unit itself, and the gap it leaves before calling
+        this is free — mpv publishes its socket some time after exec (0.269s on
+        this unit warm, 1.081s with its 51 MB of libraries evicted, past 7s when
+        something else is reading the same card), so work done in between is
+        time not spent waiting. Radio loads its station data there.
+        """
+        self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
+        return await self._mpv.connect()
+
     def mpv_refused(self, action: str) -> Dict[str, Any]:
         """Error response for a transport command mpv did not take.
 

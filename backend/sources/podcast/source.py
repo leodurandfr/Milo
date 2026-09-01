@@ -23,7 +23,6 @@ from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.podcast.models import PlayEpisodeParams, SeekParams, SetSpeedParams
 from backend.sources.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
-from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.podcast.podcastindex_api import PodcastIndexAPI
 
@@ -100,9 +99,7 @@ class PodcastSource(MpvAudioSource):
                 return False
 
             # 2. Connect to MPV IPC
-            self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
-            if not await self._mpv.connect():
-                self._logger.error("Failed to connect to MPV IPC")
+            if not await self._attach_mpv():
                 return False
 
             # 3. Load saved playback speed

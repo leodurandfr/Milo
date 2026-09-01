@@ -450,3 +450,43 @@ def test_one_construction_site_per_collaborator(source_id):
             f"{source_id}: {name} is constructed in {sorted(modules)} — one owner "
             f"per service; the others take it from the owner."
         )
+
+
+# The four sources that play through mpv. Derived nowhere: MpvAudioSource's own
+# docstring names them, and test_family_module_layout already pins the family.
+MPV_SOURCE_IDS = ("radio", "podcast", "cd", "music_library")
+
+
+@pytest.mark.parametrize("source_id", MPV_SOURCE_IDS)
+def test_mpv_sources_attach_through_the_base_class(source_id):
+    """An mpv source opens its IPC link in one place, not four.
+
+    Each of them used to build its own MpvController, call connect() inline and
+    report the failure itself. Four copies of one act: the report had already
+    drifted into two spellings of the same sentence at two levels, and every
+    copy duplicated in the journal a line connect() writes better — it names
+    what it waited for and for how long. CD holds two of the five call sites,
+    so "the library was fixed" is not the same as "the path was fixed".
+    """
+    text = (SOURCES_ROOT / source_id / "source.py").read_text()
+    assert "_attach_mpv(" in text, (
+        f"{source_id}: attaches mpv by some other means — the rules below "
+        f"would pass on an empty surface"
+    )
+
+    tree = ast.parse(text)
+    built = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "MpvController"
+    ]
+    assert not built, f"{source_id}: builds its own MpvController"
+
+    connects = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "connect"
+    ]
+    assert not connects, f"{source_id}: opens the IPC link itself"

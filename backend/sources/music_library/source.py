@@ -37,7 +37,6 @@ from backend.core.models.audio_state import SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.core.models.ws_events import MusicLibraryStoragesChanged
 from backend.shared.decorators import handle_errors
-from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.music_library.disc_merge import (
     is_merged_id,
@@ -506,9 +505,7 @@ class MusicLibrarySource(MpvAudioSource):
             if not await self._start_service_and_wait():
                 return False
 
-            self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
-            if not await self._mpv.connect():
-                self._logger.error("Failed to connect to mpv IPC")
+            if not await self._attach_mpv():
                 return False
 
             self._reset_playback_state()
