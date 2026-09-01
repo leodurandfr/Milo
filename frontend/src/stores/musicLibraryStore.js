@@ -485,6 +485,13 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // through that bucket first (plus one chunk, so the scroll sentinel is not
   // already at the tail when the jump arrives). Monotonic: dragging down the
   // rail mounts in increments and dragging back up mounts nothing.
+  //
+  // Jumping near the END therefore mounts what is left in one flush, and pays
+  // the whole freeze this chunking exists to spread. That is inherent, not an
+  // oversight: the list is one linear column, so where a bucket sits depends on
+  // every row before it — reaching Z without mounting A-Y would mean scrolling
+  // to a place the document does not have yet. Only virtualising the list would
+  // change it, and it is bounded by the same figure as the first paint.
   function renderArtistsThrough(bucketName) {
     let through = 0;
     for (const bucket of artistIndex.value) {
