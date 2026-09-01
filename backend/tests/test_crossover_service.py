@@ -226,7 +226,6 @@ class TestZoneCrossoverApplication:
             name="Living Room",
             client_ids=["local", "sub-1"],
             crossover_frequency=120,
-            crossover_enabled=True
         )
 
         registry._clients["local"] = satellite
@@ -258,7 +257,6 @@ class TestZoneCrossoverApplication:
             name="Living Room",
             client_ids=["local", "offline-1", "sub-1"],
             crossover_frequency=80,
-            crossover_enabled=True
         )
 
         registry._clients["local"] = satellite
@@ -287,7 +285,6 @@ class TestZoneCrossoverApplication:
             name="Living Room",
             client_ids=["local", "book-1"],
             crossover_frequency=80,
-            crossover_enabled=True
         )
 
         registry._clients["local"] = satellite
@@ -323,7 +320,6 @@ class TestSubwooferOnlineOfflineToggle:
             name="Living Room",
             client_ids=["local", "sub-1"],
             crossover_frequency=80,
-            crossover_enabled=True
         )
 
         registry._clients["local"] = satellite
@@ -351,7 +347,6 @@ class TestSubwooferOnlineOfflineToggle:
             name="Living Room",
             client_ids=["local", "sub-1"],
             crossover_frequency=80,
-            crossover_enabled=True
         )
 
         registry._clients["local"] = satellite
@@ -647,38 +642,32 @@ class TestZoneCrossoverFields:
         zone = Zone(name="Test Zone")
         assert zone.crossover_frequency is None
 
-    def test_zone_crossover_enabled_defaults_to_none(self):
-        """Test zone crossover_enabled defaults to None (auto mode)."""
-        zone = Zone(name="Test Zone")
-        assert zone.crossover_enabled is None
+    def test_zone_to_dict_carries_the_pin_and_nothing_about_enablement(self):
+        """The persisted zone holds the frequency pin alone.
 
-    def test_zone_to_dict_includes_crossover_fields(self):
-        """Test zone.to_dict() includes crossover fields."""
+        Whether the crossover is *on* is derived from the members' speaker types
+        (`zone_to_enriched_dict`), so storing it would be a second answer to the
+        same question — and the stored one had no writer at all."""
         zone = Zone(
             name="Test Zone",
             crossover_frequency=100,
-            crossover_enabled=True
         )
         data = zone.to_dict()
 
-        assert "crossover_frequency" in data
         assert data["crossover_frequency"] == 100
-        assert "crossover_enabled" in data
-        assert data["crossover_enabled"] is True
+        assert "crossover_enabled" not in data
 
-    def test_zone_from_dict_parses_crossover_fields(self):
-        """Test Zone.from_dict() parses crossover fields."""
+    def test_zone_from_dict_parses_the_frequency_pin(self):
+        """Test Zone.from_dict() parses the crossover frequency."""
         data = {
             "id": "zone-1",
             "name": "Test Zone",
             "client_ids": [],
             "crossover_frequency": 120,
-            "crossover_enabled": False
         }
         zone = Zone.from_dict(data)
 
         assert zone.crossover_frequency == 120
-        assert zone.crossover_enabled is False
 
     def test_zone_from_dict_keeps_auto_auto(self):
         """A zone persisted in auto must load in auto. `from_dict` defaulted the
@@ -778,7 +767,6 @@ class TestAutomaticCrossoverActivation:
             name="Living Room",
             client_ids=["local", "sub-1"],
             crossover_frequency=80,
-            crossover_enabled=None  # Auto mode
         )
 
         registry._clients["local"] = satellite
@@ -815,7 +803,6 @@ class TestAutomaticCrossoverActivation:
             name="Living Room",
             client_ids=["local", "sub-1"],
             crossover_frequency=80,
-            crossover_enabled=None  # Auto mode
         )
 
         registry._clients["local"] = satellite
@@ -852,7 +839,6 @@ class TestAutomaticCrossoverActivation:
             name="Living Room",
             client_ids=["local", "book-1"],
             crossover_frequency=80,
-            crossover_enabled=None  # Auto mode
         )
 
         registry._clients["local"] = satellite
@@ -889,7 +875,6 @@ class TestAutomaticCrossoverActivation:
             name="Living Room",
             client_ids=["local", "sub-1"],
             crossover_frequency=80,
-            crossover_enabled=None  # Auto mode
         )
 
         registry._clients["local"] = satellite
@@ -926,7 +911,6 @@ class TestAutomaticCrossoverActivation:
             name="Living Room",
             client_ids=["local", "book-1"],
             crossover_frequency=80,
-            crossover_enabled=None  # Auto mode
         )
 
         registry._clients["local"] = satellite
@@ -965,7 +949,6 @@ class TestAutomaticCrossoverActivation:
             name="Living Room",
             client_ids=["local", "sub-1", "sub-2"],
             crossover_frequency=80,
-            crossover_enabled=None
         )
 
         registry._clients["local"] = satellite
@@ -1015,7 +998,6 @@ class TestCrossoverEventBroadcasting:
             name="Living Room",
             client_ids=["local", "sub-1"],
             crossover_frequency=80,
-            crossover_enabled=None
         )
 
         registry._clients["local"] = satellite
@@ -1052,7 +1034,6 @@ class TestCrossoverEventBroadcasting:
             name="Living Room",
             client_ids=["local", "sub-1"],
             crossover_frequency=80,
-            crossover_enabled=None  # Auto mode
         )
 
         registry._clients["local"] = satellite
@@ -1227,7 +1208,6 @@ class TestSpeakerTypeCrossoverFrequencies:
             id="zone-1",
             name="Test Zone",
             client_ids=["local", "sub-1"],
-            crossover_enabled=True
         )
 
         registry._clients["local"] = satellite
@@ -1265,7 +1245,6 @@ class TestSubwooferLowpassApplication:
             name="Living Room",
             client_ids=["sat-1", "local"],
             crossover_frequency=120,  # Zone frequency
-            crossover_enabled=True
         )
 
         registry._clients["sat-1"] = satellite
@@ -1294,7 +1273,6 @@ class TestSubwooferLowpassApplication:
             id="zone-1",
             name="Living Room",
             client_ids=["sat-1", "local"],
-            crossover_enabled=True
         )
 
         registry._clients["sat-1"] = satellite
@@ -1333,7 +1311,6 @@ class TestFilterBypassOnDeactivation:
             id="zone-1",
             name="Test Zone",
             client_ids=["local"],
-            crossover_enabled=False  # Explicitly disabled
         )
 
         registry._clients["local"] = satellite
@@ -1347,20 +1324,23 @@ class TestFilterBypassOnDeactivation:
 
     @pytest.mark.asyncio
     async def test_crossover_disabled_removes_lowpass(self, crossover_service_with_registry, mock_camilladsp_service):
-        """Test lowpass filter is disabled when crossover deactivates (3.2)."""
+        """Test lowpass filter is disabled when crossover deactivates (3.2).
+
+        A member that was the subwoofer and is re-typed keeps its lowpass unless
+        something takes it off: the zone then has no subwoofer at all, and every
+        member has to come back full-range — the highpass *and* the lowpass."""
         service, registry = crossover_service_with_registry
 
-        subwoofer = Client(mac_id="local", name="Subwoofer", ip="127.0.0.1",
-                          speaker_type="subwoofer", online=True, zone_id="zone-1")
+        was_subwoofer = Client(mac_id="local", name="Subwoofer", ip="127.0.0.1",
+                               speaker_type="bookshelf", online=True, zone_id="zone-1")
 
         zone = Zone(
             id="zone-1",
             name="Test Zone",
             client_ids=["local"],
-            crossover_enabled=False
         )
 
-        registry._clients["local"] = subwoofer
+        registry._clients["local"] = was_subwoofer
         registry._zones["zone-1"] = zone
 
         await service.apply_zone_crossover("zone-1")
@@ -1383,7 +1363,6 @@ class TestFilterBypassOnDeactivation:
             id="zone-1",
             name="Test Zone",
             client_ids=["local", "sub-1"],
-            crossover_enabled=True
         )
 
         registry._clients["local"] = satellite
@@ -1424,7 +1403,6 @@ class TestCrossoverOnReconnection:
             id="zone-1",
             name="Test Zone",
             client_ids=["local", "sub-1"],
-            crossover_enabled=True
         )
 
         registry._clients["local"] = satellite
@@ -1641,7 +1619,7 @@ class TestZoneFanoutVerdict:
             speaker_type="bookshelf", online=True, zone_id="zone-1")
         registry._zones["zone-1"] = Zone(
             id="zone-1", name="Salon", client_ids=["aa:bb", "cc:dd"],
-            crossover_frequency=80, crossover_enabled=True,
+            crossover_frequency=80,
         )
 
         async def answer(ip, *args, **kwargs):

@@ -467,13 +467,17 @@ class Zone:
         client_ids: List of mac_ids belonging to this zone
         crossover_frequency: Crossover frequency in Hz, or None for auto — the
             frequency the members' own speaker types imply
-        crossover_enabled: Whether crossover filtering is active for this zone
+
+    Whether the crossover is *active* is not a field: it is derived from whether
+    the zone holds an online subwoofer. An explicit override existed and had no
+    writer — no route, no store, nothing passed it to update_zone — so its branch
+    ran from tests alone. If the override is ever wanted it comes back as a
+    feature with a UI, not as a field nothing sets.
     """
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     client_ids: List[str] = field(default_factory=list)
     crossover_frequency: Optional[int] = None  # None = auto (from speaker types)
-    crossover_enabled: Optional[bool] = None  # None = auto (depends on subwoofer presence)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -481,8 +485,7 @@ class Zone:
             "id": self.id,
             "name": self.name,
             "client_ids": self.client_ids.copy(),
-            "crossover_frequency": self.crossover_frequency,
-            "crossover_enabled": self.crossover_enabled
+            "crossover_frequency": self.crossover_frequency
         }
 
     @classmethod
@@ -492,8 +495,7 @@ class Zone:
             name=data.get("name", data["id"]),
             id=data["id"],
             client_ids=data.get("client_ids", []).copy(),
-            crossover_frequency=data.get("crossover_frequency"),
-            crossover_enabled=data.get("crossover_enabled")
+            crossover_frequency=data.get("crossover_frequency")
         )
 
     def is_valid(self) -> bool:

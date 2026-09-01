@@ -54,7 +54,7 @@ REGISTRY_EVENT_CLASSES: Dict[str, Type[WsEvent]] = {
 class _Unset:
     """Sentinel for "argument not supplied".
 
-    `None` is a value for the crossover fields — it means *auto* — so it cannot
+    `None` is a value for `crossover_frequency` — it means *auto* — so it cannot
     double as "not supplied" the way it does for `name`. Without this, a zone
     that had ever been given an explicit frequency could never be handed back
     to auto: `update_zone` skipped every None it was passed.
@@ -623,8 +623,7 @@ class ClientRegistryService:
         self,
         zone_id: str,
         name: Optional[str] = None,
-        crossover_frequency: Union[int, None, _Unset] = _UNSET,
-        crossover_enabled: Union[bool, None, _Unset] = _UNSET
+        crossover_frequency: Union[int, None, _Unset] = _UNSET
     ) -> Optional[Zone]:
         """
         Update zone properties.
@@ -634,8 +633,6 @@ class ClientRegistryService:
             name: New name (omit to leave unchanged)
             crossover_frequency: Frequency in Hz, or None for auto (omit to
                 leave unchanged — None is a value here, not an absence)
-            crossover_enabled: Whether crossover is enabled, or None for auto
-                (omit to leave unchanged)
 
         Returns:
             The updated zone or None if not found
@@ -649,8 +646,6 @@ class ClientRegistryService:
                 zone.name = name
             if crossover_frequency is not _UNSET:
                 zone.crossover_frequency = crossover_frequency
-            if crossover_enabled is not _UNSET:
-                zone.crossover_enabled = crossover_enabled
 
             zone_dict = self.zone_to_enriched_dict(zone)
 
@@ -888,14 +883,10 @@ class ClientRegistryService:
         if zone.crossover_frequency is None:
             base['crossover_frequency'] = self.auto_crossover_frequency(zone)
 
-        # Crossover is enabled when: zone.crossover_enabled is explicitly True,
-        # OR when it's None (auto) and there's an online subwoofer in the zone
-        if zone.crossover_enabled is not None:
-            # Explicit setting takes precedence, but still requires subwoofer to be effective
-            base['crossover_enabled'] = zone.crossover_enabled and has_subwoofer
-        else:
-            # Auto mode: enable when there's an online subwoofer
-            base['crossover_enabled'] = has_subwoofer and online_count > 0
+        # The crossover is on exactly when the zone holds an online subwoofer —
+        # there is nothing else to split the band with. Computed here, never
+        # stored: a zone carries no crossover_enabled of its own.
+        base['crossover_enabled'] = has_subwoofer and online_count > 0
 
         return base
 
