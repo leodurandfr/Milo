@@ -296,7 +296,9 @@ class TestVolumeStateStore:
 
         await state_store._handle_registry_event(
             RegistryEventType.CLIENT_CONNECTED,
-            {"mac_id": mac, "client": {"ip": "127.0.0.1"}},
+            # `online` is what the real producer sends and what this arm reads:
+            # the same event type is emitted at registration with online False.
+            {"mac_id": mac, "client": {"ip": "127.0.0.1", "online": True}},
         )
 
         assert mac in state_store._clients
@@ -306,23 +308,31 @@ class TestVolumeStateStore:
         assert state_store._clients[mac].available is True
 
     @pytest.mark.asyncio
-    async def test_local_client_first_connect_registers_default(self, state_store):
+    async def test_local_client_first_connect_registers_the_startup_level(self, state_store):
         """First-ever local client connection (no persisted mac_id): MAC is
-        cached and a fresh default entry is auto-registered."""
+        cached and a fresh entry is auto-registered at the *configured* startup
+        level, not at DEFAULT_VOLUME_DB.
+
+        The distinction is the whole point: this entry is what
+        `SnapcastWebSocketService._resolve_target_volume` reads to decide what the
+        speaker comes back at, so seeding a level nobody configured made the
+        resolver's `startup_volume_db` branch unreachable.
+        """
         from backend.core.multiroom.models import RegistryEventType
 
+        state_store._volume_config.startup_volume_db = -20.0
         mac = "aa:bb:cc:dd:ee:ff"
         assert state_store._local_mac_id is None
         assert state_store._clients == {}
 
         await state_store._handle_registry_event(
             RegistryEventType.CLIENT_CONNECTED,
-            {"mac_id": mac, "client": {"ip": "127.0.0.1"}},
+            {"mac_id": mac, "client": {"ip": "127.0.0.1", "online": True}},
         )
 
         assert state_store._local_mac_id == mac
         assert mac in state_store._clients
-        assert state_store._clients[mac].volume_db == DEFAULT_VOLUME_DB
+        assert state_store._clients[mac].volume_db == -20.0
 
     @pytest.mark.asyncio
     async def test_client_going_offline_keeps_its_level(self, state_store):

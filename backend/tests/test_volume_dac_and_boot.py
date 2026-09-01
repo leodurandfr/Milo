@@ -395,17 +395,18 @@ class TestBootPush:
         pushed = pushable._equalizer_controller.apply_volumes_parallel.await_args.args[0]
         assert pushed == {"aa:bb": -30.0, "cc:dd": -50.0}
 
-    async def test_a_client_with_nothing_persisted_inherits_the_local_dsp_level(
+    async def test_a_client_with_nothing_persisted_joins_at_the_startup_level(
         self, pushable, camilladsp
     ):
         """A satellite adopted since the last shutdown has no stored level.
 
-        The fallback reads the live local DSP so the new speaker joins at the
-        level the room is already playing at, instead of the −45 dB default —
-        which reads as a speaker that does not work.
+        It joins at the configured `startup_volume_db` — never at a level read
+        off the local DSP. Deriving one speaker's level from another's is the one
+        thing the volume-ownership rule forbids, and this fan-out was the last
+        path still doing it.
         """
+        pushable._volume_config.startup_volume_db = -20.0
         pushable._online_client_ids = Mock(return_value=["new:client"])
-        camilladsp.get_volume = AsyncMock(return_value={"main": -22.0, "mute": False})
         pushable._equalizer_controller.apply_volumes_parallel = AsyncMock(
             return_value={"new:client": True}
         )
@@ -413,40 +414,8 @@ class TestBootPush:
         await pushable._do_push_volume_to_all_clients()
 
         pushed = pushable._equalizer_controller.apply_volumes_parallel.await_args.args[0]
-        assert pushed == {"new:client": -22.0}
-
-    async def test_the_local_dsp_level_is_read_once_for_the_whole_fan_out(
-        self, pushable, camilladsp
-    ):
-        """The read is lazy and memoised: it is a round-trip to the daemon, and
-        the push runs over every client on the network at boot."""
-        pushable._online_client_ids = Mock(return_value=["a", "b", "c"])
-        pushable._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={"a": True, "b": True, "c": True}
-        )
-
-        await pushable._do_push_volume_to_all_clients()
-
-        camilladsp.get_volume.assert_awaited_once()
-
-    async def test_a_dsp_that_answers_nothing_falls_back_to_the_default(
-        self, pushable, camilladsp
-    ):
-        """`get_volume` is fail-open and can answer None during a reconnect.
-
-        Subscripting it would raise inside the boot push and abort the restore
-        for every client at once.
-        """
-        pushable._online_client_ids = Mock(return_value=["new:client"])
-        camilladsp.get_volume = AsyncMock(return_value=None)
-        pushable._equalizer_controller.apply_volumes_parallel = AsyncMock(
-            return_value={"new:client": True}
-        )
-
-        await pushable._do_push_volume_to_all_clients()
-
-        pushed = pushable._equalizer_controller.apply_volumes_parallel.await_args.args[0]
-        assert pushed == {"new:client": DEFAULT_VOLUME_DB}
+        assert pushed == {"new:client": -20.0}
+        camilladsp.get_volume.assert_not_awaited()
 
     async def test_only_the_clients_that_took_the_level_have_it_stored(self, pushable):
         """Storing a level the speaker refused makes the store lie, and the next

@@ -819,3 +819,70 @@ class TestTheRemainingAdmissionArms:
 
         assert any("WebSocket connection failed" in r.message for r in caplog.records)
         assert service.websocket is None
+
+
+class TestWhatANewClientIsAdmittedAt:
+    """The level a client nobody has ever set comes back at.
+
+    Driven through the *real* VolumeStateStore, wired to the real registry in the
+    order `dependencies.py` wires them (the store subscribes before the WS
+    broadcaster). A mocked store cannot see this: the fault is that registering
+    the client seeds a level in the store, so the resolver's second step —
+    `startup_volume_db` — is answered before it is ever reached.
+    """
+
+    @pytest.fixture
+    def store(self, tmp_path, registry):
+        from backend.core.models.volume import VolumeConfig
+        from backend.core.volume.state import VolumeStateStore
+
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        store = VolumeStateStore(settings)
+        store.STORAGE_PATH = tmp_path / "last_volume.json"
+        config = VolumeConfig()
+        config.startup_volume_db = -20.0
+        config.restore_last_volume = True
+        store.set_volume_config(config)
+        store.set_registry(registry)
+        return store
+
+    @pytest.fixture
+    def service_with_store(self, service, store):
+        service._volume_service.state_store = store
+        service._volume_service.volume_config.restore_last_volume = True
+        service._volume_service.volume_config.startup_volume_db = -20.0
+        return service
+
+    async def test_a_new_client_is_admitted_at_the_configured_startup_volume(
+        self, service_with_store, registry, store
+    ):
+        """Not at DEFAULT_VOLUME_DB. A unit configured for a fixed startup level
+        admitted every fresh satellite at -45 instead, because registering it
+        already put -45 in the store and step 1 of the resolver found it there."""
+        await registry.register_client(MAC, "Canapé", IP, host=HOST)
+
+        assert service_with_store._resolve_target_volume(MAC) == -20.0
+
+    async def test_registration_alone_does_not_make_a_client_available(
+        self, registry, store
+    ):
+        """A client is registered offline on purpose — the hardware has not
+        confirmed. `available` is what get_complete_state() averages over, so
+        answering True here counted a speaker mid-admission, at a level nobody
+        chose, in the global volume for the whole retry budget."""
+        await registry.register_client(MAC, "Canapé", IP, host=HOST)
+        assert store.is_client_available(MAC) is False
+
+        await registry.set_client_online(MAC, True)
+        assert store.is_client_available(MAC) is True
+
+    async def test_a_client_that_was_set_before_keeps_its_own_level(
+        self, service_with_store, registry, store
+    ):
+        """The seeding must not overwrite what the client owns — that is the
+        whole volume-ownership rule, and the seed runs on every reconnection."""
+        await store.set_client_volume(MAC, -66.0)
+        await registry.register_client(MAC, "Canapé", IP, host=HOST)
+
+        assert service_with_store._resolve_target_volume(MAC) == -66.0
