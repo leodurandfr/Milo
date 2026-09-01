@@ -267,10 +267,11 @@ class TestTheRegistryEventArms:
                    for r in caplog.records)
 
     async def test_removing_one_client_clears_its_filters_and_recalculates_the_zone(
-        self, service
+        self, service, registry
     ):
         """Both halves are due: the client keeps its filters unless told, and the
         zone it left may have lost its only subwoofer."""
+        registry._zones["z1"] = Zone(id="z1", name="Salon", client_ids=["a", "b"])
         service._set_client_filter = AsyncMock(return_value=True)
         service.apply_zone_crossover = AsyncMock()
 
@@ -282,6 +283,25 @@ class TestTheRegistryEventArms:
             "crossover", "lowpass"
         ]
         service.apply_zone_crossover.assert_awaited_once_with("z1")
+
+    async def test_a_removal_that_dissolved_the_zone_recalculates_nothing(
+        self, service, registry
+    ):
+        """The event is emitted before the ZONE_DELETED that says the zone is
+        gone. Recalculating anyway warned "Zone not found" on the normal path of
+        taking a two-member zone apart; the ZONE_DELETED arm clears the remaining
+        member's filters a moment later."""
+        service._set_client_filter = AsyncMock(return_value=True)
+        service.apply_zone_crossover = AsyncMock()
+
+        await service._handle_registry_event(
+            "zone_client_removed", {"zone_id": "gone", "mac_id": MAC}
+        )
+
+        assert [c.args[1] for c in service._set_client_filter.await_args_list] == [
+            "crossover", "lowpass"
+        ]
+        service.apply_zone_crossover.assert_not_awaited()
 
     async def test_a_removal_that_fails_does_not_escape(self, service, caplog):
         service._set_client_filter = AsyncMock(side_effect=RuntimeError("unreachable"))

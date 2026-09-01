@@ -114,8 +114,8 @@ class CrossoverService:
         elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
             mac_id = data.get("mac_id")
             if mac_id:
-                # A disconnect can remove the zone's only subwoofer, which is what
-            # decides whether the crossover applies at all
+                # A disconnect can take away the zone's only subwoofer, which is
+                # what decides whether the crossover applies at all
                 await self._recalculate_zones_for_client(mac_id)
 
         elif event_type == RegistryEventType.CLIENT_UPDATED:
@@ -155,7 +155,7 @@ class CrossoverService:
                 except Exception as e:
                     self.logger.error(f"Error disabling filters after zone {zone_id} deletion: {e}")
 
-        elif event_type == "zone_client_removed":
+        elif event_type == RegistryEventType.ZONE_CLIENT_REMOVED:
             # Client removed from zone - disable filters and recalculate
             zone_id = data.get("zone_id")
             mac_id = data.get("mac_id")
@@ -164,7 +164,14 @@ class CrossoverService:
                     self.logger.info(f"Client {mac_id} removed from zone {zone_id}, disabling filters")
                     await self._set_client_filter(mac_id, "crossover", False, DEFAULT_CROSSOVER_FREQUENCY)
                     await self._set_client_filter(mac_id, "lowpass", False, DEFAULT_CROSSOVER_FREQUENCY)
-                if zone_id and isinstance(zone_id, str):
+                # Only if the zone outlived the removal. Taking a member out of a
+                # two-member zone dissolves it, and this event is emitted before
+                # the ZONE_DELETED that says so — recalculating regardless logged
+                # "Zone not found" at warning on the normal, successful path of
+                # taking a zone apart. The ZONE_DELETED arm disables the
+                # remaining members' filters a moment later.
+                if (zone_id and isinstance(zone_id, str)
+                        and self._registry and self._registry.get_zone(zone_id)):
                     await self.apply_zone_crossover(zone_id)
             except Exception as e:
                 self.logger.error(f"Error handling client {mac_id} removal from zone {zone_id}: {e}")

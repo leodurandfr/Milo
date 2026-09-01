@@ -10,6 +10,8 @@ Tests:
 - E2E automatic crossover activation/deactivation
 - E2E WebSocket event broadcasting on crossover state change
 """
+import logging
+
 import pytest
 import uuid
 from unittest.mock import AsyncMock
@@ -1002,3 +1004,32 @@ class TestAutoIsReachable:
         reloaded = Zone.from_dict(registry.get_zone(zone.id).to_dict())
 
         assert reloaded.crossover_frequency is None
+
+
+class TestDissolvingAZoneIsNotAFault:
+    """Taking a two-member zone apart is a success, and must read like one."""
+
+    @pytest.mark.asyncio
+    async def test_removing_the_second_to_last_member_logs_no_zone_not_found(
+        self, crossover_with_registry, caplog
+    ):
+        """ZONE_CLIENT_REMOVED is emitted before the ZONE_DELETED that says the
+        zone is gone, so recalculating on it unconditionally warned "Zone not
+        found" every single time a zone was dissolved — on the normal path, with
+        nothing wrong. The warning is the observable, so it is what is asserted.
+        """
+        crossover, registry = crossover_with_registry
+
+        await registry.register_client("local", "Main", "127.0.0.1")
+        await registry.set_client_online("local", True)
+        await registry.register_client("sat-1", "Satellite", "192.168.1.101")
+        await registry.set_client_online("sat-1", True)
+        zone = await registry.create_zone(generate_zone_id(), "Salon", ["local", "sat-1"])
+
+        with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.crossover"):
+            assert await registry.remove_client_from_zone(zone.id, "sat-1") is True
+
+        assert registry.get_zone(zone.id) is None
+        assert not [r for r in caplog.records if "not found" in r.message], (
+            f"dissolving a zone warned: {[r.message for r in caplog.records]}"
+        )
