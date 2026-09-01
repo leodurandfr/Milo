@@ -1,7 +1,13 @@
 [Unit]
 Description=Milo Kiosk Mode (Cage + Chromium)
 After=milo-readiness.service seatd.service
-Requires=milo-readiness.service seatd.service
+# seatd is a real requirement (no seat, no compositor). milo-readiness is only an
+# ordering: it exists to hand the screen over, and Wants= + After= still waits for
+# it to finish either way. Requires= made a readiness that failed — or that was
+# stopped along with the backend — mean no UI at all, which is the one outcome a
+# splash-handover unit must never be able to cause.
+Wants=milo-readiness.service
+Requires=seatd.service
 Conflicts=getty@tty1.service
 
 [Service]

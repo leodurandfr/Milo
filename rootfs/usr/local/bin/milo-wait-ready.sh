@@ -32,7 +32,11 @@ log() { echo "[readiness] $1"; }
 
 # No-op when Plymouth is not up (a manual `systemctl restart milo-kiosk` — the
 # waits below still run, so the kiosk keeps starting after the backend).
-progress() { plymouth system-update --progress="$1" 2>/dev/null || true; }
+#
+# `timeout` because this talks to plymouthd over a socket: a wedged daemon would
+# block the tick and, with it, the DEADLINE check that only happens between
+# ticks. Every wait in this script is bounded for that reason.
+progress() { timeout 1 plymouth system-update --progress="$1" 2>/dev/null || true; }
 
 # Ramp the bar from $1 to $2 over an expected $3 seconds while `${@:4}` fails.
 ramp_until() {
@@ -57,7 +61,13 @@ ramp_until() {
     return 1
 }
 
-responds() { curl -sf -o /dev/null "$1"; }
+# The bound is the whole point. DEADLINE is only read between iterations, so an
+# unbounded curl suspends the fail-open promise entirely: a target that completes
+# the TCP handshake and never answers held this script 100 s past a 45 s deadline
+# and a 60 s TimeoutStartSec (measured). Killed there, it never reaches
+# `plymouth quit` — and plymouth-quit.service is masked — so the splash stays up
+# and milo-kiosk, ordered behind this unit, paints nothing.
+responds() { curl -sf --connect-timeout 2 --max-time 3 -o /dev/null "$1"; }
 
 # Started before the first wait so it uses the window where the backend has not
 # begun reading yet; `timeout` bounds it against a stalled card.
@@ -81,7 +91,7 @@ done
 
 progress 100
 sleep 0.4                      # let the bar glide to full before the screen changes
-plymouth quit --retain-splash 2>/dev/null || true
+timeout 5 plymouth quit --retain-splash 2>/dev/null || true
 log "splash handed over to the kiosk"
 
 exit 0

@@ -1,22 +1,47 @@
 [Unit]
 Description=Milo Boot Splash (drives the Plymouth progress bar, quits it when the UI can take over)
 # Starts with the splash, not with the services it waits on: the bar has to move
-# from the moment Plymouth paints. Both services are Requires= without After=,
-# so they come up in parallel while the script polls them.
+# from the moment Plymouth paints. Both services are pulled without After=, so
+# they come up in parallel while the script polls them.
 #
 # After= without Wants=: plymouth-start.service has no [Install], so pulling it in
 # would mean a later `systemctl restart milo-readiness` relaunching the splash over
 # the running kiosk. Ordering is all that is wanted here.
 After=plymouth-start.service
-Requires=milo-backend.service nginx.service
+# Wants=, not Requires=: the script polls both and fails open on its own deadline,
+# so a hard requirement contradicts its design — and Requires= propagates an
+# explicit stop *and* restart down to milo-kiosk, which nothing propagates back
+# (this unit is WantedBy=multi-user.target, already active). Measured: one
+# `systemctl stop milo-backend` left the appliance's screen dead for 23 minutes,
+# through three later `systemctl start milo-backend`, until someone thought to
+# run `systemctl start milo-kiosk`. Both units are WantedBy=multi-user.target, so
+# Wants= starts nothing later than Requires= did.
+Wants=milo-backend.service nginx.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/bin/milo-wait-ready.sh
 
-# The script fails open on its own 45s deadline; this is the outer bound.
+# The script fails open on its own 45s deadline; this is the outer bound. Every
+# wait inside it is time-bounded, so the worst case is 45s of ramps plus the last
+# poll — the 60s is slack, not a mechanism.
 TimeoutStartSec=60
+
+# The screen is handed over even when the script is not the one doing it. systemd
+# runs ExecStopPost= when the unit stops, *including* after a failed or timed-out
+# start, and that is the only path where nothing else reaches `plymouth quit`:
+# plymouth-quit.service and plymouth-quit-wait.service are both masked, so a
+# plymouthd left holding DRM master is a frozen splash with no fallback.
+#
+# Scoped to the runs that did NOT hand over: on a clean stop (SERVICE_RESULT is
+# `success`) the script already quit Plymouth, and firing here anyway would be a
+# `plymouth quit` issued during shutdown, where the shutdown splash may legally
+# be up. `$$` so systemd passes the name through and sh reads it. Anything other
+# than success — timeout, signal, exit code — falls to the quit, which is the
+# safe direction. `-` so a failure here never fails the unit, `timeout` so it
+# never becomes a second way to hang the boot.
+ExecStopPost=-/usr/bin/timeout 5 /bin/sh -c '[ "$${SERVICE_RESULT}" = success ] || plymouth quit --retain-splash'
 
 StandardOutput=journal
 StandardError=journal
