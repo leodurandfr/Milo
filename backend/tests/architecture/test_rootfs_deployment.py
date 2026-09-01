@@ -1,4 +1,8 @@
-"""Structural guardrail: a rootfs script may not source a file its own tree omits.
+"""Structural guardrail: a script may not source a file its own tree omits.
+
+Invariant #2 names **three** independent deployment trees. Two of them are
+`rootfs/` trees and share one rule; the third, `pi-gen/stage-milo/`, has the same
+invariant in a different shape and is covered at the bottom of this file.
 
 `rootfs/` and `milo-client/rootfs/` are two independent deployment trees — the
 server's is installed by `install/system.sh` and `pi-gen/`, the satellite's by
@@ -26,7 +30,9 @@ carries on disk.
 
 The installers that *populate* these trees are governed by its sibling,
 `test_install_deployment.py`: the relative `source` every `install/` module uses
-is invisible to the absolute-path rule here.
+is invisible to the absolute-path rule here. What reaches `/usr/local/` on the
+appliance is governed by `test_helper_deployment.py` — a tree can carry a helper
+correctly while a provisioning path quietly copies a subset of it.
 
 Doctrine note (same as the Milo-Mac / milo-client contract tests): every
 extractor asserts its own output is non-trivial first, so a broken parse fails
@@ -161,3 +167,99 @@ def test_twin_files_have_not_drifted():
             "(ignoring the `Twin of` header line)"
         )
         assert "Twin of " in target.read_text(), f"{target_rel} does not declare itself a twin back"
+
+
+# --------------------------------------------------------------------------- #
+# The third tree: pi-gen/stage-milo/.
+# --------------------------------------------------------------------------- #
+#
+# Invariant #8 calls it "a third independent deployment tree" for a precise
+# reason: `pi-gen/build.sh` copies `stage-milo/` into a cloned pi-gen checkout —
+# possibly into a Docker container — where it can no longer reach this repo. So a
+# stage script that sources a *sibling* is reading a file only `build.sh` can put
+# there, and the two were tied by nothing. That is why `dependencies.env`, the
+# single declaration invariant #8 is about, is copied in beside the stage rather
+# than referenced by a path into the tree.
+#
+# The rule therefore differs in shape from the two above: a sibling must be a
+# file `build.sh` places in the stage, and a repo-relative source (the stage
+# scripts `cd /home/milo/milo` first, into the clone the image already carries)
+# must exist in this repo. A second sibling added without touching `build.sh` is
+# a build that dies inside Docker, on the maintainer's machine, with no test to
+# have said so first.
+
+PI_GEN_DIR = REPO_ROOT / "pi-gen"
+STAGE_DIR = PI_GEN_DIR / "stage-milo"
+
+# `source "$(dirname "${BASH_SOURCE[0]}")/<rel>"` — a sibling of the stage script.
+SIBLING_SOURCE_RE = re.compile(
+    r"""^\s*(?:source|\.)\s+"\$\(dirname\s+"\$\{BASH_SOURCE\[0\]\}"\)/(\S+?)"\s*$""",
+    re.MULTILINE,
+)
+
+# `source install/foo.sh`, run after `cd /home/milo/milo` inside the chroot.
+REPO_SOURCE_RE = re.compile(r"^\s*(?:source|\.)\s+(install/\S+)\s*$", re.MULTILINE)
+
+# What `build.sh` places inside the copied stage: `cp <src> "${PIGEN_DIR}/stage-milo/<name>"`.
+STAGE_COPY_RE = re.compile(r'\$\{PIGEN_DIR\}/stage-milo/(\S+?)"')
+
+
+def _stage_scripts() -> list[Path]:
+    return sorted(STAGE_DIR.rglob("*.sh"))
+
+
+def _stage_text() -> str:
+    return "\n".join(p.read_text() for p in _stage_scripts())
+
+
+def test_the_pi_gen_extractors_see_a_real_tree():
+    """Every rule below is vacuous if either side reads as empty."""
+    scripts = _stage_scripts()
+    assert len(scripts) >= 4, f"only {len(scripts)} stage scripts found under {STAGE_DIR}"
+
+    siblings = SIBLING_SOURCE_RE.findall(_stage_text())
+    assert siblings, "no sibling `source` extracted from pi-gen/stage-milo"
+
+    repo_sources = REPO_SOURCE_RE.findall(_stage_text())
+    assert len(repo_sources) >= 5, f"only {repo_sources} repo-relative sources extracted"
+
+    copied = STAGE_COPY_RE.findall((PI_GEN_DIR / "build.sh").read_text())
+    assert copied, "no stage copy extracted from pi-gen/build.sh"
+
+
+def test_every_sibling_a_stage_sources_is_placed_there_by_the_build():
+    """A sibling `build.sh` does not copy is a file the stage cannot reach.
+
+    It is not in the repo at that path either — `pi-gen/stage-milo/` holds no
+    `dependencies.env` — so a filesystem check would be wrong here. What has to
+    hold is that the build puts it there.
+    """
+    copied = {c.lstrip("./") for c in STAGE_COPY_RE.findall((PI_GEN_DIR / "build.sh").read_text())}
+    missing = []
+    for script in _stage_scripts():
+        for rel in SIBLING_SOURCE_RE.findall(script.read_text()):
+            # Sibling paths are written relative to the script's own directory,
+            # one level below the stage root (`../dependencies.env`).
+            name = rel.split("/")[-1]
+            if name in copied or (STAGE_DIR / rel.replace("../", "")).is_file():
+                continue
+            missing.append(
+                f"{script.relative_to(REPO_ROOT)} sources {rel}, which "
+                "pi-gen/build.sh does not copy into the stage"
+            )
+    assert not missing, "\n".join(missing)
+
+
+def test_every_repo_file_a_stage_sources_exists_in_this_repo():
+    """The stage reads `install/` out of the clone the image carries.
+
+    That clone is this repo at `MILO_BRANCH`, so a module renamed here is a stage
+    that aborts under `bash -e` mid-build — after the frontend has been compiled.
+    """
+    missing = [
+        f"{script.relative_to(REPO_ROOT)} sources {rel}, which this repo does not ship"
+        for script in _stage_scripts()
+        for rel in REPO_SOURCE_RE.findall(script.read_text())
+        if not (REPO_ROOT / rel).is_file()
+    ]
+    assert not missing, "\n".join(missing)
