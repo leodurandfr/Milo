@@ -26,11 +26,14 @@ from pathlib import Path
 
 import pytest
 
+from backend.core.models.audio_state import AudioSource
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 INSTALL_DIR = REPO_ROOT / "install"
 INSTALL_ENTRY = REPO_ROOT / "install.sh"
 PI_GEN_DIR = REPO_ROOT / "pi-gen" / "stage-milo"
+SYSTEM_DIR = REPO_ROOT / "system"
 
 # `systemctl enable <unit>`, with or without sudo, ignoring a leading comment.
 ENABLE_RE = re.compile(r"^[^#\n]*systemctl\s+enable\s+(\S+)", re.MULTILINE)
@@ -201,3 +204,72 @@ def test_nginx_site_config_is_written_from_one_place(bodies):
             f"{script.relative_to(REPO_ROOT)} restates the nginx site config; "
             "source install/network.sh and call write_nginx_site instead"
         )
+
+
+def test_the_kernel_command_line_is_written_from_one_place():
+    """pi-gen must reuse the installer's cmdline writer, not restate the list.
+
+    `install/boot-common.sh` declares `BOOT_PARAMS_COMMON` and calls itself the
+    single source of truth for both paths; `pi-gen/…/03-configure/00-run.sh`
+    restated the whole list inline, twenty lines above the block that sources
+    that very file. The two then drifted by exactly one token —
+    `cfg80211.ieee80211_regdom=FR` on the image, `=00` in the installer — so a
+    flashed unit came up under French radio rules wherever it was sold. Fails if
+    any pi-gen script grows its own copy of the list.
+    """
+    declarations = [
+        p for p in [*INSTALL_DIR.glob("*.sh"), INSTALL_ENTRY, *_pi_gen_scripts()]
+        if "BOOT_PARAMS_COMMON=" in p.read_text()
+    ]
+    assert declarations == [INSTALL_DIR / "boot-common.sh"], (
+        "BOOT_PARAMS_COMMON must be declared exactly once, in install/boot-common.sh; "
+        f"found in {[str(p.relative_to(REPO_ROOT)) for p in declarations]}"
+    )
+
+    # The token below appears only in a full command line, never in a call to the
+    # writer — so its presence under pi-gen/ *is* a restated list.
+    for script in _pi_gen_scripts():
+        assert "plymouth.ignore-serial-consoles" not in script.read_text(), (
+            f"{script.relative_to(REPO_ROOT)} restates the kernel command line; "
+            "source install/boot-common.sh + install/display.sh and call "
+            "configure_cmdline \"$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN\" instead"
+        )
+
+
+def _source_units() -> set[str]:
+    """Units the backend starts on demand, derived from the typed enum.
+
+    `milo-<source_id>.service`, `_`→`-`. These carry an [Install] and are
+    deliberately never enabled — `install/system.sh` lists them by name in a
+    comment for exactly that reason.
+    """
+    ids = [s.value for s in AudioSource if s is not AudioSource.NONE]
+    assert len(ids) >= 10, f"AudioSource yielded only {ids} — the extractor is broken"
+    return {f"milo-{i.replace('_', '-')}" for i in ids}
+
+
+def test_every_installable_unit_is_enabled_or_is_started_on_demand(bodies):
+    """An [Install] nothing acts on is dead config, and a live trap.
+
+    `milo-navidrome-config.service` carried `WantedBy=multi-user.target` while
+    being pulled by `Wants=` from `milo-navidrome.service` — enabled by neither
+    installer, so the section did nothing. Acting on it would have broken what
+    `milo-first-boot`'s server-service list assumes: a converted satellite
+    disables `milo-navidrome` but not that unit, so an enabled [Install] would
+    re-emit a catalog config at every boot on a machine that serves no catalog.
+    """
+    installable = {
+        p.stem for p in sorted(SYSTEM_DIR.glob("*.service"))
+        if re.search(r"^\[Install\]", p.read_text(), re.MULTILINE)
+    }
+    assert len(installable) >= 15, f"only {sorted(installable)} units parsed"
+
+    enabled = _units_enabled([INSTALL_ENTRY, *_install_modules()], bodies)
+    enabled |= _units_enabled(_pi_gen_scripts(), bodies)
+    assert "milo-backend" in enabled, "the enabled-unit extractor is broken"
+
+    orphans = sorted(installable - enabled - _source_units())
+    assert not orphans, (
+        "these units declare [Install] but no provisioning path enables them and "
+        "they are not per-source units: " + ", ".join(orphans)
+    )

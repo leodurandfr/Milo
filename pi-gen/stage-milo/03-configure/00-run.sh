@@ -21,34 +21,20 @@ systemctl mask plymouth-quit.service plymouth-quit-wait.service
 CHROOT
 
 # ── Boot parameters (cmdline.txt) ────────────────────────────────────────────
+# Single source of truth: the parameter list lives in install/boot-common.sh and
+# the writer in install/display.sh, exactly as for config.txt below. Restating
+# them here is what let the two provisioning paths drift — the inline list said
+# `cfg80211.ieee80211_regdom=FR` while the installer's said `=00`, so a flashed
+# unit started under French radio rules wherever it was sold, until someone
+# opened the WiFi-country setting. Every other token was identical, which is how
+# the divergence survived: nothing compared the two lists.
 
 on_chroot << 'CHROOT'
-CMDLINE="/boot/firmware/cmdline.txt"
-if [ ! -f "$CMDLINE" ]; then
-    CMDLINE="/boot/cmdline.txt"
-fi
-
-if [ -f "$CMDLINE" ]; then
-    # Read current cmdline and clean conflicting params
-    CURRENT=$(cat "$CMDLINE")
-    CURRENT=$(echo "$CURRENT" | sed -E '
-        s/console=serial[0-9],[0-9]+//g
-        s/console=tty[0-9]//g
-        s/loglevel=[0-9]+//g
-        s/\bquiet\b//g
-        s/\bsplash\b//g
-        s/plymouth\.[^ ]*//g
-        s/logo\.[^ ]*//g
-        s/vt\.[^ ]*//g
-        s/fbcon=[^ ]*//g
-        s/video=[^ ]*//g
-        s/cfg80211\.[^ ]*//g
-        s/  +/ /g
-    ' | xargs)
-
-    BOOT_PARAMS="quiet splash plymouth.ignore-serial-consoles console=tty3 loglevel=0 consoleblank=0 logo.nologo vt.global_cursor_default=0 fbcon=map:99 vt.handoff=7 cfg80211.ieee80211_regdom=FR"
-    echo "${CURRENT} ${BOOT_PARAMS}" | tr -s ' ' > "$CMDLINE"
-fi
+cd /home/milo/milo
+source install/common.sh
+source install/boot-common.sh
+source install/display.sh
+configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
 CHROOT
 
 # ── Boot config.txt (silent boot, fan, power-button LED) ─────────────────────
