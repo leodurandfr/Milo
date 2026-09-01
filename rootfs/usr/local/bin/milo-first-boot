@@ -287,6 +287,50 @@ EOF
         log "Client loopback config deployed"
     fi
 
+    # 7b. Install the client role's own helpers from the repo.
+    #
+    # Same doctrine as apply_avahi_role below — installing, not only pruning, is
+    # what makes every path into a role correct — and the drop-in that function
+    # installs is precisely what needs this: milo-client/system/avahi-daemon-override.conf
+    # is one line, ExecStartPre=/usr/local/bin/milo-client-apply-avahi-iface, and
+    # avahi-daemon fails 203/EXEC if that file is not there. No mDNS at all, so the
+    # satellite never resolves milo.local and never registers — silently.
+    #
+    # Until now these reached the disk from exactly one place, pi-gen's copy loop
+    # at image-build time, and nothing refreshed them afterwards:
+    # milo-deploy-update walks the *server* tree only. Measured on a unit flashed
+    # 2026-06-20 and app-updated 2026-08-30 — every server helper current, every
+    # client helper still June's, and milo-client-apply-avahi-iface (added
+    # 2026-08-14) simply absent. A conversion there would also have run the
+    # pre-ecb63356 satellite updater, i.e. the one that could not update itself.
+    #
+    # The repo is the right source: it is the tree the app update maintains, and
+    # the symlinks above have just pointed this device at it. Idempotent, so a
+    # unit converted before this existed repairs itself on its next boot.
+    local client_rootfs="$MILO_APP_DIR/milo-client/rootfs"
+    local helper dest
+    if [[ -d "$client_rootfs/usr/local/bin" ]]; then
+        for helper in "$client_rootfs"/usr/local/bin/*; do
+            [[ -f "$helper" ]] || continue
+            dest="/usr/local/bin/$(basename "$helper")"
+            cp "$helper" "$dest"
+            chmod 0755 "$dest"
+        done
+        log "Client helpers installed"
+    else
+        log "WARNING: $client_rootfs/usr/local/bin missing — client helpers not installed"
+    fi
+    if [[ -d "$client_rootfs/usr/local/lib/milo" ]]; then
+        mkdir -p /usr/local/lib/milo
+        for helper in "$client_rootfs"/usr/local/lib/milo/*; do
+            [[ -f "$helper" ]] || continue
+            dest="/usr/local/lib/milo/$(basename "$helper")"
+            cp "$helper" "$dest"
+            chmod 0755 "$dest"
+        done
+        log "Client shared libraries installed"
+    fi
+
     # 8. Disable server-only services. milo-navidrome and milo-ir-keytable are here
     # for the same reason as the rest and not by symmetry: the first is the Music
     # Library catalog engine a satellite never serves (measured on a flashed unit:
