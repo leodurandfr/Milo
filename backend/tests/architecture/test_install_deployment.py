@@ -336,3 +336,135 @@ def test_every_chain_file_is_tracked_by_git(chains):
     )
     untracked = sorted(walked - tracked)
     assert not untracked, "these install modules are not in git: " + ", ".join(untracked)
+
+
+# --------------------------------------------------------------------------- #
+# What a chain may abort on.
+# --------------------------------------------------------------------------- #
+#
+# Every module here runs under `set -e`, so any unguarded command that fails ends
+# the install. For a dependency that is *pinned* — a URL built from a
+# `*_VERSION` that `dependencies.env` declares — that is right and is the
+# doctrine: a Milō without go-librespot is not a Milō, and failing loudly beats
+# a half-installed unit.
+#
+# An **unpinned** fetch is a different thing. There is exactly one, the Waveshare
+# 8" DSI driver: a third-party vendor site, for a panel most units do not have,
+# reached at step 159 of `install.sh`'s 166 — i.e. after everything is installed
+# and *before* `enable_services`. Unguarded, a vendor outage left the whole stack
+# on disk with nothing enabled, no `graphical.target` and a black screen; it also
+# sat ahead of the backlight udev rule, so it took the 7" screen down with it.
+# `pi-gen` already tolerated it and the installer did not — the drift class this
+# directory exists for.
+
+# A fetch in *command position*: at the start of a statement, or after a
+# separator or a condition keyword. Anchored this way so `if wget …` counts —
+# missing the guarded form is what makes the rule read as having nothing to
+# check — while `log_info "downloading with wget"` does not.
+FETCH_RE = re.compile(
+    r"(?:^|\bif\s+|\belif\s+|\bwhile\s+|\buntil\s+|\bthen\s+|&&\s*|\|\|\s*|;\s*|\|\s*)"
+    r"\s*(?:sudo\s+)?(?:wget|curl)\b"
+)
+
+VERSION_RE = re.compile(r"\$\{?([A-Za-z0-9_]+)\}?")
+
+FETCH_TREES = {
+    "install": [REPO_ROOT / "install.sh", *sorted((REPO_ROOT / "install").glob("*.sh"))],
+    "pi-gen": sorted((REPO_ROOT / "pi-gen" / "stage-milo").rglob("*run.sh")),
+}
+
+
+def _declared_versions() -> set[str]:
+    text = (REPO_ROOT / "dependencies.env").read_text()
+    names = set(re.findall(r"^([A-Z0-9_]+_VERSION)=", text, re.MULTILINE))
+    assert len(names) >= 5, f"dependencies.env yielded only {names}"
+    return names
+
+
+def _statements(path: Path) -> list[str]:
+    """Logical statements: backslash continuations joined, comments dropped."""
+    text = re.sub(r"\\\n\s*", " ", path.read_text(encoding="utf-8"))
+    return [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+
+
+def _fetches() -> list[tuple[str, Path, str]]:
+    return [
+        (tree, path, line)
+        for tree, paths in FETCH_TREES.items()
+        for path in paths
+        for line in _statements(path)
+        if FETCH_RE.search(line)
+    ]
+
+
+# `local version="$CAMILLADSP_VERSION"` — a fetch may reach the pinned value
+# through a local alias rather than naming it, so the alias counts as pinned too.
+ALIAS_RE = re.compile(r"^\s*(?:local\s+)?([a-zA-Z_][a-zA-Z0-9_]*)=\"?\$\{?([A-Z0-9_]+_VERSION)\}?", re.MULTILINE)
+
+
+def _pinned_names(path: Path, declared: set[str]) -> set[str]:
+    """Names that carry a pinned version in this file: the constants and their aliases."""
+    text = path.read_text(encoding="utf-8")
+    aliases = {alias for alias, source in ALIAS_RE.findall(text) if source in declared}
+    return declared | aliases
+
+
+def _is_pinned(line: str, names: set[str]) -> bool:
+    return any(name in names for name in VERSION_RE.findall(line))
+
+
+def _is_guarded(line: str) -> bool:
+    """Can this statement fail without ending the chain?
+
+    Either it is a condition (`if`/`while`/`until` — `set -e` is suspended
+    there), or its failure is handled with `||`.
+    """
+    stripped = line.strip()
+    return stripped.startswith(("if ", "elif ", "while ", "until ")) or "||" in stripped
+
+
+def test_the_fetch_extractor_sees_both_kinds():
+    """Both arms of the rule must have something to stand on.
+
+    If every fetch read as pinned, the rule below would be vacuous; if none did,
+    it would be wrong about the dependency downloads it deliberately exempts.
+    """
+    declared = _declared_versions()
+    fetches = _fetches()
+    assert len(fetches) >= 6, f"only {len(fetches)} wget/curl statements extracted"
+
+    pinned = [f for f in fetches if _is_pinned(f[2], _pinned_names(f[1], declared))]
+    unpinned = [f for f in fetches if not _is_pinned(f[2], _pinned_names(f[1], declared))]
+    assert len(pinned) >= 4, f"only {len(pinned)} pinned fetches recognised"
+    assert unpinned, "no unpinned fetch found — the rule below has nothing to check"
+
+    # The alias arm must be exercised too, or a `local version="$X_VERSION"`
+    # indirection would silently read as unpinned and the rule would demand a
+    # guard on a download that should abort.
+    common = REPO_ROOT / "install" / "common.sh"
+    assert "version" in _pinned_names(common, declared) - declared, (
+        "no local version alias resolved in install/common.sh; the alias arm is dead"
+    )
+
+    # ...and the guard test must discriminate, not rubber-stamp.
+    assert _is_guarded("if wget -q http://x/f.zip; then")
+    assert _is_guarded("wget http://x/f.zip || true")
+    assert not _is_guarded("wget http://x/f.zip")
+
+
+def test_an_unpinned_download_cannot_abort_an_install_chain():
+    """A vendor outage must cost a feature, never the whole provisioning run.
+
+    Pinned dependency downloads are exempt on purpose: those *should* abort.
+    """
+    declared = _declared_versions()
+    unguarded = [
+        f"{tree}: {path.relative_to(REPO_ROOT)}: {line.strip()[:90]}"
+        for tree, path, line in _fetches()
+        if not _is_pinned(line, _pinned_names(path, declared)) and not _is_guarded(line)
+    ]
+    assert not unguarded, (
+        "these downloads are not pinned by dependencies.env and can end the "
+        "install under `set -e`; guard them so the failure costs only the "
+        "feature:\n" + "\n".join(unguarded)
+    )
