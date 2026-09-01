@@ -606,7 +606,7 @@ function mlSetup({ storages, albums = [], scanning = false, activeLibraryId = nu
     // the store, which is why this is a prime rather than four more seeds.
     prime: [
       ['musicLibrary', 'loadStorages', { force: true }],
-      ['musicLibrary', 'loadAlbums', { reset: true }],
+      ['musicLibrary', 'loadAlbums', { force: true }],
       ['musicLibrary', 'loadArtists', { force: true }],
       ['musicLibrary', 'loadGenres', { force: true }],
       ['musicLibrary', 'loadPlaylists', { force: true }]

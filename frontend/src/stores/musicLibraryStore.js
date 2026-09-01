@@ -350,14 +350,20 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const albumsLoaded = ref(false);
   const albumsHasMore = ref(true);
 
-  async function loadAlbums({ reset = false } = {}) {
-    if (albumsLoaded.value && !reset) return;
+  // `force` revalidates in place, exactly like the three loaders below: the grid
+  // on screen is replaced when the response lands, never emptied first. Emptying
+  // it swaps the grid for the skeleton and remounts every cover, so a scan that
+  // found nothing still made the whole page blink. Clearing belongs to a scope
+  // change alone — there the albums on screen are another storage's, and holding
+  // them would be wrong — and the activeLibraryId watcher does it itself.
+  async function loadAlbums({ force = false } = {}) {
+    if (albumsLoaded.value && !force) return;
     const scope = activeLibraryId.value;
     albumsLoading.value = true;
-    if (reset) {
-      albums.value = [];
-      albumsHasMore.value = true;
-    }
+    // A revalidation re-reads as many albums as are already displayed: asking
+    // for the first page alone would shrink the grid under a user who has
+    // scrolled it open.
+    const size = Math.max(ALBUMS_PAGE_SIZE, albums.value.length);
     // The flag is released in `finally`, ahead of the scope check: a response
     // that lands out of scope is dropped, but the skeleton grid it left up is
     // gated on the flag and nothing would come back to lower it.
@@ -367,7 +373,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         category: 'musicLibrary',
         message: 'Error loading albums',
         checkStatus: true,
-        params: scoped({ type: 'alphabeticalByName', size: ALBUMS_PAGE_SIZE, offset: 0 }),
+        params: scoped({ type: 'alphabeticalByName', size, offset: 0 }),
       });
     } finally {
       albumsLoading.value = false;
@@ -375,7 +381,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (!inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.albums)) {
       albums.value = result.data.albums;
-      albumsHasMore.value = result.data.albums.length >= ALBUMS_PAGE_SIZE;
+      albumsHasMore.value = result.data.albums.length >= size;
       albumsLoaded.value = true;
     }
   }
@@ -744,7 +750,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   /** Refetch whichever top-level lists are already cached, in the current scope. */
   function reloadCachedLists() {
-    if (albumsLoaded.value) loadAlbums({ reset: true });
+    if (albumsLoaded.value) loadAlbums({ force: true });
     if (artistsLoaded.value) loadArtists({ force: true });
     if (genresLoaded.value) loadGenres({ force: true });
     if (playlistsLoaded.value) loadPlaylists({ force: true });
@@ -973,7 +979,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     // carries the scan flag, so it heals a scan that started or ended meanwhile.
     await loadStorages({ force: true });
     const tasks = [];
-    if (albumsLoaded.value) tasks.push(loadAlbums({ reset: true }));
+    if (albumsLoaded.value) tasks.push(loadAlbums({ force: true }));
     if (artistsLoaded.value) tasks.push(loadArtists({ force: true }));
     if (genresLoaded.value) tasks.push(loadGenres({ force: true }));
     if (playlistsLoaded.value) tasks.push(loadPlaylists({ force: true }));
