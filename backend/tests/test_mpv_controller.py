@@ -24,11 +24,13 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from backend.core.log_handler import WebSocketLogHandler
 from backend.shared.mpv import MpvController
 
 
@@ -256,6 +258,95 @@ class TestConnectBudget:
 
         # _start_service_and_wait settles for 0.5s before connect() is called.
         assert CONNECT_TIMEOUT + PROBE_TIMEOUT + 0.5 < AudioStateMachine.TRANSITION_TIMEOUT
+
+
+class TestGiveUpIsNotABanner:
+    """A start that ran out of patience must not raise a UI banner of its own.
+
+    `backend.shared.mpv` is the one logger on the mpv start path that sits under
+    the `backend` hierarchy, and main.py attaches WebSocketLogHandler(ERROR)
+    there — the source's own logger is rooted at `source` and reaches nothing.
+    So an ERROR from connect() is a raw log line racing the typed
+    SystemErrorEvent the state machine already broadcasts for the same failure,
+    for App.vue's single banner slot. Measured on the unit: mpv publishes its
+    IPC socket 0.27s after exec warm and 1.08s with its 51 MB of libraries
+    evicted, but under concurrent reads of the same SD card that stretches past
+    7s — so a boot where this budget runs out is a slow start, not a broken one,
+    and the second attempt succeeds.
+
+    The handler is the real one and the state machine is the fake, so what these
+    assert is what a viewer would have seen.
+    """
+
+    @staticmethod
+    async def _banners(coro):
+        """Run `coro` with main.py's banner wiring in place; return the banners."""
+        raised = []
+
+        class FakeStateMachine:
+            async def broadcast(self, event):
+                raised.append(event.message)
+
+        handler = WebSocketLogHandler(level=logging.ERROR)
+        handler.set_state_machine(FakeStateMachine())
+        backend_logger = logging.getLogger("backend")
+        backend_logger.addHandler(handler)
+        try:
+            result = await coro
+            for _ in range(10):      # let the handler's spawned broadcasts run
+                await asyncio.sleep(0)
+            return result, raised
+        finally:
+            backend_logger.removeHandler(handler)
+            await handler._bg.cancel_all()
+
+    @pytest.mark.asyncio
+    async def test_running_out_of_patience_raises_no_banner(self, controller, caplog):
+        """The socket never appears: the state machine reports it, not the log."""
+        with caplog.at_level(logging.WARNING, logger="backend.shared.mpv"):
+            result, banners = await self._banners(
+                controller.connect(timeout=1.0, retry_delay=0.2)
+            )
+
+        assert result is False
+        assert banners == []
+        # Still recorded, and still above errors.log's WARNING floor: demoting
+        # it must not make a failing start invisible to whoever debugs the boot.
+        gave_up = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(gave_up) == 1
+        assert controller.ipc_socket_path in gave_up[0].getMessage()
+
+    @pytest.mark.asyncio
+    async def test_the_give_up_says_how_long_it_waited(self, controller, caplog):
+        """The elapsed time is the only evidence a budget could be re-sized from.
+
+        It exists nowhere else: a failing boot leaves the journal and errors.log,
+        and neither says whether mpv was one second short or ten.
+        """
+        budget, retry_delay = 2.0, 0.2
+        with caplog.at_level(logging.WARNING, logger="backend.shared.mpv"):
+            assert await controller.connect(budget, retry_delay) is False
+
+        message = caplog.records[-1].getMessage()
+        waited = float(re.search(r"in ([\d.]+)s", message).group(1))
+        # Inside the budget it was given, and past its first poll: a give-up
+        # reporting 0.0s would be reporting the clock rather than the wait.
+        assert retry_delay < waited <= budget
+
+    @pytest.mark.asyncio
+    async def test_an_unexpected_fault_still_raises_one(self, controller):
+        """The demotion covers patience, not breakage.
+
+        A connect that dies on something nobody predicted is a real fault, and
+        the arm that reports it must keep reaching the banner — otherwise this
+        change trades a false alarm for a silent one.
+        """
+        with patch("backend.shared.mpv.Path", side_effect=RuntimeError("boom")):
+            result, banners = await self._banners(controller.connect(timeout=1.0))
+
+        assert result is False
+        assert len(banners) == 1
+        assert "boom" in banners[0]
 
 
 class TestLinkOwnership:
@@ -743,6 +834,9 @@ class TestConnectFailureArms:
         """The budget is time, not attempts (see TestConnectBudget above); this
         is the arm it lands on. Answered True, `_do_start` would report the source
         started over a controller with no link.
+
+        Warning, not error: see TestGiveUpIsNotABanner for why every give-up on
+        this path sits below the banner threshold.
         """
         (tmp_path / "ipc.sock").write_bytes(b"")
         controller = MpvController(ipc_socket_path=str(tmp_path / "ipc.sock"))
@@ -751,10 +845,10 @@ class TestConnectFailureArms:
             raise ConnectionRefusedError("nothing there")
 
         with patch("asyncio.open_unix_connection", _refuse):
-            with caplog.at_level(logging.ERROR):
+            with caplog.at_level(logging.WARNING):
                 assert await controller.connect(timeout=0.3, retry_delay=0.05) is False
 
-        assert "Failed to connect to mpv within" in caplog.text
+        assert "Failed to connect to mpv in" in caplog.text
 
     async def test_an_unexpected_error_is_not_retried(self, tmp_path, caplog):
         """Only a refusal and a missing file are transient. Retrying a
