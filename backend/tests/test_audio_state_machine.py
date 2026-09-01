@@ -366,7 +366,23 @@ class TestTransitionTimeout:
 
     @pytest.mark.asyncio
     async def test_transition_timeout(self, state_machine):
-        """Test transition timeout results in failure."""
+        """A start that outlives the budget fails, releases the target, and says so.
+
+        Only the bool used to be checked here, and the arm is worth more than
+        that. `connect()` now spends the whole of its 6.0s instead of stopping a
+        probe's width short, so a slow mpv reaches this timeout about a second
+        sooner than it used to — on the boot of 2026-09-01 the transition
+        finished 1.15s inside TRANSITION_TIMEOUT, and that is the margin being
+        spent. What the arm must not do is differ from the clean-failure path in
+        what it leaves running: the target's systemd unit and its ALSA device
+        stay held by a source the machine has already given up on, and the
+        cancellation cannot unwind that itself — `_do_start`'s own `except
+        Exception` does not catch a CancelledError.
+
+        The error string is the second half: both arms settle identically, so it
+        is the only thing in `full_state` or the journal that says which one
+        fired.
+        """
         slow_source = Mock()
         slow_source.initialize = AsyncMock(return_value=True)
 
@@ -384,6 +400,9 @@ class TestTransitionTimeout:
         result = await state_machine.transition_to_source(AudioSource.RADIO)
 
         assert result is False
+        slow_source.stop.assert_awaited_once()
+        assert state_machine.system_state.error == "Transition timeout"
+        assert state_machine.system_state.source_state == SourceState.ERROR
 
 
 class TestConcurrency:
