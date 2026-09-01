@@ -1464,7 +1464,7 @@ class TestActivation:
         source._start_monitor = Mock()
         source._start_service_and_wait = AsyncMock(return_value=True)
         made = _mpv()
-        monkeypatch.setattr("backend.sources.cd.source.MpvController", Mock(return_value=made))
+        monkeypatch.setattr("backend.shared.mpv_audio_source.MpvController", Mock(return_value=made))
 
         assert await source._do_start() is True
         source._start_service_and_wait.assert_awaited_once()
@@ -1478,7 +1478,7 @@ class TestActivation:
         source._mpv = None
         source._start_service_and_wait = AsyncMock(return_value=False)
         controller = Mock()
-        monkeypatch.setattr("backend.sources.cd.source.MpvController", controller)
+        monkeypatch.setattr("backend.shared.mpv_audio_source.MpvController", controller)
 
         assert await source._do_start() is False
         controller.assert_not_called()
@@ -1488,7 +1488,7 @@ class TestActivation:
         _running_bg(source)
         source._mpv = None
         source._start_service_and_wait = AsyncMock(return_value=True)
-        monkeypatch.setattr("backend.sources.cd.source.MpvController",
+        monkeypatch.setattr("backend.shared.mpv_audio_source.MpvController",
                             Mock(return_value=_mpv(connect=AsyncMock(return_value=False))))
 
         assert await source._do_start() is False
@@ -1798,7 +1798,7 @@ class TestPreStartOnInsertion:
         source._mpv = None
         source._start_service_and_wait = AsyncMock(return_value=True)
         made = _mpv()
-        monkeypatch.setattr("backend.sources.cd.source.MpvController", Mock(return_value=made))
+        monkeypatch.setattr("backend.shared.mpv_audio_source.MpvController", Mock(return_value=made))
 
         await asyncio.wait_for(source._pre_start_service(), 2.0)
         assert source._mpv is made
@@ -1809,7 +1809,7 @@ class TestPreStartOnInsertion:
         source._mpv = None
         source._start_service_and_wait = AsyncMock(return_value=False)
         controller = Mock()
-        monkeypatch.setattr("backend.sources.cd.source.MpvController", controller)
+        monkeypatch.setattr("backend.shared.mpv_audio_source.MpvController", controller)
 
         with caplog.at_level("WARNING", logger=source._logger.name):
             await asyncio.wait_for(source._pre_start_service(), 2.0)
@@ -1819,19 +1819,24 @@ class TestPreStartOnInsertion:
         assert any("Pre-start" in r.message for r in caplog.records)
 
     async def test_a_connect_that_fails_leaves_a_controller_do_start_can_replace(
-            self, source, monkeypatch, caplog):
+            self, source, monkeypatch):
         """`_do_start` reuses `self._mpv` only `if self._mpv.is_connected`, so an
-        unconnected one here is not a trap — it is what makes the cold path run."""
+        unconnected one here is not a trap — it is what makes the cold path run.
+
+        Nothing is asserted about a log line any more: the pre-start's own
+        "connect failed" warning went with the four copies `_attach_mpv`
+        replaced. What the operator reads now comes from `connect()`, which
+        names what it waited for and for how long — see TestGiveUpIsNotABanner
+        in test_mpv_controller.py.
+        """
         source._mpv = None
         source._start_service_and_wait = AsyncMock(return_value=True)
         dead = _mpv(connect=AsyncMock(return_value=False), is_connected=False)
-        monkeypatch.setattr("backend.sources.cd.source.MpvController", Mock(return_value=dead))
+        monkeypatch.setattr("backend.shared.mpv_audio_source.MpvController", Mock(return_value=dead))
 
-        with caplog.at_level("WARNING", logger=source._logger.name):
-            await asyncio.wait_for(source._pre_start_service(), 2.0)
+        await asyncio.wait_for(source._pre_start_service(), 2.0)
 
         assert source._mpv.is_connected is False
-        assert any("connect failed" in r.message for r in caplog.records)
 
     async def test_a_pre_start_that_raises_is_swallowed(self, source, caplog):
         """It runs from the disc watcher's loop body; an exception escaping here

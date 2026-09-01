@@ -11,10 +11,13 @@ This file covers the helper, the `_on_auto_stop` dispatch that keeps
 regression guard.
 """
 import asyncio
+import logging
+
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.shared.mpv import MpvController
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.radio.source import RadioSource
 
@@ -61,6 +64,42 @@ def _live_mpv() -> Mock:
     mpv = Mock()
     mpv.is_connected = True
     return mpv
+
+
+class TestAttach:
+    """`_attach_mpv` is the four sources' only way onto the IPC socket."""
+
+    @pytest.mark.asyncio
+    async def test_a_failed_start_writes_one_line_and_not_two(
+        self, podcast_source, caplog
+    ):
+        """The source used to add a line of its own to a failure already logged.
+
+        connect() reports what it waited for and how long; "Failed to connect to
+        MPV IPC" next to it says only that it happened, in the second of the two
+        spellings the four sources had drifted into. Whoever reads a boot's
+        errors.log gets one record per failure, or the count means nothing.
+        """
+        podcast_source._service_manager = Mock(start=AsyncMock(return_value=True))
+
+        with patch.object(MpvController, "connect", AsyncMock(return_value=False)), \
+             caplog.at_level(logging.DEBUG):
+            assert await podcast_source._do_start() is False
+
+        from_the_source = [r for r in caplog.records if r.name.startswith("source.")]
+        assert from_the_source == []
+
+    @pytest.mark.asyncio
+    async def test_the_attach_answers_what_the_link_answered(self, radio_source):
+        """No interpretation between connect()'s verdict and the caller's.
+
+        The source is left holding the controller either way: a failed start is
+        stopped by the state machine, and the CD pre-start path reuses the same
+        object when the real start follows.
+        """
+        with patch.object(MpvController, "connect", AsyncMock(return_value=True)):
+            assert await radio_source._attach_mpv() is True
+        assert radio_source._mpv.ipc_socket_path == radio_source._mpv_socket
 
 
 class TestMpvDisconnect:

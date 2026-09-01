@@ -699,7 +699,7 @@ class TestBootFailureArms:
         come from the guard itself — otherwise the real MpvController fails to
         connect and the test passes for the wrong reason."""
         monkeypatch.setattr(
-            "backend.sources.podcast.source.MpvController", lambda **kw: FakeMpv()
+            "backend.shared.mpv_audio_source.MpvController", lambda **kw: FakeMpv()
         )
         source._start_monitor = Mock()
         source._load_auto_stop_config = AsyncMock()
@@ -714,7 +714,7 @@ class TestBootFailureArms:
         dead = FakeMpv()
         dead.connect = AsyncMock(return_value=False)
         monkeypatch.setattr(
-            "backend.sources.podcast.source.MpvController", lambda **kw: dead
+            "backend.shared.mpv_audio_source.MpvController", lambda **kw: dead
         )
 
         assert await source._do_start() is False
@@ -725,7 +725,7 @@ class TestBootFailureArms:
         source._start_service_and_wait = AsyncMock(return_value=True)
         source._podcast_data.get_setting = AsyncMock(return_value=1.5)
         monkeypatch.setattr(
-            "backend.sources.podcast.source.MpvController", lambda **kw: FakeMpv()
+            "backend.shared.mpv_audio_source.MpvController", lambda **kw: FakeMpv()
         )
         source._start_monitor = Mock()
         source._load_auto_stop_config = AsyncMock()
@@ -738,7 +738,7 @@ class TestBootFailureArms:
         would outlive the failure with no owner."""
         source._start_service_and_wait = AsyncMock(return_value=True)
         monkeypatch.setattr(
-            "backend.sources.podcast.source.MpvController", lambda **kw: FakeMpv()
+            "backend.shared.mpv_audio_source.MpvController", lambda **kw: FakeMpv()
         )
         source._load_auto_stop_config = AsyncMock(side_effect=RuntimeError("no settings"))
         source._cleanup = AsyncMock()

@@ -28,7 +28,6 @@ from backend.shared.artwork_resolver import ArtworkResolver
 from backend.sources.radio.data import StationDataService
 from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
-from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.radio.browser_api import RadioBrowserAPI
 
@@ -204,9 +203,7 @@ class RadioSource(MpvAudioSource):
             )
 
             # 4. Connect to MPV IPC
-            self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
-            if not await self._mpv.connect():
-                self._logger.error("Failed to connect to MPV IPC")
+            if not await self._attach_mpv():
                 return False
 
             # 5. Reset state and load auto-stop config

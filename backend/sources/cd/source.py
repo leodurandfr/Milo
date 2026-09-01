@@ -35,7 +35,6 @@ from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY, CdDataServ
 from backend.sources.cd.models import DiscInfo, PlayTrackParams, SeekParams, TrackInfo
 from backend.sources.cd.reader import CD_FIFO_PATH, SECTORS_PER_SECOND, CdIoctlReader
 from backend.shared.decorators import handle_errors
-from backend.shared.mpv import MpvController
 from backend.shared.mpv_audio_source import MpvAudioSource
 
 # Retry MusicBrainz when the initial lookup fell through to the fallback DiscInfo
@@ -186,9 +185,7 @@ class CdSource(MpvAudioSource):
                 else:
                     if not await self._start_service_and_wait():
                         return False
-                    self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
-                    if not await self._mpv.connect():
-                        self._logger.error("Failed to connect to mpv IPC")
+                    if not await self._attach_mpv():
                         return False
 
             await self._load_auto_stop_config()
@@ -656,9 +653,7 @@ class CdSource(MpvAudioSource):
                     self._logger.warning("Pre-start: service failed")
                     return
 
-                self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
-                if not await self._mpv.connect():
-                    self._logger.warning("Pre-start: mpv connect failed")
+                if not await self._attach_mpv():
                     return
 
         except Exception as e:

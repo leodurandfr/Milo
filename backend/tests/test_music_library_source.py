@@ -675,7 +675,7 @@ class TestResume:
         mpv = _mpv_with_props({"duration": 100})
         mpv.connect = AsyncMock(return_value=True)
 
-        with patch("backend.sources.music_library.source.MpvController", return_value=mpv):
+        with patch("backend.shared.mpv_audio_source.MpvController", return_value=mpv):
             ok = await source._do_start()
 
         assert ok is True
@@ -707,7 +707,7 @@ class TestRescanOnOpen:
     @pytest.mark.asyncio
     async def test_opening_the_library_requests_a_rescan(self, source):
         mpv = self._ready(source)
-        with patch("backend.sources.music_library.source.MpvController", return_value=mpv):
+        with patch("backend.shared.mpv_audio_source.MpvController", return_value=mpv):
             assert await source._do_start() is True
         await asyncio.sleep(0)  # let the spawned task reach its await
         await source._bg.cancel_all()
@@ -722,7 +722,7 @@ class TestRescanOnOpen:
         never = asyncio.Event()
         source.shares.request_scan = AsyncMock(side_effect=lambda: never.wait())
 
-        with patch("backend.sources.music_library.source.MpvController", return_value=mpv):
+        with patch("backend.shared.mpv_audio_source.MpvController", return_value=mpv):
             ok = await asyncio.wait_for(source._do_start(), timeout=1)
 
         assert ok is True
