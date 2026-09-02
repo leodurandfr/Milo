@@ -1,8 +1,7 @@
 # Milō backend — the privileged commands the service (running as `milo`) may run
-# without a password. This file is the single authority: `install/system.sh` and
-# the pi-gen stage both copy it, so a script-installed unit and a flashed image
-# grant exactly the same set. It used to be an inline heredoc in each of them,
-# which is how the two can silently disagree.
+# without a password. This file is the single authority: the pi-gen stage copies
+# it verbatim rather than restating it. It used to be an inline heredoc, which is
+# how a policy and its copy come to disagree silently.
 #
 # Every command here has a caller in backend/, and every `sudo` the backend
 # issues is listed here — both directions are enforced by

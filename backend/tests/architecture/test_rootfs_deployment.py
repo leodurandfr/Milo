@@ -195,8 +195,8 @@ SIBLING_SOURCE_RE = re.compile(
     re.MULTILINE,
 )
 
-# `source install/foo.sh`, run after `cd /home/milo/milo` inside the chroot.
-REPO_SOURCE_RE = re.compile(r"^\s*(?:source|\.)\s+(install/\S+)\s*$", re.MULTILINE)
+# `source provisioning/foo.sh`, run after `cd /home/milo/milo` inside the chroot.
+REPO_SOURCE_RE = re.compile(r"^\s*(?:source|\.)\s+(provisioning/\S+)\s*$", re.MULTILINE)
 
 # A copy *into* the stage directory, whatever the builder calls its checkout:
 # `cp <src> "${PIGEN_DIR}/stage-milo/<name>"`, `cp <src> pi-gen-build/stage-milo/<name>`.
@@ -269,7 +269,7 @@ def test_every_sibling_a_stage_sources_is_placed_there_by_every_builder(builder)
 
 
 def test_every_repo_file_a_stage_sources_exists_in_this_repo():
-    """The stage reads `install/` out of the clone the image carries.
+    """The stage reads `provisioning/` out of the clone the image carries.
 
     That clone is this repo at `MILO_BRANCH`, so a module renamed here is a stage
     that aborts under `bash -e` mid-build — after the frontend has been compiled.

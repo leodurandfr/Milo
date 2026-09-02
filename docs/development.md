@@ -339,7 +339,7 @@ pcm.milo_mysource_direct {
 # sources. snd-aloop caps at 8 substreams/card (kernel limit), so DLNA opened a
 # *second* loopback card, `LoopbackDLNA` — but that card is NOT full: it has 8
 # subdevices (0..7) and only 4 are taken (0=DLNA, 1=Qobuz, 2=Music Library,
-# 3=Tidal, see install/snapcast.sh). Use the next free subdevice on
+# 3=Tidal, see provisioning/snapcast.sh). Use the next free subdevice on
 # LoopbackDLNA (4, then 5, 6, 7) — do NOT open a third loopback card until all
 # 8 are used.
 # Then add a matching `source = alsa:///?...&device=hw:2,1,<subdevice>` line in
@@ -491,7 +491,7 @@ is driven entirely by an external app:
   when the sender paused and the bar ran on through a paused track (the channels
   measured before giving up are listed in `AirPlaySource`'s docstring).
 - **Install is from git, not PyPI.** qobuz-proxy has no PyPI release, so
-  [install/qobuz-proxy.sh](../install/qobuz-proxy.sh) creates a venv under
+  [provisioning/qobuz-proxy.sh](../provisioning/qobuz-proxy.sh) creates a venv under
   `/var/lib/milo/qobuz/` and `pip install`s the **pinned git tag**
   (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
   backend + `libportaudio2` from apt). The pi-gen stage-02 sources it rather than
@@ -816,7 +816,7 @@ git push origin v1.2.0
 ### Validating a dependency bump
 
 Every upstream version Milō ships is declared once, in **`dependencies.env`** at the repo
-root — read by `install/`, by `pi-gen/stage-milo/` and by the backend's update flow, so a
+root — read by `provisioning/`, by `pi-gen/stage-milo/` and by the backend's update flow, so a
 bump is a one-line edit and there is nowhere else it can disagree. That single line is also
 the only thing standing between an upstream release and every unit: a Milō update installs
 the app *and* the set declared with it, and nothing else is ever offered.
@@ -837,7 +837,7 @@ line, nothing to notice. "Audio plays" would have passed it.
    is then off-pin: the row says so, `Back to 5.2.2` is one click away, and the trial survives
    Milō updates until you end it or the manifest catches up (invariant 8). This is where a
    version fails, and it costs nothing to find out: qobuz-proxy 1.6.0 moved the anchor
-   `install/qobuz_proxy_patches.py` needed and rolled itself back in under a minute
+   `provisioning/qobuz_proxy_patches.py` needed and rolled itself back in under a minute
    (that anchor is gone — see `rootfs/usr/local/bin/milo-qobuz`).
 2. Edit the one line in `dependencies.env`. Nothing else — a version literal anywhere else
    fails CI (`backend/tests/architecture/test_dependency_manifest.py`). The override is dropped
@@ -860,7 +860,7 @@ the ones that do not.
 |---|---|---|
 | `SHAIRPORT_SYNC_VERSION` | Play from an iPhone | **Title, artist, album and cover reach the player.** This is the 5.1 case; audio proves nothing. Also confirm AirPlay 2 (not 1) still negotiates — that is `nqptp` and the `--with-airplay-2` build flag together |
 | `NQPTP_VERSION` | Play from an iPhone, then leave it playing ~5 min | No drift and no re-sync stutter. NQPTP is the AirPlay 2 clock; a bad one degrades slowly rather than failing |
-| `GO_LIBRESPOT_VERSION` | Hand off from the Spotify app | Artwork + title + artist appear **and change on track change**; the device still appears in the picker after a source switch (zeroconf via Avahi, not the embedded responder — see `install/go-librespot.sh`) |
+| `GO_LIBRESPOT_VERSION` | Hand off from the Spotify app | Artwork + title + artist appear **and change on track change**; the device still appears in the picker after a source switch (zeroconf via Avahi, not the embedded responder — see `provisioning/go-librespot.sh`) |
 | `CAMILLADSP_VERSION` | Change volume, switch an EQ preset | Volume attenuates **in CamillaDSP** and the card mixer stays at unity; a preset change is audible; `bypass_effects()`/`restore_effects()` still round-trip. Check `/proc/asound/card0/pcm0p/sub0/status` reads `RUNNING`, not `PAUSED` — the silence-pause failure leaves no log line |
 | `SNAPCAST_VERSION` | Play to a satellite | Both rooms stay in sync for minutes, not seconds. Needs a **second Pi**; this row cannot be run on one unit |
 | `NAVIDROME_VERSION` | Browse and play the Music Library | The catalog is complete after a rescan, and a track from an *unmounted* share fails visibly rather than streaming a 200 + JSON error body |

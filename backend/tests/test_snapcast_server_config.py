@@ -155,7 +155,7 @@ class TestReadingTheConfFile:
     async def test_every_source_line_is_kept_not_just_the_last(self, service):
         """`[stream]` carries one `source =` per audio source — eleven on this
         appliance. Storing them as a plain key would keep one and lose the rest,
-        which is the list `install/snapcast.sh` builds the whole ALSA loopback
+        which is the list `provisioning/snapcast.sh` builds the whole ALSA loopback
         map from."""
         parsed = (await service._read_snapserver_conf())["parsed_config"]
 
@@ -190,7 +190,7 @@ class TestReadingTheConfFile:
         assert "port" not in parsed["stream"]
 
     async def test_a_commented_key_inside_a_section_is_not_a_setting(self, service):
-        """`install/snapcast.sh` leaves documented alternatives in the file. Read
+        """`provisioning/snapcast.sh` leaves documented alternatives in the file. Read
         as live values they would go straight into the settings page, and the
         page's own write path would then make them real."""
         parsed = (await service._read_snapserver_conf())["parsed_config"]
@@ -229,7 +229,7 @@ class TestReadingTheConfFile:
         assert result["raw_content"] == LIVE_CONF
 
     async def test_a_missing_file_is_an_empty_parse_not_a_failure(self, service):
-        """A fresh image before `install/snapcast.sh` has run. The read is
+        """A fresh image before `provisioning/snapcast.sh` has run. The read is
         fail-open by design so the settings page loads with defaults."""
         service.snapserver_conf.unlink()
 
@@ -267,7 +267,7 @@ class TestRewritingTheStreamSection:
         assert out.split("[server]")[1].strip() == "codec = 4"
 
     def test_a_commented_key_is_not_revived(self, service):
-        """`install/snapcast.sh` leaves documentation lines in the file; turning
+        """`provisioning/snapcast.sh` leaves documentation lines in the file; turning
         one into a live setting would change behaviour nobody asked for."""
         content = LIVE_CONF.replace("buffer = 700", "# buffer = 700")
 
@@ -291,7 +291,7 @@ class TestRewritingTheStreamSection:
         The writer only rewrites lines that already exist, so a setting with no
         line in `[stream]` is lost while `update_server_config` returns success
         and restarts snapserver anyway. Latent on this fleet only because
-        `install/snapcast.sh` writes all four keys — an image that omitted one,
+        `provisioning/snapcast.sh` writes all four keys — an image that omitted one,
         or a fifth setting added to the payload, would fail exactly this way.
         """
         content = LIVE_CONF.replace("chunk_ms = 40\n", "")

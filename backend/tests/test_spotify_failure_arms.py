@@ -586,7 +586,7 @@ class TestTheManagedConfigWrite:
 
     async def test_a_config_path_that_is_not_there_is_left_alone(self, source, tmp_path):
         """The guard above the try. A unit whose image build never ran
-        install/go-librespot.sh::configure_go_librespot has no file, and writing
+        provisioning/go-librespot.sh::configure_go_librespot has no file, and writing
         one from here would create a config with none of the baked keys."""
         source._config_path = str(tmp_path / "does-not-exist.yml")
         source._get_crossfade_duration = AsyncMock()

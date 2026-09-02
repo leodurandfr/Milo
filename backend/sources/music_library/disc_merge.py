@@ -2,7 +2,7 @@
 """Collapse a multi-disc release that Navidrome split into several albums.
 
 Navidrome groups tracks into an album by the ``album`` tag (PID config
-``musicbrainz_albumid|album`` — see install/navidrome.sh). A correctly-tagged
+``musicbrainz_albumid|album`` — see provisioning/navidrome.sh). A correctly-tagged
 multi-disc set (one shared ALBUM tag + per-track DISCNUMBER) already collapses
 into a single album, and the frontend renders the discs. The problem case is a
 rip whose *disc marker is baked into the album title* with no DISCNUMBER — e.g.

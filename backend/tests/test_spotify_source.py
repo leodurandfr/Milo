@@ -964,7 +964,7 @@ class TestManagedConfig:
 
         written = self._read(spotify_source._config_path)
         assert written["crossfade_duration"] == 0
-        # Written by install/go-librespot.sh — this function must not own them.
+        # Written by provisioning/go-librespot.sh — this function must not own them.
         assert written["audio_device"] == "milo_spotify"
         assert written["server"]["port"] == 3678
 

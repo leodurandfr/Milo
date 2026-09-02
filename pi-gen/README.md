@@ -65,7 +65,7 @@ Build time is approximately 1-2 hours due to ARM64 cross-compilation via QEMU.
 ## Dependency Versions
 
 Every dependency version comes from **`dependencies.env` at the repo root** —
-the single declaration, shared with `install/` and with the backend's update
+the single declaration, shared with `provisioning/` and with the backend's update
 flow. The stage scripts declare nothing: `build.sh` copies that file in beside
 `stage-milo/` and each script sources it as a sibling. It has to be a copy
 because a stage is built from a duplicate of `stage-milo/` inside a cloned
