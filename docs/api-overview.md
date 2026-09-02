@@ -49,7 +49,7 @@ artwork. The two exceptions are documented in [CLAUDE.md](../CLAUDE.md) § *Audi
 a route that composes several commands in one request (`/api/radio/play`, `/api/podcast/play`)
 and a route Milo-Mac pins.
 
-So Bluetooth, Mac and Spotify have no router at all; Qobuz's only surface is the
+So Bluetooth, Mac, Spotify and Tidal have no router at all; Qobuz's only surface is the
 `/api/qobuz/account/*` one-time-login relay; `/api/airplay` and `/api/dlna` serve proxied
 artwork; `/api/cd` serves disc covers. Music Library is the richest (Subsonic-backed browsing,
 cover-art proxy, storage spaces, share wizard). API conventions (verbs, the `status` envelope, the

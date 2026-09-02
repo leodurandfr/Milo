@@ -52,6 +52,7 @@ by default (README Rule 3):
 | Mac source (ROC) | a **Mac** with the ROC sender app |
 | CD | a **USB drive + audio discs**, including one absent from the online catalogue |
 | Qobuz Connect | a **paid Qobuz account** |
+| Tidal Connect | a **paid Tidal account** |
 | Podcasts | **Podcast Index API credentials** with monthly quota left |
 | IR remote | an **Apple Remote A1156** + wired IR receiver |
 | Bluetooth remote | an **ANTICATER VK-01** (or compatible BT HID remote) |
@@ -104,7 +105,7 @@ These are shared by every source; they break for all of them at once.
 | Source switch | radio → spotify → radio: the previous source stops audibly within ~1 s; no two sources audible at once | smoke |
 | No ghost state | After switching away, the old source's artwork/title never reappears behind the new one | smoke |
 | Transition drop | Switching sources rapidly 4–5 times ends on the source last selected, not on an intermediate one | targeted |
-| Progress bar | Advances in real time and matches the audio (±1 s) for spotify, cd, podcast, music_library, airplay, dlna, qobuz | targeted |
+| Progress bar | Advances in real time and matches the audio (±1 s) for spotify, cd, podcast, music_library, airplay, dlna, qobuz, tidal | targeted |
 | Seek | Dragging the bar moves the audio to that point (spotify, cd, podcast, music_library) | targeted |
 | WS resync | Background the tab ≥60 s, then return: volume, active source, metadata and multiroom state all match reality | smoke |
 | Reconnect | `sudo systemctl restart milo-backend` with the UI open: the UI reconnects on its own and shows the real state, no reload needed | targeted |
@@ -198,6 +199,16 @@ These are shared by every source; they break for all of them at once.
 | Sign-in | Settings > Qobuz shows the signed-in state and survives a reboot | targeted |
 | Discovery | Milō appears in the Qobuz app's device list | targeted |
 | Playback + metadata | Audio plays; artwork, title, artist, album shown; progress advances; no transport buttons | targeted |
+
+### Tidal Connect (C) ⚠ paid account
+
+| Check | Expected observable | Set |
+|---|---|---|
+| Discovery | Milō appears in the Tidal app's device list | targeted |
+| Playback + metadata | Audio plays; artwork, title, artist, album shown; progress advances | targeted |
+| Transport | Pause/resume and prev/next from Milō act on the audio and the Tidal app follows | targeted |
+| No seek | The progress bar cannot be dragged (the protocol exposes none) | targeted |
+| Session recovery | Restarting milo-tidal, then casting again from the phone, starts a session — the daemon wedges for good if `startService` was missed | targeted |
 
 ### Bluetooth (A — mute receiver)
 

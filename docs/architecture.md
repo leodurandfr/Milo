@@ -7,36 +7,37 @@ This document explains the technologies used in Milō and how they work together
 Milō is built around a client-server architecture with real-time synchronization:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Frontend (Vue 3)                           │
-│                 Responsive user interface                       │
-└────────────────────┬────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                               Frontend (Vue 3)                              │
+│                          Responsive user interface                          │
+└─────────────────────────────────────────────────────────────────────────────┘
                      │ WebSocket (real-time)
                      │ HTTP REST (actions)
-┌────────────────────▼────────────────────────────────────────────┐
-│                  Backend (Python FastAPI)                       │
-│                State machine + Audio routing                    │
-└──┬─────┬────────┬───────┬───────┬───────┬───────┬──────┬──────┬──┘
-   │     │        │       │       │       │       │      │      │
- ┌─▼──┐ ┌▼─────┐ ┌▼────┐ ┌▼───┐ ┌─▼───┐ ┌─▼────┐ ┌▼──┐ ┌─▼──┐ ┌─▼──────┐
- │Spo-│ │Qobuz │ │Air- │ │DLNA│ │Blue-│ │Music │ │Ra-│ │Pod-│ │Mac (roc│
- │tify│ │(qobu-│ │Play │ │(gme│ │tooth│ │Libra-│ │dio│ │cast│ │) + CD  │
- │(li-│ │z-pro-│ │(sha-│ │dia-│ │(blu-│ │ry    │ │(mp│ │(mpv│ │        │
- │bre-│ │xy) + │ │irpo-│ │rend│ │ez)  │ │(navi-│ │v) │ │)   │ │        │
- │spot│ │Tidal │ │rt)  │ │er) │ │     │ │drome)│ │   │ │    │ │        │
- └─┬──┘ └──┬───┘ └──┬──┘ └─┬──┘ └──┬──┘ └──┬───┘ └─┬─┘ └─┬──┘ └───┬────┘
-   └───────┴────────┴──────┴───────┴───────┴───────┴─────┴────────┘
-                              │
-                              ▼
-                    ┌───────────────────┐
-                    │   CamillaDSP      │
-                    │ (volume + EQ/DSP) │
-                    └─────────┬─────────┘
-                              ▼
-                    ┌───────────────────┐
-                    │  Audio Amplifier  │
-                    │    (HiFiBerry)    │
-                    └───────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Backend (Python FastAPI)                          │
+│                        State machine + Audio routing                        │
+└──┬───────┬───────┬───────┬──────┬───────┬───────┬───────┬─────┬────────┬────┘
+   │       │       │       │      │       │       │       │     │        │
+ ┌─▼──┐ ┌──▼──┐ ┌──▼──┐ ┌──▼──┐ ┌─▼──┐ ┌──▼──┐ ┌──▼───┐ ┌─▼─┐ ┌─▼──┐ ┌───▼────┐
+ │Spo-│ │Qobuz│ │Tidal│ │Air- │ │DLNA│ │Blue-│ │Music │ │Ra-│ │Pod-│ │Mac (roc│
+ │tify│ │(qob-│ │(SDK │ │Play │ │(gme│ │tooth│ │Libra-│ │dio│ │cast│ │) + CD  │
+ │(li-│ │uz-  │ │dae- │ │(sha-│ │dia-│ │(blu-│ │ry    │ │(mp│ │(mpv│ │        │
+ │bre-│ │pro- │ │mon) │ │irpo-│ │rend│ │ez)  │ │(navi-│ │v) │ │)   │ │        │
+ │spot│ │xy)  │ │     │ │rt)  │ │er) │ │     │ │drome)│ │   │ │    │ │        │
+ └─┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └─┬──┘ └──┬──┘ └──┬───┘ └─┬─┘ └─┬──┘ └───┬────┘
+   └───────┴───────┴───────┴──────┴───────┴───────┴───────┴─────┴────────┘
+                                       │
+                                       ▼
+                             ┌───────────────────┐
+                             │     CamillaDSP    │
+                             │ (volume + EQ/DSP) │
+                             └───────────────────┘
+                                       │
+                                       ▼
+                             ┌───────────────────┐
+                             │  Audio Amplifier  │
+                             │    (HiFiBerry)    │
+                             └───────────────────┘
 ```
 
 ## Technologies used
@@ -955,6 +956,7 @@ milo-podcast              # Podcast player (mpv, separate instance from radio)
 milo-cd                   # CD player
 milo-dlna                 # DLNA/UPnP renderer (gmediarender + GStreamer)
 milo-qobuz                # Qobuz Connect (qobuz-proxy sidecar, backend-managed)
+milo-tidal                # Tidal Connect (proprietary armhf daemon, backend-managed)
 milo-navidrome-config     # Boot oneshot: re-emit the Navidrome TOML from install/navidrome.sh (before milo-navidrome)
 milo-navidrome            # Music Library catalog engine (Navidrome, always-on, PartOf=milo-backend)
 milo-music-library        # Music Library player (mpv, gapless; streams from Navidrome)
