@@ -50,10 +50,10 @@ log() { echo "[milo-first-boot] $1"; }
 # The drop-ins must never coexist either: each would apply the other role's
 # state file after the other one just ran, and which wins is alphabetical order.
 #
-# Installing — not only pruning — is what makes every path into a role correct.
-# Only pi-gen ships both drop-ins; install.sh ships the server's alone, so a
-# device it installed and this script then converted to client was left with NO
-# drop-in at all. Nothing reset allow-interfaces at boot, and the wlan0 written
+# Installing — not only pruning — is what makes the conversion correct. Pruning
+# alone is what shipped: a device whose provisioning had laid down the server's
+# drop-in and no client one, converted here, was left with NO drop-in at all.
+# Nothing reset allow-interfaces at boot, and the wlan0 written
 # by the dispatcher during the setup hotspot survived every reboot, leaving avahi
 # bound to a down interface: no mDNS, so the satellite could not resolve
 # milo.local and never registered with the server — silently, with no error on
