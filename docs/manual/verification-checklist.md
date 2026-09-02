@@ -169,6 +169,7 @@ These are shared by every source; they break for all of them at once.
 | Transport | Play/pause, next/previous, seek, progress bar | targeted |
 | Share | An SMB/NFS share added in Settings mounts and indexes; wrong credentials produce a *named* error, not a silent empty library | targeted |
 | Unplug | Removing the USB drive leaves the UI in a coherent state (no spinner forever) | targeted |
+| Share liveness deadline ⚠ | With the NAS's cable pulled, `statvfs` on its mountpoint **returns before `_LIVENESS_TIMEOUT_S`**. Measured 2026-09-02: the kernel answered `EHOSTDOWN` after 10.18 s, against a 15 s deadline. This is an environmental fact no unit test can assert, and it decides whether the probe can tell a dead NAS from a merely slow one: if the kernel is slower than the deadline, every negative arrives as a timeout and a slow NAS is hidden like a dead one, stopping the music | targeted |
 
 ### AirPlay (B — passive player)
 
