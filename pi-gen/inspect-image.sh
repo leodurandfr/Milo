@@ -139,9 +139,17 @@ done
 section "Units enabled at boot"
 # --------------------------------------------------------------------------
 # Derived from what pi-gen enables, so a unit added there is checked the day it
-# is added rather than when someone remembers to edit this list.
-mapfile -t WANTED < <(grep -hE '^\s*systemctl enable ' "$REPO/pi-gen/stage-milo/03-configure/01-run.sh" \
-                      | sed -E 's/.*enable +//; s/\.service$//; s/;$//')
+# is added rather than when someone remembers to edit this list — and from the
+# `install/` modules the stage sources, because not every enable is inline:
+# `install_ir_systemd_service` is what enables milo-ir-keytable, and reading the
+# stage alone left that unit unverified on the image.
+mapfile -t SOURCED < <(grep -hoE '^\s*source install/\S+' "$REPO"/pi-gen/stage-milo/*/*.sh \
+                       | sed -E 's/^\s*source //' | sort -u)
+[[ ${#SOURCED[@]} -ge 3 ]] || bad "only ${#SOURCED[@]} install/ modules sourced by pi-gen parsed"
+mapfile -t WANTED < <(grep -hE '^\s*(sudo )?systemctl enable ' \
+                        "$REPO/pi-gen/stage-milo/03-configure/01-run.sh" \
+                        "${SOURCED[@]/#/$REPO/}" 2>/dev/null \
+                      | sed -E 's/.*enable +//; s/\.service$//; s/;$//' | sort -u)
 [[ ${#WANTED[@]} -ge 10 ]] || bad "only ${#WANTED[@]} units parsed from the pi-gen enable list"
 for u in "${WANTED[@]}"; do
     if compgen -G "${ROOT%/}/etc/systemd/system/*.wants/$u.service" >/dev/null \
