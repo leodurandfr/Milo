@@ -11,18 +11,13 @@
 # screen (or http://milo.local:8689) and cached in credentials.json; it is
 # user-specific and intentionally NOT baked into the image.
 #
-# Sourced by pi-gen/stage-milo during the image build, or run standalone.
+# Sourced by pi-gen/stage-milo during the image build.
 
 set -e
 
 MILO_USER="${MILO_USER:-milo}"
 MILO_DATA_DIR="${MILO_DATA_DIR:-/var/lib/milo}"
 MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
-
-# Use parent logging functions if available, otherwise load common helpers
-if ! type log_info &>/dev/null; then
-    source "$(dirname "$0")/common.sh"
-fi
 
 install_qobuz_proxy() {
     log_info "Installing qobuz-proxy..."
@@ -93,7 +88,3 @@ speakers:
 EOF
 }
 
-# Run all steps if executed standalone
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    install_qobuz_proxy
-fi

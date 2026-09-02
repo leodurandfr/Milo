@@ -10,20 +10,15 @@
 #   2. The bootloader EEPROM so the board waits for a power-button press instead
 #      of booting automatically when power is applied (PC-like behaviour).
 #
-# Sourced by pi-gen/stage-milo during the image build, or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, and by
+# milo-eeprom-setup.service on every boot.
 
 set -e
 
 MILO_USER="${MILO_USER:-milo}"
-MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
 
 # GPIO pin (BCM) sinking the power-button status LED cathode.
 POWER_LED_GPIO_DEFAULT=26
-
-# Use parent logging functions if available, otherwise load common helpers
-if ! type log_info &>/dev/null; then
-    source "$(dirname "$0")/common.sh"
-fi
 
 configure_power_led() {
     log_info "Configuring power-button status LED (GPIO${POWER_LED_GPIO_DEFAULT})..."
@@ -112,13 +107,3 @@ configure_power_on_behavior() {
     rm -f "$conf"
 }
 
-install_power_button() {
-    configure_power_led
-    configure_power_on_behavior
-    log_success "Software power button support installed (J2 button + LED on GPIO${POWER_LED_GPIO_DEFAULT})"
-}
-
-# Run all steps if executed standalone
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    install_power_button
-fi

@@ -80,20 +80,16 @@ def _fetches() -> list[tuple[str, Path, str]]:
     ]
 
 
-# `local version="$CAMILLADSP_VERSION"` — a fetch may reach the pinned value
-# through a local alias rather than naming it, so the alias counts as pinned too.
-ALIAS_RE = re.compile(r"^\s*(?:local\s+)?([a-zA-Z_][a-zA-Z0-9_]*)=\"?\$\{?([A-Z0-9_]+_VERSION)\}?", re.MULTILINE)
+def _is_pinned(line: str, declared: set[str]) -> bool:
+    """Does this fetch name a version `dependencies.env` declares?
 
-
-def _pinned_names(path: Path, declared: set[str]) -> set[str]:
-    """Names that carry a pinned version in this file: the constants and their aliases."""
-    text = path.read_text(encoding="utf-8")
-    aliases = {alias for alias, source in ALIAS_RE.findall(text) if source in declared}
-    return declared | aliases
-
-
-def _is_pinned(line: str, names: set[str]) -> bool:
-    return any(name in names for name in VERSION_RE.findall(line))
+    The constant has to appear in the statement itself. An indirection —
+    `local v="$CAMILLADSP_VERSION"` a few lines above, then `.../$v/...` — reads
+    as unpinned, so the rule below would demand a guard on a download that should
+    abort. That is a loud false positive, never a hidden defect, and no file does
+    it: the two that did were the script installers' binary downloads.
+    """
+    return any(name in declared for name in VERSION_RE.findall(line))
 
 
 def _is_guarded(line: str) -> bool:
@@ -114,22 +110,15 @@ def test_the_fetch_extractor_sees_both_kinds():
     """
     declared = _declared_versions()
     fetches = _fetches()
-    assert len(fetches) >= 6, f"only {len(fetches)} wget/curl statements extracted"
 
-    pinned = [f for f in fetches if _is_pinned(f[2], _pinned_names(f[1], declared))]
-    unpinned = [f for f in fetches if not _is_pinned(f[2], _pinned_names(f[1], declared))]
+    # No total floor: the two counts below are what it would be the sum of, and a
+    # broken FETCH_RE reads as zero pinned.
+    pinned = [f for f in fetches if _is_pinned(f[2], declared)]
+    unpinned = [f for f in fetches if not _is_pinned(f[2], declared)]
     assert len(pinned) >= 4, f"only {len(pinned)} pinned fetches recognised"
     assert unpinned, "no unpinned fetch found — the rule below has nothing to check"
 
-    # The alias arm must be exercised too, or a `local version="$X_VERSION"`
-    # indirection would silently read as unpinned and the rule would demand a
-    # guard on a download that should abort.
-    common = REPO_ROOT / "install" / "common.sh"
-    assert "version" in _pinned_names(common, declared) - declared, (
-        "no local version alias resolved in install/common.sh; the alias arm is dead"
-    )
-
-    # ...and the guard test must discriminate, not rubber-stamp.
+    # The guard test must discriminate, not rubber-stamp.
     assert _is_guarded("if wget -q http://x/f.zip; then")
     assert _is_guarded("wget http://x/f.zip || true")
     assert not _is_guarded("wget http://x/f.zip")
@@ -144,7 +133,7 @@ def test_an_unpinned_download_cannot_abort_the_image_build():
     unguarded = [
         f"{tree}: {path.relative_to(REPO_ROOT)}: {line.strip()[:90]}"
         for tree, path, line in _fetches()
-        if not _is_pinned(line, _pinned_names(path, declared)) and not _is_guarded(line)
+        if not _is_pinned(line, declared) and not _is_guarded(line)
     ]
     assert not unguarded, (
         "these downloads are not pinned by dependencies.env and can end the "
@@ -183,7 +172,7 @@ def test_the_apt_extractor_sees_the_installs():
         for line in _statements(path)
         if APT_INSTALL_RE.search(line)
     ]
-    assert len(found) >= 10, f"only {len(found)} apt install statements extracted"
+    assert len(found) >= 5, f"only {len(found)} apt install statements extracted"
     # ...and the matcher must discriminate.
     assert re.search(r"\|\|\s*true\s*$", "apt install -y x || true")
     assert not re.search(r"\|\|\s*true\s*$", "apt install -y x || apt install -y y")

@@ -14,37 +14,14 @@
 # is generated per-device on first boot by milo-navidrome-provision, so the
 # config here is user-agnostic and safe to bake.
 #
-# Sourced by pi-gen/stage-milo during the image build, or run standalone.
+# The binary is downloaded by pi-gen/stage-milo/01-install-audio; this file only
+# writes the config. Sourced by pi-gen/stage-milo during the image build, and by
+# milo-navidrome-config.service on every boot.
 
 set -e
 
 MILO_USER="${MILO_USER:-milo}"
 MILO_DATA_DIR="${MILO_DATA_DIR:-/var/lib/milo}"
-
-# Use parent logging functions if available, otherwise load common helpers
-if ! type log_info &>/dev/null; then
-    source "$(dirname "$0")/common.sh"
-fi
-
-install_navidrome() {
-    log_info "Installing Navidrome..."
-
-    local temp_dir
-    temp_dir=$(mktemp -d) || { log_error "Failed to create temp directory"; return 1; }
-    register_temp_dir "$temp_dir"
-    pushd "$temp_dir" > /dev/null
-
-    wget -q "https://github.com/navidrome/navidrome/releases/download/v${NAVIDROME_VERSION}/navidrome_${NAVIDROME_VERSION}_linux_arm64.tar.gz"
-    tar -xzf "navidrome_${NAVIDROME_VERSION}_linux_arm64.tar.gz" navidrome
-    sudo cp navidrome /usr/local/bin/
-    sudo chmod +x /usr/local/bin/navidrome
-
-    popd > /dev/null
-
-    configure_navidrome
-
-    log_success "Navidrome installed"
-}
 
 # Write /var/lib/milo/navidrome/navidrome.toml and prepare the data + mount dirs.
 # Kept separate from the binary download so the pi-gen image build reuses this as
@@ -239,7 +216,3 @@ EOF
     sudo chown "$MILO_USER:$MILO_USER" /media/milo
 }
 
-# Run all steps if executed standalone
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    install_navidrome
-fi

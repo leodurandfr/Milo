@@ -354,7 +354,7 @@ pcm.milo_mysource_multiroom {
 }
 ```
 
-Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. The snd-aloop module options are written in TWO places — `pi-gen/stage-milo/02-install-milo/01-run.sh` writes `/etc/modprobe.d/snd-aloop.conf` inline, and `install/alsa.sh::configure_alsa_loopback` writes the same line for a standalone run — so bump both:
+Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. The snd-aloop module options are written in exactly one place, `pi-gen/stage-milo/02-install-milo/01-run.sh` (`/etc/modprobe.d/snd-aloop.conf`):
 ```
 options snd-aloop index=1,2,3 enable=1,1,1 id=Loopback,LoopbackDLNA,LoopbackX pcm_substreams=8,8,8
 ```
