@@ -39,11 +39,11 @@
             </template>
 
             <div v-if="snapcastStore.isLoading" class="loading-state">
-              <p class="text-mono">{{ t('multiroom.loadingSystems') }}</p>
+              <p class="text-mono-medium">{{ t('multiroom.loadingSystems') }}</p>
             </div>
 
             <div v-else-if="sortedMultiroomClients.length === 0" class="no-clients-state">
-              <p class="text-mono">{{ t('multiroom.noSystems') }}</p>
+              <p class="text-mono-medium">{{ t('multiroom.noSystems') }}</p>
             </div>
 
             <div v-else class="speakers-list">
@@ -52,11 +52,11 @@
                   <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
                   <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
                   <!-- Crossover badge -->
-                  <span v-if="zone.crossover_enabled" class="crossover-badge crossover-badge--active text-mono"
+                  <span v-if="zone.crossover_enabled" class="crossover-badge crossover-badge--active text-mono-medium"
                     :title="t('multiroom.crossover.badgeActive')">
                     {{ zone.crossover_frequency}} Hz
                   </span>
-                  <span v-else-if="zone.has_subwoofer" class="crossover-badge crossover-badge--inactive text-mono"
+                  <span v-else-if="zone.has_subwoofer" class="crossover-badge crossover-badge--inactive text-mono-medium"
                     :title="t('multiroom.crossover.subwooferOffline')">
                     {{ t('multiroom.crossover.badgeInactive') }}
                   </span>

@@ -11,7 +11,7 @@
       @pointerdown="startDrag"
     ></div>
 
-    <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono" :class="{ dragging: isDragging, muted: muted }">
+    <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono-medium" :class="{ dragging: isDragging, muted: muted }">
       {{ effectiveValue }}{{ valueUnit }}
     </div>
   </div>

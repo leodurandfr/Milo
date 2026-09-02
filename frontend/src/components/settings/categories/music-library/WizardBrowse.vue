@@ -46,17 +46,17 @@
       <!-- Auth step -->
       <template v-if="phase === 'auth'">
         <div class="wb-form">
-          <p class="text-mono wb-note">{{ t('musicLibrary.shares.wizard.authPrompt') }}</p>
+          <p class="text-mono-medium wb-note">{{ t('musicLibrary.shares.wizard.authPrompt') }}</p>
           <div class="wb-group">
-            <label class="text-mono">{{ t('musicLibrary.shares.username') }}</label>
+            <label class="text-mono-medium">{{ t('musicLibrary.shares.username') }}</label>
             <InputText v-model="creds.username" :placeholder="t('musicLibrary.shares.usernamePlaceholder')" :maxlength="128" />
           </div>
           <div class="wb-group">
-            <label class="text-mono">{{ t('musicLibrary.shares.password') }}</label>
+            <label class="text-mono-medium">{{ t('musicLibrary.shares.password') }}</label>
             <InputText v-model="creds.password" type="password" :maxlength="256"
               :placeholder="t('musicLibrary.shares.passwordPlaceholder')" />
           </div>
-          <p v-if="authError" class="wb-error text-mono">{{ authError }}</p>
+          <p v-if="authError" class="wb-error text-mono-medium">{{ authError }}</p>
           <Button variant="brand" size="medium" :loading="connecting" @click="connect">
             {{ t('musicLibrary.shares.wizard.connect') }}
           </Button>
@@ -68,7 +68,7 @@
 
       <!-- Unreachable / error -->
       <template v-else-if="phase === 'error'">
-        <p class="wb-error text-mono">{{ errorMsg }}</p>
+        <p class="wb-error text-mono-medium">{{ errorMsg }}</p>
         <Button variant="background-strong" size="medium" @click="load(path)">
           {{ t('musicLibrary.shares.wizard.retry') }}
         </Button>
@@ -76,7 +76,7 @@
 
       <!-- Saved but the mount didn't come up -->
       <template v-else-if="phase === 'done'">
-        <p class="wb-warn text-mono">{{ t('musicLibrary.shares.wizard.savedNotMounted') }}</p>
+        <p class="wb-warn text-mono-medium">{{ t('musicLibrary.shares.wizard.savedNotMounted') }}</p>
         <Button variant="background-strong" size="medium" @click="$emit('success')">
           {{ t('musicLibrary.shares.wizard.done') }}
         </Button>
@@ -100,7 +100,7 @@
         <!-- Empty: a sub-folder with nothing in it, or a server that lists no
              shares as guest — offer to sign in for private shares. -->
         <template v-else>
-          <p class="wb-empty text-mono">
+          <p class="wb-empty text-mono-medium">
             {{ path ? t('musicLibrary.shares.wizard.emptyFolder') : t('musicLibrary.shares.wizard.noSharesGuest') }}
           </p>
           <Button v-if="canSignIn" variant="background-strong" size="medium" @click="startSignIn">
@@ -108,7 +108,7 @@
           </Button>
         </template>
 
-        <p v-if="errorMsg" class="wb-error text-mono">{{ errorMsg }}</p>
+        <p v-if="errorMsg" class="wb-error text-mono-medium">{{ errorMsg }}</p>
       </template>
     </SettingsSection>
 

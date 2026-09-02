@@ -7,7 +7,7 @@
           <span class="bar"></span>
           <span class="bar"></span>
         </div>
-        <span v-else class="track-number text-mono">{{ number }}</span>
+        <span v-else class="track-number text-mono-large">{{ number }}</span>
       </div>
       <LazyImage v-if="showCover" :src="coverUrl" :fallback="musicPlaceholder"
         :alt="displayTitle" lazy class="track-cover" />
@@ -18,7 +18,7 @@
         <p class="track-title text-body">{{ displayTitle }}</p>
         <span v-if="feat" class="track-feat text-mono-small">{{ t('musicLibrary.featuring', { artists: feat }) }}</span>
       </div>
-      <p v-if="showArtist && song.artist" class="track-artist text-mono">{{ song.artist }}</p>
+      <p v-if="showArtist && song.artist" class="track-artist text-mono-medium">{{ song.artist }}</p>
     </div>
 
     <div v-if="editing" class="track-edit">
@@ -32,7 +32,7 @@
       </div>
     </div>
     <template v-else>
-      <span class="track-duration text-mono-small">{{ formatDuration(song.duration) }}</span>
+      <span class="track-duration text-mono-medium">{{ formatDuration(song.duration) }}</span>
       <button v-if="showMenu" v-press type="button" class="track-icon-btn track-menu"
         :aria-label="t('musicLibrary.playlists.addToPlaylist')"
         @pointerdown.stop @click.stop="$emit('menu')">

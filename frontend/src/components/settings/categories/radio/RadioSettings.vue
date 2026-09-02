@@ -25,7 +25,7 @@
       <StationCard v-for="station in modifiedStations" :key="station.id" :station="station"
         variant="card" :show-country="true" @click="$emit('edit-station', { ...station, _canRestore: true })" />
     </div>
-    <div v-else class="empty-state text-mono">
+    <div v-else class="empty-state text-mono-medium">
       {{ t('radioSettings.noModifiedStations') }}
     </div>
 

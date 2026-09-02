@@ -8,9 +8,9 @@
     </LazyImage>
 
     <div class="card-info">
-      <span v-if="tagText" class="podcast-tag text-mono">{{ tagText }}</span>
+      <span v-if="tagText" class="podcast-tag text-mono-medium">{{ tagText }}</span>
       <h3 class="podcast-name heading-4">{{ podcast.name }}</h3>
-      <p v-if="podcast.publisher" class="podcast-publisher text-mono">{{ podcast.publisher }}</p>
+      <p v-if="podcast.publisher" class="podcast-publisher text-mono-medium">{{ podcast.publisher }}</p>
     </div>
 
     <div v-if="showActions" class="card-actions" @click.stop>

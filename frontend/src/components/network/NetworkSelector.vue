@@ -5,7 +5,7 @@
   <div class="network-selector">
     <!-- WiFi country selector -->
     <div v-if="showCountry" class="country-row">
-      <span class="country-row__label text-mono">{{ t('network.wifiCountry') }}</span>
+      <span class="country-row__label text-mono-medium">{{ t('network.wifiCountry') }}</span>
       <Dropdown
         :model-value="country"
         :options="countryOptions"
@@ -16,7 +16,7 @@
 
     <!-- Network list -->
     <div class="wifi-networks">
-      <span v-if="showLabel" class="text-mono wifi-networks__label">{{ t('network.wifiNetworks') }}</span>
+      <span v-if="showLabel" class="text-mono-medium wifi-networks__label">{{ t('network.wifiNetworks') }}</span>
 
       <!-- Skeletons -->
       <template v-if="(loading || scanning) && visibleNetworks.length === 0">
@@ -27,7 +27,7 @@
       </template>
 
       <!-- Empty state -->
-      <div v-else-if="visibleNetworks.length === 0" class="wifi-empty text-mono">
+      <div v-else-if="visibleNetworks.length === 0" class="wifi-empty text-mono-medium">
         {{ t('network.noNetworks') }}
       </div>
 

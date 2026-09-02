@@ -17,7 +17,7 @@
         <h2 class="detail-header-title heading-2">{{ title }}</h2>
         <p v-if="subtitle" class="detail-header-subtitle heading-3" :class="{ 'detail-header-subtitle--clickable': subtitleClickable }"
           @click="subtitleClickable && $emit('select-artist')">{{ subtitle }}</p>
-        <p v-if="subtitleMeta" class="detail-header-metaline text-mono">{{ subtitleMeta }}</p>
+        <p v-if="subtitleMeta" class="detail-header-metaline text-mono-medium">{{ subtitleMeta }}</p>
       </div>
 
       <div v-if="hasActions" class="detail-header-actions">

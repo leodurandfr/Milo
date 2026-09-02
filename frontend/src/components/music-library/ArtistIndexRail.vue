@@ -5,7 +5,7 @@
     <div ref="stripRef" class="rail-strip">
       <span v-for="(letter, i) in shownLetters" :key="`${letter}-${i}`"
         :class="['rail-entry', { active: letter === activeLetter }]">{{ letter }}</span>
-      <span v-if="activeLetter" class="rail-bubble text-mono" :style="{ top: `${bubblePercent}%` }">
+      <span v-if="activeLetter" class="rail-bubble text-mono-medium" :style="{ top: `${bubblePercent}%` }">
         {{ activeLetter }}
       </span>
     </div>

@@ -58,7 +58,7 @@
                   <div class="index-list">
                     <div v-for="bucket in store.displayedArtistIndex" :key="bucket.name"
                       :ref="(el) => setBucketRef(bucket.name, el)" class="index-bucket">
-                      <p class="index-label text-mono">{{ bucket.name }}</p>
+                      <p class="index-label text-mono-medium">{{ bucket.name }}</p>
                       <MediaRow v-for="artist in bucket.artist" :key="artist.id" :cover-id="artist.coverArt"
                         :title="artist.name" :subtitle="t('musicLibrary.albumsCount', { count: artist.albumCount || 0 })"
                         @click="$emit('select-artist', artist)" />
@@ -87,7 +87,7 @@
                 <div v-for="genre in store.genres" :key="genre.value" v-press class="genre-row"
                   @click="$emit('select-genre', genre)">
                   <span class="genre-name heading-3">{{ genre.value }}</span>
-                  <span class="genre-count text-mono">{{ t('musicLibrary.songsCount', { count: genre.songCount || 0 })
+                  <span class="genre-count text-mono-medium">{{ t('musicLibrary.songsCount', { count: genre.songCount || 0 })
                   }}</span>
                 </div>
               </div>

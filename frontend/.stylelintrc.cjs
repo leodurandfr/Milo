@@ -8,8 +8,9 @@
  *      missing).                                                  (NO_COLOR_FN)
  *   3. No typography redefinition in scoped CSS (font-family /
  *      font-size / line-height / letter-spacing / font-weight) —
- *      apply a utility class (heading-1..4, text-body, text-mono,
- *      display-1) on the element instead.                         (NO_TYPOGRAPHY)
+ *      apply a utility class (heading-1..4, text-body,
+ *      text-mono-large/-medium/-small, display-1) on the element
+ *      instead.                         (NO_TYPOGRAPHY)
  *
  * Rules 2 and 3 share one stylelint rule
  * (declaration-property-value-disallowed-list), so they are declared as two

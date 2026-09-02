@@ -27,7 +27,7 @@
           </DetailHeader>
 
           <div class="description-block">
-            <h3 class="text-mono description-title">{{ t('podcasts.description') }}</h3>
+            <h3 class="text-mono-medium description-title">{{ t('podcasts.description') }}</h3>
             <p class="text-body">{{ episode.description }}</p>
           </div>
         </div>

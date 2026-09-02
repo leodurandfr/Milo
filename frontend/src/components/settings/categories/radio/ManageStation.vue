@@ -20,13 +20,13 @@
       <!-- Station Name and Image Section (horizontal on desktop, stacked on mobile) -->
       <div class="station-header-row">
         <div class="form-group">
-          <label class="text-mono">{{ t('radio.manageStation.name') }} *</label>
+          <label class="text-mono-medium">{{ t('radio.manageStation.name') }} *</label>
           <InputText v-model="formData.name" type="text" :placeholder="t('radio.manageStation.namePlaceholder')" />
         </div>
 
         <div class="image-upload-group">
           <div class="form-group">
-            <label class="text-mono">{{ t('radio.manageStation.image') }}</label>
+            <label class="text-mono-medium">{{ t('radio.manageStation.image') }}</label>
             <Button variant="outline" size="medium" class="full-width-btn" @click="$refs.fileInput.click()">
               {{ t('radio.manageStation.chooseImage') }}
             </Button>
@@ -46,7 +46,7 @@
       </div>
 
       <div class="form-group">
-        <label class="text-mono">{{ t('radio.manageStation.url') }} *</label>
+        <label class="text-mono-medium">{{ t('radio.manageStation.url') }} *</label>
         <InputText v-model="formData.url" type="url"
           :placeholder="t('radio.manageStation.urlPlaceholder')" />
       </div>
@@ -54,12 +54,12 @@
       <!-- Country + Genre (horizontal on desktop, stacked on mobile) -->
       <div class="form-row">
         <div class="form-group">
-          <label class="text-mono">{{ t('radio.manageStation.country') }}</label>
+          <label class="text-mono-medium">{{ t('radio.manageStation.country') }}</label>
           <Dropdown v-model="formData.countrycode" :options="countryOptions" :placeholder="t('radio.manageStation.selectCountry')" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">{{ t('radio.manageStation.genre') }}</label>
+          <label class="text-mono-medium">{{ t('radio.manageStation.genre') }}</label>
           <InputText v-model="formData.genre" type="text"
             :placeholder="t('radio.manageStation.genrePlaceholder')" />
         </div>
@@ -68,13 +68,13 @@
       <!-- Codec + Bitrate (horizontal on desktop, stacked on mobile) -->
       <div class="form-row">
         <div class="form-group">
-          <label class="text-mono">{{ t('radio.manageStation.codec') }}</label>
+          <label class="text-mono-medium">{{ t('radio.manageStation.codec') }}</label>
           <InputText v-model="formData.codec" type="text"
             :placeholder="t('radio.manageStation.codecPlaceholder')" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">{{ t('radio.manageStation.bitrate') }}</label>
+          <label class="text-mono-medium">{{ t('radio.manageStation.bitrate') }}</label>
           <InputText v-model="formData.bitrate" type="number"
             :placeholder="t('radio.manageStation.bitratePlaceholder')" />
         </div>
@@ -92,7 +92,7 @@
       />
 
       <!-- Error Message -->
-      <div v-if="errorMessage" class="error-message text-mono">
+      <div v-if="errorMessage" class="error-message text-mono-medium">
         ❌ {{ errorMessage }}
       </div>
 

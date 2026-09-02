@@ -38,7 +38,7 @@
       @change="handleWifiToggle"
     >
       <div ref="wifiContentRef" class="wifi-content">
-        <span class="text-mono wifi-content__description">{{ t('network.wifiDescription') }}</span>
+        <span class="text-mono-medium wifi-content__description">{{ t('network.wifiDescription') }}</span>
 
         <!-- Preferred network -->
         <div v-if="preferredNetwork" class="wifi-group">
@@ -77,7 +77,7 @@
             </template>
 
             <!-- Empty state -->
-            <div v-if="!loading && !scanning && otherNetworks.length === 0" class="network-empty text-mono">
+            <div v-if="!loading && !scanning && otherNetworks.length === 0" class="network-empty text-mono-medium">
               {{ t('network.noNetworks') }}
             </div>
 
@@ -109,7 +109,7 @@
 
         <!-- WiFi country selector -->
         <div class="country-row">
-          <span class="country-row__label text-mono">{{ t('network.wifiCountry') }}</span>
+          <span class="country-row__label text-mono-medium">{{ t('network.wifiCountry') }}</span>
           <Dropdown
             :model-value="pendingCountry || country"
             :options="countryOptions"

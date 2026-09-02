@@ -495,10 +495,10 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 
 /* Reserve the progress bar's row height even while it's hidden (idle CD) so the
    centered track-info doesn't shift when the bar mounts on play. Matches the
-   bar's flex-row height, which the .time line-height (--line-height-mono)
+   bar's flex-row height, which the .time line-height (--line-height-mono-medium)
    dominates over the 8px track. */
 .progress-wrapper {
-  min-height: var(--line-height-mono);
+  min-height: var(--line-height-mono-medium);
 }
 
 .track-title {

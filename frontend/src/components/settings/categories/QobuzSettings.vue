@@ -32,7 +32,7 @@
         <div class="qobuz-header">
           <div class="qobuz-account-text">
             <h2 class="heading-2">{{ t('qobuzSettings.accountTitle') }}</h2>
-            <p v-if="account.email" class="text-mono qobuz-email">{{ account.email }}</p>
+            <p v-if="account.email" class="text-mono-medium qobuz-email">{{ account.email }}</p>
           </div>
           <Button
             variant="background-strong"

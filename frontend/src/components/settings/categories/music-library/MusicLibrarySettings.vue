@@ -29,7 +29,7 @@
         </SectionHeader>
       </template>
 
-      <p class="text-mono ml-desc">{{ t('musicLibrary.shares.description') }}</p>
+      <p class="text-mono-medium ml-desc">{{ t('musicLibrary.shares.description') }}</p>
 
       <!-- 2-up on desktop (NAS/shares left, USB right, wrapping as rows fill);
            single column on mobile. -->
@@ -100,7 +100,7 @@
         <SectionHeader :title="t('musicLibrary.maintenance.title')" />
       </template>
 
-      <p class="text-mono ml-desc">{{ t('musicLibrary.maintenance.description') }}</p>
+      <p class="text-mono-medium ml-desc">{{ t('musicLibrary.maintenance.description') }}</p>
 
       <ScanProgress :open="busy" :has-bar="busy" :label="scanLabel" />
 

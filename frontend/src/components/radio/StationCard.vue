@@ -48,7 +48,7 @@
 
     <div class="station-details">
       <p class="station-title heading-3">{{ station.name }}</p>
-      <p v-if="cardMetadata" class="station-subtitle text-mono">{{ cardMetadata }}</p>
+      <p v-if="cardMetadata" class="station-subtitle text-mono-medium">{{ cardMetadata }}</p>
     </div>
 
     <!-- Custom actions (0, 1 or 2 buttons) -->

@@ -15,7 +15,7 @@
 
     <!-- Client Selection -->
     <SettingsSection :title="t('equalizer.zones.selectClients')">
-      <p class="text-mono zone-hint">{{ t('equalizer.zones.minimumClients') }}</p>
+      <p class="text-mono-medium zone-hint">{{ t('equalizer.zones.minimumClients') }}</p>
       <div class="clients-list">
         <SystemListItem
           v-for="target in availableTargets"

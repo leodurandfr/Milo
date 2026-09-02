@@ -4,7 +4,7 @@
     <!-- Audio Card -->
     <SettingsSection :title="t('hardwareSettings.audioCard')">
       <div class="hardware-row">
-        <span class="hardware-row__label text-mono">{{ t('hardwareSettings.audioCardModel') }}</span>
+        <span class="hardware-row__label text-mono-medium">{{ t('hardwareSettings.audioCardModel') }}</span>
         <Dropdown
           :model-value="config.audio_id"
           :options="audioCardOptions"
@@ -32,7 +32,7 @@
       @change="toggleScreen"
     >
       <div class="hardware-row">
-        <span class="hardware-row__label text-mono">{{ t('hardwareSettings.screenModel') }}</span>
+        <span class="hardware-row__label text-mono-medium">{{ t('hardwareSettings.screenModel') }}</span>
         <Dropdown
           :model-value="config.screen_type"
           :options="screenOptionsFiltered"

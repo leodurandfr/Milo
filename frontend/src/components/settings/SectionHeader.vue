@@ -3,7 +3,7 @@
   <div class="section-header">
     <div class="section-header__title">
       <h2 class="heading-2">{{ title }}</h2>
-      <span v-if="subtitle" class="section-header__subtitle text-mono">{{ subtitle }}</span>
+      <span v-if="subtitle" class="section-header__subtitle text-mono-medium">{{ subtitle }}</span>
     </div>
     <div v-if="$slots.actions" class="section-header__actions">
       <slot name="actions" />

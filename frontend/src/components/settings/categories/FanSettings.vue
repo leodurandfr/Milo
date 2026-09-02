@@ -5,17 +5,17 @@
     <SettingsSection :title="t('fanSettings.status')">
       <div class="fan-grid">
         <div class="fan-item">
-          <span class="fan-label text-mono">{{ t('fanSettings.temperature') }}</span>
-          <span class="fan-value text-mono">{{ tempDisplay }}</span>
+          <span class="fan-label text-mono-medium">{{ t('fanSettings.temperature') }}</span>
+          <span class="fan-value text-mono-medium">{{ tempDisplay }}</span>
         </div>
         <div class="fan-item">
-          <span class="fan-label text-mono">{{ t('fanSettings.rpm') }}</span>
-          <span class="fan-value text-mono">{{ fanStore.status.rpm }} {{ t('fanSettings.rpmUnit') }}</span>
+          <span class="fan-label text-mono-medium">{{ t('fanSettings.rpm') }}</span>
+          <span class="fan-value text-mono-medium">{{ fanStore.status.rpm }} {{ t('fanSettings.rpmUnit') }}</span>
         </div>
         <div class="fan-item fan-item-bar">
           <div class="fan-item-top">
-            <span class="fan-label text-mono">{{ t('fanSettings.speed') }}</span>
-            <span class="fan-value text-mono">{{ fanStore.status.pwm_percent }}%</span>
+            <span class="fan-label text-mono-medium">{{ t('fanSettings.speed') }}</span>
+            <span class="fan-value text-mono-medium">{{ fanStore.status.pwm_percent }}%</span>
           </div>
           <div class="bar-container">
             <div class="bar-fill" :style="{ width: fanStore.status.pwm_percent + '%' }"></div>
@@ -26,7 +26,7 @@
 
     <!-- Mode + curve (or disabled message) -->
     <SettingsSection :title="config.enabled ? t('fanSettings.mode') : ''">
-      <p v-if="!config.enabled" class="fan-warning text-mono">{{ t('fanSettings.disabledNote') }}</p>
+      <p v-if="!config.enabled" class="fan-warning text-mono-medium">{{ t('fanSettings.disabledNote') }}</p>
 
       <template v-else>
         <ButtonGroup :model-value="config.mode" :options="modeOptions" @change="setMode" />
@@ -86,7 +86,7 @@
                 @click="removePoint(i)"
               />
             </div>
-            <button v-if="config.curve.length < MAX_POINTS" class="curve__add text-mono" @click="addPoint">
+            <button v-if="config.curve.length < MAX_POINTS" class="curve__add text-mono-medium" @click="addPoint">
               + {{ t('fanSettings.addPoint') }}
             </button>
           </div>

@@ -19,22 +19,22 @@
     <form class="usb-form" @submit.prevent="handleSubmit">
       <SettingsSection>
         <div class="form-group">
-          <label class="text-mono">{{ t('musicLibrary.usb.name') }}</label>
+          <label class="text-mono-medium">{{ t('musicLibrary.usb.name') }}</label>
           <InputText v-model="name" :placeholder="device?.label || t('musicLibrary.usb.namePlaceholder')"
             :maxlength="128" />
-          <span class="text-mono usb-form__hint">
+          <span class="text-mono-medium usb-form__hint">
             {{ t('musicLibrary.usb.nameHint', { label: device?.label || '' }) }}
           </span>
         </div>
 
-        <div v-if="errorMessage" class="usb-form__error text-mono">{{ errorMessage }}</div>
+        <div v-if="errorMessage" class="usb-form__error text-mono-medium">{{ errorMessage }}</div>
       </SettingsSection>
 
       <SettingsSection v-if="device && !device.mounted">
         <template #header>
           <SectionHeader :title="t('musicLibrary.usb.forgetTitle')" />
         </template>
-        <p class="text-mono usb-form__hint">
+        <p class="text-mono-medium usb-form__hint">
           {{ t('musicLibrary.usb.forgetDescription', { count: device.track_count || 0 }) }}
         </p>
         <Button variant="background-strong" size="medium" :loading="isForgetting"

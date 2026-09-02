@@ -11,11 +11,11 @@
 <template>
   <div class="progress-bar" :class="[`progress-bar--${variant}`, { 'progress-bar--animated': animateIn }]"
     v-if="duration > 0 && isReady">
-    <span class="text-mono time">{{ formatTime(currentPosition) }}</span>
+    <span class="text-mono-medium time">{{ formatTime(currentPosition) }}</span>
     <div class="progress-container" :class="{ interactive }" @click="onProgressClick">
       <div class="progress" :style="progressStyle"></div>
     </div>
-    <span class="text-mono time">{{ formatTime(duration) }}</span>
+    <span class="text-mono-medium time">{{ formatTime(duration) }}</span>
   </div>
 </template>
 
