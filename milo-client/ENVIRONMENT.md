@@ -41,14 +41,6 @@ own defaults — `buffer_time=80`, `fragments=4`, chosen for WiFi. Lower means
 lower latency and less tolerance for network jitter: ~20 ms is right on wired
 Ethernet, 40–80 ms on WiFi.
 
-### `MILO_CLIENT_DSP_ENABLED`
-
-Written as `false` by `milo-first-boot`. **Nothing reads it today** —
-`milo-client/rootfs/etc/asound.conf` carries a comment describing it as the
-snapclient output selector, but `pcm.milo_client_output` is wired straight to
-`hifiberry` with no `@func getenv`. Left in place rather than removed, because
-the file it is written into is on the satellite audio path.
-
 ## Verifying
 
 ```bash

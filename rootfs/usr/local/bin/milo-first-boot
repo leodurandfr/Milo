@@ -263,7 +263,6 @@ _apply_client_filesystem() {
 
     cat > "$MILO_CLIENT_DATA_DIR/env" << 'EOF'
 MILO_PRINCIPAL_IP=milo.local
-MILO_CLIENT_DSP_ENABLED=false
 EOF
 
     # 6. Set up CamillaDSP config
