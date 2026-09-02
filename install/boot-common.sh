@@ -9,12 +9,13 @@ BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON logo.nologo vt.global_cursor_default=0"
 BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON fbcon=map:99 vt.handoff=7"
 BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON cfg80211.ieee80211_regdom=00"
 
-# Screen-specific parameters (empty by default, overridden by screen modules)
+# Screen-specific cmdline parameters. Empty by default: the pi-gen stage passes
+# "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN" to configure_cmdline, so a screen that
+# needs its own token sets this before the call.
 BOOT_PARAMS_SCREEN=""
-CONFIG_PARAMS_SCREEN=""
 
 # Insert the silent-boot directive (disable_splash) once, right after [all].
-# Single source of truth used by both install/display.sh and the pi-gen build.
+# Called by pi-gen/stage-milo/03-configure.
 configure_silent_boot() {
     local config_file="/boot/firmware/config.txt"
     [[ ! -f "$config_file" ]] && config_file="/boot/config.txt"
