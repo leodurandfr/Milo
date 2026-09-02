@@ -158,20 +158,23 @@ onBeforeUnmount(() => {
    --space-07 above the bottom of the window, with the letters centred in it.
    Its sticky offset is that same resting position, so it stays exactly where it
    was drawn as the list scrolls under it.
-   100dvh counts screen pixels while the app is laid out in the fewer ones
-   ui_scale magnifies (published by applyUiScale), hence the division; the floor
-   leaves a short window with a small rail rather than none. The bottom inset is
-   subtracted for the same reason the jump adds the top one — the strip is
-   centred, so without it the last rung sits on an iPhone's home indicator. */
+   The viewport unit counts screen pixels while the app is laid out in the fewer
+   ones ui_scale magnifies (published by applyUiScale), hence the division; the
+   floor leaves a short window with a small rail rather than none.
+   svh, NOT dvh: the dynamic unit grows as a phone browser retracts its toolbar
+   on the way down the list, and the band is pinned at the top — so it grew
+   downwards and carried the centred strip with it, which is the rail visibly
+   sliding down the page as you near the bottom. The small unit is the viewport
+   with every toolbar OUT, so it never changes and the rail never moves. It also
+   makes a bottom safe-area inset moot: the band already ends a retracted
+   toolbar's height above the screen, which is more than the home indicator
+   needs, and env() would have been the last thing left that moves. */
 .index-rail {
   position: sticky;
   top: var(--rail-top, 0px);
   height: max(
     var(--space-09),
-    calc(
-      100dvh / var(--ui-scale, 1) - var(--rail-top, 0px) - var(--space-07) -
-      env(safe-area-inset-bottom, 0px)
-    )
+    calc(100svh / var(--ui-scale, 1) - var(--rail-top, 0px) - var(--space-07))
   );
   align-self: flex-start;
   flex-shrink: 0;
