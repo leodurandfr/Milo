@@ -280,11 +280,18 @@ EOF
         log "Client ALSA config deployed"
     fi
 
-    # Deploy client loopback module options (2 substreams instead of server's 8)
-    if [[ -f "$MILO_APP_DIR/milo-client/rootfs/etc/modprobe.d/milo-client-loopback.conf" ]]; then
-        cp "$MILO_APP_DIR/milo-client/rootfs/etc/modprobe.d/milo-client-loopback.conf" /etc/modprobe.d/
-        log "Client loopback config deployed"
-    fi
+    # No client-specific snd-aloop options on purpose. There used to be a
+    # milo-client-loopback.conf here (index=2, pcm_substreams=2) copied into
+    # /etc/modprobe.d/ — and it never applied: the image's own snd-aloop.conf
+    # sorts after it in that directory, so the server's `index=1,2
+    # pcm_substreams=8,8` won every time. Measured on a converted satellite up
+    # for five weeks: both files present, /sys/module/snd_aloop/parameters
+    # showing the server's values. The client needs one card *named* Loopback
+    # with a substream — asound.conf and the CamillaDSP capture both address it
+    # by name (`plughw:Loopback,1,0`), never by index — and the image's config
+    # provides exactly that for both roles. Do not re-add the file: making it
+    # win would mean deleting the image's, which changes the card layout on
+    # every satellite to save one idle card.
 
     # 7b. Install the client role's own helpers from the repo.
     #
@@ -540,13 +547,8 @@ configure_server() {
         log "Warning: server asound.conf not found at $MILO_APP_DIR/rootfs/etc/asound.conf"
     fi
 
-    # 2. Remove client loopback module options (server uses defaults / its own)
-    if [[ -f /etc/modprobe.d/milo-client-loopback.conf ]]; then
-        rm -f /etc/modprobe.d/milo-client-loopback.conf
-        log "Client loopback config removed"
-    fi
 
-    # 3. Disable client services
+    # 2. Disable client services
     local client_services=(
         milo-client
         milo-client-snapclient
@@ -557,7 +559,7 @@ configure_server() {
     done
     log "Client services disabled"
 
-    # 4. Re-enable server services — the same list step 8 of _apply_client_filesystem
+    # 3. Re-enable server services — the same list step 8 of _apply_client_filesystem
     # disables, and it has to stay the same list or a revert leaves a server short.
     local server_services=(
         milo-backend
@@ -575,7 +577,7 @@ configure_server() {
     done
     log "Server services enabled"
 
-    # 4a. Restore the sudoers policies _apply_client_filesystem removed. Validated
+    # 3a. Restore the sudoers policies _apply_client_filesystem removed. Validated
     # before the mode change, as provisioning/system.sh and pi-gen do: a policy that
     # cannot parse is skipped by sudo, which would silently leave the backend
     # unable to reach systemd on a device that just reverted.
@@ -596,10 +598,10 @@ configure_server() {
         fi
     done
 
-    # 4b. Switch mDNS interface selection back to the server mechanism
+    # 3b. Switch mDNS interface selection back to the server mechanism
     apply_avahi_role server
 
-    # 5. Reset only settings.json — other data files (radio, podcast, hardware) are
+    # 4. Reset only settings.json — other data files (radio, podcast, hardware) are
     # inert on a fresh server and will be overwritten when needed.
     # /var/lib/milo-client, the milo-client user and its symlinks are left in place:
     # they are inert on a server and avoid extra teardown work.
@@ -611,7 +613,7 @@ configure_server() {
     chown -R milo:milo "$MILO_DATA_DIR"
     log "Server data directory reset"
 
-    # 6. Set hostname back to milo (last — see top of function)
+    # 5. Set hostname back to milo (last — see top of function)
     hostnamectl set-hostname milo
     echo "milo" > /etc/hostname
     if grep -q "127.0.1.1" /etc/hosts; then
