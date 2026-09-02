@@ -162,6 +162,53 @@ class TestShareLiveness:
         probing._on_storages_changed.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_a_probe_that_never_answers_in_time_counts_as_a_strike(self, probing):
+        """The branch that actually runs on the appliance, and the only one that
+        was never driven here.
+
+        Every other test in this class raises from ``statvfs``, which returns
+        long before the deadline and therefore exercises the errno branch.
+        Measured on the unit with the NAS's cable pulled, that is not the branch
+        taken: ``statvfs``, ``stat`` and ``listdir`` all sat in the kernel for
+        10.18 s before returning EHOSTDOWN, so the verdict came from the timeout
+        instead. A regression in this path would hide a live share, and no test
+        would have seen it.
+
+        The second and third sweeps never submit a probe of their own — the
+        first one is still parked in the syscall, and being parked *is* the
+        negative, which is what lets a wedged mount reach three strikes at all.
+        """
+        release = threading.Event()
+        with patch(STATVFS, side_effect=lambda _path: release.wait(30)), patch(
+            "backend.sources.music_library.shares._LIVENESS_TIMEOUT_S", 0.01
+        ):
+            try:
+                await _sweeps(probing, 3)
+                assert (await probing.list())[0]["mounted"] is False
+            finally:
+                release.set()
+
+    @pytest.mark.asyncio
+    async def test_a_share_that_answered_starts_its_next_outage_from_zero(self, probing):
+        """Strikes must not survive a recovery, or the second outage of a session
+        is announced on its first failed probe instead of its third — and a NAS
+        that merely flaps ends up hidden on one blocked call, which is the exact
+        thing the hysteresis exists to prevent.
+
+        The complement of the inconclusive case below: a probe that *answered* is
+        evidence of health, so it clears the count, where a probe that could not
+        say anything leaves it standing.
+        """
+        with patch(STATVFS, side_effect=OSError(errno.EHOSTDOWN, "host is down")):
+            await _sweeps(probing, 2)
+        with patch(STATVFS, return_value=Mock()):
+            await _sweeps(probing, 1)
+        with patch(STATVFS, side_effect=OSError(errno.EHOSTDOWN, "host is down")):
+            await _sweeps(probing, 1)
+
+        assert (await probing.list())[0]["mounted"] is True
+
+    @pytest.mark.asyncio
     async def test_an_inconclusive_probe_does_not_reset_the_strikes(self, probing):
         # Two certain negatives, one inconclusive, one more certain negative: the
         # count survives the gap, because the gap is not evidence of health.

@@ -58,7 +58,13 @@ _SCAN_POLL_ACTIVE_S = 3.0
 # memory. Measured on the live mount: stat 0.93 ms, statvfs 0.50 ms,
 # listdir 4.94 ms.
 _LIVENESS_INTERVAL_S = 30.0
-_LIVENESS_TIMEOUT_S = 5.0
+# Must outlast the kernel's own give-up on a dead link, or the errno branch of
+# _probe_share is never reached and every negative arrives as a timeout — which
+# is the one verdict that cannot tell a dead NAS from a slow one. Measured on
+# this unit with the NAS's cable pulled: statvfs, stat and listdir all returned
+# EHOSTDOWN after 10.18 s, against the 5.0 s this used to allow. The healthy
+# 0.50 ms above is not the figure that governs here; the failing case is.
+_LIVENESS_TIMEOUT_S = 15.0
 # Consecutive certain-negative probes before a share counts as gone. Flipping
 # `mounted` arms _stop_if_storage_gone, which cuts the music that is playing, so
 # one blocked call — which a merely busy NAS produces on its own — must not.
