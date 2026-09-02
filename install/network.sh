@@ -14,7 +14,7 @@ MILO_USER="${MILO_USER:-milo}"
 # No service interaction on purpose: `nginx -t` and `systemctl reload nginx` are
 # not valid inside the build chroot, so the reload is left to first boot.
 write_nginx_site() {
-    sudo tee /etc/nginx/sites-available/milo > /dev/null << 'EOF'
+    tee /etc/nginx/sites-available/milo > /dev/null << 'EOF'
 upstream milo_backend {
     server 127.0.0.1:8000;
 }
@@ -82,7 +82,7 @@ server {
 }
 EOF
 
-    sudo ln -sf /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/milo
-    sudo rm -f /etc/nginx/sites-enabled/default
+    ln -sf /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/milo
+    rm -f /etc/nginx/sites-enabled/default
 }
 

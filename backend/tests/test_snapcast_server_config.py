@@ -355,7 +355,7 @@ class TestTheWriteToEtc:
         self, service, deploy, staging, caplog
     ):
         """Writing a file the appliance does not have would create one snapserver
-        never reads, from a template that is not the installer's."""
+        never reads, from a template that is not the one the image baked."""
         service.snapserver_conf.unlink()
         calls, _ = deploy
 

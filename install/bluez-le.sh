@@ -27,18 +27,18 @@ configure_bluez_le() {
     fi
 
     # MinConnectionInterval=24 (30ms) — make hardware default explicit
-    sudo sed -i 's/^#\?MinConnectionInterval\s*=.*/MinConnectionInterval=24/' "$conf"
+    sed -i 's/^#\?MinConnectionInterval\s*=.*/MinConnectionInterval=24/' "$conf"
 
     # MaxConnectionInterval=40 (50ms) — make hardware default explicit
-    sudo sed -i 's/^#\?MaxConnectionInterval\s*=.*/MaxConnectionInterval=40/' "$conf"
+    sed -i 's/^#\?MaxConnectionInterval\s*=.*/MaxConnectionInterval=40/' "$conf"
 
     # ConnectionLatency=10 — allow peripheral to skip up to 10 intervals when idle
-    sudo sed -i 's/^#\?ConnectionLatency\s*=.*/ConnectionLatency=10/' "$conf"
+    sed -i 's/^#\?ConnectionLatency\s*=.*/ConnectionLatency=10/' "$conf"
 
     # ConnectionSupervisionTimeout=600 (6s) — time before link is declared lost
-    sudo sed -i 's/^#\?ConnectionSupervisionTimeout\s*=.*/ConnectionSupervisionTimeout=600/' "$conf"
+    sed -i 's/^#\?ConnectionSupervisionTimeout\s*=.*/ConnectionSupervisionTimeout=600/' "$conf"
 
-    sudo systemctl restart bluetooth || true
+    systemctl restart bluetooth || true
 
     log_success "BlueZ LE parameters configured (latency=10, supervision=6s)"
 }

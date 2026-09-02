@@ -24,7 +24,7 @@ CHROOT
 # Single source of truth: the parameter list lives in install/boot-common.sh and
 # the writer in install/display.sh, exactly as for config.txt below. Restating
 # them here is what let the two provisioning paths drift — the inline list said
-# `cfg80211.ieee80211_regdom=FR` while the installer's said `=00`, so a flashed
+# `cfg80211.ieee80211_regdom=FR` while the module's said `=00`, so a flashed
 # unit started under French radio rules wherever it was sold, until someone
 # opened the WiFi-country setting. Every other token was identical, which is how
 # the divergence survived: nothing compared the two lists.

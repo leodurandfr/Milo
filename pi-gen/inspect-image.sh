@@ -72,7 +72,7 @@ if [[ -f "$CMDLINE" ]]; then
     check "cmdline keeps rootwait"         "grep -q 'rootwait' '$CMDLINE'"
     check "cmdline has quiet splash"       "grep -q 'quiet' '$CMDLINE' && grep -q 'splash' '$CMDLINE'"
     check "cmdline has the Milo console"   "grep -q 'console=tty3' '$CMDLINE'"
-    # The token that drifted: FR was baked into the image, 00 into the installer.
+    # The token that drifted: FR was restated in the stage, 00 declared in the module.
     check "regdom is the world domain (00)" "grep -q 'cfg80211.ieee80211_regdom=00' '$CMDLINE'"
     check "regdom appears exactly once"    "[ \$(grep -o 'ieee80211_regdom=' '$CMDLINE' | wc -l) -eq 1 ]"
 else

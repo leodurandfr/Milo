@@ -15,8 +15,11 @@ of truth for it — and the two drifted by exactly one token:
 unit came up under French radio rules wherever it was sold. `install/network.sh`
 was the same shape for the nginx site.
 
-The last rule here is about the other end of provisioning: a unit carrying an
-`[Install]` section that nothing enables is dead config.
+Two more rules on the same relationship. **`install/common.sh` comes first**: the
+modules call `log_*` and read the versions it sources, and the fallback that used
+to repair a missing source was removed with the standalone-run blocks — so the
+ordering is now a hard requirement with nothing else behind it. And a unit
+carrying an `[Install]` section that nothing enables is dead config.
 
 Nothing else catches either class. This is shell run inside a chroot on a builder
 CI reaches only through a three-hour job; there is no import to fail and no route
@@ -229,3 +232,95 @@ def test_every_installable_unit_is_enabled_or_is_started_on_demand(bodies):
         "these units declare [Install] but no provisioning path enables them and "
         "they are not per-source units: " + ", ".join(orphans)
     )
+
+
+# --------------------------------------------------------------------------- #
+# `install/common.sh` comes first.
+# --------------------------------------------------------------------------- #
+
+# A pi-gen stage block: everything between `on_chroot << 'CHROOT'` and its
+# terminator. Each is its own shell, so each must source what it needs.
+CHROOT_BLOCK_RE = re.compile(r"on_chroot << 'CHROOT'\n(.*?)\nCHROOT", re.DOTALL)
+
+# `source install/<file>` / `. install/<file>`, in a stage block or on an
+# ExecStart= line. Both spellings are in use, which is why this is not anchored
+# at line start.
+MODULE_SOURCE_RE = re.compile(r"(?:source|\.)\s+(install/[\w.-]+\.sh)")
+
+
+def _module_consumers() -> list[tuple[str, list[str]]]:
+    """Every shell context that sources an `install/` module, and what it sources.
+
+    Two kinds, and both matter: the pi-gen stage blocks (build time) and the
+    `ExecStart=` of the systemd units that reuse an install function on the
+    appliance (run time).
+    """
+    consumers = []
+    for script in _pi_gen_scripts():
+        for i, block in enumerate(CHROOT_BLOCK_RE.findall(script.read_text())):
+            modules = MODULE_SOURCE_RE.findall(block)
+            if modules:
+                consumers.append((f"{script.relative_to(REPO_ROOT)} block {i}", modules))
+    for unit in sorted(SYSTEM_DIR.glob("*.service")):
+        for line in unit.read_text().splitlines():
+            if not line.startswith("ExecStart="):
+                continue
+            modules = MODULE_SOURCE_RE.findall(line)
+            if modules:
+                consumers.append((f"{unit.relative_to(REPO_ROOT)} ExecStart", modules))
+    return consumers
+
+
+def test_the_consumer_extractor_sees_both_kinds():
+    """Both classes must be found, or the rule below covers half the surface.
+
+    A regex that reads only the stage blocks would leave the two systemd units —
+    the ones that source a module *on the appliance* — entirely unchecked.
+    """
+    consumers = _module_consumers()
+    assert len(consumers) >= 10, f"only {len(consumers)} module consumers extracted"
+    assert any("pi-gen" in name for name, _ in consumers), "no pi-gen stage block found"
+    assert any(".service" in name for name, _ in consumers), "no systemd unit found"
+
+    # The need is real: the modules call helpers only common.sh defines.
+    callers = [
+        p.name for p in sorted(INSTALL_DIR.glob("*.sh"))
+        if p.name != "common.sh" and re.search(r"\blog_(info|success|warning|error)\b", p.read_text())
+    ]
+    assert len(callers) >= 5, f"only {callers} call log_*; the rule below is pointless"
+
+
+def test_every_consumer_sources_common_first():
+    """A module sourced without `install/common.sh` dies on `log_info: not found`.
+
+    Measured: `bash -c 'source install/power-button.sh && configure_power_on_behavior'`
+    exits **127**. In a stage block that is a `set -e` abort an hour into a
+    three-hour build CI never runs; in `milo-eeprom-setup.service` it is a unit
+    that fails on the appliance, so the bootloader EEPROM is never configured.
+
+    The modules used to carry `if ! type log_info; then source
+    "$(dirname "$0")/common.sh"; fi`, which repaired this — but only when a module
+    was *executed*: sourced, `$0` is `/bin/bash` and it looked for
+    `/bin/common.sh`. It went with the standalone-run blocks, so this rule is
+    what is left. Do not re-add the fallback; fix the consumer.
+    """
+    offenders = [
+        f"{name} sources {modules[0]} before install/common.sh"
+        for name, modules in _module_consumers()
+        if modules[0] != "install/common.sh"
+    ]
+    assert not offenders, (
+        "these consumers source an install/ module before install/common.sh, so "
+        "its log helpers and the pinned versions are undefined:\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_the_ordering_rule_discriminates():
+    """A rule that passed on any input would prove nothing about the real blocks."""
+    good = ["install/common.sh", "install/power-button.sh"]
+    bad = ["install/power-button.sh", "install/common.sh"]
+    assert good[0] == "install/common.sh"
+    assert bad[0] != "install/common.sh"
+    # ...and the extractor must read a real block, not an empty one.
+    assert all(modules for _, modules in _module_consumers())

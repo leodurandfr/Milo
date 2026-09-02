@@ -381,7 +381,7 @@ class SpotifySource(BaseAudioSource):
         would change nothing leaves the file alone, so the daemon never reads a
         file rewritten for nothing.
 
-        Rewriting drops the installer's comments from the deployed copy — their
+        Rewriting drops the baked comments from the deployed copy — their
         rationale lives in install/go-librespot.sh, which is where it is read.
 
         Fails open: a config that cannot be patched still starts the daemon on

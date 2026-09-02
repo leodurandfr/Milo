@@ -30,20 +30,20 @@ install_tidal_connect() {
 
     # readelf is what the runtime builder verifies segment alignment with —
     # without it the install would "succeed" and the source would die on start.
-    sudo apt-get install -y binutils
+    apt-get install -y binutils
 
-    sudo mkdir -p "$(dirname "$TIDAL_ROOT")"
+    mkdir -p "$(dirname "$TIDAL_ROOT")"
 
     # BASH_SOURCE resolves the script dir even when sourced from a pi-gen stage,
     # same as install/qobuz-proxy.sh does for its patch helper.
-    sudo python3 "$(dirname "${BASH_SOURCE[0]}")/tidal_connect_runtime.py" \
+    python3 "$(dirname "${BASH_SOURCE[0]}")/tidal_connect_runtime.py" \
         --root "$TIDAL_ROOT"
 
     install_tidal_launcher
 
     # Read-only for the service user: nothing under here is written at runtime,
     # the controller socket lives in /run/milo.
-    sudo chown -R root:root "$TIDAL_ROOT"
+    chown -R root:root "$TIDAL_ROOT"
 
     log_success "Tidal Connect installed"
 }
@@ -52,8 +52,8 @@ install_tidal_connect() {
 # other /usr/local/bin/milo-* helper. It needs no sudoers entry: it runs as the
 # milo user from milo-tidal.service and touches nothing privileged.
 install_tidal_launcher() {
-    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-tidal-connect" \
+    cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-tidal-connect" \
         /usr/local/bin/milo-tidal-connect
-    sudo chmod 0755 /usr/local/bin/milo-tidal-connect
+    chmod 0755 /usr/local/bin/milo-tidal-connect
 }
 
