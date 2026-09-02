@@ -301,7 +301,7 @@ function handleClose() {
   }
 }
 
-/* Simple mode (Bluetooth/Mac) → the revealed status card is a centered layout
+/* Simple mode → the revealed status card is a centered layout
    with no matching anchor, so a plain gentle rise. */
 @keyframes screensaverLeaveUp {
   from {
