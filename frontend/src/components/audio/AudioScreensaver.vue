@@ -1,7 +1,7 @@
 <template>
   <Transition name="screensaver">
     <div v-if="isVisible" class="screensaver-overlay" @pointerdown.stop="handleClose">
-    <!-- ===== MEDIA MODE (radio, podcast) ===== -->
+    <!-- ===== MEDIA MODE ===== -->
     <template v-if="mode === 'media'">
       <!-- Full-screen blurred background -->
       <div class="artwork-background">
@@ -73,7 +73,7 @@
       </div>
     </template>
 
-    <!-- ===== SIMPLE MODE (bluetooth, mac) ===== -->
+    <!-- ===== SIMPLE MODE ===== -->
     <template v-else>
       <div class="simple-screensaver stagger-1">
         <AppIcon :name="sourceType" size="medium" :class="{ 'simple-icon-invert': sourceType === 'mac' }" />
