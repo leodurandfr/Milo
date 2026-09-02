@@ -59,11 +59,17 @@ _MOUNTABLE_FSTYPES = frozenset(
 _HELPER_TIMEOUT_S = 30.0
 
 # Cadence and ceiling for waiting out a scan that was already running when a
-# mount landed (see _scan_when_idle). The ceiling only decides how long we keep
-# our own promise: past it, Navidrome's hourly incremental pass still picks the
-# mount up, so an over-long wait costs latency, never correctness.
+# mount landed (see _scan_when_idle). Past the ceiling the mount is left to
+# Navidrome's own periodic pass, which install/navidrome.sh sets to **6h** — so
+# giving up early is not the cheap "within the hour" this said for a fortnight.
+#
+# The ceiling has to outlast a first index, because that is the scan a second
+# mount most often lands behind. Measured on the unit 2026-09-02: indexing a
+# 10 069-track iPod took 18m12s, against a 600 s ceiling — the waiter gave up
+# nine minutes before the scan it was waiting for ended, and would have dropped
+# a key plugged in meanwhile to the 6-hourly backstop.
 _SCAN_WAIT_POLL_S = 5.0
-_SCAN_WAIT_CEILING_S = 600.0
+_SCAN_WAIT_CEILING_S = 1800.0
 
 
 class StorageManager:
@@ -484,7 +490,7 @@ class StorageManager:
 
         Unknown counts as idle on purpose: a scan we fire needlessly is a wasted
         incremental pass, while one we skip on a failed poll is a storage space
-        that stays uncatalogued until the hourly schedule.
+        that stays uncatalogued until the 6-hourly schedule.
         """
         try:
             status = await client.get_scan_status()
@@ -497,9 +503,9 @@ class StorageManager:
         """Wait out the running scan, then run the one the mount is owed.
 
         Tracked on ``self`` and cancelled in :meth:`cleanup`. Giving up at the
-        ceiling is not a lost catalog: Navidrome's hourly incremental pass sees
-        the mount regardless, so this only decides whether the new storage space
-        appears in seconds or within the hour.
+        ceiling is not a lost catalog — Navidrome's periodic pass sees the mount
+        regardless — but that pass runs every 6h, so this decides whether the new
+        storage space appears in seconds or somewhere in the next six hours.
         """
         waited = 0.0
         try:
