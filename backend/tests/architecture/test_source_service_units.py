@@ -28,7 +28,7 @@ SYSTEM_ROOT = Path(__file__).resolve().parents[3] / "system"
 
 
 def shipped_units():
-    """Every systemd unit the two installers copy out of system/."""
+    """Every systemd unit the image build copies out of system/."""
     units = {p.name for p in SYSTEM_ROOT.glob("*.service")}
     assert len(units) >= 15, (
         f"only {sorted(units)} found under {SYSTEM_ROOT} — the glob is broken"

@@ -22,6 +22,6 @@ configure_silent_boot() {
     [[ ! -f "$config_file" ]] && return 0
 
     if ! grep -q "disable_splash=1" "$config_file"; then
-        sudo sed -i '/^\[all\]$/a\\n# Milo - Silent boot\ndisable_splash=1' "$config_file"
+        sed -i '/^\[all\]$/a\\n# Milo - Silent boot\ndisable_splash=1' "$config_file"
     fi
 }

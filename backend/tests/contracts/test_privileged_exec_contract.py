@@ -47,8 +47,9 @@ BARE_COMMAND_PATHS = {
 }
 
 # Each code tree runs as one user, and only that user's policies apply to it.
-# `milo-ir-remote` is a second file for the same user, installed by
-# install/ir-remote.sh rather than install/system.sh.
+# `milo-ir-remote` is a second file for the same user, deployed by
+# install/ir-remote.sh::install_ir_helpers where pi-gen copies `milo-backend`
+# itself.
 TREES = {
     "backend": {
         "sources": [REPO_ROOT / "backend"],
@@ -456,7 +457,7 @@ def test_every_grant_still_has_a_caller(tree_name):
 
 @pytest.mark.parametrize("tree_name", sorted(TREES))
 def test_granted_helpers_are_shipped_by_the_same_tree(tree_name):
-    """A grant naming a helper no installer deploys is a 203/EXEC on hardware.
+    """A grant naming a helper the tree does not ship is a 203/EXEC on hardware.
 
     Only the `milo-*` helpers are checked; `systemctl` and friends come from the
     OS. This is the deployment half of the same failure: the policy can be

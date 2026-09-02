@@ -23,16 +23,16 @@ install_qobuz_proxy() {
     log_info "Installing qobuz-proxy..."
 
     # PortAudio runtime — required by the 'local' backend (pulls sounddevice).
-    sudo apt-get install -y libportaudio2
+    apt-get install -y libportaudio2
 
-    sudo mkdir -p "$MILO_DATA_DIR/qobuz"
+    mkdir -p "$MILO_DATA_DIR/qobuz"
 
     # Build the venv + install the pinned tag. The '[local]' extra pulls
     # sounddevice/soundfile/numpy for the PortAudio backend that targets the
     # named ALSA PCM 'milo_qobuz'.
-    sudo python3 -m venv "$MILO_DATA_DIR/qobuz/venv"
-    sudo "$MILO_DATA_DIR/qobuz/venv/bin/pip" install --upgrade pip
-    sudo "$MILO_DATA_DIR/qobuz/venv/bin/pip" install \
+    python3 -m venv "$MILO_DATA_DIR/qobuz/venv"
+    "$MILO_DATA_DIR/qobuz/venv/bin/pip" install --upgrade pip
+    "$MILO_DATA_DIR/qobuz/venv/bin/pip" install \
         "qobuz-proxy[local] @ git+https://github.com/leolobato/qobuz-proxy@v${QOBUZ_PROXY_VERSION}"
 
     install_qobuz_adapter
@@ -40,7 +40,7 @@ install_qobuz_proxy() {
 
     # Own the whole tree (venv + config + future credentials.json) as milo:audio
     # so the milo-qobuz.service (User=milo) can read config + write the token.
-    sudo chown -R "$MILO_USER:audio" "$MILO_DATA_DIR/qobuz"
+    chown -R "$MILO_USER:audio" "$MILO_DATA_DIR/qobuz"
 
     log_success "qobuz-proxy installed"
 }
@@ -52,9 +52,9 @@ install_qobuz_proxy() {
 # `--check` refuses a release that moved any of them — the same gate the in-app
 # updater runs before restarting the service onto a new version.
 install_qobuz_adapter() {
-    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-qobuz" /usr/local/bin/milo-qobuz
-    sudo chmod 0755 /usr/local/bin/milo-qobuz
-    sudo "$MILO_DATA_DIR/qobuz/venv/bin/python" /usr/local/bin/milo-qobuz --check
+    cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-qobuz" /usr/local/bin/milo-qobuz
+    chmod 0755 /usr/local/bin/milo-qobuz
+    "$MILO_DATA_DIR/qobuz/venv/bin/python" /usr/local/bin/milo-qobuz --check
 }
 
 # Write /var/lib/milo/qobuz/config.yaml. Speakers-list form → qobuz-proxy builds
@@ -68,7 +68,7 @@ install_qobuz_adapter() {
 # credentials.json (managed by the login flow), so this file is user-agnostic
 # and safe to bake into the image.
 configure_qobuz_proxy() {
-    sudo tee "$MILO_DATA_DIR/qobuz/config.yaml" > /dev/null << 'EOF'
+    tee "$MILO_DATA_DIR/qobuz/config.yaml" > /dev/null << 'EOF'
 # qobuz-proxy config for Milō (Qobuz Connect sidecar, Family B).
 server:
   http_port: 8689

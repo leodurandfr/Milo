@@ -31,18 +31,18 @@ MILO_DATA_DIR="${MILO_DATA_DIR:-/var/lib/milo}"
 # first-boot provisioning env file, never this config.
 configure_navidrome() {
     # DataFolder (DB + cache) under /var/lib/milo so backup/restore captures it.
-    sudo mkdir -p "$MILO_DATA_DIR/navidrome"
+    mkdir -p "$MILO_DATA_DIR/navidrome"
     # Where the music actually is: one Navidrome library per mount under this
     # root, created and retired by the backend (backend/sources/music_library/
     # libraries.py) so the UI can browse one storage space at a time.
-    sudo mkdir -p /media/milo
+    mkdir -p /media/milo
     # MusicFolder below points here, NOT at /media/milo. Navidrome demands a
     # MusicFolder and pins the library it creates from it as undeletable, so a
     # MusicFolder on the mount root would permanently index every mount a second
     # time, alongside the per-mount libraries. An empty directory retires it.
-    sudo mkdir -p "$MILO_DATA_DIR/navidrome/default-library"
+    mkdir -p "$MILO_DATA_DIR/navidrome/default-library"
 
-    sudo tee "$MILO_DATA_DIR/navidrome/navidrome.toml" > /dev/null << 'EOF'
+    tee "$MILO_DATA_DIR/navidrome/navidrome.toml" > /dev/null << 'EOF'
 # Navidrome config for Milō (Music Library catalog engine).
 # Device-agnostic — safe to bake into the image. The service-account password is
 # generated per-device on first boot (milo-navidrome-provision) and injected via
@@ -212,7 +212,7 @@ EOF
 
     # milo owns the whole tree so milo-navidrome.service (User=milo) can read the
     # config, write the DB/cache, and generate the cred file on first boot.
-    sudo chown -R "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/navidrome"
-    sudo chown "$MILO_USER:$MILO_USER" /media/milo
+    chown -R "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/navidrome"
+    chown "$MILO_USER:$MILO_USER" /media/milo
 }
 

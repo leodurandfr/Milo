@@ -30,10 +30,10 @@ configure_power_led() {
     [[ ! -f "$config_file" ]] && { log_warning "config.txt not found — skipping power LED"; return 0; }
 
     # Remove any previous managed block (idempotent re-run safety)
-    sudo sed -i '/^# BEGIN MILO POWER LED$/,/^# END MILO POWER LED$/d' "$config_file"
+    sed -i '/^# BEGIN MILO POWER LED$/,/^# END MILO POWER LED$/d' "$config_file"
 
     # gpio=N=op,dl => set GPIO N as output, driven low at boot (sinks the LED).
-    sudo tee -a "$config_file" > /dev/null << EOF
+    tee -a "$config_file" > /dev/null << EOF
 
 # BEGIN MILO POWER LED
 gpio=${POWER_LED_GPIO_DEFAULT}=op,dl
@@ -96,11 +96,11 @@ configure_power_on_behavior() {
     cur_image="$(ls /lib/firmware/raspberrypi/bootloader-2712/*/pieeprom-"${cur_date}".bin 2>/dev/null | head -1)"
 
     if [[ -n "$cur_image" ]]; then
-        sudo rpi-eeprom-config --apply "$conf" "$cur_image" > /dev/null
+        rpi-eeprom-config --apply "$conf" "$cur_image" > /dev/null
         log_success "Power-on behaviour set (wait for power button); bootloader firmware unchanged ($cur_date)"
     else
         log_warning "Current bootloader image not on disk — applying with latest (firmware may update)"
-        sudo rpi-eeprom-config --apply "$conf" > /dev/null
+        rpi-eeprom-config --apply "$conf" > /dev/null
         log_success "Power-on behaviour set (wait for power button)"
     fi
 

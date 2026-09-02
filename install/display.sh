@@ -22,7 +22,7 @@ configure_cmdline() {
         return 1
     fi
 
-    sudo cp "$cmdline_file" "${cmdline_file}.milo-backup" 2>/dev/null || true
+    cp "$cmdline_file" "${cmdline_file}.milo-backup" 2>/dev/null || true
 
     # Clean current cmdline (remove parameters we will set)
     local current_cmdline
@@ -42,6 +42,6 @@ configure_cmdline() {
         s/  +/ /g
     ' | xargs)
 
-    echo "${current_cmdline} ${boot_params}" | tr -s ' ' | sudo tee "$cmdline_file" > /dev/null
+    echo "${current_cmdline} ${boot_params}" | tr -s ' ' | tee "$cmdline_file" > /dev/null
     log_success "cmdline.txt configured"
 }

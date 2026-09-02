@@ -16,14 +16,14 @@ MILO_DATA_DIR="${MILO_DATA_DIR:-/var/lib/milo}"
 # (pi-gen installs the binary in its own audio stage). Inline-copying this block
 # is exactly how the pi-gen image drifted and shipped without zeroconf_backend.
 configure_go_librespot() {
-    sudo mkdir -p "$MILO_DATA_DIR/go-librespot"
+    mkdir -p "$MILO_DATA_DIR/go-librespot"
 
     # zeroconf_backend=avahi: delegate Spotify Connect mDNS registration to
     # the system Avahi daemon over D-Bus. Without it, go-librespot ships its
     # own embedded mDNS responder that ignores Avahi's allow-interfaces and
     # broadcasts on every interface — racing Avahi and causing the milo.local
     # → milo-2.local rename whenever wlan0's DHCP lease rolls over.
-    sudo tee "$MILO_DATA_DIR/go-librespot/config.yml" > /dev/null << 'EOF'
+    tee "$MILO_DATA_DIR/go-librespot/config.yml" > /dev/null << 'EOF'
 device_name: "Milō"
 device_type: "speaker"
 bitrate: 320
@@ -43,6 +43,6 @@ server:
   image_size: 'xlarge'
 EOF
 
-    sudo chown -R "$MILO_USER:audio" "$MILO_DATA_DIR/go-librespot"
+    chown -R "$MILO_USER:audio" "$MILO_DATA_DIR/go-librespot"
 }
 

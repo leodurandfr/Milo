@@ -16,7 +16,7 @@ from backend.core.updates.dependency_versions import apply_validated_versions
 from backend.config.constants import DEPLOY_UPDATE_CMD
 
 # qobuz-proxy is a pip package installed from a git tag; the in-app update pins
-# the same URL the installer uses (install/qobuz-proxy.sh). Milō's two
+# the same URL the image build uses (install/qobuz-proxy.sh). Milō's two
 # adaptations live in the launcher the service runs, which also answers whether
 # a release still offers what they bind to.
 QOBUZ_PROXY_REPO_URL = "https://github.com/leolobato/qobuz-proxy"

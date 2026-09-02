@@ -25,9 +25,9 @@ configure_ir_overlay() {
     fi
 
     # Remove any previous managed block (idempotent re-run safety)
-    sudo sed -i '/^# BEGIN MILO IR$/,/^# END MILO IR$/d' "$config_file"
+    sed -i '/^# BEGIN MILO IR$/,/^# END MILO IR$/d' "$config_file"
 
-    sudo tee -a "$config_file" > /dev/null << EOF
+    tee -a "$config_file" > /dev/null << EOF
 
 # BEGIN MILO IR
 dtoverlay=gpio-ir,gpio_pin=${IR_REMOTE_GPIO_DEFAULT}
@@ -40,19 +40,19 @@ EOF
 install_ir_helpers() {
     log_info "Installing IR helper scripts..."
 
-    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-apply-ir-keymap" \
+    cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-apply-ir-keymap" \
         /usr/local/bin/milo-apply-ir-keymap
-    sudo chmod +x /usr/local/bin/milo-apply-ir-keymap
+    chmod +x /usr/local/bin/milo-apply-ir-keymap
 
-    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-ir-keytable-setup" \
+    cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-ir-keytable-setup" \
         /usr/local/bin/milo-ir-keytable-setup
-    sudo chmod +x /usr/local/bin/milo-ir-keytable-setup
+    chmod +x /usr/local/bin/milo-ir-keytable-setup
 
-    sudo cp "$MILO_APP_DIR/rootfs/etc/sudoers.d/milo-ir-remote" \
+    cp "$MILO_APP_DIR/rootfs/etc/sudoers.d/milo-ir-remote" \
         /etc/sudoers.d/milo-ir-remote
-    sudo visudo -c -f /etc/sudoers.d/milo-ir-remote \
+    visudo -c -f /etc/sudoers.d/milo-ir-remote \
         || { echo "FATAL: sudoers syntax error in milo-ir-remote"; exit 1; }
-    sudo chmod 0440 /etc/sudoers.d/milo-ir-remote
+    chmod 0440 /etc/sudoers.d/milo-ir-remote
 
     log_success "IR helper scripts installed"
 }
@@ -62,7 +62,7 @@ install_ir_systemd_service() {
 
     # The unit file itself is copied by the pi-gen stage's system/*.service glob
     # (02-install-milo/01-run.sh). Here we just enable it so it runs at boot.
-    sudo systemctl enable milo-ir-keytable.service
+    systemctl enable milo-ir-keytable.service
 
     log_success "milo-ir-keytable.service enabled"
 }

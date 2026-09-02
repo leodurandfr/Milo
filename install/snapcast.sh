@@ -11,7 +11,7 @@ set -e
 configure_snapserver() {
     log_info "Configuring Snapserver..."
 
-    sudo tee /etc/snapserver.conf > /dev/null << 'EOF'
+    tee /etc/snapserver.conf > /dev/null << 'EOF'
 
 [stream]
 default_source = Multiroom

@@ -948,7 +948,7 @@ class TestManagedConfig:
 
     go-librespot parses config.yml once, at process start, so a crossfade the
     settings page stored only ever reaches the daemon through this write. If it
-    silently dropped the key — or clobbered one of the installer's, like
+    silently dropped the key — or clobbered one of the baked ones, like
     zeroconf_backend — Spotify would come back up misconfigured with nothing in
     the logs to say so.
     """
@@ -959,7 +959,7 @@ class TestManagedConfig:
 
     @pytest.mark.asyncio
     async def test_writes_the_managed_key_and_leaves_the_rest_alone(self, spotify_source):
-        """Crossfade lands in the file; the installer's keys survive."""
+        """Crossfade lands in the file; the baked keys survive."""
         await spotify_source._apply_managed_config()
 
         written = self._read(spotify_source._config_path)

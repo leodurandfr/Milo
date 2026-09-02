@@ -224,8 +224,8 @@ def test_no_provisioning_script_assigns_a_manifest_variable(manifest, scripts):
 def test_every_manifest_variable_has_a_reader(manifest, scripts):
     """The other direction: an entry nothing reads is a version nobody installs.
 
-    A dependency dropped from the installers but left in the manifest reads as
-    pinned and validated while no unit has ever run it.
+    A dependency dropped from the provisioning tree but left in the manifest
+    reads as pinned and validated while no unit has ever run it.
     """
     read = {
         name
@@ -280,6 +280,6 @@ def test_the_manifest_is_tracked_by_git():
         cwd=REPO_ROOT, capture_output=True, text=True, check=False,
     )
     assert tracked.returncode == 0, (
-        "dependencies.env is not in git: every install chain sources it and "
+        "dependencies.env is not in git: the install modules source it and "
         "every pi-gen build copies it"
     )
