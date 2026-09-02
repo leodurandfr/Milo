@@ -33,7 +33,7 @@
             <Button variant="important" size="small" :loading="deleting" @click="handleDelete">
               {{ confirmDelete ? t('musicLibrary.playlists.confirmDelete') : t('musicLibrary.playlists.delete') }}
             </Button>
-            <p v-if="tracks.length" class="edit-hint text-mono">{{ t('musicLibrary.playlists.reorderHint') }}</p>
+            <p v-if="tracks.length" class="edit-hint text-mono-medium">{{ t('musicLibrary.playlists.reorderHint') }}</p>
           </div>
 
           <MessageContent v-if="!tracks.length" :title="t('musicLibrary.noTracks')" />

@@ -2,7 +2,7 @@
   <Transition name="notification-slide">
     <div v-if="title" class="notification-banner">
       <div class="notification-header">
-        <div class="notification-title text-mono">{{ title }}</div>
+        <div class="notification-title text-mono-medium">{{ title }}</div>
         <button v-if="dismissable" @click="$emit('dismiss')" class="dismiss-btn">
           <Icon name="close" :size="16" />
         </button>

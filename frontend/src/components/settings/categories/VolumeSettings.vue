@@ -2,7 +2,7 @@
 <template>
   <!-- DAC mode: volume not managed by Milō on any device -->
   <div v-if="!unifiedStore.volumeState.any_volume_control" class="dac-notice">
-    <span class="text-mono">{{ t('volumeSettings.volumeNotManaged') }}</span>
+    <span class="text-mono-medium">{{ t('volumeSettings.volumeNotManaged') }}</span>
   </div>
 
   <SettingsContainer v-else>

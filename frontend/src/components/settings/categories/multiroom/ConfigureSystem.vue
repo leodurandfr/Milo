@@ -51,7 +51,7 @@
 
         <!-- Manual entry via NetworkSelector -->
         <template v-else>
-          <p v-if="!canUseServerWifi" class="text-mono adopt-hint">
+          <p v-if="!canUseServerWifi" class="text-mono-medium adopt-hint">
             {{ t('multiroom.adopt.enterCredentials') }}
           </p>
           <NetworkSelector
@@ -102,8 +102,8 @@
       <!-- Speaker Info (ethernet only — IP from pending registry) -->
       <SettingsSection v-if="mode === 'ethernet'" :title="t('multiroom.systemInfo')">
         <div class="info-item">
-          <span class="info-label text-mono">{{ t('clientDetails.ipAddress') }}</span>
-          <span class="info-value text-mono">{{ pendingClient?.ip || 'Unknown' }}</span>
+          <span class="info-label text-mono-medium">{{ t('clientDetails.ipAddress') }}</span>
+          <span class="info-value text-mono-medium">{{ pendingClient?.ip || 'Unknown' }}</span>
         </div>
       </SettingsSection>
 

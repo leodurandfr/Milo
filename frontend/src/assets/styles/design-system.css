@@ -96,8 +96,11 @@
     --font-size-body: 18px;
     --line-height-body: 24px;
 
-    --font-size-mono: 16px;
-    --line-height-mono: 20px;
+    --font-size-mono-large: 18px;
+    --line-height-mono-large: 22px;
+
+    --font-size-mono-medium: 16px;
+    --line-height-mono-medium: 20px;
 
     --font-size-mono-small: 14px;
     --line-height-mono-small: 18px;
@@ -221,8 +224,11 @@
         --font-size-body: 16px;
         --line-height-body: 22px;
 
-        --font-size-mono: 14px;
-        --line-height-mono: 18px;
+        --font-size-mono-large: 16px;
+        --line-height-mono-large: 20px;
+
+        --font-size-mono-medium: 14px;
+        --line-height-mono-medium: 18px;
 
         --font-size-mono-small: 12px;
         --line-height-mono-small: 16px;
@@ -325,10 +331,18 @@
     font-weight: 400;
 }
 
-.text-mono {
+.text-mono-large {
     font-family: 'Space Mono Regular', 'Noto Sans Devanagari', 'Noto Sans SC', monospace;
-    font-size: var(--font-size-mono);
-    line-height: var(--line-height-mono);
+    font-size: var(--font-size-mono-large);
+    line-height: var(--line-height-mono-large);
+    letter-spacing: var(--letter-spacing-mono);
+    font-weight: 400;
+}
+
+.text-mono-medium {
+    font-family: 'Space Mono Regular', 'Noto Sans Devanagari', 'Noto Sans SC', monospace;
+    font-size: var(--font-size-mono-medium);
+    line-height: var(--line-height-mono-medium);
     letter-spacing: var(--letter-spacing-mono);
     font-weight: 400;
 }

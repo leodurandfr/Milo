@@ -29,7 +29,7 @@
               <div class="eq-header">
                 <div class="eq-header__title">
                   <h2 class="heading-2">{{ t('equalizer.equalizer.title') }}</h2>
-                  <span v-if="selectedZoneName" class="eq-header__subtitle text-mono">{{ selectedZoneName }}</span>
+                  <span v-if="selectedZoneName" class="eq-header__subtitle text-mono-medium">{{ selectedZoneName }}</span>
                 </div>
                 <Button v-if="equalizerStore.isPresetEdited" variant="brand" size="small"
                   @click="handleSaveCustomPreset">

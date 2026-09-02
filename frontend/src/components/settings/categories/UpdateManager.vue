@@ -4,7 +4,7 @@
     <!-- Error state -->
     <template v-if="localProgramsError">
       <div class="error-state">
-        <div class="error-message text-mono">
+        <div class="error-message text-mono-medium">
           {{ t('updates.error') }}
         </div>
         <Button size="small" variant="background-strong" @click="loadLocalPrograms">
@@ -23,7 +23,7 @@
                it does: one Milō update carries the whole validated set, and the
                satellites with it — but only say so where there are any. -->
           <p v-if="!localProgramsLoading && localPrograms.milo?.update_available && !isLocalUpdateCompleted('milo')"
-            class="text-mono section-note">
+            class="text-mono-medium section-note">
             {{ t('updates.dependenciesHint') }}
             <template v-if="anticipatedSatellites.length"> {{ t('updates.clientsHint') }}</template>
           </p>
@@ -43,7 +43,7 @@
                   <div class="program-info">
                     <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
                     <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
-                    <span class="program-version text-mono">
+                    <span class="program-version text-mono-medium">
                       milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
                       <template
                         v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
@@ -92,7 +92,7 @@
                   <div class="program-info">
                     <AppIcon :name="getProgramIcon(key)" :size="48" class="program-icon" />
                     <span class="program-name heading-4">{{ getProgramDisplayName(program, key) }}</span>
-                    <span class="program-version text-mono">
+                    <span class="program-version text-mono-medium">
                       {{ getVersionLabel(key) }} {{ getLocalInstalledVersion(program) || t('updates.notAvailable') }}
                       <span v-if="rows[key].update" class="version-new">> {{ rows[key].update.version }}</span>
                     </span>
@@ -148,7 +148,7 @@
       <SettingsSection v-if="isMultiroomEnabled && satellitesError"
         :title="t('updates.satelliteProgramsTitle')">
         <div class="error-state">
-          <div class="error-message text-mono">
+          <div class="error-message text-mono-medium">
             {{ t('updates.errorDetectingSatellites') }}
           </div>
           <Button size="small" variant="background-strong" @click="loadSatellites">
@@ -194,7 +194,7 @@
                   <div class="program-info">
                     <AppIcon name="milo-client" :size="48" class="program-icon" />
                     <span class="program-name heading-4">Milō Client</span>
-                    <span class="program-version text-mono">
+                    <span class="program-version text-mono-medium">
                       milo {{ formatGitVersion(satelliteByMacId[client.mac_id].app_version) || t('updates.notAvailable') }}
                       <template
                         v-if="satelliteByMacId[client.mac_id].app_update_available && !isSatelliteAppUpdateCompleted(client.mac_id)">
@@ -223,7 +223,7 @@
                   <div class="program-info">
                     <AppIcon name="multiroom" :size="48" class="program-icon" />
                     <span class="program-name heading-4">Multiroom Client</span>
-                    <span class="program-version text-mono">
+                    <span class="program-version text-mono-medium">
                       snapclient {{ satelliteByMacId[client.mac_id].snapclient_version || t('updates.notAvailable') }}
                       <template
                         v-if="satelliteByMacId[client.mac_id].update_available && !isSatelliteUpdateCompleted(client.mac_id)">
@@ -252,7 +252,7 @@
                   <div class="program-info">
                     <AppIcon name="equalizer" :size="48" class="program-icon" />
                     <span class="program-name heading-4">{{ t('equalizer.title') }}</span>
-                    <span class="program-version text-mono">
+                    <span class="program-version text-mono-medium">
                       camilladsp {{ satelliteByMacId[client.mac_id].camilladsp_version || t('updates.notAvailable') }}
                       <template
                         v-if="satelliteByMacId[client.mac_id].camilladsp_update_available && !isSatelliteCamillaUpdateCompleted(client.mac_id)">
@@ -280,7 +280,7 @@
               <!-- Snapcast still sees it, its own API does not answer. Said in
                    words: a skeleton here waits for a fetch nobody will make. -->
               <div v-else key="unreachable" class="programs-list">
-                <p class="text-mono section-note">{{ t('multiroom.offline') }}</p>
+                <p class="text-mono-medium section-note">{{ t('multiroom.offline') }}</p>
               </div>
             </Transition>
           </div>
@@ -650,7 +650,7 @@ onMounted(async () => {
 .skeleton-version {
   grid-area: version;
   width: 180px;
-  height: calc(var(--font-size-mono) * 1.4);
+  height: calc(var(--font-size-mono-medium) * 1.4);
   border-radius: var(--radius-02);
 }
 

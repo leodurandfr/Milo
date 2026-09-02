@@ -49,7 +49,7 @@
         <div class="content-section stagger-2">
           <div class="track-info stagger-3">
             <h1 class="track-title heading-1">{{ title }}</h1>
-            <p v-if="subtitle" class="track-subtitle" :class="useMonoSubtitle ? 'text-mono' : 'heading-2'">{{ subtitle }}</p>
+            <p v-if="subtitle" class="track-subtitle" :class="useMonoSubtitle ? 'text-mono-medium' : 'heading-2'">{{ subtitle }}</p>
           </div>
 
           <div v-if="showBottomBar" class="station-bar stagger-4">
@@ -549,7 +549,7 @@ function handleClose() {
   -webkit-box-orient: vertical;
 }
 
-.track-subtitle.text-mono {
+.track-subtitle.text-mono-medium {
   color: var(--color-text-contrast-50);
   opacity: 1;
 }

@@ -34,7 +34,7 @@
       <!-- Audio Card Selection (remote clients only) -->
       <SettingsSection v-if="!client?.is_local && (isLoadingAudio || audioCardOptions.length > 0)" :title="t('multiroom.pending.audioCard')">
         <div class="hardware-row">
-          <span class="hardware-row__label text-mono">{{ t('hardwareSettings.audioCardModel') }}</span>
+          <span class="hardware-row__label text-mono-medium">{{ t('hardwareSettings.audioCardModel') }}</span>
           <div v-if="isLoadingAudio" class="skeleton-dropdown">
             <span class="skeleton-dropdown__text shimmer"></span>
           </div>
@@ -56,7 +56,7 @@
           @click="toggleVolumeControl"
         />
 
-        <p v-if="audioError" class="audio-error text-mono">{{ audioError }}</p>
+        <p v-if="audioError" class="audio-error text-mono-medium">{{ audioError }}</p>
       </SettingsSection>
 
       <!-- Speaker Type Selection -->
@@ -75,7 +75,7 @@
         <div v-if="showCrossoverInfo" class="crossover-info">
           <!-- Case 1: Subwoofer not in zone -->
           <template v-if="isSubwoofer && !isInZone">
-            <p class="text-mono">
+            <p class="text-mono-medium">
               {{ t('multiroom.crossover.subwooferNotInZone') }}
             </p>
           </template>
@@ -89,16 +89,16 @@
               <RangeSlider v-model="crossoverFrequency" :min="40" :max="200" :step="5" value-unit="Hz"
                 @change="handleCrossoverChange" />
             </SettingItem>
-            <p v-else class="text-mono">
+            <p v-else class="text-mono-medium">
               {{ t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }) }}
             </p>
-            <p class="crossover-warning text-mono">{{ t('multiroom.crossover.disablePhysicalCrossover') }}</p>
+            <p class="crossover-warning text-mono-medium">{{ t('multiroom.crossover.disablePhysicalCrossover') }}</p>
           </template>
 
           <!-- Case 3: Non-subwoofer in zone with subwoofer -->
           <template v-else-if="!isSubwoofer && isInZone && zoneHasSubwoofer">
             <h3 class="info-title heading-4">{{ t('multiroom.crossover.highpassActive') }}</h3>
-            <p class="text-mono">{{ t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }) }}</p>
+            <p class="text-mono-medium">{{ t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }) }}</p>
           </template>
         </div>
       </SettingsSection>
@@ -130,12 +130,12 @@
       <SettingsSection :title="t('multiroom.systemInfo')">
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label text-mono">{{ t('clientDetails.hostname') }}</span>
-            <span class="info-value text-mono">{{ client?.host }}</span>
+            <span class="info-label text-mono-medium">{{ t('clientDetails.hostname') }}</span>
+            <span class="info-value text-mono-medium">{{ client?.host }}</span>
           </div>
           <div class="info-item">
-            <span class="info-label text-mono">{{ t('clientDetails.ipAddress') }}</span>
-            <span class="info-value text-mono">{{ client?.ip || 'Unknown' }}</span>
+            <span class="info-label text-mono-medium">{{ t('clientDetails.ipAddress') }}</span>
+            <span class="info-value text-mono-medium">{{ client?.ip || 'Unknown' }}</span>
           </div>
         </div>
       </SettingsSection>

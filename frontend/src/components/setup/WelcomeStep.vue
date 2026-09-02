@@ -2,7 +2,7 @@
   <div class="welcome-step">
     <AppIcon name="milo" size="large" class="welcome-step__icon" />
     <h1 class="heading-1">{{ t('setup.welcome.title') }}</h1>
-    <p class="text-mono text-secondary">{{ t('setup.welcome.subtitle') }}</p>
+    <p class="text-mono-medium text-secondary">{{ t('setup.welcome.subtitle') }}</p>
   </div>
 </template>
 

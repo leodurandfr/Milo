@@ -24,7 +24,7 @@
       <Button variant="brand" loading>loading</Button>
       <Button variant="brand" loading disabled>loading + disabled</Button>
     </GalleryVariant>
-    <p class="counter text-mono">click count: {{ clicks }}</p>
+    <p class="counter text-mono-medium">click count: {{ clicks }}</p>
   </GalleryItem>
 
   <GalleryItem id="IconButton">

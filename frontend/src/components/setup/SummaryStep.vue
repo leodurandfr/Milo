@@ -7,14 +7,14 @@
     </div>
 
     <div class="summary-item">
-      <span class="text-mono summary-item__label">{{ t('setup.summary.network') }}</span>
+      <span class="text-mono-medium summary-item__label">{{ t('setup.summary.network') }}</span>
       <div class="summary-item__card">
         <span class="heading-3">{{ wifiSsid === 'ethernet' ? t('network.ethernet') : wifiSsid }}</span>
       </div>
     </div>
 
     <div class="summary-item">
-      <span class="text-mono summary-item__label">{{ t('setup.summary.language') }}</span>
+      <span class="text-mono-medium summary-item__label">{{ t('setup.summary.language') }}</span>
       <div class="summary-item__card">
         <img v-if="flagIcon" :src="flagIcon" :alt="languageLabel" class="summary-item__flag" />
         <span class="heading-3">{{ languageLabel }}</span>
@@ -22,25 +22,25 @@
     </div>
 
     <div class="summary-item">
-      <span class="text-mono summary-item__label">{{ t('setup.summary.audioCard') }}</span>
+      <span class="text-mono-medium summary-item__label">{{ t('setup.summary.audioCard') }}</span>
       <div class="summary-item__card">
         <span class="heading-3">{{ audioLabel }}</span>
       </div>
       <div v-if="isDac && !volumeControl" class="summary-item__card summary-item__card--secondary">
-        <span class="text-mono">{{ t('setup.summary.volumeNotManaged') }}</span>
+        <span class="text-mono-medium">{{ t('setup.summary.volumeNotManaged') }}</span>
       </div>
     </div>
 
     <div class="summary-item">
-      <span class="text-mono summary-item__label">{{ t('setup.summary.screen') }}</span>
+      <span class="text-mono-medium summary-item__label">{{ t('setup.summary.screen') }}</span>
       <div class="summary-item__card">
         <span class="heading-3">{{ screenLabel }}</span>
       </div>
     </div>
 
-    <p v-if="error" class="text-mono error-message">{{ error }}</p>
+    <p v-if="error" class="text-mono-medium error-message">{{ error }}</p>
 
-    <p v-if="isRebooting" class="text-mono text-secondary">
+    <p v-if="isRebooting" class="text-mono-medium text-secondary">
       {{ t('setup.summary.rebootingDescription') }}
     </p>
   </div>
@@ -143,7 +143,7 @@ const flagIcon = computed(() => flagIcons[props.languageCode] || null);
 .summary-item__card--secondary {
   justify-content: space-between;
 }
-.summary-item__card--secondary .text-mono {
+.summary-item__card--secondary .text-mono-medium {
   color: var(--color-text-secondary);
 }
 

@@ -18,49 +18,49 @@
       <SettingsSection>
         <!-- Type: SMB / NFS -->
         <div class="form-group">
-          <label class="text-mono">{{ t('musicLibrary.shares.type') }}</label>
+          <label class="text-mono-medium">{{ t('musicLibrary.shares.type') }}</label>
           <ButtonGroup v-model="form.type" :options="typeOptions" @change="applyType" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">{{ t('musicLibrary.shares.name') }} *</label>
+          <label class="text-mono-medium">{{ t('musicLibrary.shares.name') }} *</label>
           <InputText v-model="form.name" :placeholder="t('musicLibrary.shares.namePlaceholder')" :maxlength="128" />
-          <span class="text-mono share-form__hint">{{ t('musicLibrary.shares.nameHint') }}</span>
+          <span class="text-mono-medium share-form__hint">{{ t('musicLibrary.shares.nameHint') }}</span>
         </div>
 
         <div class="form-group">
-          <label class="text-mono">{{ t('musicLibrary.shares.host') }} *</label>
+          <label class="text-mono-medium">{{ t('musicLibrary.shares.host') }} *</label>
           <InputText v-model="form.host" :placeholder="t('musicLibrary.shares.hostPlaceholder')" :maxlength="255" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">{{ t('musicLibrary.shares.pathLabel') }} *</label>
+          <label class="text-mono-medium">{{ t('musicLibrary.shares.pathLabel') }} *</label>
           <InputText v-model="form.path" :placeholder="pathPlaceholder" :maxlength="1024" />
-          <span class="text-mono share-form__hint">{{ pathHint }}</span>
+          <span class="text-mono-medium share-form__hint">{{ pathHint }}</span>
         </div>
 
         <!-- Credentials (SMB only) -->
         <template v-if="form.type === 'cifs'">
           <div class="form-group">
-            <label class="text-mono">{{ t('musicLibrary.shares.username') }}</label>
+            <label class="text-mono-medium">{{ t('musicLibrary.shares.username') }}</label>
             <InputText v-model="form.username" :placeholder="t('musicLibrary.shares.usernamePlaceholder')" :maxlength="128" />
           </div>
 
           <div class="form-group">
-            <label class="text-mono">{{ t('musicLibrary.shares.password') }}</label>
+            <label class="text-mono-medium">{{ t('musicLibrary.shares.password') }}</label>
             <InputText v-model="form.password" type="password" :maxlength="256"
               :placeholder="passwordPlaceholder" />
-            <span v-if="isEditMode && share?.has_credentials" class="text-mono share-form__hint">
+            <span v-if="isEditMode && share?.has_credentials" class="text-mono-medium share-form__hint">
               {{ t('musicLibrary.shares.passwordKeepHint') }}
             </span>
           </div>
         </template>
 
         <!-- NFS help note -->
-        <p v-else class="text-mono share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
+        <p v-else class="text-mono-medium share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
 
         <!-- Error -->
-        <div v-if="errorMessage" class="share-form__error text-mono">{{ errorMessage }}</div>
+        <div v-if="errorMessage" class="share-form__error text-mono-medium">{{ errorMessage }}</div>
       </SettingsSection>
 
       <!-- Remove (edit only) — two-tap inline confirm, like the power menu. -->

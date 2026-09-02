@@ -7,7 +7,7 @@
   >
     <div class="volume-slider">
       <div class="volume-fill" :style="volumeFillStyle"></div>
-      <div class="text-mono">{{ volumeDisplay }}</div>
+      <div class="text-mono-medium">{{ volumeDisplay }}</div>
     </div>
   </div>
 </template>
@@ -89,7 +89,7 @@ const volumeFillStyle = computed(() => ({
   z-index: 0;
 }
 
-.volume-slider .text-mono {
+.volume-slider .text-mono-medium {
   height: 100%;
   align-content: center;
   color: var(--color-text-light);

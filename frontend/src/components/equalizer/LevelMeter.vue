@@ -2,7 +2,7 @@
 <!-- Audio level meter with peak hold -->
 <template>
   <div class="level-meter">
-    <div v-if="label" class="meter-label text-mono">{{ label }}</div>
+    <div v-if="label" class="meter-label text-mono-medium">{{ label }}</div>
 
     <div class="meter-container">
       <div class="meter-track">

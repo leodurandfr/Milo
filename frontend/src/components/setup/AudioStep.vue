@@ -3,7 +3,7 @@
   <div class="audio-step">
     <!-- Grouped audio cards by category -->
     <template v-for="group in groupedCards" :key="group.category">
-      <span class="text-mono audio-step__category">
+      <span class="text-mono-medium audio-step__category">
         {{ categoryLabel(group.category) }}
       </span>
       <div class="audio-step__list">

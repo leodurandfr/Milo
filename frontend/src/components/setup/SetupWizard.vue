@@ -4,7 +4,7 @@
     <div class="setup-card">
       <!-- Header (steps 1+, outside transition) -->
       <div v-if="currentStep > 0" class="setup-card__header">
-        <button class="setup-card__back text-mono" @click="prevStep">
+        <button class="setup-card__back text-mono-medium" @click="prevStep">
           <SvgIcon name="caretLeft" :size="20" />
           {{ isSummaryStep ? t('setup.back') : t('setup.stepLabel', { n: stepIndex }) }}
         </button>

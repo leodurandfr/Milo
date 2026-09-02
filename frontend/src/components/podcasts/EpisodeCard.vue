@@ -11,9 +11,9 @@
     <div class="card-content">
       <div class="content-info">
         <h4 class="episode-name heading-3">{{ episode.name }}</h4>
-        <p v-if="podcastName" class="podcast-name text-mono clickable-link" @click.stop="handlePodcastClick">{{ podcastName }}</p>
+        <p v-if="podcastName" class="podcast-name text-mono-medium clickable-link" @click.stop="handlePodcastClick">{{ podcastName }}</p>
 
-        <div class="episode-meta text-mono">
+        <div class="episode-meta text-mono-medium">
           <span class="duration">
             <template v-if="isCurrentlyPlaying">{{ t('podcasts.nowPlaying') }}</template>
             <template v-else-if="isCompleted">{{ t('podcasts.alreadyListened') }}</template>

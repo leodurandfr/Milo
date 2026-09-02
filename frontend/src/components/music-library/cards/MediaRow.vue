@@ -18,7 +18,7 @@
     </LazyImage>
     <div class="media-details">
       <p class="media-title heading-3">{{ title }}</p>
-      <p v-if="subtitle" class="media-subtitle text-mono">{{ subtitle }}</p>
+      <p v-if="subtitle" class="media-subtitle text-mono-medium">{{ subtitle }}</p>
     </div>
   </div>
 </template>

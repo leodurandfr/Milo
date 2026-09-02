@@ -11,7 +11,7 @@
       <template #header>
         <div class="wiz-header">
           <h2 class="heading-2">{{ t('musicLibrary.shares.wizard.serverTitle') }}</h2>
-          <p class="text-mono wiz-header__desc">{{ t('musicLibrary.shares.wizard.serverDesc') }}</p>
+          <p class="text-mono-medium wiz-header__desc">{{ t('musicLibrary.shares.wizard.serverDesc') }}</p>
         </div>
       </template>
 
@@ -32,7 +32,7 @@
         </ListItemButton>
       </div>
 
-      <p v-else class="wiz-empty text-mono">{{ t('musicLibrary.shares.wizard.noServers') }}</p>
+      <p v-else class="wiz-empty text-mono-medium">{{ t('musicLibrary.shares.wizard.noServers') }}</p>
 
       <!-- Manual entry (outline) on the left, discovery re-scan (brand) on the right. -->
       <div class="wiz-actions">

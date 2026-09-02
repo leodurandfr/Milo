@@ -21,11 +21,11 @@
       @pointerdown="startDrag($event, 'max')"
     ></div>
     
-    <div class="slider-value-min text-mono" :class="{ dragging: isDraggingMin }">
+    <div class="slider-value-min text-mono-medium" :class="{ dragging: isDraggingMin }">
       {{ modelValue.min }}{{ valueUnit }}
     </div>
     
-    <div class="slider-value-max text-mono" :class="{ dragging: isDraggingMax }">
+    <div class="slider-value-max text-mono-medium" :class="{ dragging: isDraggingMax }">
       {{ modelValue.max }}{{ valueUnit }}
     </div>
   </div>
