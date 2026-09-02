@@ -13,9 +13,9 @@
 # mounts directly). Every mode re-validates its inputs from scratch and never
 # trusts the caller.
 #
-# USB (docs/plans/music-library.md, P1-4): resolve the device, confirm it is a
-# real USB partition on a supported filesystem, then mount read-only with
-# nosuid,nodev,noexec at a stable /media/milo/<label-or-uuid>.
+# USB: resolve the device, confirm it is a real USB partition on a supported
+# filesystem, then mount read-only with nosuid,nodev,noexec at a stable
+# /media/milo/<label-or-uuid>.
 #
 # Network (P2-8): mount a CIFS or NFS share read-only at /media/milo/<id>. CIFS
 # credentials are fed on STDIN (never argv — argv is world-readable in /proc) as

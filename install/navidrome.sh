@@ -6,7 +6,7 @@
 # exposes a localhost Subsonic API; the music_library source browses it and mpv
 # streams `stream?id=…&format=raw` over localhost — the exact shape as the
 # Podcast source, with Navidrome standing in for Podcast Index. See
-# docs/plans/music-library.md.
+# docs/architecture.md.
 #
 # Navidrome ships as a single static Go binary (~35 MB), installed the same way
 # as go-librespot / camilladsp: download the pinned arm64 release into
