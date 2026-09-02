@@ -383,7 +383,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - Audio output: ALSA (milo_cd)
 - Data: `/var/lib/milo/cd_data.json` (TOC cache), `cd_covers/` (cover art)
 
-### 8. DLNA / UPnP Media Renderer (gmediarender)
+### 8. DLNA/UPnP Media Renderer (gmediarender)
 
 **What is it?**
 - DLNA renderer (DMR role) — any control point (BubbleUPnP, a NAS, Plex,

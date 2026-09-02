@@ -188,7 +188,7 @@ These are shared by every source; they break for all of them at once.
 
 | Check | Expected observable | Set |
 |---|---|---|
-| Discovery | "Milo" appears as a renderer in a UPnP controller | targeted |
+| Discovery | "Milo" appears as a renderer in a DLNA/UPnP controller | targeted |
 | Playback | Pushing a track starts audio | targeted |
 | Metadata | Artwork, title, artist, album shown; no transport buttons | targeted |
 

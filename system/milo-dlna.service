@@ -1,5 +1,5 @@
 [Unit]
-Description=Milo DLNA / UPnP renderer (gmediarender)
+Description=Milo DLNA/UPnP renderer (gmediarender)
 After=network-online.target sound.target milo-backend.service milo-camilladsp.service
 Wants=network-online.target
 Requires=sound.target

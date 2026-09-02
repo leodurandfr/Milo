@@ -288,7 +288,7 @@ The interface shows the connection state: **"Ready to stream"** or **"Connected 
 
 ## DLNA
 
-Milō appears as a DLNA renderer (a "Play To" target) on your network. Any UPnP/DLNA controller can push music to it — for example BubbleUPnP or Hi-Fi Cast on Android, a Synology or QNAP NAS, Plex, JRiver, foobar2000, or Audirvana.
+Milō appears as a DLNA renderer (a "Play To" target) on your network. Any DLNA/UPnP controller can push music to it — for example BubbleUPnP or Hi-Fi Cast on Android, a Synology or QNAP NAS, Plex, JRiver, foobar2000, or Audirvana.
 
 ### Connecting
 

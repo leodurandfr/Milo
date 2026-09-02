@@ -1,6 +1,6 @@
 # backend/sources/dlna/routes.py
 """
-FastAPI routes for the DLNA / UPnP renderer audio source.
+FastAPI routes for the DLNA/UPnP renderer audio source.
 
 Provides REST API endpoints for:
 - Artwork: Serve current album artwork as binary image (fetched from the DMS,
