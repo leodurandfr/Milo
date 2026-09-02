@@ -5,9 +5,9 @@
 #   <mountpoint>: an absolute path directly under /media/milo, exactly as returned
 #                 by milo-mount (the backend hands back what it captured).
 #
-# Counterpart to milo-mount (docs/plans/music-library.md). Validates the target is
-# a real mountpoint directly beneath /media/milo — with a single safe-named
-# component, no traversal — then unmounts it and removes the now-empty directory.
+# Counterpart to milo-mount. Validates the target is a real mountpoint directly
+# beneath /media/milo — with a single safe-named component, no traversal — then
+# unmounts it and removes the now-empty directory.
 # Falls back to a lazy unmount when the mount is busy (Navidrome still holding a
 # file handle, or the device was yanked). Must run as root (milo-backend sudoers).
 set -euo pipefail
