@@ -80,8 +80,8 @@ configure_go_librespot
 CHROOT
 
 # ── qobuz-proxy (Qobuz Connect) ──────────────────────────────────────────────
-# Reuse install/qobuz-proxy.sh::install_qobuz_proxy so pi-gen and the bash
-# installer build an identical venv + config.yaml — single source of truth.
+# Reuse install/qobuz-proxy.sh::install_qobuz_proxy rather than restating the
+# venv + config.yaml build here — single source of truth.
 # Installs libportaudio2 + the pinned git tag into /var/lib/milo/qobuz/venv and
 # writes the flat single-speaker config. The one-time Qobuz login is done by the
 # operator later (settings screen / :8689) and cached in credentials.json — it
@@ -95,9 +95,9 @@ install_qobuz_proxy
 CHROOT
 
 # ── Tidal Connect ────────────────────────────────────────────────────────────
-# Reuse install/tidal-connect.sh::install_tidal_connect so pi-gen and the bash
-# installer materialise an identical runtime tree under /opt/milo/tidal-connect
-# — single source of truth. Nothing user-specific is baked: the daemon carries
+# Reuse install/tidal-connect.sh::install_tidal_connect rather than restating how
+# the runtime tree under /opt/milo/tidal-connect is materialised — single source
+# of truth. Nothing user-specific is baked: the daemon carries
 # the SDK's own device certificate and holds no account state, so the Tidal
 # login lives entirely in the phone app.
 

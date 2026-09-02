@@ -38,8 +38,8 @@ configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
 CHROOT
 
 # ── Boot config.txt (silent boot, fan, power-button LED) ─────────────────────
-# Single source of truth: reuse the install/ functions so pi-gen and the bash
-# installer write identical config.txt entries (no duplicated sed/cat here).
+# Single source of truth: reuse the install/ functions rather than duplicating
+# their sed/cat here.
 # The EEPROM "wait for power button" half cannot be baked into an image — it is
 # applied on the device by milo-eeprom-setup.service (enabled in 01-run.sh).
 
