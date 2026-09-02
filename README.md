@@ -113,7 +113,7 @@
 
 ## Installation
 
-### Quick Start (Recommended)
+### Quick Start
 
 1. Download the latest `.img.xz` from [Releases](https://github.com/leodurandfr/Milo/releases)
 2. Flash it with [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (select "Use custom" → choose the `.img.xz` file)
@@ -137,52 +137,6 @@ After setup:
 Flash the same image on additional Raspberry Pis. On first boot, the device detects your existing Milō server on the network and automatically configures itself as a client.
 
 Prefer Ethernet over WiFi — network jitter is what makes rooms drift apart.
-
-### Manual Installation (Advanced)
-
-<details>
-<summary>Install from Raspberry Pi OS Lite instead of using the pre-built image</summary>
-
-**This is the development path, not a second supported way to get a Milō.** The
-image is what a unit ships as, it is built and published by CI, and it is the
-only path the release process exercises. `install.sh` exists for the two cases
-the image cannot serve: a machine you cannot reflash, and a fast run of the
-`install/` modules — which the image build itself sources for most of its
-work — without waiting on a full build.
-
-Both paths write the same files and enable the same units, and a set of offline
-guardrails keeps them from drifting (`backend/tests/architecture/test_provisioning_parity.py`,
-`test_helper_deployment.py`, `test_install_deployment.py`). What no test can
-check is that either script *runs*: they are shell, on hardware CI never
-touches. Treat a successful install as evidence about the tree you ran it from,
-and nothing more.
-
-Flash **Raspberry Pi OS (64-bit) Lite** (Debian Trixie) with Raspberry Pi Imager. In "Edit Settings", set hostname and username to `milo`.
-
-The installer is split across modules under `install/`, so it must be run from a clone of the repository rather than downloaded on its own. It clones its own copy into `/home/milo/milo`, so any working directory will do:
-
-```bash
-git clone https://github.com/leodurandfr/Milo.git /tmp/Milo
-cd /tmp/Milo
-./install.sh
-```
-
-For multiroom clients, set hostname and username to `milo-client`. The client installer reuses the server's install modules, so it needs the same full clone:
-
-```bash
-git clone https://github.com/leodurandfr/Milo.git /tmp/Milo
-cd /tmp/Milo/milo-client
-./install-client.sh
-```
-
-Uninstall — also from a clone, for the same reason:
-
-```bash
-cd /tmp/Milo && ./install.sh --uninstall                # Server
-cd /tmp/Milo/milo-client && ./install-client.sh --uninstall  # Client
-```
-
-</details>
 
 ## Companion Apps
 

@@ -75,7 +75,7 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **Dependencies**: milo-backend.service, network-online.target, sound.target, nqptp.service (PTP clock sync, required via `Requires=`), milo-camilladsp.service
 - **ALSA Device**: milo_airplay (dynamic routing via routing.env)
 - **Managed By**: AirplaySource
-- **Notes**: Config baked at install (`install/airplay.sh`), not runtime-managed by the backend
+- **Notes**: Config comes from `rootfs/etc/shairport-sync.conf` at image-build time, not runtime-managed by the backend
 
 #### milo-cd.service
 - **Role**: CD player via mpv, fed raw PCM over a FIFO from the ioctl disc reader
@@ -162,7 +162,7 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 - **Role**: Detects server vs. multiroom-client mode on first boot and applies the corresponding setup
 - **Type**: oneshot
 - **Dependencies**: After NetworkManager.service; Before avahi-daemon.service, milo-backend.service, milo-readiness.service
-- **Startup**: Enabled by the pi-gen image build (`pi-gen/stage-milo/03-configure/01-run.sh`), not by `install.sh`
+- **Startup**: Enabled by the pi-gen image build (`pi-gen/stage-milo/03-configure/01-run.sh`)
 - **Notes**: `TimeoutStartSec=180` to allow for network wait + multi-attempt mDNS probe + client setup. Ordered before `avahi-daemon.service` only (never `avahi-daemon.socket` — see the unit file comment on the ordering-cycle risk that can otherwise strand NetworkManager).
 
 #### milo-ir-keytable.service
@@ -175,7 +175,7 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 - **Role**: Applies power-on behaviour (wait for power button) to the Raspberry Pi bootloader EEPROM
 - **Type**: oneshot (`RemainAfterExit=yes`)
 - **Dependencies**: `ConditionPathExists=/home/milo/milo/install/power-button.sh`; After local-fs.target
-- **Startup**: Enabled by the pi-gen image build (`pi-gen/stage-milo/03-configure/01-run.sh`), not by `install.sh`
+- **Startup**: Enabled by the pi-gen image build (`pi-gen/stage-milo/03-configure/01-run.sh`)
 - **Notes**: The EEPROM lives on the board's SPI flash, not the SD card, so it can't be baked into the pi-gen image — this reuses `configure_power_on_behavior()` from `install/power-button.sh` and re-flashes only when needed, so running every boot is harmless.
 
 ### Utility Services (Always Enabled)
@@ -246,11 +246,11 @@ CamillaDSP is always in the audio path for volume control. DSP effects (EQ, comp
 
 ## Installation
 
-Services are automatically installed by `install.sh`:
+Services are installed by the pi-gen image build (`pi-gen/stage-milo/02-install-milo/01-run.sh`):
 
 ```bash
-# During installation, all .service files are copied:
-sudo cp /home/milo/milo/system/*.service /etc/systemd/system/
+# During the build, all .service files are copied:
+cp /home/milo/milo/system/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
 # Only core services are enabled at boot:

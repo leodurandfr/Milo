@@ -5,7 +5,7 @@
 # sudoers/polkit, systemd services, fan control, boot optimization,
 # and default hardware configuration.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 

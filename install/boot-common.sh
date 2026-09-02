@@ -1,6 +1,6 @@
 #!/bin/bash
 # Common boot configuration shared by all screens
-# Sourced by install.sh to configure cmdline.txt and config.txt
+# Sourced by pi-gen/stage-milo to configure cmdline.txt and config.txt
 
 # Universal cmdline.txt parameters
 BOOT_PARAMS_COMMON="quiet splash plymouth.ignore-serial-consoles"

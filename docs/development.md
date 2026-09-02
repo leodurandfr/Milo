@@ -354,7 +354,7 @@ pcm.milo_mysource_multiroom {
 }
 ```
 
-Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. Add it in the snd-aloop module options at BOTH install paths (`install/alsa.sh` and `pi-gen/stage-milo/02-install-milo/01-run.sh`):
+Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. The snd-aloop module options are written in TWO places — `pi-gen/stage-milo/02-install-milo/01-run.sh` writes `/etc/modprobe.d/snd-aloop.conf` inline, and `install/alsa.sh::configure_alsa_loopback` writes the same line for a standalone run — so bump both:
 ```
 options snd-aloop index=1,2,3 enable=1,1,1 id=Loopback,LoopbackDLNA,LoopbackX pcm_substreams=8,8,8
 ```
@@ -493,8 +493,8 @@ is driven entirely by an external app:
   [install/qobuz-proxy.sh](../install/qobuz-proxy.sh) creates a venv under
   `/var/lib/milo/qobuz/` and `pip install`s the **pinned git tag**
   (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
-  backend + `libportaudio2` from apt). It is called from both `install.sh` and the
-  pi-gen stage-02 (single source of truth).
+  backend + `libportaudio2` from apt). The pi-gen stage-02 sources it rather than
+  restating the install (single source of truth).
 - **Two adaptations**, applied at runtime by the launcher the unit runs,
   [rootfs/usr/local/bin/milo-qobuz](../rootfs/usr/local/bin/milo-qobuz): the
   local backend's stream is held at unity gain (CamillaDSP is the sole volume
@@ -503,7 +503,7 @@ is driven entirely by an external app:
   for its cloud state reports but omits them from `/api/status`. They wrap
   methods rather than rewriting installed sources, so nothing is edited inside
   site-packages and the venv matches the released package exactly. `--check`
-  answers whether a release still offers what they bind to; the installer runs
+  answers whether a release still offers what they bind to; the image build runs
   it after `pip install` and the in-app updater before restarting the service,
   and a release that moved one is a rolled-back update. They used to be source
   patches anchored on exact lines, which 1.6.0 broke by reflowing a dict literal

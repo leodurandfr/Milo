@@ -20,9 +20,12 @@ CHROOT
 # because libpulse-dev (needed by roc-toolkit) pulls in pulseaudio as a dependency.
 
 # Add milo user to required groups (pi-gen creates the user via FIRST_USER_NAME).
-# Same list as install/base.sh::MILO_USER_GROUPS — each entry is a device node
-# Milō opens; see the comment there. This list is what the appliance needs, not
-# what the base image happens to grant its first user.
+# Each entry is a device node Milō opens. Raspberry Pi OS already grants all of
+# these to the image's first user, so this is belt-and-braces — but stating the
+# list is what the appliance needs, rather than trusting what the base image
+# happens to grant, is the only reason a rotary encoder ever worked: `gpio` and
+# `render` are the two nothing else guarantees, and hardware that lacks them
+# fails silently. usermod -aG is additive and idempotent.
 on_chroot << 'CHROOT'
 usermod -aG audio,video,render,bluetooth,input,cdrom,gpio milo
 CHROOT

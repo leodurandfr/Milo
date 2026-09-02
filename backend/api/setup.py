@@ -35,12 +35,12 @@ logger = logging.getLogger(__name__)
 
 PENDING_CLIENT_ROLE_FILE = MILO_DATA_DIR / "pending_client_role.json"
 
-# The marker's only consumer. It is deployed by `pi-gen/stage-milo` and by
-# nothing else — `install.sh` builds a server and never installs it, because on
-# that path the role is chosen by which installer was run rather than detected.
-# So on a script-installed unit the adoption below would write a marker no boot
-# ever reads: the device reboots, comes back a server, and the adopting server
-# waits for a speaker that never appears. Checked, not assumed.
+# The marker's only consumer, deployed by `pi-gen/stage-milo` — so it is there on
+# anything flashed from the Milō image, which is how a unit is provisioned. The
+# check stays because the backend also runs on a plain checkout during
+# development, and there the adoption below would write a marker no boot ever
+# reads: the device reboots, comes back a server, and the adopting server waits
+# for a speaker that never appears. Checked, not assumed.
 FIRST_BOOT_HELPER = Path("/usr/local/bin/milo-first-boot")
 
 # Serializes /api/setup/become-client so two concurrent adopters can't race on
@@ -212,8 +212,7 @@ def create_setup_router(
                     detail=(
                         f"This device cannot be adopted over WiFi: {FIRST_BOOT_HELPER} "
                         "is not installed, so the client role would never be applied. "
-                        "Install it as a satellite with milo-client/install-client.sh, "
-                        "or flash the Milo image."
+                        "Flash the Milo image on this device."
                     ),
                 )
 

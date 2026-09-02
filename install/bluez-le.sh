@@ -10,7 +10,7 @@
 #
 # Only affects the [LE] section — Bluetooth Classic (A2DP audio) is not impacted.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 

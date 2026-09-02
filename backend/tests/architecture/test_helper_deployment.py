@@ -5,24 +5,18 @@ This one proves the helpers actually reach `/usr/local/` — and it has to be a
 separate rule, because a tree can be perfect while a provisioning path quietly
 copies a subset of it.
 
-Both halves of that already shipped:
-
-  * **Server.** `rootfs/usr/local/bin/milo-first-boot` and `milo-mdns-probe` are
-    copied by `pi-gen/stage-milo` and by no `install/` module. So on a
-    script-installed unit `POST /api/setup/become-client` wrote a marker whose
-    only consumer did not exist: the device rebooted, came back a server, and the
-    adopting server waited for a speaker that never appeared. That one is a
-    *decision* now — see `IMAGE_ONLY_FILES` — and the route refuses instead.
-  * **Satellite.** `milo-first-boot`'s conversion installed the client tree's
-    `asound.conf`, loopback options, CamillaDSP config, service set, sudoers and
-    avahi drop-in, and none of the client tree's `/usr/local/bin`. Those reached
-    the disk from exactly one place, pi-gen's copy loop at image-build time, and
-    `milo-deploy-update` refreshes the *server* tree only. Measured on a unit
-    flashed 2026-06-20 and app-updated 2026-08-30: every server helper current,
-    every client helper still June's, and `milo-client-apply-avahi-iface` (added
-    2026-08-14) absent — which is
-    `ExecStartPre=/usr/local/bin/milo-client-apply-avahi-iface` failing 203/EXEC
-    on `avahi-daemon.service`, i.e. no mDNS at all on the converted satellite.
+Two paths produce a unit: the image build, and — for a satellite — the
+server→satellite conversion `milo-first-boot` runs on a flashed card that was
+adopted. The second is where this already shipped: the conversion installed the
+client tree's `asound.conf`, loopback options, CamillaDSP config, service set,
+sudoers and avahi drop-in, and none of the client tree's `/usr/local/bin`. Those
+reached the disk from exactly one place, pi-gen's copy loop at image-build time,
+and `milo-deploy-update` refreshes the *server* tree only. Measured on a unit
+flashed 2026-06-20 and app-updated 2026-08-30: every server helper current,
+every client helper still June's, and `milo-client-apply-avahi-iface` (added
+2026-08-14) absent — which is
+`ExecStartPre=/usr/local/bin/milo-client-apply-avahi-iface` failing 203/EXEC on
+`avahi-daemon.service`, i.e. no mDNS at all on the converted satellite.
 
 Nothing else catches this class. These are bash copy loops read on a machine CI
 never touches; there is no import to fail and no route to 404, and the symptom is
@@ -41,34 +35,18 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-INSTALL_DIR = REPO_ROOT / "install"
-
-# Files the *image* installs and a script install deliberately does not, with the
-# reason each is here. Both belong to boot-time role detection, which is a
-# property of a flashed card: on the script path the role is chosen by which
-# installer was run (`install.sh` vs `milo-client/install-client.sh`), so
-# auto-converting a freshly installed server would be wrong. `api/setup.py`
-# refuses `become-client` when the first is absent rather than writing a marker
-# nothing will read.
-IMAGE_ONLY_FILES = {
-    "milo-first-boot",
-    "milo-mdns-probe",
-}
-
 # Each role: the tree that ships its helpers, and every provisioning path that
 # can produce a unit in that role. A helper must be deployed by all of them.
 ROLES = {
     "server": {
         "tree": REPO_ROOT / "rootfs",
         "paths": {
-            "install.sh": None,          # resolved to the sourced closure below
             "pi-gen": None,              # resolved to the stage scripts below
         },
     },
     "satellite": {
         "tree": REPO_ROOT / "milo-client" / "rootfs",
         "paths": {
-            "install-client.sh": None,
             "pi-gen": None,
             "milo-first-boot": None,     # the server → satellite conversion
         },
@@ -105,29 +83,10 @@ def _pi_gen_text() -> str:
     return "\n".join([text] + [m.read_text() for m in sorted(sourced) if m.is_file()])
 
 
-def _install_closure_text(entry: Path, module_dir: Path) -> str:
-    """An installer plus every module it sources, as one blob.
-
-    The two chains source their modules by relative path and then copy files out
-    of a tree; `test_install_deployment.py` already proves the closure resolves,
-    so reading the whole module directory alongside the entry point is both
-    sufficient and immune to the sourcing order.
-    """
-    return "\n".join([entry.read_text()] + [p.read_text() for p in sorted(module_dir.glob("*.sh"))])
-
-
 def _path_texts(role: str) -> dict[str, str]:
     if role == "server":
-        return {
-            "install.sh": _install_closure_text(REPO_ROOT / "install.sh", INSTALL_DIR),
-            "pi-gen": _pi_gen_text(),
-        }
+        return {"pi-gen": _pi_gen_text()}
     return {
-        "install-client.sh": _install_closure_text(
-            REPO_ROOT / "milo-client" / "install-client.sh", INSTALL_DIR
-        )
-        + "\n"
-        + "\n".join(p.read_text() for p in sorted((REPO_ROOT / "milo-client" / "install").glob("*.sh"))),
         "pi-gen": _pi_gen_text(),
         "milo-first-boot": (REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-first-boot").read_text(),
     }
@@ -150,12 +109,12 @@ def _uncommented(text: str) -> str:
 def _deploys(text: str, tree: Path, helper: Path) -> bool:
     """Does this provisioning path install this helper?
 
-    Two spellings count, and both are in use: naming the file (`install/`
-    modules copy helper by helper) and copying the directory in a glob loop
-    (pi-gen, and the conversion in `milo-first-boot`). A directory loop covers
-    everything the directory holds, which is the point of writing it that way —
-    pi-gen's own comment says a hand-maintained allowlist is what dropped three
-    scripts from the image.
+    Two spellings count, and both are in use: naming the file (pi-gen copies
+    `hardware-helpers.sh` and each sudoers policy by name) and copying the
+    directory in a glob loop (pi-gen's `/usr/local/bin` loops, and the conversion
+    in `milo-first-boot`). A directory loop covers everything the directory
+    holds, which is the point of writing it that way — pi-gen's own comment says
+    a hand-maintained allowlist is what dropped three scripts from the image.
 
     The match is on the *tree-relative path*, never the bare basename. A
     basename can be an ordinary word of the script: `milo-first-boot` says
@@ -193,8 +152,8 @@ def test_both_deployment_spellings_are_exercised():
     """The matcher must recognise a per-file copy *and* a directory glob.
 
     If it only ever matched one of the two, the rules below would pass on half
-    the paths for the wrong reason — a whole installer reading as "deploys
-    everything", or as "deploys nothing but is whitelisted".
+    the paths for the wrong reason — a whole provisioning path reading as
+    "deploys everything", or as "deploys nothing at all".
     """
     tree = ROLES["server"]["tree"]
     named = tree / "usr" / "local" / "bin" / "milo-apply-hardware"
@@ -226,7 +185,6 @@ def test_every_helper_is_deployed_by_every_path_into_that_role(role):
     missing = [
         f"{name} does not deploy {helper.relative_to(REPO_ROOT)}"
         for helper in _helpers(tree)
-        if helper.name not in IMAGE_ONLY_FILES
         for name, text in _path_texts(role).items()
         if not _deploys(text, tree, helper)
     ]
@@ -234,27 +192,6 @@ def test_every_helper_is_deployed_by_every_path_into_that_role(role):
         f"{role}: these helpers are not installed by every path into the role:\n"
         + "\n".join(sorted(missing))
     )
-
-
-def test_the_image_only_whitelist_is_exact():
-    """Every whitelisted name must still exist, and still be image-only.
-
-    A name that no longer exists is a stale exemption; one that *is* now deployed
-    by `install.sh` is an exemption that hides nothing and should go, so the set
-    keeps meaning what its comment says.
-    """
-    tree = ROLES["server"]["tree"]
-    by_name = {h.name: h for h in _helpers(tree)}
-    texts = _path_texts("server")
-
-    for name in sorted(IMAGE_ONLY_FILES):
-        assert name in by_name, f"IMAGE_ONLY_FILES names {name}, which the tree no longer ships"
-        assert _deploys(texts["pi-gen"], tree, by_name[name]), (
-            f"{name} is whitelisted as image-only but pi-gen does not deploy it either"
-        )
-        assert not _deploys(texts["install.sh"], tree, by_name[name]), (
-            f"{name} is now deployed by install.sh — drop it from IMAGE_ONLY_FILES"
-        )
 
 
 def test_every_helper_is_tracked_by_git():

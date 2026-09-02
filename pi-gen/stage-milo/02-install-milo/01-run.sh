@@ -48,9 +48,9 @@ echo "snd-aloop" > /etc/modules-load.d/snd-aloop.conf
 echo "options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8" > /etc/modprobe.d/snd-aloop.conf
 
 # ALSA routing + env files (asound.conf, routing.env, snapclient.env, mac.env).
-# Reuse install/alsa.sh::configure_alsa_complete so pi-gen and the bash installer
-# write identical files — single source of truth. Inline-writing only routing.env
-# (the old behaviour) left snapclient.env and mac.env missing on the image.
+# Reuse install/alsa.sh::configure_alsa_complete rather than restating it here —
+# single source of truth. Inline-writing only routing.env (the old behaviour)
+# left snapclient.env and mac.env missing on the image.
 cd /home/milo/milo
 source install/common.sh
 source install/alsa.sh
@@ -66,9 +66,9 @@ chown -R milo:milo /var/lib/milo/camilladsp
 CHROOT
 
 # ── go-librespot configuration ───────────────────────────────────────────────
-# Reuse install/go-librespot.sh::configure_go_librespot so pi-gen and the bash
-# installer write an identical config.yml — single source of truth. Inline-writing
-# it here is what shipped the image without `zeroconf_backend: avahi`, letting
+# Reuse install/go-librespot.sh::configure_go_librespot rather than restating the
+# config.yml here — single source of truth. Inline-writing it is what shipped the
+# image without `zeroconf_backend: avahi`, letting
 # go-librespot's embedded mDNS responder broadcast milo._spotify-connect on wlan0
 # and race Avahi into the milo.local → milo-2.local rename (HostnameConflict popup).
 
@@ -111,8 +111,8 @@ CHROOT
 # ── Navidrome (Music Library catalog engine) ─────────────────────────────────
 # The binary is downloaded in the audio stage (01-install-audio); here we only
 # write its config + prepare dirs, reusing install/navidrome.sh::configure_navidrome
-# so pi-gen and the bash installer emit an identical navidrome.toml — single source
-# of truth (same pattern as go-librespot). The per-device service-account password
+# rather than restating navidrome.toml here — single source of truth (same pattern
+# as go-librespot). The per-device service-account password
 # is NOT baked: milo-navidrome-provision generates it on first boot.
 
 on_chroot << 'CHROOT'
@@ -124,7 +124,7 @@ CHROOT
 
 # ── Snapserver configuration ─────────────────────────────────────────────────
 # Reuse install/snapcast.sh::configure_snapserver to keep a single source of truth
-# for /etc/snapserver.conf — pi-gen and bash install.sh write the same content.
+# for /etc/snapserver.conf rather than restating it here.
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
@@ -136,7 +136,8 @@ CHROOT
 # ── shairport-sync configuration ─────────────────────────────────────────────
 
 # Both files come from rootfs/ — inlining them here is what let this image ship
-# an AirPlay config without the S32_LE capture format install/airplay.sh sets.
+# an AirPlay config without the S32_LE capture format rootfs/etc/shairport-sync.conf
+# sets to match what CamillaDSP captures.
 on_chroot << 'CHROOT'
 cp /home/milo/milo/rootfs/etc/shairport-sync.conf /etc/shairport-sync.conf
 mkdir -p /etc/dbus-1/system.d
@@ -145,11 +146,11 @@ cp /home/milo/milo/rootfs/etc/dbus-1/system.d/shairport-sync-dbus.conf \
 CHROOT
 
 # ── Nginx configuration ──────────────────────────────────────────────────────
-# Reuse install/network.sh::write_nginx_site so pi-gen and the bash installer
-# ship an identical /etc/nginx/sites-available/milo — single source of truth.
-# Inline-writing it here is what let the two drift: this was the one installer
-# file pi-gen copy-pasted rather than sourced, so an nginx change reached
-# script-installed units only. configure_nginx itself is not reused because its
+# Reuse install/network.sh::write_nginx_site rather than restating
+# /etc/nginx/sites-available/milo here — single source of truth. Inline-writing it
+# is what let two spellings of the site config drift: this was the one module
+# pi-gen copy-pasted rather than sourced. configure_nginx itself is not reused
+# because its
 # `nginx -t` + `systemctl reload nginx` tail is not valid inside the chroot.
 
 on_chroot << 'CHROOT'

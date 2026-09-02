@@ -23,30 +23,31 @@ This directory contains systemd service files for Milo Client satellites. These 
 The `milo-client.service` uses an environment file at `/var/lib/milo-client/env` for dynamic configuration:
 
 ```bash
-MILO_PRINCIPAL_IP=192.168.1.100  # IP of main Milo (discovered during installation)
+MILO_PRINCIPAL_IP=milo.local  # hostname or IP of the main Milo
 ```
 
-This file is created by `install.sh` during installation.
+This file is created by `milo-first-boot` when a flashed card is adopted as a satellite.
 
 ## Directory Structure
 
-Milo Client uses sparse checkout to clone only the `milo-client/` directory from the main Milo repository:
+`milo-first-boot` points the client account at the `milo-client/` tree the image
+already carries, rather than cloning anything:
 
 ```
 /home/milo-client/
-├── repo/                          # Sparse checkout of Milo repository
-│   └── milo-client/
+├── repo/
+│   └── milo-client -> /home/milo/milo/milo-client   # symlink to the shipped tree
 │       ├── app/                   # Application files (main.py, requirements.txt)
 │       └── system/                # Systemd service files
-└── venv/                          # Python virtual environment
+└── venv -> /home/milo/milo/milo-client/venv         # symlink to the pre-built venv
 ```
 
 ## Installation
 
-Services are automatically installed by `install.sh`:
+Services are installed by the pi-gen image build, and by `milo-first-boot` when it converts a flashed card into a satellite:
 
 ```bash
-# During installation, service files are copied from the repo:
+# Service files are copied from the repo:
 sudo cp /home/milo-client/repo/milo-client/system/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 

@@ -9,8 +9,8 @@ never started on the appliance -- `systemctl start` on a unit that does not
 exist, no metadata, no sound.
 
 Both sides are derived: the source list from the typed `AudioSource` enum, the
-unit list from `system/`, which is the tree both installers copy verbatim
-(`install/system.sh`, `pi-gen/stage-milo/02-install-milo/01-run.sh`). A source
+unit list from `system/`, which is the tree the image build copies verbatim
+(`pi-gen/stage-milo/02-install-milo/01-run.sh`). A source
 added to the enum is covered the day it is added.
 
 Doctrine note (same as `test_source_conformance.py`): each extractor asserts its

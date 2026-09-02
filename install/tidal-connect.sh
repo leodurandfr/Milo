@@ -17,7 +17,7 @@
 # why the payload comes from a container image while Milō runs no containers,
 # and why the library overlay must come from bullseye and not anything newer.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 
@@ -39,8 +39,8 @@ install_tidal_connect() {
 
     sudo mkdir -p "$(dirname "$TIDAL_ROOT")"
 
-    # BASH_SOURCE resolves the script dir even when sourced from install.sh /
-    # pi-gen, same as install/qobuz-proxy.sh does for its patch helper.
+    # BASH_SOURCE resolves the script dir even when sourced from a pi-gen stage,
+    # same as install/qobuz-proxy.sh does for its patch helper.
     sudo python3 "$(dirname "${BASH_SOURCE[0]}")/tidal_connect_runtime.py" \
         --root "$TIDAL_ROOT"
 

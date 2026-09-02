@@ -1,25 +1,25 @@
 """Structural guardrail: one declaration per dependency version, and it is `dependencies.env`.
 
 Milō pins a version for nine upstream dependencies, and until this file existed
-each of them was declared in two or three places at once: an `install/` script,
+each of them was declared in two or three places at once: an `install/` module,
 a `pi-gen/stage-milo/` stage script, and — for the six the Update Manager can
 install — a `max_version` ceiling in the backend catalog. Nothing bound them.
 
 That drift shipped. The Update Manager moved the fleet to go-librespot 0.9.0 and
-shairport-sync 5.2.1 while both install trees still cloned 0.8.0 and 4.3.7, so a
-reinstall or a freshly flashed card landed *behind* every running unit — with no
-error anywhere, because each declaration was internally consistent. The symptom
-was a unit that had "just been installed" and behaved like an old one.
+shairport-sync 5.2.1 while the provisioning tree still cloned 0.8.0 and 4.3.7, so
+a freshly flashed card landed *behind* every running unit — with no error
+anywhere, because each declaration was internally consistent. The symptom was a
+unit that had "just been installed" and behaved like an old one.
 
 The manifest kills that class by construction rather than by vigilance: the
 number exists once, and every consumer reads it. These tests are what makes
 "reads it" true — a literal that creeps back into a provisioning script is
 otherwise invisible to CI, which never runs bash and never builds an image.
 
-Three trees, three ways of reading the same file:
+Two trees, two ways of reading the same file:
 
-  * `install/` and `milo-client/install/` source it through `install/common.sh`
-    (`test_install_deployment.py` proves that `source` resolves);
+  * the `install/` modules source it through `install/common.sh`, which the
+    pi-gen stage scripts source in turn;
   * `pi-gen/stage-milo/` sources it as a *sibling*, because a stage is built
     from a copy of `stage-milo/` inside a cloned pi-gen checkout, often in
     Docker, and cannot reach the Milō repo — `pi-gen/build.sh` copies it in.
@@ -47,13 +47,37 @@ from backend.core.updates.dependency_versions import (
     load_dependency_versions,
 )
 
-# The shell comment stripper is imported rather than re-written: it handles the
-# `${script#"$VAR"/}` expansions and quoted `#` literals these files carry, and a
-# second hand-rolled parser that gets one of them wrong would under-report — the
-# one failure mode a guardrail must not have.
-from backend.tests.architecture.test_install_deployment import _strip_comments
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+def _strip_comments(text: str) -> str:
+    """Drop `#` comments without touching a `#` that is not one.
+
+    A line-wide `split("#")` corrupts both other spellings these files carry:
+    `${rel_path#./}` is a prefix-strip expansion, and `\'\\033[0;31m\'` style
+    literals carry `#` inside quotes. A comment opens only at line start or after
+    whitespace, outside quotes. Getting one of them wrong makes this file
+    under-report a restated version — the one failure mode a guardrail must not
+    have.
+    """
+    out = []
+    for line in text.splitlines():
+        kept: list[str] = []
+        quote = None
+        for ch in line:
+            if quote:
+                kept.append(ch)
+                if ch == quote:
+                    quote = None
+            elif ch in "\"'":
+                quote = ch
+                kept.append(ch)
+            elif ch == "#" and (not kept or kept[-1].isspace()):
+                break
+            else:
+                kept.append(ch)
+        out.append("".join(kept))
+    return "\n".join(out)
+
 
 # `$VAR` / `${VAR}` — a manifest variable being read.
 VAR_READ_RE = re.compile(r"\$\{?([A-Z][A-Z0-9_]*)\}?")
@@ -75,13 +99,10 @@ NOT_A_DEPENDENCY = "milo"
 
 
 def _provisioning_scripts() -> list[Path]:
-    """Every shell file that provisions a unit, across all three trees."""
+    """Every shell file that provisions a unit, across both trees."""
     return sorted(
         [
-            REPO_ROOT / "install.sh",
-            REPO_ROOT / "milo-client" / "install-client.sh",
             *(REPO_ROOT / "install").glob("*.sh"),
-            *(REPO_ROOT / "milo-client" / "install").glob("*.sh"),
             *PI_GEN_STAGE.rglob("*run.sh"),
         ]
     )
