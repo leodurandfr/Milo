@@ -160,13 +160,18 @@ onBeforeUnmount(() => {
    was drawn as the list scrolls under it.
    100dvh counts screen pixels while the app is laid out in the fewer ones
    ui_scale magnifies (published by applyUiScale), hence the division; the floor
-   leaves a short window with a small rail rather than none. */
+   leaves a short window with a small rail rather than none. The bottom inset is
+   subtracted for the same reason the jump adds the top one — the strip is
+   centred, so without it the last rung sits on an iPhone's home indicator. */
 .index-rail {
   position: sticky;
   top: var(--rail-top, 0px);
   height: max(
     var(--space-09),
-    calc(100dvh / var(--ui-scale, 1) - var(--rail-top, 0px) - var(--space-07))
+    calc(
+      100dvh / var(--ui-scale, 1) - var(--rail-top, 0px) - var(--space-07) -
+      env(safe-area-inset-bottom, 0px)
+    )
   );
   align-self: flex-start;
   flex-shrink: 0;

@@ -396,8 +396,12 @@ onMounted(async () => {
   flex-direction: column;
   gap: var(--space-02);
   /* The gap a letter jumped to from the rail lands with, instead of flush
-     against the top edge (read back by jumpToLetter). */
-  scroll-margin-top: var(--space-06);
+     against the top edge (read back by jumpToLetter). The scrollport runs to
+     the very top of the screen under viewport-fit=cover, so the inset is added
+     rather than max()'d: the letter clears the status bar and THEN gets its
+     gap, where a max() would park it against the iPhone's clock. Zero on every
+     screen that has no inset, the panel included. */
+  scroll-margin-top: calc(var(--space-06) + env(safe-area-inset-top, 0px));
 }
 
 .index-label {
