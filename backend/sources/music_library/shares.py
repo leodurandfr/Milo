@@ -39,7 +39,7 @@ from backend.sources.music_library.storage import NavidromeProvider, StorageMana
 _SHARE_REMOUNT_RETRY_DELAYS_S = (15, 30, 60)
 
 # Scan-watcher cadence. Navidrome exposes no scan event of any kind and runs its
-# own hourly schedule, so a scan starts that Milō never asked for — polling is
+# own 6-hourly schedule, so a scan starts that Milō never asked for — polling is
 # the only way to know, and the alternative (every browser polling for itself)
 # is what this replaces. Idle is slow because nothing is happening; the active
 # rate paces how often a storage space's growing track count reaches the UI.
@@ -386,7 +386,7 @@ class NetworkShareService:
 
         Replaces the per-browser polling the settings screen used to do: one
         watcher for the whole appliance, and every client learns a scan started
-        or finished — including the hourly one Navidrome schedules itself, which
+        or finished — including the periodic one Navidrome schedules itself, which
         no client could have known to poll for.
 
         A finished scan is a catalog change, so the merged-album cache is dropped
