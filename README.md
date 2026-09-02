@@ -53,7 +53,7 @@
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/dlna.png" width="48"></td>
-    <td><b>DLNA/UPnP</b><br>Play music to Milō from any DLNA/UPnP controller</td>
+    <td><b>DLNA/UPnP</b><br>Play music to Milō from any controller app</td>
   </tr>
 </table>
 
