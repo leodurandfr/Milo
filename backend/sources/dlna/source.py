@@ -1,5 +1,5 @@
 # backend/sources/dlna/source.py
-"""DLNA / UPnP Media Renderer (DMR) audio source using gmediarender.
+"""DLNA/UPnP Media Renderer (DMR) audio source using gmediarender.
 
 Milō appears as a DLNA renderer that any control point (BubbleUPnP, a NAS,
 Audirvana…) can push audio to. gmediarender does the UPnP device work + the

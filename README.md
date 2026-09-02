@@ -53,7 +53,7 @@
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/dlna.png" width="48"></td>
-    <td><b>DLNA</b><br>Play music to Milō from any UPnP/DLNA controller</td>
+    <td><b>DLNA</b><br>Play music to Milō from any DLNA/UPnP controller</td>
   </tr>
 </table>
 
@@ -134,7 +134,7 @@ After setup:
 - **Tidal** → Select "Milō" in the Tidal app
 - **AirPlay** → Select "Milō" in your iPhone/iPad/Mac AirPlay outputs
 - **Bluetooth** → Connect to "Milō · Bluetooth"
-- **DLNA** → Select "Milo" as the renderer in any UPnP/DLNA controller app
+- **DLNA** → Select "Milo" as the renderer in any DLNA/UPnP controller app
 - **Mac** → Install [Milō Mac](https://github.com/leodurandfr/Milo-Mac), then select "Milō" in audio outputs
 
 ### Multiroom (Additional Speakers)
