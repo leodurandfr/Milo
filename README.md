@@ -21,11 +21,11 @@
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/tidal.png" width="48"></td>
-    <td><b>Tidal</b><br>Tidal Connect receiver with artwork and playback control</td>
+    <td><b>TIDAL</b><br>Tidal Connect receiver with artwork and playback control</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/radio.png" width="48"></td>
-    <td><b>Radio</b><br>Browse 50,000+ stations, save favorites, and identify tracks with Shazam</td>
+    <td><b>Internet Radio</b><br>Browse 50,000+ stations, save favorites, and identify tracks with Shazam</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/bluetooth.png" width="48"></td>
@@ -49,11 +49,11 @@
   </tr>
     <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/macos.png" width="48"></td>
-    <td><b>Mac</b><br>Stream your Mac's system audio with low latency (requires <a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a>)</td>
+    <td><b>macOS receiver</b><br>Stream your Mac's system audio with low latency (requires <a href="https://github.com/leodurandfr/Milo-Mac">Milō Mac</a>)</td>
   </tr>
   <tr>
     <td align="center" valign="middle" width="100" height="100"><img src="docs/images/dlna.png" width="48"></td>
-    <td><b>DLNA</b><br>Play music to Milō from any DLNA/UPnP controller</td>
+    <td><b>DLNA/UPnP</b><br>Play music to Milō from any DLNA/UPnP controller</td>
   </tr>
 </table>
 
