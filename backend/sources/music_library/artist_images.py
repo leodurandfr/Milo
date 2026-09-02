@@ -40,7 +40,7 @@ import aiofiles
 import aiohttp
 
 from backend.config.constants import ARTIST_IMAGES_DIR
-from backend.shared.network import is_network_error
+from backend.shared.network import describe_network_error, is_network_error
 
 logger = logging.getLogger("source.music_library.artist_images")
 
@@ -284,7 +284,10 @@ class ArtistImageService:
                         payload = await resp.json(content_type=None)
             except Exception as exc:
                 if is_network_error(exc):
-                    logger.info("Deezer not reachable for artist %r: %s", name, exc)
+                    logger.info(
+                        "Deezer did not answer for artist %r: %s",
+                        name, describe_network_error(exc),
+                    )
                 else:
                     logger.warning("Deezer artist search failed for %r: %s", name, exc)
                 self._pause_searches()
@@ -319,7 +322,9 @@ class ArtistImageService:
                     return await resp.read()
         except Exception as exc:
             if is_network_error(exc):
-                logger.info("Deezer CDN not reachable: %s", exc)
+                logger.info(
+                    "Deezer CDN did not answer: %s", describe_network_error(exc)
+                )
             else:
                 logger.warning("Deezer picture download failed: %s", exc)
             return None
