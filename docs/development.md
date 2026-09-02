@@ -338,9 +338,10 @@ pcm.milo_mysource_direct {
 # Card 1 `Loopback` is FULL: slot 0 = DSP input, slots 1..7 = the seven original
 # sources. snd-aloop caps at 8 substreams/card (kernel limit), so DLNA opened a
 # *second* loopback card, `LoopbackDLNA` — but that card is NOT full: it has 8
-# subdevices (0..7) and only 3 are taken (0=DLNA, 1=Qobuz, 2=Music Library, see
-# install/snapcast.sh). Use the next free subdevice on LoopbackDLNA (3, then 4,
-# 5, 6, 7) — do NOT open a third loopback card until all 8 are used.
+# subdevices (0..7) and only 4 are taken (0=DLNA, 1=Qobuz, 2=Music Library,
+# 3=Tidal, see install/snapcast.sh). Use the next free subdevice on
+# LoopbackDLNA (4, then 5, 6, 7) — do NOT open a third loopback card until all
+# 8 are used.
 # Then add a matching `source = alsa:///?...&device=hw:2,1,<subdevice>` line in
 # /etc/snapserver.conf and its slug to the `meta:///...` aggregator.
 pcm.milo_mysource_multiroom {

@@ -107,7 +107,7 @@ The Dock is Milō's main navigation bar, located at the bottom of the screen. It
 
 The Dock shows the icons of the enabled items, organized into two groups:
 
-**Audio sources**: Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Qobuz, Music Library, Mac, CD.
+**Audio sources**: Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Qobuz, Tidal, Music Library, Mac, CD.
 
 **Features** (after the separator): Equalizer, Multiroom, Lyrics, Settings.
 
@@ -329,6 +329,24 @@ Milō shows the album artwork, track title, artist, and album. Playback is contr
 
 ---
 
+## Tidal Connect
+
+Milō appears as a Tidal Connect device on your network, so you can cast to it straight from the Tidal app. No sign-in is needed on Milō — your subscription stays in the app.
+
+### Connecting
+
+1. Open the **Tidal** app on your phone, tablet, or computer.
+2. Start a track.
+3. Tap the **cast / devices** icon.
+4. Select **Milō** from the list.
+
+### Display
+
+Milō shows the album artwork, track title, artist, and album, together with play/pause and previous/next buttons — unlike AirPlay or Qobuz, playback can be driven from Milō as well as from the app. The progress bar advances but cannot be dragged: Tidal Connect offers no seek, so you skip within a track from the Tidal app.
+
+
+---
+
 ## Music Library
 
 Music Library plays your own music collection — from a **USB drive** plugged into Milō or from a **network share** (SMB/NFS) on your NAS or computer. Milō indexes the files and lets you browse them with full artwork and metadata.
@@ -430,7 +448,7 @@ A playback bar at the bottom of the screen keeps the cover, the title and the tr
 
 ## Availability
 
-Lyrics are looked up from the track's title and artist, so they work with any source that provides them — Spotify, Qobuz, AirPlay, DLNA, CD, Music Library, and Radio when a track has been recognized. Bluetooth and Mac (which send no track information) and Podcasts (spoken word) are not supported.
+Lyrics are looked up from the track's title and artist, so they work with any source that provides them — Spotify, Qobuz, Tidal, AirPlay, DLNA, CD, Music Library, and Radio when a track has been recognized. Bluetooth and Mac (which send no track information) and Podcasts (spoken word) are not supported.
 
 Milō needs an internet connection for the first lookup of a track; results are then kept on the device, so reopening the same song is instant and works offline.
 
@@ -521,7 +539,7 @@ Manage your Milō's Wi-Fi connection.
 
 Customize the Dock's contents and order:
 
-* **Enable / Disable** each audio source (Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Qobuz, Music Library, Mac, CD) and each feature (Equalizer, Multiroom, Lyrics).
+* **Enable / Disable** each audio source (Spotify, Bluetooth, Radio, Podcasts, AirPlay, DLNA, Qobuz, Tidal, Music Library, Mac, CD) and each feature (Equalizer, Multiroom, Lyrics).
 * **Reorder** the icons to your preference.
 
 

@@ -229,6 +229,7 @@ undecided — but a healthy sleep should not re-open the device every 12 s forev
 | F-B1 | AirPlay: artwork, title and artist appear within ~2 s of a track change — the historical silent-failure point | ⚠ iPhone |
 | F-B2 | DLNA: pushing a track starts audio with artwork, title, artist, album, and **no** transport buttons | — |
 | F-B3 | Qobuz: playback with artwork and progress, no transport buttons; sign-in survives a reboot | ⚠ paid acct |
+| F-TD1 | Tidal: casting from the phone starts audio with artwork and progress, and Milō's own pause / next act on it | ⚠ paid acct |
 | F-PC1 | Podcast: pause / resume / speed change, and the speed persists across pause-resume | ⚠ PI creds |
 | F-PC2 | Podcast: leaving mid-episode and returning resumes near where it stopped, **after a reboot too** | ⚠ PI creds |
 
