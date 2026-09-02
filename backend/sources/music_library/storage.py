@@ -60,8 +60,8 @@ _HELPER_TIMEOUT_S = 30.0
 
 # Cadence and ceiling for waiting out a scan that was already running when a
 # mount landed (see _scan_when_idle). Past the ceiling the mount is left to
-# Navidrome's own periodic pass, which install/navidrome.sh sets to **6h** — so
-# giving up early is not the cheap "within the hour" this said for a fortnight.
+# Navidrome's own periodic pass, which provisioning/navidrome.sh sets to **6h**
+# — so giving up early is not the cheap "within the hour" this used to claim.
 #
 # The ceiling has to outlast a first index, because that is the scan a second
 # mount most often lands behind. Measured on the unit 2026-09-02: indexing a
