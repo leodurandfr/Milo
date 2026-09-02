@@ -18,6 +18,38 @@ TrackNumber, NumberOfTracks, Duration, Album, Artist, and nothing else). So
 this module never produces an `album_art_url`; the source resolves one from the
 track text instead, see source.py.
 
+**A macOS sender publishes no track at all, and the target is not what is
+missing.** Traced here on a Mac mini over a fresh A2DP connection, BlueZ 5.82,
+Spotify playing throughout:
+
+  115.13  we ask   GetCapabilities(EventsID)
+  115.13  it lists 0x01 0x02 0x08 0x09 0x0a 0x0b 0x0c
+  115.13  we ask   RegisterNotification(0x0c UIDS_CHANGED)  <- silence, 10 s
+   ...             five events, two attempts each, 100 s of timeouts
+  215.06  we ask   RegisterNotification(0x02 TRACK_CHANGED)
+  215.08  it says  Interim, Identifier 0xffffffffffffffff   <- "no track"
+  215.11  we ask   GetElementAttributes(all)                <- silence, 10 s
+  225.06  we ask   GetElementAttributes(all)                <- silence, 10 s
+  235.06  we ask   GetPlayStatus
+  235.13  it says  SongLength 0, SongPosition 0, PLAYING
+   ...             and not one AVRCP frame after that, across track changes
+
+So the Mac advertises five events it then never answers, which is what the
+first 100 s are spent on; it does accept TRACK_CHANGED, and answers that there
+is no track; and it drops GetElementAttributes on the floor — no reply, not
+even a rejection. Both ends behave, so there is nothing here to work around:
+`Track` stays absent, `useRichDisplay()`'s title-and-artist gate never opens,
+and the device-name card is the right screen.
+
+`Position` is the one value that survives that, and it is worthless — BlueZ
+extrapolates it from that single SongPosition 0 and nothing ever arrives to
+re-anchor it, so it reads hours into a four-minute song. It is inert only
+because a sender with no track has no duration either, and both the progress
+broadcast and the bar need one. A sender that publishes a track is a different
+case and is already covered: a Track change arms our own playhead (see
+`_apply_props`), so the bar counts from the song's start rather than from
+whatever anchor BlueZ is carrying.
+
 **The playhead has two sources and they are not equally trustworthy.** BlueZ
 does not read Position off the link on demand; it extrapolates from the sender's
 last anchor. Traced on a live iPhone:
