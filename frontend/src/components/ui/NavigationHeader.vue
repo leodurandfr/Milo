@@ -5,8 +5,8 @@
     'variant-background-neutral': variant === 'background-neutral',
   }">
     <!-- Content container with fixed height -->
-    <div class="header-content">
-      <Transition name="header-fade">
+    <div ref="headerContentRef" class="header-content">
+      <Transition name="header-fade" @before-leave="pinWidth" @before-enter="unpinWidth">
         <div v-if="showBack" :key="'back-' + title + '-' + subtitle" class="back-navigation-header">
           <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'on-dark' : 'background-strong'" @click="handleBack" />
           <h2 v-if="!subtitle" class="heading-1" :class="{ 'title-muted': titleMuted }">{{ title }}</h2>
@@ -46,6 +46,7 @@
 </template>
 
 <script setup>
+import { ref, onBeforeUpdate } from 'vue';
 import IconButton from './IconButton.vue';
 import AppIcon from './AppIcon.vue';
 
@@ -86,6 +87,41 @@ const emit = defineEmits(['back']);
 function handleBack() {
   emit('back');
 }
+
+// The actions gutter is reserved by the ENTERING view alone (the leaving set is
+// taken out of flow, see .actions-fade-leave-active), so .header-content reaches
+// its destination width on the navigation's first frame. That is what the
+// entering title wants; the leaving one would re-ellipsize against a width it
+// was never drawn at, which is an ellipsis appearing (or vanishing) on a title
+// already on its way out. Pin it at the width it was painted with instead.
+//
+// Measured here and not in @before-leave: by the time that hook runs Vue has
+// inserted the entering title, so .header-content already carries its
+// destination width and the leaving element would measure the box it is about
+// to be squeezed into. onBeforeUpdate is the last moment the old layout stands.
+// The children already leaving are skipped — they are pinned and carry a width
+// of their own.
+const headerContentRef = ref(null);
+const paintedWidths = new WeakMap();
+
+onBeforeUpdate(() => {
+  for (const child of headerContentRef.value?.children ?? []) {
+    if (!child.classList.contains('header-fade-leave-active')) {
+      paintedWidths.set(child, child.offsetWidth);
+    }
+  }
+});
+
+function pinWidth(el) {
+  const width = paintedWidths.get(el);
+  if (width) el.style.width = `${width}px`;
+}
+
+// Cleared on enter, for the element Vue reuses when a leave is interrupted by
+// the same key coming back.
+function unpinWidth(el) {
+  el.style.width = '';
+}
 </script>
 
 <style scoped>
@@ -121,10 +157,16 @@ function handleBack() {
 }
 
 /* Header content - grid stacking ensures both entering/leaving elements overlap cleanly */
+/* The column is minmax(0, 1fr), not the implicit auto: an auto track sizes to the
+   title's max-content, and the h2 is nowrap — so a long title (an artist name in
+   "Albums de X") stopped ellipsizing and pushed its width out through the header,
+   the content column and .audio-source-layout, past the window. min:0 caps the
+   track at the header's own width and the ellipsis takes over again. */
 .header-content {
   flex: 1;
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
 }
 
@@ -164,11 +206,14 @@ function handleBack() {
    Toggle in here (settings) has no fixed width at all, which is why the
    reservation has to be measured by layout rather than declared.
 
-   Being absolute was what kept the actions from shifting mid-cross-fade, and
-   the grid stacking below is what actually does that — outgoing and incoming
-   share one cell, so the container is as wide as the wider of the two
-   throughout. */
+   Being absolute was what kept the actions from shifting mid-cross-fade; what
+   does that now is that both sets are right-aligned against the same header
+   edge, so the leaving one holds its position whether it is in flow or not.
+   Which is why it is taken out of flow (see .actions-fade-leave-active) and the
+   container reserves the entering set's width alone — the wider of the two
+   would squeeze the destination title for the length of the fade. */
 .actions-container {
+  position: relative;
   display: grid;
   align-items: center;
   justify-items: end;
@@ -230,9 +275,17 @@ function handleBack() {
 
 /* Actions cross-fade transition - aligned with fade-slide body transition */
 /* iOS WebKit requires transform to properly animate opacity */
+/* Out of flow, so the container reserves the ENTERING set's width from the first
+   frame and the title lands at its final width instead of being squeezed by a
+   gutter that is on its way out — which showed as an ellipsis flashing on the
+   destination title. Both sets are right-aligned against the same header edge,
+   so dropping out of flow moves the leaving buttons by nothing. */
 .actions-fade-leave-active {
+  position: absolute;
+  top: 50%;
+  right: 0;
   transition: opacity var(--transition-fast-leave);
-  transform: translate3d(0, 0, 0);
+  transform: translateY(-50%) translateZ(0);
   -webkit-backface-visibility: hidden;
 }
 

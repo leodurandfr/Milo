@@ -222,6 +222,10 @@ const contentKey = computed(() => {
      overflow under #app{overflow:hidden}. First surfaced by Music Library's long
      track lists; the row now stays viewport-height and the layout scrolls. */
   grid-template-rows: minmax(0, 1fr);
+  /* Same clamp on the column, for the same reason in the other axis: an auto
+     track sizes to the source's max-content, so anything unbreakable inside one
+     (a nowrap header title) widened the whole app instead of overflowing itself. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .source-status-container {
