@@ -41,6 +41,17 @@ class TestPickArtwork:
         )
         assert url is not None
 
+    def test_featured_credit_in_the_title_counts_as_the_artist(self):
+        """A credit the query carries and the catalogue puts in its title must
+        not sink the match. Measured on a live Bluetooth sender: AVRCP
+        published "Ice Cube, Das EFX" and iTunes answered artistName "Ice Cube"
+        with the feature in trackName, which scored 0.50 on the artist alone
+        and threw away a cover that was exactly right."""
+        data = {"results": [_song("Ice Cube", "Check Yo Self (feat. Das EFX) [Remix]")]}
+        assert ArtworkResolver._pick_artwork(
+            data, "Ice Cube, Das EFX", "Check Yo Self - Remix", "trackName"
+        ) is not None
+
     def test_wrong_artist_is_rejected(self):
         # "Nature Boy / Buddy Greco" must NOT match "Oh Boy / Buddy Holly".
         data = {"results": [_song("Buddy Holly", "Oh Boy")]}

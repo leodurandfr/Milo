@@ -196,8 +196,20 @@ class ArtworkResolver:
             hits = sum(1 for t in q if t in c)
             return hits / len(q) >= _MATCH_RATIO
 
-        name_ok = covered(q_name, res.get(result_key, ""))
-        artist_ok = covered(q_artist, res.get("artistName", ""))
+        name = res.get(result_key, "")
+        name_ok = covered(q_name, name)
+        # The artist is matched against the title too, because a featured
+        # credit sits on whichever side of the pair the source chose. AVRCP
+        # hands the whole credit list as one artist string while iTunes keeps
+        # the feature in the title: "Ice Cube, Das EFX" against artistName
+        # "Ice Cube" scores 0.50 and rejected a cover whose trackName was
+        # "Check Yo Self (feat. Das EFX) [Remix]" -- an exact match. The ratio
+        # is over the *query*'s tokens, so a query richer than the catalogue
+        # is penalised unless the tokens are allowed to be found where the
+        # catalogue actually put them. It costs no strictness: the title must
+        # still match on its own, so "Buddy Greco" stays 0.50 against
+        # "Buddy Holly" singing "Oh Boy".
+        artist_ok = covered(q_artist, f"{res.get('artistName', '')} {name}")
         return name_ok and artist_ok
 
     @staticmethod
