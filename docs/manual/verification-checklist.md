@@ -292,6 +292,9 @@ makes this silent.
 | mDNS | `http://milo.local` resolves from another machine on the LAN | targeted |
 | First boot ⚠ | Blank SD: the open "Milō" AP appears, the captive portal opens, the wizard completes and reboots into a working unit | targeted |
 | Hostname conflict | Two units on the LAN do not silently share a name | targeted |
+| First-boot splash ⚠ | Blank SD, **no ethernet**: `milo-first-boot` spends its full carrier + DHCP + mDNS budget, so the bar creeps on its own for far longer than on a warm unit. It must keep advancing, ever more slowly, and never park — that creep is the only thing on screen for up to two minutes. The journal is not enough here; this one needs eyes | targeted |
+| Role auto-detection ⚠ | Blank SD, ethernet, with a Milō server already answering on `milo.local`: the unit detects it, converts itself and reboots as a satellite. `avahi-daemon` must be **active**, not 203/EXEC — the conversion installs `milo-client-apply-avahi-iface`, and its absence is silent everywhere but there | targeted |
+| Converted satellite's grants | After that conversion, on the unit: `/etc/sudoers.d/milo-client` matches the repo and carries its `PASSWD: ALL` rule *above* the grants. Without it the argument-scoped policy is decorative and the satellite quietly holds the image's blanket NOPASSWD | targeted |
 
 ## Settings, updates, system
 
