@@ -1,7 +1,7 @@
 """Structural guardrail: one declaration per dependency version, and it is `dependencies.env`.
 
 Milō pins a version for nine upstream dependencies, and until this file existed
-each of them was declared in two or three places at once: an `install/` module,
+each of them was declared in two or three places at once: a `provisioning/` module,
 a `pi-gen/stage-milo/` stage script, and — for the six the Update Manager can
 install — a `max_version` ceiling in the backend catalog. Nothing bound them.
 
@@ -18,7 +18,7 @@ otherwise invisible to CI, which never runs bash and never builds an image.
 
 Two trees, two ways of reading the same file:
 
-  * the `install/` modules source it through `install/common.sh`, which the
+  * the `provisioning/` modules source it through `provisioning/common.sh`, which the
     pi-gen stage scripts source in turn;
   * `pi-gen/stage-milo/` sources it as a *sibling*, because a stage is built
     from a copy of `stage-milo/` inside a cloned pi-gen checkout, often in
@@ -102,7 +102,7 @@ def _provisioning_scripts() -> list[Path]:
     """Every shell file that provisions a unit, across both trees."""
     return sorted(
         [
-            *(REPO_ROOT / "install").glob("*.sh"),
+            *(REPO_ROOT / "provisioning").glob("*.sh"),
             *PI_GEN_STAGE.rglob("*run.sh"),
         ]
     )

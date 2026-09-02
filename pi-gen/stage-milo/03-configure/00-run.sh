@@ -21,8 +21,8 @@ systemctl mask plymouth-quit.service plymouth-quit-wait.service
 CHROOT
 
 # ── Boot parameters (cmdline.txt) ────────────────────────────────────────────
-# Single source of truth: the parameter list lives in install/boot-common.sh and
-# the writer in install/display.sh, exactly as for config.txt below. Restating
+# Single source of truth: the parameter list lives in provisioning/boot-common.sh and
+# the writer in provisioning/display.sh, exactly as for config.txt below. Restating
 # them here is what let the two provisioning paths drift — the inline list said
 # `cfg80211.ieee80211_regdom=FR` while the module's said `=00`, so a flashed
 # unit started under French radio rules wherever it was sold, until someone
@@ -31,24 +31,24 @@ CHROOT
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/boot-common.sh
-source install/display.sh
+source provisioning/common.sh
+source provisioning/boot-common.sh
+source provisioning/display.sh
 configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
 CHROOT
 
 # ── Boot config.txt (silent boot, fan, power-button LED) ─────────────────────
-# Single source of truth: reuse the install/ functions rather than duplicating
+# Single source of truth: reuse the provisioning/ functions rather than duplicating
 # their sed/cat here.
 # The EEPROM "wait for power button" half cannot be baked into an image — it is
 # applied on the device by milo-eeprom-setup.service (enabled in 01-run.sh).
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/boot-common.sh
-source install/system.sh
-source install/power-button.sh
+source provisioning/common.sh
+source provisioning/boot-common.sh
+source provisioning/system.sh
+source provisioning/power-button.sh
 configure_silent_boot
 configure_fan_control
 configure_power_led
@@ -57,12 +57,12 @@ CHROOT
 # ── IR remote (Apple Remote via TSOP4838 on GPIO17) ──────────────────────────
 # The ir-keytable package is installed in 00-install-deps (apt lists are wiped
 # before this stage, so no apt here).
-# Reuse install/ir-remote.sh as the single source of truth: gpio-ir overlay in
+# Reuse provisioning/ir-remote.sh as the single source of truth: gpio-ir overlay in
 # config.txt, keymap helper scripts + sudoers, and the boot keytable service.
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/ir-remote.sh
+source provisioning/common.sh
+source provisioning/ir-remote.sh
 mkdir -p /etc/rc_keymaps
 configure_ir_overlay
 install_ir_helpers
@@ -71,12 +71,12 @@ CHROOT
 
 # ── BlueZ LE connection parameters ───────────────────────────────────────────
 # Tune /etc/bluetooth/main.conf [LE] for low-power BLE HID remotes.
-# Reuse install/bluez-le.sh (file-only sed; its trailing
+# Reuse provisioning/bluez-le.sh (file-only sed; its trailing
 # `systemctl restart bluetooth` is guarded with `|| true`, safe in the chroot).
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/bluez-le.sh
+source provisioning/common.sh
+source provisioning/bluez-le.sh
 configure_bluez_le
 CHROOT
 
@@ -122,7 +122,7 @@ CHROOT
 # ── Sudoers ───────────────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
-# Consolidated sudoers for the milo backend service. Same file install/system.sh
+# Consolidated sudoers for the milo backend service. Same file provisioning/system.sh
 # deploys, so a flashed image and a script-installed unit grant the same set.
 cp /home/milo/milo/rootfs/etc/sudoers.d/milo-backend /etc/sudoers.d/milo-backend
 visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }

@@ -2,7 +2,7 @@
 # Milo - Shared install helpers
 #
 # Sourced first by every pi-gen stage block and by the two systemd units that
-# reuse an install/ function at run time, so the modules they source find the
+# reuse a provisioning/ function at run time, so the modules they source find the
 # log helpers and the pinned dependency versions already defined. That ordering
 # is a hard requirement, enforced by test_provisioning_parity.py.
 #

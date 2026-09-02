@@ -1,7 +1,7 @@
 """Structural guardrail: what the image build may abort on, and what it may swallow.
 
 Milō is provisioned one way: a flash of the pi-gen image built by
-`pi-gen/stage-milo/`, which sources the shared modules under `install/` for the
+`pi-gen/stage-milo/`, which sources the shared modules under `provisioning/` for the
 work it does not restate. Every one of those files runs under `set -e` inside a
 chroot, so an unguarded command that fails ends the build — and a command whose
 failure is *silenced* ends nothing and ships an image missing a package.
@@ -14,7 +14,7 @@ Two rules, both from defects measured on 2026-09-02:
     exactly one unpinned fetch — the Waveshare 8" DSI brightness driver, from a
     third-party vendor site, for a panel most units do not have. Unguarded, a
     vendor outage costs the whole run instead of one optional feature.
-  * **An `apt install` must not be silenced.** `install/common.sh` carried an
+  * **An `apt install` must not be silenced.** `provisioning/common.sh` carried an
     `apt install … || true` for months: it named `libflac12t64` with a
     `libflac12` fallback, neither of which trixie has, so the call failed and
     took `libavahi-client3`/`libavahi-common3` down with it — and said nothing.
@@ -52,7 +52,7 @@ VERSION_RE = re.compile(r"\$\{?([A-Za-z0-9_]+)\}?")
 # modules they source. Both are read, because a stage block and the module it
 # sources are the same run and abort the same way.
 FETCH_TREES = {
-    "install": sorted((REPO_ROOT / "install").glob("*.sh")),
+    "provisioning": sorted((REPO_ROOT / "provisioning").glob("*.sh")),
     "pi-gen": sorted((REPO_ROOT / "pi-gen" / "stage-milo").rglob("*run.sh")),
 }
 

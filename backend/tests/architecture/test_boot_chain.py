@@ -3,7 +3,7 @@
 Three units decide whether a Milō ever shows a UI, and CI can watch none of them
 run: `plymouth-start` paints, `milo-readiness` drives the bar and quits Plymouth,
 `milo-kiosk` takes the screen. Plymouth's own quit units are **masked** on
-purpose (`install/display.sh`, `pi-gen/…/03-configure/00-run.sh`), so
+purpose (`provisioning/display.sh`, `pi-gen/…/03-configure/00-run.sh`), so
 `milo-wait-ready.sh` is the only thing that ever releases DRM master. If it does
 not, the appliance sits on a frozen splash — and the splash is unobservable, so
 nobody can even photograph the failure.

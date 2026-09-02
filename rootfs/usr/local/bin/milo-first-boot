@@ -576,7 +576,7 @@ configure_server() {
     log "Server services enabled"
 
     # 4a. Restore the sudoers policies _apply_client_filesystem removed. Validated
-    # before the mode change, as install/system.sh and pi-gen do: a policy that
+    # before the mode change, as provisioning/system.sh and pi-gen do: a policy that
     # cannot parse is skipped by sudo, which would silently leave the backend
     # unable to reach systemd on a device that just reverted.
     local policy src

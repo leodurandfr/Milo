@@ -46,7 +46,7 @@ fi
 # Navidrome distinguishes "directory absent" (it skips that library and leaves
 # its tracks alone) from "directory present but empty" (it walks it, finds
 # nothing, and marks every track under it missing on the next scan).
-# install/navidrome.sh leans on exactly that asymmetry to make the scheduled
+# provisioning/navidrome.sh leans on exactly that asymmetry to make the scheduled
 # scan safe over a storage space that is away, so a leftover empty directory is
 # NOT harmless: it is what turns an unplug into a library-wide marking, and a
 # marked track is gone from the UI until something walks the files again.

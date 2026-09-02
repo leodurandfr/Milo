@@ -241,7 +241,7 @@ class TestOnlyOurOwnLibrariesAreManaged:
         ``path.startswith(f"{root}/")``, is already False for the mount root and
         for every ancestor of it — a strict ancestor is shorter than
         ``root + "/"`` and so can never start with it. So the branch exists to
-        tell an operator where to look (install/navidrome.sh MusicFolder), and a
+        tell an operator where to look (provisioning/navidrome.sh MusicFolder), and a
         test asserting only `is False` would pass with the whole branch gone."""
         with caplog.at_level("WARNING", logger="source.music_library.libraries"):
             assert service._is_managed(path) is False

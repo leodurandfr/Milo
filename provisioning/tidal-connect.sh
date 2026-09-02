@@ -35,7 +35,7 @@ install_tidal_connect() {
     mkdir -p "$(dirname "$TIDAL_ROOT")"
 
     # BASH_SOURCE resolves the script dir even when sourced from a pi-gen stage,
-    # same as install/qobuz-proxy.sh does for its patch helper.
+    # same as provisioning/qobuz-proxy.sh does for its patch helper.
     python3 "$(dirname "${BASH_SOURCE[0]}")/tidal_connect_runtime.py" \
         --root "$TIDAL_ROOT"
 

@@ -2,7 +2,7 @@
 """Artist photos for the Music Library, resolved by Milō rather than Navidrome.
 
 Navidrome's own online tier is deliberately switched off for artist art
-(``ArtistArtPriority`` in install/navidrome.sh no longer lists ``external``),
+(``ArtistArtPriority`` in provisioning/navidrome.sh no longer lists ``external``),
 because the picture it chose was routinely the wrong person. Its agent searches
 Deezer by name and keeps the FIRST result whose name matches — and Deezer's
 search is not ordered by popularity, so the first "Amy Winehouse" is a duplicate

@@ -546,7 +546,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   `backend/core/updates/catalog.py`: there is no version to read and no release
   to compare against
 - It is distributed only as a container image, and Milō runs no containers:
-  `install/tidal_connect_runtime.py` pulls the pinned image's layers straight
+  `provisioning/tidal_connect_runtime.py` pulls the pinned image's layers straight
   from the registry and unpacks them into `/opt/milo/tidal-connect`, then runs
   the binary through **that tree's own dynamic loader**. Uninstalling is
   `rm -rf` on one directory. Three corrections are applied on top of the image,
@@ -729,7 +729,7 @@ defaults.pcm.rate_converter "speexrate_medium"
 
 This replaces ALSA's default low-quality linear-interpolation converter with a **sinc/polyphase resampler** (`speexrate_medium`, from `libasound2-plugins`) for every `type plug` — a good CPU/quality balance on the Pi. The resampling runs **in the address space of the client that opens the PCM** (e.g. inside `go-librespot` for Spotify), not in CamillaDSP; the measured cost is ~+0.6 pt of one core for a 44.1 kHz source. The gain is measurable but inaudible — this is polishing, not a transformation; source quality (lossless vs lossy) remains the real lever.
 
-**Tidal is the one source that cannot inherit this by itself.** `libasound` resolves a rate converter by `dlopen`ing a path baked in at build time — `/usr/lib/arm-linux-gnueabihf/alsa-lib`, which an arm64 host does not have — and the 1.1.3 in the Tidal runtime tree offers no environment override. With no converter, `plug` cannot resample and **PortAudio never opens the stream at all**: the app shows a track playing and the speakers stay silent. So `install/tidal_connect_runtime.py` installs the armhf `speexrate` modules into the runtime tree and `milo-tidal.service` bind-mounts them onto that path *for itself only*. Every other source is a 64-bit process and finds the module on the host without help.
+**Tidal is the one source that cannot inherit this by itself.** `libasound` resolves a rate converter by `dlopen`ing a path baked in at build time — `/usr/lib/arm-linux-gnueabihf/alsa-lib`, which an arm64 host does not have — and the 1.1.3 in the Tidal runtime tree offers no environment override. With no converter, `plug` cannot resample and **PortAudio never opens the stream at all**: the app shows a track playing and the speakers stay silent. So `provisioning/tidal_connect_runtime.py` installs the armhf `speexrate` modules into the runtime tree and `milo-tidal.service` bind-mounts them onto that path *for itself only*. Every other source is a 64-bit process and finds the module on the host without help.
 
 **Multiroom:** the 44.1→48 conversion still happens at the source's `type plug` (`milo_<src>_multiroom`), *before* the loopback, so it is covered by the same `rate_converter`. Snapserver opens every loopback capture at `48000:32:2` and therefore only ever sees already-48 kHz audio — it is pass-through and does **not** resample (its bundled soxr is present but not exercised on this path).
 
@@ -811,7 +811,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **cd_covers/** - Downloaded CD cover art, keyed by disc ID. Disposable cache (re-downloadable from Cover Art Archive).
 **equalizer.json** - Persisted parametric-EQ/compressor/loudness/mono state (active preset, custom gains, filters). Durable (`schema_version: 2`). Distinct from `camilladsp/config.yml`: CamillaDSP itself resets to its baked static defaults on every restart, and it's this file the backend replays over its WebSocket API to restore the live EQ state afterwards.
 **camilladsp/** - CamillaDSP daemon working directory (`WorkingDirectory=` in `milo-camilladsp.service`): `config.yml` is the static default config baked at image-build time, copied from `rootfs/var/lib/milo/camilladsp/config.yml` by `pi-gen/stage-milo/02-install-milo/01-run.sh` — no backend code rewrites it at runtime, the backend only talks to the running daemon over its WebSocket API. `configs/` and `coeffs/` are empty subdirectories created for future coefficient-file support; nothing reads or writes into them today.
-**go-librespot/** - `config.yml` is written at image-build time (`install/go-librespot.sh::configure_go_librespot`, sourced by the pi-gen stage), which owns every key in it *except one*: `crossfade_duration` belongs to the backend, which re-applies it from `SettingsService` on every `SpotifySource._do_start()` — go-librespot parses its config once, at process start, so that is the only moment a settings change can reach it (hence the settings page's "restart to apply"). The patch is key-scoped and atomic; it drops the writer's comments from the deployed copy, whose rationale stays in `install/go-librespot.sh`. Disposable — a deleted file is rebuilt by a reflash plus the next Spotify start. go-librespot itself runs with `--config_dir` pointed at this directory and may write its own session/zeroconf state here — that part is owned by the external binary, not by Milō code.
+**go-librespot/** - `config.yml` is written at image-build time (`provisioning/go-librespot.sh::configure_go_librespot`, sourced by the pi-gen stage), which owns every key in it *except one*: `crossfade_duration` belongs to the backend, which re-applies it from `SettingsService` on every `SpotifySource._do_start()` — go-librespot parses its config once, at process start, so that is the only moment a settings change can reach it (hence the settings page's "restart to apply"). The patch is key-scoped and atomic; it drops the writer's comments from the deployed copy, whose rationale stays in `provisioning/go-librespot.sh`. Disposable — a deleted file is rebuilt by a reflash plus the next Spotify start. go-librespot itself runs with `--config_dir` pointed at this directory and may write its own session/zeroconf state here — that part is owned by the external binary, not by Milō code.
 **routing.env** - Derived artifact of `settings.routing.multiroom_enabled`. Holds `MILO_MODE=direct|multiroom`. Read by every source systemd unit via `EnvironmentFile=` and by `/etc/asound.conf` via `@func getenv vars [ MILO_MODE ]` for `milo_*` alias resolution. Regenerated exclusively by `AudioRoutingService` whenever the setting changes.
 **mac.env** - `ROC_TARGET_LATENCY`/`ROC_LATENCY_PROFILE`/`ROC_FRAME_LENGTH`, read only by `milo-mac.service`. Regenerable — derived purely from `settings.json`'s `mac` config by `MacEnv.regenerate()`.
 **snapclient.env** - `MILO_SNAPCLIENT_BUFFER_TIME`/`MILO_SNAPCLIENT_FRAGMENTS`, read only by `milo-snapclient-multiroom.service`. Regenerable, same model as `mac.env`, via `SnapclientEnv.regenerate()`.
@@ -829,7 +829,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 **shairport-sync-version** - Last successfully-installed shairport-sync version, written by the updater after a verified update. Best-effort cache: `version.py` falls back to invoking `shairport-sync --version` if the file is missing. Works around 4.3.7's version string not being reliably parseable post-update.
 **errors.log** - Rotating application error log (`RotatingFileHandler`), not user data.
 
-`music_library-test-tone.flac` may be seen alongside these on a live unit but has no corresponding code path anywhere in `backend/`, `install/`, or `rootfs/` — it isn't created by any Milō script and is excluded from this inventory as operator-placed residue, not appliance data.
+`music_library-test-tone.flac` may be seen alongside these on a live unit but has no corresponding code path anywhere in `backend/`, `provisioning/`, or `rootfs/` — it isn't created by any Milō script and is excluded from this inventory as operator-placed residue, not appliance data.
 
 **Integrity protection:**
 - ✅ Atomic write (`os.replace()`)
@@ -957,7 +957,7 @@ milo-cd                   # CD player
 milo-dlna                 # DLNA/UPnP renderer (gmediarender + GStreamer)
 milo-qobuz                # Qobuz Connect (qobuz-proxy sidecar, backend-managed)
 milo-tidal                # Tidal Connect (proprietary armhf daemon, backend-managed)
-milo-navidrome-config     # Boot oneshot: re-emit the Navidrome TOML from install/navidrome.sh (before milo-navidrome)
+milo-navidrome-config     # Boot oneshot: re-emit the Navidrome TOML from provisioning/navidrome.sh (before milo-navidrome)
 milo-navidrome            # Music Library catalog engine (Navidrome, always-on, PartOf=milo-backend)
 milo-music-library        # Music Library player (mpv, gapless; streams from Navidrome)
 milo-camilladsp           # CamillaDSP audio processing (always in path for volume)

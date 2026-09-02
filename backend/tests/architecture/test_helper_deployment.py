@@ -63,23 +63,23 @@ HELPER_DIRS = ("usr/local/bin", "usr/local/lib/milo", "etc/sudoers.d")
 
 
 def _pi_gen_text() -> str:
-    """The stage scripts, plus the `install/` modules they source.
+    """The stage scripts, plus the `provisioning/` modules they source.
 
     The stage deploys most files with its own glob loops, but not all: it
-    sources `install/ir-remote.sh` and calls `install_ir_helpers`, which is what
+    sources `provisioning/ir-remote.sh` and calls `install_ir_helpers`, which is what
     puts `milo-ir-remote` in `/etc/sudoers.d`. Reading the stage alone reported
     that as undeployed — a miss the stage would have to restate to satisfy,
     which is the drift this directory exists to prevent. Only the modules the
-    stage actually sources are included: pulling in all of `install/` would make
+    stage actually sources are included: pulling in all of `provisioning/` would make
     every file look deployed by pi-gen.
     """
     stages = sorted((REPO_ROOT / "pi-gen").rglob("*run.sh"))
     text = "\n".join(p.read_text() for p in stages)
     sourced = {
         REPO_ROOT / rel
-        for rel in re.findall(r"^\s*(?:source|\.)\s+(install/\S+)\s*$", text, re.MULTILINE)
+        for rel in re.findall(r"^\s*(?:source|\.)\s+(provisioning/\S+)\s*$", text, re.MULTILINE)
     }
-    assert sourced, "no install/ module sourced from pi-gen; the extractor is broken"
+    assert sourced, "no provisioning/ module sourced from pi-gen; the extractor is broken"
     return "\n".join([text] + [m.read_text() for m in sorted(sourced) if m.is_file()])
 
 

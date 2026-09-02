@@ -48,12 +48,12 @@ echo "snd-aloop" > /etc/modules-load.d/snd-aloop.conf
 echo "options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8" > /etc/modprobe.d/snd-aloop.conf
 
 # ALSA routing + env files (asound.conf, routing.env, snapclient.env, mac.env).
-# Reuse install/alsa.sh::configure_alsa_complete rather than restating it here —
+# Reuse provisioning/alsa.sh::configure_alsa_complete rather than restating it here —
 # single source of truth. Inline-writing only routing.env (the old behaviour)
 # left snapclient.env and mac.env missing on the image.
 cd /home/milo/milo
-source install/common.sh
-source install/alsa.sh
+source provisioning/common.sh
+source provisioning/alsa.sh
 configure_alsa_complete
 CHROOT
 
@@ -66,7 +66,7 @@ chown -R milo:milo /var/lib/milo/camilladsp
 CHROOT
 
 # ── go-librespot configuration ───────────────────────────────────────────────
-# Reuse install/go-librespot.sh::configure_go_librespot rather than restating the
+# Reuse provisioning/go-librespot.sh::configure_go_librespot rather than restating the
 # config.yml here — single source of truth. Inline-writing it is what shipped the
 # image without `zeroconf_backend: avahi`, letting
 # go-librespot's embedded mDNS responder broadcast milo._spotify-connect on wlan0
@@ -74,13 +74,13 @@ CHROOT
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/go-librespot.sh
+source provisioning/common.sh
+source provisioning/go-librespot.sh
 configure_go_librespot
 CHROOT
 
 # ── qobuz-proxy (Qobuz Connect) ──────────────────────────────────────────────
-# Reuse install/qobuz-proxy.sh::install_qobuz_proxy rather than restating the
+# Reuse provisioning/qobuz-proxy.sh::install_qobuz_proxy rather than restating the
 # venv + config.yaml build here — single source of truth.
 # Installs libportaudio2 + the pinned git tag into /var/lib/milo/qobuz/venv and
 # writes the flat single-speaker config. The one-time Qobuz login is done by the
@@ -89,13 +89,13 @@ CHROOT
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/qobuz-proxy.sh
+source provisioning/common.sh
+source provisioning/qobuz-proxy.sh
 install_qobuz_proxy
 CHROOT
 
 # ── Tidal Connect ────────────────────────────────────────────────────────────
-# Reuse install/tidal-connect.sh::install_tidal_connect rather than restating how
+# Reuse provisioning/tidal-connect.sh::install_tidal_connect rather than restating how
 # the runtime tree under /opt/milo/tidal-connect is materialised — single source
 # of truth. Nothing user-specific is baked: the daemon carries
 # the SDK's own device certificate and holds no account state, so the Tidal
@@ -103,33 +103,33 @@ CHROOT
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/tidal-connect.sh
+source provisioning/common.sh
+source provisioning/tidal-connect.sh
 install_tidal_connect
 CHROOT
 
 # ── Navidrome (Music Library catalog engine) ─────────────────────────────────
 # The binary is downloaded in the audio stage (01-install-audio); here we only
-# write its config + prepare dirs, reusing install/navidrome.sh::configure_navidrome
+# write its config + prepare dirs, reusing provisioning/navidrome.sh::configure_navidrome
 # rather than restating navidrome.toml here — single source of truth (same pattern
 # as go-librespot). The per-device service-account password
 # is NOT baked: milo-navidrome-provision generates it on first boot.
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/navidrome.sh
+source provisioning/common.sh
+source provisioning/navidrome.sh
 configure_navidrome
 CHROOT
 
 # ── Snapserver configuration ─────────────────────────────────────────────────
-# Reuse install/snapcast.sh::configure_snapserver to keep a single source of truth
+# Reuse provisioning/snapcast.sh::configure_snapserver to keep a single source of truth
 # for /etc/snapserver.conf rather than restating it here.
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/snapcast.sh
+source provisioning/common.sh
+source provisioning/snapcast.sh
 configure_snapserver
 CHROOT
 
@@ -146,7 +146,7 @@ cp /home/milo/milo/rootfs/etc/dbus-1/system.d/shairport-sync-dbus.conf \
 CHROOT
 
 # ── Nginx configuration ──────────────────────────────────────────────────────
-# Reuse install/network.sh::write_nginx_site rather than restating
+# Reuse provisioning/network.sh::write_nginx_site rather than restating
 # /etc/nginx/sites-available/milo here — single source of truth. Inline-writing it
 # is what let two spellings of the site config drift: this was the one module
 # pi-gen copy-pasted rather than sourced. The writer does no service interaction,
@@ -154,8 +154,8 @@ CHROOT
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
-source install/common.sh
-source install/network.sh
+source provisioning/common.sh
+source provisioning/network.sh
 write_nginx_site
 CHROOT
 
@@ -208,7 +208,7 @@ cp /home/milo/milo/rootfs/etc/NetworkManager/conf.d/90-milo-wifi-powersave.conf 
 
 # NetworkManager connectivity check — drop-in read by the backend connectivity
 # D-Bus subscriber (backend/core/connectivity/service.py). Written inline rather
-# than through install/network.sh: applying it needs a NetworkManager reload,
+# than through provisioning/network.sh: applying it needs a NetworkManager reload,
 # which is not valid inside the build chroot, so first boot applies it.
 mkdir -p /etc/NetworkManager/conf.d
 tee /etc/NetworkManager/conf.d/99-milo-connectivity.conf > /dev/null << 'EOF'

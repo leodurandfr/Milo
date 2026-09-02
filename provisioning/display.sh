@@ -1,7 +1,7 @@
 #!/bin/bash
 # Milo - Kernel command line
 #
-# Writes /boot/firmware/cmdline.txt from the parameter list install/boot-common.sh
+# Writes /boot/firmware/cmdline.txt from the parameter list provisioning/boot-common.sh
 # declares — the single source of truth for it. Everything else the display stack
 # needs (seatd, cage, the cursor theme, the Plymouth splash, lightdm, the
 # brightness tools) is done by pi-gen/stage-milo/03-configure directly.

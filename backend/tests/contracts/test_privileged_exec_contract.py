@@ -48,7 +48,7 @@ BARE_COMMAND_PATHS = {
 
 # Each code tree runs as one user, and only that user's policies apply to it.
 # `milo-ir-remote` is a second file for the same user, deployed by
-# install/ir-remote.sh::install_ir_helpers where pi-gen copies `milo-backend`
+# provisioning/ir-remote.sh::install_ir_helpers where pi-gen copies `milo-backend`
 # itself.
 TREES = {
     "backend": {

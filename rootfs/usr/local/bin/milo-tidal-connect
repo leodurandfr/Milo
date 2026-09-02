@@ -3,7 +3,7 @@
 #
 # The daemon is a 32-bit armhf binary from Tidal's Connect Device SDK, built
 # against Debian-stretch-era libraries. It is NOT run through Docker (nothing
-# in Milō is): install/tidal-connect.sh materialises a private runtime tree
+# in Milō is): provisioning/tidal-connect.sh materialises a private runtime tree
 # under $TIDAL_ROOT, and this script invokes the binary through that tree's own
 # dynamic loader. No system-wide armhf packages, no chroot, no container —
 # uninstalling is `rm -rf` on one directory.
@@ -22,7 +22,7 @@ LOADER="$TIDAL_ROOT/lib/ld-linux-armhf.so.3"
 LIB_PATH="$TIDAL_ROOT/lib/arm-linux-gnueabihf:$TIDAL_ROOT/usr/lib/arm-linux-gnueabihf:$TIDAL_ROOT/lib:$TIDAL_ROOT/usr/lib"
 
 if [[ ! -x "$LOADER" ]]; then
-    echo "Tidal Connect runtime missing at $TIDAL_ROOT — run install/tidal-connect.sh" >&2
+    echo "Tidal Connect runtime missing at $TIDAL_ROOT — run provisioning/tidal-connect.sh" >&2
     exit 1
 fi
 
@@ -35,7 +35,7 @@ PLAYBACK_DEVICE="${PLAYBACK_DEVICE:-milo_tidal}"
 # — the macron survives the mDNS TXT record (fn=Milō) and the app renders it,
 # verified on the unit. That is NOT true of every Connect implementation: the
 # Qobuz iOS app aborts its handshake on the same string, which is why
-# install/qobuz-proxy.sh pins an ASCII name.
+# provisioning/qobuz-proxy.sh pins an ASCII name.
 FRIENDLY_NAME="${FRIENDLY_NAME:-Milō}"
 MODEL_NAME="${MODEL_NAME:-Milo}"
 

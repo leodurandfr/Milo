@@ -15,7 +15,7 @@ appliance after a plain reboot: the local-address snapshot was taken ~9 s
 before the DHCP lease that `avahi-resolve` then answered with, so the unit did
 not recognise its own address and reported itself as the intruder. That window
 is not exotic — `NetworkManager-wait-online` is masked on purpose
-(`install/system.sh`), so the backend starts before any interface has an
+(`provisioning/system.sh`), so the backend starts before any interface has an
 address. Measured on this unit 2026-08-31.
 
 Avahi cannot answer one question about itself: whether *another*, already

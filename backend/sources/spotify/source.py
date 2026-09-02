@@ -47,7 +47,7 @@ class SpotifySource(BaseAudioSource):
 
     # The one go-librespot config key Milō owns. Every other key in config.yml
     # (device_name, zeroconf_backend, server, external_volume) is written once
-    # by install/go-librespot.sh and never touched here.
+    # by provisioning/go-librespot.sh and never touched here.
     #
     # Deliberately NOT owned: flac_enabled. go-librespot 0.8.0 fixed the FLAC
     # decoder (it normalised samples by 2^bps instead of 2^(bps-1), so lossless
@@ -382,7 +382,7 @@ class SpotifySource(BaseAudioSource):
         file rewritten for nothing.
 
         Rewriting drops the baked comments from the deployed copy — their
-        rationale lives in install/go-librespot.sh, which is where it is read.
+        rationale lives in provisioning/go-librespot.sh, which is where it is read.
 
         Fails open: a config that cannot be patched still starts the daemon on
         whatever is on disk, rather than blocking Spotify entirely.

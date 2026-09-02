@@ -236,7 +236,7 @@ class NavidromeLibraryService:
 
         Navidrome refuses to delete the library it created from ``MusicFolder``
         ("library with ID 1 cannot be deleted"), so that one is left alone
-        rather than retried forever. install/navidrome.sh points MusicFolder at
+        rather than retried forever. provisioning/navidrome.sh points MusicFolder at
         an empty directory precisely so it indexes nothing; a library sitting on
         the mount root itself would double-index every mount, which is worth a
         line in the log.
@@ -246,7 +246,7 @@ class NavidromeLibraryService:
             self.logger.warning(
                 "Navidrome library at %s covers the whole mount root and will "
                 "double-index every storage space; repoint it at an empty "
-                "directory (see install/navidrome.sh MusicFolder)", path,
+                "directory (see provisioning/navidrome.sh MusicFolder)", path,
             )
             return False
         return path.startswith(f"{root}/")

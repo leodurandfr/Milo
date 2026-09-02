@@ -256,7 +256,7 @@ class StorageManager:
         # longer exists. The layer above is still told, so the UI drops the key at
         # once. What actually protects the index is that the mountpoint is *gone*
         # rather than left behind empty — see milo-umount, and the asymmetry
-        # install/navidrome.sh depends on.
+        # provisioning/navidrome.sh depends on.
         await self._on_storage_changed()
 
     async def _run_helper(

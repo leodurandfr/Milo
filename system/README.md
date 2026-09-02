@@ -150,7 +150,7 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 - **Notes**: `ExecStartPre` runs `milo-navidrome-provision` to generate the per-device service-account credential on first boot. Reached lazily by the backend only when the music_library source activates, so no strict boot ordering before `milo-backend.service`.
 
 #### milo-navidrome-config.service
-- **Role**: Oneshot that reconciles the Navidrome catalog TOML (album-grouping persistent ID) from the single source of truth (`install/navidrome.sh`) before Navidrome starts
+- **Role**: Oneshot that reconciles the Navidrome catalog TOML (album-grouping persistent ID) from the single source of truth (`provisioning/navidrome.sh`) before Navidrome starts
 - **Type**: oneshot (`RemainAfterExit=yes`)
 - **Dependencies**: local-fs.target; `Before=milo-navidrome.service`
 - **Startup**: Not enabled directly — pulled in on every start (boot or on-demand) via `Wants=milo-navidrome-config.service` from milo-navidrome.service
@@ -169,14 +169,14 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 - **Role**: Enables NEC IR decoding on the kernel's rc-core, before the backend's IR controller starts
 - **Type**: oneshot (`RemainAfterExit=yes`)
 - **Dependencies**: `ConditionPathExists=/sys/class/rc`; After systemd-modules-load.service; Before milo-backend.service
-- **Startup**: Enabled at boot (`install/ir-remote.sh`)
+- **Startup**: Enabled at boot (`provisioning/ir-remote.sh`)
 
 #### milo-eeprom-setup.service
 - **Role**: Applies power-on behaviour (wait for power button) to the Raspberry Pi bootloader EEPROM
 - **Type**: oneshot (`RemainAfterExit=yes`)
-- **Dependencies**: `ConditionPathExists=/home/milo/milo/install/power-button.sh`; After local-fs.target
+- **Dependencies**: `ConditionPathExists=/home/milo/milo/provisioning/power-button.sh`; After local-fs.target
 - **Startup**: Enabled by the pi-gen image build (`pi-gen/stage-milo/03-configure/01-run.sh`)
-- **Notes**: The EEPROM lives on the board's SPI flash, not the SD card, so it can't be baked into the pi-gen image — this reuses `configure_power_on_behavior()` from `install/power-button.sh` and re-flashes only when needed, so running every boot is harmless.
+- **Notes**: The EEPROM lives on the board's SPI flash, not the SD card, so it can't be baked into the pi-gen image — this reuses `configure_power_on_behavior()` from `provisioning/power-button.sh` and re-flashes only when needed, so running every boot is harmless.
 
 ### Utility Services (Always Enabled)
 
@@ -190,7 +190,7 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 ## Service Dependencies Graph
 
 ```
-(boot-time oneshots, pi-gen image build or install/*.sh — see Boot-Time Oneshot Services)
+(boot-time oneshots, pi-gen image build or provisioning/*.sh — see Boot-Time Oneshot Services)
   milo-first-boot.service → milo-eeprom-setup.service → milo-ir-keytable.service
 
 graphical.target
