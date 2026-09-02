@@ -5,7 +5,7 @@
 # the sudoers-protected keymap helper, and the oneshot service that enables
 # NEC decoding at boot.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 

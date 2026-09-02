@@ -10,7 +10,7 @@
 #   2. The bootloader EEPROM so the board waits for a power-button press instead
 #      of booting automatically when power is applied (PC-like behaviour).
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 

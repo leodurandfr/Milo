@@ -1,10 +1,11 @@
 """
 Tests for the satellite's boot-time registration with the main Milo.
 
-What breaks when these fail: `install-client.sh --server <ip>` becomes inert
-again. That flag exists for a LAN where mDNS does not work, and the satellite it
-installs never appears as a pending speaker on the server — with no error
-anywhere, because registration retries in silence forever.
+What breaks when these fail: a literal `MILO_PRINCIPAL_IP` in the unit's env
+file becomes inert again. That spelling exists for a LAN where mDNS does not
+work, and a satellite set that way never appears as a pending speaker on the
+server — with no error anywhere, because registration retries in silence
+forever.
 
 The mocked boundary is `socket.getaddrinfo`, i.e. mDNS resolution, which cannot
 run in CI.
@@ -23,7 +24,7 @@ def _addrinfo(ip: str) -> list:
 
 
 def test_literal_server_ip_is_used_without_resolving():
-    """`--server 192.168.1.10` reaches the app: no mDNS lookup is attempted.
+    """A literal IP in the env file reaches the app: no mDNS lookup is attempted.
 
     The defect this covers is not a wrong address but a lookup that should never
     happen — on such a LAN `milo.local` does not resolve at all.
@@ -35,9 +36,9 @@ def test_literal_server_ip_is_used_without_resolving():
 
 
 def test_hostname_from_env_is_the_name_resolved():
-    """A discovery-succeeded install stores the string "milo.local", not an IP.
+    """The conversion stores the string "milo.local", not an IP.
 
-    install/base.sh:68 writes the hostname on purpose, so the satellite survives
+    `milo-first-boot` writes the hostname on purpose, so the satellite survives
     the server moving between ethernet and WiFi — the resolver must accept it.
     """
     with patch.dict(os.environ, {"MILO_PRINCIPAL_IP": "milo.local"}, clear=True), \

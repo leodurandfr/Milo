@@ -4,7 +4,7 @@
 # Installs Snapcast (server + client) from GitHub releases or Debian repos,
 # and configures Snapserver for Milo's multiroom audio.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 

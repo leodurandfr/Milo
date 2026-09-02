@@ -14,7 +14,7 @@
 # is generated per-device on first boot by milo-navidrome-provision, so the
 # config here is user-agnostic and safe to bake.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 

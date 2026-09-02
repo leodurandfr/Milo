@@ -271,12 +271,12 @@ class TestBecomeClientGuards:
     ):
         """The marker has one consumer, and only the image installs it.
 
-        `install.sh` never copies `/usr/local/bin/milo-first-boot` and never
-        enables its unit — on that path the role is chosen by which installer was
-        run. Without this guard the route succeeds on such a unit: the marker is
-        written, `setup_completed` flips, the WiFi profile is saved, the device
-        reboots, and it comes back a plain server with the marker still on disk
-        while the adopting server waits for a speaker that never appears.
+        A backend running from a plain checkout — a dev host, not a flashed card
+        — has neither `/usr/local/bin/milo-first-boot` nor its unit. Without this
+        guard the route succeeds there: the marker is written, `setup_completed`
+        flips, the WiFi profile is saved, the device reboots, and it comes back a
+        plain server with the marker still on disk while the adopting server
+        waits for a speaker that never appears.
         """
         monkeypatch.setattr(
             api_setup, "FIRST_BOOT_HELPER", tmp_path / "absent" / "milo-first-boot"

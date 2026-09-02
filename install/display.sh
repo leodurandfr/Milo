@@ -5,7 +5,7 @@
 # transparent cursors, Plymouth boot splash, login/lightdm,
 # and screen brightness controls.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 
@@ -258,14 +258,12 @@ install_screen_brightness_control() {
     register_temp_dir "$temp_dir"
     pushd "$temp_dir" > /dev/null
 
-    # The only third-party download in the whole chain, and the only optional one:
-    # the vendor's own site rather than a release dependencies.env pins, for a
-    # panel most units do not have. Unguarded under `set -e` it aborted install.sh
-    # at step 159 of 166 — after everything is installed and *before*
-    # enable_services — leaving the whole stack on disk with nothing enabled, no
-    # graphical.target and a black screen. It also sat before the udev rule below,
-    # so a Waveshare outage took the 7" backlight with it. pi-gen already tolerates
-    # this; the two paths must produce the same unit.
+    # The only third-party download in the whole provisioning run, and the only
+    # optional one: the vendor's own site rather than a release dependencies.env
+    # pins, for a panel most units do not have. Unguarded under `set -e` it took
+    # everything after it down with it — including the backlight udev rule below,
+    # so a Waveshare outage cost the 7" screen too. Guarded, the outage costs
+    # only the 8" backlight. Enforced by test_provisioning_downloads.py.
     if wget -q https://files.waveshare.com/wiki/common/Brightness.zip \
         && unzip -o -q Brightness.zip \
         && cd Brightness \

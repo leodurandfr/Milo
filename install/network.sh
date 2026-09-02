@@ -4,7 +4,7 @@
 # Installs and configures Avahi (mDNS), Nginx (reverse proxy),
 # Chromium (kiosk browser), and network dispatcher.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 

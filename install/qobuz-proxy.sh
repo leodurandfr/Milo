@@ -11,7 +11,7 @@
 # screen (or http://milo.local:8689) and cached in credentials.json; it is
 # user-specific and intentionally NOT baked into the image.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 

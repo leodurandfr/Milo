@@ -3,7 +3,7 @@
 #
 # Downloads and installs go-librespot binary for Spotify Connect support.
 #
-# Can be sourced from install.sh or run standalone.
+# Sourced by pi-gen/stage-milo during the image build, or run standalone.
 
 set -e
 

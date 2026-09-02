@@ -4,10 +4,9 @@ Invariant #2 names **three** independent deployment trees. Two of them are
 `rootfs/` trees and share one rule; the third, `pi-gen/stage-milo/`, has the same
 invariant in a different shape and is covered at the bottom of this file.
 
-`rootfs/` and `milo-client/rootfs/` are two independent deployment trees — the
-server's is installed by `install/system.sh` and `pi-gen/`, the satellite's by
-`milo-client/install/system.sh` and, for an already-paired unit, by
-`milo-client-deploy-update` unpacking a tarball that contains **only**
+`rootfs/` and `milo-client/rootfs/` are two independent deployment trees — both
+are installed by `pi-gen/`, and the satellite's is refreshed on an already-paired
+unit by `milo-client-deploy-update` unpacking a tarball that contains **only**
 `milo-client/`. So a file the satellite needs has to be inside the satellite's
 tree; being present in the server's is worth nothing to it.
 
@@ -28,11 +27,9 @@ machine CI never touches, there is no import to fail and no route to 404, and
 `test_milo_client_contract.py` checks the HTTP surface, not what the satellite
 carries on disk.
 
-The installers that *populate* these trees are governed by its sibling,
-`test_install_deployment.py`: the relative `source` every `install/` module uses
-is invisible to the absolute-path rule here. What reaches `/usr/local/` on the
-appliance is governed by `test_helper_deployment.py` — a tree can carry a helper
-correctly while a provisioning path quietly copies a subset of it.
+What reaches `/usr/local/` on the appliance is governed by
+`test_helper_deployment.py` — a tree can carry a helper correctly while a
+provisioning path quietly copies a subset of it.
 
 Doctrine note (same as the Milo-Mac / milo-client contract tests): every
 extractor asserts its own output is non-trivial first, so a broken parse fails

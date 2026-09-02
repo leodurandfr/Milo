@@ -49,10 +49,11 @@ def _get_local_ip(remote_ip: str, remote_port: int) -> str:
 def _resolve_milo_principal() -> str:
     """Resolve the main Milo to an IPv4 address.
 
-    MILO_PRINCIPAL_IP comes from the unit's EnvironmentFile and carries either a
-    literal IP (`install-client.sh --server`, for a LAN where mDNS does not work)
-    or the string "milo.local" (discovery succeeded) — both forms are accepted.
-    A flashed unit has no env entry and falls back to mDNS.
+    MILO_PRINCIPAL_IP comes from the unit's EnvironmentFile. `milo-first-boot`
+    writes the string "milo.local" when it converts a flashed card into a
+    satellite, and an operator can replace it with a literal IP on a LAN where
+    mDNS does not work — both forms are accepted. A unit with no env entry at all
+    falls back to mDNS.
     """
     target = os.environ.get("MILO_PRINCIPAL_IP") or MILO_PRINCIPAL_HOST
     try:

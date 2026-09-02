@@ -1,12 +1,12 @@
 #!/bin/bash
 # Milo - Shared install helpers
 #
-# Sourced by install.sh and milo-client/install-client.sh to avoid
-# duplicating colour codes, log functions, temp directory cleanup,
-# and common installation routines across main and client installs.
+# Sourced by every other module here, and so by the pi-gen stage scripts that
+# source them, to avoid duplicating colour codes, log functions, temp directory
+# cleanup and common installation routines.
 
 # The validated dependency set. Sourced here rather than in each module so
-# every install chain gets the same numbers from the same file — the versions
+# every consumer gets the same numbers from the same file — the versions
 # below are read, never declared. See dependencies.env.
 source "$(dirname "${BASH_SOURCE[0]}")/../dependencies.env"
 
