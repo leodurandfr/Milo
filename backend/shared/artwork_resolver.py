@@ -13,9 +13,9 @@ almost none of the tracks while iTunes matched them correctly. It is also the
 same art source Shazam draws from, which keeps radio's two paths consistent.
 
 Fully async (aiohttp). Results are cached per query, misses included, and calls
-are serialised + lightly throttled. A plausibility gate (the returned artist
-AND name must overlap the query) keeps a fuzzy search from pinning a wrong
-cover — a wrong cover is worse than none.
+are serialised + lightly throttled. A plausibility gate (the returned name must
+overlap the query, and the two artists must overlap either way round) keeps a
+fuzzy search from pinning a wrong cover — a wrong cover is worse than none.
 """
 import asyncio
 import logging
@@ -184,9 +184,11 @@ class ArtworkResolver:
     ) -> bool:
         """Returned artist AND name must overlap the query (guards wrong covers).
 
-        The name always matters; the artist is checked only when the query
-        carried one (in-band "Title by Artist" / "Artist - Title" splits do,
-        and AVRCP always does).
+        The name is matched one way, query into candidate. The artist is
+        matched either way round, since both sides shorten a credit list
+        differently. It is checked only when the query carried an artist
+        (in-band "Title by Artist" / "Artist - Title" splits do, and AVRCP
+        always does).
         """
         def covered(query: str, candidate: str) -> bool:
             q = _tokens(query)
@@ -196,20 +198,25 @@ class ArtworkResolver:
             hits = sum(1 for t in q if t in c)
             return hits / len(q) >= _MATCH_RATIO
 
-        name = res.get(result_key, "")
-        name_ok = covered(q_name, name)
-        # The artist is matched against the title too, because a featured
-        # credit sits on whichever side of the pair the source chose. AVRCP
-        # hands the whole credit list as one artist string while iTunes keeps
-        # the feature in the title: "Ice Cube, Das EFX" against artistName
-        # "Ice Cube" scores 0.50 and rejected a cover whose trackName was
-        # "Check Yo Self (feat. Das EFX) [Remix]" -- an exact match. The ratio
-        # is over the *query*'s tokens, so a query richer than the catalogue
-        # is penalised unless the tokens are allowed to be found where the
-        # catalogue actually put them. It costs no strictness: the title must
-        # still match on its own, so "Buddy Greco" stays 0.50 against
-        # "Buddy Holly" singing "Oh Boy".
-        artist_ok = covered(q_artist, f"{res.get('artistName', '')} {name}")
+        def either_covers(a: str, b: str) -> bool:
+            """`covered` both ways round, whichever side is the longer list."""
+            if covered(a, b):
+                return True
+            return bool(_tokens(b)) and covered(b, a)
+
+        name_ok = covered(q_name, res.get(result_key, ""))
+        # The artist is matched in whichever direction is shorter, because
+        # either side can be the one carrying extra credits. The ratio is over
+        # the *query*'s tokens, so a one-way test punishes a query richer than
+        # the catalogue -- and AVRCP hands the whole credit list as one artist
+        # string while a catalogue credits the principal alone. Measured on a
+        # live sender: "Will Smith, Dru Hill, Kool Moe Dee" scored 0.29 against
+        # the album "Willennium" by "Will Smith", a perfect match otherwise.
+        # Reversing costs no strictness -- "Buddy Greco" against "Buddy Holly"
+        # is 0.50 in both directions -- and neither direction looks at the
+        # title, so a karaoke pressing naming the artist there ("In the Style
+        # of Madonna") still fails the gate it is meant to fail.
+        artist_ok = either_covers(q_artist, res.get("artistName", ""))
         return name_ok and artist_ok
 
     @staticmethod

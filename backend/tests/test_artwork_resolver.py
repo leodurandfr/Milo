@@ -41,16 +41,40 @@ class TestPickArtwork:
         )
         assert url is not None
 
-    def test_featured_credit_in_the_title_counts_as_the_artist(self):
-        """A credit the query carries and the catalogue puts in its title must
-        not sink the match. Measured on a live Bluetooth sender: AVRCP
-        published "Ice Cube, Das EFX" and iTunes answered artistName "Ice Cube"
-        with the feature in trackName, which scored 0.50 on the artist alone
-        and threw away a cover that was exactly right."""
-        data = {"results": [_song("Ice Cube", "Check Yo Self (feat. Das EFX) [Remix]")]}
+    def test_a_credit_list_still_matches_the_principal(self):
+        """AVRCP hands every credit as one artist string while a catalogue
+        credits the principal alone, so scoring the query's tokens one way
+        punishes the richer side. Both measured live on a Bluetooth sender:
+        "Ice Cube, Das EFX" scored 0.50 against "Ice Cube" and threw away the
+        exact track, and "Will Smith, Dru Hill, Kool Moe Dee" scored 0.29
+        against the album "Willennium" by "Will Smith"."""
         assert ArtworkResolver._pick_artwork(
-            data, "Ice Cube, Das EFX", "Check Yo Self - Remix", "trackName"
+            {"results": [_song("Ice Cube", "Check Yo Self (feat. Das EFX) [Remix]")]},
+            "Ice Cube, Das EFX", "Check Yo Self - Remix", "trackName",
         ) is not None
+        assert ArtworkResolver._pick_artwork(
+            {"results": [_album("Will Smith", "Willennium")]},
+            "Will Smith, Dru Hill, Kool Moe Dee", "Willennium", "collectionName",
+        ) is not None
+
+    def test_a_cover_pressing_naming_the_artist_in_its_title_is_rejected(self):
+        """The gate exists for exactly this: a karaoke or tribute pressing
+        answers a query the real record does not, and puts the original's name
+        in its own title. Matching the artist against that title would hand it
+        a wrong cover, which the module holds to be worse than none."""
+        assert ArtworkResolver._pick_artwork(
+            {"results": [_song("Ameritz Karaoke Band",
+                               "Frozen (In the Style of Madonna) [Karaoke Version]")]},
+            "Madonna", "Frozen", "trackName",
+        ) is None
+        assert ArtworkResolver._pick_artwork(
+            {"results": [_song("The Hit Crew", "Wonderwall (Oasis Tribute)")]},
+            "Oasis", "Wonderwall", "trackName",
+        ) is None
+        assert ArtworkResolver._pick_artwork(
+            {"results": [_album("Various Artists", "The Miles Davis Songbook")]},
+            "Miles Davis", "The Miles Davis Songbook", "collectionName",
+        ) is None
 
     def test_wrong_artist_is_rejected(self):
         # "Nature Boy / Buddy Greco" must NOT match "Oh Boy / Buddy Holly".
