@@ -31,8 +31,8 @@ if [ "$audio_id" = "none" ]; then
 fi
 
 # Resolve MILO_PRINCIPAL_IP if it looks like a hostname.
-# Numeric literals (1.2.3.4) are passed through unchanged — covers the
-# install-time --server <ip> case.
+# Numeric literals (1.2.3.4) are passed through unchanged — covers a LAN where
+# mDNS does not work and the env file carries a literal address.
 server="${MILO_PRINCIPAL_IP:-milo.local}"
 case "$server" in
     *[!0-9.]*)
