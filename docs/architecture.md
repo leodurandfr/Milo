@@ -716,7 +716,7 @@ options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8
 - **card 2 `LoopbackDLNA`**, subdevice 2: Music Library (multiroom) — mpv writes `hw:LoopbackDLNA,0,2`, Snapserver reads `hw:2,1,2`. Direct mode routes `pcm.milo_music_library` → `camilladsp`, the same trio pattern as `milo_cd`/`milo_qobuz`.
 - **card 2 `LoopbackDLNA`**, subdevice 3: Tidal (multiroom) — the Tidal Connect daemon writes `hw:LoopbackDLNA,0,3`, Snapserver reads `hw:2,1,3`.
 
-Any further source needs another loopback card (bump `index`/`enable`/`id`/`pcm_substreams` in the module options in **both** places that write them — `pi-gen/stage-milo/02-install-milo/01-run.sh` and `install/alsa.sh::configure_alsa_loopback`).
+Any further source needs another loopback card (bump `index`/`enable`/`id`/`pcm_substreams` in the module options, written once in `pi-gen/stage-milo/02-install-milo/01-run.sh`).
 
 ### High-quality resampling (44.1 → 48 kHz)
 

@@ -1,11 +1,11 @@
 #!/bin/bash
 # Milo - IR Remote support (Apple Remote via TSOP4838 on GPIO17)
 #
-# Installs ir-keytable, the gpio-ir device-tree overlay, the keymap directory,
-# the sudoers-protected keymap helper, and the oneshot service that enables
-# NEC decoding at boot.
+# Installs the gpio-ir device-tree overlay, the keymap directory, the
+# sudoers-protected keymap helper, and the oneshot service that enables NEC
+# decoding at boot. The ir-keytable package comes from pi-gen's 00-packages.
 #
-# Sourced by pi-gen/stage-milo during the image build, or run standalone.
+# Sourced by pi-gen/stage-milo during the image build.
 
 set -e
 
@@ -15,18 +15,6 @@ MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
 # Default GPIO pin for the TSOP4838 data line (matches §1.6 / §2.1 of
 # docs/plans/remote-controls.md — pin 11 on the 40-pin header).
 IR_REMOTE_GPIO_DEFAULT=17
-
-# Use parent logging functions if available, otherwise load common helpers
-if ! type log_info &>/dev/null; then
-    source "$(dirname "$0")/common.sh"
-fi
-
-install_ir_keytable() {
-    log_info "Installing ir-keytable..."
-    sudo apt install -y ir-keytable
-    sudo mkdir -p /etc/rc_keymaps
-    log_success "ir-keytable installed"
-}
 
 configure_ir_overlay() {
     log_info "Configuring gpio-ir overlay (GPIO${IR_REMOTE_GPIO_DEFAULT})..."
@@ -72,24 +60,10 @@ install_ir_helpers() {
 install_ir_systemd_service() {
     log_info "Enabling milo-ir-keytable systemd service..."
 
-    # The unit file itself is copied by create_systemd_services() in
-    # install/system.sh (which globs system/*.service). Here we just
-    # enable it so it runs at boot.
+    # The unit file itself is copied by the pi-gen stage's system/*.service glob
+    # (02-install-milo/01-run.sh). Here we just enable it so it runs at boot.
     sudo systemctl enable milo-ir-keytable.service
 
     log_success "milo-ir-keytable.service enabled"
 }
 
-install_ir_remote() {
-    install_ir_keytable
-    configure_ir_overlay
-    install_ir_helpers
-    install_ir_systemd_service
-
-    log_success "IR remote support installed (TSOP4838 on GPIO${IR_REMOTE_GPIO_DEFAULT})"
-}
-
-# Run all steps if executed standalone
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    install_ir_remote
-fi

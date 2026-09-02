@@ -17,18 +17,13 @@
 # why the payload comes from a container image while Milō runs no containers,
 # and why the library overlay must come from bullseye and not anything newer.
 #
-# Sourced by pi-gen/stage-milo during the image build, or run standalone.
+# Sourced by pi-gen/stage-milo during the image build.
 
 set -e
 
 MILO_USER="${MILO_USER:-milo}"
 MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
 TIDAL_ROOT="${TIDAL_ROOT:-/opt/milo/tidal-connect}"
-
-# Use parent logging functions if available, otherwise load common helpers
-if ! type log_info &>/dev/null; then
-    source "$(dirname "$0")/common.sh"
-fi
 
 install_tidal_connect() {
     log_info "Installing Tidal Connect..."
@@ -62,7 +57,3 @@ install_tidal_launcher() {
     sudo chmod 0755 /usr/local/bin/milo-tidal-connect
 }
 
-# Run all steps if executed standalone
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    install_tidal_connect
-fi

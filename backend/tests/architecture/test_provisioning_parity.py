@@ -133,7 +133,7 @@ def bodies() -> dict[str, str]:
     # Non-trivial-output check: a parse that yields nothing, or that truncates a
     # body at its first heredoc, must fail here rather than pass every assertion
     # below on an empty surface.
-    assert len(parsed) > 30, f"only {len(parsed)} install/ functions parsed"
+    assert len(parsed) > 15, f"only {len(parsed)} install/ functions parsed"
     assert "systemctl enable milo-ir-keytable.service" in bodies_of(
         parsed, "install_ir_systemd_service"
     )

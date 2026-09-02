@@ -1,21 +1,12 @@
 #!/bin/bash
-# Milo - Snapcast Installation (Multiroom Audio)
+# Milo - Snapserver configuration
 #
-# Installs Snapcast (server + client) from GitHub releases or Debian repos,
-# and configures Snapserver for Milo's multiroom audio.
+# Writes /etc/snapserver.conf for Milō's multiroom audio. The snapserver and
+# snapclient packages are installed by pi-gen/stage-milo/01-install-audio.
 #
-# Sourced by pi-gen/stage-milo during the image build, or run standalone.
+# Sourced by pi-gen/stage-milo during the image build.
 
 set -e
-
-# Use parent logging functions if available, otherwise load common helpers
-if ! type log_info &>/dev/null; then
-    source "$(dirname "$0")/common.sh"
-fi
-
-install_snapcast() {
-    install_snapcast_packages snapserver snapclient
-}
 
 configure_snapserver() {
     log_info "Configuring Snapserver..."
@@ -59,9 +50,3 @@ EOF
     log_success "Snapserver configured"
 }
 
-# Run all steps if executed standalone
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    install_snapcast
-    configure_snapserver
-    log_success "Snapcast installation complete"
-fi

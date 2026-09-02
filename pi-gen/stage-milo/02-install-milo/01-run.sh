@@ -149,9 +149,8 @@ CHROOT
 # Reuse install/network.sh::write_nginx_site rather than restating
 # /etc/nginx/sites-available/milo here — single source of truth. Inline-writing it
 # is what let two spellings of the site config drift: this was the one module
-# pi-gen copy-pasted rather than sourced. configure_nginx itself is not reused
-# because its
-# `nginx -t` + `systemctl reload nginx` tail is not valid inside the chroot.
+# pi-gen copy-pasted rather than sourced. The writer does no service interaction,
+# because `nginx -t` + `systemctl reload nginx` are not valid inside the chroot.
 
 on_chroot << 'CHROOT'
 cd /home/milo/milo
@@ -208,9 +207,9 @@ mkdir -p /etc/NetworkManager/conf.d
 cp /home/milo/milo/rootfs/etc/NetworkManager/conf.d/90-milo-wifi-powersave.conf /etc/NetworkManager/conf.d/
 
 # NetworkManager connectivity check — drop-in read by the backend connectivity
-# D-Bus subscriber (backend/core/connectivity/service.py). Written inline because
-# install/network.sh::configure_nm_connectivity also reloads/restarts NetworkManager,
-# which is not valid inside the build chroot.
+# D-Bus subscriber (backend/core/connectivity/service.py). Written inline rather
+# than through install/network.sh: applying it needs a NetworkManager reload,
+# which is not valid inside the build chroot, so first boot applies it.
 mkdir -p /etc/NetworkManager/conf.d
 tee /etc/NetworkManager/conf.d/99-milo-connectivity.conf > /dev/null << 'EOF'
 [connectivity]

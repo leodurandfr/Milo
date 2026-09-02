@@ -10,17 +10,11 @@
 #
 # Only affects the [LE] section — Bluetooth Classic (A2DP audio) is not impacted.
 #
-# Sourced by pi-gen/stage-milo during the image build, or run standalone.
+# Sourced by pi-gen/stage-milo during the image build.
 
 set -e
 
 MILO_USER="${MILO_USER:-milo}"
-MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
-
-# Use parent logging functions if available, otherwise load common helpers
-if ! type log_info &>/dev/null; then
-    source "$(dirname "$0")/common.sh"
-fi
 
 configure_bluez_le() {
     log_info "Configuring BlueZ LE connection parameters..."
@@ -49,7 +43,3 @@ configure_bluez_le() {
     log_success "BlueZ LE parameters configured (latency=10, supervision=6s)"
 }
 
-# Run if executed standalone
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    configure_bluez_le
-fi

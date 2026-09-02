@@ -1,32 +1,18 @@
 #!/bin/bash
-# Milo - ALSA Configuration (Loopback + Routing)
+# Milo - ALSA routing configuration
 #
-# Configures ALSA loopback module for Snapcast multiroom
-# and deploys the complete ALSA routing configuration.
+# Deploys /etc/asound.conf and the three env files the source units read through
+# EnvironmentFile= (routing.env, snapclient.env, mac.env). The snd-aloop module
+# options are not here: pi-gen writes /etc/modprobe.d/snd-aloop.conf inline,
+# before it sources this file.
 #
-# Sourced by pi-gen/stage-milo during the image build, or run standalone.
+# Sourced by pi-gen/stage-milo during the image build.
 
 set -e
 
 MILO_USER="${MILO_USER:-milo}"
 MILO_DATA_DIR="${MILO_DATA_DIR:-/var/lib/milo}"
 MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
-
-# Use parent logging functions if available, otherwise load common helpers
-if ! type log_info &>/dev/null; then
-    source "$(dirname "$0")/common.sh"
-fi
-
-configure_alsa_loopback() {
-    log_info "Configuring ALSA loopback..."
-
-    echo "snd-aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf
-    echo "options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8" | sudo tee /etc/modprobe.d/snd-aloop.conf
-
-    sudo modprobe snd-aloop || true
-
-    log_success "ALSA loopback configured"
-}
 
 configure_alsa_complete() {
     log_info "Configuring complete ALSA setup with CamillaDSP..."
@@ -56,9 +42,3 @@ EOF
     log_success "Complete ALSA configuration done"
 }
 
-# Run all steps if executed standalone
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    configure_alsa_loopback
-    configure_alsa_complete
-    log_success "ALSA configuration complete"
-fi
