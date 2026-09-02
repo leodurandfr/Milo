@@ -34,7 +34,7 @@ from urllib.parse import urlencode
 import aiohttp
 
 from backend.config.constants import NAVIDROME_CRED_FILE, NAVIDROME_URL
-from backend.shared.network import is_network_error
+from backend.shared.network import describe_network_error, is_network_error
 
 # The two sizes _is_placeholder asks for. Small on purpose: above an image's own
 # resolution Navidrome returns the original unresized at every size, which would
@@ -231,7 +231,9 @@ class NavidromeClient:
             raise
         except Exception as exc:
             if is_network_error(exc):
-                self.logger.info(f"Navidrome not reachable yet: {exc}")
+                self.logger.info(
+                    f"Navidrome did not answer yet: {describe_network_error(exc)}"
+                )
                 return {"_network_error": True}
             self.logger.error(f"Navidrome unexpected error on {endpoint}: {exc}")
             return None
@@ -588,7 +590,10 @@ class NavidromeClient:
                 data = await resp.read()
         except Exception as exc:
             if is_network_error(exc):
-                self.logger.info(f"Navidrome not reachable for cover art: {exc}")
+                self.logger.info(
+                    f"Navidrome did not answer for cover art {cover_id}: "
+                    f"{describe_network_error(exc)}"
+                )
             else:
                 self.logger.error(f"Navidrome getCoverArt error for {cover_id}: {exc}")
             return None

@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 
 from backend.config.constants import NAVIDROME_CRED_FILE, NAVIDROME_URL
-from backend.shared.network import is_network_error
+from backend.shared.network import describe_network_error, is_network_error
 from backend.sources.music_library.navidrome_client import load_navidrome_credentials
 
 # Navidrome reads its session JWT from this header (not a plain Authorization:),
@@ -111,7 +111,10 @@ class NavidromeAdminClient:
                 payload = await resp.json()
         except Exception as exc:
             if is_network_error(exc):
-                self.logger.info("Navidrome not reachable yet for admin login: %s", exc)
+                self.logger.info(
+                    "Navidrome did not answer yet for admin login: %s",
+                    describe_network_error(exc),
+                )
             else:
                 self.logger.error("Navidrome admin login error: %s", exc)
             return False
@@ -178,7 +181,8 @@ class NavidromeAdminClient:
             except Exception as exc:
                 if is_network_error(exc):
                     self.logger.info(
-                        "Navidrome not reachable for admin %s %s: %s", method, path, exc
+                        "Navidrome did not answer for admin %s %s: %s",
+                        method, path, describe_network_error(exc),
                     )
                 else:
                     self.logger.error(
