@@ -58,7 +58,8 @@ POSITION_JUMP_TOLERANCE_MS = 2000
 # still in flight.
 #
 # The tags and the picture are two SET_PARAMETER requests in no guaranteed
-# order, so a track change with the tags first leaves the new stamp unpaired.
+# order, so a track change leaves one of the two unpaired whichever way round
+# it arrives (see _sync_artwork_hold, which arms this either way).
 # Publishing that gap drops album_art_url, and the frontend's untrusted-sender
 # gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX) reads a missing album_art_width as
 # "this sender pushes no real cover": AudioPlayerFull is swapped for the status
@@ -228,18 +229,30 @@ class AirPlaySource(BaseAudioSource):
         cover with it: the publish pairs the two by rtptime. A track whose
         sender pushes no PICT of its own — plenty do not — would otherwise wear
         the previous one's cover for its whole duration.
+
+        The tags are paired by the same stamp, and for the same reason. A
+        bundle carries only the DAAP tags the sender put in it, so one arriving
+        without an `asar` used to leave the previous track's artist standing —
+        published under the new title, for the whole of it. A bundle under a
+        *new* rtptime is a different track and owns all three fields, absences
+        included; one under the stamp already on screen is an amendment to it
+        and merges. A sender that sends no RTP-Info stamps nothing, so every
+        bundle reads as an amendment and keeps what it had — the same trade
+        the cover makes there, and for the same want of anything to pair on.
         """
+        amendment = track_id is None or track_id == self._track_id
         self._track_id = track_id
         # Before the publish below, so it already sees the hold rather than
         # emitting one coverless state and correcting it a task-turn later.
-        if self._artwork_url and self._artwork_id != track_id:
-            self._start_artwork_settle()
+        self._sync_artwork_hold()
         self._metadata.update({
-            "title": metadata.get("title", self._metadata.get("title", "")),
-            "artist": metadata.get("artist", self._metadata.get("artist", "")),
-            "album": metadata.get("album", self._metadata.get("album", "")),
-            "is_playing": self._is_playing,
+            key: (
+                metadata.get(key, self._metadata.get(key, ""))
+                if amendment else metadata.get(key, "")
+            )
+            for key in ("title", "artist", "album")
         })
+        self._metadata["is_playing"] = self._is_playing
 
         self._update_progress_metadata()
         self._device_connected = True
@@ -291,11 +304,10 @@ class AirPlaySource(BaseAudioSource):
         which track the cover belongs to.
         """
         paired_with, self._artwork_id = self._artwork_id, track_id
-        if self._artwork_id == self._track_id:
-            self._cancel_artwork_settle()
         new_hash = hashlib.md5(data).hexdigest()[:12]
         if new_hash == self._artwork_hash:
             if track_id != paired_with:
+                self._sync_artwork_hold()
                 self._update_connection_state()
             return
 
@@ -312,6 +324,7 @@ class AirPlaySource(BaseAudioSource):
         self._artwork_url = f"/api/airplay/artwork?v={new_hash}"
         self._artwork_width = width
         self._logger.info(f"AirPlay artwork {width}x{height} ({self._artwork_mime})")
+        self._sync_artwork_hold()
         self._update_connection_state()
 
     async def _on_client_name(self, name: str) -> None:
@@ -448,6 +461,24 @@ class AirPlaySource(BaseAudioSource):
             self._metadata_reader = None
 
         self._reset_playback_state()
+
+    def _sync_artwork_hold(self) -> None:
+        """Arm or release the hold on the cover in hand, whichever way it lags.
+
+        The tags and the picture are two SET_PARAMETER requests in no
+        guaranteed order, so either can be the one still in flight — and the
+        gap is the same gap. Tags first leaves the new stamp with no picture
+        yet; picture first leaves a picture stamped for a track the tags have
+        not announced, and the publish, judging on the stamps alone, dropped
+        the cover from a state still carrying the *previous* track's title.
+        The frontend reads a missing album_art_width as "this sender pushes no
+        real cover" and swapped the player for the status card and back, which
+        is the same flicker from the other side.
+        """
+        if self._artwork_url and self._artwork_id != self._track_id:
+            self._start_artwork_settle()
+        else:
+            self._cancel_artwork_settle()
 
     def _cancel_artwork_settle(self) -> None:
         """Stop holding the previous cover: the pairing resolved, or is moot."""
