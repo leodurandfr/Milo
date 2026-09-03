@@ -284,7 +284,7 @@ class TestPlayerTracking:
         assert avrcp.snapshot()["position"] == 65294
         await avrcp.stop()
 
-    def test_a_half_updated_track_is_not_published(self):
+    async def test_a_half_updated_track_is_not_published(self):
         """A skip carries the incoming track's Duration ~600 ms before its Title.
         Traced on the unit: dur 215533 → 211426 with the title still `Canto De
         Ossanha` and the playhead resetting to 31 ms under the old name. Applied,
@@ -312,6 +312,108 @@ class TestPlayerTracking:
 
         assert avrcp.snapshot()["title"] == "Revenants"
         assert avrcp.snapshot()["position"] == 257
+        avrcp._cancel_settle_flush()
+
+    async def test_holding_a_half_updated_track_is_a_wait_and_not_a_verdict(self, monkeypatch):
+        """The hold expires, and the batch after it lands.
+
+        `_is_half_updated` recognises a shape, not an order, and the order it
+        was written for is the one traced (Duration first). Nothing rules out
+        the mirror — a sender whose Title moves first has its intermediate
+        batch applied, since the title differs, and then every batch after it
+        matches the half-update shape against a `_track` that is stale by one
+        field. Rejected for ever, the true length never lands and the bar wears
+        the previous track's for the whole song.
+
+        What is pinned here is only the expiry: past TRACK_SETTLE_TIMEOUT_S a
+        held batch is taken rather than refused again. A sender publishes a
+        Track batch on every pause, play and skip, so that is the bound on how
+        long the wrong length can stand.
+        """
+        monkeypatch.setattr(avrcp_module, "TRACK_SETTLE_TIMEOUT_S", 0.05)
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Canto De Ossanha", Duration=215533)))
+
+        # The mirror order: the title moves first, carrying the old length.
+        avrcp._on_dbus_message(player_changed(
+            Track=track_variant(Title="Revenants", Duration=215533)))
+        # Then the real length — half-updated against what we just applied.
+        avrcp._on_dbus_message(player_changed(
+            Track=track_variant(Title="Revenants", Duration=211426)))
+        assert avrcp.snapshot()["duration"] == 215533, "held, as it should be"
+
+        # Nothing else arrives — the wait itself is what publishes it.
+        await asyncio.sleep(0.08)
+
+        assert avrcp.snapshot()["duration"] == 211426
+        assert avrcp.snapshot()["title"] == "Revenants"
+
+    async def test_the_hold_is_bounded_from_the_first_batch_not_the_last(self, monkeypatch):
+        """And re-sending does not extend it: the window is stamped once. Left
+        re-stamped, a sender that keeps sending the same half-updated batch
+        holds it open indefinitely — which is precisely what
+        `_settling`'s own docstring says must not happen."""
+        monkeypatch.setattr(avrcp_module, "TRACK_SETTLE_TIMEOUT_S", 0.05)
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Revenants", Duration=215533)))
+
+        for _ in range(4):
+            avrcp._on_dbus_message(player_changed(
+                Track=track_variant(Title="Revenants", Duration=211426)))
+            await asyncio.sleep(0.02)
+
+        assert avrcp.snapshot()["duration"] == 211426
+        avrcp._cancel_settle_flush()
+
+    async def test_a_flushed_batch_is_a_correction_and_not_a_track_change(self, monkeypatch):
+        """What is held always shares its Title and Artist with what is showing,
+        so taking it corrects a field of the current track. Re-anchoring the
+        playhead there would restart the bar at 0:00 in the middle of a song for
+        a Duration that merely caught up."""
+        monkeypatch.setattr(avrcp_module, "TRACK_SETTLE_TIMEOUT_S", 0.05)
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Revenants", Duration=215533),
+            Status=Variant("s", "playing"),
+        ))
+        avrcp._on_dbus_message(player_changed(Position=Variant("u", 91000)))
+        assert avrcp.snapshot()["position"] == 91000
+
+        avrcp._on_dbus_message(player_changed(
+            Track=track_variant(Title="Revenants", Duration=211426)))
+        await asyncio.sleep(0.08)
+
+        assert avrcp.snapshot()["duration"] == 211426
+        assert avrcp.snapshot()["position"] == 91000, "the playhead was re-anchored"
+
+    async def test_a_held_batch_does_not_cross_to_another_sender(self, monkeypatch):
+        """One phone leaves mid-skip, the next one connects. The batch held for
+        the first is not a correction to the second — flushed onto it, it
+        publishes the previous sender's track under the new sender's address.
+
+        Reachable whenever the arriving player's InterfacesAdded carries no
+        Track of its own to supersede it, which is exactly the case the AVRCP
+        feed is built around: the player object routinely appears a beat before
+        its metadata.
+        """
+        monkeypatch.setattr(avrcp_module, "TRACK_SETTLE_TIMEOUT_S", 0.05)
+        avrcp = AvrcpController()
+        avrcp._on_dbus_message(player_added(
+            Track=track_variant(Title="Revenants", Duration=215533)))
+        avrcp._on_dbus_message(player_changed(
+            Track=track_variant(Title="Revenants", Duration=211426)))
+        assert avrcp._pending_track, "nothing was held, so nothing is proven"
+
+        other = Signal("InterfacesAdded", [
+            "/org/bluez/hci0/dev_11_22_33_44_55_66/player0",
+            {MEDIA_PLAYER_IFACE: {}},
+        ])
+        avrcp._on_dbus_message(other)
+        await asyncio.sleep(0.08)
+
+        assert avrcp.snapshot()["title"] is None, "the previous sender's track was flushed"
 
     def test_a_new_track_does_not_inherit_the_old_playhead(self):
         """BlueZ moves Track and Position in separate messages and they do not
