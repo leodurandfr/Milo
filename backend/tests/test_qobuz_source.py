@@ -68,6 +68,68 @@ class TestStatusToState:
         assert metadata["duration"] == NOW_PLAYING["duration_ms"]
 
     @pytest.mark.asyncio
+    async def test_a_track_change_without_a_length_yet_keeps_the_bar(self, qobuz):
+        """The playhead is carried across the track rebuild, not dropped with it.
+
+        The sidecar types its duration `int = 0` and milo-qobuz injects the
+        position/duration pair whenever there is a now_playing at all, so the
+        keys are there from a track's first tick and carry 0 until its length
+        resolves. Published, that zero does not correct the bar: ProgressBar
+        renders under `duration > 0` and carries a mount animation, so it
+        removes it and replays its entrance on the way back — the defect
+        6d4df23d fixed on DLNA, arriving here by a different road.
+        """
+        source, publish = qobuz
+        await source._on_status({"status": "playing", "now_playing": NOW_PLAYING}, True)
+
+        await source._on_status({"status": "playing", "now_playing": {
+            **NOW_PLAYING, "title": "Odd Look", "position_ms": 0, "duration_ms": 0,
+        }}, True)
+
+        _, metadata = published_state(publish)
+        assert metadata["title"] == "Odd Look"
+        assert metadata["duration"] == NOW_PLAYING["duration_ms"]
+
+    @pytest.mark.asyncio
+    async def test_only_the_length_is_carried_across_a_track_change(self, qobuz):
+        """The *length* is what a rebuild may inherit, never the playhead.
+
+        The length resolves a beat after the track and a bar with none is
+        removed rather than corrected; the playhead has no such excuse — the
+        sidecar reports it from the track's first tick. Carried, it drew 3:45 of
+        3:50 on a song that had just started, and interpolated past its own end.
+        """
+        source, publish = qobuz
+        await source._on_status({"status": "playing", "now_playing": NOW_PLAYING}, True)
+
+        await source._on_status({"status": "playing", "now_playing": {
+            **NOW_PLAYING, "title": "Odd Look", "position_ms": 0, "duration_ms": 0,
+        }}, True)
+
+        _, metadata = published_state(publish)
+        assert metadata["duration"] == NOW_PLAYING["duration_ms"], "the bar was removed"
+        assert metadata["position"] == 0, "the previous track's playhead was republished"
+
+    @pytest.mark.asyncio
+    async def test_the_length_lands_as_soon_as_the_sidecar_has_it(self, qobuz):
+        """And the carry is a bridge, not a memory: the pair is overwritten the
+        moment a real one arrives, which on an ordinary track change is the very
+        tick that announced the track."""
+        source, publish = qobuz
+        await source._on_status({"status": "playing", "now_playing": NOW_PLAYING}, True)
+
+        await source._on_status({"status": "playing", "now_playing": {
+            **NOW_PLAYING, "title": "Odd Look", "position_ms": 0, "duration_ms": 0,
+        }}, True)
+        await source._on_status({"status": "playing", "now_playing": {
+            **NOW_PLAYING, "title": "Odd Look", "position_ms": 300, "duration_ms": 224000,
+        }}, True)
+
+        _, metadata = published_state(publish)
+        assert metadata["duration"] == 224000
+        assert metadata["position"] == 300
+
+    @pytest.mark.asyncio
     async def test_a_session_without_a_track_is_held(self, qobuz):
         """qobuz-proxy reports 'playing' before it has a track to report. The
         card can only draw that as its idle line — over audio that is starting

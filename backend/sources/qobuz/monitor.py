@@ -30,7 +30,7 @@ class QobuzMonitor:
         self,
         status_url: str,
         audio_device: str,
-        on_status: Callable[[Optional[Dict[str, Any]], Optional[bool]], Awaitable[None]],
+        on_status: Callable[[Optional[Dict[str, Any]], bool], Awaitable[None]],
         poll_interval: float = 1.0,
     ):
         self._status_url = status_url
@@ -77,26 +77,38 @@ class QobuzMonitor:
         """
         while self._running:
             try:
-                speaker, authenticated = await self._fetch_status()
-                await self._on_status(speaker, authenticated)
+                status = await self._fetch_status()
+                if status is not None:
+                    await self._on_status(*status)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 logger.warning("Qobuz status poll failed: %s", e)
             await asyncio.sleep(self._poll_interval)
 
-    async def _fetch_status(self) -> tuple[Optional[Dict[str, Any]], Optional[bool]]:
-        """Return (our speaker dict | None, account authenticated | None).
+    async def _fetch_status(
+        self,
+    ) -> Optional[tuple[Optional[Dict[str, Any]], bool]]:
+        """Return (our speaker dict | None, account authenticated), or None.
 
-        `authenticated` comes from qobuz-proxy's ``auth.authenticated`` in the
-        same /api/status payload the poll already fetches (no extra request).
-        None means "unknown — keep the last value": a non-200 blip must not flap
-        the login state that drives the idle card's "connect account" CTA.
+        None is "the sidecar did not answer", and the tick is skipped on it
+        exactly as the loop above skips a tick that raised. The two are one
+        failure — a status that could not be read — and only the transport
+        tells them apart: a sidecar that is down refuses the connection and
+        raises, one that is up and broken answers 5xx. Answering an absent
+        speaker instead, the second one read as "no session": three ticks of
+        the source's idle grace and the full-screen player was replaced by the
+        idle card, over audio that was still playing. It also flashed the
+        "connect your account" CTA at someone who is logged in, once per
+        hiccup, at ~1 Hz.
+
+        The speaker inside the tuple is still optional, and means what it says:
+        the status was read and names no speaker of ours.
         """
         async with self._session.get(self._status_url) as resp:
             if resp.status != 200:
                 logger.warning("Qobuz /api/status -> HTTP %s", resp.status)
-                return None, None
+                return None
             payload = await resp.json()
 
         authenticated = bool((payload.get("auth") or {}).get("authenticated"))

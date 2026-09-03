@@ -182,16 +182,18 @@ class TestTheLoginState:
 
         assert (await mon._fetch_status())[1] is False
 
-    async def test_a_non_200_answers_unknown_rather_than_logged_out(self):
-        """The distinction the docstring insists on: `None` means "keep the last
-        value". Answering False on a blip flashes the "connect your account" CTA
-        at someone who is logged in, once per hiccup, at ~1 Hz."""
+    async def test_a_non_200_is_not_an_answer_at_all(self):
+        """A status that could not be read is not a status, and the two ways it
+        can fail must not diverge: a sidecar that is *down* refuses the
+        connection and the loop skips the tick, while one that is up and broken
+        answers 5xx — and that used to come back as a speaker-less payload, i.e.
+        as "no session, logged out". Three ticks of the source's idle grace
+        later the full-screen player was replaced by the idle card over playing
+        audio, with the "connect your account" CTA on it, at ~1 Hz.
+        """
         mon = monitor(session_answering(Payloads(body(speaker()), status=503)))
 
-        found, authenticated = await mon._fetch_status()
-
-        assert found is None
-        assert authenticated is None
+        assert await mon._fetch_status() is None
 
     async def test_a_non_200_is_logged_so_a_broken_sidecar_is_visible(self, caplog):
         mon = monitor(session_answering(Payloads(body(speaker()), status=503)))
@@ -203,6 +205,22 @@ class TestTheLoginState:
 
 
 class TestThePollLoop:
+    async def test_a_tick_the_sidecar_would_not_answer_reaches_no_one(self):
+        """The other half of `test_a_non_200_is_not_an_answer_at_all`: nothing
+        is delivered, so the source keeps the state it had — the same outcome
+        as the raising path below, which is the point."""
+        payloads = Payloads(body(speaker()), status=503)
+        mon = monitor(session_answering(payloads))
+        mon._running = True
+
+        task = asyncio.create_task(mon._loop())
+        for _ in range(200):
+            await asyncio.sleep(0)
+        mon._running = False
+        task.cancel()
+
+        assert mon.seen == []
+
     async def test_each_tick_hands_the_speaker_to_the_source(self):
         """Nothing had ever travelled from the sidecar into `_on_status`."""
         payloads = Payloads(body(speaker()))
