@@ -4,11 +4,13 @@ Bluetooth HID remote controller for volume and playback control.
 
 Supports ANTICATER VK-01 and similar BT HID devices that send
 standard Consumer Control keycodes (KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_MUTE).
-Completely independent from the Bluetooth A2DP audio source.
+Independent from the Bluetooth A2DP audio source in code, but not on the air:
+both share hci0, so anything here that pages or scans steals slots from a
+stream in progress. Reaching the adapter is therefore bounded or manual.
 
 Features:
 - Automatic detection of BT HID devices via evdev
-- Automatic Bluetooth discovery and pairing of matching devices
+- Bluetooth discovery and pairing at startup, then on demand from the settings
 - Configurable key mapping (keycodes to actions)
 - Multi-click playback dispatch via PlaybackDispatcher (1=play/pause, 2=next, 3=prev)
 - Volume control via VolumeService
@@ -52,9 +54,8 @@ DEFAULT_KEY_MAP = {
 }
 DEFAULT_DEVICE_FILTER = "ANTICATER"
 SCAN_INTERVAL = 30.0        # Fallback interval — D-Bus listener handles instant reconnect
-# Fallback only: the D-Bus InterfacesAdded/PropertiesChanged listener handles
-# instant reconnection; this cycle just catches anything it missed.
-DISCOVERY_INTERVAL = 300.0  # Seconds between BT reconnect/discovery cycles
+BOOT_ATTEMPTS = 3           # Startup reconnect/pair tries, then the adapter is left alone
+BOOT_RETRY_INTERVAL = 15.0  # Seconds between them — BlueZ is often not ready yet
 DISCOVERY_DURATION = 5      # Seconds to run BT scan
 DBUS_RECONNECT_DELAY = 5.0  # Seconds before reconnecting a dropped D-Bus listener
 DBUS_EVDEV_SETTLE = 1.0     # Seconds to wait for evdev nodes after BLE reconnect signal
@@ -131,7 +132,7 @@ class BtRemoteController:
         """Start evdev scan, BT discovery, and D-Bus reconnect listener."""
         self.running = True
         self._scan_task = asyncio.create_task(self._periodic_scan())
-        self._discovery_task = asyncio.create_task(self._periodic_discovery())
+        self._discovery_task = asyncio.create_task(self._startup_discovery())
         if DBUS_AVAILABLE:
             self._dbus_listener_task = asyncio.create_task(self._run_dbus_listener())
 
@@ -692,43 +693,41 @@ class BtRemoteController:
         await self._broadcast_status()
         return {"status": "success", "message": "Remote unpaired"}
 
-    async def _periodic_discovery(self):
-        """Periodically attempt reconnection or full discovery when no device is active.
+    async def _startup_discovery(self):
+        """Bring a remote back at startup, then stop touching the adapter.
 
-        Runs every DISCOVERY_INTERVAL seconds when no device is connected.
-        If paired devices exist, attempts a single reconnect (for startup / after
-        the device wakes from sleep). If no paired device exists, runs a full
-        BT scan+pair. Does NOT poll aggressively — the device's own BLE advertising
-        on user interaction triggers BlueZ auto-connect for trusted devices.
+        BOOT_ATTEMPTS tries, because BlueZ is often not ready when the backend
+        comes up. Nothing here reaches the adapter again afterwards: a bonded
+        remote reconnects itself — it advertises when used, BlueZ auto-connects a
+        trusted device, and _run_dbus_listener adopts the evdev node that appears
+        — and pairing a new one is a manual act behind POST /api/bt-remote/discover.
 
-        On startup, uses a shorter retry interval (15s) for the first few attempts
-        to handle BlueZ not being fully ready yet.
+        This used to retry forever, every 300 s. The attempt is only reachable
+        while the remote is *not* connected, so it only ever fired at one that was
+        asleep, off or out of range, and each try paged it on the adapter carrying
+        A2DP audio. Measured on a unit: 40 s of the incoming stream at a third of
+        its packet rate, every 308 s, for a reconnect the remote performs itself.
         """
         await asyncio.sleep(6)
-        boot_retries = 3
 
-        while self.running:
+        for attempt in range(BOOT_ATTEMPTS):
+            if not self.running or self._monitored_paths:
+                return
             try:
-                if not self._monitored_paths:
-                    paired = await self._get_matching_devices("Paired")
-                    if paired:
-                        address, name = paired[0]
-                        if await self._run_bluetoothctl("connect", address, timeout=8):
-                            logger.info("Reconnected paired device: %s (%s)", name, address)
-                            await asyncio.sleep(1)
-                            await self._scan_devices()
-                    else:
-                        await self._auto_discover_and_pair()
+                paired = await self._get_matching_devices("Paired")
+                if paired:
+                    address, name = paired[0]
+                    if await self._run_bluetoothctl("connect", address, timeout=8):
+                        logger.info("Reconnected paired device: %s (%s)", name, address)
+                        await asyncio.sleep(1)
+                        await self._scan_devices()
+                else:
+                    await self._auto_discover_and_pair()
             except Exception as e:
                 logger.error("Error in BT auto-discovery: %s", e)
 
-            # Shorter interval on startup to recover from BlueZ not yet ready
-            if boot_retries > 0 and not self._monitored_paths:
-                boot_retries -= 1
-                await asyncio.sleep(15)
-            else:
-                boot_retries = 0
-                await asyncio.sleep(DISCOVERY_INTERVAL)
+            if attempt < BOOT_ATTEMPTS - 1:
+                await asyncio.sleep(BOOT_RETRY_INTERVAL)
 
     async def _auto_discover_and_pair(self):
         """Scan for matching BT devices and auto-pair them."""
@@ -746,7 +745,7 @@ class BtRemoteController:
         """Discover and pair a new matching BT device via full scan+pair sequence.
 
         Only called when no paired devices exist. Reconnection of already-paired
-        devices is handled by the caller (_periodic_discovery).
+        devices is handled by the caller (_startup_discovery, trigger_discovery).
         """
         logger.debug("Starting BT discovery for '%s' devices...", self.device_name_filter)
 
