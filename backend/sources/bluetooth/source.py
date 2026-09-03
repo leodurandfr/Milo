@@ -130,7 +130,7 @@ class BluetoothSource(BaseAudioSource):
         # snapshot, which carries no artwork and would wipe it. Keeping the key
         # alongside is also what expires it — a new track cannot inherit the
         # previous one's cover.
-        self._artwork = ArtworkResolver()
+        self._artwork = ArtworkResolver(self._settings_service)
         self._artwork_url: Optional[str] = None
         self._artwork_key: tuple = ()
 

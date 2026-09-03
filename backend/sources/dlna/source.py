@@ -92,7 +92,7 @@ class DlnaSource(BaseAudioSource):
         # either is read by the frontend's untrusted-sender gate as "this
         # sender has none": the whole player is swapped for the status card and
         # back, which is what a track change looked like.
-        self._artwork = ArtworkResolver()
+        self._artwork = ArtworkResolver(self._settings_service)
         self._cover_url: Optional[str] = None
         self._cover_width: int = 0
         self._cover_key: Tuple[str, ...] = ()
