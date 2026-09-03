@@ -163,7 +163,7 @@ class QobuzSource(BaseAudioSource):
         return True
 
     async def _on_status(
-        self, speaker: Optional[Dict[str, Any]], authenticated: Optional[bool]
+        self, speaker: Optional[Dict[str, Any]], authenticated: bool
     ) -> None:
         """Map a qobuz-proxy speaker snapshot into connection/playback state.
 
@@ -177,13 +177,14 @@ class QobuzSource(BaseAudioSource):
         rootfs/usr/local/bin/milo-qobuz) and the frontend interpolates between
         ticks; seeking stays with the Qobuz app — Family B has no local control.
 
-        `authenticated` is the proxy's login state (None = unknown, keep last);
+        `authenticated` is the proxy's login state, read off the same payload;
         it rides the broadcast metadata so the idle card can offer a "connect
-        account" CTA when no Qobuz account is logged in.
+        account" CTA when no Qobuz account is logged in. There is no "unknown"
+        to absorb here: a tick the monitor could not read is not delivered at
+        all (QobuzMonitor._fetch_status).
         """
         was_authenticated = self._authenticated
-        if authenticated is not None:
-            self._authenticated = authenticated
+        self._authenticated = authenticated
 
         status = (speaker or {}).get("status")
 
@@ -202,12 +203,33 @@ class QobuzSource(BaseAudioSource):
                     "album_art_url": now.get("album_art_url"),
                     "is_playing": self._is_playing,
                     "is_buffering": False,
+                    # The *length* is carried across the rebuild, not the
+                    # playhead. The length rides the same tick as the track but
+                    # resolves a beat later, and a rebuild that published none
+                    # removed the bar instead of correcting it (ProgressBar
+                    # renders under `duration > 0`). The playhead has no such
+                    # excuse: the sidecar reports it from the track's first
+                    # tick, and carrying the previous track's would draw 3:45 of
+                    # 3:50 on a song that just started, interpolating past its
+                    # own end. The line below overwrites both the moment the
+                    # sidecar has a length, which on an ordinary track change is
+                    # this same tick.
+                    "position": now.get("position_ms", self._metadata.get("position")),
+                    "duration": self._metadata.get("duration"),
                 }
             elif self._metadata:
                 self._metadata["is_playing"] = self._is_playing
             # Progress is absent from the between-tracks blip payload — keep the
-            # last pair rather than snapping the bar back to zero.
-            if self._metadata and "duration_ms" in now:
+            # last pair rather than snapping the bar back to zero. A zero is
+            # absent too, and is the shape the blip takes here: the sidecar
+            # types its duration `int = 0` and milo-qobuz injects the pair
+            # whenever there is a now_playing at all, so the key is present
+            # from a track's first tick and carries 0 until its length
+            # resolves. Adopted, that zero does not correct the bar —
+            # ProgressBar renders under `duration > 0` and carries a mount
+            # animation, so it removes it and replays its entrance on the way
+            # back. Same lesson as DLNA's playhead (6d4df23d).
+            if self._metadata and now.get("duration_ms"):
                 self._metadata["position"] = now["position_ms"]
                 self._metadata["duration"] = now["duration_ms"]
 
