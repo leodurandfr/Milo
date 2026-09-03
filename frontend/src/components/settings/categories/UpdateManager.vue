@@ -17,130 +17,136 @@
       <!-- The operating system and the individual programs share one card:
            a divider tells the two groups apart. -->
       <SettingsSection>
-        <template v-if="localProgramsLoading || localPrograms.milo">
-          <h2 class="heading-2">{{ t('updates.osTitle') }}</h2>
-          <!-- Shown only alongside the button, because it describes what pressing
-               it does: one Milō update carries the whole validated set, and the
-               satellites with it — but only say so where there are any. -->
-          <p v-if="!localProgramsLoading && localPrograms.milo?.update_available && !isLocalUpdateCompleted('milo')"
-            class="text-mono-medium section-note">
-            {{ t('updates.dependenciesHint') }}
-            <template v-if="anticipatedSatellites.length"> {{ t('updates.clientsHint') }}</template>
-          </p>
-          <div class="crossfade-wrapper">
-            <Transition name="crossfade">
-              <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
-                <div class="program-item-skeleton">
-                  <div class="skeleton-icon shimmer"></div>
-                  <div class="skeleton-text shimmer skeleton-name"></div>
-                  <div class="skeleton-text shimmer skeleton-version"></div>
-                  <div class="skeleton-button shimmer"></div>
-                </div>
-              </div>
-
-              <div v-else key="content" class="programs-list">
-                <div class="program-item">
-                  <div class="program-info">
-                    <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
-                    <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
-                    <span class="program-version text-mono-medium">
-                      milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
-                      <template
-                        v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
-                        <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
-                      </template>
-                    </span>
+        <div class="update-groups">
+          <template v-if="localProgramsLoading || localPrograms.milo">
+            <div class="update-group">
+              <h2 class="heading-2">{{ t('updates.osTitle') }}</h2>
+              <!-- Shown only alongside the button, because it describes what pressing
+                   it does: one Milō update carries the whole validated set, and the
+                   satellites with it — but only say so where there are any. -->
+              <p v-if="!localProgramsLoading && localPrograms.milo?.update_available && !isLocalUpdateCompleted('milo')"
+                class="text-mono-medium section-note">
+                {{ t('updates.dependenciesHint') }}
+                <template v-if="anticipatedSatellites.length"> {{ t('updates.clientsHint') }}</template>
+              </p>
+              <div class="crossfade-wrapper">
+                <Transition name="crossfade">
+                  <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
+                    <div class="program-item-skeleton">
+                      <div class="skeleton-icon shimmer"></div>
+                      <div class="skeleton-text shimmer skeleton-name"></div>
+                      <div class="skeleton-text shimmer skeleton-version"></div>
+                      <div class="skeleton-button shimmer"></div>
+                    </div>
                   </div>
 
-                  <div class="program-actions">
-                    <Button
-                      v-if="isLocalUpdating('milo') || debugForceUpdating || (localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))"
-                      size="small" variant="brand" class="program-button"
-                      :loading="isLocalUpdating('milo') || debugForceUpdating"
-                      @click="startLocalUpdate('milo')"
-                      :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()">
-                      {{ (isLocalUpdating('milo') || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
-                    </Button>
-                    <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                      {{ t('updates.upToDate') }}
-                    </Button>
+                  <div v-else key="content" class="programs-list">
+                    <div class="program-item">
+                      <div class="program-info">
+                        <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
+                        <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
+                        <span class="program-version text-mono-medium">
+                          milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
+                          <template
+                            v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
+                            <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
+                          </template>
+                        </span>
+                      </div>
+
+                      <div class="program-actions">
+                        <Button
+                          v-if="isLocalUpdating('milo') || debugForceUpdating || (localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))"
+                          size="small" variant="brand" class="program-button"
+                          :loading="isLocalUpdating('milo') || debugForceUpdating"
+                          @click="startLocalUpdate('milo')"
+                          :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()">
+                          {{ (isLocalUpdating('milo') || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                        </Button>
+                        <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                          {{ t('updates.upToDate') }}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </Transition>
+              </div>
+            </div>
+
+            <div class="section-divider"></div>
+          </template>
+
+          <!-- The individual programs — a maintainer surface. -->
+          <div class="update-group">
+            <h2 class="heading-2">{{ t('updates.programsTitle') }}</h2>
+            <div class="crossfade-wrapper">
+              <Transition name="crossfade">
+                <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
+                  <div v-for="n in enabledProgramCount" :key="n" class="program-item-skeleton">
+                    <div class="skeleton-icon shimmer"></div>
+                    <div class="skeleton-text shimmer skeleton-name"></div>
+                    <div class="skeleton-text shimmer skeleton-version"></div>
+                    <div class="skeleton-button shimmer"></div>
                   </div>
                 </div>
-              </div>
-            </Transition>
+
+                <div v-else key="content" class="programs-list">
+                  <template v-for="(program, key) in localPrograms" :key="key">
+                    <div v-if="key !== 'milo' && isProgramEnabled(key)" class="program-item">
+                      <div class="program-info">
+                        <AppIcon :name="getProgramIcon(key)" :size="48" class="program-icon" />
+                        <span class="program-name heading-4">{{ getProgramDisplayName(program, key) }}</span>
+                        <span class="program-version text-mono-medium">
+                          {{ getVersionLabel(key) }} {{ getLocalInstalledVersion(program) || t('updates.notAvailable') }}
+                          <span v-if="rows[key].update" class="version-new">> {{ rows[key].update.version }}</span>
+                        </span>
+                      </div>
+
+                      <div class="program-actions">
+                        <!-- While an install runs there is one button, and it is the
+                             one that was pressed: it keeps its own label and colour
+                             rather than being joined by a second, still-clickable
+                             one the backend would refuse. -->
+                        <Button v-if="isLocalUpdating(key) || debugForceUpdating"
+                          size="small" :variant="isReverting(key) ? 'background-strong' : 'brand'"
+                          class="program-button" loading disabled>
+                          {{ isReverting(key)
+                            ? t('updates.revertingTo', { version: rows[key].revertTo })
+                            : t('updates.updating') }}
+                        </Button>
+                        <template v-else>
+                          <!-- Only on a unit deliberately moved past the manifest —
+                               and then it is the only thing saying so. First, so
+                               that the row's rightmost button is the one that moves
+                               forward, wherever the two appear together. -->
+                          <Button v-if="rows[key].revertTo" size="small" variant="background-strong"
+                            class="program-button"
+                            @click="startLocalUpdate(key, 'validated')"
+                            :disabled="isLocalUpdateBusy()">
+                            {{ t('updates.revertTo', { version: rows[key].revertTo }) }}
+                          </Button>
+                          <!-- One button for both kinds of update: the manifest's
+                               version, and what upstream published past it. Which
+                               one it is comes from the backend, never from a
+                               comparison here. -->
+                          <Button v-if="rows[key].update && canUpdateLocal(key)"
+                            size="small" variant="brand" class="program-button"
+                            @click="startLocalUpdate(key, rows[key].update.target)"
+                            :disabled="isLocalUpdateBusy()">
+                            {{ t('updates.update') }}
+                          </Button>
+                          <Button v-if="!rows[key].update && !rows[key].revertTo"
+                            size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
+                            {{ t('updates.upToDate') }}
+                          </Button>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </Transition>
+            </div>
           </div>
-
-          <div class="section-divider"></div>
-        </template>
-
-        <!-- The individual programs — a maintainer surface. -->
-        <h2 class="heading-2">{{ t('updates.programsTitle') }}</h2>
-        <div class="crossfade-wrapper">
-          <Transition name="crossfade">
-            <div v-if="localProgramsLoading" key="skeleton" class="programs-list">
-              <div v-for="n in enabledProgramCount" :key="n" class="program-item-skeleton">
-                <div class="skeleton-icon shimmer"></div>
-                <div class="skeleton-text shimmer skeleton-name"></div>
-                <div class="skeleton-text shimmer skeleton-version"></div>
-                <div class="skeleton-button shimmer"></div>
-              </div>
-            </div>
-
-            <div v-else key="content" class="programs-list">
-              <template v-for="(program, key) in localPrograms" :key="key">
-                <div v-if="key !== 'milo' && isProgramEnabled(key)" class="program-item">
-                  <div class="program-info">
-                    <AppIcon :name="getProgramIcon(key)" :size="48" class="program-icon" />
-                    <span class="program-name heading-4">{{ getProgramDisplayName(program, key) }}</span>
-                    <span class="program-version text-mono-medium">
-                      {{ getVersionLabel(key) }} {{ getLocalInstalledVersion(program) || t('updates.notAvailable') }}
-                      <span v-if="rows[key].update" class="version-new">> {{ rows[key].update.version }}</span>
-                    </span>
-                  </div>
-
-                  <div class="program-actions">
-                    <!-- While an install runs there is one button, and it is the
-                         one that was pressed: it keeps its own label and colour
-                         rather than being joined by a second, still-clickable
-                         one the backend would refuse. -->
-                    <Button v-if="isLocalUpdating(key) || debugForceUpdating"
-                      size="small" :variant="isReverting(key) ? 'background-strong' : 'brand'"
-                      class="program-button" loading disabled>
-                      {{ isReverting(key)
-                        ? t('updates.revertingTo', { version: rows[key].revertTo })
-                        : t('updates.updating') }}
-                    </Button>
-                    <template v-else>
-                      <!-- Only on a unit deliberately moved past the manifest —
-                           and then it is the only thing saying so. First, so
-                           that the row's rightmost button is the one that moves
-                           forward, wherever the two appear together. -->
-                      <Button v-if="rows[key].revertTo" size="small" variant="background-strong"
-                        class="program-button"
-                        @click="startLocalUpdate(key, 'validated')"
-                        :disabled="isLocalUpdateBusy()">
-                        {{ t('updates.revertTo', { version: rows[key].revertTo }) }}
-                      </Button>
-                      <!-- One button for both kinds of update: the manifest's
-                           version, and what upstream published past it. Which
-                           one it is comes from the backend, never from a
-                           comparison here. -->
-                      <Button v-if="rows[key].update && canUpdateLocal(key)"
-                        size="small" variant="brand" class="program-button"
-                        @click="startLocalUpdate(key, rows[key].update.target)"
-                        :disabled="isLocalUpdateBusy()">
-                        {{ t('updates.update') }}
-                      </Button>
-                      <Button v-if="!rows[key].update && !rows[key].revertTo"
-                        size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
-                        {{ t('updates.upToDate') }}
-                      </Button>
-                    </template>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </Transition>
         </div>
       </SettingsSection>
 
@@ -509,10 +515,25 @@ onMounted(async () => {
   color: var(--color-text-secondary);
 }
 
+/* The two groups and the line between them carry their own gap, so a single
+   token spells the space above the line and below it. The section's own
+   `--space-04` no longer reaches them — it sees one child — and it stays the
+   gap *inside* each group, between a title and what it introduces. */
+.update-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
+}
+
+.update-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
 .section-divider {
   height: 1px;
   background: var(--color-border);
-  margin: var(--space-04) 0 var(--space-02) 0;
 }
 
 .programs-list {
