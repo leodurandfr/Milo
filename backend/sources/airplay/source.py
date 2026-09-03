@@ -59,7 +59,9 @@ POSITION_JUMP_TOLERANCE_MS = 2000
 #
 # The tags and the picture are two SET_PARAMETER requests in no guaranteed
 # order, so a track change leaves one of the two unpaired whichever way round
-# it arrives (see _sync_artwork_hold, which arms this either way).
+# it arrives. This bounds the half that can be stale -- the picture stamped
+# *before* the tags on screen (see _artwork_is_current, which is what decides
+# that a picture stamped after them is simply this track's).
 # Publishing that gap drops album_art_url, and the frontend's untrusted-sender
 # gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX) reads a missing album_art_width as
 # "this sender pushes no real cover": AudioPlayerFull is swapped for the status
@@ -445,7 +447,7 @@ class AirPlaySource(BaseAudioSource):
         core.album_art_url = None
         extras.pop("album_art_width", None)
         if self._artwork_url and (
-            self._artwork_id == self._track_id or self._artwork_settle_task
+            self._artwork_is_current() or self._artwork_settle_task
         ):
             core.album_art_url = self._artwork_url
             extras["album_art_width"] = self._artwork_width
@@ -462,20 +464,58 @@ class AirPlaySource(BaseAudioSource):
 
         self._reset_playback_state()
 
+    def _artwork_is_current(self) -> bool:
+        """Whether the cover in hand belongs to the tags on screen.
+
+        Not equality, and the difference is a sender's. Measured on an iPhone
+        (2026-09-03): iOS re-sends its bundle several times inside one track
+        under an rtptime that keeps advancing -- +1056 frames, 24 ms, three
+        AirPlay packets -- so the stamp is the sender's playback position when
+        it wrote the request, not the per-track identity rtsp.c describes.
+        Equality then holds only when a bundle happens to land on the picture's
+        stamp, and when the picture is the one stamped *later* no further
+        bundle comes to meet it: the hold expired mid-track and dropped a cover
+        that was this very track's, taking AudioPlayerFull off the screen for
+        as long as 11 s, four times in 95 publishes.
+
+        What the stamps do carry is order. A picture stamped at or after the
+        tags on screen cannot belong to a track already past, so it is the
+        cover to show. Only a picture stamped *before* them may be the previous
+        track's -- that is the one ARTWORK_SETTLE_SECONDS bounds, and it is the
+        order (tags first) the bound was written for.
+        """
+        if self._artwork_id == self._track_id:
+            return True
+        if self._artwork_id is None or self._track_id is None:
+            return False
+        try:
+            # RTP timestamps are 32-bit and wrap, so "after" is the serial
+            # comparison, not the integer one.
+            delta = (int(self._artwork_id) - int(self._track_id)) % (1 << 32)
+        except ValueError:
+            return False
+        return 0 < delta < (1 << 31)
+
     def _sync_artwork_hold(self) -> None:
-        """Arm or release the hold on the cover in hand, whichever way it lags.
+        """Arm or release the hold on the cover in hand.
 
         The tags and the picture are two SET_PARAMETER requests in no
         guaranteed order, so either can be the one still in flight — and the
         gap is the same gap. Tags first leaves the new stamp with no picture
         yet; picture first leaves a picture stamped for a track the tags have
-        not announced, and the publish, judging on the stamps alone, dropped
-        the cover from a state still carrying the *previous* track's title.
-        The frontend reads a missing album_art_width as "this sender pushes no
-        real cover" and swapped the player for the status card and back, which
-        is the same flicker from the other side.
+        not announced, and the publish, judging on equality alone, dropped the
+        cover from a state still carrying the *previous* track's title. The
+        frontend reads a missing album_art_width as "this sender pushes no real
+        cover" and swapped the player for the status card and back, which is
+        the same flicker from the other side.
+
+        Which of the two is in flight is what `_artwork_is_current` reads off
+        the stamps' order, and only the picture that may genuinely be the
+        previous track's — the one stamped before the tags — is held on a
+        deadline. Arming the deadline for the other one is what emptied the
+        cover mid-track on an iPhone.
         """
-        if self._artwork_url and self._artwork_id != self._track_id:
+        if self._artwork_url and not self._artwork_is_current():
             self._start_artwork_settle()
         else:
             self._cancel_artwork_settle()

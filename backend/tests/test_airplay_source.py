@@ -28,6 +28,10 @@ from backend.sources.airplay.source import AirPlaySource
 # Two rtptimes, as the sender sends them: an ASCII decimal string.
 RTP_A = "3222108659"
 RTP_B = "3222285731"
+# The same track, three AirPlay packets later. Measured on an iPhone
+# (2026-09-03): iOS re-stamps every re-sent bundle and its picture with the
+# playback position, which advances by 1056 frames (24 ms) inside one track.
+RTP_A_LATER = str(int(RTP_A) + 1056)
 
 
 def _cover(color: str, size: int = 600) -> bytes:
@@ -195,6 +199,63 @@ class TestCoverPairing:
         await _after_the_hold()
 
         assert "album_art_url" not in source.metadata
+
+    async def test_a_cover_stamped_just_after_its_own_tags_is_not_dropped(self, airplay):
+        """The stamp is a position, not an identity, and iOS proves it.
+
+        An iPhone re-sends its bundle several times inside one track, each under
+        a fresh rtptime, and stamps the picture with one of them — so the
+        picture routinely carries a stamp a few packets *after* the last bundle
+        received, and no later bundle ever comes to meet it. Judged by equality
+        that pairing never completes: the hold expired mid-track and dropped a
+        cover that was this very track's, which the untrusted-sender gate reads
+        as "no real cover" and takes AudioPlayerFull off the screen. Measured
+        live at 11 s on the screen, four times in 95 publishes.
+
+        Asserted after the hold has run out, because before it the pending
+        settle shows the cover for the wrong reason.
+        """
+        source, feed = airplay
+        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A_LATER, _cover("navy")))
+
+        await _after_the_hold()
+
+        assert source.metadata["title"] == "Says"
+        assert source.metadata["album_art_url"], source.metadata
+        assert source.metadata["album_art_width"] == 600
+
+    async def test_a_drifting_sender_never_takes_the_player_off_the_screen(self, airplay):
+        """The same shape over a run, judged the way the screen judges it.
+
+        Every publish is replayed through `useRichDisplay`'s airplay arm — title
+        AND artist AND a cover over 300 px — and none of them may take it from
+        true back to false. That is the whole defect class: a display field
+        emptied while its replacement is in flight does not correct the piece of
+        UI it feeds, it removes it. Over every published state, not the last:
+        the last one was always right, which is how this survived the fix that
+        named it.
+        """
+        source, feed = airplay
+        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
+        published = _every_publish(source)
+
+        # The sender re-sends the same track under a fresh stamp, and its
+        # picture lands a few packets ahead of it — the measured iOS order.
+        await feed(_bundle(RTP_A_LATER, "Says"))
+        await feed(_picture(str(int(RTP_A_LATER) + 1056), _cover("navy")))
+        await _after_the_hold()
+
+        def rich(m):
+            return bool(m.get("title")) and bool(m.get("artist")) and (
+                m.get("album_art_width") or 0) > 300
+
+        assert published, "the run published nothing to judge"
+        unmounts = [
+            (before, after)
+            for before, after in zip(published, published[1:])
+            if rich(before) and not rich(after)
+        ]
+        assert not unmounts, unmounts
 
     async def test_two_tracks_off_one_album_keep_their_cover(self, airplay):
         """The same image byte for byte, so the md5 dedupe in `_on_artwork`
