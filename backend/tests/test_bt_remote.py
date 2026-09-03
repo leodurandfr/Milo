@@ -1407,24 +1407,26 @@ class TestThePeriodicScan:
         assert "Error scanning BT HID devices" in caplog.text
 
 
-class TestThePeriodicDiscovery:
-    """`_periodic_discovery` was at 0 %. It is the unattended half of pairing:
-    it reconnects a bonded remote after a deep sleep, and runs a full
-    scan+pair when there is no bond at all."""
+class TestTheStartupDiscovery:
+    """`_startup_discovery` is the unattended half of pairing: it reconnects a
+    bonded remote once the backend is up, and runs a full scan+pair when there
+    is no bond at all. It is bounded on purpose — see the module docstring."""
 
-    async def _run(self, bt, monkeypatch, ticks):
+    async def _run(self, bt, monkeypatch, guard=50):
+        """`guard` stops a coroutine that never returns. Without it a restored
+        endless retry would spin these tests forever instead of failing them."""
         delays = []
         real_sleep = asyncio.sleep
 
         async def record(delay, *args, **kwargs):
             delays.append(delay)
-            if len(delays) >= ticks:
+            if len(delays) >= guard:
                 bt.controller.running = False
             return await real_sleep(0)
 
         monkeypatch.setattr(asyncio, "sleep", record)
         bt.controller.running = True
-        await bt.controller._periodic_discovery()
+        await bt.controller._startup_discovery()
         return delays
 
     @pytest.mark.asyncio
@@ -1438,7 +1440,7 @@ class TestThePeriodicDiscovery:
         monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
         monkeypatch.setattr(bt.controller, "_scan_devices", scans)
 
-        await self._run(bt, monkeypatch, ticks=2)
+        await self._run(bt, monkeypatch)
 
         assert "connect" in bt.bluez.argv_names()
         pair.assert_not_awaited()
@@ -1452,7 +1454,7 @@ class TestThePeriodicDiscovery:
         pair = AsyncMock()
         monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
 
-        await self._run(bt, monkeypatch, ticks=2)
+        await self._run(bt, monkeypatch)
 
         pair.assert_awaited()
         assert "connect" not in bt.bluez.argv_names()
@@ -1465,50 +1467,54 @@ class TestThePeriodicDiscovery:
         pair = AsyncMock()
         monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
 
-        await self._run(bt, monkeypatch, ticks=2)
+        await self._run(bt, monkeypatch)
 
         pair.assert_not_awaited()
         assert bt.bluez.calls == []
 
     @pytest.mark.asyncio
-    async def test_the_first_attempts_retry_fast_then_settle_to_the_long_cycle(
-        self, bt, monkeypatch
-    ):
-        """BlueZ is often not ready when the backend comes up, and 300 s of
-        silence after a cold boot is a remote that looks broken."""
+    async def test_the_attempts_are_bounded_and_the_coroutine_ends(self, bt, monkeypatch):
+        """The guard on the audio bug. This used to retry forever, and every
+        retry paged an absent remote on the adapter carrying A2DP audio — 40 s
+        of ruined stream, every 308 s. Nothing may reach the adapter on its own
+        once the startup budget is spent, so the coroutine has to *return*."""
         bt.bluez.paired = []
-        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", AsyncMock())
+        pair = AsyncMock()
+        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
 
-        delays = await self._run(bt, monkeypatch, ticks=6)
+        delays = await self._run(bt, monkeypatch)
 
-        assert delays == [6, 15, 15, 15, bt_remote_module.DISCOVERY_INTERVAL,
-                          bt_remote_module.DISCOVERY_INTERVAL]
+        assert pair.await_count == bt_remote_module.BOOT_ATTEMPTS
+        # Still self.running: it stopped because the budget ran out, not because
+        # the fixture tore it down.
+        assert bt.controller.running
+        assert max(delays) <= bt_remote_module.BOOT_RETRY_INTERVAL
 
     @pytest.mark.asyncio
-    async def test_a_connected_remote_stops_the_fast_retries(self, bt, monkeypatch):
-        """The boot budget is for finding the remote; once found, going on
-        polling at 15 s keeps the adapter busy for nothing."""
+    async def test_a_remote_found_early_ends_the_sequence(self, bt, monkeypatch):
+        """The budget is for finding the remote; going on paging once it is
+        adopted keeps the adapter busy for nothing."""
         async def adopt():
             bt.controller._monitored_paths.add("/dev/input/event5")
 
         bt.bluez.paired = []
-        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", AsyncMock(side_effect=adopt))
+        pair = AsyncMock(side_effect=adopt)
+        monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
 
-        delays = await self._run(bt, monkeypatch, ticks=3)
+        await self._run(bt, monkeypatch)
 
-        assert delays == [6, bt_remote_module.DISCOVERY_INTERVAL,
-                          bt_remote_module.DISCOVERY_INTERVAL]
+        assert pair.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_a_failing_cycle_does_not_end_the_loop(self, bt, monkeypatch, caplog):
-        pair = AsyncMock(side_effect=[RuntimeError("adapter down"), None])
+    async def test_a_failing_attempt_does_not_end_the_sequence(self, bt, monkeypatch, caplog):
+        pair = AsyncMock(side_effect=[RuntimeError("adapter down"), None, None])
         bt.bluez.paired = []
         monkeypatch.setattr(bt.controller, "_auto_discover_and_pair", pair)
 
         with caplog.at_level(logging.ERROR):
-            await self._run(bt, monkeypatch, ticks=3)
+            await self._run(bt, monkeypatch)
 
-        assert pair.await_count == 2
+        assert pair.await_count == bt_remote_module.BOOT_ATTEMPTS
         assert "Error in BT auto-discovery" in caplog.text
 
 
