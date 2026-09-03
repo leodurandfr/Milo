@@ -55,13 +55,22 @@ def _item(item_type: str, code: str, payload: Optional[bytes] = None) -> str:
     return head + f'<data encoding="base64">{base64.b64encode(payload).decode()}</data></item>'
 
 
-def _bundle(rtptime: Optional[str], title: str, artist: str = "Nils Frahm") -> str:
-    """A track's tags, bracketed by mdst/mden as rtsp.c brackets them."""
+def _bundle(
+    rtptime: Optional[str], title: str, artist: Optional[str] = "Nils Frahm"
+) -> str:
+    """A track's tags, bracketed by mdst/mden as rtsp.c brackets them.
+
+    `artist=None` is a bundle the sender sent no `asar` in — not an empty one:
+    a DAAP tag a sender omits produces no item at all, which is the whole
+    difference between "this track has no artist" and "unchanged".
+    """
     stamp = rtptime.encode() if rtptime else None
+    tags = [_item("core", "minm", title.encode())]
+    if artist is not None:
+        tags.append(_item("core", "asar", artist.encode()))
     return "".join([
         _item("ssnc", "mdst", stamp),
-        _item("core", "minm", title.encode()),
-        _item("core", "asar", artist.encode()),
+        *tags,
         _item("ssnc", "mden", stamp),
     ])
 
@@ -98,6 +107,25 @@ def airplay(monkeypatch):
         await reader._process_buffer("".join(chunks).encode())
 
     return source, feed
+
+
+def _every_publish(source) -> list:
+    """Record every state the source publishes from here on, in order.
+
+    `source.metadata` is only the last one, and a flicker is by definition a
+    state that was published and then corrected — so the assertions about one
+    have to be able to see the states in between. The real `set_state` still
+    runs; this only watches what goes through it.
+    """
+    published: list = []
+    real = source.set_state
+
+    def watch(state, metadata=None):
+        published.append(dict(metadata or {}))
+        real(state, metadata)
+
+    source.set_state = watch
+    return published
 
 
 async def _after_the_hold() -> None:
@@ -215,6 +243,82 @@ class TestCoverPairing:
 
         assert source.metadata["album_art_url"] != held
         assert source.metadata["album_art_width"] == 450
+
+    async def test_a_cover_arriving_first_does_not_blank_the_one_on_screen(self, airplay):
+        """The mirror of the test above, and the same flicker.
+
+        The order is the sender's, so the picture can be the one that arrives
+        first — and then the new stamp is on the cover while the title on
+        screen is still the previous track's. A publish judging on the stamps
+        alone found them unequal and dropped `album_art_url` from that state,
+        which `useRichDisplay`'s untrusted-sender gate reads as "this sender
+        pushes no real cover": AudioPlayerFull swapped for the AudioSourceStatus
+        card and back, the player animating itself out and in.
+
+        Asserted over every published state, not the last one: the last one was
+        always right, which is why the tags-first fix left this half standing.
+        """
+        source, feed = airplay
+        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, _cover("navy")))
+        published = _every_publish(source)
+
+        await feed(
+            _picture(RTP_B, _cover("crimson", size=450)),
+            _bundle(RTP_B, "Toilet Brush"),
+        )
+
+        assert published, "the track change published nothing to judge"
+        assert all(m.get("album_art_width") for m in published), published
+        assert source.metadata["title"] == "Toilet Brush"
+        assert source.metadata["album_art_width"] == 450
+
+    async def test_a_cover_arriving_first_off_one_album_does_not_blank_it_either(
+        self, airplay
+    ):
+        """Same order, through the md5 dedupe: the identical image re-sent under
+        a new stamp takes the early return, which published its own coverless
+        state on the way past."""
+        source, feed = airplay
+        sleeve = _cover("navy")
+        await feed(_bundle(RTP_A, "Says"), _picture(RTP_A, sleeve))
+        published = _every_publish(source)
+
+        await feed(_picture(RTP_B, sleeve), _bundle(RTP_B, "Says (Live)"))
+
+        assert published, "the track change published nothing to judge"
+        assert all(m.get("album_art_width") for m in published), published
+        assert source.metadata["title"] == "Says (Live)"
+
+    async def test_a_bundle_under_a_new_stamp_owns_every_tag(self, airplay):
+        """Nothing belonging to the previous track is published as this one's.
+
+        A bundle carries only the DAAP tags the sender put in it, so a track
+        sent without an `asar` used to be published wearing the previous
+        track's artist — under the right title, for the whole of it. The stamp
+        settles it, the same stamp the cover is paired by: a new one is a
+        different track and owns its absences too. The status card is then the
+        right screen, and it is the one the gate already picks for a sender
+        that publishes a bare title.
+        """
+        source, feed = airplay
+        await feed(_bundle(RTP_A, "Says", artist="Nils Frahm"))
+
+        await feed(_bundle(RTP_B, "Untitled recording", artist=None))
+
+        assert source.metadata["title"] == "Untitled recording"
+        assert not source.metadata.get("artist")
+
+    async def test_a_bundle_under_the_stamp_on_screen_amends_it(self, airplay):
+        """The other half of the same rule, and what stops it stripping a track
+        that is already right: a bundle re-sent under the stamp on screen is an
+        amendment to that track, not a new one, so the tags it does not carry
+        stay as they were."""
+        source, feed = airplay
+        await feed(_bundle(RTP_A, "Says", artist="Nils Frahm"))
+
+        await feed(_bundle(RTP_A, "Says", artist=None))
+
+        assert source.metadata["artist"] == "Nils Frahm"
 
     async def test_a_sender_without_rtp_info_keeps_what_it_had(self, airplay):
         """shairport-sync tolerates a sender that sends no RTP-Info and sends
