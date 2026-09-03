@@ -8,9 +8,17 @@ mounts anything and never touches credentials.
 
 Implementation mirrors :mod:`backend.core.system.hostname_conflict`: browse
 Avahi (already running on the box for milo.local) via ``avahi-browse``, parse its
-parseable output, and fail open — no avahi-utils, a timeout, a non-zero exit, or
-an unparseable line all yield an empty list, so the form still works with manual
-entry. No new package: avahi-utils ships with the image.
+parseable output, and fail open — no avahi-utils, a timeout, or an unparseable
+line all yield an empty list, so the form still works with manual entry. No new
+package: avahi-utils ships with the image.
+
+Lines are read as they are printed rather than after the process exits, because
+``avahi-browse -t`` does not terminate until *every* advertised record has
+resolved, and one record that never resolves holds it open for the resolver's
+full timeout. Measured on the owner's LAN: the two SMB servers were printed
+20 ms in, and the run still took 5.02 s every time — an IPv6 record the NAS
+advertises but never answers for. Collecting only at exit therefore returned
+nothing at all on a network where both servers had already been found.
 """
 import asyncio
 import logging
@@ -19,9 +27,10 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger("source.music_library.discovery")
 
-# avahi-browse -t dumps the daemon's (warm) cache; an always-on NAS is already
-# cached and returns near-instantly. The timeout only caps the empty-LAN case
-# (nothing responds) — kept short so the "Find on network" button stays snappy.
+# How long to keep reading. Servers from the daemon's warm cache arrive in the
+# first few milliseconds, so this only caps the wait for a straggler (or for an
+# unresolvable record, which pins every run to the deadline) — kept short so the
+# "Find on network" button stays snappy. Whatever arrived by then is kept.
 BROWSE_TIMEOUT_S = 2.5
 
 # Avahi service type → the ShareRequest `type` discriminator it maps to.
@@ -59,33 +68,47 @@ async def discover_servers() -> List[Dict[str, str]]:
 
 
 async def _browse(service_type: str, share_type: str) -> List[Dict[str, str]]:
-    """Run one ``avahi-browse`` for a service type; [] on any failure."""
+    """Run one ``avahi-browse`` for a service type; [] on any failure.
+
+    Line-buffered (``stdbuf -oL``) and consumed line by line: what has been
+    printed when the deadline passes is kept, since the process itself may stay
+    alive long after every reachable server has been reported.
+    """
     try:
         proc = await asyncio.create_subprocess_exec(
-            "avahi-browse", "-rt", "-p", service_type,
+            "stdbuf", "-oL", "avahi-browse", "-rt", "-p", service_type,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        logger.debug("avahi-browse not available — share discovery disabled")
-        return []
-    try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=BROWSE_TIMEOUT_S)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        return []
-    except Exception as exc:  # never let discovery break the (resilient) route
-        logger.debug("avahi-browse failed for %s: %s", service_type, exc)
-        return []
-    if proc.returncode != 0:
+        logger.debug("stdbuf not available — share discovery disabled")
         return []
 
+    # A missing avahi-browse is not a FileNotFoundError here (stdbuf is the one
+    # exec'd); it exits 127 having printed nothing, which reads as "no servers".
     out: List[Dict[str, str]] = []
-    for line in stdout.decode("utf-8", errors="ignore").splitlines():
-        server = _parse_resolved(line, share_type)
-        if server is not None:
-            out.append(server)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + BROWSE_TIMEOUT_S
+    try:
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+            except asyncio.TimeoutError:
+                break
+            if not raw:  # EOF — the browse ended on its own
+                break
+            server = _parse_resolved(raw.decode("utf-8", errors="ignore"), share_type)
+            if server is not None:
+                out.append(server)
+    except Exception as exc:  # never let discovery break the (resilient) route
+        logger.debug("avahi-browse failed for %s: %s", service_type, exc)
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+        await proc.wait()
     return out
 
 
