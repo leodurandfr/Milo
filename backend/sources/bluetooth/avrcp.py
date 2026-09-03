@@ -223,6 +223,8 @@ class AvrcpController:
         self._reread_task: Optional[asyncio.Task] = None
         self._status_changed_at: float = 0.0
         self._settling_since: float = 0.0
+        self._pending_track: Optional[Dict[str, Any]] = None
+        self._settle_task: Optional[asyncio.Task] = None
         self._own_playhead_from: Optional[float] = None
         self._command_at: float = 0.0
         self._stopped = False
@@ -278,7 +280,8 @@ class AvrcpController:
         """Drop the listener, the bus and any tracked player."""
         self._stopped = True
 
-        for task in (self._notify_task, self._poll_task, self._reread_task):
+        for task in (self._notify_task, self._poll_task, self._reread_task,
+                     self._settle_task):
             if task and not task.done():
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -286,6 +289,7 @@ class AvrcpController:
         self._notify_task = None
         self._poll_task = None
         self._reread_task = None
+        self._settle_task = None
 
         if self._bus:
             with contextlib.suppress(Exception):
@@ -463,6 +467,14 @@ class AvrcpController:
             self._track = {}
             self._status = ""
             self._position = None
+            # A batch held for the sender that just left is not a correction to
+            # the one arriving. Left pending, its flush fires two seconds later
+            # and publishes the previous sender's track under this one's
+            # address -- reachable whenever the new player's InterfacesAdded
+            # carries no Track of its own to supersede it.
+            self._cancel_settle_flush()
+            self._pending_track = None
+            self._settling_since = 0.0
         self._apply_props(props)
 
     def _clear_player(self) -> None:
@@ -480,6 +492,7 @@ class AvrcpController:
         self._status = ""
         self._position = None
         self._settling_since = 0.0
+        self._pending_track = None
         self._own_playhead_from = None
         self._command_at = 0.0
 
@@ -487,9 +500,11 @@ class AvrcpController:
         """Mirror a Track/Status/Position property batch (values are Variants)."""
         if "Track" in props:
             incoming = {k: v.value for k, v in props["Track"].value.items()}
-            if self._is_half_updated(incoming):
-                self._settling_since = time.monotonic()
+            if self._is_half_updated(incoming) and self._settle_window_open:
+                self._hold_track(incoming)
             else:
+                self._cancel_settle_flush()
+                self._pending_track = None
                 self._settling_since = 0.0
                 self._track = incoming
                 # The outgoing track's playhead is not an anchor for the incoming
@@ -557,6 +572,86 @@ class AvrcpController:
         if not self._settling_since:
             return False
         return time.monotonic() - self._settling_since < TRACK_SETTLE_TIMEOUT_S
+
+    @property
+    def _settle_window_open(self) -> bool:
+        """Whether a half-updated Track may still be held back.
+
+        Holding one is a wait, not a verdict, and this is what makes it expire.
+        The distinction matters because the shape `_is_half_updated` recognises
+        is not proof of the *order* it was written for. Traced here, the sender
+        carried its new Duration ~600 ms before its new Title, and the batch
+        held back is the one naming the outgoing track — superseded moments
+        later by the real change, which is not half-updated and closes the
+        window. Nothing observed rules out the mirror: a sender whose Title
+        moves first has its intermediate batch applied (the title differs, so
+        it reads as a track change) and every batch after it — the one
+        carrying the true Duration included — matches the half-update shape
+        against a `_track` that is now stale.
+
+        With the window expiring, that costs the length until the next Track
+        batch outside it, and a sender publishes one on every pause, play and
+        skip. Without it, the rejection was permanent and the bar wore the
+        previous track's length for the whole song. The order is unmeasured;
+        the expiry is the part that is right either way, and it is what the
+        docstring above already promised.
+        """
+        return not self._settling_since or self._settling
+
+    def _hold_track(self, incoming: Dict[str, Any]) -> None:
+        """Keep a half-updated Track dict rather than dropping it.
+
+        Dropping it was only ever right for the order traced here, where the
+        batch held describes the *outgoing* track and a complete one follows
+        within ~600 ms. Measured on an iPhone publishing over Spotify, the
+        mirror happens too — the Title moves first, carrying the previous
+        track's Duration — and there the batch held is the one bringing the
+        true length, so throwing it away left the bar wearing the previous
+        track's length for the whole song.
+
+        So it is kept, and taken when the wait runs out. Stamped once, never
+        re-stamped: a sender re-sending the same half-updated batch must not
+        hold the window open for ever.
+        """
+        self._pending_track = incoming
+        if not self._settling_since:
+            self._settling_since = time.monotonic()
+        self._schedule_settle_flush()
+
+    def _flush_pending(self) -> None:
+        """Take the held batch as an update to the track on screen.
+
+        Never as a new one: `_is_half_updated` only ever holds a dict whose
+        Title and Artist already match what is showing, so this corrects a
+        field of the current track and the playhead is not re-anchored.
+        """
+        if self._pending_track is None:
+            return
+        self._track = self._pending_track
+        self._pending_track = None
+        self._settling_since = 0.0
+
+    def _schedule_settle_flush(self) -> None:
+        """Make sure the held batch is taken even if nothing else ever arrives."""
+        if self._settle_task and not self._settle_task.done():
+            return
+        self._settle_task = asyncio.create_task(self._settle_flush_loop())
+
+    def _cancel_settle_flush(self) -> None:
+        if self._settle_task and not self._settle_task.done():
+            self._settle_task.cancel()
+        self._settle_task = None
+
+    async def _settle_flush_loop(self) -> None:
+        """Wait out the settle window, then publish what was held."""
+        try:
+            await asyncio.sleep(TRACK_SETTLE_TIMEOUT_S)
+        except asyncio.CancelledError:
+            raise
+        if self._stopped or self._pending_track is None:
+            return
+        self._flush_pending()
+        self._mark_dirty()
 
     def _mark_dirty(self) -> None:
         """Wake the notifier, coalescing with any change it has not read yet."""
