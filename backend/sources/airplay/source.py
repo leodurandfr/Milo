@@ -59,9 +59,9 @@ POSITION_JUMP_TOLERANCE_MS = 2000
 #
 # The tags and the picture are two SET_PARAMETER requests in no guaranteed
 # order, so a track change leaves one of the two unpaired whichever way round
-# it arrives. This bounds the half that can be stale -- the picture stamped
-# *before* the tags on screen (see _artwork_is_current, which is what decides
-# that a picture stamped after them is simply this track's).
+# it arrives. This bounds the picture that is far enough from the tags on
+# screen to be another track's (see _artwork_is_current, which is what decides
+# that one stamped a few milliseconds off is simply this track's).
 # Publishing that gap drops album_art_url, and the frontend's untrusted-sender
 # gate (UNTRUSTED_SENDER_MIN_ARTWORK_PX) reads a missing album_art_width as
 # "this sender pushes no real cover": AudioPlayerFull is swapped for the status
@@ -78,6 +78,26 @@ POSITION_JUMP_TOLERANCE_MS = 2000
 # track's, so only an album boundary onto a coverless track shows a stale one,
 # with the title and artist beside it already correct throughout.
 ARTWORK_SETTLE_SECONDS = 8.0
+
+# How far apart the two stamps may be and still be one track's.
+#
+# The rtptime is a playback position, not an identity: a sender writes the tags
+# and the picture as two SET_PARAMETER requests and stamps each with where it
+# was at the time, so one track's two stamps differ by the few milliseconds
+# between the writes. Measured on both senders 2026-09-03, the whole spread:
+#
+#   same track, picture stamped later    +1056 frames   (+24 ms, iPhone)
+#   same track, picture stamped earlier  -1408 frames   (-32 ms, macOS)
+#   a track change (the cover is the previous track's)
+#                                 -23584 .. -1019040    (-535 ms .. -23.1 s)
+#   two senders, unrelated RTP clocks       -215021171  (-81 min)
+#
+# 250 ms sits in the gap: eight times the largest drift seen inside a track,
+# half the smallest step seen across a track change. Equality is what this
+# replaced, and equality is what a drifting stamp never satisfies -- the hold
+# expired on covers that were the playing track's own, taking the player off
+# the screen mid-track on both senders.
+ARTWORK_PAIRING_TOLERANCE_FRAMES = int(0.250 * AIRPLAY_SAMPLE_RATE)
 
 
 class AirPlaySource(BaseAudioSource):
@@ -492,34 +512,35 @@ class AirPlaySource(BaseAudioSource):
     def _artwork_is_current(self) -> bool:
         """Whether the cover in hand belongs to the tags on screen.
 
-        Not equality, and the difference is a sender's. Measured on an iPhone
-        (2026-09-03): iOS re-sends its bundle several times inside one track
-        under an rtptime that keeps advancing -- +1056 frames, 24 ms, three
-        AirPlay packets -- so the stamp is the sender's playback position when
-        it wrote the request, not the per-track identity rtsp.c describes.
-        Equality then holds only when a bundle happens to land on the picture's
-        stamp, and when the picture is the one stamped *later* no further
-        bundle comes to meet it: the hold expired mid-track and dropped a cover
-        that was this very track's, taking AudioPlayerFull off the screen for
-        as long as 11 s, four times in 95 publishes.
+        Nearness, not equality, and the difference is a sender's. The rtptime
+        is where the sender was when it wrote the request, not the per-track
+        identity rtsp.c describes: a sender re-sends its bundle inside one
+        track and each copy carries a fresh stamp, so the picture's and the
+        tags' differ by the milliseconds between the two writes. Equality then
+        holds only when a bundle happens to land exactly on the picture's
+        stamp, and when it does not, no later one comes to meet it -- the hold
+        expired on a cover that was the playing track's own and took
+        AudioPlayerFull off the screen mid-track, for as long as 11 s.
 
-        What the stamps do carry is order. A picture stamped at or after the
-        tags on screen cannot belong to a track already past, so it is the
-        cover to show. Only a picture stamped *before* them may be the previous
-        track's -- that is the one ARTWORK_SETTLE_SECONDS bounds, and it is the
-        order (tags first) the bound was written for.
+        Measured on both senders, the drift runs both ways: +24 ms on an
+        iPhone, -32 ms on a Mac. What separates that from a real track change
+        is distance, not direction -- the nearest track change measured is
+        535 ms away, seventeen times further. ARTWORK_PAIRING_TOLERANCE_FRAMES
+        carries the numbers.
         """
         if self._artwork_id == self._track_id:
             return True
         if self._artwork_id is None or self._track_id is None:
             return False
         try:
-            # RTP timestamps are 32-bit and wrap, so "after" is the serial
-            # comparison, not the integer one.
+            # RTP timestamps are 32-bit and wrap, so the distance between two
+            # of them is the serial one, not the integer one.
             delta = (int(self._artwork_id) - int(self._track_id)) % (1 << 32)
         except ValueError:
             return False
-        return 0 < delta < (1 << 31)
+        if delta >= (1 << 31):
+            delta -= 1 << 32
+        return abs(delta) <= ARTWORK_PAIRING_TOLERANCE_FRAMES
 
     def _sync_artwork_hold(self) -> None:
         """Arm or release the hold on the cover in hand.
@@ -535,10 +556,10 @@ class AirPlaySource(BaseAudioSource):
         the same flicker from the other side.
 
         Which of the two is in flight is what `_artwork_is_current` reads off
-        the stamps' order, and only the picture that may genuinely be the
-        previous track's — the one stamped before the tags — is held on a
-        deadline. Arming the deadline for the other one is what emptied the
-        cover mid-track on an iPhone.
+        the distance between the stamps, and only a picture far enough from the
+        tags to be another track's is held on a deadline. Arming the deadline
+        for a picture that was merely stamped a few milliseconds off its own
+        track is what emptied the cover mid-track, on both senders.
         """
         if self._artwork_url and not self._artwork_is_current():
             self._start_artwork_settle()

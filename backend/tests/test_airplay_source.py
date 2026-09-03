@@ -32,6 +32,9 @@ RTP_B = "3222285731"
 # (2026-09-03): iOS re-stamps every re-sent bundle and its picture with the
 # playback position, which advances by 1056 frames (24 ms) inside one track.
 RTP_A_LATER = str(int(RTP_A) + 1056)
+# The same track, the other way round: a Mac stamped the picture 1408 frames
+# (32 ms) *before* its own track's tags. Measured 2026-09-03.
+RTP_A_EARLIER = str(int(RTP_A) - 1408)
 
 
 def _cover(color: str, size: int = 600) -> bytes:
@@ -217,6 +220,26 @@ class TestCoverPairing:
         """
         source, feed = airplay
         await feed(_bundle(RTP_A, "Says"), _picture(RTP_A_LATER, _cover("navy")))
+
+        await _after_the_hold()
+
+        assert source.metadata["title"] == "Says"
+        assert source.metadata["album_art_url"], source.metadata
+        assert source.metadata["album_art_width"] == 600
+
+    async def test_a_cover_stamped_just_before_its_own_tags_is_not_dropped(self, airplay):
+        """The drift runs both ways, and the second direction is a Mac's.
+
+        Measured on the unit: a macOS sender opened a session stamping the
+        picture 1408 frames — 32 ms — *ahead* of the tags that followed it, and
+        nothing came after to close the gap. Judged by order alone that reads
+        as "the previous track's cover", which is what the deadline is for, so
+        the hold expired on the playing track's own sleeve and the player left
+        the screen. What tells the two apart is distance: a real track change
+        measured no nearer than 535 ms.
+        """
+        source, feed = airplay
+        await feed(_picture(RTP_A_EARLIER, _cover("navy")), _bundle(RTP_A, "Says"))
 
         await _after_the_hold()
 
