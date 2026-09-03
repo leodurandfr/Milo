@@ -110,6 +110,7 @@ class AirPlaySource(BaseAudioSource):
         self._is_playing = False
         self._device_connected = False
         self._client_name: Optional[str] = None
+        self._connected_ip: Optional[str] = None
 
         # Artwork served via dedicated endpoint, and held apart from _metadata
         # so it is merged in at publish time rather than written through it.
@@ -142,6 +143,7 @@ class AirPlaySource(BaseAudioSource):
         super()._reset_playback_state()
         self._device_connected = False
         self._client_name = None
+        self._connected_ip = None
         self._cancel_position_ticker()
         self._position_ms = 0
         self._duration_ms = 0
@@ -340,14 +342,37 @@ class AirPlaySource(BaseAudioSource):
 
         'conn' is sent as soon as a client selects this AirPlay output,
         before any audio flows.  'disc' is sent when the client disconnects.
+
+        A 'disc' names the sender it is for, and it can arrive long after that
+        sender has been replaced: measured 2026-09-03, a phone left at 19:12:13,
+        the next sender was on air at 19:12:18, and the first one's 'disc' landed
+        at 19:13:13 -- sixty seconds into someone else's session. Applied blind
+        it emptied the live session: metadata, client name and cover all cleared
+        under playing audio, and since 'snam' is only sent once per session the
+        name never came back, so the card read "AirPlay" instead of the sender.
+        A 'disc' for anyone but the sender on air is therefore ignored. When
+        either address is unknown there is nothing to tell them apart, and the
+        teardown stands.
         """
         if state == "connected":
             self._logger.info(f"AirPlay client connected (IP: {client_ip})")
+            self._connected_ip = client_ip
             self._device_connected = True
             self._cancel_pause_timer()
             self._update_connection_state()
         elif state == "disconnected":
+            if (
+                client_ip is not None
+                and self._connected_ip is not None
+                and client_ip != self._connected_ip
+            ):
+                self._logger.info(
+                    f"Ignoring a disconnect for {client_ip}, which is not the "
+                    f"sender on air ({self._connected_ip})"
+                )
+                return
             self._logger.info(f"AirPlay client disconnected (IP: {client_ip})")
+            self._connected_ip = None
             self._cancel_pause_timer()
             self._device_connected = False
             self._is_playing = False
