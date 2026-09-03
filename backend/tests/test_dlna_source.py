@@ -111,11 +111,19 @@ def _make_bridge():
 
 
 def test_dispatch_emits_each_field_once_then_stays_silent():
+    """Every field the bridge forwards, and the origin is one of them.
+
+    It was the last one added and the only one no test held to the rule: GENA
+    re-sends the whole state on every event, including the RenderingControl
+    ones a volume nudge produces, so a field emitted on arrival rather than on
+    change is emitted for ever.
+    """
     bridge = _make_bridge()
     bridge._dmr = _make_dmr(
         transport_state="PLAYING",
         media_title="Song", media_artist="Artist", media_album_name="Album",
         media_image_url="http://nas/art.jpg",
+        current_track_uri="http://nas:8200/track/1.flac",
     )
 
     bridge._dispatch_state()
@@ -123,12 +131,14 @@ def test_dispatch_emits_each_field_once_then_stays_silent():
     bridge._on_metadata.assert_called_once_with(
         {"title": "Song", "artist": "Artist", "album": "Album"})
     bridge._on_artwork.assert_called_once_with("http://nas/art.jpg")
+    bridge._on_media_origin.assert_called_once_with("http://nas:8200/track/1.flac")
 
     # GENA resends the identical full state — nothing changed, nothing re-emits.
     bridge._dispatch_state()
     bridge._on_play_state.assert_called_once()
     bridge._on_metadata.assert_called_once()
     bridge._on_artwork.assert_called_once()
+    bridge._on_media_origin.assert_called_once()
 
 
 def test_dispatch_reemits_only_the_changed_transport_state():
