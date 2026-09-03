@@ -573,6 +573,49 @@ class TestConnectionEvents:
         assert source.get_artwork() is None
         assert source._client_name is None
 
+    async def test_a_late_disconnect_does_not_tear_down_the_sender_on_air(self, wired):
+        """A `disc` names a sender, and it can arrive after that sender is gone.
+
+        Measured on the unit 2026-09-03: a phone let go at 19:12:13, the next
+        sender was on air at 19:12:18, and the first one's `disc` landed at
+        19:13:13 — a minute into someone else's session. Applied blind it
+        emptied the live one: title, artist, cover and client name all cleared
+        under playing audio. `snam` is sent once per session, so the name never
+        came back and the card read a bare "AirPlay" instead of the sender for
+        the rest of it.
+        """
+        source, feed = wired
+        await feed(_item("ssnc", "conn", b"192.168.1.42"),
+                   _item("ssnc", "snam", "iPhone de Léo".encode()),
+                   _item("ssnc", "disc", b"192.168.1.42"))
+        await feed(_item("ssnc", "conn", b"192.168.1.77"),
+                   _item("ssnc", "snam", "Mac mini de Léo".encode()),
+                   _bundle(RTP_A, "Says"),
+                   _picture(RTP_A, _cover("navy")),
+                   _item("ssnc", "pbeg"))
+
+        await feed(_item("ssnc", "disc", b"192.168.1.42"))
+
+        assert source._client_name == "Mac mini de Léo"
+        assert source._device_connected is True
+        assert source._is_playing is True
+        assert source._metadata.get("title") == "Says"
+        assert source.get_artwork() is not None
+
+    async def test_a_disconnect_with_no_address_still_ends_the_session(self, wired):
+        """Nothing tells two senders apart then, so the teardown stands — the
+        trade that keeps a sender shairport reports no address for from holding
+        the source ACTIVE for ever."""
+        source, feed = wired
+        await feed(_item("ssnc", "conn", b"192.168.1.42"),
+                   _bundle(RTP_A, "Says"),
+                   _item("ssnc", "pbeg"))
+
+        await feed(_item("ssnc", "disc"))
+
+        assert source._device_connected is False
+        assert not {"title", "artist"} & set(source._metadata)
+
     async def test_the_client_name_is_published_as_the_source_label(self, wired):
         """`snam` is X-Apple-Client-Name; it is what the source bar shows
         instead of a bare "AirPlay"."""
