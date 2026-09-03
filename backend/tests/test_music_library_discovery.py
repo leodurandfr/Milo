@@ -2,8 +2,9 @@
 """Tests for mDNS SMB/NFS server discovery (the Phase 2 add-share convenience).
 
 Covers the parseable-output parser, the browse/dedupe/sort aggregation, the
-fail-open behaviour (missing avahi-utils, timeout, non-zero exit), and the
-resilient /shares/discover route envelope.
+fail-open behaviour (missing binary, a browse that reports nothing), the rule
+that servers printed before the deadline survive a process that never exits,
+and the resilient /shares/discover route envelope.
 """
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,21 +31,36 @@ SMB_OUTPUT = "\n".join([
 NFS_OUTPUT = "=;eth0;IPv4;bigstore;_nfs._tcp;local;bigstore.local;192.168.1.30;2049;"
 
 
-def _fake_exec(outputs, *, returncode=0, raise_exc=None, timeout=False):
+def _fake_exec(outputs, *, raise_exc=None, hang_after_output=False):
     """Build a fake asyncio.create_subprocess_exec keyed on the service type
-    (the last positional arg to avahi-browse)."""
+    (the last positional arg to avahi-browse).
+
+    The fake streams `stdout.readline()`, because that is how the production
+    code consumes avahi-browse. With `hang_after_output` the reader never sees
+    EOF — the shape of a real browse whose last record never resolves.
+    """
     async def fake(*args, **kwargs):
         if raise_exc is not None:
             raise raise_exc
         service = args[-1]
+        text = outputs.get(service, "")
+        lines = [f"{line}\n".encode() for line in text.splitlines()]
+        pending = iter(lines)
+
+        async def readline():
+            line = next(pending, None)
+            if line is not None:
+                return line
+            if hang_after_output:
+                await asyncio.sleep(3600)
+            return b""
+
         proc = MagicMock()
-        proc.returncode = returncode
+        proc.returncode = None if hang_after_output else 0
+        proc.stdout = MagicMock()
+        proc.stdout.readline = readline
         proc.kill = MagicMock()
         proc.wait = AsyncMock()
-        if timeout:
-            proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
-        else:
-            proc.communicate = AsyncMock(return_value=(outputs.get(service, "").encode(), b""))
         return proc
     return fake
 
@@ -91,20 +107,41 @@ class TestDiscoverServers:
         assert servers[0]["type"] == "nfs"
         assert servers[1]["host"] == "192.168.1.20"
 
-    async def test_fail_open_when_avahi_missing(self):
+    async def test_fail_open_when_binary_missing(self):
         fake = _fake_exec({}, raise_exc=FileNotFoundError())
         with patch("asyncio.create_subprocess_exec", fake):
             assert await discover_servers() == []
 
-    async def test_fail_open_on_timeout(self):
-        fake = _fake_exec({"_smb._tcp": SMB_OUTPUT}, timeout=True)
+    async def test_fail_open_when_browse_reports_nothing(self):
+        fake = _fake_exec({})
         with patch("asyncio.create_subprocess_exec", fake):
             assert await discover_servers() == []
 
-    async def test_fail_open_on_nonzero_exit(self):
-        fake = _fake_exec({"_smb._tcp": SMB_OUTPUT}, returncode=1)
-        with patch("asyncio.create_subprocess_exec", fake):
-            assert await discover_servers() == []
+    async def test_keeps_servers_printed_before_the_deadline(self):
+        """The regression this file exists for: avahi-browse stays alive until
+        every advertised record resolves, and one that never does held the whole
+        run past the deadline — so a LAN whose servers had already been reported
+        answered "no servers found"."""
+        fake = _fake_exec({"_smb._tcp": SMB_OUTPUT}, hang_after_output=True)
+        with patch("asyncio.create_subprocess_exec", fake), \
+                patch("backend.sources.music_library.discovery.BROWSE_TIMEOUT_S", 0.05):
+            servers = await discover_servers()
+        assert [s["name"] for s in servers] == ["Synology NAS"]
+
+    async def test_kills_a_browse_that_outlives_the_deadline(self):
+        """A hung avahi-browse per wizard visit would pile up processes."""
+        killed = []
+        fake = _fake_exec({"_smb._tcp": SMB_OUTPUT}, hang_after_output=True)
+
+        async def spy(*args, **kwargs):
+            proc = await fake(*args, **kwargs)
+            proc.kill = MagicMock(side_effect=lambda: killed.append(args[-1]))
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", spy), \
+                patch("backend.sources.music_library.discovery.BROWSE_TIMEOUT_S", 0.05):
+            await discover_servers()
+        assert sorted(killed) == ["_nfs._tcp", "_smb._tcp"]
 
 
 class TestDiscoverRoute:
