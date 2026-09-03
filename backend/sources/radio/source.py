@@ -141,7 +141,7 @@ class RadioSource(MpvAudioSource):
 
         # Resolves cover art for in-band tracks (which carry no artwork) from
         # their artist/title via the iTunes Search API.
-        self._artwork = ArtworkResolver()
+        self._artwork = ArtworkResolver(self._settings_service)
 
         # State
         self._metadata: Dict[str, Any] = {}
