@@ -62,8 +62,25 @@ _CACHE_MAX = 500
 # from them -- a full lookup is ~200 dicts of thirty-odd fields.
 _ARTISTS_MAX = 50
 # How much of an artist's catalogue is read in one lookup. iTunes caps this at
-# 200; an artist with more songs than that can lose a deep cut, and the album
-# step — tried first whenever an album is known — is what covers it.
+# 200 and there is no way past it: `offset` is accepted and ignored — measured,
+# offsets 0/200/400/600 answer the identical 200 rows, 0 new. So a prolific
+# artist loses their deep cuts, and the album step — tried first whenever an
+# album is known — is what covers it.
+#
+# **Which leaves radio's in-band feed uncovered, and that is a deliberate
+# trade, not an oversight.** In-band carries no album, so the ceiling bites
+# there hardest: measured over eight deep-catalogue jazz tracks off the station
+# this was tested on, the catalogue resolves 5, and adding the old term search
+# back as a last resort would resolve 7 (`Art Farmer — Prelude In "A" Minor`
+# and `Duke Ellington — Rockin' In Rhythm`, both artists past 200 tracks).
+#
+# It was offered and declined by the owner, on the ground the numbers do not
+# capture: the term search cannot verify the artist against a catalogue row, so
+# it can only be guarded by matching the artist *text* two ways round — and a
+# cover that is confidently wrong is worse than a slot that is honestly empty.
+# One mechanism, exact, is the choice. Do not re-add the fallback without
+# re-opening that decision; the measurement above is the whole of what a fresh
+# one would find.
 _CATALOGUE_LIMIT = "200"
 
 # The size _upscale asks iTunes for, and therefore the width of every URL this
