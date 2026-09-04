@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from backend.core.updates.catalog import PROGRAMS
-from backend.core.updates.helpers import compare_versions, release_tag
+from backend.core.updates.helpers import compare_versions, is_stable_release
 
 class VersionService:
     """Simplified service to manage Milo program versions"""
@@ -368,50 +368,71 @@ class VersionService:
         """
         return next(iter(status.get("installed", {}).get("versions", {}).values()), None)
 
-    @staticmethod
-    def installed_release_tag(status: Dict[str, Any]) -> Optional[str]:
-        """The release tag this checkout sits exactly on, or None.
+    async def _exact_release_tag(self) -> Optional[str]:
+        """The tag this checkout sits exactly on, asked of git rather than inferred.
 
-        `raw_version` is the whole `git describe` output, kept by
-        `get_installed_version` for the git-based programs. Only its exact-tag
-        shape identifies a release: "0.2.0" extracted from "v0.2.0-2017-gabc"
-        is the version of a tag the tree left 2017 commits ago.
+        `--exact-match` prints the tag or fails, which is the whole question. The
+        alternative was to read the shape of `git describe --tags --always`, and
+        that cannot tell "v0.2.0-rc1" — a tag — apart from "v0.1.0-2017-g36b9a0d7"
+        — a tree 2017 commits past one — by anything but the convention of a
+        suffix. Getting it wrong in the second direction offers an update to a
+        development checkout; in the first, it tells a unit running a
+        pre-release that it is running nothing at all.
         """
-        return release_tag(status.get("installed", {}).get("raw_version"))
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", self.programs["milo"]["git_path"],
+            "describe", "--tags", "--exact-match",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0:
+            return None
+        return stdout.decode().strip() or None
 
-    def _apply_milo_offer(self, result: Dict[str, Any], latest: Dict[str, Any]) -> None:
+    async def _apply_milo_offer(self, result: Dict[str, Any], latest: Dict[str, Any]) -> None:
         """Decide Milo's row on tag identity rather than version order.
 
         Milo is the app, not a dependency: it does not track an upstream project
         whose numbers only ever grow, it moves between the releases of this
         repo. So the question is not "is there a bigger number" but "is this the
-        release GitHub publishes", and it is asked of the tag — the thing the
-        install actually checks out.
+        release the channel publishes", and it is asked of the tag — the thing
+        the install actually checks out.
 
-        Two behaviours fall out, and both are the point:
+        Three behaviours fall out, and all three are the point:
 
-          * a release that is withdrawn (unpublished, or marked prerelease
-            because it turned out bad) stops being what `releases/latest` names,
-            and every unit that took it is offered the return on its next check.
-            Retracting is one gesture on GitHub, not N units visited one by one.
-            `withdrawn` says which of the two directions the row is pointing so
-            the button can name itself.
+          * **a pre-release is never offered.** It exists to be installed on a
+            unit somebody is watching, by somebody who chose it. `releases/latest`
+            already excludes one and the publish step marks it as such, but the
+            refusal is stated here too, so it survives either of those being
+            changed by accident.
+          * a release that is withdrawn — unpublished, or marked pre-release
+            because it turned out bad — stops being what `releases/latest`
+            names, and every unit that took it is offered the return on its next
+            check. Retracting is one gesture, not N units visited one by one.
+            `withdrawn` says which of the two directions the row points, so the
+            button can name itself.
           * a tree that is not at a tag — a development checkout, or a unit
             somebody pulled on — is offered nothing at all. It is not behind a
             release, it is outside the channel, and `git checkout <tag>` over
             uncommitted work is not an update. `development_build` is what the
             row says instead of a version comparison nobody can act on.
+
+        A unit running a pre-release is *not* a development build: it sits on a
+        tag, so it is told plainly what it runs and offered the stable release
+        the channel publishes — which is how a test unit gets back.
         """
         if latest.get("status") != "success":
             return
 
-        tag = self.installed_release_tag(result)
+        tag = await self._exact_release_tag()
         result["development_build"] = tag is None
+        result["installed"]["release_tag"] = tag
         if tag is None:
             return
 
         published = latest.get("tag_name")
-        if not published or published == tag:
+        if not is_stable_release(published) or published == tag:
             return
 
         result["update_available"] = True
@@ -458,7 +479,7 @@ class VersionService:
             # question from the dependencies — which release, not which version
             # — so it takes the whole branch rather than a clause inside it.
             if program_key == "milo":
-                self._apply_milo_offer(result, github_result)
+                await self._apply_milo_offer(result, github_result)
             elif (installed_result.get("status") == "installed" and
                   github_result.get("status") == "success"):
 

@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from backend.config.constants import CLIENT_API_PORT
-from backend.core.updates.helpers import release_tag
 from backend.shared.decorators import handle_errors
 
 MILO_REPO_DIR = Path("/home/milo/milo")
@@ -287,9 +286,11 @@ class SatelliteUpdateService:
         version schemes on one screen.
 
         None on a development checkout: it is outside the release channel, and
-        so is anything pushed from it.
+        so is anything pushed from it. `--exact-match` is what asks that of git
+        instead of inferring it from the shape of a describe suffix — which
+        cannot tell a pre-release tag apart from a tree past a tag.
         """
-        return release_tag(await self._git("describe", "--tags", "--always"))
+        return await self._git("describe", "--tags", "--exact-match")
 
     async def _create_client_tarball(self) -> tuple:
         """Creates a tarball of the milo-client/ directory.

@@ -805,13 +805,45 @@ npm run build
 
 ### Creating a release
 
+A tag is the only way a version reaches a unit. Pushing one runs
+`.github/workflows/build-image.yml`, which builds the frontend once with
+`npm ci`, bakes that artefact into the image, and publishes a GitHub Release
+carrying three files:
+
+| Asset | Read by |
+|---|---|
+| `milo-<tag>.img.xz` | whoever flashes a card |
+| `milo-frontend-<tag>.tar.gz` | every unit's OTA update, via `catalog.py::frontend_asset_url` |
+| `milo-frontend-<tag>.tar.gz.sha256` | the same update, before it swaps `frontend/dist` |
+
 ```bash
-# Tag the version
 git tag -a v1.2.0 -m "Release 1.2.0"
 git push origin v1.2.0
-
-# GitHub Actions (if configured) automatically builds
 ```
+
+**A tag carrying a suffix is a pre-release** — `v1.2.0-rc1`, `v1.3.0-beta.2`.
+The workflow publishes it with `prerelease: true`, so it never becomes
+`releases/latest`, and the backend refuses to offer a non-plain tag anyway
+(`helpers.is_stable_release`). Consequences worth knowing before cutting one:
+
+- **no unit in the field is ever shown it.** That is the point: an rc is
+  installed on a unit somebody is watching, by somebody who chose it.
+- **the update button will not install it either**, for the same reason. On the
+  test unit, drive `UpdateService._update_milo_app` with the rc's status
+  directly — same checkout, same asset, same reboot, only the offer is skipped.
+- **a unit running an rc is not a development build.** It sits on a tag, says
+  so on the update screen, and is offered the stable release the channel
+  publishes — which is how it gets back.
+
+Withholding and withdrawing are the same one gesture, on GitHub, with no unit
+visited: a release that is never published is offered to nobody, and one that is
+un-published (or marked pre-release) stops being `releases/latest`, so every
+unit that took it is offered the return on its next check.
+
+**A build that fails publishes nothing.** The release step sits after the image
+inspection (`pi-gen/inspect-image.sh`, which checks the checkout sits exactly on
+the tag and that the frontend artefact landed), so a red build is itself the
+withholding mechanism.
 
 ### Validating a dependency bump
 
