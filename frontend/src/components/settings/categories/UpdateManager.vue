@@ -518,11 +518,14 @@ onMounted(async () => {
 /* The two groups and the line between them carry their own gap, so a single
    token spells the space above the line and below it. The section's own
    `--space-04` no longer reaches them — it sees one child — and it stays the
-   gap *inside* each group, between a title and what it introduces. */
+   gap *inside* each group, between a title and what it introduces. `--space-06`
+   is the one token that stays above that fixed 16 px at both sizes while still
+   shrinking on mobile: `--space-05` lands *on* it there, and the card flattens
+   to a single rhythm in which the two groups stop reading as two. */
 .update-groups {
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
+  gap: var(--space-06);
 }
 
 .update-group {
