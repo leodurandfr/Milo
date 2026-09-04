@@ -17,7 +17,9 @@
     "connectionLostDescription": "可用时自动重新连接",
     "backendErrorTitle": "系统错误",
     "sourceErrorTitle": "{source} 错误",
-    "commandFailed": "命令失败"
+    "commandFailed": "命令失败",
+    "audioCardMissingTitle": "未检测到声卡",
+    "audioCardMissingDescription": "已配置 {card}，但未检测到。请检查扩展板是否插紧，或在设置中选择其他声卡。"
   },
   "settings": {
     "title": "Milō 设置",
@@ -25,13 +27,14 @@
       "appearance": "外观",
       "audio": "音频",
       "sources": "音源",
-      "system": "系统"
+      "device": "设备"
     },
-    "languages": "语言",
+    "languageRegion": "语言与地区",
     "dock": "Dock",
     "volume": "音量",
     "screen": "屏幕",
     "network": "网络",
+    "system": "系统",
     "updates": "更新",
     "information": "信息",
     "hardware": "硬件",
@@ -693,7 +696,8 @@
       "getStarted": "开始"
     },
     "wifi": {
-      "title": "配置网络"
+      "title": "配置网络",
+      "continueHint": "请选择国家并将 Milō 连接到网络后继续。"
     },
     "language": {
       "title": "选择您的语言"
@@ -731,8 +735,38 @@
       "subtitle": "同一网络中不能同时存在两台 Milō 服务器。请关闭其中一台，或在已操作后重新检测。",
       "thisDevice": "此设备：{name}（{ip}）",
       "recheck": "重新检测",
-      "shutdown": "关闭此设备"
+      "shutdown": "关闭此设备",
+      "speakerHint": "如果这台设备应该作为音箱而不是第二台 Milō，请将其关机，然后在主 Milō 的「设置 → 多房间」中添加它。"
+    },
+    "ssh": {
+      "title": "远程访问",
+      "description": "允许从另一台电脑打开 Milō 的终端会话。默认关闭。",
+      "passwordRequired": "启用远程访问前，请先设置设备密码。"
+    },
+    "password": {
+      "title": "设备密码",
+      "description": "用于远程访问和管理命令。所有 Milō 出厂时使用相同的默认密码，因此在您更改之前，远程访问将保持关闭。",
+      "newPlaceholder": "新密码",
+      "confirmPlaceholder": "确认密码",
+      "save": "保存",
+      "saved": "已保存",
+      "mismatch": "两次输入的密码不一致。",
+      "tooShort": "密码至少需要 {n} 个字符。"
+    },
+    "reset": {
+      "title": "重置配置",
+      "description": "重新执行首次启动：先进行角色检测，然后打开设置向导。您的电台收藏、播客订阅和音乐共享都会保留。",
+      "action": "重置",
+      "confirm": "确认重置？",
+      "running": "正在重启…"
     }
+  },
+  "timezone": {
+    "title": "时区",
+    "area": "区域",
+    "location": "城市",
+    "selectArea": "选择区域",
+    "selectLocation": "选择城市"
   },
   "remoteControls": {
     "btRemote": "蓝牙遥控器",

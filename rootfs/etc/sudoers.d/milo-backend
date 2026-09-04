@@ -33,6 +33,10 @@ milo ALL=(root) NOPASSWD: /usr/local/bin/milo-apply-hardware
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-deploy-update
 # WiFi regulatory domain
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-wifi-country
+# Account password for SSH + sudo (reads the password on stdin, never argv)
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-password
+# System timezone
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-timezone
 # Music Library USB storage (read-only mount / unmount under /media/milo)
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-mount
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-umount

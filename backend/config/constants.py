@@ -71,6 +71,26 @@ CD_PREV_RESTART_THRESHOLD_S = 3.0
 # =============================================================================
 DEPLOY_UPDATE_CMD = "/usr/local/bin/milo-deploy-update"
 
+# The two pinned helpers behind Settings > Appareil > Système. Both are
+# root-only work the backend must not do inline: setting the account password
+# (fed on stdin, never argv — /proc/<pid>/cmdline is world-readable) and
+# writing /etc/localtime.
+SET_PASSWORD_CMD = "/usr/local/bin/milo-set-password"
+SET_TIMEZONE_CMD = "/usr/local/bin/milo-set-timezone"
+
+# Written by milo-set-password, read here only for its existence. Absent means
+# the unit still carries the factory password `pi-gen/config` bakes — which is
+# the same on every unit, so `PUT /api/system/ssh` refuses to open the one
+# remote path that would accept it.
+PASSWORD_CHANGED_MARKER = MILO_DATA_DIR / "password-changed"
+
+# Dropped by POST /api/system/reset-setup and consumed by milo-first-boot on the
+# next boot, which deletes settings.json and re-runs role detection. The
+# deletion belongs there, not here: this process owns settings.json, and any
+# write between a delete and the reboot would recreate it with setup_completed
+# still true — a reset that silently did nothing.
+RESET_SETUP_MARKER = MILO_DATA_DIR / "reset-setup"
+
 # =============================================================================
 # NETWORK PORTS
 # =============================================================================

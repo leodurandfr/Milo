@@ -402,13 +402,13 @@ export const ENTRIES = [
     id: 'SettingsContainer',
     group: 'settings',
     file: 'components/settings/SettingsContainer.vue',
-    summary: '14 lines and 21 consumers: a flex column that puts one gap between settings sections. It carries nothing else, and that is the entry — the alternative was 21 copies of the same two declarations.',
+    summary: '14 lines and 23 consumers: a flex column that puts one gap between settings sections. It carries nothing else, and that is the entry — the alternative was 23 copies of the same two declarations.',
   },
   {
     id: 'SettingsSection',
     group: 'settings',
     file: 'components/settings/SettingsSection.vue',
-    summary: 'The settings card, and the most-imported component in the frontend (29). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
+    summary: 'The settings card, and the most-imported component in the frontend (30). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
   },
   {
     id: 'SettingItem',

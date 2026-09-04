@@ -59,6 +59,7 @@ by default (README Rule 3):
 | Music Library over SMB/NFS | a **NAS/share**; USB-only covers half the source |
 | Hardware variants | other **HiFiBerry cards**, the 7" USB vs 8" DSI screens |
 | First boot | a **blank SD card** — the AP + captive portal + wizard path is never re-exercised on a configured unit |
+| Kiosk with no screen | the **panel physically disconnected**. `milo-apply-hardware` now disables `milo-kiosk.service` when `screen.type` is `none`, which is correct whatever cage does with no connected DRM output — but the symptom it fixes (a restart loop every 3 s, plus the 339 MB Chromium prewarm at every boot) has **not** been observed on a unit, only reasoned about |
 | Updates | an actual **published release** newer than the installed one |
 
 Anything below marked ⚠ depends on one of these.
@@ -300,6 +301,9 @@ makes this silent.
 | Check | Expected observable | Set |
 |---|---|---|
 | Wi-Fi list | Settings > WiFi lists known and nearby networks; connect and forget work | targeted |
+| Wi-Fi country | Changing it in Settings > Network applies **without a reboot**: `iw reg get` follows immediately, and a refresh shows the channels the new domain allows. The apply-and-reboot sequence that used to wrap this control is gone — `milo-set-wifi-country` runs `iw reg set` there and then | targeted |
+| Recovery access point ⚠ | With no link at all (cable out, no Wi-Fi profile that associates), the open `Milō` AP comes up ~45 s later and `milo.local` resolves over it; plugging the cable back in takes it down again. This is what a wrong Wi-Fi password at first boot lands on — the case that used to leave a headless unit unreachable for good | targeted |
+| Access point in domain 00 ⚠ | Blank SD: the AP must actually come up with `cfg80211.ieee80211_regdom=00` (2.4 GHz, channel 6) before any country has been chosen. It is the only thing between a stranger and the wizard | targeted |
 | Status | Connected SSID, signal and IP shown and correct | targeted |
 | mDNS | `http://milo.local` resolves from another machine on the LAN | targeted |
 | First boot ⚠ | Blank SD: the open "Milō" AP appears, the captive portal opens, the wizard completes and reboots into a working unit | targeted |
@@ -313,6 +317,10 @@ makes this silent.
 | Check | Expected observable | Set |
 |---|---|---|
 | Persistence | Any changed setting survives `sudo systemctl restart milo-backend` **and** a reboot | smoke |
+| Remote access | Settings > Device > System: the SSH switch is inert while the notice about the password is shown; setting a password clears it; the switch then starts `ssh.service` and `ssh milo@milo.local` accepts the new password. `sudo` on the unit accepts it too | targeted |
+| Time zone | A phone opening `milo.local` on a unit still at `Etc/UTC` sets the zone (`timedatectl` follows); the Language and region page changes it by hand and the change survives a reboot | targeted |
+| Audio card missing ⚠ | With a card configured that is not fitted, the banner names it at boot and points at the Hardware page. Needs a unit whose HAT can be removed | targeted |
+| Reset configuration | Settings > Device > System > Reset: the unit reboots, re-runs role detection and shows the wizard; radio favourites, podcast subscriptions and shares are still there afterwards | targeted |
 | Language | Switching language changes the UI immediately, with no untranslated key visible | targeted |
 | Hardware page | Changing card/screen/encoder/IR offers "Apply and reboot", and the unit comes back with the new config applied | targeted |
 | Updates ⚠ | An available release is listed; applying it deploys and restarts the unit, which comes back healthy on the new version | targeted |

@@ -205,15 +205,35 @@ class TestSystemStatus:
         assert data["connectivity"] == "online"
 
     def test_status_answers_without_the_optional_services(self, systemd):
-        """Both are injected optionally and a dev host has neither. Failing here
-        would take the whole settings screen with it.
+        """All three are injected optionally and a dev host has none of them.
+        Failing here would take the whole settings screen with it.
         """
         app = FastAPI()
         app.include_router(create_system_router(systemd), prefix="/api/system")
 
         data = TestClient(app).get("/api/system/status").json()["data"]
 
-        assert data == {"hostname_conflict": False, "connectivity": "unknown"}
+        assert data == {
+            "hostname_conflict": False,
+            "connectivity": "unknown",
+            "audio_card_missing": None,
+        }
+
+    def test_status_carries_the_missing_card_label(self, systemd):
+        """The label reaches the banner through this response and nothing else:
+        a HAT is not hot-pluggable, so the answer is settled at boot and there
+        is no WS delta to catch it — it has to be here, on every load."""
+        hardware = Mock()
+        hardware.get_missing_audio_card = Mock(return_value="HiFiBerry Amp2")
+
+        app = FastAPI()
+        app.include_router(
+            create_system_router(systemd, hardware_service=hardware), prefix="/api/system"
+        )
+
+        data = TestClient(app).get("/api/system/status").json()["data"]
+
+        assert data["audio_card_missing"] == "HiFiBerry Amp2"
 
     def test_the_manual_recheck_runs_a_check_and_answers_the_new_state(
         self, client, hostname_conflict
@@ -433,3 +453,288 @@ class TestResources:
         data = client.get("/api/system/resources").json()
 
         assert data == {"status": "success", "cpu_percent": None, "ram": None}
+
+
+# =============================================================================
+# Remote access, account password, timezone
+# =============================================================================
+
+@pytest.fixture
+def spawn(monkeypatch):
+    """Every `create_subprocess_exec` explodes until a test scripts one.
+
+    Same doctrine as the `shell` fixture above and the same stake: the argv
+    these routes build starts with `sudo`, and this checkout runs on the
+    appliance. Records what was spawned and what was written to its stdin.
+    """
+    calls = []
+    scripted = {"proc": None}
+
+    class _ExecProc:
+        def __init__(self, returncode, stderr):
+            self.returncode = returncode
+            self._stderr = stderr
+            self.stdin_bytes = None
+
+        async def communicate(self, payload=None):
+            self.stdin_bytes = payload
+            return b"", self._stderr
+
+        def kill(self):
+            pass
+
+    def script(returncode=0, stderr=b""):
+        scripted["proc"] = _ExecProc(returncode, stderr)
+        return scripted["proc"]
+
+    async def _spawn(*argv, **kwargs):
+        if scripted["proc"] is None:
+            raise AssertionError(f"an unscripted process was spawned: {argv!r}")
+        calls.append(argv)
+        return scripted["proc"]
+
+    monkeypatch.setattr(api_system.asyncio, "create_subprocess_exec", _spawn)
+    return type("Spawn", (), {"calls": calls, "script": staticmethod(script),
+                              "proc": property(lambda _: scripted["proc"])})()
+
+
+@pytest.fixture
+def marker(tmp_path, monkeypatch):
+    """The password-changed marker, relocated under tmp_path.
+
+    A `Path`, not a mock: the production code only ever asks `.exists()`, and a
+    real path keeps the test from passing on a method that was renamed.
+    """
+    path = tmp_path / "password-changed"
+    monkeypatch.setattr(api_system, "PASSWORD_CHANGED_MARKER", path)
+    return path
+
+
+@pytest.fixture
+def localtime(tmp_path, monkeypatch):
+    """`/etc/localtime`, relocated — the symlink itself, so `_current_timezone`
+    runs its real readlink rather than a stubbed answer."""
+    link = tmp_path / "localtime"
+    monkeypatch.setattr(api_system, "LOCALTIME_LINK", str(link))
+
+    def point_at(zone):
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(f"{api_system.ZONEINFO_PREFIX}{zone}")
+
+    return point_at
+
+
+class TestResetSetup:
+    """`POST /api/system/reset-setup` — the way back from a locked-in role.
+
+    A speaker powered on before the server it should join finds no milo.local,
+    stays a server, and shows its own wizard; finishing that wizard used to lock
+    the role for good (`become-client` refuses an already-configured device,
+    `milo-first-boot` exits early on the flag, and nothing else could clear it).
+    The only way out was a reflash.
+    """
+
+    @pytest.fixture
+    def reset_marker(self, tmp_path, monkeypatch):
+        path = tmp_path / "reset-setup"
+        monkeypatch.setattr(api_system, "RESET_SETUP_MARKER", path)
+        return path
+
+    def test_the_marker_is_dropped_and_the_box_reboots(self, client, systemd, reset_marker):
+        response = client.post("/api/system/reset-setup")
+
+        assert response.status_code == 200
+        assert reset_marker.exists()
+        systemd.power.assert_awaited_once_with("reboot", 2.0)
+
+    def test_settings_json_is_not_touched_here(self, client, reset_marker, monkeypatch):
+        """The deletion belongs to milo-first-boot, with the backend down.
+
+        Deleting settings.json from under a live SettingsService leaves any
+        write in the second before the reboot — a volume change, a
+        screen-activity save — recreating the file with setup_completed still
+        true: a reset that silently did nothing.
+        """
+        unlinked = []
+        real_unlink = api_system.RESET_SETUP_MARKER.__class__.unlink
+        monkeypatch.setattr(
+            "pathlib.Path.unlink",
+            lambda self, *a, **k: (unlinked.append(str(self)), real_unlink(self, *a, **k))[1],
+        )
+
+        client.post("/api/system/reset-setup")
+
+        assert unlinked == []
+
+
+class TestRemoteAccess:
+    """`GET`/`PUT /api/system/ssh` — the switch, and the rule behind it.
+
+    The factory password is identical on every Milō and SSH is the only remote
+    path that would accept it (nothing else here authenticates at all). So the
+    refusal below is the whole security argument for shipping a known password
+    at all: break it and every unit in the field is one `ssh milo@milo.local`
+    away from a root-capable shell.
+    """
+
+    def test_state_reports_systemd_and_the_marker_together(self, client, systemd, marker):
+        """One screen, one read: the switch and the reason it may be inert."""
+        systemd.is_enabled = AsyncMock(return_value=True)
+        systemd.is_active = AsyncMock(return_value=True)
+        marker.touch()
+
+        data = client.get("/api/system/ssh").json()["data"]
+
+        assert data == {"enabled": True, "active": True, "password_is_default": False}
+        systemd.is_enabled.assert_awaited_with("ssh.service")
+
+    def test_enabling_is_refused_while_the_factory_password_stands(self, client, systemd, marker):
+        systemd.set_enabled = AsyncMock()
+        systemd.is_enabled = AsyncMock(return_value=False)
+        systemd.is_active = AsyncMock(return_value=False)
+        assert not marker.exists()
+
+        response = client.put("/api/system/ssh", json={"enabled": True})
+
+        assert response.status_code == 409
+        systemd.set_enabled.assert_not_awaited()
+
+    def test_enabling_succeeds_once_the_password_has_been_changed(self, client, systemd, marker):
+        marker.touch()
+        systemd.set_enabled = AsyncMock(return_value=True)
+        systemd.is_enabled = AsyncMock(return_value=True)
+        systemd.is_active = AsyncMock(return_value=True)
+
+        response = client.put("/api/system/ssh", json={"enabled": True})
+
+        assert response.status_code == 200
+        systemd.set_enabled.assert_awaited_once_with("ssh.service", True)
+
+    def test_closing_the_door_is_never_gated_on_the_password(self, client, systemd, marker):
+        """A unit that reached the field with SSH open and the factory password
+        must still be closable — gating the *off* direction would trap it."""
+        assert not marker.exists()
+        systemd.set_enabled = AsyncMock(return_value=True)
+        systemd.is_enabled = AsyncMock(return_value=False)
+        systemd.is_active = AsyncMock(return_value=False)
+
+        response = client.put("/api/system/ssh", json={"enabled": False})
+
+        assert response.status_code == 200
+        systemd.set_enabled.assert_awaited_once_with("ssh.service", False)
+
+    def test_a_systemd_refusal_is_a_500_and_not_a_success(self, client, systemd, marker):
+        """`set_enabled` reports by return value, not by raising: answering 200
+        over its False is the "success on failure" class — the UI would show a
+        switch that moved on a box where nothing did."""
+        marker.touch()
+        systemd.set_enabled = AsyncMock(return_value=False)
+        systemd.is_enabled = AsyncMock(return_value=False)
+        systemd.is_active = AsyncMock(return_value=False)
+
+        assert client.put("/api/system/ssh", json={"enabled": True}).status_code == 500
+
+
+class TestDevicePassword:
+    """`POST /api/system/password`."""
+
+    def test_the_password_travels_on_stdin_and_never_in_argv(self, client, spawn):
+        """/proc/<pid>/cmdline is world-readable. A password in argv is
+        published to every process on the box for the life of the call — and it
+        is the sudo password of an account that can reach systemd.
+        """
+        spawn.script(returncode=0)
+
+        response = client.post("/api/system/password", json={"password": "correct horse"})
+
+        assert response.status_code == 200
+        argv = spawn.calls[0]
+        assert argv == ("sudo", "/usr/local/bin/milo-set-password")
+        assert "correct horse" not in " ".join(argv)
+        assert spawn.proc.stdin_bytes == b"correct horse"
+
+    def test_a_helper_failure_is_a_500_and_not_a_success(self, client, spawn):
+        spawn.script(returncode=1, stderr=b"password must be at least 8 characters")
+
+        response = client.post("/api/system/password", json={"password": "shortish"})
+
+        assert response.status_code == 500
+
+    @pytest.mark.parametrize("password", ["short", "with\x07bell"])
+    def test_a_password_the_helper_would_reject_never_reaches_it(self, client, spawn, password):
+        """Rejected by the model, so nothing is spawned: the floor and the
+        printable rule are stated on both sides on purpose, and this is the
+        side that produces a message instead of a 500."""
+        response = client.post("/api/system/password", json={"password": password})
+
+        assert response.status_code == 422
+        assert spawn.calls == []
+
+
+class TestTimezone:
+    """`GET`/`PUT /api/system/timezone`."""
+
+    def test_the_current_zone_is_read_from_the_link_the_c_library_follows(self, client, localtime):
+        """`/etc/localtime` is what every timestamp on the box resolves
+        through, so it cannot disagree with reality the way a second copy in
+        /etc/timezone can."""
+        localtime("America/Los_Angeles")
+
+        assert client.get("/api/system/timezone").json()["data"]["timezone"] == "America/Los_Angeles"
+
+    @pytest.mark.parametrize(
+        "zone,is_default", [("Etc/UTC", True), ("Asia/Singapore", False)]
+    )
+    def test_the_shipped_zone_is_the_one_that_invites_adoption(
+        self, client, localtime, zone, is_default
+    ):
+        """`is_default` is the only thing standing between "nobody has said"
+        and a choice someone made: the frontend overwrites the zone on that
+        flag alone, so a True here on a chosen zone silently reverts it.
+        """
+        localtime(zone)
+
+        assert client.get("/api/system/timezone").json()["data"]["is_default"] is is_default
+
+    def test_the_offered_zones_are_real_and_all_have_an_area(self, client, localtime):
+        """The list feeds an Area → Location pair of dropdowns, so a bare
+        legacy alias (`UTC`, `Zulu`, or the `localtime` symlink the scan picks
+        up) would render as an area with no location under it.
+
+        Asserts its own output is non-trivial first: a scan that found nothing
+        must fail here, not pass on an empty list.
+        """
+        localtime("Etc/UTC")
+
+        available = client.get("/api/system/timezone").json()["data"]["available"]
+
+        assert len(available) > 100
+        assert all("/" in zone for zone in available)
+        assert "Europe/Paris" in available
+        assert "localtime" not in available
+
+    def test_an_unknown_zone_is_refused_without_spawning_anything(self, client, spawn, localtime):
+        localtime("Etc/UTC")
+
+        response = client.put("/api/system/timezone", json={"timezone": "Middle/Earth"})
+
+        assert response.status_code == 400
+        assert spawn.calls == []
+
+    def test_a_known_zone_reaches_the_helper(self, client, spawn, localtime):
+        localtime("Etc/UTC")
+        spawn.script(returncode=0)
+
+        response = client.put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
+
+        assert response.status_code == 200
+        assert spawn.calls[0] == ("sudo", "/usr/local/bin/milo-set-timezone", "Asia/Singapore")
+
+    def test_a_helper_failure_is_a_500_and_not_a_success(self, client, spawn, localtime):
+        localtime("Etc/UTC")
+        spawn.script(returncode=1, stderr=b"Unknown timezone")
+
+        response = client.put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
+
+        assert response.status_code == 500

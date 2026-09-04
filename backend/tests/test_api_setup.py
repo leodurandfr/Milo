@@ -400,28 +400,96 @@ class TestCompleteSetup:
         services.hardware.apply_and_reboot.assert_not_awaited()
 
     def test_the_reboot_runs_after_the_response_and_not_during_it(self, client, services):
-        """`apply_and_reboot` rewrites config.txt and reboots. Called inline it
-        would take the box down before the wizard ever sees its answer, so the
-        UI would report a failed setup on every successful one.
+        """Rewriting config.txt and rebooting inline would take the box down
+        before the wizard ever sees its answer, so the UI would report a failed
+        setup on every successful one.
         """
         response = client.post("/api/setup/complete", json=self._payload())
 
         assert response.status_code == 200
         assert response.json() == {"status": "rebooting"}
         services.hardware.apply_and_reboot.assert_awaited_once()
+        services.systemd.power.assert_awaited_once_with("reboot")
 
-    def test_a_hardware_write_that_fails_puts_the_wizard_back(self, client, services):
-        """Without the rollback the unit reboots into a UI that believes setup is
-        done, on hardware that was never written — no wizard, no audio, and no
-        way back but a reflash.
+    def test_a_hardware_write_that_fails_never_marks_setup_done(self, client, services):
+        """A unit that reboots believing setup is done, on hardware that was
+        never written, has no wizard, no audio and no way back but a reflash.
+
+        This used to be a rollback — set the flag, undo it on the way out —
+        which left the failure of the *undo* as a second way into that state.
+        The flag is now only ever written after config.txt has been rewritten,
+        so the guarantee is that it is never set at all here.
         """
         services.hardware.save_config.side_effect = OSError("read-only filesystem")
 
         response = client.post("/api/setup/complete", json=self._payload())
 
         assert response.status_code == 500
-        services.settings.set_setting.assert_awaited_with("setup_completed", False)
+        assert ("setup_completed", True) not in [
+            call.args for call in services.settings.set_setting.await_args_list
+        ]
         services.hardware.apply_and_reboot.assert_not_awaited()
+
+    def test_the_overlay_lands_before_the_flag_and_the_flag_before_the_reboot(
+        self, client, services
+    ):
+        """The order is the fix for a silent brick.
+
+        The flag used to be persisted before `milo-apply-hardware` ran, so a
+        power cut in that window — the user pulling the plug because "it is
+        taking a while" — produced a unit that considered itself configured and
+        booted with no dtoverlay: no sound, no wizard, nothing in any log
+        saying why. Applying first makes every cut before the flag bring the
+        wizard back, and a cut after it lands on a config.txt already correct.
+
+        `reboot=False` is asserted with the order: the helper reboots on its
+        own by default, which would take the box down before the flag is
+        written and put the window straight back.
+        """
+        order = []
+        services.hardware.apply_and_reboot = AsyncMock(
+            side_effect=lambda **kw: order.append(f"apply(reboot={kw.get('reboot', True)})")
+        )
+        services.settings.set_setting = AsyncMock(
+            side_effect=lambda key, value: order.append(f"{key}={value}") or True
+        )
+        services.systemd.power = AsyncMock(side_effect=lambda *_: order.append("reboot"))
+
+        response = client.post("/api/setup/complete", json=self._payload())
+
+        assert response.status_code == 200
+        assert order == [
+            "language=" + self._payload()["language"],
+            "apply(reboot=False)",
+            "setup_completed=True",
+            "reboot",
+        ]
+
+    def test_an_apply_that_fails_leaves_the_wizard_in_place_and_the_box_up(
+        self, client, services
+    ):
+        """config.txt was not rewritten, so rebooting would only lose the
+        user's answers: the wizard must still be there on the next boot."""
+        services.hardware.apply_and_reboot.side_effect = RuntimeError("config.txt is read-only")
+
+        client.post("/api/setup/complete", json=self._payload())
+
+        assert ("setup_completed", True) not in [
+            call.args for call in services.settings.set_setting.await_args_list
+        ]
+        services.systemd.power.assert_not_awaited()
+
+    def test_a_flag_that_will_not_persist_does_not_reboot(self, client, services):
+        """Rebooting on an unwritten flag is a unit that shows the wizard again
+        with its hardware already applied — recoverable, but the reboot bought
+        nothing and hid the settings write that failed."""
+        services.settings.set_setting = AsyncMock(
+            side_effect=lambda key, value: key != "setup_completed"
+        )
+
+        client.post("/api/setup/complete", json=self._payload())
+
+        services.systemd.power.assert_not_awaited()
 
     @pytest.mark.parametrize("bad", [
         {"language": "klingon"},

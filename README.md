@@ -126,6 +126,10 @@
 5. A setup page opens automatically — follow the wizard to configure language, WiFi, audio card, and screen
 6. Milō reboots and is ready to use
 
+The time zone is picked up from the phone or computer you set Milō up from; Settings →
+Language and region changes it. The WiFi country is asked for in the wizard and cannot be
+skipped — it is what the radio's legal transmit power depends on.
+
 After setup:
 
 - **Web interface** → http://milo.local
@@ -136,6 +140,23 @@ After setup:
 - **Bluetooth** → Connect to "Milō · Bluetooth"
 - **DLNA** → Select "Milo" as the renderer in any DLNA/UPnP controller app
 - **Mac** → Install [Milō Mac](https://github.com/leodurandfr/Milo-Mac), then select "Milō" in audio outputs
+
+### Remote access
+
+SSH is **off** by default and the image ships a factory password (`milo`) that is the same on
+every unit — which is why nothing remote accepts it. To open a shell:
+
+1. Settings → Device → System → **Device password**: set your own.
+2. Same page → **Remote access**: turn SSH on. The switch stays inert until step 1 is done, and
+   the backend refuses the same request, so a unit that never got a password can never be
+   reached over SSH.
+3. `ssh milo@milo.local`
+
+The same password is what `sudo` asks for on the unit itself.
+
+If the interface is unreachable — or on a **satellite**, which has no interface of its own —
+create an empty file named `ssh` on the SD card's boot partition. Raspberry Pi OS enables the
+server on the next boot and removes the file.
 
 ### Multiroom (Additional Speakers)
 

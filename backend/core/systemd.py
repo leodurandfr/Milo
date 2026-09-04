@@ -25,6 +25,62 @@ class SystemdServiceManager:
         """Restarts a systemd service."""
         return await self._control_service(service, "restart")
 
+    async def set_enabled(self, service: str, enabled: bool) -> bool:
+        """Enable or disable a unit at boot, and start/stop it now.
+
+        Separate from `_control_service` rather than a fourth action of it:
+        that helper decides success by polling `is_active`, and enablement is a
+        different fact — a unit can be enabled and inactive (a oneshot that
+        already ran) or active and disabled (started by hand). `--now` carries
+        the runtime half, and `is-enabled` is what gets verified.
+        """
+        action = "enable" if enabled else "disable"
+        self.logger.info(f"{action.capitalize()} service {service} (--now)")
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", action, "--now", service,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), 15.0)
+            if proc.returncode != 0:
+                error_msg = stderr.decode().strip() if stderr else "No error details"
+                self.logger.error(f"Failed to {action} {service}: {error_msg}")
+                return False
+        except asyncio.TimeoutError:
+            if proc:
+                proc.kill()
+            self.logger.error(f"Timeout ({action} {service} took more than 15 seconds)")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error during {action} {service}: {e}")
+            return False
+
+        if await self.is_enabled(service) != enabled:
+            self.logger.error(f"Service {service} did not become {action}d")
+            return False
+        return True
+
+    async def is_enabled(self, service: str) -> bool:
+        """Whether a unit is enabled at boot. No sudo — `is-enabled` is public."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "is-enabled", service,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), 5.0)
+            # `systemctl is-enabled` exits non-zero for every state that is not
+            # "enabled", so the word is the answer and the exit code is not.
+            return stdout.decode().strip() == "enabled"
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout checking whether {service} is enabled")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error checking whether {service} is enabled: {e}")
+            return False
+
     async def restart_self(self, service: str) -> None:
         """Fire-and-forget restart of the unit hosting THIS process (milo-backend).
 

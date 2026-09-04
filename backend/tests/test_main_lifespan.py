@@ -90,7 +90,7 @@ def boot(monkeypatch):
     systemd.stop = AsyncMock(return_value=True)
 
     network = MagicMock()
-    network.maybe_start_hotspot = AsyncMock()
+    network.evaluate_reachability = AsyncMock()
     network.cleanup = _torn_down("network").cleanup
 
     ws_log_handler = MagicMock()
@@ -237,12 +237,19 @@ class TestStartup:
 
         boot["state_machine"].start_inactivity_monitor.assert_called_once()
 
-    async def test_the_first_boot_hotspot_is_offered_the_settings(self, boot):
-        """A unit flashed and powered on with no network has no other way to be
-        configured: the wizard is reached over this hotspot."""
+    async def test_reachability_is_evaluated_once_the_graph_is_up(self, boot):
+        """A unit powered on with no network has no other way to be reached, and
+        the wizard is behind that access point.
+
+        Called with no arguments on purpose: this used to be
+        `maybe_start_hotspot(settings_service)`, i.e. the network layer asking
+        the settings layer whether setup was finished. That coupling *was* the
+        bug — an AP gated on `setup_completed` cannot come back for a unit whose
+        saved WiFi password turns out to be wrong.
+        """
         await _run_lifespan(boot)
 
-        boot["network"].maybe_start_hotspot.assert_awaited_once_with(main.settings_service)
+        boot["network"].evaluate_reachability.assert_awaited_once_with()
 
     async def test_a_failed_startup_is_logged_and_re_raised(self, boot, caplog):
         """Swallowed, uvicorn would start serving over a graph that never came up

@@ -17,7 +17,9 @@
     "connectionLostDescription": "Reconectando automaticamente quando disponível",
     "backendErrorTitle": "Erro do sistema",
     "sourceErrorTitle": "Erro de {source}",
-    "commandFailed": "Comando falhou"
+    "commandFailed": "Comando falhou",
+    "audioCardMissingTitle": "Placa de áudio não detetada",
+    "audioCardMissingDescription": "{card} está configurada mas não é detetada. Verifique se a placa está bem encaixada ou escolha outra nas Definições."
   },
   "settings": {
     "title": "Configuração do Milō",
@@ -25,13 +27,14 @@
       "appearance": "Aparência",
       "audio": "Áudio",
       "sources": "Fontes",
-      "system": "Sistema"
+      "device": "Dispositivo"
     },
-    "languages": "Idiomas",
+    "languageRegion": "Idioma e região",
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Ecrã",
     "network": "Rede",
+    "system": "Sistema",
     "updates": "Atualizações",
     "information": "Informações",
     "hardware": "Hardware",
@@ -693,7 +696,8 @@
       "getStarted": "Começar"
     },
     "wifi": {
-      "title": "Configure a rede"
+      "title": "Configure a rede",
+      "continueHint": "Selecione um país e ligue o Milō a uma rede para continuar."
     },
     "language": {
       "title": "Escolha o seu idioma"
@@ -731,8 +735,38 @@
       "subtitle": "Dois servidores Milō não podem coexistir na mesma rede. Desliga um deles, ou verifica novamente se já o fizeste.",
       "thisDevice": "Este dispositivo: {name} ({ip})",
       "recheck": "Verificar novamente",
-      "shutdown": "Desligar este dispositivo"
+      "shutdown": "Desligar este dispositivo",
+      "speakerHint": "Se este aparelho deve ser uma coluna e não um segundo Milō, desligue-o e adicione-o em Definições → Multiroom do seu Milō principal."
+    },
+    "ssh": {
+      "title": "Acesso remoto",
+      "description": "Permite abrir uma sessão de terminal no Milō a partir de outro computador. Desativado por predefinição.",
+      "passwordRequired": "Defina uma palavra-passe antes de ativar o acesso remoto."
+    },
+    "password": {
+      "title": "Palavra-passe do dispositivo",
+      "description": "Usada para o acesso remoto e para os comandos de administração. Todos os Milō saem de fábrica com a mesma palavra-passe: o acesso remoto permanece fechado até a alterar.",
+      "newPlaceholder": "Nova palavra-passe",
+      "confirmPlaceholder": "Confirmar palavra-passe",
+      "save": "Guardar",
+      "saved": "Guardado",
+      "mismatch": "As duas palavras-passe não coincidem.",
+      "tooShort": "A palavra-passe deve ter pelo menos {n} caracteres."
+    },
+    "reset": {
+      "title": "Repor a configuração",
+      "description": "Executa novamente o primeiro arranque: deteção do papel e depois o assistente de configuração. As suas estações de rádio, subscrições de podcast e partilhas de música são mantidas.",
+      "action": "Repor",
+      "confirm": "Confirmar a reposição?",
+      "running": "A reiniciar…"
     }
+  },
+  "timezone": {
+    "title": "Fuso horário",
+    "area": "Área",
+    "location": "Cidade",
+    "selectArea": "Selecionar uma área",
+    "selectLocation": "Selecionar uma cidade"
   },
   "remoteControls": {
     "btRemote": "Comando Bluetooth",

@@ -50,6 +50,14 @@ from backend.core.network.models import (
 # scanner deduplicates by SSID and only one of them is adoptable at a time.
 HOTSPOT_NAME = "Milō"
 
+# How long the unit may sit with no usable link before it raises the access
+# point. Sized on NetworkManager's own behaviour rather than on taste: a cold
+# boot has no connection until autoconnect plus a DHCP transaction completes,
+# and NM retries a failing profile several times before it gives up. Shorter
+# than this and the AP steals the radio from an association that was about to
+# succeed.
+RECOVERY_AP_DELAY_S = 45.0
+
 NM_SERVICE = "org.freedesktop.NetworkManager"
 NM_PATH = "/org/freedesktop/NetworkManager"
 NM_IFACE = "org.freedesktop.NetworkManager"
@@ -77,6 +85,10 @@ class NetworkService:
         self.state_machine = state_machine
         self.settings_service = settings_service
         self._hotspot_active: bool = False
+        # The pending "still no link" timer. A tracked task on self, not a
+        # fire-and-forget one: it has to be cancellable the instant a link
+        # appears, or an AP is raised seconds after the unit became reachable.
+        self._recovery_arm: Optional[asyncio.Task] = None
         self._connect_lock = asyncio.Lock()
 
         # D-Bus state
@@ -113,7 +125,7 @@ class NetworkService:
 
     @property
     def hotspot_active(self) -> bool:
-        """Whether the setup hotspot is currently active."""
+        """Whether the recovery access point is currently up."""
         return self._hotspot_active
 
     # =========================================================================
@@ -254,11 +266,12 @@ class NetworkService:
         # connection prevents its profile from being fully removed by NM
         await self._run_nmcli("device", "disconnect", self.WIFI_INTERFACE)
 
-        # Delete hotspot profile early to prevent NM from auto-reconnecting
-        # to the AP while we switch to STA mode
+        # Drop the AP before switching to STA — one radio cannot do both. Also
+        # disarm the pending timer: this connect is the unit becoming reachable,
+        # and if it fails the evaluation will arm a new one.
+        self._cancel_recovery_arm()
         if self._hotspot_active:
-            self._hotspot_active = False
-            await self._delete_hotspot_profile()
+            await self._stop_hotspot("switching to station mode")
 
         # Remove all existing profiles for this SSID to avoid stale profiles
         await self._delete_ssid_profiles(ssid)
@@ -439,38 +452,136 @@ class NetworkService:
     # Hotspot management
     # =========================================================================
 
-    async def maybe_start_hotspot(self, settings_service) -> bool:
-        """Activate WiFi hotspot if setup is incomplete and no network is available.
+    async def evaluate_reachability(self, status: Optional[NetworkStatus] = None) -> None:
+        """Raise or drop the recovery access point. One rule, one owner.
 
-        Called once at backend startup. Returns True if hotspot was activated.
+        **The appliance must always be reachable; when it has no way to be, it
+        makes one.** That is the whole condition — *no active non-AP
+        connection* — and it replaces the first-boot special case this used to
+        be (`maybe_start_hotspot(settings_service)`, run once at startup and
+        gated on `setup_completed`).
+
+        The special case was measured to fail exactly where it mattered. On the
+        hotspot path the wizard *saves* a WiFi profile rather than connecting to
+        it — it cannot connect, the AP is the only thing carrying the user's
+        browser — so nothing validates the password. A wrong one completed the
+        wizard, set `setup_completed`, rebooted, and left a unit NetworkManager
+        could not associate: no LAN, no AP (setup was "complete"), and on a
+        headless unit no screen either. Unreachable, permanently, with the only
+        trace in a journal nobody could read.
+
+        Driven by the same NM D-Bus property changes that already feed
+        `network/status_changed`, plus once at startup — so it also covers a
+        cable pulled or an access point that dies years later.
+
+        Two things this deliberately does not do. It does not consult
+        `setup_completed`: the network layer has no business knowing about the
+        wizard, and that coupling *is* the bug above. And it does not treat "no
+        internet" as unreachable — `_has_active_connection` asks for a link,
+        not for connectivity, so a LAN without a WAN raises nothing.
+
+        The AP is open, and it has to be: the device password that could
+        protect it is read from a UI that, in the one situation this exists
+        for, cannot be reached. The exposure window is exactly the window in
+        which the unit is unreachable by any other means.
         """
-        setup_completed = bool(await settings_service.get_setting("setup_completed"))
-        if setup_completed:
-            # Clean up stale hotspot profile from a previous setup session
-            await self._delete_hotspot_profile()
-            return False
+        # A status the caller already computed is a free first look, and it is
+        # used in one direction only: `connected` there is sound (ethernet has
+        # an IPv4 lease, or wlan0 is associated to something that is not our own
+        # AP — `_get_wifi_info` excludes it), so it needs no confirmation.
+        # Anything else falls through to the authoritative read below. Drift in
+        # this pre-filter can therefore only cost one extra `nmcli`, never a
+        # wrong decision — and it keeps the common case, a healthy unit, at the
+        # four forks per NM event this path was trimmed down to.
+        if status is not None and (status.ethernet.connected or status.wifi.connected):
+            connected = True
+        else:
+            connected = await self._has_active_connection()
 
-        if await self._has_active_connection():
-            self.logger.info("Hotspot skipped: active network connection found")
-            return False
+        if connected is None:
+            return  # nmcli could not say; act on no evidence at all
 
+        if connected:
+            self._cancel_recovery_arm()
+            if self._hotspot_active:
+                await self._stop_hotspot("a network connection came back")
+            return
+
+        if self._hotspot_active or self._recovery_arm is not None:
+            return
+
+        self._recovery_arm = asyncio.create_task(self._raise_recovery_ap_after_delay())
+
+    def _cancel_recovery_arm(self) -> None:
+        """Disarm the pending timer, if any."""
+        if self._recovery_arm is not None:
+            self._recovery_arm.cancel()
+            self._recovery_arm = None
+
+    async def _raise_recovery_ap_after_delay(self) -> None:
+        """Wait out the settle window, then make the unit reachable.
+
+        The delay is the difference between a recovery channel and a flashing
+        AP: a normal boot has no connection for as long as NM takes to
+        autoconnect and DHCP to answer, and NM retries a failing profile
+        several times before giving up. Raising an AP inside that window would
+        take the radio away from the association that was about to succeed.
+        """
+        try:
+            await asyncio.sleep(RECOVERY_AP_DELAY_S)
+            # Re-checked rather than trusted: the whole point of the wait is
+            # that the answer is expected to change during it. `is not False`
+            # so an unknown answer holds the AP down too.
+            if await self._has_active_connection() is not False:
+                return
+            await self._start_hotspot()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger.error("Recovery access point could not be evaluated: %s", e)
+        finally:
+            self._recovery_arm = None
+
+    async def _start_hotspot(self) -> None:
+        """Bring the AP up. Failing open — a unit with no wlan0 stays silent."""
         try:
             await self._activate_hotspot()
             self._hotspot_active = True
-            self.logger.info("Hotspot '%s' activated for first-boot setup", HOTSPOT_NAME)
-            return True
+            self.logger.info(
+                "No network connection — access point '%s' raised so the unit stays reachable",
+                HOTSPOT_NAME,
+            )
         except Exception as e:
-            self.logger.error("Failed to activate hotspot: %s", e)
-            return False
+            self.logger.error("Failed to activate the recovery access point: %s", e)
 
-    async def _has_active_connection(self) -> bool:
-        """Return True if any Ethernet or WiFi client (non-AP) connection is active."""
-        rc, stdout, _ = await self._run_nmcli(
-            "-t", "-f", "TYPE,STATE,CONNECTION",
-            "device", "status"
-        )
+    async def _stop_hotspot(self, reason: str) -> None:
+        """Take the AP down. The single teardown — `_connect_impl` uses it too,
+        where dropping the AP before switching to station mode is sequencing
+        (one radio), not cleanup."""
+        self._hotspot_active = False
+        await self._delete_hotspot_profile()
+        self.logger.info("Access point '%s' removed (%s)", HOTSPOT_NAME, reason)
+
+    async def _has_active_connection(self) -> Optional[bool]:
+        """True/False if any Ethernet or WiFi client (non-AP) connection is
+        active — **None when nmcli could not say**.
+
+        The three-valued answer is load-bearing now that this decides whether
+        to raise an access point. Folding a failed `nmcli` into False, as it
+        used to, means one timed-out call reads as "this unit is unreachable"
+        and puts an open AP on a perfectly connected box. Unknown is not
+        no-network, and the callers act on neither.
+        """
+        try:
+            rc, stdout, _ = await self._run_nmcli(
+                "-t", "-f", "TYPE,STATE,CONNECTION",
+                "device", "status"
+            )
+        except asyncio.TimeoutError:
+            return None
         if rc != 0:
-            return False
+            self.logger.warning("nmcli device status failed (rc=%s) — reachability unknown", rc)
+            return None
         for line in stdout.split("\n"):
             fields = _parse_nmcli_line(line)
             if len(fields) < 3:
@@ -694,6 +805,7 @@ class NetworkService:
 
     async def cleanup(self) -> None:
         """Detach every listener and disconnect the bus. Idempotent."""
+        self._cancel_recovery_arm()
         await self._bg.cancel_all()
         self._ap_proxy = None
         self._ap_path = None
@@ -917,6 +1029,11 @@ class NetworkService:
             except Exception as exc:
                 self.logger.error("Failed to read network status for broadcast: %s", exc)
                 return
+
+            # Before the dedup, deliberately: an unchanged status is exactly
+            # what a unit stuck with no link looks like, and returning early
+            # there would mean the rule only ever sees transitions.
+            self._bg.spawn(self.evaluate_reachability(status), label="reachability")
 
             if status == self._last_broadcast:
                 return

@@ -86,6 +86,30 @@ def with_nmcli(router=None):
     )
 
 
+def no_delay():
+    """Collapse the recovery AP's settle window for a test.
+
+    The window is the production design (NM's own autoconnect + DHCP must be
+    allowed to finish before the radio is taken), so it is shortened here
+    rather than removed there.
+    """
+    return patch("backend.core.network.service.RECOVERY_AP_DELAY_S", 0)
+
+
+async def settle_until(predicate, timeout=1.0):
+    """Run the loop until `predicate()` holds, or fail after `timeout`.
+
+    Bounded on purpose: an implementation that never arms the timer must make
+    the suite RED, not make it hang.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError("the recovery access point never settled into the expected state")
+
+
 # --------------------------------------------------------------------------- #
 # nmcli terse-mode parsing (pure)
 # --------------------------------------------------------------------------- #
@@ -257,26 +281,149 @@ async def test_the_saved_ssid_is_read_back_from_the_milo_prefixed_profile(servic
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_a_completed_setup_raises_no_hotspot_and_clears_a_stale_profile(service):
-    """After setup the AP must never come back, and its profile must not linger.
+async def test_a_unit_with_no_link_at_all_raises_its_own_access_point(service):
+    """The rule: the appliance must always be reachable, so with no link it
+    makes one.
 
-    A surviving profile is what lets NM raise the AP on its own at some later
-    boot, behind the backend's back.
+    This replaces a first-boot special case gated on `setup_completed`, which
+    failed exactly where it mattered. On the hotspot path the wizard *saves* a
+    WiFi profile instead of connecting to it — it cannot connect, the AP is
+    carrying the user's browser — so nothing validates the password. A wrong
+    one completed the wizard, set the flag, rebooted, and left a unit NM could
+    not associate: no LAN, no AP (setup was "complete"), and on a headless unit
+    no screen. Unreachable, permanently.
     """
-    service.settings_service.get_setting = AsyncMock(return_value=True)
-    fake, patcher = with_nmcli()
-    with patcher:
-        started = await service.maybe_start_hotspot(service.settings_service)
+    fake, patcher = with_nmcli(lambda args: (0, "", ""))
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: service.hotspot_active)
 
-    assert started is False
+    assert fake.argv_containing("add")
+
+
+@pytest.mark.asyncio
+async def test_a_live_network_raises_nothing(service):
+    """A unit that is reachable already needs no second channel."""
+    def router(args):
+        if "status" in args:
+            return (0, "ethernet:connected:Wired connection 1", "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await asyncio.sleep(0.05)
+
+    assert service.hotspot_active is False
+    assert not fake.argv_containing("add")
+
+
+@pytest.mark.asyncio
+async def test_the_units_own_access_point_does_not_count_as_a_live_network(service):
+    """Otherwise the AP would prove the unit reachable and tear itself down —
+    or, on a restart while it is up, decide nothing needs doing at all."""
+    def router(args):
+        if "status" in args:
+            return (0, f"wifi:connected:{HOTSPOT_NAME}", "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: service.hotspot_active)
+
+
+@pytest.mark.asyncio
+async def test_a_link_that_comes_back_takes_the_access_point_down(service):
+    """The other half of the rule, and the one with no previous owner: the AP
+    used to be torn down only by `connect()` and by the next boot, so an
+    ethernet cable plugged back in left an open AP broadcasting."""
+    state = {"connected": False}
+
+    def router(args):
+        if "status" in args and state["connected"]:
+            return (0, "ethernet:connected:Wired connection 1", "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: service.hotspot_active)
+
+        state["connected"] = True
+        await service.evaluate_reachability()
+
     assert service.hotspot_active is False
     assert fake.argv_containing("delete")
 
 
 @pytest.mark.asyncio
-async def test_an_unconfigured_unit_with_a_live_network_does_not_raise_the_hotspot(service):
-    """An adopted-but-unconfigured unit stays reachable on the network it has."""
-    service.settings_service.get_setting = AsyncMock(return_value=False)
+async def test_a_link_arriving_during_the_settle_window_cancels_the_access_point(service):
+    """The window exists because a cold boot has no connection until
+    autoconnect and DHCP finish. Arming without disarming would raise an AP
+    seconds after the unit became reachable, on every single boot.
+    """
+    state = {"connected": False}
+
+    def router(args):
+        if "status" in args and state["connected"]:
+            return (0, "ethernet:connected:Wired connection 1", "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    # The real window, not the collapsed one: the point is that nothing happens
+    # inside it.
+    with patcher:
+        await service.evaluate_reachability()
+        state["connected"] = True
+        await service.evaluate_reachability()
+        await asyncio.sleep(0.05)
+
+    assert service.hotspot_active is False
+    assert not fake.argv_containing("add")
+
+
+@pytest.mark.asyncio
+async def test_a_status_that_already_shows_a_link_costs_no_extra_nmcli(service):
+    """The rule runs on every NetworkManager property change, on a path that was
+    deliberately trimmed to four nmcli forks per event (see the module
+    docstring — a subscription was *removed* over that cost). A fifth fork on
+    every event for the common case, a healthy unit, is what the pre-filter
+    avoids; it is trusted in one direction only, so it can cost a redundant
+    check but never a wrong answer.
+    """
+    from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
+
+    status = NetworkStatus(
+        wifi_enabled=True,
+        ethernet=EthernetStatus(connected=True, ip_address="192.168.1.10"),
+        wifi=WifiConnectionStatus(connected=False),
+    )
+
+    fake, patcher = with_nmcli()
+    with patcher, no_delay():
+        await service.evaluate_reachability(status)
+        await asyncio.sleep(0.05)
+
+    assert fake.calls == [], "the pre-filter did not short-circuit the authoritative read"
+    assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_a_status_showing_no_link_is_confirmed_before_acting(service):
+    """The other direction: the cheap status may not decide *against* the unit.
+
+    `get_network_status` fails open — an unreadable interface reads as
+    disconnected — so acting on its "no link" would raise an access point over
+    one nmcli hiccup. It only ever triggers the real read.
+    """
+    from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
+
+    status = NetworkStatus(
+        wifi_enabled=True,
+        ethernet=EthernetStatus(connected=False),
+        wifi=WifiConnectionStatus(connected=False),
+    )
 
     def router(args):
         if "status" in args:
@@ -284,29 +431,12 @@ async def test_an_unconfigured_unit_with_a_live_network_does_not_raise_the_hotsp
         return (0, "", "")
 
     fake, patcher = with_nmcli(router)
-    with patcher:
-        started = await service.maybe_start_hotspot(service.settings_service)
+    with patcher, no_delay():
+        await service.evaluate_reachability(status)
+        await asyncio.sleep(0.05)
 
-    assert started is False
-    assert not fake.argv_containing("add")
-
-
-@pytest.mark.asyncio
-async def test_the_units_own_hotspot_does_not_count_as_a_live_network(service):
-    """Otherwise a restart while the AP is up would decide setup can be skipped."""
-    service.settings_service.get_setting = AsyncMock(return_value=False)
-
-    def router(args):
-        if "status" in args:
-            return (0, f"wifi:connected:{HOTSPOT_NAME}", "")
-        return (0, "", "")
-
-    fake, patcher = with_nmcli(router)
-    with patcher:
-        started = await service.maybe_start_hotspot(service.settings_service)
-
-    assert started is True
-    assert service.hotspot_active is True
+    assert fake.argv_containing("status"), "the authoritative read was skipped"
+    assert service.hotspot_active is False
 
 
 @pytest.mark.asyncio
@@ -315,12 +445,12 @@ async def test_the_hotspot_profile_is_created_with_autoconnect_disabled(service)
 
     A profile that auto-connects survives a reboot and raises the AP by itself,
     so `_hotspot_active` stays False and nothing ever tears it down. The AP must
-    only exist because maybe_start_hotspot ran.
+    only exist because the reachability rule decided it should.
     """
-    service.settings_service.get_setting = AsyncMock(return_value=False)
     fake, patcher = with_nmcli()
-    with patcher:
-        assert await service.maybe_start_hotspot(service.settings_service) is True
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: service.hotspot_active)
 
     add = next(c for c in fake.calls if "add" in c)
     assert "connection.autoconnect" in add
@@ -331,22 +461,18 @@ async def test_the_hotspot_profile_is_created_with_autoconnect_disabled(service)
 
 @pytest.mark.asyncio
 async def test_a_hotspot_that_fails_to_come_up_leaves_no_profile_behind(service):
-    """The rollback is what keeps a failed first boot from arming a later one."""
-    service.settings_service.get_setting = AsyncMock(return_value=False)
-
+    """The rollback is what keeps a failed attempt from arming a later boot."""
     def router(args):
         if args[:2] == ("connection", "up"):
             return (1, "", "no wireless device")
         return (0, "", "")
 
     fake, patcher = with_nmcli(router)
-    with patcher:
-        started = await service.maybe_start_hotspot(service.settings_service)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: len(fake.argv_containing("delete")) == 2)
 
-    assert started is False
     assert service.hotspot_active is False
-    # one cleanup before creating, one rolling back after the failed activation
-    assert len(fake.argv_containing("delete")) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -1576,38 +1702,50 @@ async def test_a_refused_profile_creation_during_connect_names_the_reason(servic
 
 @pytest.mark.asyncio
 async def test_a_hotspot_profile_that_cannot_be_created_is_raised(service):
-    """First boot with a card that refuses AP mode. `maybe_start_hotspot`
-    swallows it into a log — but only because this raises first; a silent
-    success would leave the wizard waiting for an SSID that never appears."""
+    """A card that refuses AP mode. `_start_hotspot` swallows it into a log —
+    but only because this raises first; a silent success would leave the unit
+    claiming to be reachable on an SSID that never appears."""
     def route(args):
         if args[:2] == ("connection", "add"):
             return (1, "", "ap mode not supported")
         return (0, "", "")
 
     fake, patcher = with_nmcli(route)
-    service.settings_service.get_setting = AsyncMock(return_value=False)
-    with patcher:
-        assert await service.maybe_start_hotspot(service.settings_service) is False
+    with patcher, pytest.raises(RuntimeError, match="ap mode not supported"):
+        await service._activate_hotspot()
 
 
 @pytest.mark.asyncio
-async def test_a_device_status_that_cannot_be_read_does_not_block_the_hotspot(service):
-    """`_has_active_connection` gates the first-boot AP. Reading a failure as
-    "there is a network" is the one answer that must not happen: the unit would
-    boot with no hotspot and no LAN, and only a reflash recovers it."""
+async def test_a_device_status_that_cannot_be_read_is_unknown_not_disconnected(service):
+    """nmcli prints the rows it managed to read on stdout AND exits non-zero
+    (14th blind spot). Parsing them past the exit code is how a partial answer
+    becomes "there is a network" — that half has not moved, and must not.
+
+    What did move is the other half. This used to fold a failed read into
+    "no network", which was right while the AP existed for first boot alone:
+    a fresh unit whose nmcli failed would otherwise have been unreachable with
+    only a reflash to recover it. Under the reachability rule that fear is
+    gone — the evaluation re-runs on every NM property change and at every boot
+    — while the cost of the old reading appeared: one timed-out nmcli would put
+    an open access point on a perfectly connected unit. Unknown is now unknown,
+    and neither caller acts on it.
+    """
     def route(args):
         if args[:2] == ("-t", "-f") and "status" in args:
-            # 14th blind spot: nmcli prints the rows it managed to read on
-            # stdout AND exits non-zero. Parsing them past the exit code is how
-            # a partial answer becomes "there is a network".
             return (1, "ethernet:connected:Wired connection 1",
                     "Error: NetworkManager is not running.")
         return (0, "", "")
 
     fake, patcher = with_nmcli(route)
-    service.settings_service.get_setting = AsyncMock(return_value=False)
     with patcher:
-        assert await service.maybe_start_hotspot(service.settings_service) is True
+        assert await service._has_active_connection() is None
+
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await asyncio.sleep(0.05)
+
+    assert service.hotspot_active is False
+    assert not fake.argv_containing("add")
 
 
 @pytest.mark.asyncio
@@ -1620,9 +1758,8 @@ async def test_a_short_device_status_row_is_skipped(service):
         return (0, "", "")
 
     fake, patcher = with_nmcli(route)
-    service.settings_service.get_setting = AsyncMock(return_value=False)
     with patcher:
-        assert await service.maybe_start_hotspot(service.settings_service) is False
+        assert await service._has_active_connection() is True
 
 
 @pytest.mark.asyncio
@@ -1824,13 +1961,12 @@ async def test_a_wifi_device_that_cannot_be_read_is_reported_disconnected(servic
 
 @pytest.mark.asyncio
 async def test_a_missing_hotspot_profile_is_not_an_error(service):
-    """`maybe_start_hotspot` deletes it on every completed-setup boot, so the
+    """`_activate_hotspot` clears any stale profile before creating one, so the
     "unknown connection" answer is the normal one and must stay at debug — an
-    error here would put a banner on the UI at every boot."""
+    error here would put a banner on the UI every time the AP is raised."""
     fake, patcher = with_nmcli(lambda args: (10, "", "Error: unknown connection 'Milō'."))
-    service.settings_service.get_setting = AsyncMock(return_value=True)
     with patcher, caplog_at_error() as records:
-        assert await service.maybe_start_hotspot(service.settings_service) is False
+        await service._delete_hotspot_profile()
     assert records == []
 
 

@@ -107,27 +107,14 @@
           </div>
         </div>
 
-        <!-- WiFi country selector -->
-        <div class="country-row">
-          <span class="country-row__label text-mono-medium">{{ t('network.wifiCountry') }}</span>
-          <Dropdown
-            :model-value="pendingCountry || country"
-            :options="countryOptions"
-            :placeholder="t('network.selectCountry')"
-            :disabled="isRebootingCountry"
-            @change="onCountryChange"
-          />
+        <!-- WiFi country selector. Applies on change and rescans; no reboot.
+             `milo-set-wifi-country` runs `iw reg set` there and then, and only
+             writes cmdline.txt for the next boot's initial domain — the
+             apply-and-reboot sequence that used to live here was doing on this
+             page what the setup wizard has never needed. -->
+        <div class="country-section">
+          <WifiCountrySelector />
         </div>
-
-        <!-- Apply & Reboot (sticky, two-step confirm) -->
-        <Button v-if="isCountryDirty || isRebootingCountry"
-          :variant="confirmRebootCountry ? 'important' : 'brand'"
-          class="apply-button-sticky"
-          :loading="isApplyingCountry || isRebootingCountry"
-          :disabled="isApplyingCountry || isRebootingCountry"
-          @click="handleCountryApply">
-          {{ countryApplyButtonLabel }}
-        </Button>
       </div>
     </ToggleSection>
   </SettingsContainer>
@@ -138,19 +125,18 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted, inject } from '
 import { useI18n } from '@/services/i18n';
 import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
-import { wifiCountryOptions } from '@/constants/wifiCountries';
 import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
-import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
+import WifiCountrySelector from '@/components/network/WifiCountrySelector.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 
-const { t, getCurrentLanguage } = useI18n();
+const { t } = useI18n();
 const timer = useTimer();
 const requestHeightDelta = inject('modalRequestHeightDelta', null);
 const modalSetContentHeight = inject('modalSetContentHeight', null);
@@ -158,7 +144,6 @@ const modalContentInnerRef = inject('modalContentInnerRef', null);
 
 const {
   status,
-  country,
   loading,
   scanning,
   connecting,
@@ -172,93 +157,8 @@ const {
   connectToNetwork,
   forgetNetwork,
   toggleWifi,
-  setCountry,
   initialize,
 } = useNetwork();
-
-// === WiFi country selector (Apply & Reboot pattern from HardwareSettings) ===
-const countryOptions = computed(() => wifiCountryOptions(getCurrentLanguage()));
-const pendingCountry = ref('');
-const confirmRebootCountry = ref(false);
-const isApplyingCountry = ref(false);
-const isRebootingCountry = ref(false);
-
-const isCountryDirty = computed(() =>
-  pendingCountry.value && pendingCountry.value !== country.value
-);
-
-const countryApplyButtonLabel = computed(() => {
-  if (isRebootingCountry.value) return t('hardwareSettings.rebooting');
-  if (confirmRebootCountry.value) return t('hardwareSettings.confirmReboot');
-  return t('hardwareSettings.applyAndReboot');
-});
-
-// Sync pendingCountry when country loads from API
-watch(country, (val) => {
-  if (!isCountryDirty.value) pendingCountry.value = val;
-}, { immediate: true });
-
-function onCountryChange(code) {
-  pendingCountry.value = code;
-  confirmRebootCountry.value = false;
-}
-
-function handleCountryApply() {
-  if (!confirmRebootCountry.value) {
-    confirmRebootCountry.value = true;
-    return;
-  }
-  applyCountryAndReboot();
-}
-
-async function applyCountryAndReboot() {
-  isApplyingCountry.value = true;
-  confirmRebootCountry.value = false;
-
-  try {
-    await setCountry(pendingCountry.value);
-  } catch (err) {
-    logger.error('network', 'Failed to apply WiFi country', err);
-    isApplyingCountry.value = false;
-    return;
-  }
-  isApplyingCountry.value = false;
-  isRebootingCountry.value = true;
-
-  const restartResult = await apiCall.post('/api/system/restart', null, {
-    category: 'network',
-    message: 'Failed to trigger reboot'
-  });
-  if (!restartResult.ok) {
-    isRebootingCountry.value = false;
-    return;
-  }
-
-  // Poll for backend to come back after reboot — expected stream of failures
-  // while it restarts, so log at debug level.
-  let pollCount = 0;
-  const maxPolls = 60;
-  countryPollIntervalId = timer.setInterval(async () => {
-    pollCount++;
-    if (pollCount > maxPolls) {
-      timer.clear(countryPollIntervalId);
-      countryPollIntervalId = null;
-      isRebootingCountry.value = false;
-      return;
-    }
-    const pingResult = await apiCall.get('/api/ping', {
-      category: 'network',
-      message: 'Reboot polling ping failed',
-      timeout: 2000,
-      logLevel: 'debug'
-    });
-    if (pingResult.ok) {
-      timer.clear(countryPollIntervalId);
-      countryPollIntervalId = null;
-      window.location.reload();
-    }
-  }, 3000);
-}
 
 const wifiDisplaySsid = computed(() =>
   status.value.wifi.ssid || status.value.wifi.saved_ssid
@@ -365,7 +265,6 @@ watch(showWifiCard, async (visible) => {
 });
 
 let rafId = null;
-let countryPollIntervalId = null;
 let signalPollId = null;
 
 // The signal arc is the only value on this panel that moves on its own, and the
@@ -410,7 +309,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (rafId) cancelAnimationFrame(rafId);
-  // countryPollIntervalId is auto-cleared by useTimer on unmount.
 });
 </script>
 
@@ -629,31 +527,10 @@ onUnmounted(() => {
   --shimmer-highlight: var(--color-background-medium-16);
 }
 
-/* Country selector row (hardware-row pattern) */
-.country-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-03);
+/* Divider above the country row (the row itself lives in WifiCountrySelector) */
+.country-section {
   padding-top: var(--space-05-fixed);
   border-top: 1px solid var(--color-border);
-}
-
-.country-row__label {
-  color: var(--color-text-secondary);
-  width: 33%;
-  flex-shrink: 0;
-}
-
-.country-row :deep(.dropdown) {
-  flex: 1;
-}
-
-/* Sticky apply button (matches HardwareSettings pattern) */
-.apply-button-sticky {
-  position: sticky;
-  bottom: 0;
-  width: 100%;
-  z-index: 10;
 }
 
 /* Mobile adjustments */
@@ -662,13 +539,5 @@ onUnmounted(() => {
     border-radius: var(--radius-05);
   }
 
-  .country-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .country-row__label {
-    width: auto;
-  }
 }
 </style>

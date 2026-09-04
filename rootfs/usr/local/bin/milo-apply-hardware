@@ -1,6 +1,8 @@
 #!/bin/bash
 # milo-apply-hardware — Apply hardware configuration and reboot
 #
+# Usage: milo-apply-hardware [--no-reboot]
+#
 # Reads /var/lib/milo/hardware.json and updates /boot/firmware/config.txt
 # with the correct dtoverlay for audio and screen parameters.
 # Must be run as root (via sudoers rule).
@@ -8,8 +10,24 @@
 # Managed blocks in config.txt:
 #   # BEGIN MILO AUDIO ... # END MILO AUDIO
 #   # BEGIN MILO SCREEN ... # END MILO SCREEN
+#
+# --no-reboot exists for the setup wizard alone. The wizard has to persist
+# `setup_completed` before the box goes down, or it reappears after a
+# reboot it just completed — and doing that *before* this script ran left a
+# window where a power cut produced a unit that considered itself configured
+# with no overlay in config.txt: no sound, no wizard, no message. Splitting the
+# reboot out lets the wizard order it apply → flag → reboot, so a cut anywhere
+# before the flag brings the wizard back instead.
 
 set -euo pipefail
+
+REBOOT_WHEN_DONE=true
+if [[ "${1:-}" == "--no-reboot" ]]; then
+    REBOOT_WHEN_DONE=false
+elif [[ $# -gt 0 ]]; then
+    echo "ERROR: Usage: milo-apply-hardware [--no-reboot]" >&2
+    exit 1
+fi
 
 source /usr/local/lib/milo/hardware-helpers.sh
 
@@ -143,8 +161,34 @@ if ! grep -q "usb_max_current_enable=1" "$CONFIG_FILE"; then
 fi
 
 # =============================================================================
+# Kiosk (screen present or not)
+# =============================================================================
+# A unit configured with no screen still had milo-kiosk.service enabled, so cage
+# came up against a DRM device with no connected output, failed, and systemd
+# restarted it every 3 seconds for the life of the unit — plus milo-readiness
+# reading 339 MB of Chromium off the SD card at every boot to warm a browser
+# nothing would display. Nothing said a word about any of it.
+#
+# Here rather than in the backend because this is the one place that already
+# knows the screen changed, and it runs on both paths that can change it (the
+# setup wizard and the Hardware page). Idempotent and symmetric: plugging a
+# screen in later re-enables the kiosk through the same apply.
+if [[ "$SCREEN_TYPE" == "none" || -z "$SCREEN_TYPE" ]]; then
+    systemctl disable milo-kiosk.service >/dev/null 2>&1 || true
+    echo "No screen configured — kiosk disabled"
+else
+    systemctl enable milo-kiosk.service >/dev/null 2>&1 || true
+    echo "Screen '$SCREEN_TYPE' configured — kiosk enabled"
+fi
+
+# =============================================================================
 # Reboot
 # =============================================================================
+
+if ! $REBOOT_WHEN_DONE; then
+    echo "Hardware configuration applied. Reboot deferred to the caller."
+    exit 0
+fi
 
 echo "Hardware configuration applied. Rebooting..."
 /sbin/reboot

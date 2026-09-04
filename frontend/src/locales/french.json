@@ -17,7 +17,9 @@
     "connectionLostDescription": "Reconnexion automatique dès que possible",
     "backendErrorTitle": "Erreur système",
     "sourceErrorTitle": "Erreur {source}",
-    "commandFailed": "Commande échouée"
+    "commandFailed": "Commande échouée",
+    "audioCardMissingTitle": "Carte audio non détectée",
+    "audioCardMissingDescription": "{card} est configurée mais introuvable. Vérifiez que la carte est bien enfichée, ou choisissez-en une autre dans les Réglages."
   },
   "settings": {
     "title": "Paramètres de Milō",
@@ -25,13 +27,14 @@
       "appearance": "Apparence",
       "audio": "Audio",
       "sources": "Sources",
-      "system": "Système"
+      "device": "Appareil"
     },
-    "languages": "Langues",
+    "languageRegion": "Langue et région",
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Écran",
     "network": "Réseau",
+    "system": "Système",
     "updates": "Mises à jour",
     "information": "Informations",
     "hardware": "Matériel",
@@ -693,7 +696,8 @@
       "getStarted": "Commencer"
     },
     "wifi": {
-      "title": "Configurez le réseau"
+      "title": "Configurez le réseau",
+      "continueHint": "Sélectionnez un pays et connectez Milō à un réseau pour continuer."
     },
     "language": {
       "title": "Choisissez votre langue"
@@ -731,8 +735,38 @@
       "subtitle": "Deux serveurs Milō ne peuvent pas cohabiter sur le même réseau. Éteins l'un des deux, ou vérifie à nouveau si c'est déjà fait.",
       "thisDevice": "Cet appareil : {name} ({ip})",
       "recheck": "Vérifier à nouveau",
-      "shutdown": "Éteindre cet appareil"
+      "shutdown": "Éteindre cet appareil",
+      "speakerHint": "Si cet appareil doit être une enceinte et non un second Milō, éteignez-le, puis ajoutez-le depuis Réglages → Multiroom de votre Milō principal."
+    },
+    "ssh": {
+      "title": "Accès à distance",
+      "description": "Permet d'ouvrir une session terminal sur Milō depuis un autre ordinateur. Désactivé par défaut.",
+      "passwordRequired": "Définissez un mot de passe avant d'activer l'accès à distance."
+    },
+    "password": {
+      "title": "Mot de passe de l'appareil",
+      "description": "Utilisé pour l'accès à distance et les commandes d'administration. Tous les Milō sortent d'usine avec le même mot de passe : l'accès à distance reste fermé tant que vous ne l'avez pas changé.",
+      "newPlaceholder": "Nouveau mot de passe",
+      "confirmPlaceholder": "Confirmer le mot de passe",
+      "save": "Enregistrer",
+      "saved": "Enregistré",
+      "mismatch": "Les deux mots de passe ne correspondent pas.",
+      "tooShort": "Le mot de passe doit contenir au moins {n} caractères."
+    },
+    "reset": {
+      "title": "Réinitialiser la configuration",
+      "description": "Relance le premier démarrage : détection du rôle, puis l'assistant de configuration. Vos stations radio, abonnements podcast et partages musicaux sont conservés.",
+      "action": "Réinitialiser",
+      "confirm": "Confirmer la réinitialisation ?",
+      "running": "Redémarrage…"
     }
+  },
+  "timezone": {
+    "title": "Fuseau horaire",
+    "area": "Zone",
+    "location": "Ville",
+    "selectArea": "Sélectionner une zone",
+    "selectLocation": "Sélectionner une ville"
   },
   "remoteControls": {
     "btRemote": "Télécommande Bluetooth",

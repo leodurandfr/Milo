@@ -150,6 +150,47 @@ class HardwareService:
             "ir_remote": {"enabled": self.get_ir_enabled(), "gpio_pin": self.get_ir_gpio_pin()},
         }
 
+    def get_missing_audio_card(self) -> Optional[str]:
+        """The configured card's label if ALSA does not see it, else None.
+
+        The wizard offers a static list of supported boards and nothing checks
+        that the one picked is the one soldered on: a wrong choice — or a HAT
+        seated badly — reboots into a unit with no `sndrpihifiberry`, a
+        CamillaDSP that cannot open its playback device, and no sound. Every
+        part of that is silent from the UI, which is the reason this exists.
+        Diagnosis is a state, not an event: a HAT is not hot-pluggable, so the
+        answer is settled at boot and read back through `GET /api/system/status`.
+
+        Fails open in both directions that are not a real answer — no card
+        configured, or /proc/asound unreadable (a dev host has no such tree) —
+        because reporting hardware trouble we have not observed is worse than
+        reporting none.
+        """
+        from backend.hardware.registry import AUDIO_CARDS
+
+        audio_id = self.get_audio_id()
+        if not audio_id or audio_id == "none":
+            return None
+
+        card = AUDIO_CARDS.get(audio_id)
+        if not card or not card.get("card_name"):
+            return None
+
+        try:
+            cards = Path("/proc/asound/cards").read_text()
+        except OSError:
+            return None
+
+        if card["card_name"] in cards:
+            return None
+
+        self.logger.error(
+            "Audio card '%s' (%s) is configured but ALSA does not see it — "
+            "check that the board is seated, or pick another card in Settings",
+            card["label"], card["card_name"],
+        )
+        return card["label"]
+
     # =========================================================================
     # PUBLIC — write
     # =========================================================================
@@ -159,11 +200,23 @@ class HardwareService:
         await save_versioned_json(self.hardware_file, config, self.SCHEMA_VERSION)
         self._cache = None
 
-    async def apply_and_reboot(self) -> None:
-        """Apply hardware config to config.txt and reboot via milo-apply-hardware."""
-        self.logger.info("Applying hardware configuration and rebooting...")
+    async def apply_and_reboot(self, reboot: bool = True) -> None:
+        """Apply hardware config to config.txt via milo-apply-hardware.
+
+        `reboot=False` returns instead of taking the box down, and exists for
+        the setup wizard alone: the wizard must persist `setup_completed`
+        before the reboot, and doing that before the overlay reached config.txt
+        left a window where a power cut produced a unit that believed it was
+        configured and had no audio card — silent, and with the wizard gone.
+        """
+        self.logger.info(
+            "Applying hardware configuration%s...", " and rebooting" if reboot else ""
+        )
+        argv = ['sudo', '/usr/local/bin/milo-apply-hardware']
+        if not reboot:
+            argv.append('--no-reboot')
         proc = await asyncio.create_subprocess_exec(
-            'sudo', '/usr/local/bin/milo-apply-hardware',
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

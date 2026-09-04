@@ -145,18 +145,30 @@ def create_setup_router(
             await hardware_service.save_config(config)
             logger.info(f"Setup wizard: hardware saved (audio={payload.audio_id}, screen={payload.screen_type})")
 
-            # 3. Mark setup as completed
-            if not await settings_service.set_setting("setup_completed", True):
-                raise RuntimeError("Failed to persist setup_completed flag")
-            logger.info("Setup wizard: setup_completed set to true")
-
-            # 4. Apply config.txt changes and reboot (after HTTP response is sent)
+            # 3. Write config.txt, THEN flip the flag, THEN reboot.
+            #
+            # The order is the whole point and it is not the obvious one. The
+            # flag used to be persisted here, before the overlay reached
+            # config.txt — so a power cut in that window (the user pulls the
+            # plug because "it is taking a while") left a unit that considered
+            # itself configured, booting with no dtoverlay: no sound, no
+            # wizard, no message anywhere. Applying first makes every cut before
+            # the flag bring the wizard back, and a cut after it lands on a
+            # config.txt that is already correct.
             async def _delayed_apply():
                 await asyncio.sleep(1)  # Allow HTTP response to flush to the client
                 try:
-                    await hardware_service.apply_and_reboot()
+                    await hardware_service.apply_and_reboot(reboot=False)
                 except Exception as e:
-                    logger.error(f"Setup wizard: hardware apply/reboot failed: {e}")
+                    logger.error(f"Setup wizard: hardware apply failed: {e}")
+                    return
+
+                if not await settings_service.set_setting("setup_completed", True):
+                    logger.error("Setup wizard: failed to persist setup_completed — not rebooting")
+                    return
+                logger.info("Setup wizard: setup_completed set to true")
+
+                await systemd_manager.power("reboot")
 
             background_tasks.add_task(_delayed_apply)
 
@@ -165,13 +177,12 @@ def create_setup_router(
         except HTTPException:
             raise
         except Exception as e:
-            # Rollback: ensure wizard reappears on next boot
+            # No rollback of `setup_completed`: nothing here sets it any more.
+            # It is written by the background task above, after config.txt has
+            # been rewritten, so a failure on this path leaves it false and the
+            # wizard reappears on its own — which is what the old rollback
+            # existed to guarantee.
             logger.error(f"Setup wizard failed: {e}")
-            rolled_back = await settings_service.set_setting("setup_completed", False)
-            if rolled_back:
-                logger.info("Setup wizard: rolled back setup_completed to false")
-            else:
-                logger.error("Setup wizard: rollback FAILED — setup_completed may remain true")
             raise HTTPException(status_code=500, detail=f"Setup failed: {e}")
 
     @router.post("/become-client")

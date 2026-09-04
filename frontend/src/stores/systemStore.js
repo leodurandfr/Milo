@@ -22,6 +22,10 @@ export const useSystemStore = defineStore('system', () => {
   // crosses the level with the source's own requirement and publishes the
   // answer as full_state.network_unavailable.
   const connectivity = ref('unknown');
+  // The label of the audio card hardware.json names when ALSA cannot see it,
+  // null when all is well. A HAT is not hot-pluggable, so this is settled at
+  // boot and arrives with the status read rather than as a WS delta.
+  const audioCardMissing = ref(null);
 
   function applyState(state) {
     if (!state) return;
@@ -36,6 +40,9 @@ export const useSystemStore = defineStore('system', () => {
     }
     if (typeof state.connectivity === 'string') {
       connectivity.value = state.connectivity;
+    }
+    if (state.audio_card_missing !== undefined) {
+      audioCardMissing.value = state.audio_card_missing;
     }
   }
 
@@ -86,6 +93,7 @@ export const useSystemStore = defineStore('system', () => {
     localIp,
     rechecking,
     connectivity,
+    audioCardMissing,
     fetchStatus,
     recheckHostname,
     handleConflictEvent,

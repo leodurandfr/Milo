@@ -3,24 +3,78 @@
 System power management + status + telemetry routes
 (restart, shutdown, hostname conflict, temperature, resources, network).
 """
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 import asyncio
+import functools
 import logging
+import os
+import zoneinfo
 from typing import Optional, TYPE_CHECKING
+
+from backend.api.models import DevicePasswordRequest, SshRequest, TimezoneRequest
+from backend.api.route_helpers import api_error_handler
+from backend.config.constants import (
+    PASSWORD_CHANGED_MARKER,
+    RESET_SETUP_MARKER,
+    SET_PASSWORD_CMD,
+    SET_TIMEZONE_CMD,
+)
 
 if TYPE_CHECKING:
     from backend.core.connectivity.service import ConnectivityService
     from backend.core.system.hostname_conflict import HostnameConflictService
     from backend.core.systemd import SystemdServiceManager
+    from backend.hardware.service import HardwareService
 
 
 logger = logging.getLogger(__name__)
+
+SSH_UNIT = "ssh.service"
+LOCALTIME_LINK = "/etc/localtime"
+ZONEINFO_PREFIX = "/usr/share/zoneinfo/"
+
+# The zone the image ships. Not a location — it is the value that means "nobody
+# has told us yet", which is what lets the first browser to open the UI supply
+# the real one without ever overwriting a deliberate choice.
+DEFAULT_TIMEZONE = "Etc/UTC"
+
+
+@functools.lru_cache(maxsize=1)
+def _available_timezones() -> list:
+    """Every IANA zone this system ships, as `Area/Location`.
+
+    Two things are dropped, both of them artefacts of the directory scan rather
+    than zones: `localtime` (the symlink itself), and the bare legacy aliases
+    (`UTC`, `CET`, `Zulu`…) which have no area to sort under. What remains is
+    total for an Area → Location pair of dropdowns, and `Etc/UTC` still carries
+    plain UTC. Cached: the scan is ~11 ms and the answer changes with a package
+    upgrade, never within a process.
+    """
+    return sorted(tz for tz in zoneinfo.available_timezones() if "/" in tz)
+
+
+def _current_timezone() -> Optional[str]:
+    """The zone in force, read from what the C library actually follows.
+
+    `/etc/localtime` is the file every timestamp on this box resolves through,
+    so it cannot disagree with reality the way a second copy in /etc/timezone
+    can. Returns None when it is not a symlink into the zoneinfo tree — an
+    answer, not a guess.
+    """
+    try:
+        target = os.readlink(LOCALTIME_LINK)
+    except OSError:
+        return None
+    if not target.startswith(ZONEINFO_PREFIX):
+        return None
+    return target[len(ZONEINFO_PREFIX):]
 
 
 def create_system_router(
     systemd_manager: "SystemdServiceManager",
     hostname_conflict_service: Optional["HostnameConflictService"] = None,
-    connectivity_service: Optional["ConnectivityService"] = None
+    connectivity_service: Optional["ConnectivityService"] = None,
+    hardware_service: Optional["HardwareService"] = None
 ):
     router = APIRouter()
 
@@ -41,12 +95,28 @@ def create_system_router(
 
     @router.get("/status")
     async def get_system_status():
-        """Return system-level status (hostname conflict + internet connectivity)."""
-        data = {"hostname_conflict": False, "connectivity": "unknown"}
+        """System-level status: hostname conflict, connectivity, audio card.
+
+        `audio_card_missing` carries the *label* of the configured card rather
+        than a boolean, because the banner has to name it — "HiFiBerry Amp2 is
+        configured but not detected" is actionable where "no audio card" is
+        just the symptom the user already has. None when all is well.
+
+        A state and not an event, deliberately: a HAT is not hot-pluggable, so
+        the answer is settled at boot, and the UI needs it on every load rather
+        than once, at the moment it happened to be connected.
+        """
+        data = {
+            "hostname_conflict": False,
+            "connectivity": "unknown",
+            "audio_card_missing": None,
+        }
         if hostname_conflict_service is not None:
             data.update(hostname_conflict_service.get_state())
         if connectivity_service is not None:
             data.update(connectivity_service.get_state())
+        if hardware_service is not None:
+            data["audio_card_missing"] = hardware_service.get_missing_audio_card()
         return {"status": "success", "data": data}
 
     @router.post("/recheck-hostname")
@@ -196,5 +266,160 @@ def create_system_router(
             logger.info(f"Failed to read memory stats: {e}")
 
         return result
+
+    @router.post("/reset-setup")
+    async def reset_setup(background_tasks: BackgroundTasks):
+        """Re-run first-boot: role detection, then the setup wizard.
+
+        The way back from the one mistake a multiroom product invites — powering
+        a speaker on before the server it should join. With no server answering
+        on the LAN, `milo-first-boot` leaves it a server and the wizard appears
+        on its own screen; finishing that wizard locked the role for good, since
+        `become-client` refuses an already-configured device and nothing else
+        could clear the flag. The only way out was a reflash.
+
+        Drops a marker and reboots rather than deleting settings.json here: this
+        process owns that file, so a write landing in the second before the
+        reboot would recreate it with `setup_completed` still true.
+        `milo-first-boot` does the deletion with the backend down.
+
+        Durable user data — radio favourites, podcast subscriptions, shares,
+        hardware.json — is untouched. This resets the *setup*, and says so.
+        """
+        async with api_error_handler("Error scheduling the setup reset", logger):
+            RESET_SETUP_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            RESET_SETUP_MARKER.touch()
+            logger.info("Setup reset requested — rebooting into first-boot detection")
+            background_tasks.add_task(systemd_manager.power, "reboot", 2.0)
+            return {"status": "success"}
+
+    # =========================================================================
+    # Remote access + account password
+    # =========================================================================
+
+    @router.get("/ssh")
+    async def get_ssh_state():
+        """SSH server state, and whether the factory password is still in place.
+
+        The three travel together because they are one decision on screen: the
+        switch cannot be turned on while `password_is_default`, and the UI has
+        to be able to say so rather than offer a switch that answers 409.
+        """
+        return {
+            "status": "success",
+            "data": {
+                "enabled": await systemd_manager.is_enabled(SSH_UNIT),
+                "active": await systemd_manager.is_active(SSH_UNIT),
+                "password_is_default": not PASSWORD_CHANGED_MARKER.exists(),
+            },
+        }
+
+    @router.put("/ssh")
+    async def set_ssh_state(payload: SshRequest):
+        """Open or close SSH.
+
+        Opening is refused while the unit still carries the factory password.
+        That password is identical on every unit Milō ships, and SSH is the only
+        remote path that accepts it — nothing else here authenticates at all —
+        so this refusal is what keeps a fleet-wide credential from ever being
+        reachable from the network. Enforced here rather than by a disabled
+        button: the button is a courtesy, this is the rule.
+        """
+        if payload.enabled and not PASSWORD_CHANGED_MARKER.exists():
+            logger.error("Refused to enable SSH: the factory password is still set")
+            raise HTTPException(
+                status_code=409,
+                detail="Set a device password before enabling SSH.",
+            )
+
+        if not await systemd_manager.set_enabled(SSH_UNIT, payload.enabled):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to {'enable' if payload.enabled else 'disable'} SSH",
+            )
+
+        logger.info("SSH %s", "enabled" if payload.enabled else "disabled")
+        return {
+            "status": "success",
+            "data": {
+                "enabled": await systemd_manager.is_enabled(SSH_UNIT),
+                "active": await systemd_manager.is_active(SSH_UNIT),
+                "password_is_default": not PASSWORD_CHANGED_MARKER.exists(),
+            },
+        }
+
+    @router.post("/password")
+    async def set_device_password(payload: DevicePasswordRequest):
+        """Set the `milo` account password (SSH login + sudo).
+
+        The password goes to the helper on **stdin**: /proc/<pid>/cmdline is
+        world-readable, so an argv would publish it to every process on the box
+        for the lifetime of the call. The helper is also what creates the
+        marker `GET /ssh` reads — one writer for the fact and the flag, so they
+        cannot disagree.
+        """
+        async with api_error_handler("Error setting the device password", logger):
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", SET_PASSWORD_CMD,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(
+                proc.communicate(payload.password.encode()), 15.0
+            )
+            if proc.returncode != 0:
+                detail = stderr.decode().strip() if stderr else "unknown error"
+                logger.error("milo-set-password failed (rc=%s): %s", proc.returncode, detail)
+                raise HTTPException(status_code=500, detail=f"Failed to set password: {detail}")
+
+            logger.info("Device password updated")
+            return {"status": "success", "data": {"password_is_default": False}}
+
+    # =========================================================================
+    # Timezone
+    # =========================================================================
+
+    @router.get("/timezone")
+    async def get_timezone():
+        """Current zone, whether it is still the shipped default, and the choices.
+
+        `is_default` is what the frontend gates its one-shot adoption on: a
+        browser reports the zone it lives in, and it is taken only while nobody
+        has chosen one. The list rides along so the settings dropdowns are built
+        from the zones this system actually has rather than a table restated in
+        the frontend.
+        """
+        current = _current_timezone()
+        return {
+            "status": "success",
+            "data": {
+                "timezone": current,
+                "is_default": current == DEFAULT_TIMEZONE,
+                "available": _available_timezones(),
+            },
+        }
+
+    @router.put("/timezone")
+    async def set_timezone(payload: TimezoneRequest):
+        """Apply an IANA timezone."""
+        if payload.timezone not in _available_timezones():
+            logger.error("Rejected unknown timezone %r", payload.timezone)
+            raise HTTPException(status_code=400, detail=f"Unknown timezone: {payload.timezone}")
+
+        async with api_error_handler("Error setting the timezone", logger):
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", SET_TIMEZONE_CMD, payload.timezone,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
+            if proc.returncode != 0:
+                detail = stderr.decode().strip() if stderr else "unknown error"
+                logger.error("milo-set-timezone failed (rc=%s): %s", proc.returncode, detail)
+                raise HTTPException(status_code=500, detail=f"Failed to set timezone: {detail}")
+
+            logger.info("Timezone set to %s", payload.timezone)
+            return {"status": "success", "data": {"timezone": _current_timezone()}}
 
     return router
