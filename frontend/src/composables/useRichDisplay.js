@@ -31,7 +31,20 @@ function hasRichDisplay(source, state, meta, unavailableReason) {
   // browsable with the internet down and every tap fails silently — the card
   // naming the reason, with the Wi-Fi settings one tap away, is the honest
   // screen. It comes back the moment the link does.
-  if (unavailableReason) return false;
+  //
+  // Unless sound is still coming out. A stream that is already buffered keeps
+  // playing when the link drops — go-librespot holds a whole track — and
+  // swapping the player for the card there takes away the only control that
+  // could stop it: the appliance plays music while showing a screen that
+  // offers no way to stop the music. Measured with the cable out, 2026-09-04.
+  //
+  // Stopping the audio instead was the other candidate and is worse: NM
+  // reports `limited` on a Wi-Fi roam, a DHCP renew or one failed probe, so
+  // that rule would cut playback mid-track for a hiccup that resolves in
+  // seconds. The source is what knows — mpv reports EOF, go-librespot
+  // disconnects — and when it says so, is_playing goes false and the card
+  // arrives on its own, which is this same line one beat later.
+  if (unavailableReason && !m.is_playing) return false;
 
   switch (source) {
     case 'spotify':
