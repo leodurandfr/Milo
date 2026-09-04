@@ -926,71 +926,158 @@ class TestTheMiloReleaseOffer:
     past the tag whose number it was printing, offering nothing and able to
     install nothing.
 
-    Two behaviours fall out of asking the question of the tag instead, and both
-    are the point: a withdrawn release is offered back to the units that took
-    it, and a tree that is not at a tag is offered nothing at all.
+    Three behaviours fall out of asking the question of the tag instead, and all
+    three are the point: a pre-release is never offered, a withdrawn release is
+    offered back to the units that took it, and a tree that is not at a tag is
+    offered nothing at all.
     """
 
     @staticmethod
-    async def _row(service, *, described, published):
-        """One milo row, with `git describe` and `releases/latest` doubled.
+    async def _row(service, *, exact, published, described=None):
+        """One milo row, with both git reads and `releases/latest` doubled.
 
-        `described` is the raw `git describe --tags --always` output — the shape
-        of that string is the whole input, so it is what the test varies.
+        `exact` is what `git describe --tags --exact-match` answers — the tag,
+        or None when HEAD is past one. `described` is the `--always` output the
+        row falls back to for a development checkout. They are doubled
+        separately because which of the two the offer reads *is* the question:
+        one string answering both cannot tell "v0.2.0-rc1" (a tag) from
+        "v0.1.0-2017-g36b9a0d7" (a tree 2017 commits past one).
         """
-        proc = AsyncMock()
-        proc.communicate = AsyncMock(return_value=(described.encode(), b""))
-        proc.returncode = 0
-        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+        described = described or exact or "36b9a0d7"
+
+        async def git(*argv, **kwargs):
+            proc = AsyncMock()
+            if "--exact-match" in argv:
+                proc.returncode = 0 if exact else 128
+                proc.communicate = AsyncMock(
+                    return_value=((exact or "").encode(), b"fatal: no tag exactly matches")
+                )
+            else:
+                proc.returncode = 0
+                proc.communicate = AsyncMock(return_value=(described.encode(), b""))
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=git), \
                 _patch_github_release(published):
             return await service.get_program_full_status("milo")
 
     @pytest.mark.asyncio
     async def test_a_unit_at_a_tag_that_is_not_the_release_is_offered_it(self, version_service):
-        row = await self._row(version_service, described="v0.2.0", published="v0.3.0")
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0")
 
         assert row["update_available"] is True
         assert row["latest"]["tag_name"] == "v0.3.0"
         assert row["development_build"] is False
+        assert row["installed"]["release_tag"] == "v0.2.0"
 
     @pytest.mark.asyncio
     async def test_a_unit_at_the_published_release_is_offered_nothing(self, version_service):
-        row = await self._row(version_service, described="v0.2.0", published="v0.2.0")
+        row = await self._row(version_service, exact="v0.2.0", published="v0.2.0")
 
         assert row["update_available"] is False
         assert row["development_build"] is False
 
     @pytest.mark.asyncio
+    async def test_the_installed_tag_is_asked_of_git_rather_than_parsed(self, version_service):
+        """The shape of a `git describe --tags --always` output cannot answer it.
+        "v0.2.0-rc1" is a tag and "v0.1.0-2017-g36b9a0d7" is not, and nothing but
+        the convention of a suffix separates them — so git is asked directly.
+        """
+        seen = []
+
+        async def git(*argv, **kwargs):
+            seen.append(argv)
+            proc = AsyncMock()
+            proc.returncode = 0
+            proc.communicate = AsyncMock(return_value=(b"v0.2.0", b""))
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=git), \
+                _patch_github_release("v0.2.0"):
+            await version_service.get_program_full_status("milo")
+
+        assert seen, "no git command ran at all"
+        assert any("--exact-match" in argv for argv in seen), seen
+
+    @pytest.mark.asyncio
     async def test_a_tree_that_is_not_at_a_tag_is_a_development_build(self, version_service):
-        """`git describe` appends "-<n>-g<sha>" the moment HEAD is past the tag.
-        Such a tree is not behind a release, it is outside the channel: the
+        """Such a tree is not behind a release, it is outside the channel: the
         install checks out a tag, so there is nothing for it to move between,
         and `git checkout --force` over uncommitted work is not an update.
         """
-        row = await self._row(version_service, described="v0.2.0-2017-g36b9a0d7",
+        row = await self._row(version_service, exact=None,
+                              described="v0.2.0-2017-g36b9a0d7", published="v0.3.0")
+
+        assert row["development_build"] is True
+        assert row["update_available"] is False
+        assert row["installed"]["release_tag"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_checkout_with_no_tag_at_all_is_a_development_build(self, version_service):
+        """`--always` falls back to a bare sha. A shallow clone reaches this."""
+        row = await self._row(version_service, exact=None, described="36b9a0d7",
                               published="v0.3.0")
 
         assert row["development_build"] is True
         assert row["update_available"] is False
 
     @pytest.mark.asyncio
-    async def test_a_checkout_with_no_tag_at_all_is_a_development_build(self, version_service):
-        """`--always` falls back to a bare sha. A shallow clone reaches this."""
-        row = await self._row(version_service, described="36b9a0d7", published="v0.3.0")
+    async def test_a_prerelease_is_never_offered(self, version_service):
+        """The property the fleet depends on.
 
-        assert row["development_build"] is True
+        A pre-release exists to be installed on a unit somebody is watching, by
+        somebody who chose it — never to arrive on an appliance in a living room
+        because a version number went up. `releases/latest` already excludes one
+        and the publish step marks it as such; refusing it here as well is what
+        makes the guarantee Milō's own, so it survives either of those being
+        changed by accident.
+        """
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0-rc1")
+
+        assert row["update_available"] is False
+        assert "withdrawn" not in row["latest"]
+
+    @pytest.mark.asyncio
+    async def test_a_tag_shape_nobody_planned_for_is_never_offered(self, version_service):
+        """The offer's contract is that what it names can be checked out and has
+        a published frontend beside it. A tag that is not a plain X.Y.Z has
+        neither, so it is refused rather than attempted.
+        """
+        row = await self._row(version_service, exact="v0.2.0", published="nightly-20260904")
+
         assert row["update_available"] is False
 
     @pytest.mark.asyncio
+    async def test_a_unit_running_a_prerelease_is_not_a_development_build(self, version_service):
+        """It sits on a tag, so it is told plainly what it runs. Reporting it as
+        a development build would hide the one fact a test unit's operator needs.
+        """
+        row = await self._row(version_service, exact="v0.2.0-rc1", published="v0.1.0")
+
+        assert row["development_build"] is False
+        assert row["installed"]["release_tag"] == "v0.2.0-rc1"
+
+    @pytest.mark.asyncio
+    async def test_a_unit_running_a_prerelease_is_offered_the_stable_channel(self, version_service):
+        """How a test unit gets back. The pre-release is not what the channel
+        publishes, so the release that *is* published is offered — which is the
+        same mechanism as a withdrawal, and the reason it needs no second one.
+        """
+        row = await self._row(version_service, exact="v0.2.0-rc1", published="v0.2.0")
+
+        assert row["update_available"] is True
+        assert row["latest"]["tag_name"] == "v0.2.0"
+
+    @pytest.mark.asyncio
     async def test_a_withdrawn_release_is_offered_back(self, version_service):
-        """Marked prerelease or deleted because it turned out bad: it stops
+        """Marked pre-release or deleted because it turned out bad: it stops
         being what `releases/latest` names, and every unit that took it is
         offered the return on its next check. Retracting is one gesture on
         GitHub, not N units visited one by one — which is the capability the
         semver comparison could not express at all, since it only ever looked
         upwards.
         """
-        row = await self._row(version_service, described="v0.3.0", published="v0.2.0")
+        row = await self._row(version_service, exact="v0.3.0", published="v0.2.0")
 
         assert row["update_available"] is True
         assert row["latest"]["tag_name"] == "v0.2.0"
@@ -1001,7 +1088,7 @@ class TestTheMiloReleaseOffer:
         """The flag is what lets the button name itself, so it must not be set
         on the direction every update takes.
         """
-        row = await self._row(version_service, described="v0.2.0", published="v0.3.0")
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0")
 
         assert row["latest"]["withdrawn"] is False
 

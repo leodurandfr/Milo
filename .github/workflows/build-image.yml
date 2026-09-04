@@ -32,6 +32,7 @@ jobs:
       milo_ref: ${{ steps.set.outputs.milo_ref }}
       image_name: ${{ steps.set.outputs.image_name }}
       is_release: ${{ steps.set.outputs.is_release }}
+      is_prerelease: ${{ steps.set.outputs.is_prerelease }}
       frontend_asset: ${{ steps.set.outputs.frontend_asset }}
     steps:
       - name: Set build variables
@@ -42,11 +43,24 @@ jobs:
             REF="${GITHUB_REF#refs/tags/}"
             echo "image_name=milo-${REF}" >> "$GITHUB_OUTPUT"
             echo "is_release=true" >> "$GITHUB_OUTPUT"
+            # A tag carrying a suffix — v0.2.0-rc1, v0.3.0-beta.2 — is a
+            # pre-release. Publishing it as one keeps it out of
+            # `releases/latest`, which is the endpoint the update flow offers
+            # from: no unit in the field is ever shown it. The backend refuses
+            # a non-plain tag on its own side too (helpers.is_stable_release),
+            # deliberately — one guarantee spelled twice, because each half
+            # survives the other being changed by accident.
+            if [[ "${REF}" == *-* ]]; then
+              echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            fi
           else
             REF="${{ github.event.inputs.branch || 'main' }}"
             SHORT_SHA="${GITHUB_SHA:0:7}"
             echo "image_name=milo-${REF}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
             echo "is_release=false" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
           echo "milo_ref=${REF}" >> "$GITHUB_OUTPUT"
           echo "frontend_asset=milo-frontend-${REF}.tar.gz" >> "$GITHUB_OUTPUT"
@@ -257,6 +271,7 @@ jobs:
             ${{ env.compressed_image }}
             frontend-artefact/${{ needs.vars.outputs.frontend_asset }}
             frontend-artefact/${{ needs.vars.outputs.frontend_asset }}.sha256
+          prerelease: ${{ needs.vars.outputs.is_prerelease }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

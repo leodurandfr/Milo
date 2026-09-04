@@ -59,6 +59,11 @@ def _fake_git(payload: str = SERVER_PAYLOAD, described: str = SERVER_RELEASE,
         if "log" in argv:
             out = payload
         elif "describe" in argv:
+            # `--exact-match` fails rather than falling back, which is the whole
+            # reason it is used: a tree past a tag has no release, and a double
+            # that answered a string here would hide that.
+            if described is None:
+                return _mock_proc(b"", returncode=128)
             out = described
         elif "status" in argv:
             out = " M milo-client/app/main.py" if dirty else ""
@@ -285,17 +290,29 @@ class TestTheTwoSatelliteIdentities:
 
         assert release == "v0.3.1"
         described = next(argv for argv in git.calls if "describe" in argv)
-        assert "--tags" in described
+        assert "--exact-match" in described, (
+            "asked as `--always`, this cannot tell a pre-release tag from a tree "
+            "past a tag"
+        )
 
     async def test_a_development_checkout_names_no_release(self, satellite_service):
-        """`git describe` appends "-<n>-g<sha>" the moment HEAD is past the tag.
-        Such a server is outside the release channel and so is anything it
-        pushes — the satellite reads as a development build too, which is what
-        it is, rather than claiming a release it does not carry.
+        """A server whose HEAD is past its last tag is outside the release
+        channel, and so is anything it pushes — the satellite reads as a
+        development build too, which is what it is, rather than claiming a
+        release it does not carry.
         """
         with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
-                   _fake_git(described="v0.2.0-2017-g36b9a0d7")):
+                   _fake_git(described=None)):
             assert await satellite_service.get_release_version() is None
+
+    async def test_a_prerelease_is_a_release_a_satellite_may_carry(self, satellite_service):
+        """The server refuses to *offer* a pre-release to the fleet; it does not
+        refuse to run one. A test unit pushed from an rc must say so on the
+        screen rather than read as having no version at all.
+        """
+        with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                   _fake_git(described="v0.2.0-rc1")):
+            assert await satellite_service.get_release_version() == "v0.2.0-rc1"
 
 
 class TestSnapclientUpdateOutcome:

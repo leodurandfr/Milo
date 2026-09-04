@@ -146,6 +146,38 @@ def test_the_release_carries_the_asset_and_its_checksum(workflow):
     assert ".sha256" in files, f"the checksum sidecar is not published: {files}"
 
 
+def test_a_suffixed_tag_is_published_as_a_prerelease(workflow):
+    """The half of the pre-release guarantee that lives in CI.
+
+    `releases/latest` — the endpoint the update flow offers from — returns the
+    most recent release that is *not* marked pre-release. So marking it is what
+    keeps a release candidate off every appliance in the field; publishing an
+    rc as an ordinary release would hand it to the whole fleet the moment the
+    build went green.
+
+    The backend refuses a non-plain tag on its own side too
+    (`helpers.is_stable_release`, covered in test_version_service.py). One
+    guarantee spelled twice on purpose: each half still holds when the other is
+    changed by accident, and neither is expensive.
+    """
+    published = _steps(workflow["vars"])
+    assert "is_prerelease=" in published, "the vars job no longer decides it"
+
+    # The shape it keys on: a tag carrying a suffix — v0.2.0-rc1, v0.3.0-beta.2.
+    assert '"${REF}" == *-*' in WORKFLOW.read_text(), (
+        "the pre-release test no longer keys on the tag's suffix"
+    )
+    assert 'is_prerelease=true' in published and 'is_prerelease=false' in published
+
+    release_step = next(
+        step for step in workflow["build"]["steps"]
+        if "action-gh-release" in str(step.get("uses", ""))
+    )
+    assert "is_prerelease" in str(release_step["with"].get("prerelease", "")), (
+        "the release is published without the pre-release flag the vars job computed"
+    )
+
+
 def test_the_frontend_is_built_once_in_ci_from_the_lockfile(workflow):
     """`npm ci` installs the lockfile; `npm install` re-resolves the ranges in
     package.json. That is the whole difference between "the tree this release

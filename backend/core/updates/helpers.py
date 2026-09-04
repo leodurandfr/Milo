@@ -8,21 +8,28 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# A checkout sitting exactly on a release tag. `git describe --tags --always`
-# appends "-<n>-g<sha>" the moment HEAD is past the tag, and prints a bare sha
-# when no tag is reachable at all — both are trees no release names.
-RELEASE_TAG_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
+# A stable release tag: "v0.2.0". A pre-release carries a suffix — "v0.2.0-rc1",
+# "v0.3.0-beta.2" — and is deliberately not one.
+STABLE_RELEASE_TAG_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
 
 
-def release_tag(described: Optional[str]) -> Optional[str]:
-    """The release tag a `git describe --tags --always` output names, or None.
+def is_stable_release(tag: Optional[str]) -> bool:
+    """Whether a tag names a release the fleet may be moved to.
 
-    None is not "unknown": it is "this tree is outside the release channel".
-    The update installs a tag, so a tree that is not at one has nothing to move
-    between — and a satellite pushed from such a tree carries no release either.
+    A pre-release exists to be installed on a unit somebody is watching, by
+    somebody who chose it — never to arrive on an appliance in a living room
+    because a version number went up. GitHub's `releases/latest` already
+    excludes pre-releases, and the publish step marks them as such; this is what
+    makes the exclusion **Milō's own property** rather than a behaviour of an
+    endpoint. Two spellings of the same guarantee, because the one that costs
+    nothing is the one that still holds when the other is changed by accident.
+
+    Anything that is not a plain `X.Y.Z` is refused, pre-release or not: the
+    offer's whole contract is that what it names can be checked out and has a
+    published frontend beside it, and a tag shape nobody planned for has
+    neither.
     """
-    described = (described or "").strip()
-    return described if RELEASE_TAG_RE.match(described) else None
+    return bool(tag and STABLE_RELEASE_TAG_RE.match(tag))
 
 
 def compare_versions(current: Optional[str], latest: Optional[str]) -> bool:

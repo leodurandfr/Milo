@@ -49,7 +49,7 @@
                           milo {{ miloVersionLabel }}
                           <template
                             v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
-                            <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
+                            <span class="version-new">> {{ localPrograms.milo.latest?.tag_name }}</span>
                           </template>
                         </span>
                       </div>
@@ -376,15 +376,18 @@ const {
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// A unit runs a release, so that is what the row prints. On a tree the backend
-// reports as outside the channel — a development checkout — the parsed "0.1.0"
-// would name a tag left thousands of commits ago, so the raw `git describe` is
-// the only honest answer and it is what is shown instead.
+// A unit runs a release, so the row prints its TAG — not the "X.Y.Z" parsed out
+// of it. The two differ exactly where it matters: `v0.2.0-rc1` parses to
+// "0.2.0", which would draw a pre-release under test and the stable release it
+// is a candidate for as the same string. On a tree the backend reports as
+// outside the channel — a development checkout — there is no tag, and the raw
+// `git describe` is the only honest answer.
 const miloVersionLabel = computed(() => {
   const milo = localPrograms.value.milo;
   if (!milo) return t('updates.notAvailable');
-  if (milo.development_build) return milo.installed?.raw_version || t('updates.notAvailable');
-  return getLocalInstalledVersion(milo) || t('updates.notAvailable');
+  return milo.installed?.release_tag
+    || milo.installed?.raw_version
+    || t('updates.notAvailable');
 });
 
 // The offer points both ways. A release GitHub stops publishing — withdrawn
@@ -392,7 +395,7 @@ const miloVersionLabel = computed(() => {
 // the button has to say so rather than calling a return an update. Which
 // direction it is comes from the backend, like every other decision here.
 const miloButtonLabel = computed(() => {
-  const version = getLocalLatestVersion(localPrograms.value.milo);
+  const version = localPrograms.value.milo?.latest?.tag_name;
   const withdrawn = localPrograms.value.milo?.latest?.withdrawn;
   if (isLocalUpdating('milo') || debugForceUpdating.value) {
     return withdrawn ? t('updates.revertingTo', { version }) : t('updates.updating');
