@@ -62,11 +62,20 @@ class FakeNmcli:
     def __init__(self, router=None):
         self.calls: list[tuple[str, ...]] = []
         self._router = router or (lambda args: (0, "", ""))
+        # `nmcli radio wifi` answers a word, and every caller compares against
+        # "enabled". An empty default made every test that never mentions the
+        # radio read as "the radio is off", which is a state with its own
+        # recovery path — so the default answers what a normal unit answers,
+        # and a test that means "off" says so in its own router.
+        self._default_radio = "enabled"
 
     async def __call__(self, program, *args, **kwargs):
         assert program == "nmcli", f"unexpected program spawned: {program}"
         self.calls.append(args)
-        return FakeProc(*self._router(args))
+        rc, out, err = self._router(args)
+        if args == ("radio", "wifi") and not out:
+            out = self._default_radio
+        return FakeProc(rc, out, err)
 
     def argv_containing(self, word: str) -> list[tuple[str, ...]]:
         return [c for c in self.calls if word in c]
@@ -86,14 +95,18 @@ def with_nmcli(router=None):
     )
 
 
+@contextlib.contextmanager
 def no_delay():
-    """Collapse the recovery AP's settle window for a test.
+    """Collapse the recovery AP's two waits for a test.
 
-    The window is the production design (NM's own autoconnect + DHCP must be
-    allowed to finish before the radio is taken), so it is shortened here
-    rather than removed there.
+    Both are production design — NM's own autoconnect and DHCP must be allowed
+    to finish before the radio is taken, and `nmcli radio wifi on` returns
+    before NM has re-enumerated wlan0 — so they are shortened here rather than
+    removed there.
     """
-    return patch("backend.core.network.service.RECOVERY_AP_DELAY_S", 0)
+    with patch("backend.core.network.service.RECOVERY_AP_DELAY_S", 0), \
+         patch("backend.core.network.service.RADIO_SETTLE_INTERVAL_S", 0):
+        yield
 
 
 async def settle_until(predicate, timeout=1.0):
@@ -437,6 +450,112 @@ async def test_a_status_showing_no_link_is_confirmed_before_acting(service):
 
     assert fake.argv_containing("status"), "the authoritative read was skipped"
     assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_a_radio_switched_off_is_turned_back_on_before_the_access_point(service):
+    """Measured on the appliance 2026-09-04: with the cable out and the WiFi
+    toggle off, the rule fired on time (46 s) and NM refused the activation with
+    *No suitable device found for this connection (device eth0 not available…)*.
+
+    It names eth0, which reads like a profile bug; the cause is that a radio
+    switched off leaves wlan0 out of NM's candidate list entirely. So the radio
+    comes back on first — a preference the appliance cannot afford while it is
+    unreachable, and the exact state an owner on ethernet who dislikes WiFi is
+    one cable-failure away from.
+    """
+    radio = {"on": False}
+
+    def router(args):
+        if args[:2] == ("radio", "wifi") and len(args) == 2:
+            return (0, "enabled" if radio["on"] else "disabled", "")
+        if args[:3] == ("radio", "wifi", "on"):
+            radio["on"] = True
+            return (0, "", "")
+        if "status" in args and "DEVICE,STATE" in args:
+            return (0, "eth0:unavailable\nwlan0:disconnected", "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: service.hotspot_active)
+
+    assert radio["on"], "the access point was attempted on a radio that was still off"
+    turn_on = fake.calls.index(("radio", "wifi", "on"))
+    add = next(i for i, c in enumerate(fake.calls) if "add" in c)
+    assert turn_on < add, "the profile was created before the radio came back"
+
+
+@pytest.mark.asyncio
+async def test_the_radio_alone_coming_back_is_enough(service):
+    """If turning the radio on restores the link — a saved network associates —
+    there is nothing to recover from and no access point is raised. Otherwise
+    the unit would take its own radio away from the connection it just made."""
+    state = {"connected": False}
+
+    def router(args):
+        if args[:2] == ("radio", "wifi") and len(args) == 2:
+            return (0, "disabled", "")
+        if args[:3] == ("radio", "wifi", "on"):
+            state["connected"] = True
+            return (0, "", "")
+        if "status" in args and "DEVICE,STATE" in args:
+            return (0, "wlan0:connected", "")
+        if "status" in args:
+            return (0, "wifi:connected:Maison" if state["connected"] else "", "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await asyncio.sleep(0.15)
+
+    assert service.hotspot_active is False
+    assert not fake.argv_containing("add")
+
+
+@pytest.mark.asyncio
+async def test_the_radio_setting_is_given_back_once_it_costs_nothing(service):
+    """The override is temporary by construction. With ethernet back the radio
+    goes off again — and the journal says so, rather than the user's setting
+    quietly staying overridden for the life of the unit."""
+    service._radio_forced_on = True
+
+    def router(args):
+        if "status" in args and "TYPE,STATE,CONNECTION" in args:
+            return (0, "ethernet:connected:Wired connection 1", "")
+        if "show" in args and "wlan0" in args:
+            return (0, "GENERAL.CONNECTION:--\nIP4.ADDRESS[1]:--", "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher:
+        await service.evaluate_reachability()
+
+    assert ("radio", "wifi", "off") in fake.calls
+    assert service._radio_forced_on is False
+
+
+@pytest.mark.asyncio
+async def test_a_radio_carrying_the_only_link_is_left_alone(service):
+    """Switching it off here would strand the unit a second time — the override
+    stands, and stops being an override."""
+    service._radio_forced_on = True
+
+    def router(args):
+        if "status" in args and "TYPE,STATE,CONNECTION" in args:
+            return (0, "wifi:connected:Maison", "")
+        if "show" in args and "wlan0" in args:
+            return (0, "GENERAL.CONNECTION:milo-Maison\nIP4.ADDRESS[1]:192.168.1.20/24", "")
+        return (0, "", "")
+
+    fake, patcher = with_nmcli(router)
+    with patcher:
+        await service.evaluate_reachability()
+
+    assert ("radio", "wifi", "off") not in fake.calls
+    assert service._radio_forced_on is False
 
 
 @pytest.mark.asyncio

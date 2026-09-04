@@ -58,6 +58,12 @@ HOTSPOT_NAME = "Milō"
 # succeed.
 RECOVERY_AP_DELAY_S = 45.0
 
+# `nmcli radio wifi on` returns before NM has re-enumerated wlan0. 10 s of
+# half-second polls, which is generous: the device reappeared in under 2 s on
+# the appliance.
+RADIO_SETTLE_POLLS = 20
+RADIO_SETTLE_INTERVAL_S = 0.5
+
 NM_SERVICE = "org.freedesktop.NetworkManager"
 NM_PATH = "/org/freedesktop/NetworkManager"
 NM_IFACE = "org.freedesktop.NetworkManager"
@@ -89,6 +95,10 @@ class NetworkService:
         # fire-and-forget one: it has to be cancellable the instant a link
         # appears, or an AP is raised seconds after the unit became reachable.
         self._recovery_arm: Optional[asyncio.Task] = None
+        # True while the WiFi radio is on only because the recovery path turned
+        # it on. Restored to the user's setting the moment it stops costing
+        # reachability — see _restore_radio_preference.
+        self._radio_forced_on: bool = False
         self._connect_lock = asyncio.Lock()
 
         # D-Bus state
@@ -505,6 +515,7 @@ class NetworkService:
             self._cancel_recovery_arm()
             if self._hotspot_active:
                 await self._stop_hotspot("a network connection came back")
+            await self._restore_radio_preference()
             return
 
         if self._hotspot_active or self._recovery_arm is not None:
@@ -529,9 +540,19 @@ class NetworkService:
         """
         try:
             await asyncio.sleep(RECOVERY_AP_DELAY_S)
+
+            # A radio switched off cannot carry an access point, and NM answers
+            # the attempt with "No suitable device found" naming the *ethernet*
+            # device — measured on the appliance 2026-09-04, with the cable out
+            # and the WiFi toggle off. So the radio comes back on first: it is a
+            # preference the appliance cannot afford while it is unreachable,
+            # and turning it on may be enough on its own if a network is saved.
+            await self._ensure_radio_on()
+
             # Re-checked rather than trusted: the whole point of the wait is
-            # that the answer is expected to change during it. `is not False`
-            # so an unknown answer holds the AP down too.
+            # that the answer is expected to change during it — and the radio
+            # may just have restored the link by itself. `is not False` so an
+            # unknown answer holds the AP down too.
             if await self._has_active_connection() is not False:
                 return
             await self._start_hotspot()
@@ -541,6 +562,75 @@ class NetworkService:
             self.logger.error("Recovery access point could not be evaluated: %s", e)
         finally:
             self._recovery_arm = None
+
+    async def _ensure_radio_on(self) -> None:
+        """Turn the WiFi radio back on if it is off, and wait for wlan0.
+
+        The wait is not politeness: `nmcli radio wifi on` returns before NM has
+        re-enumerated the device, and an access point activated in that window
+        is refused with "No suitable device found for this connection" — which
+        names eth0 and reads like a profile bug rather than a timing one.
+        """
+        try:
+            if await self.get_wifi_enabled():
+                return
+        except Exception as e:
+            self.logger.warning("Could not read the WiFi radio state: %s", e)
+            return
+
+        self.logger.info("WiFi radio is off and the unit has no link — turning it back on")
+        try:
+            await self.set_wifi_enabled(True)
+        except Exception as e:
+            self.logger.error("Could not turn the WiFi radio back on: %s", e)
+            return
+        self._radio_forced_on = True
+
+        for _ in range(RADIO_SETTLE_POLLS):
+            await asyncio.sleep(RADIO_SETTLE_INTERVAL_S)
+            if await self._wifi_device_available():
+                return
+        self.logger.warning("wlan0 did not come back within the settle window")
+
+    async def _wifi_device_available(self) -> bool:
+        """Whether NM can use wlan0 at all (not `unavailable`/`unmanaged`)."""
+        try:
+            rc, stdout, _ = await self._run_nmcli("-t", "-f", "DEVICE,STATE", "device", "status")
+        except asyncio.TimeoutError:
+            return False
+        if rc != 0:
+            return False
+        for line in stdout.split("\n"):
+            fields = _parse_nmcli_line(line)
+            if len(fields) >= 2 and fields[0] == self.WIFI_INTERFACE:
+                return fields[1] not in ("unavailable", "unmanaged")
+        return False
+
+    async def _restore_radio_preference(self) -> None:
+        """Give the user their WiFi setting back, once it costs nothing.
+
+        Only reached with a link in hand. If that link *is* the WiFi station,
+        switching the radio off would strand the unit all over again — so the
+        override stands, and says so in the journal rather than being silently
+        permanent.
+        """
+        if not self._radio_forced_on:
+            return
+
+        wifi = await self._get_wifi_info()
+        if wifi.connected:
+            self.logger.info(
+                "Leaving the WiFi radio on: it is carrying the unit's only link"
+            )
+            self._radio_forced_on = False
+            return
+
+        try:
+            await self.set_wifi_enabled(False)
+            self.logger.info("WiFi radio switched back off — the setting is restored")
+        except Exception as e:
+            self.logger.warning("Could not restore the WiFi radio setting: %s", e)
+        self._radio_forced_on = False
 
     async def _start_hotspot(self) -> None:
         """Bring the AP up. Failing open — a unit with no wlan0 stays silent."""
