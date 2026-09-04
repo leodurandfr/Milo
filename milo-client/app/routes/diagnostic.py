@@ -235,7 +235,7 @@ async def _identity() -> List[str]:
     return [
         f"uptime          : {seconds // 86400}d {(seconds % 86400) // 3600}h "
         f"{(seconds % 3600) // 60}m",
-        f"app release     : {service.get_app_release() or '-'}",
+        f"app version     : {service.get_app_version() or '-'}",
         f"app payload     : {service.get_app_payload() or '-'}",
         f"api started at  : {time.strftime('%Y-%m-%dT%H:%M:%S%z')} (now)",
         f"kernel          : {(kernel or '-').strip()}",

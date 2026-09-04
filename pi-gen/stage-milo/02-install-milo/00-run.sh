@@ -71,9 +71,9 @@ CHROOT
 # here for years and read by nothing.
 on_chroot << 'CHROOT'
 mkdir -p /var/lib/milo-client
-RELEASE=$(sudo -u milo git -C /home/milo/milo describe --tags --exact-match 2>/dev/null || true)
+VERSION=$(sudo -u milo git -C /home/milo/milo describe --tags --always)
 PAYLOAD=$(sudo -u milo git -C /home/milo/milo log -1 --format=%h -- milo-client)
-printf '%s' "$RELEASE" > /var/lib/milo-client/app-release
+printf '%s' "$VERSION" > /var/lib/milo-client/app-version
 printf '%s' "$PAYLOAD" > /var/lib/milo-client/app-payload
 CHROOT
 

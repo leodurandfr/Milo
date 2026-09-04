@@ -198,13 +198,13 @@ def create_programs_router(
             satellites_task = satellite_service.discover_satellites()
             snapclient_task = update_service.get_latest_github_version("multiroom")
             payload_task = satellite_service.get_client_payload_version()
-            release_task = satellite_service.get_release_version()
+            version_task = satellite_service.get_server_version()
 
             camilladsp_task = update_service.get_latest_github_version("camilladsp")
 
-            satellites, snapclient_github, server_payload, server_release, camilladsp_github = (
+            satellites, snapclient_github, server_payload, server_version, camilladsp_github = (
                 await asyncio.gather(
-                    satellites_task, snapclient_task, payload_task, release_task, camilladsp_task
+                    satellites_task, snapclient_task, payload_task, version_task, camilladsp_task
                 )
             )
 
@@ -230,13 +230,14 @@ def create_programs_router(
                     satellite.get("snapclient_version") != latest_version
                 )
                 # Displayed and decided are two different values. The row
-                # shows the release — the same numbering as the server's own row,
-                # because both halves ship from one commit — while the button is
-                # lit by the payload, the fingerprint of the `milo-client/` tree
-                # the tarball actually carries. Most releases do not touch that
-                # directory, and deciding on the release lit the button across
-                # the whole fleet for a byte-identical push every time.
-                satellite["server_release"] = server_release
+                # shows the server's own version string — the same numbering as
+                # its row, because both halves ship from one commit — while the
+                # button is lit by the payload, the fingerprint of the
+                # `milo-client/` tree the tarball actually carries. Most
+                # releases never touch that directory, and deciding on the
+                # displayed version lit the button across the whole fleet for a
+                # byte-identical push every time.
+                satellite["server_version"] = server_version
                 satellite["app_update_available"] = (
                     bool(server_payload) and satellite.get("app_payload") != server_payload
                 )

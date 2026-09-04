@@ -200,17 +200,18 @@
                   <div class="program-info">
                     <AppIcon name="milo-client" :size="48" class="program-icon" />
                     <span class="program-name heading-4">Milō Client</span>
-                    <!-- A satellite reports the release it was deployed from, which is the
-                         server's own: both halves ship from one commit, so there is no third
+                    <!-- A satellite carries the version string the server showed for itself
+                         when it pushed: both halves ship from one commit, so there is no third
                          thing it could be. That is why this prints under `milo` and not
-                         `milo-client`, and why it needs no formatting — it is the same tag the
-                         server's row shows. What decides whether the button lights is a value
-                         the row never prints: the payload fingerprint, compared on the backend. -->
+                         `milo-client`, and why it needs no formatting — it is character for
+                         character what the server's own row shows. What decides whether the
+                         button lights is a value the row never prints: the payload fingerprint,
+                         compared on the backend. -->
                     <span class="program-version text-mono-medium">
-                      milo {{ satelliteByMacId[client.mac_id].app_release || t('updates.notAvailable') }}
+                      milo {{ satelliteByMacId[client.mac_id].app_version || t('updates.notAvailable') }}
                       <template
                         v-if="satelliteByMacId[client.mac_id].app_update_available && !isSatelliteAppUpdateCompleted(client.mac_id)">
-                        <span class="version-new">> {{ satelliteByMacId[client.mac_id].server_release }}</span>
+                        <span class="version-new">> {{ satelliteByMacId[client.mac_id].server_version }}</span>
                       </template>
                     </span>
                   </div>
