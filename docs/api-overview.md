@@ -35,7 +35,7 @@ else is the static SPA).
 | Discovery | `/api/discovery` | Find & adopt Wi-Fi speakers (multiroom client onboarding) |
 | Settings | `/api/settings` | Read/write app settings |
 | Network | `/api/network` | Wi-Fi scan / connect / saved networks |
-| System | `/api/system` | Reboot, poweroff, status, host checks, updates |
+| System | `/api/system` | Reboot, poweroff, status, host checks, updates, diagnostic report |
 | Setup | `/api/setup` | First-boot wizard (`/complete`, `/become-client`) |
 | Errors | `/api/errors` | Receive frontend error reports → `errors.log` |
 | Health | `/api/health`, `/api/ping`, `/api/initial-state` | Liveness + initial-state snapshot |
@@ -55,6 +55,23 @@ artwork; `/api/cd` serves disc covers. Music Library is the richest (Subsonic-ba
 cover-art proxy, storage spaces, share wizard). API conventions (verbs, the `status` envelope, the
 per-layer error policy) are spelled out in [CLAUDE.md](../CLAUDE.md) and the
 [Developer Guide](development.md).
+
+### The diagnostic report
+
+`POST /api/system/diagnostic` builds one plain-text report — versions, audio path, sources,
+multiroom, storage, network, settings, the tail of `errors.log`, per-unit journal tails, and one
+block per satellite fetched over `GET /diagnostic` on `CLIENT_API_PORT`. It answers
+`{ status, data: { report, unavailable } }`; `unavailable` names each section that could not be
+collected and why, and the same lines appear in the file under `NOT COLLECTED`.
+
+Two properties are load-bearing and are guarded by tests rather than by convention. The report is
+capped at 60 000 bytes so it fits a GitHub issue body, with the journal filled round-robin across
+units so a chatty one cannot starve the rest. And what it may contain is a **whitelist**, declared
+once in `backend/core/system/diagnostic/whitelist.py`: every field of every persisted model is
+either allowed or excluded-with-a-reason, `backend/tests/contracts/test_diagnostic_redaction.py`
+goes red when a model gains a field nobody decided about, and the excluded values are substituted
+out of the free-text sections too. Local IP and MAC addresses are deliberately kept — a multiroom
+fault cannot be read without them.
 
 ## WebSocket
 

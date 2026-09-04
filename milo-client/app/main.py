@@ -13,7 +13,7 @@ from fastapi import FastAPI
 import uvicorn
 
 from services import EqualizerService, SnapclientService, AppUpdateService, CamillaDSPUpdateService
-from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router, create_hardware_router, create_camilladsp_update_router
+from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router, create_hardware_router, create_camilladsp_update_router, create_diagnostic_router
 from routes.health import get_hostname
 from services.registration import register_with_main_milo
 
@@ -99,6 +99,7 @@ app.include_router(create_equalizer_router(equalizer_service))
 app.include_router(create_app_update_router(app_update_service))
 app.include_router(create_camilladsp_update_router(camilladsp_update_service))
 app.include_router(create_hardware_router())
+app.include_router(create_diagnostic_router())
 
 
 # Main entry point
