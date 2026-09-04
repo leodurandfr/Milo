@@ -739,13 +739,13 @@
       "speakerHint": "If this device should be a speaker rather than a second Milō, turn it off, then add it from Settings → Multiroom on your main Milō."
     },
     "ssh": {
-      "title": "Remote access",
-      "description": "Lets you open a terminal session on Milō from another computer. Off by default.",
-      "passwordRequired": "Set a device password before enabling remote access."
+      "title": "SSH",
+      "description": "Opens a terminal session on Milō from another computer on your local network. Off by default.",
+      "passwordRequired": "Set a device password before turning SSH on."
     },
     "password": {
       "title": "Device password",
-      "description": "Used for remote access and administration commands. Every Milō ships with the same factory password, so remote access stays closed until you change it.",
+      "description": "Used for SSH and for administration commands on the unit itself. Every Milō ships with the same factory password, so SSH stays off until you change it.",
       "newPlaceholder": "New password",
       "confirmPlaceholder": "Confirm password",
       "save": "Save",

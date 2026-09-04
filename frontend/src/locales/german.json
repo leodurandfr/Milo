@@ -739,13 +739,13 @@
       "speakerHint": "Wenn dieses Gerät ein Lautsprecher und kein zweiter Milō sein soll, schalten Sie es aus und fügen Sie es unter Einstellungen → Multiroom Ihres Haupt-Milō hinzu."
     },
     "ssh": {
-      "title": "Fernzugriff",
-      "description": "Ermöglicht eine Terminalsitzung auf Milō von einem anderen Computer aus. Standardmäßig deaktiviert.",
-      "passwordRequired": "Legen Sie ein Passwort fest, bevor Sie den Fernzugriff aktivieren."
+      "title": "SSH",
+      "description": "Öffnet eine Terminalsitzung auf Milō von einem anderen Computer im lokalen Netzwerk. Standardmäßig deaktiviert.",
+      "passwordRequired": "Legen Sie ein Passwort fest, bevor Sie SSH aktivieren."
     },
     "password": {
       "title": "Gerätepasswort",
-      "description": "Wird für den Fernzugriff und für Verwaltungsbefehle verwendet. Alle Milō werden mit demselben Werkspasswort ausgeliefert – der Fernzugriff bleibt gesperrt, bis Sie es ändern.",
+      "description": "Wird für SSH und für Verwaltungsbefehle auf dem Gerät selbst verwendet. Alle Milō werden mit demselben Werkspasswort ausgeliefert – SSH bleibt deaktiviert, bis Sie es ändern.",
       "newPlaceholder": "Neues Passwort",
       "confirmPlaceholder": "Passwort bestätigen",
       "save": "Speichern",

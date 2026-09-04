@@ -1,5 +1,5 @@
 <!-- frontend/src/components/settings/categories/SystemSettings.vue -->
-<!-- Remote access + account password. The two are one decision: the SSH switch
+<!-- SSH + account password. The two are one decision: the SSH switch
      stays inert until the factory password has been replaced, because that
      password is identical on every Milō and SSH is the only remote path that
      would accept it. The backend refuses the same call with a 409 — the

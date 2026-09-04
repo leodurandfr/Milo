@@ -188,6 +188,69 @@ for u in milo-snapserver-multiroom milo-snapclient-multiroom; do
 done
 
 # --------------------------------------------------------------------------
+section "First-boot posture — what a stranger's card ships with"
+# --------------------------------------------------------------------------
+# Everything here is decided in `pi-gen/config`, i.e. consumed by *upstream*
+# pi-gen stages that this repo does not contain. `test_image_defaults.py`
+# asserts the file says the right thing; only an image can say what pi-gen did
+# with it — and each of these failing silently is a unit that looks fine and is
+# not.
+
+# The factory password is identical on every unit Milō ships. That is safe only
+# while SSH is shut: it is the one remote path that would accept it (neither
+# nginx nor the backend authenticates anything). If `ENABLE_SSH=0` ever stops
+# taking effect, every card ships with a fleet-wide credential on port 22 and
+# nothing anywhere says so.
+# Image-only, like hardware.json below: on a unit in service the owner may have
+# opened SSH deliberately from Settings, which is the whole point of the switch.
+if [[ "$ROOT" == "/" ]]; then
+    printf '  \033[0;33mskip\033[0m  ssh.service not enabled (only checked on an image)\n'
+elif compgen -G "${ROOT%/}/etc/systemd/system/*.wants/ssh.service" >/dev/null \
+   || compgen -G "${ROOT%/}/etc/systemd/system/*.target.wants/ssh.service" >/dev/null; then
+    bad "ssh.service is enabled — the shared factory password is reachable from the network"
+else
+    ok "ssh.service correctly not enabled"
+fi
+
+# The escape hatch the README documents: an empty `ssh` file on the boot
+# partition. It is also the only way into a satellite, which has no UI. Shipped
+# enabled by raspberrypi-sys-mods; if a stage ever disabled it, that instruction
+# becomes a lie no test would catch.
+check "sshswitch.service enabled (the boot-partition escape hatch)" \
+      "compgen -G '${ROOT%/}/etc/systemd/system/*.wants/sshswitch.service' >/dev/null"
+
+# `PUT /api/system/ssh` refuses to open SSH until milo-set-password has run, and
+# `sudo` on the unit needs a password that works. A locked or absent hash breaks
+# both — the account could not sudo at all, and the switch would gate on a
+# password nobody can set.
+if [[ -r "${ROOT%/}/etc/shadow" ]]; then
+    check "the milo account carries a usable password hash" \
+          "grep -q '^milo:\\\$' '${ROOT%/}/etc/shadow'"
+else
+    printf '  \033[0;33mskip\033[0m  milo password hash (/etc/shadow unreadable — run as root)\n'
+fi
+
+# Not a location: the value that means "nobody has told us yet". The frontend
+# adopts a browser's zone only while the system still sits on it, comparing
+# against `DEFAULT_TIMEZONE` in backend/api/system.py. A different string here
+# is adoption that never fires, on every unit, in silence.
+# Image-only for the same reason: a unit in service has had its zone adopted
+# from the first browser that opened the UI, or set by hand.
+if [[ "$ROOT" == "/" ]]; then
+    printf '  \033[0;33mskip\033[0m  timezone is Etc/UTC (only checked on an image)\n'
+else
+    check "timezone is the neutral default (Etc/UTC)" \
+          "[ \"\$(readlink '${ROOT%/}/etc/localtime')\" = /usr/share/zoneinfo/Etc/UTC ]"
+fi
+
+# The setup access point runs on 2.4 GHz channel 6 before any country is picked,
+# which the world domain allows. A wpa_supplicant.conf pinning a country is the
+# second answer to "where is this unit" that `pi-gen/config` deliberately no
+# longer gives.
+check "no country pinned in wpa_supplicant.conf" \
+      "! [ -f '${ROOT%/}/etc/wpa_supplicant/wpa_supplicant.conf' ]"
+
+# --------------------------------------------------------------------------
 section "Unit files match the repo"
 # --------------------------------------------------------------------------
 for src in "$REPO"/system/*.service; do
