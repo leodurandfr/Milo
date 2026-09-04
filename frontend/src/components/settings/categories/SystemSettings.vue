@@ -1,27 +1,29 @@
 <!-- frontend/src/components/settings/categories/SystemSettings.vue -->
-<!-- SSH + account password. The two are one decision: the SSH switch
-     stays inert until the factory password has been replaced, because that
-     password is identical on every Milō and SSH is the only remote path that
-     would accept it. The backend refuses the same call with a 409 — the
-     disabled switch is the courtesy, not the rule. -->
+<!-- SSH + account password. The factory password is identical on every Milō and
+     published with the source, so an open SSH door is worth a word — but as a
+     fact, and only while the door is open. Not as a precondition: nothing on the
+     API authenticates, so refusing to open it would have stopped the owner and
+     nobody else. -->
 <template>
   <SettingsContainer>
     <SettingsSection>
       <template #header>
         <div class="system-header">
           <h2 class="heading-2">{{ t('system.ssh.title') }}</h2>
-          <Toggle :model-value="ssh.enabled" :disabled="sshToggleDisabled" @change="handleSshToggle" />
+          <Toggle :model-value="ssh.enabled" :disabled="sshBusy" @change="handleSshToggle" />
         </div>
       </template>
 
       <span class="text-mono-medium system-description">{{ t('system.ssh.description') }}</span>
 
-      <div v-if="ssh.passwordIsDefault" class="system-notice text-mono-medium">
-        {{ t('system.ssh.passwordRequired') }}
-      </div>
-      <div v-else-if="ssh.enabled" class="system-command text-mono-medium">
-        ssh milo@milo.local
-      </div>
+      <template v-if="ssh.enabled">
+        <div class="system-command text-mono-medium">
+          ssh milo@milo.local
+        </div>
+        <div v-if="ssh.passwordIsDefault" class="system-notice text-mono-medium">
+          {{ t('system.ssh.factoryPassword') }}
+        </div>
+      </template>
 
       <span v-if="sshError" class="system-error text-mono-small">{{ sshError }}</span>
     </SettingsSection>
@@ -81,12 +83,6 @@ const confirmPassword = ref('');
 const savingPassword = ref(false);
 const passwordSaved = ref(false);
 const passwordError = ref(null);
-
-// Turning it OFF must stay reachable even while the password is the factory
-// one — only opening the door is gated.
-const sshToggleDisabled = computed(() =>
-  sshBusy.value || (!ssh.enabled && ssh.passwordIsDefault)
-);
 
 const canSavePassword = computed(() =>
   newPassword.value.length >= PASSWORD_MIN_LENGTH && confirmPassword.value.length > 0

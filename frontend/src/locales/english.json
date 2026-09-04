@@ -741,11 +741,11 @@
     "ssh": {
       "title": "SSH",
       "description": "Opens a terminal session on Milō from another computer on your local network. Off by default.",
-      "passwordRequired": "Set a device password before turning SSH on."
+      "factoryPassword": "Milō still has its factory password. Change it below."
     },
     "password": {
       "title": "Device password",
-      "description": "Used for SSH and for administration commands on the unit itself. Every Milō ships with the same factory password, so SSH stays off until you change it.",
+      "description": "Used for SSH and for administration commands on the unit itself. Every Milō ships with the same factory password.",
       "newPlaceholder": "New password",
       "confirmPlaceholder": "Confirm password",
       "save": "Save",

@@ -741,11 +741,11 @@
     "ssh": {
       "title": "SSH",
       "description": "Abre una sesión de terminal en Milō desde otro ordenador de la red local. Desactivado por defecto.",
-      "passwordRequired": "Defina una contraseña antes de activar SSH."
+      "factoryPassword": "Milō todavía tiene su contraseña de fábrica. Cámbiela abajo."
     },
     "password": {
       "title": "Contraseña del dispositivo",
-      "description": "Se usa para SSH y para los comandos de administración en el propio aparato. Todos los Milō salen de fábrica con la misma contraseña: SSH permanece desactivado hasta que la cambie.",
+      "description": "Se usa para SSH y para los comandos de administración en el propio aparato. Todos los Milō salen de fábrica con la misma contraseña.",
       "newPlaceholder": "Nueva contraseña",
       "confirmPlaceholder": "Confirmar contraseña",
       "save": "Guardar",

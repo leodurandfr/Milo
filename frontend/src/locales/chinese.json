@@ -741,11 +741,11 @@
     "ssh": {
       "title": "SSH",
       "description": "从局域网内的另一台电脑打开 Milō 的终端会话。默认关闭。",
-      "passwordRequired": "启用 SSH 前，请先设置设备密码。"
+      "factoryPassword": "Milō 仍在使用出厂密码。请在下方更改。"
     },
     "password": {
       "title": "设备密码",
-      "description": "用于 SSH 以及在设备上执行管理命令。所有 Milō 出厂时使用相同的默认密码，因此在您更改之前，SSH 将保持关闭。",
+      "description": "用于 SSH 以及在设备上执行管理命令。所有 Milō 出厂时使用相同的默认密码。",
       "newPlaceholder": "新密码",
       "confirmPlaceholder": "确认密码",
       "save": "保存",
