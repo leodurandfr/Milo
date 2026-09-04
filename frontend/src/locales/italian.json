@@ -590,7 +590,6 @@
       "title": "Sorgenti musicali",
       "description": "La tua musica, memorizzata su un server NAS o un'unità USB.",
       "addShare": "Aggiungi un server",
-      "notConnected": "Non connesso",
       "addTitle": "Aggiungi un server",
       "editTitle": "Modifica server",
       "type": "Protocollo",
@@ -653,11 +652,11 @@
       "notIndexedHint": "I file ci sono, ma l'indice li ha persi di vista. Reindicizzare riporta la musica.",
       "reindex": "Reindicizza",
       "separateTitle": "Separa gli archivi",
-      "separateDescription": "Mostra una scheda per ogni chiavetta USB e server di rete. Disattiva per sfogliare tutta la musica insieme."
+      "separateDescription": "Mostra una scheda per ogni chiavetta USB e server di rete. Disattiva per sfogliare tutta la musica insieme.",
+      "nothingIndexed": "Nessuna canzone indicizzata"
     },
     "usb": {
       "title": "Archiviazione USB",
-      "connected": "Connesso",
       "notConnected": "Non connesso",
       "rename": "Rinomina",
       "renameTitle": "Rinomina la chiavetta USB",
@@ -667,6 +666,7 @@
       "renameError": "Impossibile rinominare questa chiavetta USB",
       "forgetTitle": "Dimentica questa chiavetta",
       "forget": "Dimentica",
+      "confirmForget": "Conferma la rimozione",
       "forgetDescription": "Rimuove i suoi {count} brani indicizzati dalla libreria. Ricollegandola verrà indicizzata da capo.",
       "forgetError": "Impossibile dimenticare questa chiavetta USB"
     },

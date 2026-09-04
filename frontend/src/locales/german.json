@@ -590,7 +590,6 @@
       "title": "Musikquellen",
       "description": "Deine Musik, gespeichert auf einem NAS-Server oder einem USB-Laufwerk.",
       "addShare": "Server hinzufügen",
-      "notConnected": "Nicht verbunden",
       "addTitle": "Server hinzufügen",
       "editTitle": "Server bearbeiten",
       "type": "Protokoll",
@@ -653,11 +652,11 @@
       "notIndexedHint": "Die Dateien sind da, aber der Index hat sie aus den Augen verloren. Eine Neuindizierung holt die Musik zurück.",
       "reindex": "Neu indizieren",
       "separateTitle": "Speicher getrennt anzeigen",
-      "separateDescription": "Zeigt einen Tab pro USB-Stick und Netzwerkserver. Deaktivieren, um die gesamte Musik zusammen zu durchsuchen."
+      "separateDescription": "Zeigt einen Tab pro USB-Stick und Netzwerkserver. Deaktivieren, um die gesamte Musik zusammen zu durchsuchen.",
+      "nothingIndexed": "Keine Songs indiziert"
     },
     "usb": {
       "title": "USB-Speicher",
-      "connected": "Verbunden",
       "notConnected": "Nicht verbunden",
       "rename": "Umbenennen",
       "renameTitle": "USB-Stick umbenennen",
@@ -667,6 +666,7 @@
       "renameError": "USB-Stick konnte nicht umbenannt werden",
       "forgetTitle": "Diesen Stick vergessen",
       "forget": "Vergessen",
+      "confirmForget": "Vergessen bestätigen",
       "forgetDescription": "Entfernt die {count} indexierten Titel aus der Bibliothek. Beim erneuten Anschließen wird der Stick komplett neu indexiert.",
       "forgetError": "USB-Stick konnte nicht vergessen werden"
     },

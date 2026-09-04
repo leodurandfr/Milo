@@ -590,7 +590,6 @@
       "title": "音乐来源",
       "description": "存储在 NAS 服务器或 USB 驱动器上的音乐。",
       "addShare": "添加服务器",
-      "notConnected": "未连接",
       "addTitle": "添加服务器",
       "editTitle": "编辑服务器",
       "type": "协议",
@@ -653,11 +652,11 @@
       "notIndexedHint": "文件都在，但索引已经找不到它们了。重新索引即可找回音乐。",
       "reindex": "重新索引",
       "separateTitle": "分开显示各存储设备",
-      "separateDescription": "为每个 U 盘和网络服务器显示一个标签页。关闭后将合并浏览全部音乐。"
+      "separateDescription": "为每个 U 盘和网络服务器显示一个标签页。关闭后将合并浏览全部音乐。",
+      "nothingIndexed": "未索引任何歌曲"
     },
     "usb": {
       "title": "USB 存储",
-      "connected": "已连接",
       "notConnected": "未连接",
       "rename": "重命名",
       "renameTitle": "重命名 U 盘",
@@ -667,6 +666,7 @@
       "renameError": "无法重命名此 U 盘",
       "forgetTitle": "忘记此 U 盘",
       "forget": "忘记",
+      "confirmForget": "确认忘记",
       "forgetDescription": "从音乐库中移除其 {count} 首已索引曲目。重新插入后将重新完整索引。",
       "forgetError": "无法忘记此 U 盘"
     },

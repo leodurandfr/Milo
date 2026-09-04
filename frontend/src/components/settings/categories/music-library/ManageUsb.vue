@@ -1,8 +1,8 @@
-<!-- frontend/src/components/settings/categories/music-library/RenameUsb.vue -->
+<!-- frontend/src/components/settings/categories/music-library/ManageUsb.vue -->
 <!--
-  Name a USB key — a sub-screen of the Music Library settings, the same depth as
-  editing a network server, because it is the same kind of act: naming a music
-  origin.
+  Name a USB key, or forget it — the USB half of ManageShare, same depth in the
+  Music Library settings and the same shape: one form, a destructive action
+  behind a two-tap confirm, and a Save that only appears once something changed.
 
   The name is stored against the key's filesystem UUID, so it comes back when the
   key is plugged in again, and it becomes that key's Navidrome library name — it
@@ -34,12 +34,12 @@
         <template #header>
           <SectionHeader :title="t('musicLibrary.usb.forgetTitle')" />
         </template>
-        <p class="text-mono-medium usb-form__hint">
+        <p class="text-mono-medium usb-form__note">
           {{ t('musicLibrary.usb.forgetDescription', { count: device.track_count || 0 }) }}
         </p>
-        <Button variant="background-strong" size="medium" :loading="isForgetting"
-          :disabled="isForgetting" @click="handleForget">
-          {{ t('musicLibrary.usb.forget') }}
+        <Button variant="important" size="medium" type="button" :loading="isForgetting"
+          :disabled="isSubmitting || isForgetting" @click="handleForget">
+          {{ confirmForget ? t('musicLibrary.usb.confirmForget') : t('musicLibrary.usb.forget') }}
         </Button>
       </SettingsSection>
 
@@ -78,6 +78,7 @@ const store = useMusicLibraryStore();
 const name = ref(props.device?.name || '');
 const isSubmitting = ref(false);
 const isForgetting = ref(false);
+const confirmForget = ref(false);
 const errorMessage = ref('');
 
 const hasChanged = computed(() => name.value.trim() !== (props.device?.name || ''));
@@ -94,12 +95,20 @@ async function handleSubmit() {
 
 async function handleForget() {
   if (isForgetting.value || !props.device) return;
+  if (!confirmForget.value) {
+    confirmForget.value = true;
+    return;
+  }
   isForgetting.value = true;
   errorMessage.value = '';
   const ok = await store.forgetUsbDevice(props.device.id);
   isForgetting.value = false;
-  if (ok) emit('success');
-  else errorMessage.value = t('musicLibrary.usb.forgetError');
+  if (ok) {
+    emit('success');
+  } else {
+    confirmForget.value = false;
+    errorMessage.value = t('musicLibrary.usb.forgetError');
+  }
 }
 </script>
 
@@ -107,16 +116,24 @@ async function handleForget() {
 .usb-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
+  gap: var(--space-02);
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: var(--space-01);
+  gap: var(--space-02);
+}
+
+.form-group label {
+  color: var(--color-text-secondary);
 }
 
 .usb-form__hint {
+  color: var(--color-text-light);
+}
+
+.usb-form__note {
   color: var(--color-text-secondary);
 }
 
@@ -131,5 +148,7 @@ async function handleForget() {
 .apply-button-sticky {
   position: sticky;
   bottom: 0;
+  width: 100%;
+  z-index: 10;
 }
 </style>

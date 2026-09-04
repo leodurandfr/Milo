@@ -590,7 +590,6 @@
       "title": "Music sources",
       "description": "Your music, stored on a NAS server or a USB drive.",
       "addShare": "Add a server",
-      "notConnected": "Not connected",
       "addTitle": "Add a server",
       "editTitle": "Edit server",
       "type": "Protocol",
@@ -653,11 +652,11 @@
       "notIndexedHint": "Its files are there but the index has lost track of them. Re-indexing brings the music back.",
       "reindex": "Re-index",
       "separateTitle": "Separate storage spaces",
-      "separateDescription": "Show one tab per USB key and network server. Turn off to browse all your music together."
+      "separateDescription": "Show one tab per USB key and network server. Turn off to browse all your music together.",
+      "nothingIndexed": "No songs indexed"
     },
     "usb": {
       "title": "USB storage",
-      "connected": "Connected",
       "notConnected": "Not connected",
       "rename": "Rename",
       "renameTitle": "Rename USB key",
@@ -667,6 +666,7 @@
       "renameError": "Could not rename this USB key",
       "forgetTitle": "Forget this key",
       "forget": "Forget",
+      "confirmForget": "Confirm forget",
       "forgetDescription": "Removes its {count} indexed tracks from the library. Plugging the key back in indexes it again from scratch.",
       "forgetError": "Could not forget this USB key"
     },
