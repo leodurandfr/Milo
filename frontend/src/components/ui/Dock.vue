@@ -13,19 +13,20 @@
 
   <!-- Navigation dock -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }"
-    :style="{ '--dock-fit-scale': fitScale }">
+    :style="{ '--dock-fit-scale': fitScale, '--dock-height': dockHeight + 'px' }">
     <!-- Additional Apps - Mobile only -->
-    <div v-if="additionalAppsInDOM && additionalDockApps.length > 0" ref="additionalAppsContainer"
-      class="additional-apps-container glass-surface glass-border mobile-only" :class="{ visible: showAdditionalApps }">
-
-      <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
-        @click="() => handleAdditionalAppClick(app.id)"
-        @pointerdown="(e) => appHold.onAppHoldStart(app.id, e)" v-press
-        :style="{ '--stagger': `${0.05 + (additionalDockApps.length - 1 - index) * 0.02}s` }"
-        class="additional-app-content glass-border button-interactive-subtle">
-        <AppIcon :name="app.icon" :size="32" />
-        <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
-      </button>
+    <div v-if="additionalAppsInDOM && additionalDockApps.length > 0"
+      class="additional-apps-panel glass-surface glass-border mobile-only" :class="{ visible: showAdditionalApps }">
+      <div ref="additionalAppsContainer" class="additional-apps-container">
+        <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
+          @click="() => handleAdditionalAppClick(app.id)"
+          @pointerdown="(e) => appHold.onAppHoldStart(app.id, e)" v-press
+          :style="{ '--stagger': `${0.05 + (additionalDockApps.length - 1 - index) * 0.02}s` }"
+          class="additional-app-content glass-border button-interactive-subtle">
+          <AppIcon :name="app.icon" :size="32" />
+          <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
+        </button>
+      </div>
     </div>
 
     <div ref="dock" class="dock glass-surface glass-border">
@@ -190,16 +191,21 @@ const getDockItemDelay = (index) => `${DOCK_ANIM_INITIAL_DELAY + index * DOCK_AN
 
 const DOCK_VIEWPORT_MARGIN = 32;
 const fitScale = ref(1);
+const dockHeight = ref(0);
 
 const getAvailableWidth = () => {
   const app = document.getElementById('app');
   return app?.style.transform ? app.clientWidth : window.innerWidth;
 };
 
-const updateFitScale = () => {
+// Publishes the dock's own box to the CSS above it: the scale that keeps it
+// inside a narrow screen, and the height the overflow panel subtracts from the
+// viewport to know how much room is left over it.
+const updateDockMetrics = () => {
   const natural = dock.value?.offsetWidth;
   if (!natural) return;
   fitScale.value = Math.min(1, (getAvailableWidth() - DOCK_VIEWPORT_MARGIN) / natural);
+  dockHeight.value = dock.value.offsetHeight;
 };
 
 // === DOCK SHOW/HIDE ===
@@ -433,6 +439,10 @@ const toggleAdditionalApps = () => {
     additionalAppsInDOM.value = true;
     timer.clear(additionalHideTimeout);
     nextTick(() => {
+      // The panel lingers in the DOM for 1.2 s after a close, so a quick reopen
+      // would come back where it was left scrolled.
+      if (additionalAppsContainer.value) additionalAppsContainer.value.scrollTop = 0;
+      updateDockMetrics();
       requestAnimationFrame(() => {
         showAdditionalApps.value = true;
         drag.setupAdditionalDragEvents();
@@ -479,7 +489,8 @@ watch(() => unifiedStore.systemState.active_source, (newSource) => {
   }
 });
 
-watch([allEnabledApps, isMobile], () => nextTick(updateFitScale));
+watch([allEnabledApps, isMobile, () => unifiedStore.volumeState.any_volume_control],
+  () => nextTick(updateDockMetrics));
 
 // Lyrics opening must never leave the dock lingering behind it — hideDock()
 // runs its normal fade/slide-away animation rather than an abrupt cut.
@@ -494,12 +505,12 @@ onMounted(() => {
 
   timer.setTimeout(() => showDragIndicator.value = true, 800);
 
-  nextTick(updateFitScale);
-  window.addEventListener('resize', updateFitScale);
+  nextTick(updateDockMetrics);
+  window.addEventListener('resize', updateDockMetrics);
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', updateFitScale);
+  window.removeEventListener('resize', updateDockMetrics);
   // Hand the registration back, or App.vue keeps calling into a dead instance.
   // A full load of a `meta.chrome: false` route (the /components gallery) mounts
   // the dock for the tick before the route resolves, then drops it — and the
@@ -512,7 +523,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.additional-apps-container {
+.additional-apps-panel {
   --glass-bg: var(--color-background-medium-16);
   --glass-blur: var(--blur-03);
   --glass-radius: var(--radius-07);
@@ -524,20 +535,50 @@ onUnmounted(() => {
   transform: translateY(calc(-1 * var(--space-03) + var(--space-06)));
   z-index: 3998;
   border-radius: var(--radius-07);
-  padding: var(--space-04);
   display: flex;
   flex-direction: column;
-  gap: var(--space-01);
+  /* The panel grows upward from the dock, so enough entries pushed its top off
+     the screen and the first ones became unreachable. Bound it to the room
+     actually above the dock; .additional-apps-container scrolls inside it.
+     --dock-height is published by updateDockMetrics; --dock-raise is the dock
+     container's own offset, read from there so the two can't drift.
+     --space-03 is this panel's own lift. The viewport unit counts screen pixels
+     while the app is laid out in the fewer ones ui_scale magnifies (published
+     by applyUiScale), hence the division. */
+  max-height: calc(
+    100dvh / var(--ui-scale, 1)
+    - var(--dock-raise) - var(--dock-height, 0px) - var(--space-03) - var(--space-06)
+  );
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--transition-spring-fast), transform var(--transition-spring-fast);
   cursor: grab;
 }
 
-.additional-apps-container.visible {
+.additional-apps-panel.visible {
   opacity: 1;
   transform: translateY(calc(-1 * var(--space-03)));
   pointer-events: auto;
+}
+
+/* The scroller is a box of its own because .glass-border draws its stroke as an
+   absolutely positioned ::before, and such a child scrolls with the content of
+   the box it sits in — measured leaving the panel by the full scroll distance.
+   The glass stays on the parent, which never scrolls. */
+.additional-apps-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+  padding: var(--space-04);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.additional-apps-container::-webkit-scrollbar {
+  display: none;
 }
 
 .additional-app-content {
@@ -546,6 +587,7 @@ onUnmounted(() => {
   gap: var(--space-03);
   padding: var(--space-02);
   width: 100%;
+  flex-shrink: 0;
   background: var(--color-background-neutral-50);
   border: none;
   cursor: pointer;
@@ -555,7 +597,7 @@ onUnmounted(() => {
   transform: translateY(20px) scale(0.95);
 }
 
-.additional-apps-container.visible .additional-app-content {
+.additional-apps-panel.visible .additional-app-content {
   opacity: 1;
   transform: translateY(0) scale(1);
   transition-delay: var(--stagger, 0s);
@@ -567,6 +609,9 @@ onUnmounted(() => {
 }
 
 .dock-container {
+  /* How far the open dock rides above the bottom edge — shared with the
+     overflow panel, whose max-height measures the room left over the dock. */
+  --dock-raise: calc(29px + env(safe-area-inset-bottom, 0px));
   position: fixed;
   bottom: 0;
   left: 50%;
@@ -580,7 +625,7 @@ onUnmounted(() => {
 }
 
 .dock-container.visible {
-  transform: translateX(-50%) translateY(calc(-29px - env(safe-area-inset-bottom, 0px))) scale(1);
+  transform: translateX(-50%) translateY(calc(-1 * var(--dock-raise))) scale(1);
 }
 
 .dock {
@@ -779,7 +824,7 @@ onUnmounted(() => {
     display: none;
   }
 
-  .additional-apps-container {
+  .additional-apps-panel {
     display: none !important;
   }
 

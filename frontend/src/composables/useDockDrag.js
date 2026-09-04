@@ -12,7 +12,7 @@ import { useTimer } from '@/composables/useTimer';
  * @param {import('vue').Ref<HTMLElement>} options.dragZone - drag zone template ref
  * @param {import('vue').Ref<HTMLElement>} options.dock - dock inner element ref
  * @param {import('vue').Ref<HTMLElement>} options.dockContainer - dock container ref (for click-outside)
- * @param {import('vue').Ref<HTMLElement>} options.additionalAppsContainer - additional apps panel ref
+ * @param {import('vue').Ref<HTMLElement>} options.additionalAppsContainer - additional apps scroller ref (the panel's inner list, which is what scrolls)
  * @param {import('vue').Ref<boolean>} options.isVisible - dock visibility (read by click-outside guard)
  * @param {import('vue').Ref<boolean>} options.showAdditionalApps - additional panel visibility
  * @param {Function} options.onShow - called when swipe-up opens the dock
@@ -55,6 +55,7 @@ export function useDockDrag({
   // Additional-apps drag state
   let isDraggingAdditional = false;
   let additionalDragStartY = 0;
+  let additionalGestureOriginY = 0;
   let additionalDragMoved = false;
 
   // === Event coordinate helpers ===
@@ -76,6 +77,7 @@ export function useDockDrag({
     isDraggingAdditional = true;
     additionalDragMoved = false;
     additionalDragStartY = getEventY(e);
+    additionalGestureOriginY = additionalDragStartY;
   };
 
   const setupAdditionalDragEvents = () => {
@@ -159,17 +161,28 @@ export function useDockDrag({
   const onDragMove = (e) => {
     // Handle additional-apps drag first
     if (isDraggingAdditional) {
-      const deltaY = getEventY(e) - additionalDragStartY;
-      if (Math.abs(deltaY) > 5) {
+      const y = getEventY(e);
+      if (Math.abs(y - additionalGestureOriginY) > 5 && !additionalDragMoved) {
         // The overflow panel uses its own gesture stream (it doesn't touch the
         // shared gestureHasMoved), so cancel any pending app-hold explicitly on
         // the first swipe to avoid a misfired close.
-        if (!additionalDragMoved) onVolumeHoldEnd();
+        onVolumeHoldEnd();
         additionalDragMoved = true;
-        e.preventDefault();
       }
-      if (Math.abs(deltaY) >= 20 && deltaY > 0) {
-        e.preventDefault();
+      // A panel holding more entries than the screen fits scrolls, and while it
+      // does the browser owns the gesture — preventDefault here would freeze
+      // it. Swipe-to-close is only what pulls down from the top, as on a bottom
+      // sheet, so the close anchor follows the finger until the list is back at
+      // its top: the distance travelled scrolling never counts as a pull-down.
+      const el = additionalAppsContainer.value;
+      if ((el && el.scrollTop > 0) || y < additionalDragStartY) {
+        additionalDragStartY = y;
+        return;
+      }
+      const deltaY = y - additionalDragStartY;
+      if (deltaY <= 5) return;
+      e.preventDefault();
+      if (deltaY >= 20) {
         onCloseAdditionalApps();
         isDraggingAdditional = false;
       }
@@ -229,6 +242,10 @@ export function useDockDrag({
   const onDragEnd = () => {
     if (isDraggingAdditional) {
       isDraggingAdditional = false;
+      // Scrolling the overflow panel is interaction with the dock too: a list
+      // long enough to need scrolling takes longer than the 10 s auto-hide,
+      // which would collapse the dock under the finger.
+      onResetHideTimer();
       return;
     }
 
