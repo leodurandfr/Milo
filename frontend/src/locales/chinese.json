@@ -753,6 +753,19 @@
       "mismatch": "两次输入的密码不一致。",
       "tooShort": "密码至少需要 {n} 个字符。"
     },
+    "diagnostic": {
+      "title": "诊断",
+      "description": "生成一份关于本台 Milō 的文本报告——版本、音频通路、音箱和近期错误——在出现问题时您可以将它发送出去。报告不含任何密码、任何网络名称，也不含您的任何文件名，发送前您可以先阅读。",
+      "generate": "生成报告",
+      "generating": "正在生成…",
+      "download": "下载",
+      "copy": "复制",
+      "copied": "已复制",
+      "copyFailed": "复制失败。请改用下载。",
+      "showPreview": "显示报告",
+      "hidePreview": "隐藏报告",
+      "notCollected": "未能收集："
+    },
     "reset": {
       "title": "重置配置",
       "description": "重新执行首次启动：先进行角色检测，然后打开设置向导。您的电台收藏、播客订阅和音乐共享都会保留。",

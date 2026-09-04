@@ -753,6 +753,19 @@
       "mismatch": "The two passwords do not match.",
       "tooShort": "The password must be at least {n} characters."
     },
+    "diagnostic": {
+      "title": "Diagnostic",
+      "description": "Builds a text report about this Milō — its versions, its audio path, its speakers and its recent errors — that you can send when something goes wrong. It holds no password, no network name and none of your file names, and you can read it before sending it.",
+      "generate": "Generate a report",
+      "generating": "Generating…",
+      "download": "Download",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Copying failed. Use Download instead.",
+      "showPreview": "Show the report",
+      "hidePreview": "Hide the report",
+      "notCollected": "Could not be collected:"
+    },
     "reset": {
       "title": "Reset configuration",
       "description": "Runs first boot again: role detection, then the setup assistant. Your radio favourites, podcast subscriptions and music shares are kept.",

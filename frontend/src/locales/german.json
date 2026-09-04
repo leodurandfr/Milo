@@ -753,6 +753,19 @@
       "mismatch": "Die beiden Passwörter stimmen nicht überein.",
       "tooShort": "Das Passwort muss mindestens {n} Zeichen lang sein."
     },
+    "diagnostic": {
+      "title": "Diagnose",
+      "description": "Erstellt einen Textbericht über dieses Milō — seine Versionen, seinen Audiopfad, seine Lautsprecher und seine jüngsten Fehler —, den Sie senden können, wenn etwas nicht stimmt. Er enthält kein Passwort, keinen Netzwerknamen und keinen Ihrer Dateinamen, und Sie können ihn vor dem Senden lesen.",
+      "generate": "Bericht erstellen",
+      "generating": "Wird erstellt…",
+      "download": "Herunterladen",
+      "copy": "Kopieren",
+      "copied": "Kopiert",
+      "copyFailed": "Das Kopieren ist fehlgeschlagen. Verwenden Sie stattdessen Herunterladen.",
+      "showPreview": "Bericht anzeigen",
+      "hidePreview": "Bericht ausblenden",
+      "notCollected": "Konnte nicht erfasst werden:"
+    },
     "reset": {
       "title": "Konfiguration zurücksetzen",
       "description": "Führt den ersten Start erneut aus: Rollenerkennung und dann den Einrichtungsassistenten. Ihre Radiosender, Podcast-Abos und Musikfreigaben bleiben erhalten.",
