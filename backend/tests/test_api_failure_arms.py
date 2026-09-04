@@ -131,7 +131,7 @@ class TestTheProgramsReads:
         router.satellite_service.get_client_payload_version = AsyncMock(
             return_value="c6247d9"
         )
-        router.satellite_service.get_release_version = AsyncMock(return_value="v0.2.0")
+        router.satellite_service.get_server_version = AsyncMock(return_value="v0.2.0")
 
         with caplog.at_level(logging.ERROR, logger="backend.api.programs"):
             body = await _endpoint(router, "/api/programs/satellites")()

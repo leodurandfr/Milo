@@ -69,7 +69,7 @@ class SatelliteUpdateService:
                 "display_name": client.name or mac_id,
                 "ip": client.ip,
                 "snapclient_version": result.get("version"),
-                "app_release": result.get("app_release"),
+                "app_version": result.get("app_version"),
                 "app_payload": result.get("app_payload"),
                 "app_started_at": result.get("app_started_at"),
                 "camilladsp_version": result.get("camilladsp_version"),
@@ -97,7 +97,7 @@ class SatelliteUpdateService:
                         "version": data.get("snapclient", {}).get("version"),
                         "running": data.get("snapclient", {}).get("running", False),
                         "uptime": data.get("uptime"),
-                        "app_release": data.get("app", {}).get("release"),
+                        "app_version": data.get("app", {}).get("version"),
                         "app_payload": data.get("app", {}).get("payload"),
                         "app_started_at": data.get("app", {}).get("started_at"),
                         "camilladsp_version": data.get("camilladsp", {}).get("version")
@@ -255,9 +255,9 @@ class SatelliteUpdateService:
         that last touched `milo-client/`.
 
         Two different questions are asked of a satellite, and one string used to
-        answer both — badly. *Which version does it run* is the release, and it
-        is what the row displays (`get_release_version`). *Does its code differ
-        from the server's* is this, and it is what decides whether to push.
+        answer both — badly. *Which version does it run* is displayed, and comes
+        from `get_server_version`. *Does its code differ from the server's* is
+        this, and it is what decides whether to push.
 
         Deciding on the release lit the update button on the whole fleet every
         time the server moved — measured once at 100 commits, 0 of them
@@ -277,28 +277,33 @@ class SatelliteUpdateService:
         dirty = await self._git("status", "--porcelain", "--", "milo-client")
         return f"{commit}-dirty" if dirty else commit
 
-    async def get_release_version(self) -> Optional[str]:
-        """The release this server runs, which is the one a satellite displays.
+    async def get_server_version(self) -> Optional[str]:
+        """The version string the server shows for itself, which is the one a
+        satellite carries.
 
-        Both halves ship from one commit, so a satellite carrying this server's
-        payload is running this release — there is no third thing it could be,
-        and giving it a number of its own is how a fleet comes to show four
+        Both halves ship from one commit, so a satellite that took this server's
+        payload runs this version — there is no third thing it could be, and
+        giving it a numbering of its own is how a fleet comes to show four
         version schemes on one screen.
 
-        None on a development checkout: it is outside the release channel, and
-        so is anything pushed from it. `--exact-match` is what asks that of git
-        instead of inferring it from the shape of a describe suffix — which
-        cannot tell a pre-release tag apart from a tree past a tag.
+        Exactly `git describe --tags --always`: the tag when the server sits on
+        one, the descriptive `<tag>-<n>-g<sha>` when it does not, and never
+        empty on a checkout. Deliberately NOT `--exact-match`, which answers
+        "is this a release" — a question the *offer* asks, and a satellite row
+        never does. Asked here it turned every satellite pushed from a
+        development tree into a blank cell, indistinguishable from one that had
+        not answered at all. Measured on the two units: both rows empty while
+        both satellites were up and reachable.
         """
-        return await self._git("describe", "--tags", "--exact-match")
+        return await self._git("describe", "--tags", "--always")
 
     async def _create_client_tarball(self) -> tuple:
         """Creates a tarball of the milo-client/ directory.
 
-        Returns (tarball_path, version) tuple.
+        Returns (tarball_path, payload) tuple.
         """
-        version = await self.get_client_payload_version()
-        if not version:
+        payload = await self.get_client_payload_version()
+        if not payload:
             raise RuntimeError("Could not determine the milo-client payload version")
 
         if not MILO_CLIENT_DIR.is_dir():
@@ -331,8 +336,8 @@ class SatelliteUpdateService:
             return tarball_path
 
         tarball_path = await asyncio.get_running_loop().run_in_executor(None, _create)
-        self.logger.info(f"Created client tarball: {tarball_path} (version: {version})")
-        return tarball_path, version
+        self.logger.info(f"Created client tarball: {tarball_path} (payload: {payload})")
+        return tarball_path, payload
 
     async def update_satellite_app(
         self,
@@ -355,10 +360,8 @@ class SatelliteUpdateService:
             # restarting, which is the one step the version file cannot attest.
             started_at_before = satellite.get("app_started_at")
 
-            tarball_path, version = await self._create_client_tarball()
-            # Empty on a development checkout, and stored as such: the satellite
-            # then reads as a development build too, which is what it is.
-            release = await self.get_release_version() or ""
+            tarball_path, payload = await self._create_client_tarball()
+            version = await self.get_server_version() or ""
 
             url = f"http://{ip}:{self.satellite_api_port}/app/update"
             timeout = aiohttp.ClientTimeout(total=120)
@@ -368,8 +371,8 @@ class SatelliteUpdateService:
                     form = aiohttp.FormData()
                     form.add_field("tarball", f, filename="milo-client.tar.gz",
                                    content_type="application/gzip")
+                    form.add_field("payload", payload)
                     form.add_field("version", version)
-                    form.add_field("release", release)
 
                     async with session.post(url, data=form) as response:
                         if response.status != 200:
@@ -380,7 +383,7 @@ class SatelliteUpdateService:
                             }
 
             result = await self._wait_for_app_update_completion(
-                mac_id, ip, version, started_at_before
+                mac_id, ip, payload, started_at_before
             )
             return result
 
@@ -412,8 +415,8 @@ class SatelliteUpdateService:
         """
         left_behind: list[str] = []
         try:
-            version = await self.get_client_payload_version()
-            if not version:
+            payload = await self.get_client_payload_version()
+            if not payload:
                 self.logger.error(
                     "Client app not pushed: the milo-client payload version is "
                     "unreadable. Every satellite keeps the app it runs."
@@ -444,10 +447,10 @@ class SatelliteUpdateService:
 
                 # Already running this tree: pushing would restart a speaker in
                 # an occupied room to deploy bytes it already has.
-                if satellite.get("app_payload") == version:
+                if satellite.get("app_payload") == payload:
                     continue
 
-                self.logger.info(f"{name}: pushing client app {version} with the Milo update")
+                self.logger.info(f"{name}: pushing client app {payload} with the Milo update")
                 result = await self.update_satellite_app(mac)
                 if not result.get("success"):
                     left_behind.append(name)
@@ -582,7 +585,7 @@ class SatelliteUpdateService:
         self,
         mac_id: str,
         ip: str,
-        expected_version: str,
+        expected_payload: str,
         started_at_before: Optional[int]
     ) -> Dict[str, Any]:
         """Polls satellite /status until the payload just sent is the one *running*.
@@ -614,10 +617,10 @@ class SatelliteUpdateService:
                             app = data.get("app", {})
                             payload = app.get("payload")
 
-                            if payload == expected_version:
+                            if payload == expected_payload:
                                 payload_seen = True
 
-                            if payload == expected_version and app.get("started_at") != started_at_before:
+                            if payload == expected_payload and app.get("started_at") != started_at_before:
                                 return {
                                     "success": True,
                                     "message": f"Satellite {mac_id} app updated successfully",
@@ -630,7 +633,7 @@ class SatelliteUpdateService:
 
         if payload_seen:
             self.logger.error(
-                f"Satellite {mac_id} deployed {expected_version} but never restarted into it"
+                f"Satellite {mac_id} deployed {expected_payload} but never restarted into it"
             )
             return {
                 "success": False,

@@ -342,7 +342,7 @@ if [[ -n "$REF" ]]; then
         check "checkout sits exactly on $REF" \
             "[ \"\$(git -C '$MILO_CHECKOUT' describe --tags --exact-match 2>/dev/null)\" = '$REF' ]"
         check "satellite identity seeded with $REF" \
-            "[ \"\$(cat '${ROOT%/}/var/lib/milo-client/app-release' 2>/dev/null)\" = '$REF' ]"
+            "[ \"\$(cat '${ROOT%/}/var/lib/milo-client/app-version' 2>/dev/null)\" = '$REF' ]"
     else
         printf '  \033[0;33mskip\033[0m  checkout ref (%s is not a release tag)\n' "$REF"
     fi

@@ -19,8 +19,8 @@ def create_app_update_router(app_update_service: AppUpdateService) -> APIRouter:
     @router.post("/update")
     async def update_app(
         tarball: UploadFile = File(...),
+        payload: str = Form(...),
         version: str = Form(...),
-        release: str = Form(...),
     ):
         """Receives and deploys an app update tarball from the main server."""
         if app_update_service.update_in_progress:
@@ -37,15 +37,15 @@ def create_app_update_router(app_update_service: AppUpdateService) -> APIRouter:
             raise HTTPException(status_code=500, detail=f"Failed to save tarball: {e}")
 
         # Deploy the update
-        result = await app_update_service.deploy_update(tarball_path, version, release)
+        result = await app_update_service.deploy_update(tarball_path, payload, version)
 
         if not result["success"]:
             raise HTTPException(status_code=500, detail=result.get("error", "Update failed"))
 
         return {
             "status": "success",
+            "payload": payload,
             "version": version,
-            "release": release,
             "message": "Update deployed, service restarting...",
             "timestamp": int(time.time())
         }
