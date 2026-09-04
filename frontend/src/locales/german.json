@@ -82,7 +82,7 @@
       "cannotLoadStations": "Sender können nicht geladen werden",
       "retry": "Erneut versuchen",
       "noStationsFound": "Keine Sender gefunden",
-      "minCharactersRequired": "Gib mindestens 3 Zeichen ein, um zu suchen",
+      "minCharactersRequired": "Geben Sie mindestens 3 Zeichen ein, um zu suchen",
       "noFavorites": "Keine Lieblings-Radios",
       "playRadio": "Anhören",
       "stopRadio": "Stoppen"
@@ -125,7 +125,7 @@
     "tuning": {
       "eqIndependent": "Unabhängiger EQ",
       "delay": "Verzögerung",
-      "delayHint": "Verzögere die Wiedergabe dieses Lautsprechers, um ihn an die anderen anzugleichen."
+      "delayHint": "Verzögern Sie die Wiedergabe dieses Lautsprechers, um ihn an die anderen anzugleichen."
     },
     "pending": {
       "title": "Neuer Milō Client erkannt",
@@ -324,9 +324,9 @@
     "connect": "Verbinden",
     "disconnect": "Trennen",
     "notConnectedTitle": "Qobuz-Konto nicht verbunden",
-    "notConnectedDetails": "Melde dich bei deinem Qobuz-Konto an, um von der Qobuz-App aus zu Milō zu streamen. Ein Browserfenster öffnet sich zur Anmeldung; kehre hierher zurück, sobald du fertig bist.",
+    "notConnectedDetails": "Melden Sie sich bei Ihrem Qobuz-Konto an, um von der Qobuz-App aus zu Milō zu streamen. Ein Browserfenster öffnet sich zur Anmeldung; kehren Sie hierher zurück, sobald Sie fertig sind.",
     "appVolumeTitle": "Lautstärkeregelung von der Qobuz-App",
-    "appVolumeDescription": "Lass die Qobuz-App die Lautstärke ändern. Wenn deaktiviert, hält Milō Qobuz auf voller Lautstärke und die eigene Lautstärkeregelung bestimmt den Pegel."
+    "appVolumeDescription": "Der Qobuz-App erlauben, die Lautstärke zu ändern. Wenn deaktiviert, hält Milō Qobuz auf voller Lautstärke und die eigene Lautstärkeregelung bestimmt den Pegel."
   },
   "spotifySettings": {
     "crossfade": "Überblendung",
@@ -387,7 +387,7 @@
     "refresh": "Aktualisieren",
     "wifiNetworks": "WLAN-Netzwerke",
     "wifiCountry": "WLAN-Land",
-    "selectCountry": "Wähle dein Land",
+    "selectCountry": "Wählen Sie Ihr Land",
     "save": "Speichern",
     "saving": "Speichern...",
     "saveFailed": "Netzwerk konnte nicht gespeichert werden",
@@ -449,7 +449,7 @@
       "bitratePlaceholder": "z.B: 128, 192, 320",
       "adding": "Wird hinzugefügt...",
       "loading": "Wird geladen...",
-      "invalidImageFormat": "Nicht unterstütztes Bildformat. Verwende JPG, PNG, WEBP oder GIF.",
+      "invalidImageFormat": "Nicht unterstütztes Bildformat. Verwenden Sie JPG, PNG, WEBP oder GIF.",
       "imageTooLarge": "Bild zu groß. Maximum 5MB.",
       "addFailed": "Sender konnte nicht hinzugefügt werden",
       "errorOccurred": "Ein Fehler ist aufgetreten",
@@ -507,7 +507,7 @@
     "newEpisodes": "Neue Episoden",
     "noNewEpisodes": "Keine neuen Episoden",
     "noSubscriptions": "Keine Abonnements",
-    "noSubscriptionsHint": "Suche nach Podcasts und abonniere sie, um sie hier zu finden",
+    "noSubscriptionsHint": "Suchen Sie nach Podcasts und abonnieren Sie sie, um sie hier zu finden",
     "noPodcastsInGenre": "Keine Podcasts in dieser Kategorie gefunden",
     "notAvailable": "Podcast nicht verfügbar",
     "catalogUnavailable": "Katalog nicht verfügbar",
@@ -515,7 +515,7 @@
     "retry": "Erneut versuchen",
     "loading": "Wird geladen...",
     "noEpisodesInQueue": "Keine Episoden in der Warteschlange",
-    "noEpisodesInQueueHint": "Beginne Episoden anzuhören und sie werden hier angezeigt",
+    "noEpisodesInQueueHint": "Beginnen Sie, Episoden anzuhören, und sie werden hier angezeigt",
     "episodesCount2": "Episoden",
     "subscribed": "Abonniert",
     "subscribe": "Abonnieren",
@@ -561,12 +561,12 @@
     "noGenres": "Noch keine Genres",
     "noPlaylists": "Noch keine Playlists",
     "emptyLibrary": "Noch keine Musik",
-    "emptyLibraryHint": "Verbinde einen NAS-Server oder USB-Speicher mit deiner Musik, um die Bibliothek aufzubauen.",
+    "emptyLibraryHint": "Verbinden Sie einen NAS-Server oder USB-Speicher mit Ihrer Musik, um die Bibliothek aufzubauen.",
     "building": "Bibliothek wird aufgebaut...",
-    "buildingHint": "Deine Musik wird indiziert. Dies kann einige Minuten dauern.",
+    "buildingHint": "Ihre Musik wird indiziert. Dies kann einige Minuten dauern.",
     "buildingProgress": "{count} Titel indiziert...",
     "queueEmpty": "Warteschlange leer",
-    "queueEmptyHint": "Spiele ein Album, eine Playlist oder einen Titel ab, um eine Warteschlange zu erstellen.",
+    "queueEmptyHint": "Spielen Sie ein Album, eine Playlist oder einen Titel ab, um eine Warteschlange zu erstellen.",
     "albumsCount": "{count} Alben",
     "tracksCount": "{count} Titel",
     "songsCount": "{count} Songs",
@@ -591,14 +591,14 @@
     },
     "shares": {
       "title": "Musikquellen",
-      "description": "Deine Musik, gespeichert auf einem NAS-Server oder einem USB-Laufwerk.",
+      "description": "Ihre Musik, gespeichert auf einem NAS-Server oder einem USB-Laufwerk.",
       "addShare": "Server hinzufügen",
       "addTitle": "Server hinzufügen",
       "editTitle": "Server bearbeiten",
       "type": "Protokoll",
       "name": "Name",
       "namePlaceholder": "Meine NAS-Musik",
-      "nameHint": "Der in Milō angezeigte Name — benenne ihn beliebig um.",
+      "nameHint": "Der in Milō angezeigte Name — benennen Sie ihn beliebig um.",
       "host": "Server",
       "hostPlaceholder": "192.168.1.10 oder nas.local",
       "sharePlaceholder": "Music",
@@ -615,34 +615,34 @@
       "save": "Speichern",
       "remove": "Server entfernen",
       "confirmRemove": "Entfernen bestätigen",
-      "errorGeneric": "Die Freigabe konnte nicht gespeichert werden. Überprüfe die Angaben und versuche es erneut.",
+      "errorGeneric": "Die Freigabe konnte nicht gespeichert werden. Überprüfen Sie die Angaben und versuchen Sie es erneut.",
       "wizard": {
         "browseTitle": "Quellordner auswählen",
         "authTitle": "Beim NAS anmelden",
         "manualTitle": "Manuell hinzufügen",
-        "serverTitle": "Wähle dein NAS",
-        "serverDesc": "Server, die in deinem Netzwerk gefunden wurden. Wähle deinen aus, um dich zu verbinden.",
+        "serverTitle": "Wählen Sie Ihr NAS",
+        "serverDesc": "Server, die in Ihrem Netzwerk gefunden wurden. Wählen Sie Ihren aus, um sich zu verbinden.",
         "rescan": "Scannen",
-        "noServers": "Keine Server in deinem Netzwerk gefunden.",
+        "noServers": "Keine Server in Ihrem Netzwerk gefunden.",
         "manual": "Manuell eingeben",
         "alreadyConnected": "Bereits verbunden",
         "authPrompt": "Dieser Server erfordert eine Anmeldung. Leer lassen für eine Gastfreigabe.",
         "connect": "Verbinden",
-        "wrongCredentials": "Anmeldung fehlgeschlagen. Überprüfe deinen Benutzernamen und dein Passwort.",
+        "wrongCredentials": "Anmeldung fehlgeschlagen. Überprüfen Sie Ihren Benutzernamen und Ihr Passwort.",
         "retry": "Erneut versuchen",
-        "unreachable": "Dieser Server ist nicht erreichbar. Überprüfe, ob er eingeschaltet ist, und versuche es erneut.",
+        "unreachable": "Dieser Server ist nicht erreichbar. Überprüfen Sie, ob er eingeschaltet ist, und versuchen Sie es erneut.",
         "browseError": "Dieser Server konnte nicht durchsucht werden.",
         "emptyFolder": "Keine Unterordner vorhanden.",
         "noSharesGuest": "Ohne Anmeldung sind keine freigegebenen Ordner sichtbar.",
         "signIn": "Anmelden",
         "useFolder": "\"{name}\" verwenden",
-        "savedNotMounted": "Gespeichert, aber die Freigabe konnte nicht verbunden werden. Du kannst sie in der Liste bearbeiten.",
+        "savedNotMounted": "Gespeichert, aber die Freigabe konnte nicht verbunden werden. Sie können sie in der Liste bearbeiten.",
         "done": "Fertig",
-        "indexing": "Deine Musik wird indiziert...",
+        "indexing": "Ihre Musik wird indiziert...",
         "indexingCount": "{count} Titel gefunden",
         "indexedTitle": "Bibliothek verbunden und importiert",
         "indexedShare": "{count} Titel auf dieser Freigabe gefunden.",
-        "indexedTotal": "{count} Titel in deiner Bibliothek.",
+        "indexedTotal": "{count} Titel in Ihrer Bibliothek.",
         "indexedEmpty": "Verbunden, aber in diesem Ordner wurde keine Musik gefunden."
       },
       "pathLabel": "Zugriffspfad"
@@ -679,7 +679,7 @@
     },
     "maintenance": {
       "title": "Bibliotheksaktualisierung",
-      "description": "Indiziert deine Bibliothek vollständig neu, fügt neue Musik hinzu und entfernt gelöschte Titel.",
+      "description": "Indiziert Ihre Bibliothek vollständig neu, fügt neue Musik hinzu und entfernt gelöschte Titel.",
       "refresh": "Aktualisieren",
       "refreshing": "Wird aktualisiert...",
       "refreshProgress": "{count} Titel indiziert...",
@@ -692,7 +692,7 @@
     "continue": "Weiter",
     "welcome": {
       "title": "Willkommen bei Milō",
-      "subtitle": "Lass uns dein Audiosystem einrichten!",
+      "subtitle": "Richten wir Ihr Audiosystem ein!",
       "getStarted": "Los geht's"
     },
     "wifi": {
@@ -700,10 +700,10 @@
       "continueHint": "Wählen Sie ein Land und verbinden Sie Milō mit einem Netzwerk, um fortzufahren."
     },
     "language": {
-      "title": "Wähle deine Sprache"
+      "title": "Wählen Sie Ihre Sprache"
     },
     "audio": {
-      "title": "Wähle deine Audiokarte",
+      "title": "Wählen Sie Ihre Audiokarte",
       "amplifiers": "Verstärker",
       "dacs": "DACs",
       "volumeManagement": "Lautstärke von Milō gesteuert",
@@ -711,7 +711,7 @@
       "other": "Sonstige"
     },
     "screen": {
-      "title": "Wähle deinen Bildschirm",
+      "title": "Wählen Sie Ihren Bildschirm",
       "none": "Kein Bildschirm"
     },
     "summary": {
@@ -723,16 +723,16 @@
       "applyAndReboot": "Anwenden und neu starten",
       "confirmReboot": "Neustart bestätigen",
       "rebooting": "Neustart...",
-      "rebootingDescription": "Bitte warte, während das System neu startet.",
-      "rebootTimeout": "Zeitüberschreitung beim Neustart. Bitte lade die Seite neu.",
-      "accessHint": "Verbinde dich nach dem Neustart mit dem Netzwerk {ssid} und öffne milo.local in deinem Browser, um auf Milō zuzugreifen.",
+      "rebootingDescription": "Bitte warten Sie, während das System neu startet.",
+      "rebootTimeout": "Zeitüberschreitung beim Neustart. Bitte laden Sie die Seite neu.",
+      "accessHint": "Verbinden Sie sich nach dem Neustart mit dem Netzwerk {ssid} und öffnen Sie milo.local in Ihrem Browser, um auf Milō zuzugreifen.",
       "volumeNotManaged": "Lautstärke nicht von Milō gesteuert"
     }
   },
   "system": {
     "hostnameConflict": {
       "title": "Weiteres Milō erkannt",
-      "subtitle": "Zwei Milō-Server können nicht im selben Netzwerk koexistieren. Schalte eines davon aus oder prüfe erneut, falls bereits geschehen.",
+      "subtitle": "Zwei Milō-Server können nicht im selben Netzwerk koexistieren. Schalten Sie eines davon aus oder prüfen Sie erneut, falls bereits geschehen.",
       "thisDevice": "Dieses Gerät: {name} ({ip})",
       "recheck": "Erneut prüfen",
       "shutdown": "Dieses Gerät ausschalten",
@@ -809,19 +809,19 @@
     "disabledTitle": "Infrarot-Empfänger nicht aktiviert",
     "disabledDetails": "Aktivieren Sie sie, um Ihre Apple Remote zu verwenden.",
     "hardwareDisabledTitle": "Infrarot-Empfänger deaktiviert",
-    "hardwareDisabledDetails": "Aktiviere den Infrarot-Empfänger in den Hardware-Einstellungen, um eine Fernbedienung zu koppeln.",
+    "hardwareDisabledDetails": "Aktivieren Sie den Infrarot-Empfänger in den Hardware-Einstellungen, um eine Fernbedienung zu koppeln.",
     "openHardwareSettings": "Hardware-Einstellungen öffnen",
     "wizard": {
       "idleTitle": "Apple Remote koppeln",
-      "idleDetails": "Tippe auf die Schaltfläche unten und drücke dann eine beliebige Taste auf deinem Apple Remote.",
-      "waitingTitle": "Drücke eine beliebige Taste auf der Fernbedienung...",
+      "idleDetails": "Tippen Sie auf die Schaltfläche unten und drücken Sie dann eine beliebige Taste auf Ihrer Apple Remote.",
+      "waitingTitle": "Drücken Sie eine beliebige Taste auf der Fernbedienung...",
       "waitingDetails": "Noch {seconds} s",
       "timeoutTitle": "Keine Fernbedienung erkannt",
-      "timeoutDetails": "Überprüfe die Verkabelung des Empfängers und versuche es erneut.",
+      "timeoutDetails": "Überprüfen Sie die Verkabelung des Empfängers und versuchen Sie es erneut.",
       "unsupportedTitle": "Nicht unterstützte Fernbedienung",
       "unsupportedDetails": "Milō unterstützt nur das Apple Remote (1. Generation).",
       "errorTitle": "Kopplung fehlgeschlagen",
-      "errorDetails": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut.",
+      "errorDetails": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.",
       "startCta": "Erkennung starten",
       "cancelCta": "Abbrechen",
       "retryCta": "Erneut versuchen"

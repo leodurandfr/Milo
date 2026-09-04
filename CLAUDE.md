@@ -244,6 +244,12 @@ Bypass a rule only with a per-line directive + reason (`# noqa: S110 -- <why>`, 
 
 **Conversation with the user follows the user's language** (French). Not a contradiction: the rule above is about artefacts, this one about the exchange.
 
+**Address register — one rule for all 8 locales, stated on the string's role, not the language.** A string that **addresses the user** is formal: `vous`/`votre` (FR), `usted` (ES), 3rd person + `o seu` (PT), `Sie`/`Ihr` (DE), `Lei` (IT), 您 (ZH), आप (HI). A string that is an **action label** — a button, a menu entry, a dropdown placeholder, a modal title naming the action — is addressed to nobody and carries **no register**, in any language. A **setting description** describes the function in the 3rd person, subject = the feature. French is the reference implementation of the boundary: `Sélectionner une option` (label) vs `Choisissez votre langue` (sentence addressed to the reader).
+
+The rule is one; **its realisation is per-language, exactly as `vous`/`usted`/`Sie`/`Lei` are.** A label is the infinitive in FR/ES/PT/DE (`Réessayer` · `Reintentar` · `Tentar novamente` · `Erneut versuchen`) — and the **imperative in Italian** (`Salva`, `Annulla`, `Riprova`, `Iscriviti`), which is what every Italian interface ships and what Italian applications whose prose uses `Lei` still put on their buttons. Don't "harmonise" Italian labels onto the infinitive: `Salvare` on a button is not more formal, it is wrong. The register lives in the sentences, which is where `Lei` belongs (`Verifichi che la scheda…`, `la sua libreria`).
+
+English is canonical and **neutral** — `Select your country` signals neither register — so a translator working from it gets no cue, which is how four separate commits each landed a batch in whichever register the author had in mind (ES and DE went formal, FR and PT informal, inside the same files). Enforced by [frontend/tests/i18n/register.test.js](frontend/tests/i18n/register.test.js), whose informal-verb list is a denylist: extend it when a new form slips through.
+
 ## Git
 
 Never create a branch unless explicitly asked — commit to the current branch, `main` included. This overrides the default "branch first on the default branch" behaviour.

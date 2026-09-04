@@ -387,7 +387,7 @@
     "refresh": "Atualizar",
     "wifiNetworks": "Redes WiFi",
     "wifiCountry": "País WiFi",
-    "selectCountry": "Selecione seu país",
+    "selectCountry": "Selecione o seu país",
     "save": "Guardar",
     "saving": "A guardar...",
     "saveFailed": "Falha ao guardar a rede",
@@ -732,7 +732,7 @@
   "system": {
     "hostnameConflict": {
       "title": "Outro Milō detetado",
-      "subtitle": "Dois servidores Milō não podem coexistir na mesma rede. Desliga um deles, ou verifica novamente se já o fizeste.",
+      "subtitle": "Dois servidores Milō não podem coexistir na mesma rede. Desligue um deles, ou verifique novamente se já o fez.",
       "thisDevice": "Este dispositivo: {name} ({ip})",
       "recheck": "Verificar novamente",
       "shutdown": "Desligar este dispositivo",

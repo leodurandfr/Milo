@@ -111,7 +111,7 @@
       "subwoofer": "Caisson de basse"
     },
     "crossover": {
-      "subwooferNotInZone": "Ajoutez à une zone pour répartir automatiquement les fréquences.",
+      "subwooferNotInZone": "Ajouter à une zone pour répartir automatiquement les fréquences.",
       "lowpassActive": "Passe-bas actif",
       "disablePhysicalCrossover": "Désactiver le crossover physique du caisson ou le régler à sa fréquence maximale.",
       "highpassActive": "Passe-haut actif",
@@ -501,7 +501,7 @@
     "podcastsTitle": "Podcasts",
     "noResultsFor": "Aucun résultat pour « {query} »",
     "noResults": "Aucun résultat trouvé",
-    "searchPrompt": "Recherchez des podcasts",
+    "searchPrompt": "Rechercher des podcasts",
     "loadMorePodcasts": "Charger plus de podcasts",
     "loadMoreEpisodes": "Charger plus d'épisodes",
     "newEpisodes": "Nouveaux épisodes",
@@ -732,7 +732,7 @@
   "system": {
     "hostnameConflict": {
       "title": "Un autre Milō détecté",
-      "subtitle": "Deux serveurs Milō ne peuvent pas cohabiter sur le même réseau. Éteins l'un des deux, ou vérifie à nouveau si c'est déjà fait.",
+      "subtitle": "Deux serveurs Milō ne peuvent pas cohabiter sur le même réseau. Éteignez l'un des deux, ou vérifiez à nouveau si c'est déjà fait.",
       "thisDevice": "Cet appareil : {name} ({ip})",
       "recheck": "Vérifier à nouveau",
       "shutdown": "Éteindre cet appareil",
