@@ -739,13 +739,13 @@
       "speakerHint": "如果这台设备应该作为音箱而不是第二台 Milō，请将其关机，然后在主 Milō 的「设置 → 多房间」中添加它。"
     },
     "ssh": {
-      "title": "远程访问",
-      "description": "允许从另一台电脑打开 Milō 的终端会话。默认关闭。",
-      "passwordRequired": "启用远程访问前，请先设置设备密码。"
+      "title": "SSH",
+      "description": "从局域网内的另一台电脑打开 Milō 的终端会话。默认关闭。",
+      "passwordRequired": "启用 SSH 前，请先设置设备密码。"
     },
     "password": {
       "title": "设备密码",
-      "description": "用于远程访问和管理命令。所有 Milō 出厂时使用相同的默认密码，因此在您更改之前，远程访问将保持关闭。",
+      "description": "用于 SSH 以及在设备上执行管理命令。所有 Milō 出厂时使用相同的默认密码，因此在您更改之前，SSH 将保持关闭。",
       "newPlaceholder": "新密码",
       "confirmPlaceholder": "确认密码",
       "save": "保存",

@@ -739,13 +739,13 @@
       "speakerHint": "Si cet appareil doit être une enceinte et non un second Milō, éteignez-le, puis ajoutez-le depuis Réglages → Multiroom de votre Milō principal."
     },
     "ssh": {
-      "title": "Accès à distance",
-      "description": "Permet d'ouvrir une session terminal sur Milō depuis un autre ordinateur. Désactivé par défaut.",
-      "passwordRequired": "Définissez un mot de passe avant d'activer l'accès à distance."
+      "title": "SSH",
+      "description": "Ouvre une session terminal sur Milō depuis un autre ordinateur du réseau local. Désactivé par défaut.",
+      "passwordRequired": "Définissez un mot de passe avant d'activer SSH."
     },
     "password": {
       "title": "Mot de passe de l'appareil",
-      "description": "Utilisé pour l'accès à distance et les commandes d'administration. Tous les Milō sortent d'usine avec le même mot de passe : l'accès à distance reste fermé tant que vous ne l'avez pas changé.",
+      "description": "Utilisé pour SSH et pour les commandes d'administration sur l'appareil lui-même. Tous les Milō sortent d'usine avec le même mot de passe : SSH reste désactivé tant que vous ne l'avez pas changé.",
       "newPlaceholder": "Nouveau mot de passe",
       "confirmPlaceholder": "Confirmer le mot de passe",
       "save": "Enregistrer",

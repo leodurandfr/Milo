@@ -141,15 +141,15 @@ After setup:
 - **DLNA** → Select "Milo" as the renderer in any DLNA/UPnP controller app
 - **Mac** → Install [Milō Mac](https://github.com/leodurandfr/Milo-Mac), then select "Milō" in audio outputs
 
-### Remote access
+### SSH
 
 SSH is **off** by default and the image ships a factory password (`milo`) that is the same on
-every unit — which is why nothing remote accepts it. To open a shell:
+every unit — which is why nothing on the network accepts it. To open a shell from another
+computer on your LAN:
 
 1. Settings → Device → System → **Device password**: set your own.
-2. Same page → **Remote access**: turn SSH on. The switch stays inert until step 1 is done, and
-   the backend refuses the same request, so a unit that never got a password can never be
-   reached over SSH.
+2. Same page → **SSH**: turn it on. The switch stays inert until step 1 is done, and the backend
+   refuses the same request, so a unit that never got a password can never be reached over SSH.
 3. `ssh milo@milo.local`
 
 The same password is what `sudo` asks for on the unit itself.
