@@ -20,31 +20,91 @@ on:
         default: 'main'
 
 jobs:
+  # What is being built, decided once. Three jobs read it, and the frontend
+  # asset's name is part of the answer: the backend builds the very same name
+  # from `frontend_asset_url` in backend/core/updates/catalog.py to download it
+  # during an OTA update, and the two spellings are pinned together by
+  # backend/tests/architecture/test_release_channel.py.
+  vars:
+    name: Resolve what is being built
+    runs-on: ubuntu-24.04
+    outputs:
+      milo_ref: ${{ steps.set.outputs.milo_ref }}
+      image_name: ${{ steps.set.outputs.image_name }}
+      is_release: ${{ steps.set.outputs.is_release }}
+      frontend_asset: ${{ steps.set.outputs.frontend_asset }}
+    steps:
+      - name: Set build variables
+        id: set
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # Tag push: the release being built.
+            REF="${GITHUB_REF#refs/tags/}"
+            echo "image_name=milo-${REF}" >> "$GITHUB_OUTPUT"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            REF="${{ github.event.inputs.branch || 'main' }}"
+            SHORT_SHA="${GITHUB_SHA:0:7}"
+            echo "image_name=milo-${REF}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "milo_ref=${REF}" >> "$GITHUB_OUTPUT"
+          echo "frontend_asset=milo-frontend-${REF}.tar.gz" >> "$GITHUB_OUTPUT"
+
+  # The frontend is built exactly once, here, and both consumers take that one
+  # artefact: the image bakes it in, and the release publishes it for units to
+  # download on an OTA update. It used to be built twice — in the pi-gen chroot
+  # and again on every Pi during an update — with `npm install` rather than
+  # `npm ci` and with whatever Node `n stable` had left on the unit, so no two
+  # units ran the same bytes and a bad hour at the npm registry blocked the
+  # whole fleet from updating at all.
+  frontend:
+    name: Build the frontend artefact
+    needs: vars
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.vars.outputs.milo_ref }}
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      # `npm ci` installs the lockfile, not a fresh resolution of the ranges in
+      # package.json. That is the whole difference between "the tree this release
+      # was tested with" and "whatever was current the day the job ran".
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Pack it with its checksum
+        run: |
+          ASSET="${{ needs.vars.outputs.frontend_asset }}"
+          tar -czf "$ASSET" -C frontend dist
+          sha256sum "$ASSET" > "${ASSET}.sha256"
+          ls -lh "$ASSET"*
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: |
+            ${{ needs.vars.outputs.frontend_asset }}
+            ${{ needs.vars.outputs.frontend_asset }}.sha256
+          retention-days: 14
+
   build:
+    needs: [vars, frontend]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
 
     steps:
       - name: Checkout Milo
         uses: actions/checkout@v6
-
-      - name: Set build variables
-        id: vars
-        run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            # Tag push: use the tag name
-            TAG="${GITHUB_REF#refs/tags/}"
-            echo "milo_branch=${TAG}" >> "$GITHUB_OUTPUT"
-            echo "image_name=milo-${TAG}" >> "$GITHUB_OUTPUT"
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-          else
-            # Manual dispatch
-            BRANCH="${{ github.event.inputs.branch || 'main' }}"
-            SHORT_SHA="${GITHUB_SHA:0:7}"
-            echo "milo_branch=${BRANCH}" >> "$GITHUB_OUTPUT"
-            echo "image_name=milo-${BRANCH}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-            echo "is_release=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Free disk space
         run: |
@@ -60,6 +120,12 @@ jobs:
             dosfstools libarchive-tools libcap2-bin grep rsync xz-utils file git curl bc \
             gpg pigz xxd arch-test
 
+      - name: Download the frontend artefact
+        uses: actions/download-artifact@v7
+        with:
+          name: frontend-dist
+          path: frontend-artefact
+
       - name: Clone pi-gen
         run: |
           git clone --branch arm64 --depth 1 https://github.com/RPi-Distro/pi-gen.git pi-gen-build
@@ -70,7 +136,7 @@ jobs:
           cp pi-gen/config pi-gen-build/config
 
           # Set the branch/tag to build
-          echo "MILO_BRANCH=${{ steps.vars.outputs.milo_branch }}" >> pi-gen-build/config
+          echo "MILO_BRANCH=${{ needs.vars.outputs.milo_ref }}" >> pi-gen-build/config
 
           # Copy custom stage
           cp -r pi-gen/stage-milo pi-gen-build/stage-milo
@@ -83,6 +149,14 @@ jobs:
           # build; the two are pinned together by
           # backend/tests/architecture/test_rootfs_deployment.py.
           cp dependencies.env pi-gen-build/stage-milo/dependencies.env
+
+          # The frontend travels with it for the same reason, under a name that
+          # carries no version: the stage installs whatever it is handed, and
+          # what it is handed is decided here and in pi-gen/build.sh. 02-install-milo
+          # aborts if it is missing rather than falling back to building one,
+          # which would put the second, divergent build path straight back.
+          cp "frontend-artefact/${{ needs.vars.outputs.frontend_asset }}" \
+             pi-gen-build/stage-milo/frontend-dist.tar.gz
 
           # Prevent intermediate image exports
           touch pi-gen-build/stage2/SKIP_IMAGES
@@ -126,7 +200,7 @@ jobs:
             IMAGE=$(ls pi-gen-build/deploy/*.img 2>/dev/null | head -1)
           fi
           [ -n "$IMAGE" ] || { echo "no .img to inspect"; exit 1; }
-          sudo ./pi-gen/inspect-image.sh --img "$IMAGE"
+          sudo ./pi-gen/inspect-image.sh --img "$IMAGE" --ref "${{ needs.vars.outputs.milo_ref }}"
 
       - name: Compress image
         run: |
@@ -157,7 +231,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.vars.outputs.image_name }}
+          name: ${{ needs.vars.outputs.image_name }}
           path: ${{ env.compressed_image }}
           retention-days: 14
 
@@ -169,11 +243,20 @@ jobs:
           echo "\"Inspect image\" step above. The artifact was uploaded anyway."
           exit 1
 
+      # Publishing the release is what makes the version installable: the update
+      # flow offers `releases/latest` and installs that release's tag, and it
+      # downloads the frontend asset from here rather than compiling one. A tag
+      # whose build never got this far is therefore offered to nobody, which is
+      # the withholding mechanism — and un-publishing a release that turned out
+      # bad is the withdrawal, in one gesture, with no unit visited.
       - name: Create GitHub Release
-        if: steps.vars.outputs.is_release == 'true'
+        if: needs.vars.outputs.is_release == 'true'
         uses: softprops/action-gh-release@v3
         with:
-          files: ${{ env.compressed_image }}
+          files: |
+            ${{ env.compressed_image }}
+            frontend-artefact/${{ needs.vars.outputs.frontend_asset }}
+            frontend-artefact/${{ needs.vars.outputs.frontend_asset }}.sha256
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

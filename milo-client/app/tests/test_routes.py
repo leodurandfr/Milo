@@ -68,7 +68,8 @@ def mock_app_update_service():
     """Mock AppUpdateService for route tests."""
     service = Mock(spec=AppUpdateService)
     service.update_in_progress = False
-    service.get_app_version = Mock(return_value="1.0.0")
+    service.get_app_release = Mock(return_value="v0.2.0")
+    service.get_app_payload = Mock(return_value="bbbb222")
     return service
 
 

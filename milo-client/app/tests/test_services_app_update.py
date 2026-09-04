@@ -143,11 +143,19 @@ class TestDeployUpdateDependencyFailure:
     """
 
     @pytest.fixture
-    def version_file(self, tmp_path):
-        f = tmp_path / "app-version"
-        f.write_text("v0.1.0-old")
-        with patch.object(app_update_module, "VERSION_FILE", f):
-            yield f
+    def identity_files(self, tmp_path):
+        """The two facts a satellite reports: which release, and which payload.
+
+        Separate because they answer different questions and move
+        independently — most releases do not touch `milo-client/` at all.
+        """
+        release = tmp_path / "app-release"
+        payload = tmp_path / "app-payload"
+        release.write_text("v0.1.0")
+        payload.write_text("aaaa111")
+        with patch.object(app_update_module, "RELEASE_FILE", release), \
+                patch.object(app_update_module, "PAYLOAD_FILE", payload):
+            yield release, payload
 
     @pytest.fixture
     def failing_pip(self):
@@ -163,7 +171,7 @@ class TestDeployUpdateDependencyFailure:
 
     @pytest.mark.asyncio
     async def test_a_failed_pip_install_fails_the_update(
-        self, repo_dir, tmp_path, version_file, failing_pip
+        self, repo_dir, tmp_path, identity_files, failing_pip
     ):
         """A warning here is a satellite that reports success and crashloops."""
         tarball = _make_tarball(tmp_path, {
@@ -171,28 +179,33 @@ class TestDeployUpdateDependencyFailure:
             "requirements.txt": "aiohttp==3.9.0\n",
         })
 
-        result = await AppUpdateService().deploy_update(tarball, "v0.1.0-new")
+        result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
 
         assert result["success"] is False
         assert "aiohttp" in result["error"], "the pip failure must reach the server verbatim"
 
     @pytest.mark.asyncio
-    async def test_the_version_is_not_written_when_the_deps_are_missing(
-        self, repo_dir, tmp_path, version_file, failing_pip
+    async def test_no_identity_is_written_when_the_deps_are_missing(
+        self, repo_dir, tmp_path, identity_files, failing_pip
     ):
-        """The version file is what the server polls to call the update done."""
+        """The payload file is what the server polls to call the update done,
+        and the release file is what the owner reads on the screen. Writing
+        either one over a deployment that failed makes a crashlooping satellite
+        report itself as the release it never reached."""
+        release, payload = identity_files
         tarball = _make_tarball(tmp_path, {
             "main.py": "new main\n",
             "requirements.txt": "aiohttp==3.9.0\n",
         })
 
-        await AppUpdateService().deploy_update(tarball, "v0.1.0-new")
+        await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
 
-        assert version_file.read_text() == "v0.1.0-old"
+        assert release.read_text() == "v0.1.0"
+        assert payload.read_text() == "aaaa111"
 
     @pytest.mark.asyncio
     async def test_the_previous_tree_is_put_back(
-        self, repo_dir, tmp_path, version_file, failing_pip
+        self, repo_dir, tmp_path, identity_files, failing_pip
     ):
         """The window this closes: app.old was deleted inside the swap, so by the
         time pip ran there was nothing left to go back to."""
@@ -201,7 +214,7 @@ class TestDeployUpdateDependencyFailure:
             "requirements.txt": "aiohttp==3.9.0\n",
         })
 
-        await AppUpdateService().deploy_update(tarball, "v0.1.0-new")
+        await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
 
         live = repo_dir / "app"
         assert (live / "main.py").read_text() == "live main\n"
@@ -214,11 +227,19 @@ class TestDeployUpdateSuccess:
     """The committed path, and the floor the failure tests above stand on."""
 
     @pytest.fixture
-    def version_file(self, tmp_path):
-        f = tmp_path / "app-version"
-        f.write_text("v0.1.0-old")
-        with patch.object(app_update_module, "VERSION_FILE", f):
-            yield f
+    def identity_files(self, tmp_path):
+        """The two facts a satellite reports: which release, and which payload.
+
+        Separate because they answer different questions and move
+        independently — most releases do not touch `milo-client/` at all.
+        """
+        release = tmp_path / "app-release"
+        payload = tmp_path / "app-payload"
+        release.write_text("v0.1.0")
+        payload.write_text("aaaa111")
+        with patch.object(app_update_module, "RELEASE_FILE", release), \
+                patch.object(app_update_module, "PAYLOAD_FILE", payload):
+            yield release, payload
 
     @pytest.fixture
     def working_pip(self):
@@ -231,7 +252,7 @@ class TestDeployUpdateSuccess:
 
     @pytest.mark.asyncio
     async def test_an_applied_update_leaves_no_copy_behind(
-        self, repo_dir, tmp_path, version_file, working_pip
+        self, repo_dir, tmp_path, identity_files, working_pip
     ):
         """Both staging dirs are one app/ each; keeping either doubles the
         satellite's disk use per update, on a device with no one watching it."""
@@ -240,11 +261,13 @@ class TestDeployUpdateSuccess:
             "requirements.txt": "aiohttp==3.9.0\n",
         })
 
-        result = await AppUpdateService().deploy_update(tarball, "v0.1.0-new")
+        release, payload = identity_files
+        result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
 
         assert result["success"] is True
         assert (repo_dir / "app" / "main.py").read_text() == "new main\n"
-        assert version_file.read_text() == "v0.1.0-new"
+        assert release.read_text() == "v0.2.0"
+        assert payload.read_text() == "bbbb222"
         assert not (repo_dir / "app.old").exists()
         assert not (repo_dir / "app.new").exists()
 

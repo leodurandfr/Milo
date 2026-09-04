@@ -74,7 +74,7 @@ describe('updatesStore satellite return', () => {
   const MAC = 'dc:a6:32:7e:d3:43';
   let store;
 
-  const withSatellite = () => ok({ satellites: [{ mac_id: MAC, app_version: 'v0.1.0-1749-gc6247d94' }] });
+  const withSatellite = () => ok({ satellites: [{ mac_id: MAC, app_release: 'v0.2.0' }] });
   const withoutSatellite = () => ok({ satellites: [] });
 
   beforeEach(() => {

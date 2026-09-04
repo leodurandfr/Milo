@@ -8,14 +8,6 @@ if ! apt-get install -y chromium 2>/dev/null; then
 fi
 CHROOT
 
-# Upgrade Node.js to latest stable via n
-on_chroot << 'CHROOT'
-npm install -g n
-n stable
-npm install -g npm@latest
-hash -r
-CHROOT
-
 # Note: PulseAudio/PipeWire removal is done after compilation in 01-install-audio/01-run.sh
 # because libpulse-dev (needed by roc-toolkit) pulls in pulseaudio as a dependency.
 

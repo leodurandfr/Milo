@@ -5,6 +5,7 @@ Update service - installs a new version of each program Milo ships.
 import asyncio
 import aiohttp
 import aiofiles
+import hashlib
 import shutil
 import tempfile
 import logging
@@ -264,52 +265,160 @@ class UpdateService(VersionService):
         )
         return {"success": False, "error": f"{error} {outcome}"}
 
-    async def _rollback_milo_to_commit(self, commit_hash: str) -> bool:
-        """Rollback Milo to a specific commit and rebuild"""
+    async def _run_git(self, *args: str, timeout: int = 60) -> tuple[bool, str]:
+        """Run one git command in the Milo checkout, bounded and checked."""
+        return await self._run_local(
+            "git", "-C", self.programs["milo"]["git_path"], *args, timeout=timeout
+        )
+
+    def _frontend_paths(self) -> tuple[Path, Path]:
+        """Where the running frontend lives, and where the rollback copy is kept."""
         config = self.programs["milo"]
+        return (
+            Path(config["git_path"]) / "frontend" / "dist",
+            Path(config["backup_path"]) / "dist",
+        )
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    async def _download_release_asset(self, url: str, dest: Path) -> None:
+        """Stream one release asset to disk. Raises on anything but a 200."""
+        timeout = aiohttp.ClientTimeout(total=300)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    raise Exception(f"Download failed: HTTP {response.status} for {url}")
+                async with aiofiles.open(dest, "wb") as f:
+                    async for chunk in response.content.iter_chunked(8192):
+                        await f.write(chunk)
+
+    async def _fetch_release_text(self, url: str) -> str:
+        """Read one small release asset as text — the checksum sidecar."""
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    raise Exception(f"Download failed: HTTP {response.status} for {url}")
+                return (await response.text()).strip()
+
+    async def _install_release_frontend(self, tag: str) -> None:
+        """Put the frontend built for `tag` in place of the running one.
+
+        The unit does not build it any more. Two units updated a month apart
+        resolved `npm install` against whatever the registry offered that day
+        and compiled it with whatever `n stable` had left them, so what a
+        release was tested with and what a unit ran were two different trees —
+        and a bad hour at the npm registry blocked the whole fleet from updating
+        at all. CI builds it once, publishes it beside the image, and this
+        installs that exact artefact.
+
+        The checksum is the reason the sidecar exists: a truncated download
+        extracts into a tree that is *almost* a frontend, which nginx then
+        serves. Raises on every failure, so the caller turns it into a
+        rolled-back update.
+        """
+        config = self.programs["milo"]
+        url = config["frontend_asset_url"].format(tag=tag)
+        dist, backup = self._frontend_paths()
+
+        temp_dir = tempfile.mkdtemp(dir="/tmp")
+        try:
+            archive = Path(temp_dir) / "frontend.tar.gz"
+            await self._download_release_asset(url, archive)
+
+            published = await self._fetch_release_text(f"{url}.sha256")
+            expected = published.split()[0] if published else ""
+            actual = await asyncio.get_running_loop().run_in_executor(
+                None, self._sha256, archive
+            )
+            if not expected or actual != expected:
+                raise Exception(
+                    f"Frontend checksum mismatch for {tag}: "
+                    f"published {expected!r}, downloaded {actual!r}"
+                )
+
+            # Extracted beside the running frontend and swapped in, never over
+            # it: a tar that fails halfway through an in-place extraction leaves
+            # a tree that is neither release, and nginx serves it either way.
+            staged = Path(temp_dir) / "staged"
+            staged.mkdir()
+            success, output = await self._run_local(
+                "tar", "-xzf", str(archive), "-C", str(staged), timeout=120
+            )
+            if not success:
+                raise Exception(f"Frontend extraction failed: {output}")
+
+            new_dist = staged / "dist"
+            if not (new_dist / "index.html").is_file():
+                raise Exception(f"The {tag} frontend asset carries no dist/index.html")
+
+            # The previous one is moved aside rather than deleted: `frontend/dist`
+            # is not in git, so it is the one part of the app a checkout back
+            # cannot restore.
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.rmtree(backup, ignore_errors=True)
+            if dist.exists():
+                shutil.move(str(dist), str(backup))
+            shutil.move(str(new_dist), str(dist))
+            self.update_logger.info(f"Frontend {tag} installed from the release asset")
+
+        finally:
+            await self._cleanup_temp_files(temp_dir)
+
+    def _restore_release_frontend(self) -> None:
+        """Put the backed-up frontend back, for the rollback only."""
+        dist, backup = self._frontend_paths()
+        if not backup.is_dir():
+            raise Exception("No frontend backup to restore")
+        shutil.rmtree(dist, ignore_errors=True)
+        shutil.move(str(backup), str(dist))
+        self.update_logger.info("Previous frontend restored")
+
+    async def _install_python_dependencies(self) -> None:
+        """Install requirements.txt into the app venv. Raises on failure.
+
+        The forward path and the rollback share it: both land a different
+        `requirements.txt` and both must act on it, and an unbounded or
+        unchecked pip on either side produces the same silent outcome — a
+        backend restarted against dependencies it does not have.
+        """
+        git_path = Path(self.programs["milo"]["git_path"])
+        success, output = await self._run_local(
+            str(git_path / "venv" / "bin" / "pip3"),
+            "install", "-r", str(git_path / "requirements.txt"),
+            timeout=600,
+        )
+        if not success:
+            raise Exception(f"pip install failed: {output}")
+
+    async def _rollback_milo_to_commit(self, commit_hash: str, restore_frontend: bool = False) -> bool:
+        """Put the unit back on the commit it was running, frontend included.
+
+        `restore_frontend` is what the forward path learned. The built frontend
+        is not in git, so a checkout back does not bring the old one with it —
+        but the backup only holds the previous release once the install got as
+        far as swapping it. Restoring unconditionally would deploy the *previous*
+        release's frontend over a tree that never left the current one, which is
+        the one outcome worse than the failure being rolled back.
+        """
         try:
             self.update_logger.info(f"Rolling back Milo to commit {commit_hash[:8]}...")
 
-            # Hard reset to the original commit
-            proc = await asyncio.create_subprocess_exec(
-                "git", "-C", config["git_path"], "reset", "--hard", commit_hash,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await proc.communicate()
-
-            if proc.returncode != 0:
-                self.update_logger.error(f"Git reset failed: {stderr.decode()}")
+            success, output = await self._run_git("checkout", "--force", commit_hash)
+            if not success:
+                self.update_logger.error(f"Git checkout failed: {output}")
                 return False
 
-            # Rebuild frontend after rollback. Bounded and checked exactly like
-            # the forward path: an npm that hangs here would freeze the rollback
-            # with no ceiling, leaving the backend un-restarted and the update
-            # key in active_updates — the UI would show an update running forever.
-            frontend_dir = Path(config["git_path"]) / "frontend"
-            if frontend_dir.exists():
-                await self._run_npm(["install"], frontend_dir)
-                await self._run_npm(["run", "build"], frontend_dir)
+            if restore_frontend:
+                self._restore_release_frontend()
 
-            # Reinstall Python dependencies in venv
-            requirements_file = Path(config["git_path"]) / "requirements.txt"
-            venv_pip = str(Path(config["git_path"]) / "venv" / "bin" / "pip3")
-            proc = await asyncio.create_subprocess_exec(
-                venv_pip, "install", "-r", str(requirements_file),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                raise Exception("pip install timed out (600s)")
-
-            if proc.returncode != 0:
-                raise Exception(f"pip install failed: {stderr.decode()}")
-
-            # Sync system files from rolled-back version
+            await self._install_python_dependencies()
             await self._sync_system_files()
 
             # Restart services. Kiosk first (observable); milo-backend LAST and
@@ -321,7 +430,7 @@ class UpdateService(VersionService):
                 # kiosk that stayed down is a black screen the owner has to be
                 # told about, not a reason to call the rollback failed.
                 self.update_logger.error("Kiosk failed to restart after the rollback")
-            await self._systemd.restart_self(config["service_name"])
+            await self._systemd.restart_self(self.programs["milo"]["service_name"])
 
             self.update_logger.info("Milo rollback completed successfully")
             return True
@@ -331,96 +440,61 @@ class UpdateService(VersionService):
             return False
 
     async def _update_milo_app(self, status: Dict[str, Any]) -> Dict[str, Any]:
-        """Updates Milo application via git pull with automatic rollback on failure"""
+        """Move the unit to the release `status` names, rolling back on failure.
+
+        A release, not a branch. The offer is built from the repo's
+        `releases/latest` and the install checks out *that release's tag*, so
+        what was offered is what lands. `git pull origin main` installed
+        whatever main happened to be at the moment of the click — a tree nobody
+        tagged, tested or published, and a different one for every unit that
+        pressed the button on a different day. It also meant a bad version could
+        not be withheld: there was nothing to withhold, main was always the
+        offer.
+        """
         config = self.programs["milo"]
+        tag = status["latest"]["tag_name"]
         original_commit = None
+        frontend_swapped = False
 
         try:
             git_dir = Path(config["git_path"]) / ".git"
             if not git_dir.exists():
                 return {"success": False, "error": "Not a git repository"}
 
-            # 2. Save current commit for potential rollback
             original_commit = await self._get_current_commit(config["git_path"])
             if original_commit:
                 self.update_logger.info(f"Current commit before update: {original_commit[:8]}")
 
-            proc = await asyncio.create_subprocess_exec(
-                "git", "-C", config["git_path"], "fetch", "origin", config["git_branch"],
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                raise Exception("git fetch timed out (120s)")
-
-            if proc.returncode != 0:
-                return {"success": False, "error": f"Git fetch failed: {stderr.decode()}"}
-
-            # 4. Check if there are uncommitted local changes
-            proc = await asyncio.create_subprocess_exec(
-                "git", "-C", config["git_path"], "status", "--porcelain",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
+            # `--tags` adds `refs/tags/*:refs/tags/*` to the fetch, and that is
+            # what brings the new release's tag object in at all: a clone's
+            # configured refspec need not mention tags. This very checkout's is
+            # `+refs/heads/main:refs/remotes/origin/main` — measured — and the
+            # tag-built images pi-gen used to produce were narrower still.
+            success, output = await self._run_git("fetch", "origin", "--tags", "--force", timeout=120)
+            if not success:
+                return {"success": False, "error": f"Git fetch failed: {output}"}
 
             # An unread exit code makes a failed status indistinguishable from a
-            # clean tree: both give empty stdout, and the pull would proceed.
-            if proc.returncode != 0:
-                return {"success": False, "error": f"Git status failed: {stderr.decode()}"}
-
-            if stdout.decode().strip():
+            # clean tree: both give empty stdout, and the checkout would proceed.
+            success, output = await self._run_git("status", "--porcelain")
+            if not success:
+                return {"success": False, "error": f"Git status failed: {output}"}
+            if output:
                 return {"success": False, "error": "Local changes detected. Please commit or stash them first."}
 
-            proc = await asyncio.create_subprocess_exec(
-                "git", "-C", config["git_path"], "pull", "origin", config["git_branch"],
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                raise Exception("git pull timed out (120s)")
+            success, output = await self._run_git("checkout", "--force", tag, timeout=120)
+            if not success:
+                raise Exception(f"Git checkout of {tag} failed: {output}")
 
-            if proc.returncode != 0:
-                error_msg = f"Git pull failed: {stderr.decode()}"
-                raise Exception(error_msg)
+            await self._install_release_frontend(tag)
+            frontend_swapped = True
 
-            frontend_dir = Path(config["git_path"]) / "frontend"
-            if frontend_dir.exists():
-                await self._run_npm(["install"], frontend_dir)
+            await self._install_python_dependencies()
 
-            if frontend_dir.exists():
-                await self._run_npm(["run", "build"], frontend_dir)
-
-            # 8. Install Python dependencies in venv
-            requirements_file = Path(config["git_path"]) / "requirements.txt"
-            venv_pip = str(Path(config["git_path"]) / "venv" / "bin" / "pip3")
-            proc = await asyncio.create_subprocess_exec(
-                venv_pip, "install", "-r", str(requirements_file),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                raise Exception("pip install timed out (600s)")
-
-            if proc.returncode != 0:
-                raise Exception(f"pip install failed: {stderr.decode()}")
-
-            # 9. Sync system files (services, rootfs)
+            # Sync system files (services, rootfs)
             await self._sync_system_files()
 
-            # 10. Install the dependency set the pulled commit validated.
+            # Install the dependency set the released commit validated.
             # Deliberately *after* the app is built and synced: everything above
             # this line can still roll the app back, and rolling back with the
             # dependencies already moved would leave the two out of step. Below
@@ -428,26 +502,27 @@ class UpdateService(VersionService):
             # _reconcile_dependencies never raises.
             dependency_failures = await self._reconcile_dependencies()
 
-            # 10b. Push the same commit's client app to the satellites. The
-            # tarball is built from the tree the pull just replaced, so the fleet
-            # is stale from this line on — leaving it there means the appliance
+            # Push the same release's client app to the satellites. The tarball
+            # is built from the tree the checkout just replaced, so the fleet is
+            # stale from this line on — leaving it there means the appliance
             # updates and the speakers do not, until someone finds their rows.
-            # Below step 10 for the same reason as the set above (a rollback
+            # Below the dependency set for the same reason as it (a rollback
             # with the satellites already moved leaves them ahead of the server
             # that drives them), and after it rather than before so the local
             # snapserver has finished whatever the reconciliation did to it —
             # a satellite is discovered through it. Never raises, same rule.
             satellite_failures = await self._satellites.push_client_app_to_fleet()
 
-            # 11. Reboot the system to reload all services and configs
-            # Small delay to ensure the WebSocket message is sent
+            # Reboot to reload all services and configs. Small delay so the
+            # WebSocket message goes out first.
             await asyncio.sleep(1)
 
             rebooting, reboot_output = await self._run_deploy("reboot")
             if not rebooting:
-                # No rollback: the new code is pulled, built and synced — it is
-                # the *restart* that did not happen, and undoing a good update
-                # over that would be worse. Report it so the owner reboots.
+                # No rollback: the new release is checked out, installed and
+                # synced — it is the *restart* that did not happen, and undoing
+                # a good update over that would be worse. Report it so the owner
+                # reboots.
                 self.update_logger.error(f"Reboot refused after a successful update: {reboot_output}")
                 return {
                     "success": False,
@@ -471,35 +546,13 @@ class UpdateService(VersionService):
             # Automatic rollback if we have an original commit
             if original_commit:
                 self.update_logger.info("Initiating automatic rollback...")
-                rollback_success = await self._rollback_milo_to_commit(original_commit)
+                rollback_success = await self._rollback_milo_to_commit(
+                    original_commit, restore_frontend=frontend_swapped
+                )
 
                 return self._failure_after_rollback(f"Update failed: {e}.", rollback_success)
 
             return {"success": False, "error": str(e)}
-
-    async def _run_npm(self, args: list, cwd: Path, timeout: int = 600) -> None:
-        """Run one npm step, bounded and checked. Raises on timeout or non-zero.
-
-        The forward path and the rollback share this: both rebuild the same
-        frontend, and an unbounded or unchecked npm on either side produces the
-        same silent outcome — a broken `frontend/dist/` reported as a success.
-        """
-        step = "npm " + " ".join(args)
-        proc = await asyncio.create_subprocess_exec(
-            "npm", *args,
-            cwd=str(cwd),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            raise Exception(f"{step} timed out ({timeout}s)")
-
-        if proc.returncode != 0:
-            raise Exception(f"{step} failed: {stderr.decode()}")
 
     async def _run_deploy(self, *args, timeout: int = 120) -> tuple[bool, str]:
         """Run a milo-deploy-update subcommand via sudo."""

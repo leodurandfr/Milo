@@ -26,9 +26,14 @@ SNAPCLIENT_TARGET = "0.28.0"
 CAMILLADSP_TARGET = "3.1.0"
 
 
-# What the server calls the version of a satellite: a describe of the last
-# commit that touched `milo-client/`, the tarball's only content.
-SERVER_VERSION = "v0.1.0-1673-gdeadbee"
+# The two things the server tells a satellite about itself, and they answer
+# different questions. The RELEASE is what the row displays — the same tag the
+# server's own row shows, since both halves ship from one commit. The PAYLOAD
+# fingerprints the `milo-client/` tree the tarball carries, and is what decides
+# whether a satellite needs the push at all: most releases do not touch that
+# directory, so deciding on the release would restart every speaker for nothing.
+SERVER_RELEASE = "v0.2.0"
+SERVER_PAYLOAD = "deadbee"
 
 
 def _mock_proc(stdout: bytes, returncode: int = 0):
@@ -38,11 +43,12 @@ def _mock_proc(stdout: bytes, returncode: int = 0):
     return proc
 
 
-def _fake_git(commit: str = "deadbee", describe: str = SERVER_VERSION, dirty: bool = False):
-    """Stands in for git across the three calls the payload version issues.
+def _fake_git(payload: str = SERVER_PAYLOAD, described: str = SERVER_RELEASE,
+              dirty: bool = False):
+    """Stands in for git across the calls the two identities issue.
 
     It answers each by its argv instead of returning one string to all of them:
-    a single-answer double lets a version built from the wrong command pass.
+    a single-answer double lets an identity built from the wrong command pass.
     Every argv it received is recorded on `.calls`.
     """
     calls = []
@@ -51,9 +57,9 @@ def _fake_git(commit: str = "deadbee", describe: str = SERVER_VERSION, dirty: bo
         argv = [str(a) for a in args]
         calls.append(argv)
         if "log" in argv:
-            out = commit
+            out = payload
         elif "describe" in argv:
-            out = describe
+            out = described
         elif "status" in argv:
             out = " M milo-client/app/main.py" if dirty else ""
         else:
@@ -195,7 +201,7 @@ class TestClientTarball:
                    _fake_git()):
             tarball_path, version = await service._create_client_tarball()
 
-        assert version == SERVER_VERSION
+        assert version == SERVER_PAYLOAD
         try:
             with tarfile.open(tarball_path, "r:gz") as tar:
                 return [m.name for m in tar.getmembers()]
@@ -224,45 +230,72 @@ class TestClientTarball:
         assert not [m for m in members if "tests" in Path(m).parts]
 
 
-class TestClientPayloadVersion:
-    """What the server calls "the version a satellite should be running".
+class TestTheTwoSatelliteIdentities:
+    """A satellite answers two questions, and one string used to answer both.
 
-    A describe of the last commit that touched `milo-client/` — the tarball's
-    only content — never of HEAD. Describing HEAD offered an update after every
-    server-side push, measured once at 100 commits none of which touched the
-    directory: each press then shipped a byte-identical payload and restarted
-    the audio of an occupied room.
+    *Which version does it run* is the release, and it is what the row prints —
+    in the server's own numbering, because both halves ship from one commit.
+    *Does its code differ from the server's* is the payload: the commit that
+    last touched `milo-client/`, the tarball's only content.
+
+    Collapsing them either way breaks something measured. Deciding on the
+    release lit the update button on the whole fleet every time the server
+    moved — 100 commits, 0 of them touching the directory — and each press
+    deployed a byte-identical payload while restarting a speaker in an occupied
+    room. Displaying the payload put a `git describe` hash on the screen beside
+    the server's clean tag, in a numbering nothing else on the appliance uses.
     """
 
-    async def test_it_describes_the_last_commit_touching_the_client_tree(self, satellite_service):
-        git = _fake_git(commit="c6247d94", describe="v0.1.0-1749-gc6247d94")
+    async def test_the_payload_is_the_last_commit_touching_the_client_tree(
+            self, satellite_service):
+        git = _fake_git(payload="c6247d9")
 
         with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", git):
-            version = await satellite_service.get_client_payload_version()
+            payload = await satellite_service.get_client_payload_version()
 
-        assert version == "v0.1.0-1749-gc6247d94"
+        assert payload == "c6247d9"
         log = next(argv for argv in git.calls if "log" in argv)
-        assert log[-2:] == ["--", "milo-client"], "unscoped, this describes HEAD again"
-        described = next(argv for argv in git.calls if "describe" in argv)
-        assert described[-1] == "c6247d94", "the tag must be read at that commit, not at HEAD"
+        assert log[-2:] == ["--", "milo-client"], "unscoped, this fingerprints HEAD again"
 
     async def test_uncommitted_client_work_is_marked_dirty(self, satellite_service):
         """The tarball is built from the working tree, so an edit no commit
         names is still payload. Without the suffix, a satellite change under
-        test reports the committed version and can never be pushed from the UI.
+        test reports the committed fingerprint and can never be pushed from the
+        UI.
         """
         with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
                    _fake_git(dirty=True)):
-            version = await satellite_service.get_client_payload_version()
+            payload = await satellite_service.get_client_payload_version()
 
-        assert version == f"{SERVER_VERSION}-dirty"
+        assert payload == f"{SERVER_PAYLOAD}-dirty"
 
-    async def test_a_git_that_fails_yields_no_version(self, satellite_service):
+    async def test_a_git_that_fails_yields_no_payload(self, satellite_service):
         """None disarms every satellite's button; any stray string would arm
         them all at once and ship an unstamped tarball."""
         with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
                    AsyncMock(return_value=_mock_proc(b"", returncode=128))):
             assert await satellite_service.get_client_payload_version() is None
+
+    async def test_the_release_is_the_tag_this_server_is_checked_out_at(
+            self, satellite_service):
+        git = _fake_git(described="v0.3.1")
+
+        with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", git):
+            release = await satellite_service.get_release_version()
+
+        assert release == "v0.3.1"
+        described = next(argv for argv in git.calls if "describe" in argv)
+        assert "--tags" in described
+
+    async def test_a_development_checkout_names_no_release(self, satellite_service):
+        """`git describe` appends "-<n>-g<sha>" the moment HEAD is past the tag.
+        Such a server is outside the release channel and so is anything it
+        pushes — the satellite reads as a development build too, which is what
+        it is, rather than claiming a release it does not carry.
+        """
+        with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                   _fake_git(described="v0.2.0-2017-g36b9a0d7")):
+            assert await satellite_service.get_release_version() is None
 
 
 class TestSnapclientUpdateOutcome:
@@ -396,10 +429,14 @@ class TestCamillaDspUpdateOutcome:
 
 class TestAppUpdateAvailableFlag:
     """`app_update_available` is the only thing that puts the update button in
-    UpdateManager.vue. Both sides report the version of the `milo-client/` tree
-    the tarball carries, so the server and the satellite run the same code only
-    when the strings match — comparing base tags made the flag permanently
-    false and froze the fleet at whatever commit it was installed with.
+    UpdateManager.vue, and it is decided on the payload — never on the release
+    the row displays beside it.
+
+    Both halves ship from one commit, so the two agree whenever a satellite took
+    the server's push. They part on the case that matters: a release that did
+    not touch `milo-client/` leaves every satellite's payload correct while its
+    release is behind, and a button lit there restarts a speaker to deploy bytes
+    the unit already has.
     """
 
     @pytest.fixture
@@ -410,7 +447,8 @@ class TestAppUpdateAvailableFlag:
             "display_name": "Canapé",
             "ip": "192.168.1.153",
             "snapclient_version": "0.28.0",
-            "app_version": SERVER_VERSION,
+            "app_release": SERVER_RELEASE,
+            "app_payload": SERVER_PAYLOAD,
             "camilladsp_version": "3.0.0",
             "online": True,
             "uptime": 1000,
@@ -419,14 +457,15 @@ class TestAppUpdateAvailableFlag:
 
     @pytest.fixture
     def client(self, satellites):
-        def _build(server_version):
+        def _build(server_payload, server_release=SERVER_RELEASE):
             update_service = Mock()
             update_service.get_latest_github_version = AsyncMock(
                 return_value={"status": "success", "version": "0.28.0"}
             )
             satellite_service = Mock()
             satellite_service.discover_satellites = AsyncMock(return_value=satellites)
-            satellite_service.get_client_payload_version = AsyncMock(return_value=server_version)
+            satellite_service.get_client_payload_version = AsyncMock(return_value=server_payload)
+            satellite_service.get_release_version = AsyncMock(return_value=server_release)
 
             app = FastAPI()
             app.include_router(create_programs_router(update_service, satellite_service, Mock()))
@@ -434,36 +473,58 @@ class TestAppUpdateAvailableFlag:
 
         return _build
 
-    def _flag(self, client, server_version):
-        response = client(server_version).get("/api/programs/satellites")
+    def _row(self, client, server_payload, server_release=SERVER_RELEASE):
+        response = client(server_payload, server_release).get("/api/programs/satellites")
         assert response.status_code == 200
         body = response.json()
         assert body["count"] == 1, "the fixture satellite must survive the route"
-        return body["satellites"][0]["app_update_available"]
+        return body["satellites"][0]
 
-    def test_the_same_describe_on_both_sides_offers_nothing(self, client):
-        assert self._flag(client, SERVER_VERSION) is False
+    def _flag(self, client, server_payload, server_release=SERVER_RELEASE):
+        return self._row(client, server_payload, server_release)["app_update_available"]
+
+    def test_the_same_payload_on_both_sides_offers_nothing(self, client):
+        assert self._flag(client, SERVER_PAYLOAD) is False
 
     def test_a_satellite_behind_the_server_is_offered_the_update(self, client, satellites):
-        """Same base tag, ~100 commits apart — the case the whole fleet was in."""
-        satellites[0]["app_version"] = "v0.1.0-1573-g0ae3872d"
+        """Offline while the server updated — the one case the button is for."""
+        satellites[0]["app_payload"] = "0ae3872"
 
-        assert self._flag(client, SERVER_VERSION) is True
+        assert self._flag(client, SERVER_PAYLOAD) is True
 
     def test_a_satellite_that_never_updated_is_offered_the_update(self, client, satellites):
-        """No version file yet: it runs whatever it was installed with."""
-        satellites[0]["app_version"] = None
+        """No payload file yet: it runs whatever it was installed with."""
+        satellites[0]["app_payload"] = None
 
-        assert self._flag(client, SERVER_VERSION) is True
+        assert self._flag(client, SERVER_PAYLOAD) is True
 
-    def test_a_server_that_cannot_describe_itself_offers_nothing(self, client, satellites):
-        """`git describe` failing must not light up every satellite at once."""
-        satellites[0]["app_version"] = "v0.1.0-1573-g0ae3872d"
+    def test_a_server_that_cannot_fingerprint_itself_offers_nothing(self, client, satellites):
+        """`git log` failing must not light up every satellite at once."""
+        satellites[0]["app_payload"] = "0ae3872"
 
         assert self._flag(client, None) is False
 
+    def test_a_release_that_did_not_touch_the_client_tree_offers_nothing(
+            self, client, satellites):
+        """The whole reason the two values are separate. The satellite is a
+        release behind and its code is identical — pushing would restart a
+        speaker in an occupied room to deploy bytes it already has.
+        """
+        satellites[0]["app_release"] = "v0.1.0"
+
+        assert self._flag(client, SERVER_PAYLOAD) is False
+
+    def test_the_row_carries_the_release_to_display_and_not_the_payload(self, client):
+        """What the screen prints is the tag, in the same numbering as the
+        server's own row. A hash there is a fourth version scheme on one panel.
+        """
+        row = self._row(client, SERVER_PAYLOAD)
+
+        assert row["app_release"] == SERVER_RELEASE
+        assert row["server_release"] == SERVER_RELEASE
+
     def _snapclient_flag(self, client):
-        body = client(SERVER_VERSION).get("/api/programs/satellites").json()
+        body = client(SERVER_PAYLOAD).get("/api/programs/satellites").json()
         return body["satellites"][0]["update_available"]
 
     def test_a_satellite_above_the_target_is_offered_the_way_back(self, client, satellites):
@@ -516,9 +577,9 @@ class TestAppUpdateOutcome:
     ):
         """Sanity floor: without this the failure test below passes on any bug."""
         satellite = _FakeSatellite(
-            status_payload={"app": {"version": "v0.1.0-1600-gold", "started_at": 1000},
+            status_payload={"app": {"payload": "0ae3872", "release": "v0.1.0", "started_at": 1000},
                             "snapclient": {"version": "0.28.0"}},
-            status_after_post={"app": {"version": SERVER_VERSION, "started_at": 1200},
+            status_after_post={"app": {"payload": SERVER_PAYLOAD, "release": SERVER_RELEASE, "started_at": 1200},
                                "snapclient": {"version": "0.28.0"}},
         )
 
@@ -526,7 +587,7 @@ class TestAppUpdateOutcome:
 
         assert satellite.posts == ["http://192.168.1.153:8001/app/update"]
         assert result["success"] is True
-        assert result["new_version"] == SERVER_VERSION
+        assert result["new_version"] == SERVER_PAYLOAD
 
     async def test_a_version_file_written_by_a_process_that_never_restarted_is_not(
         self, satellite_service, client_tree
@@ -534,9 +595,9 @@ class TestAppUpdateOutcome:
         """The defect: the deploy landed, the restart did not, and the satellite
         keeps serving the old code while the fleet view calls it current."""
         satellite = _FakeSatellite(
-            status_payload={"app": {"version": "v0.1.0-1600-gold", "started_at": 1000},
+            status_payload={"app": {"payload": "0ae3872", "release": "v0.1.0", "started_at": 1000},
                             "snapclient": {"version": "0.28.0"}},
-            status_after_post={"app": {"version": SERVER_VERSION, "started_at": 1000},
+            status_after_post={"app": {"payload": SERVER_PAYLOAD, "release": SERVER_RELEASE, "started_at": 1000},
                                "snapclient": {"version": "0.28.0"}},
         )
 
@@ -551,7 +612,7 @@ class TestAppUpdateOutcome:
         """The two failures read differently in the UI: one needs a retry, the
         other needs somebody to look at why the unit will not come back."""
         satellite = _FakeSatellite(
-            status_payload={"app": {"version": "v0.1.0-1600-gold", "started_at": 1000},
+            status_payload={"app": {"payload": "0ae3872", "release": "v0.1.0", "started_at": 1000},
                             "snapclient": {"version": "0.28.0"}},
         )
 
@@ -615,7 +676,7 @@ class TestDiscoverSatellites:
     STATUS = {
         "snapclient": {"version": "0.31.0", "running": True},
         "uptime": 4242,
-        "app": {"version": "v0.1.0-1673-gdeadbee", "started_at": 1787000000},
+        "app": {"release": "v0.2.0", "payload": "deadbee", "started_at": 1787000000},
         "camilladsp": {"version": "3.0.1"},
     }
 
@@ -630,7 +691,8 @@ class TestDiscoverSatellites:
             "display_name": "Canapé",
             "ip": "192.168.1.153",
             "snapclient_version": "0.31.0",
-            "app_version": "v0.1.0-1673-gdeadbee",
+            "app_release": "v0.2.0",
+            "app_payload": "deadbee",
             "app_started_at": 1787000000,
             "camilladsp_version": "3.0.1",
             "online": True,
@@ -731,11 +793,12 @@ class TestFleetPush:
         return client
 
     @staticmethod
-    def _status(app_version):
+    def _status(app_payload, app_release=SERVER_RELEASE):
         return {
             "snapclient": {"version": "0.35.0", "running": True},
             "uptime": 4242,
-            "app": {"version": app_version, "started_at": 1787000000},
+            "app": {"payload": app_payload, "release": app_release,
+                    "started_at": 1787000000},
             "camilladsp": {"version": "4.1.3"},
         }
 
@@ -769,8 +832,8 @@ class TestFleetPush:
     async def test_only_the_satellite_behind_the_server_is_pushed(self, fleet):
         """The other one would be restarted to deploy bytes it already has."""
         left_behind = await self._push_to(fleet, {
-            "192.168.1.153": self._status("v0.1.0-1600-gold"),
-            "192.168.1.60": self._status(SERVER_VERSION),
+            "192.168.1.153": self._status("0ae3872", "v0.1.0"),
+            "192.168.1.60": self._status(SERVER_PAYLOAD),
         })
 
         assert fleet.pushed == ["dc:a6:32:7e:d3:43"]
@@ -780,7 +843,7 @@ class TestFleetPush:
         """Unplugged during the update: naming it is all that is left, since its
         own row is what offers the catch-up once it is back."""
         left_behind = await self._push_to(fleet, {
-            "192.168.1.60": self._status("v0.1.0-1600-gold"),
+            "192.168.1.60": self._status("0ae3872", "v0.1.0"),
         })
 
         assert fleet.pushed == ["d8:3a:dd:68:e7:e4"]
@@ -792,8 +855,8 @@ class TestFleetPush:
         fleet.push_result = {"success": False, "error": "satellite rejected update"}
 
         left_behind = await self._push_to(fleet, {
-            "192.168.1.153": self._status("v0.1.0-1600-gold"),
-            "192.168.1.60": self._status("v0.1.0-1600-gold"),
+            "192.168.1.153": self._status("0ae3872", "v0.1.0"),
+            "192.168.1.60": self._status("0ae3872", "v0.1.0"),
         })
 
         assert fleet.pushed == ["dc:a6:32:7e:d3:43", "d8:3a:dd:68:e7:e4"]
@@ -806,7 +869,7 @@ class TestFleetPush:
             "aa:bb:cc:dd:ee:ff": self._client("192.168.1.10", "Milō", is_local=True),
         }
 
-        left_behind = await self._push_to(fleet, {"192.168.1.10": self._status("v0.1.0-1600-gold")})
+        left_behind = await self._push_to(fleet, {"192.168.1.10": self._status("0ae3872", "v0.1.0")})
 
         assert fleet.pushed == []
         assert left_behind == []
@@ -816,7 +879,7 @@ class TestFleetPush:
         the tarball with — pushing anyway writes a version file no later
         comparison can use."""
         with patch("backend.core.updates.satellite.aiohttp.ClientSession",
-                   return_value=_FakeFleet({"192.168.1.153": self._status("v0.1.0-1600-gold")})), \
+                   return_value=_FakeFleet({"192.168.1.153": self._status("0ae3872", "v0.1.0")})), \
                 patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
                       AsyncMock(return_value=_mock_proc(b"", returncode=128))):
             left_behind = await fleet.push_client_app_to_fleet()
@@ -1073,7 +1136,7 @@ class TestSatelliteUpdateRecoveryArms:
         class _RebootingThenBack(_FakeSatellite):
             def __init__(self):
                 super().__init__(
-                    status_payload={"app": {"version": "v0.1.0-1600-gold", "started_at": 1000},
+                    status_payload={"app": {"payload": "0ae3872", "release": "v0.1.0", "started_at": 1000},
                                     "snapclient": {"version": "0.28.0"}},
                     post_payload={},
                 )
@@ -1085,7 +1148,7 @@ class TestSatelliteUpdateRecoveryArms:
                     raise OSError("Connection refused")
                 if self.posts:
                     self.status_payload = {
-                        "app": {"version": SERVER_VERSION, "started_at": 2000},
+                        "app": {"payload": SERVER_PAYLOAD, "release": SERVER_RELEASE, "started_at": 2000},
                         "snapclient": {"version": "0.28.0"},
                     }
                 return super().get(url, **kwargs)
@@ -1099,7 +1162,7 @@ class TestSatelliteUpdateRecoveryArms:
             result = await satellite_service.update_satellite_app("dc:a6:32:7e:d3:43")
 
         assert result["success"] is True
-        assert result["new_version"] == SERVER_VERSION
+        assert result["new_version"] == SERVER_PAYLOAD
 
     async def test_a_stray_bytecode_file_outside_pycache_is_not_shipped(
             self, satellite_service, tmp_path):

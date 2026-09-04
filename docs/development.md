@@ -874,19 +874,27 @@ unstated shortcut is indistinguishable from a skipped check.
 
 ### Updating an installation
 
+A unit installs **releases**, not branches, and it does not build a frontend.
+`UpdateService._update_milo_app` fetches the tags, checks out the one
+`releases/latest` names, and installs the `dist/` that release published — the
+artefact CI built once, verified against its `sha256` sidecar. Pressing Update
+in the settings screen is the supported path; there is nothing to do by hand.
+
+What a *development* checkout does is a different thing, and the update screen
+says so rather than offering a button: a tree that is not sitting exactly on a
+tag reads as a development build.
+
 ```bash
 cd ~/milo
 git pull origin main
 
-# Backend
 source venv/bin/activate
 pip install -r requirements.txt
 sudo systemctl restart milo-backend
 
-# Frontend (no service to restart — nginx serves the new dist/ as soon as it lands)
+# The frontend, for development only. A release never builds one here.
 cd frontend
-npm install
-npm run build
+npm ci && npm run build
 ```
 
 ## Debugging

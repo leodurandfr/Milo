@@ -913,3 +913,109 @@ class TestVersionDetectionResidue:
         assert result["status"] == "error"
         assert "invalid literal" in result["message"]
         assert result["name"] == version_service.programs["multiroom"]["name"]
+
+
+class TestTheMiloReleaseOffer:
+    """Milo's row is decided on tag identity, not on version order.
+
+    Milo is the app, not a dependency: it does not track an upstream project
+    whose numbers only ever grow, it moves between the releases of this repo.
+    Comparing versions there produced the state the whole update surface exists
+    to make impossible — measured on the appliance, the row read
+    `installed 0.1.0, latest 0.0.1, up to date` on a unit sitting 2017 commits
+    past the tag whose number it was printing, offering nothing and able to
+    install nothing.
+
+    Two behaviours fall out of asking the question of the tag instead, and both
+    are the point: a withdrawn release is offered back to the units that took
+    it, and a tree that is not at a tag is offered nothing at all.
+    """
+
+    @staticmethod
+    async def _row(service, *, described, published):
+        """One milo row, with `git describe` and `releases/latest` doubled.
+
+        `described` is the raw `git describe --tags --always` output — the shape
+        of that string is the whole input, so it is what the test varies.
+        """
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(return_value=(described.encode(), b""))
+        proc.returncode = 0
+        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+                _patch_github_release(published):
+            return await service.get_program_full_status("milo")
+
+    @pytest.mark.asyncio
+    async def test_a_unit_at_a_tag_that_is_not_the_release_is_offered_it(self, version_service):
+        row = await self._row(version_service, described="v0.2.0", published="v0.3.0")
+
+        assert row["update_available"] is True
+        assert row["latest"]["tag_name"] == "v0.3.0"
+        assert row["development_build"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_unit_at_the_published_release_is_offered_nothing(self, version_service):
+        row = await self._row(version_service, described="v0.2.0", published="v0.2.0")
+
+        assert row["update_available"] is False
+        assert row["development_build"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_tree_that_is_not_at_a_tag_is_a_development_build(self, version_service):
+        """`git describe` appends "-<n>-g<sha>" the moment HEAD is past the tag.
+        Such a tree is not behind a release, it is outside the channel: the
+        install checks out a tag, so there is nothing for it to move between,
+        and `git checkout --force` over uncommitted work is not an update.
+        """
+        row = await self._row(version_service, described="v0.2.0-2017-g36b9a0d7",
+                              published="v0.3.0")
+
+        assert row["development_build"] is True
+        assert row["update_available"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_checkout_with_no_tag_at_all_is_a_development_build(self, version_service):
+        """`--always` falls back to a bare sha. A shallow clone reaches this."""
+        row = await self._row(version_service, described="36b9a0d7", published="v0.3.0")
+
+        assert row["development_build"] is True
+        assert row["update_available"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_withdrawn_release_is_offered_back(self, version_service):
+        """Marked prerelease or deleted because it turned out bad: it stops
+        being what `releases/latest` names, and every unit that took it is
+        offered the return on its next check. Retracting is one gesture on
+        GitHub, not N units visited one by one — which is the capability the
+        semver comparison could not express at all, since it only ever looked
+        upwards.
+        """
+        row = await self._row(version_service, described="v0.3.0", published="v0.2.0")
+
+        assert row["update_available"] is True
+        assert row["latest"]["tag_name"] == "v0.2.0"
+        assert row["latest"]["withdrawn"] is True
+
+    @pytest.mark.asyncio
+    async def test_an_ordinary_update_is_not_flagged_as_a_withdrawal(self, version_service):
+        """The flag is what lets the button name itself, so it must not be set
+        on the direction every update takes.
+        """
+        row = await self._row(version_service, described="v0.2.0", published="v0.3.0")
+
+        assert row["latest"]["withdrawn"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_github_that_did_not_answer_offers_nothing(self, version_service):
+        """The settings screen must render on a unit with no internet, and an
+        unanswered fetch is not a release to compare against.
+        """
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(return_value=(b"v0.2.0", b""))
+        proc.returncode = 0
+        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+                patch("aiohttp.ClientSession", side_effect=Exception("no network")):
+            row = await version_service.get_program_full_status("milo")
+
+        assert row["update_available"] is False
+        assert "development_build" not in row

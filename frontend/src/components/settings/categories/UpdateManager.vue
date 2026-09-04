@@ -46,7 +46,7 @@
                         <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
                         <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
                         <span class="program-version text-mono-medium">
-                          milo {{ getLocalInstalledVersion(localPrograms.milo) || t('updates.notAvailable') }}
+                          milo {{ miloVersionLabel }}
                           <template
                             v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
                             <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
@@ -61,7 +61,7 @@
                           :loading="isLocalUpdating('milo') || debugForceUpdating"
                           @click="startLocalUpdate('milo')"
                           :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()">
-                          {{ (isLocalUpdating('milo') || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                          {{ miloButtonLabel }}
                         </Button>
                         <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                           {{ t('updates.upToDate') }}
@@ -200,11 +200,17 @@
                   <div class="program-info">
                     <AppIcon name="milo-client" :size="48" class="program-icon" />
                     <span class="program-name heading-4">Milō Client</span>
+                    <!-- A satellite reports the release it was deployed from, which is the
+                         server's own: both halves ship from one commit, so there is no third
+                         thing it could be. That is why this prints under `milo` and not
+                         `milo-client`, and why it needs no formatting — it is the same tag the
+                         server's row shows. What decides whether the button lights is a value
+                         the row never prints: the payload fingerprint, compared on the backend. -->
                     <span class="program-version text-mono-medium">
-                      milo {{ formatGitVersion(satelliteByMacId[client.mac_id].app_version) || t('updates.notAvailable') }}
+                      milo {{ satelliteByMacId[client.mac_id].app_release || t('updates.notAvailable') }}
                       <template
                         v-if="satelliteByMacId[client.mac_id].app_update_available && !isSatelliteAppUpdateCompleted(client.mac_id)">
-                        <span class="version-new">> {{ formatGitVersion(satelliteByMacId[client.mac_id].server_version) }}</span>
+                        <span class="version-new">> {{ satelliteByMacId[client.mac_id].server_release }}</span>
                       </template>
                     </span>
                   </div>
@@ -344,25 +350,6 @@ function getVersionLabel(key) {
   return labelOverrides[key] || key;
 }
 
-// A satellite reports the version of the `milo-client/` tree it runs — a git
-// describe, in this repo, of the last commit that touched it. It is a Milō
-// version, which is why the row prints it under `milo` and not `milo-client`:
-// it sits in the same numbering as the server's own row, and the two are meant
-// to be read against each other. Two of them differ by their hash long before
-// the tag moves, so the hash is the part worth showing: collapsing to the tag
-// alone printed "0.1.0 > 0.1.0" on every real update.
-//   "v0.1.0-1749-gc6247d94"       → "0.1.0 (c6247d94)"
-//   "v0.1.0-1749-gc6247d94-dirty" → "0.1.0 (c6247d94-dirty)"
-//   "v0.1.0"                      → "0.1.0"
-//   "b601da9"                     → "b601da9"
-function formatGitVersion(version) {
-  if (!version) return null;
-  const match = version.match(/^v?(\d+\.\d+\.\d+)(?:-\d+-g([0-9a-f]+))?(-dirty)?$/);
-  if (!match) return version.replace(/^v/, '');
-  const [, base, hash, dirty] = match;
-  return hash ? `${base} (${hash}${dirty || ''})` : `${base}${dirty || ''}`;
-}
-
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
@@ -388,6 +375,30 @@ const {
 } = updatesStore;
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
+
+// A unit runs a release, so that is what the row prints. On a tree the backend
+// reports as outside the channel — a development checkout — the parsed "0.1.0"
+// would name a tag left thousands of commits ago, so the raw `git describe` is
+// the only honest answer and it is what is shown instead.
+const miloVersionLabel = computed(() => {
+  const milo = localPrograms.value.milo;
+  if (!milo) return t('updates.notAvailable');
+  if (milo.development_build) return milo.installed?.raw_version || t('updates.notAvailable');
+  return getLocalInstalledVersion(milo) || t('updates.notAvailable');
+});
+
+// The offer points both ways. A release GitHub stops publishing — withdrawn
+// because it turned out bad — is offered back to every unit that took it, and
+// the button has to say so rather than calling a return an update. Which
+// direction it is comes from the backend, like every other decision here.
+const miloButtonLabel = computed(() => {
+  const version = getLocalLatestVersion(localPrograms.value.milo);
+  const withdrawn = localPrograms.value.milo?.latest?.withdrawn;
+  if (isLocalUpdating('milo') || debugForceUpdating.value) {
+    return withdrawn ? t('updates.revertingTo', { version }) : t('updates.updating');
+  }
+  return withdrawn ? t('updates.revertTo', { version }) : t('updates.update');
+});
 
 // Non-local satellites: online clients + clients with an active update (anticipates snapclient restart during update)
 const anticipatedSatellites = computed(() =>
