@@ -301,9 +301,9 @@ def create_system_router(
     async def get_ssh_state():
         """SSH server state, and whether the factory password is still in place.
 
-        The three travel together because they are one decision on screen: the
-        switch cannot be turned on while `password_is_default`, and the UI has
-        to be able to say so rather than offer a switch that answers 409.
+        The three travel together because they are one panel on screen: the
+        factory password is worth a word only while SSH is actually open, so the
+        UI needs both facts in one read to decide whether to say anything.
         """
         return {
             "status": "success",
@@ -318,20 +318,15 @@ def create_system_router(
     async def set_ssh_state(payload: SshRequest):
         """Open or close SSH.
 
-        Opening is refused while the unit still carries the factory password.
-        That password is identical on every unit Milō ships, and SSH is the only
-        remote path that accepts it — nothing else here authenticates at all —
-        so this refusal is what keeps a fleet-wide credential from ever being
-        reachable from the network. Enforced here rather than by a disabled
-        button: the button is a courtesy, this is the rule.
+        Not gated on the factory password having been replaced. Nothing on this
+        API authenticates — network position is the authority, see
+        `api/middleware.py` — so a refusal here stops nobody already on the LAN,
+        who can set the password and open the door in two calls, while standing
+        in the way of the owner. What the factory password costs is that it is
+        *published*: the same value on every unit, in a public repository. That
+        is a fact to report beside an open door, which `GET /ssh` carries, not a
+        permission to withhold.
         """
-        if payload.enabled and not PASSWORD_CHANGED_MARKER.exists():
-            logger.error("Refused to enable SSH: the factory password is still set")
-            raise HTTPException(
-                status_code=409,
-                detail="Set a device password before enabling SSH.",
-            )
-
         if not await systemd_manager.set_enabled(SSH_UNIT, payload.enabled):
             raise HTTPException(
                 status_code=500,

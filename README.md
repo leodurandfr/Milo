@@ -143,16 +143,18 @@ After setup:
 
 ### SSH
 
-SSH is **off** by default and the image ships a factory password (`milo`) that is the same on
-every unit — which is why nothing on the network accepts it. To open a shell from another
-computer on your LAN:
+SSH is **off** by default. The image ships a factory password (`milo`) that is the same on every
+unit and published with this repository, so change it before you leave the door open — the
+settings screen says so as long as you haven't. To open a shell from another computer on your
+LAN:
 
 1. Settings → Device → System → **Device password**: set your own.
-2. Same page → **SSH**: turn it on. The switch stays inert until step 1 is done, and the backend
-   refuses the same request, so a unit that never got a password can never be reached over SSH.
+2. Same page → **SSH**: turn it on.
 3. `ssh milo@milo.local`
 
-The same password is what `sudo` asks for on the unit itself.
+The same password is what `sudo` asks for on the unit itself. Nothing else on Milō's API
+authenticates — being on the local network *is* the credential — so the LAN it sits on is the
+security boundary.
 
 If the interface is unreachable — or on a **satellite**, which has no interface of its own —
 create an empty file named `ssh` on the SD card's boot partition. Raspberry Pi OS enables the

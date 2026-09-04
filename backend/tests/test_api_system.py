@@ -569,17 +569,16 @@ class TestResetSetup:
 
 
 class TestRemoteAccess:
-    """`GET`/`PUT /api/system/ssh` — the switch, and the rule behind it.
+    """`GET`/`PUT /api/system/ssh` — the switch, and what travels beside it.
 
-    The factory password is identical on every Milō and SSH is the only remote
-    path that would accept it (nothing else here authenticates at all). So the
-    refusal below is the whole security argument for shipping a known password
-    at all: break it and every unit in the field is one `ssh milo@milo.local`
-    away from a root-capable shell.
+    The route enforces nothing about the factory password: it reports whether the
+    password is still the shipped one and opens the door on request. `GET` is what
+    lets the UI say so, so a `password_is_default` that stops travelling turns the
+    warning off on units that need it, in silence.
     """
 
     def test_state_reports_systemd_and_the_marker_together(self, client, systemd, marker):
-        """One screen, one read: the switch and the reason it may be inert."""
+        """One screen, one read: the switch and what is said next to it."""
         systemd.is_enabled = AsyncMock(return_value=True)
         systemd.is_active = AsyncMock(return_value=True)
         marker.touch()
@@ -589,19 +588,12 @@ class TestRemoteAccess:
         assert data == {"enabled": True, "active": True, "password_is_default": False}
         systemd.is_enabled.assert_awaited_with("ssh.service")
 
-    def test_enabling_is_refused_while_the_factory_password_stands(self, client, systemd, marker):
-        systemd.set_enabled = AsyncMock()
-        systemd.is_enabled = AsyncMock(return_value=False)
-        systemd.is_active = AsyncMock(return_value=False)
+    def test_opening_is_not_gated_on_the_factory_password(self, client, systemd, marker):
+        """The owner asked for SSH; the state of the password does not answer for
+        them. A gate here would refuse the one person it cannot protect — anyone
+        already on the LAN sets the password themselves, this API authenticates
+        nothing."""
         assert not marker.exists()
-
-        response = client.put("/api/system/ssh", json={"enabled": True})
-
-        assert response.status_code == 409
-        systemd.set_enabled.assert_not_awaited()
-
-    def test_enabling_succeeds_once_the_password_has_been_changed(self, client, systemd, marker):
-        marker.touch()
         systemd.set_enabled = AsyncMock(return_value=True)
         systemd.is_enabled = AsyncMock(return_value=True)
         systemd.is_active = AsyncMock(return_value=True)
@@ -611,24 +603,10 @@ class TestRemoteAccess:
         assert response.status_code == 200
         systemd.set_enabled.assert_awaited_once_with("ssh.service", True)
 
-    def test_closing_the_door_is_never_gated_on_the_password(self, client, systemd, marker):
-        """A unit that reached the field with SSH open and the factory password
-        must still be closable — gating the *off* direction would trap it."""
-        assert not marker.exists()
-        systemd.set_enabled = AsyncMock(return_value=True)
-        systemd.is_enabled = AsyncMock(return_value=False)
-        systemd.is_active = AsyncMock(return_value=False)
-
-        response = client.put("/api/system/ssh", json={"enabled": False})
-
-        assert response.status_code == 200
-        systemd.set_enabled.assert_awaited_once_with("ssh.service", False)
-
     def test_a_systemd_refusal_is_a_500_and_not_a_success(self, client, systemd, marker):
         """`set_enabled` reports by return value, not by raising: answering 200
         over its False is the "success on failure" class — the UI would show a
         switch that moved on a box where nothing did."""
-        marker.touch()
         systemd.set_enabled = AsyncMock(return_value=False)
         systemd.is_enabled = AsyncMock(return_value=False)
         systemd.is_active = AsyncMock(return_value=False)
