@@ -753,6 +753,19 @@
       "mismatch": "Le due password non coincidono.",
       "tooShort": "La password deve contenere almeno {n} caratteri."
     },
+    "diagnostic": {
+      "title": "Diagnostica",
+      "description": "Produce un rapporto testuale su questo Milō — le sue versioni, il suo percorso audio, i suoi diffusori e i suoi errori recenti — che può inviare quando qualcosa non funziona. Non contiene alcuna password, alcun nome di rete né alcuno dei suoi nomi di file, e può leggerlo prima di inviarlo.",
+      "generate": "Genera un rapporto",
+      "generating": "Generazione…",
+      "download": "Scarica",
+      "copy": "Copia",
+      "copied": "Copiato",
+      "copyFailed": "La copia non è riuscita. Utilizzi invece Scarica.",
+      "showPreview": "Mostra il rapporto",
+      "hidePreview": "Nascondi il rapporto",
+      "notCollected": "Non è stato possibile raccogliere:"
+    },
     "reset": {
       "title": "Reimposta la configurazione",
       "description": "Riesegue il primo avvio: rilevamento del ruolo, poi l'assistente di configurazione. Le tue stazioni radio, gli abbonamenti ai podcast e le condivisioni musicali vengono mantenuti.",

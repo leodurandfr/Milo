@@ -753,6 +753,19 @@
       "mismatch": "Les deux mots de passe ne correspondent pas.",
       "tooShort": "Le mot de passe doit contenir au moins {n} caractères."
     },
+    "diagnostic": {
+      "title": "Diagnostic",
+      "description": "Constitue un rapport texte sur ce Milō — ses versions, son chemin audio, ses enceintes et ses erreurs récentes — que vous pouvez envoyer quand quelque chose ne va pas. Il ne contient aucun mot de passe, aucun nom de réseau et aucun de vos noms de fichiers, et vous pouvez le lire avant de l'envoyer.",
+      "generate": "Générer un rapport",
+      "generating": "Génération…",
+      "download": "Télécharger",
+      "copy": "Copier",
+      "copied": "Copié",
+      "copyFailed": "La copie a échoué. Utilisez plutôt Télécharger.",
+      "showPreview": "Afficher le rapport",
+      "hidePreview": "Masquer le rapport",
+      "notCollected": "N'a pas pu être collecté :"
+    },
     "reset": {
       "title": "Réinitialiser la configuration",
       "description": "Relance le premier démarrage : détection du rôle, puis l'assistant de configuration. Vos stations radio, abonnements podcast et partages musicaux sont conservés.",

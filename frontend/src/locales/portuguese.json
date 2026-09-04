@@ -753,6 +753,19 @@
       "mismatch": "As duas palavras-passe não coincidem.",
       "tooShort": "A palavra-passe deve ter pelo menos {n} caracteres."
     },
+    "diagnostic": {
+      "title": "Diagnóstico",
+      "description": "Cria um relatório de texto sobre este Milō — as suas versões, o seu caminho de áudio, as suas colunas e os seus erros recentes — que pode enviar quando algo não está bem. Não contém nenhuma palavra-passe, nenhum nome de rede nem nenhum dos seus nomes de ficheiro, e pode lê-lo antes de o enviar.",
+      "generate": "Gerar um relatório",
+      "generating": "A gerar…",
+      "download": "Transferir",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "copyFailed": "A cópia falhou. Utilize antes Transferir.",
+      "showPreview": "Mostrar o relatório",
+      "hidePreview": "Ocultar o relatório",
+      "notCollected": "Não foi possível recolher:"
+    },
     "reset": {
       "title": "Repor a configuração",
       "description": "Executa novamente o primeiro arranque: deteção do papel e depois o assistente de configuração. As suas estações de rádio, subscrições de podcast e partilhas de música são mantidas.",

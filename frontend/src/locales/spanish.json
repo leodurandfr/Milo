@@ -753,6 +753,19 @@
       "mismatch": "Las dos contraseñas no coinciden.",
       "tooShort": "La contraseña debe tener al menos {n} caracteres."
     },
+    "diagnostic": {
+      "title": "Diagnóstico",
+      "description": "Genera un informe de texto sobre este Milō —sus versiones, su ruta de audio, sus altavoces y sus errores recientes— que puede enviar cuando algo no funciona. No contiene ninguna contraseña, ningún nombre de red ni ninguno de sus nombres de archivo, y puede leerlo antes de enviarlo.",
+      "generate": "Generar un informe",
+      "generating": "Generando…",
+      "download": "Descargar",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "copyFailed": "La copia ha fallado. Use Descargar en su lugar.",
+      "showPreview": "Mostrar el informe",
+      "hidePreview": "Ocultar el informe",
+      "notCollected": "No se ha podido recopilar:"
+    },
     "reset": {
       "title": "Restablecer la configuración",
       "description": "Vuelve a ejecutar el primer arranque: detección del rol y luego el asistente de configuración. Sus emisoras de radio, suscripciones de podcast y recursos de música se conservan.",
