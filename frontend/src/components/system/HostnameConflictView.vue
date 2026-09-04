@@ -23,6 +23,14 @@
         cta-secondary-variant="brand"
         :cta-secondary-click="handleShutdown"
       />
+
+      <!-- The other reading of this screen, and the likelier one on a fresh
+           unit: a speaker powered on before the server it should have joined
+           finds no milo.local, stays a server, and shows its own wizard. Both
+           CTAs above are dead ends in that case — this is the way out. -->
+      <p class="text-mono-medium conflict-speaker-hint">
+        {{ t('system.hostnameConflict.speakerHint') }}
+      </p>
     </div>
   </div>
 </template>
@@ -61,6 +69,13 @@ function handleShutdown() {
 </script>
 
 <style scoped>
+.conflict-speaker-hint {
+  max-width: 420px;
+  margin: var(--space-05) auto 0;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
 .hostname-conflict-view {
   position: fixed;
   inset: 0;

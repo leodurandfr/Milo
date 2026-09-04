@@ -139,6 +139,8 @@
 
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
+      <SystemSettings v-else-if="currentView === 'system'" key="system" class="view-content" />
+
       <InfoSettings v-else-if="currentView === 'info'" key="info" class="view-content" />
     </Transition>
     </div>
@@ -175,6 +177,7 @@ import remoteControlsIcon from '@/assets/settings-icons/remote-controls.svg';
 import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
 import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
+import systemIcon from '@/assets/settings-icons/system.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import macosIcon from '@/assets/settings-icons/macos.svg';
 import spotifyIcon from '@/assets/settings-icons/spotify.svg';
@@ -210,6 +213,7 @@ import HardwareSettings from '@/components/settings/categories/HardwareSettings.
 import FanSettings from '@/components/settings/categories/FanSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
+import SystemSettings from '@/components/settings/categories/SystemSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
 import { preloadNetworkStatus } from '@/composables/useNetwork';
 import { preloadHardwareConfig, useHardwareConfig } from '@/composables/useHardwareConfig';
@@ -316,7 +320,7 @@ const HOME_SECTIONS = [
     key: 'appearance',
     titleKey: 'settings.section.appearance',
     rows: [
-      { view: 'languages', titleKey: 'settings.languages', icon: languagesIcon, alt: 'Languages' },
+      { view: 'languages', titleKey: 'settings.languageRegion', icon: languagesIcon, alt: 'Language and region' },
       { view: 'apps', titleKey: 'settings.dock', icon: applicationsIcon, alt: 'Dock' },
       { view: 'screen', titleKey: 'settings.screen', icon: displayIcon, alt: 'Display',
         visible: () => screenType.value !== 'none' },
@@ -351,13 +355,14 @@ const HOME_SECTIONS = [
     ],
   },
   {
-    key: 'system',
-    titleKey: 'settings.section.system',
+    key: 'device',
+    titleKey: 'settings.section.device',
     rows: [
       { view: 'network', titleKey: 'settings.network', icon: networkIcon, alt: 'Network' },
       { view: 'hardware', titleKey: 'settings.hardware', icon: hardwareIcon, alt: 'Hardware' },
       { view: 'fan', titleKey: 'settings.fan', icon: fanIcon, alt: 'Fan',
         visible: () => fanStore.available },
+      { view: 'system', titleKey: 'settings.system', icon: systemIcon, alt: 'System' },
       { view: 'updates', titleKey: 'settings.updates', icon: updatesIcon, alt: 'Updates' },
       { view: 'info', titleKey: 'settings.information', icon: informationIcon, alt: 'Information' },
     ],

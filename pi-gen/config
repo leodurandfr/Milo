@@ -2,11 +2,35 @@ IMG_NAME="milo"
 RELEASE="trixie"
 TARGET_HOSTNAME="milo"
 FIRST_USER_NAME="milo"
+
+# The factory password is the same on every unit, and that is safe only for as
+# long as it stays a *local* convenience. SSH is the single remote path that
+# uses it (neither nginx nor the backend authenticates anything), and the
+# backend refuses to enable ssh.service until milo-set-password has run — so a
+# scanner sweeping port 22 with milo/milo finds nothing, on any unit, ever.
+# Changing this name is not a config edit: /home/milo/milo, both sudoers
+# policies and every systemd unit are written around it.
 FIRST_USER_PASS="milo"
-ENABLE_SSH=1
+ENABLE_SSH=0
+
 LOCALE_DEFAULT="en_US.UTF-8"
+# Console keymap only, and there is no console: getty@tty1 is masked for the
+# kiosk and the UI ships its own on-screen keyboard. Left at the pi-gen default
+# rather than pinned to a country Milō has no reason to prefer.
 KEYBOARD_KEYMAP="us"
 KEYBOARD_LAYOUT="English (US)"
-TIMEZONE_DEFAULT="Europe/Paris"
-WPA_COUNTRY=FR
+
+# Neutral, not a location. The real zone is adopted from the first browser that
+# opens the UI — see backend/api/system.py — precisely because *this* value is
+# the one that says "nobody has told us yet".
+TIMEZONE_DEFAULT="Etc/UTC"
+
+# No WPA_COUNTRY. pi-gen only writes it into wpa_supplicant.conf alongside a
+# WPA_ESSID, which this image does not set — measured on a flashed unit, where
+# /etc/wpa_supplicant/wpa_supplicant.conf does not exist at all. The regulatory
+# domain that actually applies travels through cmdline.txt
+# (cfg80211.ieee80211_regdom, declared once in provisioning/boot-common.sh as
+# `00`) and is set for real by milo-set-wifi-country once the user picks a
+# country in the wizard, which will not let them past that step without one.
+
 STAGE_LIST="stage0 stage1 stage2 stage-milo"

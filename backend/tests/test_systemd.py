@@ -425,3 +425,69 @@ class TestPowerFailureArms:
 
         proc.kill.assert_called_once()
         assert "System reboot timed out" in caplog.text
+
+
+class TestEnablement:
+    """`set_enabled` is the SSH switch. Its argv is the contract sudoers pins.
+
+    Separate from `_control_service` because enablement and activity are
+    different facts: a unit can be enabled and inactive, or active and
+    disabled, so `is_active` cannot decide whether an enable worked.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("enabled,verb", [(True, "enable"), (False, "disable")])
+    async def test_argv_carries_the_verb_and_now(self, manager, enabled, verb):
+        """`--now` is what makes the switch take effect on the running box
+        rather than only at the next boot — a toggle that reports success and
+        changes nothing until a reboot is the failure this pins."""
+        proc = _make_mock_proc(returncode=0)
+        with patch("asyncio.create_subprocess_exec", return_value=proc) as exec_mock:
+            with patch.object(manager, "is_enabled", AsyncMock(return_value=enabled)):
+                result = await manager.set_enabled("ssh.service", enabled)
+
+        assert result is True
+        assert exec_mock.call_args.args == ("sudo", "systemctl", verb, "--now", "ssh.service")
+
+    @pytest.mark.asyncio
+    async def test_a_unit_that_did_not_move_is_a_failure_not_a_success(self, manager):
+        """systemctl can exit 0 having changed nothing (a masked unit, a
+        generator-provided one). Reporting that as success is what would leave
+        the UI showing SSH open on a box where it is shut."""
+        proc = _make_mock_proc(returncode=0)
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            with patch.object(manager, "is_enabled", AsyncMock(return_value=False)):
+                with patch.object(manager.logger, "error") as log_error:
+                    result = await manager.set_enabled("ssh.service", True)
+
+        assert result is False
+        log_error.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "stdout,expected",
+        [(b"enabled\n", True), (b"disabled\n", False), (b"masked\n", False),
+         (b"enabled-runtime\n", False)],
+    )
+    async def test_is_enabled_reads_the_word_not_the_exit_code(self, manager, stdout, expected):
+        """`systemctl is-enabled` exits non-zero for every state that is not
+        "enabled", so an exit-code reading would call a masked unit an error
+        and an enabled one the only truth. The word is the answer.
+
+        `enabled-runtime` is False on purpose: it survives no reboot, and the
+        switch claims persistence.
+        """
+        proc = _make_mock_proc(returncode=0 if expected else 1, stdout=stdout)
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            assert await manager.is_enabled("ssh.service") is expected
+
+    @pytest.mark.asyncio
+    async def test_is_enabled_needs_no_sudo(self, manager):
+        """`is-enabled` is a public read. A sudo here would be a grant with no
+        policy line behind it, i.e. a silent denial on the appliance."""
+        proc = _make_mock_proc(returncode=0, stdout=b"enabled\n")
+        with patch("asyncio.create_subprocess_exec", return_value=proc) as exec_mock:
+            await manager.is_enabled("ssh.service")
+
+        assert exec_mock.call_args.args[0] != "sudo"
+        assert exec_mock.call_args.args == ("systemctl", "is-enabled", "ssh.service")

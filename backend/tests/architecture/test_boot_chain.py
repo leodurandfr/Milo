@@ -232,3 +232,61 @@ def test_the_boot_chain_units_are_still_installed(unit):
            "graphical.target" in " ".join(_values(unit, "WantedBy")), (
         f"{unit.name} has no [Install] target left — nothing would start it at boot"
     )
+
+
+# =============================================================================
+# The kiosk follows the screen
+# =============================================================================
+
+APPLY_HARDWARE = REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-apply-hardware"
+
+
+def _uncommented(path: Path) -> str:
+    return "\n".join(
+        line for line in path.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+
+@pytest.mark.parametrize("verb", ["enable", "disable"])
+def test_the_kiosk_is_switched_with_the_screen(verb):
+    """`milo-apply-hardware` owns both directions of `milo-kiosk.service`.
+
+    A unit configured with no screen kept the kiosk enabled, so cage came up
+    against a DRM device with no connected output, failed, and systemd restarted
+    it every 3 seconds forever — with `milo-readiness` reading 339 MB of
+    Chromium off the SD card at each boot to warm a browser nothing would
+    display. Nothing said a word: `milo-kiosk` has no ConditionPath of its own
+    and the backend never looked.
+
+    Both verbs, because only pruning is what makes a role half-applied: a
+    screen plugged in later must re-enable the kiosk through the same apply.
+    This is the one place that already knows the screen changed and that runs
+    on both paths which can change it (the wizard, and the Hardware page).
+    """
+    script = _uncommented(APPLY_HARDWARE)
+
+    # Non-triviality first: a rename would otherwise let both assertions pass
+    # against a file that no longer touches the kiosk at all.
+    assert "SCREEN_TYPE" in script, "milo-apply-hardware no longer reads the screen type"
+    assert "milo-kiosk.service" in script, "milo-apply-hardware no longer touches the kiosk"
+
+    assert re.search(rf"systemctl {verb} milo-kiosk\.service", script), (
+        f"milo-apply-hardware never runs `systemctl {verb} milo-kiosk.service`"
+    )
+
+
+def test_the_apply_helper_can_defer_its_reboot():
+    """`--no-reboot` is what lets the setup wizard order apply → flag → reboot.
+
+    Without it the helper takes the box down itself, so `setup_completed` has to
+    be written first — and a power cut in that window leaves a unit that
+    believes it is configured with no dtoverlay in config.txt: no sound, no
+    wizard, and no line anywhere saying so.
+    """
+    script = _uncommented(APPLY_HARDWARE)
+
+    assert "--no-reboot" in script, "milo-apply-hardware always reboots"
+    assert "/sbin/reboot" in script, (
+        "milo-apply-hardware no longer reboots at all — the Hardware page relies on it"
+    )

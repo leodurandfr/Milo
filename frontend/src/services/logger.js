@@ -89,16 +89,18 @@ class Logger {
   }
 
   /**
-   * Format timestamp for logs
+   * Format timestamp for logs, as HH:MM:SS.mmm.
+   *
+   * Built by hand rather than through toLocaleTimeString: this used to pass
+   * 'fr-FR', which is a locale chosen for a log line nobody reads in French —
+   * and any locale here means the timestamp format changes with who is
+   * looking. A log is compared against a journal, so it takes the one shape
+   * that is the same everywhere.
    */
   getTimestamp() {
     const now = new Date();
-    return now.toLocaleTimeString('fr-FR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      fractionalSecondDigits: 3
-    });
+    const pad = (value, width = 2) => String(value).padStart(width, '0');
+    return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`;
   }
 
   /**

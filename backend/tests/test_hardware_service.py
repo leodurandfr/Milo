@@ -395,3 +395,86 @@ class TestApplyAndReboot:
 
         with pytest.raises(RuntimeError, match="unknown error"):
             await service.apply_and_reboot()
+
+    async def test_no_reboot_is_passed_through_to_the_helper(self, service, spawn):
+        """The wizard's ordering depends on it: apply first, then persist
+        `setup_completed`, then reboot. If the flag went first — as it used to —
+        a power cut between the two left a unit that believed it was configured
+        with no dtoverlay in config.txt, silently.
+        """
+        await service.apply_and_reboot(reboot=False)
+
+        assert spawn.calls == [("sudo", "/usr/local/bin/milo-apply-hardware", "--no-reboot")]
+
+
+class TestTheConfiguredCardBeingThere:
+    """`get_missing_audio_card` — the only thing that notices a card that isn't.
+
+    The wizard offers a static list and nothing checks the pick against the
+    board: a wrong choice reboots into a unit with no `sndrpihifiberry`, a
+    CamillaDSP that cannot open its playback device, and no sound. Every part of
+    that is silent from the UI, which is why the answer has to travel to
+    `GET /api/system/status`.
+    """
+
+    @pytest.fixture
+    def cards_file(self, service, tmp_path, monkeypatch):
+        """Stand in for /proc/asound/cards, which on this host lists the real
+        board — so the test would otherwise assert against the appliance."""
+        path = tmp_path / "cards"
+        real_read = type(path).read_text
+
+        def fake_read(self, *args, **kwargs):
+            if str(self) == "/proc/asound/cards":
+                return real_read(path, *args, **kwargs)
+            return real_read(self, *args, **kwargs)
+
+        monkeypatch.setattr("pathlib.Path.read_text", fake_read)
+        return path
+
+    def _configure(self, service, audio_id):
+        return _write(service, {
+            "schema_version": HardwareService.SCHEMA_VERSION,
+            "audio": {"id": audio_id},
+        })
+
+    def test_a_card_alsa_lists_is_not_reported(self, service, cards_file):
+        card = AUDIO_CARDS["hifiberry_amp2"]
+        cards_file.write_text(f" 0 [{card['card_name']:<14}]: card\n")
+        self._configure(service, "hifiberry_amp2")
+
+        assert service.get_missing_audio_card() is None
+
+    def test_a_card_alsa_does_not_list_is_reported_by_its_label(self, service, cards_file):
+        """The label, not a boolean: the banner has to name the board, because
+        "HiFiBerry Amp2 is configured but not detected" is actionable where "no
+        audio card" is only the symptom the user already has."""
+        cards_file.write_text(" 0 [vc4hdmi        ]: vc4-hdmi\n")
+        self._configure(service, "hifiberry_amp2")
+
+        assert service.get_missing_audio_card() == AUDIO_CARDS["hifiberry_amp2"]["label"]
+
+    def test_no_card_configured_is_never_a_complaint(self, service, cards_file):
+        """`none` is a legitimate choice — a unit waiting for a board, or one
+        driven over HDMI. Reporting it would put a permanent banner on every
+        such unit."""
+        cards_file.write_text(" 0 [vc4hdmi        ]: vc4-hdmi\n")
+        self._configure(service, "none")
+
+        assert service.get_missing_audio_card() is None
+
+    def test_an_unreadable_proc_reports_nothing(self, service, monkeypatch):
+        """Fails open: a dev host has no /proc/asound at all, and reporting
+        hardware trouble nobody observed is worse than reporting none."""
+        self._configure(service, "hifiberry_amp2")
+        # Prime the cache before breaking every read, or hardware.json becomes
+        # unreadable too and the card reads as unconfigured — which returns None
+        # through the wrong branch and makes this test unable to fail.
+        assert service.get_audio_id() == "hifiberry_amp2"
+
+        def boom(self, *args, **kwargs):
+            raise OSError("no such file")
+
+        monkeypatch.setattr("pathlib.Path.read_text", boom)
+
+        assert service.get_missing_audio_card() is None

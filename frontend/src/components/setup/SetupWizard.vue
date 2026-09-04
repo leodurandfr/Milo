@@ -42,9 +42,17 @@
           {{ t('setup.welcome.getStarted') }}
         </Button>
 
-        <Button v-else-if="currentStep === 2" variant="brand" :disabled="!wifiCountry || !wizardState.wifiSsid" @click="nextStep">
-          {{ t('setup.continue') }}
-        </Button>
+        <template v-else-if="currentStep === 2">
+          <!-- A greyed button with no reason next to it is where a first boot
+               with no network stalls: the country and a link are both required
+               and neither says so. -->
+          <span v-if="!wifiCountry || !wizardState.wifiSsid" class="text-mono-small setup-card__hint">
+            {{ t('setup.wifi.continueHint') }}
+          </span>
+          <Button variant="brand" :disabled="!wifiCountry || !wizardState.wifiSsid" @click="nextStep">
+            {{ t('setup.continue') }}
+          </Button>
+        </template>
 
         <Button v-else-if="!isSummaryStep" variant="brand" @click="nextStep">
           {{ t('setup.continue') }}
@@ -351,6 +359,13 @@ onUnmounted(() => {
 }
 
 /* Footer: absolute positioned at bottom of card */
+.setup-card__hint {
+  display: block;
+  padding-bottom: var(--space-02);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
 .setup-card__footer {
   position: absolute;
   bottom: calc(var(--space-03) + env(safe-area-inset-bottom, 0px));

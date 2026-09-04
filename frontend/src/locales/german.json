@@ -17,7 +17,9 @@
     "connectionLostDescription": "Automatische Wiederverbindung sobald verfügbar",
     "backendErrorTitle": "Systemfehler",
     "sourceErrorTitle": "{source}-Fehler",
-    "commandFailed": "Befehl fehlgeschlagen"
+    "commandFailed": "Befehl fehlgeschlagen",
+    "audioCardMissingTitle": "Audiokarte nicht erkannt",
+    "audioCardMissingDescription": "{card} ist konfiguriert, wird aber nicht erkannt. Prüfen Sie den Sitz der Platine oder wählen Sie in den Einstellungen eine andere Karte."
   },
   "settings": {
     "title": "Milō Einstellungen",
@@ -25,13 +27,14 @@
       "appearance": "Erscheinungsbild",
       "audio": "Audio",
       "sources": "Quellen",
-      "system": "System"
+      "device": "Gerät"
     },
-    "languages": "Sprachen",
+    "languageRegion": "Sprache und Region",
     "dock": "Dock",
     "volume": "Lautstärke",
     "screen": "Bildschirm",
     "network": "Netzwerk",
+    "system": "System",
     "updates": "Aktualisierungen",
     "information": "Informationen",
     "hardware": "Hardware",
@@ -693,7 +696,8 @@
       "getStarted": "Los geht's"
     },
     "wifi": {
-      "title": "Netzwerk einrichten"
+      "title": "Netzwerk einrichten",
+      "continueHint": "Wählen Sie ein Land und verbinden Sie Milō mit einem Netzwerk, um fortzufahren."
     },
     "language": {
       "title": "Wähle deine Sprache"
@@ -731,8 +735,38 @@
       "subtitle": "Zwei Milō-Server können nicht im selben Netzwerk koexistieren. Schalte eines davon aus oder prüfe erneut, falls bereits geschehen.",
       "thisDevice": "Dieses Gerät: {name} ({ip})",
       "recheck": "Erneut prüfen",
-      "shutdown": "Dieses Gerät ausschalten"
+      "shutdown": "Dieses Gerät ausschalten",
+      "speakerHint": "Wenn dieses Gerät ein Lautsprecher und kein zweiter Milō sein soll, schalten Sie es aus und fügen Sie es unter Einstellungen → Multiroom Ihres Haupt-Milō hinzu."
+    },
+    "ssh": {
+      "title": "Fernzugriff",
+      "description": "Ermöglicht eine Terminalsitzung auf Milō von einem anderen Computer aus. Standardmäßig deaktiviert.",
+      "passwordRequired": "Legen Sie ein Passwort fest, bevor Sie den Fernzugriff aktivieren."
+    },
+    "password": {
+      "title": "Gerätepasswort",
+      "description": "Wird für den Fernzugriff und für Verwaltungsbefehle verwendet. Alle Milō werden mit demselben Werkspasswort ausgeliefert – der Fernzugriff bleibt gesperrt, bis Sie es ändern.",
+      "newPlaceholder": "Neues Passwort",
+      "confirmPlaceholder": "Passwort bestätigen",
+      "save": "Speichern",
+      "saved": "Gespeichert",
+      "mismatch": "Die beiden Passwörter stimmen nicht überein.",
+      "tooShort": "Das Passwort muss mindestens {n} Zeichen lang sein."
+    },
+    "reset": {
+      "title": "Konfiguration zurücksetzen",
+      "description": "Führt den ersten Start erneut aus: Rollenerkennung und dann den Einrichtungsassistenten. Ihre Radiosender, Podcast-Abos und Musikfreigaben bleiben erhalten.",
+      "action": "Zurücksetzen",
+      "confirm": "Zurücksetzen bestätigen?",
+      "running": "Neustart…"
     }
+  },
+  "timezone": {
+    "title": "Zeitzone",
+    "area": "Region",
+    "location": "Ort",
+    "selectArea": "Region auswählen",
+    "selectLocation": "Ort auswählen"
   },
   "remoteControls": {
     "btRemote": "Bluetooth-Fernbedienung",

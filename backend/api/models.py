@@ -635,3 +635,40 @@ class ProgramUpdateRequest(BaseModel):
     published beyond the manifest, installed to try it before the set is bumped.
     """
     target: Literal['validated', 'upstream']
+
+
+# =============================================================================
+# SYSTEM (Settings > Appareil > Système)
+# =============================================================================
+
+class SshRequest(BaseModel):
+    """Open or close the SSH server.
+
+    The refusal that matters is not here: enabling is rejected by the route
+    while the unit still carries the factory password, which is a fact about
+    the machine, not about this payload.
+    """
+    enabled: bool
+
+
+class DevicePasswordRequest(BaseModel):
+    """New password for the `milo` account (SSH login + sudo).
+
+    The floor is 8 characters, matching the helper that actually sets it —
+    stated in both places on purpose: this one gives the user a 422 with a
+    message, the helper's is what holds if anything ever calls it directly.
+    """
+    password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator('password')
+    @classmethod
+    def validate_printable(cls, v: str) -> str:
+        if not v.isprintable():
+            raise ValueError('Password must not contain control characters')
+        return v
+
+
+class TimezoneRequest(BaseModel):
+    """IANA zone name, e.g. `Europe/Paris`. Existence is checked by the route
+    against the zones this system actually ships."""
+    timezone: str = Field(..., min_length=1, max_length=64)

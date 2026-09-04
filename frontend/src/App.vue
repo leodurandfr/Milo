@@ -116,6 +116,7 @@ import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
 import { handleNetworkStatusChanged, preloadNetworkStatus } from '@/composables/useNetwork';
+import { adoptBrowserTimezone } from '@/composables/useTimezone';
 
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
@@ -312,25 +313,41 @@ const notificationTitle = computed(() => {
   if (showConnectionLost.value) {
     return t('notification.connectionLostTitle');
   }
-  // Priority 2: System/source errors
-  return currentError.value?.title || null;
+  // Priority 2: transient system/source errors
+  if (currentError.value?.title) return currentError.value.title;
+  // Priority 3: the configured audio card is not there. Last because it is the
+  // only one that does not go away: a wrong pick in the wizard is a unit with
+  // no sound and nothing anywhere saying why, and the banner is what turns
+  // that into a sentence naming the card and the page that fixes it.
+  if (systemStore.audioCardMissing) {
+    return t('notification.audioCardMissingTitle');
+  }
+  return null;
 });
 
 const notificationDetail = computed(() => {
   if (showConnectionLost.value) {
     return t('notification.connectionLostDescription');
   }
-  return currentError.value?.detail || null;
+  if (currentError.value?.detail) return currentError.value.detail;
+  if (systemStore.audioCardMissing) {
+    return t('notification.audioCardMissingDescription', { card: systemStore.audioCardMissing });
+  }
+  return null;
 });
 
 // Connection lost auto-resolves when the socket comes back, so it isn't
-// dismissable. Transient command/system errors are.
+// dismissable. Transient command/system errors are — and so is the missing
+// card, which the user may well have chosen on purpose while waiting for a
+// board to arrive.
 const isNotificationDismissable = computed(() => {
-  return !showConnectionLost.value && currentError.value !== null;
+  return !showConnectionLost.value &&
+    (currentError.value !== null || !!systemStore.audioCardMissing);
 });
 
 function dismissNotification() {
   currentError.value = null;
+  systemStore.audioCardMissing = null;
 }
 
 // Auto-show transient notification on command failure (play/pause/next/prev)
@@ -740,6 +757,8 @@ onMounted(async () => {
   // path except the first one — a store added here and forgotten there (or
   // the reverse) fails silently, since both look like they populate the app.
   await resyncStores();
+
+  adoptBrowserTimezone();
 
   // Preload modals in background for instant display when user opens them
   Promise.all([

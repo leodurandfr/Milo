@@ -22,6 +22,7 @@ set -euo pipefail
 MILO_DATA_DIR="/var/lib/milo"
 MILO_APP_DIR="/home/milo/milo"
 PENDING_CLIENT_ROLE_FILE="$MILO_DATA_DIR/pending_client_role.json"
+RESET_SETUP_MARKER="$MILO_DATA_DIR/reset-setup"
 
 MILO_CLIENT_USER="milo-client"
 MILO_CLIENT_HOME="/home/$MILO_CLIENT_USER"
@@ -630,6 +631,23 @@ configure_server() {
 # =============================================================================
 # Main
 # =============================================================================
+
+# Requested reset (POST /api/system/reset-setup): drop the settings file that
+# holds setup_completed, so the checks below re-detect the role and the wizard
+# comes back.
+#
+# It happens here rather than in the backend because the backend is the process
+# that owns settings.json: deleting it from under a live SettingsService leaves
+# any write in the next second — a volume change, a screen-activity save —
+# recreating the file with setup_completed still true, and a reset that
+# silently did nothing is worse than none. Here the writer is dead.
+#
+# This is also why the wizard's own path never needed a marker: it reboots into
+# a unit whose settings are already what it wrote. Only the *undo* needs one.
+if [[ -f "$RESET_SETUP_MARKER" ]]; then
+    log "Reset requested — clearing settings and re-running role detection"
+    rm -f "$MILO_DATA_DIR/settings.json" "$PENDING_CLIENT_ROLE_FILE" "$RESET_SETUP_MARKER"
+fi
 
 # Setup already completed (wizard finished or client configured).
 # One exception: if a wifi-adoption marker was dropped by the server's

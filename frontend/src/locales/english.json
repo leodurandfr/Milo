@@ -17,7 +17,9 @@
     "connectionLostDescription": "Reconnecting automatically when available",
     "backendErrorTitle": "System Error",
     "sourceErrorTitle": "{source} error",
-    "commandFailed": "Command failed"
+    "commandFailed": "Command failed",
+    "audioCardMissingTitle": "Audio card not detected",
+    "audioCardMissingDescription": "{card} is configured but not detected. Check that the board is properly seated, or pick another card in Settings."
   },
   "settings": {
     "title": "Milō Settings",
@@ -25,13 +27,14 @@
       "appearance": "Appearance",
       "audio": "Audio",
       "sources": "Sources",
-      "system": "System"
+      "device": "Device"
     },
-    "languages": "Languages",
+    "languageRegion": "Language and region",
     "dock": "Dock",
     "volume": "Volume",
     "screen": "Screen",
     "network": "Network",
+    "system": "System",
     "updates": "Updates",
     "information": "Information",
     "hardware": "Hardware",
@@ -693,7 +696,8 @@
       "getStarted": "Get started"
     },
     "wifi": {
-      "title": "Set up the network"
+      "title": "Set up the network",
+      "continueHint": "Select a country and connect Milō to a network to continue."
     },
     "language": {
       "title": "Choose your language"
@@ -731,8 +735,38 @@
       "subtitle": "Two Milō servers can't share the same network. Turn off one of them, or check again if you've already done it.",
       "thisDevice": "This device: {name} ({ip})",
       "recheck": "Check again",
-      "shutdown": "Turn off this device"
+      "shutdown": "Turn off this device",
+      "speakerHint": "If this device should be a speaker rather than a second Milō, turn it off, then add it from Settings → Multiroom on your main Milō."
+    },
+    "ssh": {
+      "title": "Remote access",
+      "description": "Lets you open a terminal session on Milō from another computer. Off by default.",
+      "passwordRequired": "Set a device password before enabling remote access."
+    },
+    "password": {
+      "title": "Device password",
+      "description": "Used for remote access and administration commands. Every Milō ships with the same factory password, so remote access stays closed until you change it.",
+      "newPlaceholder": "New password",
+      "confirmPlaceholder": "Confirm password",
+      "save": "Save",
+      "saved": "Saved",
+      "mismatch": "The two passwords do not match.",
+      "tooShort": "The password must be at least {n} characters."
+    },
+    "reset": {
+      "title": "Reset configuration",
+      "description": "Runs first boot again: role detection, then the setup assistant. Your radio favourites, podcast subscriptions and music shares are kept.",
+      "action": "Reset",
+      "confirm": "Confirm reset?",
+      "running": "Restarting…"
     }
+  },
+  "timezone": {
+    "title": "Time zone",
+    "area": "Area",
+    "location": "Location",
+    "selectArea": "Select an area",
+    "selectLocation": "Select a location"
   },
   "remoteControls": {
     "btRemote": "Bluetooth Remote",

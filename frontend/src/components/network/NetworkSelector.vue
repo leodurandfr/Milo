@@ -4,15 +4,7 @@
 <template>
   <div class="network-selector">
     <!-- WiFi country selector -->
-    <div v-if="showCountry" class="country-row">
-      <span class="country-row__label text-mono-medium">{{ t('network.wifiCountry') }}</span>
-      <Dropdown
-        :model-value="country"
-        :options="countryOptions"
-        :placeholder="t('network.selectCountry')"
-        @change="onCountryChange"
-      />
-    </div>
+    <WifiCountrySelector v-if="showCountry" />
 
     <!-- Network list -->
     <div class="wifi-networks">
@@ -75,14 +67,14 @@
 import { computed, onMounted, watch } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import { useNetwork } from '@/composables/useNetwork';
-import { wifiCountryOptions, LANGUAGE_TO_COUNTRY } from '@/constants/wifiCountries';
+import { LANGUAGE_TO_COUNTRY } from '@/constants/wifiCountries';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
-import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
+import WifiCountrySelector from '@/components/network/WifiCountrySelector.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
-const { t, getCurrentLanguage } = useI18n();
+const { t } = useI18n();
 
 const props = defineProps({
   // Hide a specific SSID from the list (e.g., the currently-connected one).
@@ -121,20 +113,9 @@ const {
   initialize,
 } = useNetwork();
 
-const countryOptions = computed(() => wifiCountryOptions(getCurrentLanguage()));
-
 const visibleNetworks = computed(() =>
   networks.value.filter(n => !n.in_use && n.ssid !== props.excludeSsid)
 );
-
-async function onCountryChange(code) {
-  try {
-    await setCountry(code);
-    scanNetworks();
-  } catch {
-    // setCountry already logs via logger
-  }
-}
 
 function onPasswordSubmit(network) {
   if (props.submitAction === 'connect') {
@@ -178,23 +159,6 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--space-06);
-}
-
-/* Country selector row (hardware-row pattern) */
-.country-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-03);
-}
-
-.country-row__label {
-  color: var(--color-text-secondary);
-  width: 33%;
-  flex-shrink: 0;
-}
-
-.country-row :deep(.dropdown) {
-  flex: 1;
 }
 
 /* Network list */

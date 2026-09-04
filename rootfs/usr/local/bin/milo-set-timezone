@@ -1,0 +1,42 @@
+#!/bin/bash
+# milo-set-timezone — Apply the system timezone
+#
+# Usage: milo-set-timezone <IANA_ZONE>       e.g. Europe/Paris, America/Los_Angeles
+#
+# Same shape as milo-set-wifi-country, and for the same reason: one pinned
+# helper the sudoers policy names, rather than a bare `sudo timedatectl`.
+#
+# The image ships Etc/UTC on purpose — a neutral value that says "nobody has
+# told us yet" — and this is the only thing that changes it.
+#
+# Must be run as root (via sudoers rule).
+
+set -euo pipefail
+
+ZONEINFO_DIR="/usr/share/zoneinfo"
+
+if [[ $# -ne 1 ]]; then
+    echo "ERROR: Usage: milo-set-timezone <IANA_ZONE>" >&2
+    exit 1
+fi
+
+TIMEZONE="$1"
+
+# Shape first, so nothing with a traversal or a shell character reaches the
+# path test below.
+if ! [[ "$TIMEZONE" =~ ^[A-Za-z0-9][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$ ]]; then
+    echo "ERROR: Invalid timezone '$TIMEZONE'" >&2
+    exit 1
+fi
+
+# Then existence: the zone must be one this system actually ships, or
+# /etc/localtime ends up pointing at nothing and every timestamp silently
+# reverts to UTC without saying so.
+if [[ ! -f "$ZONEINFO_DIR/$TIMEZONE" ]]; then
+    echo "ERROR: Unknown timezone '$TIMEZONE' (no $ZONEINFO_DIR/$TIMEZONE)" >&2
+    exit 1
+fi
+
+timedatectl set-timezone "$TIMEZONE"
+
+echo "Timezone set to $TIMEZONE"

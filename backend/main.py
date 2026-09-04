@@ -149,8 +149,10 @@ async def lifespan(app: FastAPI):
 
         state_machine.start_inactivity_monitor()
 
-        # Activate WiFi hotspot for first-boot setup if no network is available
-        await network_service.maybe_start_hotspot(settings_service)
+        # The unit must always be reachable: with no link at all it raises its
+        # own access point. Re-evaluated on every NetworkManager property
+        # change thereafter — this is only the first look.
+        await network_service.evaluate_reachability()
 
         logger.info("Milo backend startup completed with unified settings")
 
@@ -283,6 +285,7 @@ system_router = create_system_router(
     systemd_manager,
     hostname_conflict_service=get_service("hostname_conflict_service"),
     connectivity_service=get_service("connectivity_service"),
+    hardware_service=hardware_service,
 )
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 
