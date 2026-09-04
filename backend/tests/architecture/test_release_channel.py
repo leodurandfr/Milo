@@ -178,6 +178,28 @@ def test_a_suffixed_tag_is_published_as_a_prerelease(workflow):
     )
 
 
+def test_the_publishing_job_asks_for_the_write_it_needs(workflow):
+    """Without it the whole channel is a three-hour build that publishes nothing.
+
+    A job declaring no `permissions:` block inherits the repository default, and
+    this repository's is read-only — proven by the one job that does declare a
+    block (`milo-mac-freshness`, `issues: write`) being the only one that has
+    ever written anything. The v0.2.0 build measured the other side of it: image
+    built, inspection passed, `Create GitHub Release` 403, nothing published.
+
+    It could not have been caught before it happened. This step only runs on a
+    `v*` tag, and the previous tag was never built — the same "a build that only
+    runs on a tag is a build nobody runs" this workflow already carries a comment
+    about, one step further down.
+    """
+    permissions = workflow["build"].get("permissions")
+    assert permissions, (
+        "the publishing job declares no permissions, so it inherits the "
+        "repository default and cannot create a release"
+    )
+    assert permissions.get("contents") == "write", permissions
+
+
 def test_the_frontend_is_built_once_in_ci_from_the_lockfile(workflow):
     """`npm ci` installs the lockfile; `npm install` re-resolves the ranges in
     package.json. That is the whole difference between "the tree this release

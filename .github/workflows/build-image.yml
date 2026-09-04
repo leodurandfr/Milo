@@ -116,6 +116,15 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
 
+    # Publishing the release needs it, and a job that declares no `permissions:`
+    # block inherits the repository default — which here is read-only. Measured
+    # the hard way: the v0.2.0 build ran three hours, produced an image that
+    # passed inspection, and then failed on its very last step with nothing to
+    # show for it. It could not have been caught earlier, because this step had
+    # never executed once: the workflow only reaches it on a `v*` tag.
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout Milo
         uses: actions/checkout@v6
