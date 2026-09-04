@@ -1,8 +1,8 @@
 <!-- frontend/src/components/settings/categories/music-library/MusicLibrarySettings.vue -->
 <!--
   Music Library settings screen — the music *origins* Navidrome indexes (SMB/NFS
-  servers, each row opens ManageShare; auto-mounted USB keys, each row opens the
-  rename modal), how they are presented in the library view, and a manual
+  servers, each row opens ManageShare; auto-mounted USB keys, each row opens
+  ManageUsb), how they are presented in the library view, and a manual
   refresh. The backend mounts each origin read-only under /media/milo, gives it
   its own Navidrome library, and rescans on every change.
 
@@ -12,7 +12,7 @@
   perfectly-formed mount behind, so the backend has to ask the far side
   (NetworkShareService._watch_share_liveness — statvfs every 30 s, three strikes,
   and the kernel's own CIFS timeout comes first). A power cut therefore greys the
-  row in a couple of minutes, not at once. A key that is unplugged keeps its row
+  row's dot in a couple of minutes, not at once. A key that is unplugged keeps its row
   (it keeps its Navidrome library and its index too), which is where it gets
   renamed, or forgotten for good.
 -->
@@ -36,33 +36,35 @@
       <div class="ml-list">
         <!-- Network servers (SMB/NFS) — tap to edit. -->
         <ListItemButton v-for="share in store.shares" :key="share.id" variant="background"
-          :title="shareTitle(share)" action="caret" @click="$emit('edit-share', share)">
+          action="caret" @click="$emit('edit-share', share)">
           <template #icon>
             <SourceBadge>{{ typeLabel(share.type) }}</SourceBadge>
           </template>
-          <template #subtitle>
-            <span class="ml-sub text-body">
+          <template #title="{ headingClass }">
+            <span class="ml-title" :class="headingClass">
               <span class="ml-dot" :class="share.mounted ? 'is-on' : 'is-off'" />
-              {{ share.host }}
-              <span v-if="!share.mounted" class="ml-off">· {{ t('musicLibrary.shares.notConnected') }}</span>
-              <span v-if="share.track_count" class="ml-count">
-                · {{ t('musicLibrary.songsCount', { count: share.track_count }) }}
-              </span>
+              {{ shareTitle(share) }}
             </span>
+          </template>
+          <template #subtitle>
+            <span class="ml-sub text-mono-small">{{ storageSubtitle(share.track_count) }}</span>
           </template>
         </ListItemButton>
 
         <!-- No NAS share yet: tap through to the add-share wizard. -->
-        <ListItemButton v-if="!store.shares.length" variant="background" :title="t('musicLibrary.nas.title')"
-          action="caret" @click="$emit('add-share')">
+        <ListItemButton v-if="!store.shares.length" variant="background" action="caret"
+          @click="$emit('add-share')">
           <template #icon>
             <SourceBadge>NAS</SourceBadge>
           </template>
-          <template #subtitle>
-            <span class="ml-sub text-body">
+          <template #title="{ headingClass }">
+            <span class="ml-title" :class="headingClass">
               <span class="ml-dot is-off" />
-              {{ t('musicLibrary.nas.notConnected') }}
+              {{ t('musicLibrary.nas.title') }}
             </span>
+          </template>
+          <template #subtitle>
+            <span class="ml-sub text-mono-small">{{ t('musicLibrary.nas.notConnected') }}</span>
           </template>
         </ListItemButton>
 
@@ -70,19 +72,19 @@
              it (or, once unplugged, to forget it). The no-key placeholder has
              nothing to name, so it stays inert. -->
         <ListItemButton v-for="row in usbRows" :key="row.key" variant="background"
-          :interactive="row.known" :action="row.known ? 'caret' : 'none'" :title="row.label"
-          @click="row.known && $emit('rename-usb', row.device)">
+          :interactive="row.known" :action="row.known ? 'caret' : 'none'"
+          @click="row.known && $emit('edit-usb', row.device)">
           <template #icon>
             <SourceBadge>USB</SourceBadge>
           </template>
-          <template #subtitle>
-            <span class="ml-sub text-body">
+          <template #title="{ headingClass }">
+            <span class="ml-title" :class="headingClass">
               <span class="ml-dot" :class="row.connected ? 'is-on' : 'is-off'" />
-              {{ row.connected ? t('musicLibrary.usb.connected') : t('musicLibrary.usb.notConnected') }}
-              <span v-if="row.known && row.trackCount" class="ml-count">
-                · {{ t('musicLibrary.songsCount', { count: row.trackCount }) }}
-              </span>
+              {{ row.label }}
             </span>
+          </template>
+          <template #subtitle>
+            <span class="ml-sub text-mono-small">{{ row.subtitle }}</span>
           </template>
         </ListItemButton>
       </div>
@@ -128,7 +130,7 @@ import ScanProgress from '@/components/settings/categories/music-library/ScanPro
 import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
 
-defineEmits(['add-share', 'edit-share', 'rename-usb']);
+defineEmits(['add-share', 'edit-share', 'edit-usb']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
@@ -144,6 +146,17 @@ function shareTitle(share) {
   return path ? `${share.name} / ${path}` : share.name;
 }
 
+// The connection dot on the title is the only state indicator, so a subtitle
+// carries the index and nothing else — a count, or the fact that there is none
+// (a bare "0 songs" reads as a broken row rather than an unindexed one). The two
+// placeholder rows are the exception: they stand for a device that does not
+// exist, so they have no index at all and keep their empty-state label.
+function storageSubtitle(count) {
+  return count
+    ? t('musicLibrary.songsCount', { count })
+    : t('musicLibrary.storage.nothingIndexed');
+}
+
 // One row per USB key Milō knows — two keys (or one key with two partitions)
 // are two rows — each with its live connection dot. The single placeholder row
 // stands in for "no key ever plugged in", which is why `known` (not `connected`)
@@ -153,9 +166,12 @@ const usbRows = computed(() =>
   store.usbDevices.length
     ? store.usbDevices.map((d) => ({
       key: d.id, label: d.name, known: true, connected: d.mounted,
-      trackCount: d.track_count || 0, device: d,
+      subtitle: storageSubtitle(d.track_count), device: d,
     }))
-    : [{ key: 'usb-none', label: t('musicLibrary.usb.title'), known: false, connected: false }]
+    : [{
+      key: 'usb-none', label: t('musicLibrary.usb.title'), known: false, connected: false,
+      subtitle: t('musicLibrary.usb.notConnected'),
+    }]
 );
 
 // The scan flag is pushed with the storage list, so nothing is polled here.
@@ -221,16 +237,20 @@ onMounted(() => {
   gap: var(--space-01);
 }
 
-/* Subtitle: status dot + host/label. */
-.ml-sub {
+/* Title: connection dot + name. */
+.ml-title {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-01);
+  gap: var(--space-02);
+}
+
+/* Subtitle: what is indexed, and nothing else. */
+.ml-sub {
   color: var(--color-text-secondary);
 }
 
-/* Connection dot — replaces the "connected" word; the offline label carries the
-   meaning when it's off (a lone dot would be ambiguous). */
+/* Connection dot — the only state indicator on a storage row; it sits on the
+   title so the subtitle is free to carry the index. */
 .ml-dot {
   flex-shrink: 0;
   width: 8px;
@@ -244,14 +264,6 @@ onMounted(() => {
 
 .ml-dot.is-off {
   background: var(--color-text-light);
-}
-
-.ml-off {
-  color: var(--color-text-light);
-}
-
-.ml-count {
-  color: var(--color-text-light);
 }
 
 @media (max-aspect-ratio: 4/3) {

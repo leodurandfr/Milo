@@ -590,7 +590,6 @@
       "title": "Fontes de música",
       "description": "A sua música, armazenada num servidor NAS ou numa unidade USB.",
       "addShare": "Adicionar um servidor",
-      "notConnected": "Não conectado",
       "addTitle": "Adicionar um servidor",
       "editTitle": "Editar servidor",
       "type": "Protocolo",
@@ -653,11 +652,11 @@
       "notIndexedHint": "Os ficheiros estão lá, mas o índice perdeu-lhes o rasto. Reindexar traz a música de volta.",
       "reindex": "Reindexar",
       "separateTitle": "Separar os armazenamentos",
-      "separateDescription": "Mostra um separador por cada pen USB e servidor de rede. Desative para explorar toda a sua música em conjunto."
+      "separateDescription": "Mostra um separador por cada pen USB e servidor de rede. Desative para explorar toda a sua música em conjunto.",
+      "nothingIndexed": "Nenhuma música indexada"
     },
     "usb": {
       "title": "Armazenamento USB",
-      "connected": "Conectado",
       "notConnected": "Não conectado",
       "rename": "Renomear",
       "renameTitle": "Renomear a pen USB",
@@ -667,6 +666,7 @@
       "renameError": "Não foi possível renomear esta pen USB",
       "forgetTitle": "Esquecer esta pen",
       "forget": "Esquecer",
+      "confirmForget": "Confirmar esquecimento",
       "forgetDescription": "Remove as suas {count} faixas indexadas da biblioteca. Ao voltar a ligá-la será indexada de novo.",
       "forgetError": "Não foi possível esquecer esta pen USB"
     },

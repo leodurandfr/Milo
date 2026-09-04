@@ -590,7 +590,6 @@
       "title": "Fuentes de música",
       "description": "Tu música, almacenada en un servidor NAS o una unidad USB.",
       "addShare": "Añadir un servidor",
-      "notConnected": "No conectado",
       "addTitle": "Añadir un servidor",
       "editTitle": "Editar servidor",
       "type": "Protocolo",
@@ -653,11 +652,11 @@
       "notIndexedHint": "Sus archivos están ahí, pero el índice les ha perdido la pista. Reindexar recupera la música.",
       "reindex": "Reindexar",
       "separateTitle": "Separar los almacenamientos",
-      "separateDescription": "Muestra una pestaña por cada llave USB y servidor de red. Desactívalo para explorar toda tu música junta."
+      "separateDescription": "Muestra una pestaña por cada llave USB y servidor de red. Desactívalo para explorar toda tu música junta.",
+      "nothingIndexed": "Ninguna canción indexada"
     },
     "usb": {
       "title": "Almacenamiento USB",
-      "connected": "Conectado",
       "notConnected": "No conectado",
       "rename": "Renombrar",
       "renameTitle": "Renombrar la memoria USB",
@@ -667,6 +666,7 @@
       "renameError": "No se pudo renombrar esta memoria USB",
       "forgetTitle": "Olvidar esta llave",
       "forget": "Olvidar",
+      "confirmForget": "Confirmar olvido",
       "forgetDescription": "Elimina sus {count} pistas indexadas de la biblioteca. Al volver a conectarla se indexará desde cero.",
       "forgetError": "No se pudo olvidar esta llave USB"
     },

@@ -610,7 +610,6 @@
       "remove": "Retirer ce serveur",
       "confirmRemove": "Confirmer le retrait",
       "errorGeneric": "Impossible d'enregistrer le partage. Vérifiez les informations et réessayez.",
-      "notConnected": "Hors ligne",
       "nameHint": "Le nom affiché dans Milō — renommez-le comme vous voulez.",
       "shareHint": "Le dossier partagé sur le serveur.",
       "exportHint": "Le chemin d'export sur le serveur.",
@@ -653,11 +652,11 @@
       "notIndexedHint": "Les fichiers sont bien là, mais l'index les a perdus de vue. Une ré-indexation ramène la musique.",
       "reindex": "Ré-indexer",
       "separateTitle": "Séparer les supports de stockage",
-      "separateDescription": "Affiche un onglet par clé USB et par serveur réseau. Désactivez pour parcourir toute votre musique ensemble."
+      "separateDescription": "Affiche un onglet par clé USB et par serveur réseau. Désactivez pour parcourir toute votre musique ensemble.",
+      "nothingIndexed": "Aucun morceau indexé"
     },
     "usb": {
       "title": "Stockage USB",
-      "connected": "Branché",
       "notConnected": "Non branché",
       "rename": "Renommer",
       "renameTitle": "Renommer la clé USB",
@@ -667,6 +666,7 @@
       "renameError": "Impossible de renommer cette clé USB",
       "forgetTitle": "Oublier cette clé",
       "forget": "Oublier",
+      "confirmForget": "Confirmer l'oubli",
       "forgetDescription": "Retire ses {count} morceaux indexés de la bibliothèque. Rebrancher la clé la réindexera entièrement.",
       "forgetError": "Impossible d'oublier cette clé USB"
     },
