@@ -183,6 +183,25 @@ def _create_service(name: str) -> Any:
         "hostname_conflict_service": lambda: _import("backend.core.system", "HostnameConflictService")(systemd_manager=get_service("systemd_manager")),
         "connectivity_service": lambda: _import("backend.core.connectivity", "ConnectivityService")(),
 
+        # Diagnostic report (Settings › Device › Diagnostic). Reads only; holds
+        # no state, spawns no task, and every dependency below is optional at
+        # the collector level — the report has to be produced by a backend that
+        # is partly dead, which is when it is asked for.
+        "diagnostic_service": lambda: _import("backend.core.system.diagnostic", "DiagnosticService")(
+            settings_service=get_service("settings_service"),
+            hardware_service=get_service("hardware_service"),
+            state_machine=get_service("audio_state_machine"),
+            routing_service=get_service("audio_routing_service"),
+            camilladsp_service=get_service("camilladsp_service"),
+            snapcast_service=get_service("snapcast_service"),
+            registry_service=get_service("client_registry_service"),
+            # UpdateService extends VersionService: the installed-version reads
+            # this needs are the same object the update manager uses.
+            version_service=get_service("update_service"),
+            connectivity_service=get_service("connectivity_service"),
+            hostname_conflict_service=get_service("hostname_conflict_service"),
+        ),
+
         # Lyrics (transverse Lyrics app — LRCLIB lookup + disk cache; no source, no boot init)
         "lyrics_service": lambda: _import("backend.core.lyrics", "LyricsService")(),
 

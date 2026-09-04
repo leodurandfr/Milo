@@ -22,6 +22,7 @@ from backend.config.constants import (
 
 if TYPE_CHECKING:
     from backend.core.connectivity.service import ConnectivityService
+    from backend.core.system.diagnostic import DiagnosticService
     from backend.core.system.hostname_conflict import HostnameConflictService
     from backend.core.systemd import SystemdServiceManager
     from backend.hardware.service import HardwareService
@@ -74,7 +75,8 @@ def create_system_router(
     systemd_manager: "SystemdServiceManager",
     hostname_conflict_service: Optional["HostnameConflictService"] = None,
     connectivity_service: Optional["ConnectivityService"] = None,
-    hardware_service: Optional["HardwareService"] = None
+    hardware_service: Optional["HardwareService"] = None,
+    diagnostic_service: Optional["DiagnosticService"] = None
 ):
     router = APIRouter()
 
@@ -266,6 +268,29 @@ def create_system_router(
             logger.info(f"Failed to read memory stats: {e}")
 
         return result
+
+    @router.post("/diagnostic")
+    async def generate_diagnostic():
+        """Build the diagnostic report the user sends to the maintainer.
+
+        A single readable text file, on a button, and nothing automatic: an
+        export sent by itself would need a destination, therefore consent,
+        therefore a server — a different project. What comes back is the file
+        plus the list of sections that could not be collected, so the UI can
+        name them under the buttons rather than let them pass as silence.
+
+        POST because it is an action: it runs subprocesses and fans out to every
+        satellite. It carries no body — there is nothing to choose.
+        """
+        async with api_error_handler("Failed to generate the diagnostic report", logger):
+            if diagnostic_service is None:
+                raise HTTPException(status_code=503, detail="Diagnostic service unavailable")
+            result = await diagnostic_service.generate()
+            logger.info(
+                "Diagnostic report generated (%d bytes, %d section(s) not collected)",
+                len(result["report"].encode("utf-8")), len(result["unavailable"]),
+            )
+            return {"status": "success", "data": result}
 
     @router.post("/reset-setup")
     async def reset_setup(background_tasks: BackgroundTasks):

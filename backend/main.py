@@ -286,6 +286,7 @@ system_router = create_system_router(
     hostname_conflict_service=get_service("hostname_conflict_service"),
     connectivity_service=get_service("connectivity_service"),
     hardware_service=hardware_service,
+    diagnostic_service=get_service("diagnostic_service"),
 )
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 

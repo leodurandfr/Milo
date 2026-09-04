@@ -353,7 +353,12 @@ class MpvController:
         if not await self.ensure_connected():
             return False
         await self._apply_stream_options(url)
-        self.logger.info(f"Loading stream: {url[:100]}...")
+        # Query string dropped, not truncated: the Music Library streams from
+        # Navidrome over Subsonic token auth, so its URL carries
+        # `u=<user>&t=<md5(password+salt)>&s=<salt>` — the token and the salt
+        # that cracks it, on one INFO line, once per track. The path alone is
+        # what a stream failure is diagnosed from.
+        self.logger.info("Loading stream: %s", url.split("?")[0][:100])
         response = await self._send_command("loadfile", url, "replace")
 
         # mpv can return transient errors (None, "property unavailable")
