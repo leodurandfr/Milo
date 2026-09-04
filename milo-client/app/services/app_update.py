@@ -18,7 +18,14 @@ from typing import Optional
 
 REPO_DIR = Path("/home/milo-client/repo/milo-client")
 VENV_PIP = Path("/home/milo-client/venv/bin/pip3")
-VERSION_FILE = Path("/var/lib/milo-client/app-version")
+# Two files because a satellite answers two different questions. RELEASE_FILE
+# is the release the server was on when it pushed — what the update screen
+# shows, in the same numbering as the server's own row. PAYLOAD_FILE
+# fingerprints the `milo-client/` tree that actually landed here, and is what
+# the server compares to decide whether this unit needs a push at all: the two
+# move independently, since most releases do not touch this directory.
+RELEASE_FILE = Path("/var/lib/milo-client/app-release")
+PAYLOAD_FILE = Path("/var/lib/milo-client/app-payload")
 DEPLOY_SCRIPT = "/usr/local/bin/milo-client-deploy-update"
 
 
@@ -33,26 +40,43 @@ class AppUpdateService:
     def update_in_progress(self) -> bool:
         return self._update_in_progress
 
-    def get_app_version(self) -> Optional[str]:
-        """Reads the current app version from the version file."""
+    def get_app_release(self) -> Optional[str]:
+        """The release this satellite was deployed from, or None.
+
+        None covers both an empty file and a missing one, and they mean the same
+        thing here: nothing published names this code. A push from a development
+        checkout writes the empty string on purpose.
+        """
+        return self._read_identity(RELEASE_FILE, "release")
+
+    def get_app_payload(self) -> Optional[str]:
+        """Fingerprint of the `milo-client/` tree this satellite runs, or None."""
+        return self._read_identity(PAYLOAD_FILE, "payload")
+
+    def _read_identity(self, path: Path, label: str) -> Optional[str]:
         try:
-            if VERSION_FILE.exists():
-                version = VERSION_FILE.read_text().strip()
-                return version if version else None
+            if path.exists():
+                value = path.read_text().strip()
+                return value if value else None
             return None
         except Exception as e:
-            self.logger.error(f"Error reading app version: {e}")
+            self.logger.error(f"Error reading app {label}: {e}")
             return None
 
-    async def deploy_update(self, tarball_path: str, version: str) -> dict:
+    async def deploy_update(self, tarball_path: str, version: str, release: str = "") -> dict:
         """Deploys an app update from a tarball.
+
+        `version` fingerprints the tree being deployed; `release` names the
+        server release it came out of. Both are decided on the server, which is
+        the only side that holds a git checkout — a satellite computing either
+        of them itself is how a fleet comes to disagree about what it runs.
 
         Steps:
         1. Extract tarball to temp dir (with security validation)
         2. Sync app/ files (clear old, copy new, skip __pycache__)
         3. Run sudo deploy script for system/rootfs files
         4. Install Python dependencies via pip
-        5. Write version file
+        5. Write the identity files
         6. Schedule service restart with delay
         """
         if self._update_in_progress:
@@ -62,7 +86,9 @@ class AppUpdateService:
         app_swapped = False
         try:
             self._update_in_progress = True
-            self.logger.info(f"Starting app update deployment (version: {version})")
+            self.logger.info(
+                f"Starting app update deployment (payload: {version}, release: {release or 'development'})"
+            )
 
             # 1. Extract tarball to temp dir
             temp_dir = tempfile.mkdtemp(prefix="milo-client-update-")
@@ -92,9 +118,13 @@ class AppUpdateService:
             if requirements_file.exists():
                 await self._install_dependencies(requirements_file)
 
-            # 5. Write version file
-            VERSION_FILE.write_text(version)
-            self.logger.info(f"Version file updated: {version}")
+            # 5. Write the identity files. The payload goes last: it is what
+            # the server polls to decide the deployment landed, so writing it
+            # before the release would let a poll succeed against a satellite
+            # still claiming the previous release.
+            RELEASE_FILE.write_text(release)
+            PAYLOAD_FILE.write_text(version)
+            self.logger.info(f"Identity updated: payload {version}, release {release or 'development'}")
 
             # Everything that can still fail has now succeeded, so the tree kept
             # for the rollback is dead weight — one app/ of disk on a device

@@ -12,6 +12,10 @@
 #   sudo ./inspect-image.sh /mnt/milo-image       # a mounted image root
 #   sudo ./inspect-image.sh --img milo.img        # mount the image, check, unmount
 #
+# --ref <tag-or-branch> names what the image was supposed to be built from. Given
+# a release tag, the checkout inside the image must sit exactly on it: that is
+# the only check that ties the artefact to the version it is published under.
+#
 # The default target is `/`, so the same checks that accept an image also
 # accept a live appliance — which is how the checks themselves are validated.
 #
@@ -24,12 +28,18 @@ BOOT=""
 IMG=""
 LOOP=""
 MNT=""
+REF=""
 
 cleanup() {
     [[ -n "$MNT" ]] && { umount "$MNT/boot/firmware" 2>/dev/null; umount "$MNT" 2>/dev/null; rmdir "$MNT" 2>/dev/null; }
     [[ -n "$LOOP" ]] && losetup -d "$LOOP" 2>/dev/null
 }
 trap cleanup EXIT
+
+while [[ "${1:-}" == "--ref" ]]; do
+    REF="${2:?usage: $0 [--ref <tag>] [--img <image.img>|<root>]}"
+    shift 2
+done
 
 if [[ "${1:-}" == "--img" ]]; then
     IMG="${2:?usage: $0 --img <image.img>}"
@@ -44,6 +54,12 @@ if [[ "${1:-}" == "--img" ]]; then
 elif [[ -n "${1:-}" ]]; then
     ROOT="${1%/}/"
 fi
+
+while [[ "${1:-}" == "--ref" || "${2:-}" == "--ref" ]]; do
+    [[ "${1:-}" == "--ref" ]] || shift
+    REF="${2:?usage: $0 [--ref <tag>] [--img <image.img>|<root>]}"
+    shift 2
+done
 
 BOOT="${ROOT%/}/boot/firmware"
 [[ -d "$BOOT" ]] || BOOT="${ROOT%/}/boot"
@@ -239,6 +255,35 @@ check "polkit rule deployed"        "[ -f '${ROOT%/}/etc/polkit-1/rules.d/50-mil
 check "journald drop-in deployed"   "[ -f '${ROOT%/}/etc/systemd/journald.conf.d/99-milo-journald.conf' ]"
 check "persistent journal dir"      "[ -d '${ROOT%/}/var/log/journal' ]"
 check "snd-aloop two cards"         "grep -q 'id=Loopback,LoopbackDLNA' '${ROOT%/}/etc/modprobe.d/snd-aloop.conf'"
+
+# --------------------------------------------------------------------------
+section "The release this image carries"
+# --------------------------------------------------------------------------
+# What a user flashes and what the update flow later offers have to be the same
+# thing. Until the frontend was built in CI these three were all unwatched: the
+# image built its own `dist/` with `npm install`, the clone was pinned to one
+# tag by its refspec, and nothing checked either.
+MILO_CHECKOUT="${ROOT%/}/home/milo/milo"
+
+check "frontend dist installed" "[ -f '$MILO_CHECKOUT/frontend/dist/index.html' ]"
+# Not built here, so no build tree may be left behind — one would mean the stage
+# fell back to compiling, which is the divergence this removed.
+check "no frontend build tree"  "! [ -d '$MILO_CHECKOUT/frontend/node_modules' ]"
+# The refspec a `--single-branch` tag clone leaves behind makes every later
+# release unreachable from the update button. Measured, then fixed.
+check "origin fetches all branches" \
+    "git -C '$MILO_CHECKOUT' config --get-all remote.origin.fetch | grep -q 'refs/heads/\*'"
+
+if [[ -n "$REF" ]]; then
+    if [[ "$REF" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        check "checkout sits exactly on $REF" \
+            "[ \"\$(git -C '$MILO_CHECKOUT' describe --tags --exact-match 2>/dev/null)\" = '$REF' ]"
+        check "satellite identity seeded with $REF" \
+            "[ \"\$(cat '${ROOT%/}/var/lib/milo-client/app-release' 2>/dev/null)\" = '$REF' ]"
+    else
+        printf '  \033[0;33mskip\033[0m  checkout ref (%s is not a release tag)\n' "$REF"
+    fi
+fi
 
 printf '\n\033[1m%d ok, %d failed\033[0m\n' "$pass" "$fail"
 [[ $fail -eq 0 ]] || exit $(( fail > 125 ? 125 : fail ))

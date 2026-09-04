@@ -16,7 +16,9 @@ still. So this file is out of scope for any sweep that replaces
 sibling files where that migration *is* right say so in their own headers.
 """
 import asyncio
+import hashlib
 import logging
+import tarfile
 import tempfile
 import time
 from contextlib import ExitStack, contextmanager
@@ -56,6 +58,27 @@ def update_service(mock_settings_service):
 # literal rather than derived from the catalog so a program dropping out of the
 # flow is a visible test edit, not a silently shrinking parametrization.
 BINARY_PROGRAMS = ["go-librespot", "camilladsp", "navidrome"]
+
+# What the offer hands `_update_milo_app`. The release is named by its TAG, not
+# only by its version: the tag is what `git checkout` is given and what the
+# frontend asset URL is built from, so a status carrying only a version is a
+# status the install cannot act on.
+MILO_STATUS = {
+    "installed": {"versions": {"main": "0.1.0"}, "raw_version": "v0.1.0"},
+    "latest": {"status": "success", "version": "0.2.0", "tag_name": "v0.2.0"},
+}
+
+
+@contextmanager
+def frontend_from_the_release(service):
+    """Stand in for the release-asset install of `frontend/dist`.
+
+    It is a download plus a checksum plus a directory swap inside the live
+    checkout — its own tests drive it directly. Every flow test above it needs
+    it to have happened, not to happen.
+    """
+    with patch.object(service, "_install_release_frontend", new=AsyncMock()) as install:
+        yield install
 
 
 def _recording_aiofiles_open(sink):
@@ -1023,33 +1046,25 @@ class TestUpdateMultiroom:
 
 
 class TestUpdateMiloApp:
-    """Tests for _update_milo_app() orchestration"""
+    """The gates a Milo update passes before it touches anything."""
 
     @pytest.mark.asyncio
     async def test_not_git_repo(self, update_service):
-        status = {
-            "installed": {"versions": {"main": "0.0.1"}},
-            "latest": {"version": "1.0.0"}
-        }
-
         with patch("pathlib.Path.exists", return_value=False):
-            result = await update_service._update_milo_app(status)
+            result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is False
         assert "git repository" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_dirty_working_tree(self, update_service):
-        status = {
-            "installed": {"versions": {"main": "0.0.1"}},
-            "latest": {"version": "1.0.0"}
-        }
-
+        """`git checkout --force <tag>` over uncommitted work destroys it."""
         commit_proc = _make_mock_proc(stdout=b"abc123\n")
         fetch_proc = _make_mock_proc(returncode=0)
         status_proc = _make_mock_proc(stdout=b" M modified_file.py\n")
 
         call_count = 0
+
         async def mock_exec(*args, **kwargs):
             nonlocal call_count
             call_count += 1
@@ -1061,22 +1076,17 @@ class TestUpdateMiloApp:
 
         with patch("pathlib.Path.exists", return_value=True):
             with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
-                result = await update_service._update_milo_app(status)
+                result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is False
         assert "local changes" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_a_failed_git_status_aborts_before_the_pull(self, update_service):
+    async def test_a_failed_git_status_aborts_before_the_checkout(self, update_service):
         """A non-zero `git status --porcelain` yields the same empty stdout as a
-        clean tree. Reading only stdout let the update pull over local changes it
-        never managed to look for.
+        clean tree. Reading only stdout let the update check out a tag over
+        local changes it never managed to look for.
         """
-        status = {
-            "installed": {"versions": {"main": "0.0.1"}},
-            "latest": {"version": "1.0.0"}
-        }
-
         procs = {
             "rev-parse": _make_mock_proc(stdout=b"abc123\n"),
             "fetch": _make_mock_proc(returncode=0),
@@ -1090,70 +1100,65 @@ class TestUpdateMiloApp:
 
         with patch("pathlib.Path.exists", return_value=True):
             with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
-                result = await update_service._update_milo_app(status)
+                result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is False
         assert "git status" in result["error"].lower()
-        assert not any("pull" in args for args in spawned)
+        assert not any("checkout" in args for args in spawned)
 
     @pytest.mark.asyncio
-    async def test_git_fetch_timeout(self, update_service):
-        status = {
-            "installed": {"versions": {"main": "0.0.1"}},
-            "latest": {"version": "1.0.0"}
-        }
+    async def test_a_fetch_that_hangs_is_reported_without_rolling_back(self, update_service):
+        """Two minutes is the ceiling; a stalled fetch against an unreachable
+        remote would otherwise hold the update open for ever.
 
+        And there is nothing to roll back: the fetch writes into `.git` and
+        moves no ref, so the tree is still on the release it booted. Rolling
+        back here used to mean a full reinstall and a reboot over a network
+        blip — the timeout and the non-zero exit now answer the same way,
+        which is the answer the non-zero exit always gave.
+        """
         commit_proc = _make_mock_proc(stdout=b"abc123\n")
         fetch_proc = _make_mock_proc()
-        fetch_proc.kill = AsyncMock()
-        fetch_proc.wait = AsyncMock()
 
         call_count = 0
+
         async def mock_exec(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            if call_count == 1:
-                return commit_proc
-            return fetch_proc
+            return commit_proc if call_count == 1 else fetch_proc
 
         async def mock_wait_for(coro, **kwargs):
-            # First wait_for is for git fetch
             raise asyncio.TimeoutError()
 
-        with patch("pathlib.Path.exists", return_value=True):
-            with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
-                with patch("asyncio.wait_for", side_effect=mock_wait_for):
-                    with patch.object(update_service, "_rollback_milo_to_commit", return_value=True) as mock_rollback:
-                        with patch("asyncio.sleep", new_callable=AsyncMock):
-                            result = await update_service._update_milo_app(status)
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch("asyncio.wait_for", side_effect=mock_wait_for))
+            rollback = stack.enter_context(
+                patch.object(update_service, "_rollback_milo_to_commit", return_value=True)
+            )
+            result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is False
         assert "timed out" in result["error"].lower()
-        # The rollback must have actually run, not merely be claimed in the message.
-        mock_rollback.assert_awaited_once()
-        assert "rolled back" in result["error"].lower()
+        assert "Git fetch failed" in result["error"]
+        rollback.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_git_fetch_failure(self, update_service):
-        status = {
-            "installed": {"versions": {"main": "0.0.1"}},
-            "latest": {"version": "1.0.0"}
-        }
-
         commit_proc = _make_mock_proc(stdout=b"abc123\n")
         fetch_proc = _make_mock_proc(returncode=1, stderr=b"fatal: error")
 
         call_count = 0
+
         async def mock_exec(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            if call_count == 1:
-                return commit_proc
-            return fetch_proc
+            return commit_proc if call_count == 1 else fetch_proc
 
         with patch("pathlib.Path.exists", return_value=True):
             with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
-                result = await update_service._update_milo_app(status)
+                result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is False
         assert "Git fetch failed" in result["error"]
@@ -1199,6 +1204,7 @@ class TestMiloAppPythonDependencies:
         with ExitStack() as stack:
             stack.enter_context(patch("pathlib.Path.exists", return_value=True))
             stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(frontend_from_the_release(service))
             stack.enter_context(patch.object(service, "_sync_system_files"))
             stack.enter_context(patch.object(service, "_run_deploy", return_value=(True, "")))
             stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
@@ -1212,10 +1218,8 @@ class TestMiloAppPythonDependencies:
         Anchored on the tree instead of on a literal: whatever path the service
         builds, resolved inside this checkout, must be a file that is there.
         """
-        status = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
-
         with self._milo_flow(update_service) as calls:
-            result = await update_service._update_milo_app(status)
+            result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is True
         pip_call = self._pip_call(calls)
@@ -1229,7 +1233,6 @@ class TestMiloAppPythonDependencies:
     @pytest.mark.asyncio
     async def test_pip_failure_aborts_the_update_and_rolls_back(self, update_service):
         """The step had no returncode check, so a broken venv still rebooted."""
-        status = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
         pip_proc = _make_mock_proc(returncode=1, stderr=b"No matching distribution found")
 
         with ExitStack() as stack:
@@ -1237,7 +1240,7 @@ class TestMiloAppPythonDependencies:
             rollback = stack.enter_context(
                 patch.object(update_service, "_rollback_milo_to_commit", return_value=True)
             )
-            result = await update_service._update_milo_app(status)
+            result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is False
         assert "pip install failed" in result["error"]
@@ -1249,17 +1252,17 @@ class TestMiloAppPythonDependencies:
     @pytest.mark.asyncio
     async def test_pip_timeout_kills_the_process(self, update_service):
         """A hung pip must not be left running behind a failed update."""
-        status = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
         pip_proc = _make_mock_proc()
         pip_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
 
         with ExitStack() as stack:
             stack.enter_context(self._milo_flow(update_service, pip_proc=pip_proc))
             stack.enter_context(patch.object(update_service, "_rollback_milo_to_commit", return_value=True))
-            result = await update_service._update_milo_app(status)
+            result = await update_service._update_milo_app(MILO_STATUS)
 
         assert result["success"] is False
-        assert "pip install timed out" in result["error"]
+        assert "pip install failed" in result["error"]
+        assert "Timed out" in result["error"]
         pip_proc.kill.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1574,6 +1577,7 @@ class TestDependencyReconciliation:
             stack.enter_context(patch("pathlib.Path.exists", return_value=True))
             stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
             stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(frontend_from_the_release(update_service))
             stack.enter_context(patch.object(update_service, "_run_deploy", side_effect=deploy))
             stack.enter_context(
                 patch.object(update_service, "_reconcile_dependencies", side_effect=reconcile)
@@ -1617,6 +1621,7 @@ class TestDependencyReconciliation:
             stack.enter_context(patch("pathlib.Path.exists", return_value=True))
             stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
             stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(frontend_from_the_release(update_service))
             stack.enter_context(patch.object(update_service, "_run_deploy", side_effect=deploy))
             stack.enter_context(
                 patch.object(update_service, "_reconcile_dependencies", side_effect=reconcile)
@@ -1634,22 +1639,18 @@ class TestMiloAppLastSteps:
     `_sync_system_files` only warned, and `_run_deploy("reboot")` was called
     without looking at what it answered — so an update that copied no unit file,
     or one the reboot refused, still reported `success: True` to the UI and to
-    Milo-Mac. The rollback's npm steps had neither timeout nor returncode check,
-    which is the same silence one layer down: a rollback that rebuilt nothing
-    logged "completed successfully".
+    Milo-Mac.
     """
 
-    STATUS = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
+    STATUS = MILO_STATUS
 
     @staticmethod
-    def _exec(*, npm_proc=None):
-        """Answer each subprocess by command; npm is the one under test here."""
+    def _exec():
+        """Answer each subprocess by command, recording every argv."""
         calls = []
 
         async def mock_exec(*args, **kwargs):
             calls.append(args)
-            if args[0] == "npm":
-                return npm_proc or _make_mock_proc()
             if "rev-parse" in args:
                 return _make_mock_proc(stdout=b"abc123def456\n")
             return _make_mock_proc()
@@ -1665,6 +1666,7 @@ class TestMiloAppLastSteps:
             stack.enter_context(patch("pathlib.Path.exists", return_value=True))
             stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
             stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(frontend_from_the_release(update_service))
             deploy = stack.enter_context(
                 patch.object(update_service, "_run_deploy", return_value=(False, "cp: permission denied"))
             )
@@ -1681,8 +1683,8 @@ class TestMiloAppLastSteps:
 
     @pytest.mark.asyncio
     async def test_a_refused_reboot_is_reported_without_rolling_back(self, update_service):
-        """The code is pulled, built and synced — undoing it over a refused
-        reboot would be worse than reporting it. Only the answer changes.
+        """The release is checked out, installed and synced — undoing it over a
+        refused reboot would be worse than reporting it. Only the answer changes.
         """
         calls, mock_exec = self._exec()
 
@@ -1693,6 +1695,7 @@ class TestMiloAppLastSteps:
             stack.enter_context(patch("pathlib.Path.exists", return_value=True))
             stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
             stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(frontend_from_the_release(update_service))
             stack.enter_context(patch.object(update_service, "_run_deploy", side_effect=deploy))
             stack.enter_context(github_unreachable())
             rollback = stack.enter_context(
@@ -1704,45 +1707,6 @@ class TestMiloAppLastSteps:
         assert "reboot" in result["error"].lower()
         assert "sudo: a password is required" in result["error"]
         rollback.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_a_rollback_that_cannot_rebuild_the_frontend_fails(self, update_service):
-        """A rollback leaving a broken dist/ must not log "completed successfully"."""
-        npm_proc = _make_mock_proc(returncode=1, stderr=b"ENOSPC: no space left on device")
-        calls, mock_exec = self._exec(npm_proc=npm_proc)
-
-        with ExitStack() as stack:
-            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
-            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
-            stack.enter_context(patch.object(update_service, "_sync_system_files"))
-            restart = stack.enter_context(
-                patch.object(update_service._systemd, "restart_self", return_value=True)
-            )
-            result = await update_service._rollback_milo_to_commit("abc123def456")
-
-        assert result is False
-        # Nothing after the failed build ran: no pip, no self-restart.
-        assert not [c for c in calls if c[0].endswith("pip3")]
-        restart.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_a_hung_npm_does_not_freeze_the_rollback(self, update_service):
-        """Unbounded, this is the plausible one: the backend is never restarted
-        and the update key stays in active_updates, so the UI shows an update
-        running forever.
-        """
-        npm_proc = _make_mock_proc()
-        npm_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
-        calls, mock_exec = self._exec(npm_proc=npm_proc)
-
-        with ExitStack() as stack:
-            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
-            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
-            stack.enter_context(patch.object(update_service, "_sync_system_files"))
-            result = await update_service._rollback_milo_to_commit("abc123def456")
-
-        assert result is False
-        npm_proc.kill.assert_called_once()
 
 
 class TestVerifyBinaryProgram:
@@ -3535,31 +3499,31 @@ class TestCleanupTempFilesFailure:
 
 
 class TestRollbackMiloToCommit:
-    """The most destructive method in the backend: `git -C <git_path> reset
-    --hard <sha>` where `git_path` is the production checkout.
+    """The most destructive method in the backend: `git -C <git_path> checkout
+    --force <sha>` where `git_path` is the production checkout.
 
     Every spawn is doubled and the fixture at the top of this file makes an
-    escaped one raise, because a reset that ran for real would discard the
+    escaped one raise, because a checkout that ran for real would discard the
     working tree of whoever is on the box.
     """
 
-    STATUS = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
+    STATUS = MILO_STATUS
 
     @staticmethod
-    def _router(*, reset=(0, b"", b""), pip=(0, b"", b"")):
+    def _router(*, checkout=(0, b"", b""), pip=(0, b"", b"")):
         def route(argv):
-            if "reset" in argv:
-                return reset
+            if "checkout" in argv:
+                return checkout
             if str(argv[0]).endswith("pip3"):
                 return pip
             return (0, b"", b"")
         return route
 
     @pytest.mark.asyncio
-    async def test_the_reset_names_the_checkout_and_the_saved_commit(self, update_service):
-        """`-C <git_path>` is what keeps the reset inside the checkout being
+    async def test_the_checkout_names_the_repo_and_the_saved_commit(self, update_service):
+        """`-C <git_path>` is what keeps the checkout inside the tree being
         updated rather than the backend's own working directory, and the commit
-        is the one `_get_current_commit` banked before the pull."""
+        is the one `_get_current_commit` banked before the update."""
         with spawning(self._router()) as spawn, \
                 patch.object(update_service, "_sync_system_files"), \
                 patch.object(update_service, "_restart_service", return_value=True), \
@@ -3568,21 +3532,56 @@ class TestRollbackMiloToCommit:
 
         git_path = update_service.programs["milo"]["git_path"]
         assert spawn.argv_for("git") == (
-            "git", "-C", git_path, "reset", "--hard", "abc123def")
+            "git", "-C", git_path, "checkout", "--force", "abc123def")
 
     @pytest.mark.asyncio
-    async def test_a_reset_that_failed_stops_before_rebuilding_anything(
+    async def test_a_checkout_that_failed_stops_before_rebuilding_anything(
             self, update_service, caplog):
-        """The tree is still on the broken commit. Rebuilding the frontend and
-        the venv against it, then restarting the backend, would make the failed
-        update permanent instead of merely failed."""
-        with spawning(self._router(reset=(128, b"", b"fatal: bad object abc123def"))) as spawn, \
+        """The tree is still on the broken release. Reinstalling the venv
+        against it and restarting the backend would make the failed update
+        permanent instead of merely failed."""
+        with spawning(self._router(checkout=(128, b"", b"fatal: bad object abc123def"))) as spawn, \
                 patch.object(update_service, "_sync_system_files") as sync, \
                 caplog.at_level(logging.ERROR):
             assert await update_service._rollback_milo_to_commit("abc123def") is False
 
         assert "bad object" in caplog.text
         assert spawn.programs() == ["git"]
+        sync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_the_frontend_is_restored_only_when_the_update_had_swapped_it(
+            self, update_service):
+        """`frontend/dist` is not in git, so the checkout back does not bring
+        the previous one with it — but the backup only holds it once the install
+        got as far as the swap. Restoring unconditionally would deploy the
+        *previous* release's frontend over a tree that never left the current
+        one, which is worse than the failure being rolled back.
+        """
+        with spawning(self._router()), \
+                patch.object(update_service, "_sync_system_files"), \
+                patch.object(update_service, "_restart_service", return_value=True), \
+                patch.object(update_service._systemd, "restart_self", new=AsyncMock()), \
+                patch.object(update_service, "_restore_release_frontend") as restore:
+            assert await update_service._rollback_milo_to_commit("abc123def") is True
+            restore.assert_not_called()
+
+            assert await update_service._rollback_milo_to_commit(
+                "abc123def", restore_frontend=True) is True
+            restore.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_frontend_that_cannot_be_restored_is_not_a_rollback(self, update_service):
+        """The tree is back on the previous release but nginx still serves the
+        failed one's assets. Reporting True sends the caller's message "Rolled
+        back to previous version" over a unit showing the wrong app.
+        """
+        with spawning(self._router()), \
+                patch.object(update_service, "_sync_system_files") as sync, \
+                patch.object(update_service, "_restore_release_frontend",
+                             side_effect=Exception("No frontend backup to restore")):
+            assert await update_service._rollback_milo_to_commit(
+                "abc123def", restore_frontend=True) is False
         sync.assert_not_called()
 
     @pytest.mark.asyncio
@@ -3648,67 +3647,67 @@ class TestRollbackMiloToCommit:
         assert order == ["sync", "milo-kiosk.service", "self"]
 
 
-class TestMiloAppPullArms:
+class TestMiloAppCheckoutArms:
 
-    STATUS = {"installed": {"versions": {"main": "0.0.1"}}, "latest": {"version": "1.0.0"}}
+    STATUS = MILO_STATUS
 
     @staticmethod
-    def _router(*, pull=(0, b"", b"")):
+    def _router(*, checkout=(0, b"", b"")):
         def route(argv):
             if "rev-parse" in argv:
                 return (0, b"abc123def456\n", b"")
-            if "pull" in argv:
-                return pull
+            if "checkout" in argv:
+                return checkout
             return (0, b"", b"")
         return route
 
     @pytest.mark.asyncio
-    async def test_a_pull_that_failed_rolls_the_tree_back(self, update_service):
-        """A pull can leave the tree mid-merge; the saved commit is the only way
-        back to something that boots."""
-        with spawning(self._router(pull=(1, b"", b"fatal: could not read from remote"))), \
+    async def test_a_checkout_that_failed_rolls_the_tree_back(self, update_service):
+        """A checkout can leave the tree on a half-written index; the saved
+        commit is the only way back to something that boots."""
+        with spawning(self._router(checkout=(1, b"", b"fatal: reference is not a tree"))), \
                 patch("pathlib.Path.exists", return_value=True), \
                 patch.object(update_service, "_rollback_milo_to_commit",
                              return_value=True) as rollback:
             result = await update_service._update_milo_app(self.STATUS)
 
-        assert "could not read from remote" in result["error"]
+        assert "reference is not a tree" in result["error"]
         assert "Rolled back" in result["error"]
-        rollback.assert_awaited_once_with("abc123def456")
+        rollback.assert_awaited_once_with("abc123def456", restore_frontend=False)
 
     @pytest.mark.asyncio
-    async def test_a_pull_that_hangs_is_killed_and_rolls_back(self, update_service):
-        """Two minutes is the ceiling; a stalled fetch against an unreachable
-        remote would otherwise hold the update open for ever."""
+    async def test_a_checkout_that_hangs_is_killed_and_rolls_back(self, update_service):
+        """Two minutes is the ceiling; a checkout blocked on a busy card would
+        otherwise hold the update open for ever."""
         fake = RecordingSpawn(self._router())
 
-        async def spawn_with_hanging_pull(program, *args, **kwargs):
+        async def spawn_with_hanging_checkout(program, *args, **kwargs):
             proc = await fake(program, *args, **kwargs)
-            if "pull" in args:
+            if "checkout" in args:
                 async def times_out(input=None):
                     raise asyncio.TimeoutError()
                 proc.communicate = times_out
             return proc
 
-        with patch("asyncio.create_subprocess_exec", new=spawn_with_hanging_pull), \
+        with patch("asyncio.create_subprocess_exec", new=spawn_with_hanging_checkout), \
                 patch("pathlib.Path.exists", return_value=True), \
                 patch.object(update_service, "_rollback_milo_to_commit",
                              return_value=True) as rollback:
             result = await update_service._update_milo_app(self.STATUS)
 
-        assert "timed out" in result["error"]
+        assert "Timed out" in result["error"]
         rollback.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_a_failure_with_no_saved_commit_reports_no_rollback_outcome(self, update_service):
         """`_get_current_commit` answers "" when HEAD cannot be read, and
-        `git reset --hard ""` would be worse than no rollback at all. The bare
-        error is then the honest answer — there is no outcome to describe."""
+        `git checkout --force ""` would be worse than no rollback at all. The
+        bare error is then the honest answer — there is no outcome to describe."""
         def route(argv):
             if "rev-parse" in argv:
                 return (128, b"", b"fatal: not a git repository")
-            if "pull" in argv:
-                return (1, b"", b"fatal: refusing to merge unrelated histories")
+            if "checkout" in argv:
+                return (1, b"", b"fatal: reference is not a tree")
             return (0, b"", b"")
 
         with spawning(route), patch("pathlib.Path.exists", return_value=True), \
@@ -3885,3 +3884,336 @@ class TestForcedVersionBookkeeping:
         await update_service._prune_forced_versions()
 
         assert mock_settings_service._storage["updates.forced_versions"] == {"navidrome": "0.64.0"}
+
+
+class ReleaseAssets:
+    """Stands in for GitHub's release download host.
+
+    Serves exactly the URLs it was given and 404s everything else, which is what
+    makes "the install asked for the asset of the tag it was offered" an
+    assertion rather than a coincidence.
+    """
+
+    def __init__(self, files: dict):
+        self.files = files
+        self.requested: list[str] = []
+
+    def session(self, *args, **kwargs):
+        assets = self
+
+        class _Response:
+            def __init__(self, url):
+                assets.requested.append(url)
+                self._body = assets.files.get(url)
+                self.status = 200 if self._body is not None else 404
+
+            @property
+            def content(self):
+                body = self._body
+
+                class _Content:
+                    async def iter_chunked(self, size):
+                        for start in range(0, len(body), size):
+                            yield body[start:start + size]
+
+                return _Content()
+
+            async def text(self):
+                return self._body.decode()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        class _Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def get(self, url, **kw):
+                return _Response(url)
+
+        return _Session()
+
+
+def _frontend_tarball(tmp_path, marker=b"<!doctype html>release build"):
+    """A real gzipped tar carrying `dist/index.html`, and its sha256.
+
+    Built rather than faked: the install verifies a digest and then looks inside
+    the archive for `dist/index.html`, so a stand-in that is not really a tar
+    would pass a test the production path fails.
+    """
+    src = tmp_path / "src" / "dist"
+    src.mkdir(parents=True)
+    (src / "index.html").write_bytes(marker)
+    archive = tmp_path / "milo-frontend.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(str(src), arcname="dist")
+    body = archive.read_bytes()
+    return body, hashlib.sha256(body).hexdigest()
+
+
+class TestTheReleaseInstall:
+    """A Milo update installs the release it offered, and the frontend that
+    release was built with.
+
+    Both halves used to be untrue at once. The offer came from
+    `releases/latest`; the install ran `git pull origin main`, so what landed
+    was main at the moment of the click — a tree nobody tagged, tested or
+    published, different for every unit that pressed the button on a different
+    day, and impossible to withhold because there was nothing to withhold. The
+    frontend was then rebuilt on the Pi with `npm install`, resolving the
+    dependency tree against whatever the registry offered that day.
+
+    What is asserted here is the pair: the tag named by the offer is the ref
+    that gets checked out, and `frontend/dist` comes off the release rather than
+    out of a compiler.
+    """
+
+    @staticmethod
+    def _router(spawned, *, checkout=(0, b"", b"")):
+        def route(argv):
+            spawned.append(argv)
+            if "rev-parse" in argv:
+                return (0, b"abc123def456\n", b"")
+            if "checkout" in argv:
+                return checkout
+            return (0, b"", b"")
+
+        return route
+
+    @contextmanager
+    def _flow(self, service, spawned, *, checkout=(0, b"", b"")):
+        """Everything a Milo update does past the frontend, stubbed."""
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(spawning(self._router(spawned, checkout=checkout)))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(patch.object(service, "_install_python_dependencies"))
+            stack.enter_context(patch.object(service, "_sync_system_files"))
+            stack.enter_context(patch.object(service, "_reconcile_dependencies", return_value=[]))
+            stack.enter_context(patch.object(service, "_run_deploy", return_value=(True, "")))
+            yield
+
+    @pytest.mark.asyncio
+    async def test_the_install_checks_out_the_tag_the_offer_named(self, update_service):
+        """The version is not enough: "0.2.0" is not a ref, `v0.2.0` is. The
+        offer carries the tag GitHub published precisely so the install has
+        something to check out.
+        """
+        spawned = []
+        with self._flow(update_service, spawned), \
+                frontend_from_the_release(update_service) as frontend:
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result["success"] is True
+        git_path = update_service.programs["milo"]["git_path"]
+        assert ("git", "-C", git_path, "checkout", "--force", "v0.2.0") in spawned
+        frontend.assert_awaited_once_with("v0.2.0")
+
+    @pytest.mark.asyncio
+    async def test_no_branch_is_ever_fetched_or_checked_out(self, update_service):
+        """The whole point. A `pull`, or a ref named `main`, means the unit is
+        installing the tip of a branch again — which is not what was offered,
+        and cannot be withheld.
+        """
+        spawned = []
+        with self._flow(update_service, spawned), frontend_from_the_release(update_service):
+            await update_service._update_milo_app(MILO_STATUS)
+
+        assert spawned, "no git command ran at all"
+        flat = [" ".join(map(str, argv)) for argv in spawned]
+        assert not [c for c in flat if " pull" in c], flat
+        assert not [c for c in flat if c.endswith(" main") or " main " in c], flat
+        # The fetch carries its own refspec: a unit flashed from a release image
+        # is cloned at one tag and fetches nothing else without it.
+        assert any("fetch origin --tags --force" in c for c in flat), flat
+
+    @pytest.mark.asyncio
+    async def test_the_update_never_invokes_npm(self, update_service):
+        """Two units updated a month apart resolved `npm install` against
+        whatever the registry offered that day, so what a release was tested
+        with and what a unit ran were two different trees — and a bad hour at
+        the registry blocked the whole fleet from updating at all.
+        """
+        spawned = []
+        with self._flow(update_service, spawned), frontend_from_the_release(update_service):
+            await update_service._update_milo_app(MILO_STATUS)
+
+        assert spawned, "no command ran at all"
+        assert not [argv for argv in spawned if str(argv[0]).endswith("npm")], spawned
+
+    @pytest.mark.asyncio
+    async def test_the_frontend_comes_out_of_the_release_asset(self, update_service, tmp_path):
+        """The real install, against a real tarball: what nginx ends up serving
+        is the bytes the release published.
+        """
+        body, digest = _frontend_tarball(tmp_path)
+        url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
+        assets = ReleaseAssets({url: body, f"{url}.sha256": f"{digest}  milo-frontend.tar.gz".encode()})
+
+        dist = self._point_at(update_service, tmp_path)
+        dist.mkdir(parents=True)
+        (dist / "index.html").write_bytes(b"the previous release")
+
+        with self._extracting(assets):
+            await update_service._install_release_frontend("v0.2.0")
+
+        assert (dist / "index.html").read_bytes() == b"<!doctype html>release build"
+        assert assets.requested == [url, f"{url}.sha256"]
+
+    @pytest.mark.asyncio
+    async def test_the_previous_frontend_is_kept_for_the_rollback(self, update_service, tmp_path):
+        """`frontend/dist` is not in git, so the checkout back cannot restore
+        it. Moving it aside is the only reason a rolled-back update serves the
+        app it was serving before.
+        """
+        body, digest = _frontend_tarball(tmp_path)
+        url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
+        assets = ReleaseAssets({url: body, f"{url}.sha256": digest.encode()})
+
+        dist = self._point_at(update_service, tmp_path)
+        dist.mkdir(parents=True)
+        (dist / "index.html").write_bytes(b"the previous release")
+
+        with self._extracting(assets):
+            await update_service._install_release_frontend("v0.2.0")
+        update_service._restore_release_frontend()
+
+        assert (dist / "index.html").read_bytes() == b"the previous release"
+
+    @pytest.mark.asyncio
+    async def test_a_checksum_mismatch_installs_nothing(self, update_service, tmp_path):
+        """A truncated download extracts into a tree that is *almost* a
+        frontend, and nginx serves it without complaining. The digest is the
+        only thing between that and the owner.
+        """
+        body, _ = _frontend_tarball(tmp_path)
+        url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
+        assets = ReleaseAssets({url: body, f"{url}.sha256": b"0" * 64})
+
+        dist = self._point_at(update_service, tmp_path)
+        dist.mkdir(parents=True)
+        (dist / "index.html").write_bytes(b"the previous release")
+
+        with self._extracting(assets), pytest.raises(Exception, match="checksum mismatch"):
+            await update_service._install_release_frontend("v0.2.0")
+
+        assert (dist / "index.html").read_bytes() == b"the previous release"
+
+    @pytest.mark.asyncio
+    async def test_a_release_publishing_no_frontend_fails_the_update(self, update_service, tmp_path):
+        """A tag pushed without CI, or a build that did not finish. The update
+        must stop at the download rather than reboot onto whatever `dist/`
+        happened to be there.
+        """
+        url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
+        assets = ReleaseAssets({})
+        self._point_at(update_service, tmp_path)
+
+        with self._extracting(assets), pytest.raises(Exception, match="HTTP 404"):
+            await update_service._install_release_frontend("v0.2.0")
+
+        assert assets.requested == [url]
+
+    @pytest.mark.asyncio
+    async def test_a_frontend_that_cannot_be_installed_rolls_the_update_back(self, update_service):
+        """It happens after the checkout, so the tree is already on the new
+        release: the failure has to undo it, and it must not claim the frontend
+        was swapped when it was not.
+        """
+        spawned = []
+        with self._flow(update_service, spawned), \
+                patch.object(update_service, "_install_release_frontend",
+                             side_effect=Exception("Frontend checksum mismatch for v0.2.0")), \
+                patch.object(update_service, "_rollback_milo_to_commit",
+                             return_value=True) as rollback:
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result["success"] is False
+        assert "checksum mismatch" in result["error"]
+        rollback.assert_awaited_once_with("abc123def456", restore_frontend=False)
+
+    @pytest.mark.asyncio
+    async def test_the_fleet_is_pushed_from_the_tree_the_checkout_left(self, update_service):
+        """The satellite tarball is built out of the repo directory, so the two
+        halves ship from one commit only if the push happens after the checkout.
+        Before it, every satellite would be handed the release the server just
+        left.
+        """
+        order = []
+
+        def router(argv):
+            if "rev-parse" in argv:
+                return (0, b"abc123def456\n", b"")
+            if "checkout" in argv:
+                order.append("checkout")
+            return (0, b"", b"")
+
+        async def push():
+            order.append("push-satellites")
+            return []
+
+        update_service._satellites.push_client_app_to_fleet = AsyncMock(side_effect=push)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(spawning(router))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(frontend_from_the_release(update_service))
+            stack.enter_context(patch.object(update_service, "_install_python_dependencies"))
+            stack.enter_context(patch.object(update_service, "_sync_system_files"))
+            stack.enter_context(patch.object(update_service, "_reconcile_dependencies", return_value=[]))
+            stack.enter_context(patch.object(update_service, "_run_deploy", return_value=(True, "")))
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result["success"] is True
+        assert order == ["checkout", "push-satellites"]
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _point_at(service, tmp_path):
+        """Move the milo entry's two paths into tmp_path.
+
+        `programs` is deep-copied per instance, so this cannot reach the live
+        checkout the real entry names — which is the whole reason these tests
+        may run the real swap at all.
+        """
+        service.programs["milo"]["git_path"] = str(tmp_path / "repo")
+        service.programs["milo"]["backup_path"] = str(tmp_path / "backups")
+        return tmp_path / "repo" / "frontend" / "dist"
+
+    @staticmethod
+    @contextmanager
+    def _extracting(assets):
+        """Serve the assets, and let `tar` extract for real, in process.
+
+        The archive is a genuine tarball and the extraction is genuine — what
+        is stood in for is the spawn, which the file-wide fixture refuses.
+        """
+        async def spawn(program, *args, **kwargs):
+            proc = AsyncMock()
+            proc.returncode = 0
+            if program == "tar":
+                argv = list(args)
+                archive = argv[argv.index("-xzf") + 1]
+                dest = argv[argv.index("-C") + 1]
+                with tarfile.open(archive) as tar:
+                    tar.extractall(dest, filter="data")
+            proc.communicate = AsyncMock(return_value=(b"", b""))
+            proc.kill = Mock()
+            proc.wait = AsyncMock()
+            return proc
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("asyncio.create_subprocess_exec", new=spawn))
+            stack.enter_context(patch(
+                "backend.core.updates.update.aiohttp.ClientSession",
+                side_effect=lambda *a, **k: assets.session(),
+            ))
+            yield

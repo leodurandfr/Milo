@@ -54,6 +54,17 @@ cp -r "${SCRIPT_DIR}/stage-milo" "${PIGEN_DIR}/stage-milo"
 # the only reason a single declaration works across all three provisioning trees.
 cp "${SCRIPT_DIR}/../dependencies.env" "${PIGEN_DIR}/stage-milo/dependencies.env"
 
+# The frontend travels with it, for the same reason and under the same fixed
+# name the CI workflow uses: the stage installs the artefact it is handed and
+# never builds one, so an image and a unit updated to the same release run the
+# same bytes. `npm ci` rather than `npm install` — the lockfile is the tree this
+# commit was tested with, a fresh resolution of the ranges is whatever is
+# current today.
+echo "Building the frontend artefact..."
+(cd "${SCRIPT_DIR}/../frontend" && npm ci && npm run build)
+tar -czf "${PIGEN_DIR}/stage-milo/frontend-dist.tar.gz" \
+    -C "${SCRIPT_DIR}/../frontend" dist
+
 # Pass MILO_BRANCH to the build environment
 if [[ -n "${MILO_BRANCH}" ]]; then
     echo "MILO_BRANCH=${MILO_BRANCH}" >> "${PIGEN_DIR}/config"

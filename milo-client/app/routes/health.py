@@ -79,7 +79,10 @@ def create_health_router(
                     "status": "running" if snapclient_running else "stopped"
                 },
                 "app": {
-                    "version": app_update_service.get_app_version(),
+                    # `release` is what the server displays beside its own row;
+                    # `payload` is what it compares to decide on a push.
+                    "release": app_update_service.get_app_release(),
+                    "payload": app_update_service.get_app_payload(),
                     "started_at": APP_STARTED_AT,
                     "update_in_progress": app_update_service.update_in_progress
                 },

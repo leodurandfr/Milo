@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from backend.core.updates.catalog import PROGRAMS
-from backend.core.updates.helpers import compare_versions
+from backend.core.updates.helpers import compare_versions, release_tag
 
 class VersionService:
     """Simplified service to manage Milo program versions"""
@@ -368,6 +368,60 @@ class VersionService:
         """
         return next(iter(status.get("installed", {}).get("versions", {}).values()), None)
 
+    @staticmethod
+    def installed_release_tag(status: Dict[str, Any]) -> Optional[str]:
+        """The release tag this checkout sits exactly on, or None.
+
+        `raw_version` is the whole `git describe` output, kept by
+        `get_installed_version` for the git-based programs. Only its exact-tag
+        shape identifies a release: "0.2.0" extracted from "v0.2.0-2017-gabc"
+        is the version of a tag the tree left 2017 commits ago.
+        """
+        return release_tag(status.get("installed", {}).get("raw_version"))
+
+    def _apply_milo_offer(self, result: Dict[str, Any], latest: Dict[str, Any]) -> None:
+        """Decide Milo's row on tag identity rather than version order.
+
+        Milo is the app, not a dependency: it does not track an upstream project
+        whose numbers only ever grow, it moves between the releases of this
+        repo. So the question is not "is there a bigger number" but "is this the
+        release GitHub publishes", and it is asked of the tag — the thing the
+        install actually checks out.
+
+        Two behaviours fall out, and both are the point:
+
+          * a release that is withdrawn (unpublished, or marked prerelease
+            because it turned out bad) stops being what `releases/latest` names,
+            and every unit that took it is offered the return on its next check.
+            Retracting is one gesture on GitHub, not N units visited one by one.
+            `withdrawn` says which of the two directions the row is pointing so
+            the button can name itself.
+          * a tree that is not at a tag — a development checkout, or a unit
+            somebody pulled on — is offered nothing at all. It is not behind a
+            release, it is outside the channel, and `git checkout <tag>` over
+            uncommitted work is not an update. `development_build` is what the
+            row says instead of a version comparison nobody can act on.
+        """
+        if latest.get("status") != "success":
+            return
+
+        tag = self.installed_release_tag(result)
+        result["development_build"] = tag is None
+        if tag is None:
+            return
+
+        published = latest.get("tag_name")
+        if not published or published == tag:
+            return
+
+        result["update_available"] = True
+        # Installed newer than published: the release moved backwards, which is
+        # a withdrawal. Measured on the versions rather than the tags because
+        # the "v" prefix is a repo convention, not part of the ordering.
+        latest["withdrawn"] = compare_versions(
+            latest.get("version"), self.installed_version(result)
+        )
+
     async def get_program_full_status(self, program_key: str) -> Dict[str, Any]:
         """Gets complete status (installed + GitHub) for a program"""
         try:
@@ -400,9 +454,13 @@ class VersionService:
                 "update_available": False
             }
 
-            # Determine if an update is available
-            if (installed_result.get("status") == "installed" and
-                github_result.get("status") == "success"):
+            # Determine if an update is available. Milo answers a different
+            # question from the dependencies — which release, not which version
+            # — so it takes the whole branch rather than a clause inside it.
+            if program_key == "milo":
+                self._apply_milo_offer(result, github_result)
+            elif (installed_result.get("status") == "installed" and
+                  github_result.get("status") == "success"):
 
                 installed_version = self.installed_version(result)
                 latest_version = github_result.get("version")

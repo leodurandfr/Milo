@@ -113,14 +113,14 @@ class TestTheProgramsReads:
         assert "go-librespot" in body["active_updates"]
 
     async def test_a_satellite_discovery_that_throws_says_so(self, router, caplog):
-        """The list is built from four awaits against the fleet. A discovery that
+        """The list is built from five awaits against the fleet. A discovery that
         threw used to leave the screen showing "no satellite" with nothing
         anywhere to say why — the reason this arm logs at all.
 
-        The three version lookups are stubbed to succeed so the discovery is the
-        only thing that can fail: they share one `asyncio.gather`, and any
-        un-stubbed collaborator raises there too — which is how this test used to
-        pass while the failure it names was never injected at all.
+        Every other lookup is stubbed to succeed so the discovery is the only
+        thing that can fail: they share one `asyncio.gather`, and any un-stubbed
+        collaborator raises there too — which is how this test used to pass
+        while the failure it names was never injected at all.
         """
         router.satellite_service.discover_satellites = AsyncMock(
             side_effect=RuntimeError("mDNS browse failed")
@@ -129,8 +129,9 @@ class TestTheProgramsReads:
             return_value={"status": "success", "version": "0.27.0"}
         )
         router.satellite_service.get_client_payload_version = AsyncMock(
-            return_value="v0.1.0-1749-gc6247d94"
+            return_value="c6247d9"
         )
+        router.satellite_service.get_release_version = AsyncMock(return_value="v0.2.0")
 
         with caplog.at_level(logging.ERROR, logger="backend.api.programs"):
             body = await _endpoint(router, "/api/programs/satellites")()

@@ -35,6 +35,11 @@ Keys, per program:
     asset_url         release asset to download, "{version}" substituted.
                       Its presence is what routes a program to the shared
                       _update_binary_program flow.
+    frontend_asset_url
+                      `milo` alone: the built frontend published with the
+                      release, "{tag}" substituted. The unit installs that
+                      artefact instead of building one, so what a release was
+                      tested with is what every unit runs.
     tar_member        extract only this member (tarballs shipping docs).
     always_on         stop and restart the service unconditionally instead of
                       preserving whatever state it was in.
@@ -52,9 +57,14 @@ PROGRAMS = {
         "repo": "leodurandfr/Milo",
         "version_regex": r"v?(\d+\.\d+\.\d+)",
         "git_path": "/home/milo/milo",
-        "git_branch": "main",
         "service_name": "milo-backend.service",
-        "backup_path": "/var/lib/milo/backups/milo-app"
+        "backup_path": "/var/lib/milo/backups/milo-app",
+        # The frontend the release was built with, published beside the image by
+        # .github/workflows/build-image.yml. "{tag}" is the release tag, not the
+        # bare version: it is what `git checkout` is given, so one spelling
+        # serves both. The sidecar holds its sha256.
+        "frontend_asset_url":
+            "https://github.com/leodurandfr/Milo/releases/download/{tag}/milo-frontend-{tag}.tar.gz"
     },
     "go-librespot": {
         "name": "go-librespot",

@@ -10,8 +10,6 @@ build-essential
 pkg-config
 swig
 liblgpio-dev
-nodejs
-npm
 wget
 unzip
 fontconfig

@@ -8,6 +8,22 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# A checkout sitting exactly on a release tag. `git describe --tags --always`
+# appends "-<n>-g<sha>" the moment HEAD is past the tag, and prints a bare sha
+# when no tag is reachable at all — both are trees no release names.
+RELEASE_TAG_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
+
+
+def release_tag(described: Optional[str]) -> Optional[str]:
+    """The release tag a `git describe --tags --always` output names, or None.
+
+    None is not "unknown": it is "this tree is outside the release channel".
+    The update installs a tag, so a tree that is not at one has nothing to move
+    between — and a satellite pushed from such a tree carries no release either.
+    """
+    described = (described or "").strip()
+    return described if RELEASE_TAG_RE.match(described) else None
+
 
 def compare_versions(current: Optional[str], latest: Optional[str]) -> bool:
     """Compares two semver versions (returns True if update available)."""
