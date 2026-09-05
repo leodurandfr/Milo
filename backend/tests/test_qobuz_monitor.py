@@ -30,6 +30,7 @@ Two rule-5 precautions, both measured rather than assumed:
   all.
 """
 import asyncio
+import contextlib
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
@@ -92,9 +93,18 @@ def session_answering(payloads):
 
 def monitor(session, *, audio_device="milo_qobuz", on_status=None, interval=0.001):
     seen = []
+    # Set on every delivery, so a test can await the loop's own progress
+    # instead of guessing how many event-loop yields it takes. `poll_interval`
+    # is a real timer: `asyncio.sleep(0)` hands control back without advancing
+    # the clock, so any arm that has to cross that timer is waiting for the
+    # wall clock, not for yields -- and a budget of yields outlasts 1 ms on a
+    # Pi while finishing well inside it on a CI runner. That is a test that
+    # fails on the machines that are *fast*.
+    delivered = asyncio.Event()
 
     async def record(speaker, authenticated):
         seen.append((speaker, authenticated))
+        delivered.set()
 
     mon = QobuzMonitor(
         status_url="http://127.0.0.1:9100/api/status",
@@ -104,6 +114,7 @@ def monitor(session, *, audio_device="milo_qobuz", on_status=None, interval=0.00
     )
     mon._session = session
     mon.seen = seen
+    mon.delivered = delivered
     return mon
 
 
@@ -228,10 +239,8 @@ class TestThePollLoop:
         mon._running = True
 
         task = asyncio.create_task(mon._loop())
-        for _ in range(200):
-            if mon.seen:
-                break
-            await asyncio.sleep(0)
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(mon.delivered.wait(), timeout=5)
         mon._running = False
         task.cancel()
 
@@ -258,10 +267,8 @@ class TestThePollLoop:
 
         with caplog.at_level("WARNING", logger="source.qobuz.monitor"):
             task = asyncio.create_task(mon._loop())
-            for _ in range(400):
-                if mon.seen:
-                    break
-                await asyncio.sleep(0)
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(mon.delivered.wait(), timeout=5)
             mon._running = False
             task.cancel()
 
