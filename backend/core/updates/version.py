@@ -250,22 +250,23 @@ class VersionService:
                         version_regex = self.programs[program_key]["version_regex"]
                         match = re.search(version_regex, tag_name)
 
-                        if match:
-                            result = {
-                                "status": "success",
-                                "version": match.group(1),
-                                "tag_name": tag_name,
-                                "published_at": data.get("published_at"),
-                                "html_url": data.get("html_url")
-                            }
-                        else:
-                            result = {
-                                "status": "success",
-                                "version": tag_name,
-                                "tag_name": tag_name,
-                                "published_at": data.get("published_at"),
-                                "html_url": data.get("html_url")
-                            }
+                        # What the release actually carries. Milo's offer has to
+                        # know: a tag whose build never attached the frontend is
+                        # a release that cannot be installed, and offering it
+                        # sends the unit through a checkout and a 404 before the
+                        # rollback puts it back.
+                        asset_names = [
+                            asset.get("name") for asset in data.get("assets") or []
+                        ]
+
+                        result = {
+                            "status": "success",
+                            "version": match.group(1) if match else tag_name,
+                            "tag_name": tag_name,
+                            "published_at": data.get("published_at"),
+                            "html_url": data.get("html_url"),
+                            "asset_names": asset_names,
+                        }
 
                         self._github_cache[cache_key] = result
                         self._last_github_fetch[cache_key] = current_time
@@ -433,6 +434,23 @@ class VersionService:
 
         published = latest.get("tag_name")
         if not is_stable_release(published) or published == tag:
+            return
+
+        # The offer's contract is that what it names can be *installed*, and half
+        # of that is an artefact, not a ref. A tag pushed without CI, a build
+        # that died after publishing, a release predating this channel — each
+        # gives a checkout that works and a frontend download that 404s, so the
+        # unit reboots into nothing but its own rollback. Measured on v0.0.1,
+        # the one release this repo carried before the channel existed: offered,
+        # and carrying no asset at all.
+        wanted = self.programs["milo"]["frontend_asset_url"].format(
+            tag=published
+        ).rsplit("/", 1)[-1]
+        if wanted not in (latest.get("asset_names") or []):
+            self.logger.warning(
+                f"Release {published} publishes no {wanted}; it cannot be "
+                "installed, so it is not offered."
+            )
             return
 
         result["update_available"] = True
