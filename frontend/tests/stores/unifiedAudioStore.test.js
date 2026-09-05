@@ -115,21 +115,25 @@ describe('unifiedAudioStore', () => {
       expect(store.systemState.metadata.position).toBeUndefined();
     });
 
-    it('stamps positionTimestamp only when the position value actually changes', () => {
+    it('stamps positionTimestamp on every anchor, including one repeating the value', () => {
+      // The stamp is what the interpolating consumers read as "a new anchor
+      // arrived". A Previous restarting the current track answers the same
+      // position the store already holds — for the whole 30 s a source waits
+      // between periodic syncs — so a stamp that only moved on a changed value
+      // left the progress bar running past a playhead that had gone back to 0.
+      const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
       store.updateState(fullStateEvent(VALID_FULL_STATE));
-      const first = store.positionTimestamp;
-      expect(first).toBeGreaterThan(0);
+      expect(store.positionTimestamp).toBe(1000);
 
-      // Same position → the reading is not fresher, the stamp must not move.
+      now.mockReturnValue(5000);
       store.updateState(fullStateEvent(VALID_FULL_STATE));
-      expect(store.positionTimestamp).toBe(first);
+      expect(store.positionTimestamp).toBe(5000);
 
-      store.updateState(fullStateEvent({
-        ...VALID_FULL_STATE,
-        metadata: { ...VALID_FULL_STATE.metadata, position: 2000 },
-      }));
-      expect(store.positionTimestamp).toBeGreaterThanOrEqual(first);
-      expect(store.systemState.metadata.position).toBe(2000);
+      // A state carrying no position at all is not an anchor.
+      now.mockReturnValue(9000);
+      store.updateState(fullStateEvent({ ...VALID_FULL_STATE, metadata: { title: 'Test Song' } }));
+      expect(store.positionTimestamp).toBe(5000);
+      now.mockRestore();
     });
   });
 

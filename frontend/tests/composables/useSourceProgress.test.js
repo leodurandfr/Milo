@@ -89,6 +89,29 @@ describe('useSourceProgress', () => {
       expect(progress.duration.value).toBe(200000);
     });
 
+    it('lands on a restart that answers the position the store already holds', async () => {
+      // Previous on a track already anchored at 0 — the state a track start
+      // leaves behind for the 30 s until the source's next periodic sync. The
+      // restart re-sends 0, so nothing about the value says the playhead moved
+      // and the bar used to carry on from our own clock. Reported on the music
+      // library's expanded mobile player, where a second Previous is one tap.
+      broadcast(store, {
+        source: 'music_library',
+        metadata: { position: 0, duration: 244000, is_playing: true },
+      });
+      const { progress } = mountProgress('music_library');
+      vi.advanceTimersByTime(4000);
+      expect(progress.currentPosition.value).toBe(4000);
+
+      broadcast(store, {
+        source: 'music_library',
+        metadata: { position: 0, duration: 244000, is_playing: true },
+      });
+      await nextTick();
+
+      expect(progress.currentPosition.value).toBe(0);
+    });
+
     it('resets on a track change even when the position stays at 0', () => {
       broadcast(store, { metadata: { position: 0, duration: 200000 } });
       const { progress } = mountProgress('spotify');
