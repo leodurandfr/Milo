@@ -644,9 +644,11 @@ class ProgramUpdateRequest(BaseModel):
 class SshRequest(BaseModel):
     """Open or close the SSH server.
 
-    The refusal that matters is not here: enabling is rejected by the route
-    while the unit still carries the factory password, which is a fact about
-    the machine, not about this payload.
+    There is no refusal to describe: the route opens the door whatever the
+    account password is, and reports `password_is_default` beside it instead.
+    Nothing on this API authenticates, so a gate here would stop nobody
+    already on the LAN while standing in the way of the owner — the reasoning
+    lives on `set_ssh_state`.
     """
     enabled: bool
 
