@@ -36,13 +36,15 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const showVolumeBar = ref(false);
   let volumeBarHideTimer = null;
 
-  // performance.now() timestamp of when metadata.position last *changed*. Lets a
+  // performance.now() timestamp of the last position *anchor* received. Lets a
   // freshly-created position consumer (e.g. the Lyrics modal opened mid-song)
   // compensate for how stale the last broadcast is — position events are periodic
   // and source-dependent (10s on AirPlay and TIDAL, 30s on DLNA and the four mpv
   // sources, and Spotify publishes none between events), so the stored value can
-  // lag by seconds. Updated only on a real value change so it tracks the true
-  // reading age.
+  // lag by seconds. Stamped on every anchor, including one that repeats the
+  // stored number: a Previous restarting a track re-sends the same 0 the last
+  // anchor already carried, and the consumers interpolate locally — the arrival
+  // is the only thing that distinguishes that jump from no news at all.
   const positionTimestamp = ref(0);
 
   // Transient command error (set on sendCommand failure, consumed by App.vue)
@@ -164,7 +166,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
     if (result.success) {
       const newMetadata = result.data.metadata || {};
-      if (newMetadata.position !== systemState.value.metadata?.position) {
+      if (newMetadata.position !== undefined && newMetadata.position !== null) {
         positionTimestamp.value = performance.now();
       }
       systemState.value = {
@@ -190,9 +192,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // Ignore stale events from a previous source during transitions
     if (payload.source !== systemState.value.active_source) return;
     if (systemState.value.metadata) {
-      if (payload.position !== systemState.value.metadata.position) {
-        positionTimestamp.value = performance.now();
-      }
+      positionTimestamp.value = performance.now();
       systemState.value.metadata.position = payload.position;
       systemState.value.metadata.duration = payload.duration;
     }

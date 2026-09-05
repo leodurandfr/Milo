@@ -49,11 +49,17 @@ export function useSourceProgress(source, { compensateStaleness = false } = {}) 
 
   // Synchronization with store metadata
   // Watch both position AND duration so that track changes (where position
-  // stays 0 but duration changes) still reset localPosition correctly.
+  // stays 0 but duration changes) still reset localPosition correctly — and the
+  // store's anchor timestamp, so an anchor that repeats the stored number lands
+  // too. A Previous restarting the current track answers position 0, and the
+  // last anchor is already 0 for the whole 30 s the source waits before its next
+  // periodic sync (the one a track start left behind): watching the value alone,
+  // nothing fired and the bar carried on from wherever our own clock had reached.
   watch(
     [
       () => unifiedStore.systemState.metadata?.position,
       () => unifiedStore.systemState.metadata?.duration,
+      () => unifiedStore.positionTimestamp,
     ],
     ([newPosition, newDuration], previous) => {
       if (newPosition === undefined || isApiSyncing) return;
