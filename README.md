@@ -4,8 +4,6 @@
 
 # Milō
 
-> ⚠ Currently in work in progress — Available soon
-
 ### Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Qobuz Connect, Tidal Connect, Internet Radio, Bluetooth, AirPlay 2, Podcasts, CD playback, your own Music Library, DLNA, and Mac streaming.
 
 ## Audio Sources
