@@ -804,6 +804,59 @@ def test_every_form_field_the_backend_sends_is_declared_by_milo_client(method, p
 
 
 # --------------------------------------------------------------------------- #
+# The one surface where the two halves are NEVER the same commit.
+#
+# Everything else in this file rests on "both sides ship in one commit", and for
+# every other endpoint that is true. `POST /app/update` is the exception, and it
+# is structural rather than incidental: this endpoint exists to *carry* the new
+# commit, so the server pushing it is by construction ahead of the satellite
+# whose handler receives it. A satellite is always one release behind at the
+# moment it is spoken to.
+#
+# So the two checks above pass on a rename applied to both sides at once — which
+# is exactly the change that strands every satellite in the field. Measured:
+# renaming `version`/`release` to `payload`/`version` in one commit left this
+# file green, and both units answered
+#   HTTP 422 {"loc": ["body", "release"], "msg": "Field required"}
+# to a server that had just updated itself. Nothing else could have caught it —
+# no version negotiation exists, and by doctrine none should.
+#
+# Hence: these names are frozen, and the rule is append-only. *Adding* a field
+# is safe, because FastAPI binds multipart parts by name and ignores the ones no
+# parameter declares — a satellite one release behind simply does not see it.
+# Renaming or removing one is a 422 on every unit, after the push that carried
+# it, with no way back except a reflash.
+#
+# This restates the names on purpose, which the suite's own rules otherwise
+# forbid. The justification is the sudoers one: here the names ARE the contract,
+# with units that are not in this checkout.
+# --------------------------------------------------------------------------- #
+
+FROZEN_APP_UPDATE_FIELDS = {"tarball", "payload", "version"}
+
+
+def test_the_app_update_form_fields_are_frozen():
+    """Renaming one strands every deployed satellite; adding one is free.
+
+    The set the backend sends must stay a superset of what a satellite from any
+    earlier release declares as required — and the only such set this checkout
+    can name is the one written above.
+    """
+    sent = _MULTIPART_SENT.get(("POST", "/app/update"))
+    assert sent, "the client-app push builds no form at all — see the vacuity check above"
+
+    dropped = FROZEN_APP_UPDATE_FIELDS - sent
+    assert not dropped, (
+        f"the backend no longer sends {sorted(dropped)} to POST /app/update. Every "
+        "satellite already in the field declares it as a required Form() parameter, "
+        "so this push answers 422 on all of them — after the release that carried "
+        "the change, which is the moment it can no longer be taken back. Add a "
+        "field instead of renaming one; if the rename is truly wanted, it costs a "
+        "reflash of every unit."
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Side D: the answer, not just the question.
 #
 # The two checks above cover what the backend SENDS. Nothing covered what it

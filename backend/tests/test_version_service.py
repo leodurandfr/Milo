@@ -352,14 +352,23 @@ class TestGetLatestGithubVersion:
         assert result["upstream"]["version"] == "release-candidate"
 
 
-def _patch_github_release(tag_name: str):
-    """Returns a patch() for aiohttp.ClientSession that yields a release with tag_name."""
+def _patch_github_release(tag_name: str, assets=None):
+    """Returns a patch() for aiohttp.ClientSession that yields a release with tag_name.
+
+    `assets` defaults to the frontend artefact a Milō release publishes, because
+    that is what a release built by this channel carries and the offer refuses a
+    release without one. Pass `[]` to stand in for a tag whose build never got
+    that far.
+    """
+    if assets is None:
+        assets = [{"name": f"milo-frontend-{tag_name}.tar.gz"}]
     mock_response = AsyncMock()
     mock_response.status = 200
     mock_response.json = AsyncMock(return_value={
         "tag_name": tag_name,
         "published_at": "2026-05-21T00:00:00Z",
-        "html_url": f"https://github.com/devgianlu/go-librespot/releases/tag/{tag_name}"
+        "html_url": f"https://github.com/devgianlu/go-librespot/releases/tag/{tag_name}",
+        "assets": assets,
     })
 
     mock_session = AsyncMock()
@@ -933,7 +942,7 @@ class TestTheMiloReleaseOffer:
     """
 
     @staticmethod
-    async def _row(service, *, exact, published, described=None):
+    async def _row(service, *, exact, published, described=None, assets=None):
         """One milo row, with both git reads and `releases/latest` doubled.
 
         `exact` is what `git describe --tags --exact-match` answers — the tag,
@@ -958,7 +967,7 @@ class TestTheMiloReleaseOffer:
             return proc
 
         with patch("asyncio.create_subprocess_exec", side_effect=git), \
-                _patch_github_release(published):
+                _patch_github_release(published, assets):
             return await service.get_program_full_status("milo")
 
     @pytest.mark.asyncio
@@ -1091,6 +1100,30 @@ class TestTheMiloReleaseOffer:
         row = await self._row(version_service, exact="v0.2.0", published="v0.3.0")
 
         assert row["latest"]["withdrawn"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_release_that_published_no_frontend_is_not_offered(self, version_service):
+        """Half of "can this be installed" is an artefact, not a ref.
+
+        A tag pushed without CI, a build that died after publishing the release,
+        or a release predating this channel: the checkout would work and the
+        frontend download would 404, so the unit walks through a ref move and a
+        reboot to arrive at its own rollback. Measured on v0.0.1 — the one
+        release this repo carried before the channel existed, offered to the
+        appliance while carrying no asset at all.
+        """
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0",
+                              assets=[])
+
+        assert row["update_available"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_release_carrying_some_other_asset_is_not_offered(self, version_service):
+        """The image alone is not enough — the unit installs the frontend."""
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0",
+                              assets=[{"name": "2026-09-04-milo.img.xz"}])
+
+        assert row["update_available"] is False
 
     @pytest.mark.asyncio
     async def test_a_github_that_did_not_answer_offers_nothing(self, version_service):
