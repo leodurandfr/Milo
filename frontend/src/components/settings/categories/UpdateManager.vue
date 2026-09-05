@@ -49,7 +49,7 @@
                           milo {{ miloVersionLabel }}
                           <template
                             v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
-                            <span class="version-new">> {{ localPrograms.milo.latest?.tag_name }}</span>
+                            <span class="version-new">> {{ stripTagPrefix(localPrograms.milo.latest?.tag_name) }}</span>
                           </template>
                         </span>
                       </div>
@@ -203,15 +203,16 @@
                     <!-- A satellite carries the version string the server showed for itself
                          when it pushed: both halves ship from one commit, so there is no third
                          thing it could be. That is why this prints under `milo` and not
-                         `milo-client`, and why it needs no formatting — it is character for
-                         character what the server's own row shows. What decides whether the
-                         button lights is a value the row never prints: the payload fingerprint,
+                         `milo-client`, and why it goes through the same `stripTagPrefix` as the
+                         server's own row — the two have to stay character for character alike,
+                         so neither may be formatted alone. What decides whether the button
+                         lights is a value the row never prints: the payload fingerprint,
                          compared on the backend. -->
                     <span class="program-version text-mono-medium">
-                      milo {{ satelliteByMacId[client.mac_id].app_version || t('updates.notAvailable') }}
+                      milo {{ stripTagPrefix(satelliteByMacId[client.mac_id].app_version) || t('updates.notAvailable') }}
                       <template
                         v-if="satelliteByMacId[client.mac_id].app_update_available && !isSatelliteAppUpdateCompleted(client.mac_id)">
-                        <span class="version-new">> {{ satelliteByMacId[client.mac_id].server_version }}</span>
+                        <span class="version-new">> {{ stripTagPrefix(satelliteByMacId[client.mac_id].server_version) }}</span>
                       </template>
                     </span>
                   </div>
@@ -377,17 +378,25 @@ const {
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// A unit runs a release, so the row prints its TAG — not the "X.Y.Z" parsed out
-// of it. The two differ exactly where it matters: `v0.2.0-rc1` parses to
-// "0.2.0", which would draw a pre-release under test and the stable release it
-// is a candidate for as the same string. On a tree the backend reports as
-// outside the channel — a development checkout — there is no tag, and the raw
-// `git describe` is the only honest answer.
+// Every other row prints the number upstream states and no "v" — the catalog's
+// `version_regex` took it off before the value ever reached here. Milo's rows
+// print the git TAG instead, and these tags carry one, so the column only reads
+// as one thing if the prefix comes off at the point of display.
+//
+// The prefix, and nothing else. Parsing "X.Y.Z" out of the tag is the mistake
+// this guards: it draws `v0.2.0-rc1` and the `v0.2.0` it is a candidate for as
+// the same string. Dropping one leading character keeps those apart, and keeps
+// a development build's `-<n>-g<sha>` visible.
+function stripTagPrefix(tag) {
+  return typeof tag === 'string' ? tag.replace(/^v(?=\d)/, '') : tag;
+}
+
+// On a tree the backend reports as outside the channel — a development checkout
+// — there is no tag, and the raw `git describe` is the only honest answer.
 const miloVersionLabel = computed(() => {
   const milo = localPrograms.value.milo;
   if (!milo) return t('updates.notAvailable');
-  return milo.installed?.release_tag
-    || milo.installed?.raw_version
+  return stripTagPrefix(milo.installed?.release_tag || milo.installed?.raw_version)
     || t('updates.notAvailable');
 });
 
@@ -396,7 +405,7 @@ const miloVersionLabel = computed(() => {
 // the button has to say so rather than calling a return an update. Which
 // direction it is comes from the backend, like every other decision here.
 const miloButtonLabel = computed(() => {
-  const version = localPrograms.value.milo?.latest?.tag_name;
+  const version = stripTagPrefix(localPrograms.value.milo?.latest?.tag_name);
   const withdrawn = localPrograms.value.milo?.latest?.withdrawn;
   if (isLocalUpdating('milo') || debugForceUpdating.value) {
     return withdrawn ? t('updates.revertingTo', { version }) : t('updates.updating');
