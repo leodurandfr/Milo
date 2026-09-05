@@ -272,6 +272,25 @@ jobs:
       # whose build never got this far is therefore offered to nobody, which is
       # the withholding mechanism — and un-publishing a release that turned out
       # bad is the withdrawal, in one gesture, with no unit visited.
+      # The release notes are the tag's own annotation, which is where the
+      # reasoning for a release is already written. GitHub's generated ones are
+      # a commit list the annotation already summarises, under a "New
+      # Contributors" heading naming the only person who has ever committed
+      # here. The fetch is what makes the annotated tag object local: checkout
+      # takes the commit, and `%(contents)` reads the tag object, not the
+      # commit message.
+      - name: Read the tag annotation
+        id: notes
+        if: needs.vars.outputs.is_release == 'true'
+        run: |
+          REF="${{ needs.vars.outputs.milo_ref }}"
+          git fetch --force origin "refs/tags/${REF}:refs/tags/${REF}" || true
+          {
+            echo 'body<<MILO_NOTES_EOF'
+            git tag -l --format='%(contents)' "$REF"
+            echo 'MILO_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         if: needs.vars.outputs.is_release == 'true'
         uses: softprops/action-gh-release@v3
@@ -281,6 +300,7 @@ jobs:
             frontend-artefact/${{ needs.vars.outputs.frontend_asset }}
             frontend-artefact/${{ needs.vars.outputs.frontend_asset }}.sha256
           prerelease: ${{ needs.vars.outputs.is_prerelease }}
-          generate_release_notes: true
+          body: ${{ steps.notes.outputs.body }}
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
