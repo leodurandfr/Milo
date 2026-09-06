@@ -816,10 +816,26 @@ carrying three files:
 | `milo-frontend-<tag>.tar.gz` | every unit's OTA update, via `catalog.py::frontend_asset_url` |
 | `milo-frontend-<tag>.tar.gz.sha256` | the same update, before it swaps `frontend/dist` |
 
+**The tag's annotation is the release page.** The workflow reads it with
+`git tag -l --format='%(contents)'` and passes it as the release body; it asks
+GitHub for no generated notes, which would add a commit list under a "New
+Contributors" heading. So write the annotation as the page you want people to
+read — what the image installs, the dependency set, what was measured, and what
+is knowingly left undone.
+
+Which means it is Markdown, and **`git tag -a` strips every line beginning with
+`#` unless you say otherwise** — its default cleanup treats them as comments.
+A heading written `## Known gaps` vanishes between the editor and the tag
+object, silently, and the release page is published without it. Measured the
+hard way on the first release. Always:
+
 ```bash
-git tag -a v1.2.0 -m "Release 1.2.0"
+git tag -a v1.2.0 --cleanup=verbatim -F notes.md
 git push origin v1.2.0
 ```
+
+Check what actually landed before pushing — `git tag -l --format='%(contents)' v1.2.0`
+is exactly what the workflow will read.
 
 **A tag carrying a suffix is a pre-release** — `v1.2.0-rc1`, `v1.3.0-beta.2`.
 The workflow publishes it with `prerelease: true`, so it never becomes
@@ -864,10 +880,12 @@ line, nothing to notice. "Audio plays" would have passed it.
 #### The procedure
 
 1. **Try it first, from the Update Manager.** When upstream is ahead of the manifest the row
-   offers that release directly (`shairport-sync 5.2.2 > 5.2.3`), and installing it uses the
+   offers that release directly (`shairport-sync 5.2.3 > 5.5`), and installing it uses the
    exact flow a bump would — the same download, the same compile, the same rollback. The unit
-   is then off-pin: the row says so, `Back to 5.2.2` is one click away, and the trial survives
-   Milō updates until you end it or the manifest catches up (invariant 8). This is where a
+   is then off-pin: the row says so, `Back to 5.2.3` is one click away, and the trial survives
+   Milō updates until you end it or the manifest catches up (invariant 8) — measured on
+   2026-09-05, where a shairport-sync 5.5 trial came through a full Milō update and reboot
+   still installed, still recorded, still offering its return. This is where a
    version fails, and it costs nothing to find out: qobuz-proxy 1.6.0 moved the anchor
    `provisioning/qobuz_proxy_patches.py` needed and rolled itself back in under a minute
    (that anchor is gone — see `rootfs/usr/local/bin/milo-qobuz`).

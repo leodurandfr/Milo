@@ -120,8 +120,12 @@
 1. Download the latest `.img.xz` from [Releases](https://github.com/leodurandfr/Milo/releases)
 2. Flash it with [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (select "Use custom" → choose the `.img.xz` file)
 3. Insert the SD card and power on your Raspberry Pi
-4. Connect to the **Milō** WiFi network that appears (open, no password)
-5. A setup page opens automatically — follow the wizard to configure language, WiFi, audio card, and screen
+4. Reach the setup wizard — which of the two depends on how the Pi is connected:
+   - **No Ethernet cable:** connect to the **Milō** WiFi network that appears (open, no
+     password). The setup page opens on its own.
+   - **Ethernet cable plugged in:** no WiFi network appears, because the Pi is already
+     reachable. Open **http://milo.local** in a browser on the same network.
+5. Follow the wizard to configure language, WiFi, audio card, and screen
 6. Milō reboots and is ready to use
 
 The time zone is picked up from the phone or computer you set Milō up from; Settings →
@@ -160,9 +164,16 @@ server on the next boot and removes the file.
 
 ### Multiroom (Additional Speakers)
 
-Flash the same image on additional Raspberry Pis. On first boot, the device detects your existing Milō server on the network and automatically configures itself as a client.
+Flash the same image on additional Raspberry Pis. On first boot the device looks for your
+existing Milō server on the network and configures itself as a client, on its own.
 
-Prefer Ethernet over WiFi — network jitter is what makes rooms drift apart.
+**Connect the new Pi with an Ethernet cable for that first boot.** Finding the server is what
+decides the role, and the search runs before any WiFi the device has not been told about yet —
+with no cable there is nothing to search on, so it keeps the server role and you end up with
+two servers instead of a speaker. If that happens, Settings → System → Reset setup puts it
+back to first boot without touching your radio favourites or podcast subscriptions.
+
+Keep them on Ethernet afterwards, too — network jitter is what makes rooms drift apart.
 
 ## Companion Apps
 
