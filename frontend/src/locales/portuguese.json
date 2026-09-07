@@ -480,9 +480,10 @@
     "top30": "Top 30",
     "nowPlaying": "A reproduzir",
     "noEpisode": "Sem episódio",
-    "newEpisodesFromSubscriptions": "Novos episódios das subscrições",
+    "ranking": "Classificação",
     "topPodcasts": "Top Podcasts",
-    "browseByGenre": "Explorar por género",
+    "explore": "Explorar",
+    "byGenre": "Por género",
     "genres": {
       "news": "Notícias",
       "comedy": "Comédia",
