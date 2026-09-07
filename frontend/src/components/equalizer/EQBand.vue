@@ -24,8 +24,7 @@
       />
     </div>
 
-    <div class="gain-value text-mono-small"
-      :class="{ 'dragging': isDragging, 'positive': loaded && gainValue > 0, 'negative': loaded && gainValue < 0 }">
+    <div class="gain-value text-mono-small" :class="{ 'dragging': isDragging }">
       {{ loaded ? `${gainValue > 0 ? '+' : ''}${gainValue.toFixed(1)}` : '—' }}
     </div>
   </div>
@@ -80,7 +79,7 @@ function handleDragEnd() {
   flex-direction: column;
   align-items: center;
   gap: var(--space-02);
-  max-width: 40px;
+  max-width: 48px;
 }
 
 .eq-band.horizontal {
@@ -126,30 +125,19 @@ function handleDragEnd() {
 }
 
 .gain-value {
-  color: var(--color-text-secondary);
+  /* The band is sized by its widest child, so a reading growing from "+3.5" to
+     "-10.0" moved every other band. Reserve the widest one in both layouts. */
+  width: 5ch;
+  color: var(--color-brand);
   text-align: center;
   transition: color var(--transition-fast);
 }
 
 .gain-value.dragging {
-  color: var(--color-brand);
-}
-
-.gain-value.positive {
-  color: var(--color-success);
-}
-
-.gain-value.negative {
-  color: var(--color-warning);
-}
-
-.gain-value.dragging.positive,
-.gain-value.dragging.negative {
-  color: var(--color-brand);
+  color: var(--color-text-secondary);
 }
 
 .eq-band.horizontal .gain-value {
-  min-width: 32px;
   text-align: left;
 }
 
