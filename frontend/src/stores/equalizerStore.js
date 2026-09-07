@@ -268,8 +268,12 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       filtersLoaded.value = true;
 
       // Snapshot current preset gains for edit detection
-      isPresetEdited.value = false;
       _snapshotPresetGains(activePreset.value);
+      // Normally false — leaving the editor discards what was never saved. It is
+      // not after a reload took the page away mid-edit, and the record then names
+      // a preset the gains no longer match: say so rather than print the preset's
+      // name over someone else's curve.
+      isPresetEdited.value = _gainsDivergeFromPreset();
     });
 
     // Only this call's own controller is ours to drop. Nulling a newer one
@@ -380,18 +384,50 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   // === PRESET MANAGEMENT ===
-  async function loadPreset(presetId) {
-    // One uniform route for every target; the response carries the resolved gains.
-    const result = await apiCall.post(`${targetBase()}/preset`, { preset_id: presetId }, {
+  // One uniform route for every target; the response carries the resolved gains.
+  const _postPreset = (presetId, message) =>
+    apiCall.post(`${targetBase()}/preset`, { preset_id: presetId }, {
       category: 'store',
-      message: 'Error loading preset',
+      message,
       checkStatus: true,
     });
+
+  async function loadPreset(presetId) {
+    const result = await _postPreset(presetId, 'Error loading preset');
     if (result.ok) {
       _applyResponseGains(presetId, result.data.gains);
       return true;
     }
     return false;
+  }
+
+  /**
+   * Drop edits the user never saved, by re-posting the preset they diverged from.
+   *
+   * An edit is a live preview: every drag is written to the target as it happens,
+   * so it survives in the record while `active_preset` still names the preset it
+   * left behind. Reopening the editor then read "Acoustic" over gains that are
+   * not Acoustic's. Called when the editor is left — closed, or pointed at
+   * another target — so the answer is deliberately NOT applied locally: by the
+   * time it lands, the state it would write belongs to nobody.
+   */
+  async function discardPresetEdits() {
+    if (!isPresetEdited.value || !activePreset.value) return false;
+    // A throttled write still in flight would otherwise land after the restore.
+    clearAllThrottles();
+    const result = await _postPreset(activePreset.value, 'Error discarding unsaved equalizer edits');
+    return result.ok;
+  }
+
+  /**
+   * True when the loaded gains are not the ones the named preset defines.
+   * Answers false when there is nothing to compare against (an unknown preset
+   * leaves no snapshot): unknown is not edited.
+   */
+  function _gainsDivergeFromPreset() {
+    const reference = originalPresetGains.value;
+    if (!reference || reference.length !== filters.value.length) return false;
+    return filters.value.some((f, i) => f.gain !== reference[i]);
   }
 
   /**
@@ -539,6 +575,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   async function selectTarget(targetId) {
     if (targetId === selectedTarget.value) return;
+
+    // Addressed to the outgoing target, which is still the selected one here;
+    // not awaited, so the tab switch does not wait on a write nobody reads.
+    discardPresetEdits();
 
     cleanup();
     selectedTarget.value = targetId;
@@ -822,6 +862,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     isCustomMode,
     isPresetEdited,
     loadPreset,
+    discardPresetEdits,
     saveCustomPreset,
 
     // Advanced Features

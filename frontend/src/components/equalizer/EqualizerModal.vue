@@ -294,6 +294,12 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateMobileStatus);
+
+  // An edit is a live preview until "Save" turns it into the custom preset, so
+  // closing drops it. Addressed before cleanup() forgets which preset it was
+  // diverging from, and not awaited: the request outlives the component, and
+  // making the next mount wait on it would be a flash of the old curve.
+  equalizerStore.discardPresetEdits();
   equalizerStore.cleanup();
 });
 </script>
