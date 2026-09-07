@@ -2,7 +2,10 @@
   <div class="home-view">
     <!-- New episodes from subscriptions (Bloc 1) - Only show if user has subscriptions -->
     <section v-if="hasSubscriptions" class="section">
-      <h2 class="section-title heading-2">{{ t('podcasts.newEpisodesFromSubscriptions') }}</h2>
+      <header class="section-header">
+        <span class="section-overline text-mono-small">{{ t('podcasts.subscriptions') }}</span>
+        <h2 class="section-title heading-2">{{ t('podcasts.newEpisodes') }}</h2>
+      </header>
       <div class="transition-container">
         <transition name="content-fade">
           <div v-if="loadingSubscriptions" key="loading-sub" class="episodes-list">
@@ -33,7 +36,10 @@
 
     <!-- Top Podcasts (Bloc 2) -->
     <section class="section">
-      <h2 class="section-title heading-2">{{ t('podcasts.topPodcasts') }}</h2>
+      <header class="section-header">
+        <span class="section-overline text-mono-small">{{ t('podcasts.ranking') }}</span>
+        <h2 class="section-title heading-2">{{ t('podcasts.topPodcasts') }}</h2>
+      </header>
       <div class="transition-container">
         <transition name="content-fade">
           <div v-if="loadingTopCharts" key="loading-podcasts" class="podcasts-grid">
@@ -73,7 +79,10 @@
 
     <!-- Browse by Genre (Bloc 3) -->
     <section class="section">
-      <h2 class="section-title heading-2">{{ t('podcasts.browseByGenre') }}</h2>
+      <header class="section-header">
+        <span class="section-overline text-mono-small">{{ t('podcasts.explore') }}</span>
+        <h2 class="section-title heading-2">{{ t('podcasts.byGenre') }}</h2>
+      </header>
       <div class="genres-grid">
         <GenreCard
           v-for="genre in mainGenres"
@@ -195,6 +204,16 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
+}
+
+.section-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+}
+
+.section-overline {
+  color: var(--color-brand);
 }
 
 .section-title {

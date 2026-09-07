@@ -480,9 +480,10 @@
     "top30": "热门 30",
     "nowPlaying": "播放中",
     "noEpisode": "没有单集",
-    "newEpisodesFromSubscriptions": "订阅播客的新单集",
+    "ranking": "排行榜",
     "topPodcasts": "热门播客",
-    "browseByGenre": "按类型浏览",
+    "explore": "探索",
+    "byGenre": "按类型",
     "genres": {
       "news": "新闻",
       "comedy": "喜剧",
