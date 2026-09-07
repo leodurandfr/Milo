@@ -545,8 +545,11 @@ describe('equalizerStore', () => {
   });
 
   describe('preset edit tracking', () => {
-    /** Load a target sitting on the "jazz" preset, gains matching that preset. */
-    async function loadOnJazzPreset() {
+    /**
+     * Load a target sitting on the "jazz" preset. `gains` are what the record
+     * carries — equal to the preset's unless a test wants them to diverge.
+     */
+    async function loadOnJazzPreset(gains = [4, 0]) {
       apiCall.get.mockImplementation(async (url) => {
         if (url.endsWith('/presets')) {
           return ok({ presets: [{ id: 'jazz', gains: [4, 0] }] });
@@ -554,8 +557,8 @@ describe('equalizerStore', () => {
         return ok({
           state: 'running',
           filters: [
-            { id: 'eq_band_00', freq: 31, gain: 4, q: 1.41, type: 'Peaking' },
-            { id: 'eq_band_01', freq: 63, gain: 0, q: 1.41, type: 'Peaking' },
+            { id: 'eq_band_00', freq: 31, gain: gains[0], q: 1.41, type: 'Peaking' },
+            { id: 'eq_band_01', freq: 63, gain: gains[1], q: 1.41, type: 'Peaking' },
           ],
           active_preset: 'jazz',
         });
@@ -589,6 +592,42 @@ describe('equalizerStore', () => {
       equalizerStore.updateFilter('eq_band_00', 'q', 2.0);
 
       expect(equalizerStore.isPresetEdited).toBe(true);
+    });
+
+    it('reports a record whose gains do not match the preset it names as edited', async () => {
+      // The drag is written to the target as it happens, so a reload landing
+      // mid-edit reads back "jazz" over gains jazz does not define. Printing the
+      // preset name over someone else's curve is the bug this answers.
+      await loadOnJazzPreset([6, 0]);
+
+      expect(equalizerStore.activePreset).toBe('jazz');
+      expect(equalizerStore.isPresetEdited).toBe(true);
+    });
+
+    it('re-posts the preset when the editor is left on unsaved edits', async () => {
+      vi.useFakeTimers();
+      await loadOnJazzPreset();
+      equalizerStore.updateFilter('eq_band_00', 'gain', 6);
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success', gains: [4, 0] }));
+
+      expect(await equalizerStore.discardPresetEdits()).toBe(true);
+
+      expect(apiCall.post).toHaveBeenCalledWith(
+        '/api/equalizer/target/local/preset',
+        { preset_id: 'jazz' },
+        expect.anything(),
+      );
+      // Deliberately not applied locally: the answer lands after the editor is
+      // gone, on state that no longer describes what is on screen.
+      expect(equalizerStore.filters[0].gain).toBe(6);
+    });
+
+    it('writes nothing when the editor is left with no unsaved edit', async () => {
+      await loadOnJazzPreset();
+
+      expect(await equalizerStore.discardPresetEdits()).toBe(false);
+
+      expect(apiCall.post).not.toHaveBeenCalled();
     });
   });
 });
