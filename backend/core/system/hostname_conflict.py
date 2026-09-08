@@ -66,8 +66,8 @@ AVAHI_SERVER_COLLISION = 3
 # distinct from milo-client.local satellites which are legitimate.
 RENAMED_MILO_PATTERN = re.compile(r"^milo-\d+\.local$")
 
-# RFC 1918 only: 100.64/10 (Tailscale's CGNAT range) reads as private to
-# `ipaddress.is_private` but identifies nothing on the LAN.
+# RFC 1918 only: an address outside these ranges — carrier-grade NAT (100.64/10),
+# a tunnel — identifies nothing on the owner's LAN.
 LAN_NETWORKS = tuple(
     ipaddress.ip_network(cidr)
     for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
@@ -314,9 +314,9 @@ class HostnameConflictService:
         """The address shown in the takeover, LAN first.
 
         Sorted, and RFC-1918 before anything else, so the answer is stable
-        across reboots on a host with several interfaces (eth0 + wlan0 +
-        tailscale0 here): set iteration order depends on hash randomisation,
-        and a string sort alone hands the owner the Tailscale address —
+        across reboots on a host with several interfaces (eth0 + wlan0 + a
+        tunnel here): set iteration order depends on hash randomisation, and a
+        string sort alone hands the owner the carrier-grade NAT address —
         `100.…` sorts before `192.…` — which names nothing on their network.
         """
         addresses = []

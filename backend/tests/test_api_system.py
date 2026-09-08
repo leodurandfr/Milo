@@ -329,13 +329,13 @@ class TestNetworkInfo:
 
     def test_the_first_ipv4_is_the_one_reported(self, client, shell):
         """`hostname -I` lists every address on the box. Measured on this unit
-        it answers eth0, then wlan0, then Tailscale, then the v6 addresses —
+        it answers eth0, then wlan0, then a tunnel, then the v6 addresses —
         so the first v4 is the LAN address someone can actually type. Reporting
-        a v6 or the 100.64/10 Tailscale address instead is a unit that reads as
-        unreachable from its own settings screen.
+        a v6 or the 100.64/10 carrier-grade NAT address instead is a unit that
+        reads as unreachable from its own settings screen.
         """
         shell["hostname -I"] = _Proc(stdout=(
-            "192.168.1.55 100.117.193.57 2a01:e0a:1048:b5b0:e079:41ff:e835:8628\n"
+            "192.168.1.55 100.100.100.100 2a01:e0a:1048:b5b0:e079:41ff:e835:8628\n"
         ))
 
         data = client.get("/api/system/network-info").json()

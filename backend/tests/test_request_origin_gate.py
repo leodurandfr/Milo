@@ -55,7 +55,6 @@ def headers(host, origin=None):
     pytest.param("localhost", "http://localhost", id="pi-kiosk-over-loopback"),
     pytest.param("192.168.1.50", "http://192.168.1.50", id="address-typed-in-the-bar"),
     pytest.param("milo-2.local", "http://milo-2.local", id="avahi-renamed-unit"),
-    pytest.param("100.117.193.57", "http://100.117.193.57", id="tailscale-from-off-lan"),
     pytest.param("127.0.0.1:8000", "http://localhost:5173", id="vite-dev-proxy"),
     pytest.param("milo.local:5173", "http://milo.local:5173", id="vite-dev-server-on-the-unit"),
 ])

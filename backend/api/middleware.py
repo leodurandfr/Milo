@@ -25,9 +25,8 @@ Both accept the same set of names and addresses, `_is_appliance_host`, which is 
 than the CORS allowlist on purpose: CORS only ever describes *cross*-origin readers,
 while these checks also see every same-origin request — and those arrive under
 whatever name the user reached the unit by. `http://localhost` for the Pi kiosk,
-`http://192.168.1.x` when mDNS is down, `http://milo-2.local` after an Avahi rename,
-the Tailscale address from a phone off the LAN. An allowlist of four literal origins
-would have locked all four out.
+`http://192.168.1.x` when mDNS is down, `http://milo-2.local` after an Avahi rename.
+An allowlist of four literal origins would have locked all three out.
 
 The `/ws` upgrade does not pass through here — the gate is HTTP-scope only. It carries
 no state-changing surface: `ws/manager.py` discards every inbound frame after the
@@ -60,10 +59,6 @@ _STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # server claims the name (core/system/hostname_conflict.py).
 _APPLIANCE_NAME = re.compile(rf"^(localhost|{EXPECTED_SERVER_HOSTNAME}(-\d+)?(\.local)?)$")
 
-# Tailscale hands out 100.64/10, which `is_private` does not cover, and the unit is
-# reached there from off the LAN.
-_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
-
 
 def _hostname(url: str) -> str | None:
     """Bare lowercase host of an `Origin` value, or of a `Host` header given as `//host`."""
@@ -83,10 +78,12 @@ def _is_appliance_host(host: str | None) -> bool:
         address = ipaddress.ip_address(host)
     except ValueError:
         return False
-    # Any address literal, not only ours: dialling a number resolves no name, so
-    # rebinding has nothing to rebind. The range test keeps out the one literal that
-    # is not a local one — an attacker serving the page from their own public IP.
-    return address.is_private or (address.version == 4 and address in _SHARED_ADDRESS_SPACE)
+    # Any *local* address literal, not only ours: dialling a number resolves no name,
+    # so rebinding has nothing to rebind. The range test keeps out the literal that is
+    # not a local one — an attacker serving the page from their own public IP. It also
+    # keeps out 100.64/10, which `is_private` does not cover: the appliance is a LAN
+    # device, and a carrier-grade NAT address is not a way onto it.
+    return address.is_private
 
 
 def _is_trusted_origin(origin: str) -> bool:

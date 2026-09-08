@@ -237,7 +237,7 @@ JOURNAL_INCLUDE_KERNEL = True
 # =============================================================================
 # Listening ports — asked about by number, never enumerated from the host
 # =============================================================================
-# `ss -ltn` in full also reports the Tailscale address and every unrelated
+# `ss -ltn` in full also reports any tunnel address and every unrelated
 # listener on the box. The report asks whether each of Milō's own ports answers.
 
 LISTEN_PORTS = {

@@ -111,7 +111,7 @@ class FakeSession:
     and a mutation that removes the condition makes it spin with no await that
     sleeps. An unbounded double then grows a list one entry per turn: measured
     on 2026-08-27, that reached 6 GB of RSS in four minutes, put this Pi into
-    swap thrash and took the appliance down — mDNS and Tailscale with it — with
+    swap thrash and took the appliance down — mDNS with it — with
     a journal that ends mid-line. The wall-clock timeout was useless; the
     damage lands long before it. Bounding the DOUBLE (the B4 lesson, applied to
     a loop rather than a poll) is what turns that mutation into something a test

@@ -547,7 +547,7 @@ class TestFaviconProxy:
         ("192.168.1.60", "a satellite on the LAN"),
         ("10.0.0.1", "an RFC1918 host"),
         ("169.254.1.1", "link-local"),
-        ("100.117.193.57", "the Tailscale range"),
+        ("100.100.100.100", "the carrier-grade NAT range"),
     ])
     def test_an_address_off_the_public_internet_is_never_fetched(
         self, client, fetches, dns, address, what

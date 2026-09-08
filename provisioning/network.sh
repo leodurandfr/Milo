@@ -46,7 +46,7 @@ server {
     # to do, and it fixes the cause rather than widening the gate: the assistant
     # follows it, lands on milo.local, and everything after is same-origin under
     # a name the appliance owns. Exact `location =` matches, so no legitimate
-    # request — including reaching the unit by IP or over Tailscale — is touched.
+    # request — including reaching the unit by IP or over a VPN — is touched.
     location = /hotspot-detect.html { return 302 http://milo.local/; }   # iOS, macOS
     location = /library/test/success.html { return 302 http://milo.local/; }  # iOS (older)
     location = /generate_204 { return 302 http://milo.local/; }          # Android
