@@ -488,7 +488,7 @@ async def _favicon_target_allowed(url: str) -> bool:
         except ValueError:
             return False
         # `is_global` is the one predicate that covers loopback, RFC1918,
-        # link-local and the 100.64/10 range Tailscale sits in.
+        # link-local and the 100.64/10 carrier-grade NAT range.
         if not address.is_global:
             return False
     return True

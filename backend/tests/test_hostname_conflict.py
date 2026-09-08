@@ -58,7 +58,7 @@ from backend.core.system.hostname_conflict import (
 MODULE = "backend.core.system.hostname_conflict"
 
 # --------------------------------------------------------------------------- #
-# Verbatim captures (this appliance, live LAN)
+# Captures from this appliance, live LAN
 # --------------------------------------------------------------------------- #
 
 IP_ADDR_SHOW = (
@@ -67,15 +67,15 @@ IP_ADDR_SHOW = (
     "       valid_lft 42917sec preferred_lft 42917sec\n"
     "3: wlan0    inet 192.168.1.39/24 brd 192.168.1.255 scope global dynamic noprefixroute wlan0\\"
     "       valid_lft 42905sec preferred_lft 42905sec\n"
-    "4: tailscale0    inet 100.117.193.57/32 scope global tailscale0\\"
+    "4: tun0    inet 100.100.100.100/32 scope global tun0\\"
     "       valid_lft forever preferred_lft forever\n"
 )
 
-# The same host 9 s into the boot of 2026-08-31: tailscale0 is up, neither DHCP
+# The same host 9 s into the boot of 2026-08-31: the tunnel is up, neither DHCP
 # lease has landed yet. This is the snapshot the old code judged itself on.
 IP_ADDR_SHOW_BOOT = (
     "1: lo    inet 127.0.0.1/8 scope host lo\\       valid_lft forever preferred_lft forever\n"
-    "4: tailscale0    inet 100.117.193.57/32 scope global tailscale0\\"
+    "4: tun0    inet 100.100.100.100/32 scope global tun0\\"
     "       valid_lft forever preferred_lft forever\n"
 )
 
@@ -410,7 +410,7 @@ class TestTheBootRace:
     ~9 s before either DHCP lease lands. The old detection sampled `ip -4`
     first and `avahi-resolve milo.local` last, and the answer named an address
     acquired in between — so the unit did not recognise itself and mounted the
-    takeover, showing "This device: ? (100.117.193.57)".
+    takeover, showing "This device: ? (100.100.100.100)".
     """
 
     async def test_a_lease_that_lands_mid_check_is_not_another_milo(self, service):
@@ -639,10 +639,10 @@ class TestDisplayAddress:
     """`local_ip` is printed in the takeover ("This device: {name} ({ip})") and
     is the only thing identifying which box is speaking."""
 
-    async def test_the_lan_address_is_shown_not_the_tailscale_one(self, service):
-        """The takeover of 2026-08-31 read "? (100.117.193.57)". A CGNAT address
-        names nothing on the owner's network — and `ipaddress.is_private` calls
-        100.64/10 private, so only an explicit RFC-1918 test rejects it."""
+    async def test_the_lan_address_is_shown_not_the_tunnel_one(self, service):
+        """The takeover of 2026-08-31 read "? (100.100.100.100)". A carrier-grade
+        NAT address names nothing on the owner's network, and it sorts before every
+        RFC-1918 one, so only an explicit RFC-1918 test rejects it."""
         with on_unit():
             await service.check()
         assert service.get_state()["local_ip"] == "192.168.1.39"
@@ -651,14 +651,14 @@ class TestDisplayAddress:
         """`_get_local_ips` returns a *set*, which iterates in hash order: fed an
         iterable already in the opposite order, the sort is the only thing that
         can produce the answer."""
-        descending = ["192.168.1.55", "192.168.1.39", "127.0.0.1", "100.117.193.57"]
+        descending = ["192.168.1.55", "192.168.1.39", "127.0.0.1", "100.100.100.100"]
         assert HostnameConflictService._display_address(descending) == "192.168.1.39"
 
-    def test_a_host_with_only_a_tailscale_address_still_shows_something(self):
-        """Mid-boot, or a unit reached over Tailscale alone: better the CGNAT
+    def test_a_host_with_only_a_cgnat_address_still_shows_something(self):
+        """Mid-boot, before either DHCP lease lands: better the carrier-grade NAT
         address than nothing."""
         assert HostnameConflictService._display_address(
-            {"127.0.0.1", "100.117.193.57"}) == "100.117.193.57"
+            {"127.0.0.1", "100.100.100.100"}) == "100.100.100.100"
 
     def test_a_host_with_only_loopback_reports_no_address(self):
         """A unit whose interfaces are all down: the takeover then shows the

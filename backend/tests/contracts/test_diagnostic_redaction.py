@@ -238,7 +238,7 @@ def test_a_global_ipv6_address_is_replaced_and_a_local_one_is_not():
     A global IPv6 is a different thing: its /64 comes from the ISP and names the
     subscriber line. Measured in this unit's avahi journal, which announces the
     address it registered on every start. Link-local and ULA are local, and are
-    what a Tailscale or an mDNS problem is actually read from.
+    what a routing or an mDNS problem is actually read from.
     """
     out = wl.strip_global_ipv6(
         "Registering 2a01:e0a:1048:b5b0:e079:41ff:e835:8628 on eth0; "

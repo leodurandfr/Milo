@@ -875,12 +875,12 @@ def never_the_real_nmcli():
 # The credentials handed to a speaker being adopted
 # --------------------------------------------------------------------------- #
 #
-# Verbatim shapes from this appliance, 2026-08-26:
+# Shapes from this appliance, 2026-08-26:
 #
 #   nmcli -t -f NAME,DEVICE connection show --active
 #       Wired connection 1:eth0
 #       milo-Freebox-CA3555:wlan0
-#       tailscale0:tailscale0
+#       tun0:tun0
 #       lo:lo
 #
 #   nmcli -s -t -f 802-11-wireless.ssid,802-11-wireless-security.psk \
@@ -891,7 +891,7 @@ def never_the_real_nmcli():
 ACTIVE_CONNECTIONS = (
     "Wired connection 1:eth0\n"
     "milo-Freebox-CA3555:wlan0\n"
-    "tailscale0:tailscale0\n"
+    "tun0:tun0\n"
     "lo:lo"
 )
 
@@ -916,7 +916,7 @@ def creds_router(active=ACTIVE_CONNECTIONS, ssid="Freebox-CA3555", psk="hunter2"
 async def test_the_credentials_pushed_to_a_speaker_are_the_ones_on_wlan0(service):
     """`GET /discovery/server-wifi-creds` pre-fills the adoption form with these.
 
-    The active list carries eth0, tailscale0 and lo alongside wlan0 — picking
+    The active list carries eth0, tun0 and lo alongside wlan0 — picking
     any of them would hand the speaker a name that is not a WiFi network at all,
     and it would reboot onto nothing.
     """
@@ -1090,7 +1090,7 @@ async def test_the_saved_list_shows_the_ssid_not_the_milo_profile_name(service):
     def route(args):
         return (0, "milo-Freebox-CA3555:802-11-wireless\n"
                    "Wired connection 1:802-3-ethernet\n"
-                   "tailscale0:tun\n"
+                   "tun0:tun\n"
                    "Voisins:802-11-wireless", "")
 
     fake, patcher = with_nmcli(route)

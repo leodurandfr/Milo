@@ -600,7 +600,7 @@ async def network(ctx) -> str:
     """Addresses, routes and which of Milō's own ports answer.
 
     Deliberately not `ss -ltn` whole: that lists every unrelated listener on the
-    box including the Tailscale address. The ports Milō owns are asked about by
+    box, including any tunnel address. The ports Milō owns are asked about by
     number instead.
     """
     import asyncio
