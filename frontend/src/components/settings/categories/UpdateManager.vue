@@ -662,7 +662,9 @@ onMounted(async () => {
     "icon name button"
     "icon version button";
   align-items: center;
-  gap: var(--space-01) var(--space-04);
+  /* Same column gap as .program-info / .program-item, so the icon and the text
+     don't shift sideways when the skeleton crossfades into the real row. */
+  gap: var(--space-01) var(--space-03);
 }
 
 .program-item-skeleton:first-child {
@@ -685,28 +687,36 @@ onMounted(async () => {
   grid-area: icon;
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-03);
+  /* AppIcon's own radius, not a rounder one of our choosing. */
+  border-radius: var(--radius-02);
 }
 
 .skeleton-name {
   grid-area: name;
   width: 120px;
-  height: calc(var(--font-size-h4) * 1.2);
+  /* Each bar is exactly the line box of the text it stands in, and hugs the
+     same edge — .program-name is `end`, .program-version is `start` — so the
+     pair sits where the real pair sits once the 48px icon has grown both
+     rows. A height in `em` of the font size was ~2px over, twice. */
+  height: var(--line-height-h4);
+  align-self: end;
   border-radius: var(--radius-02);
 }
 
 .skeleton-version {
   grid-area: version;
   width: 180px;
-  height: calc(var(--font-size-mono-medium) * 1.4);
+  height: var(--line-height-mono-medium);
+  align-self: start;
   border-radius: var(--radius-02);
 }
 
 .skeleton-button {
   grid-area: button;
   width: 100px;
+  /* Button `size="small"`: 36px tall, --radius-03. */
   height: 36px;
-  border-radius: var(--radius-02);
+  border-radius: var(--radius-03);
   justify-self: end;
 }
 
