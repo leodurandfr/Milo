@@ -22,10 +22,10 @@ import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 /** Minimum ms between activity event processing. */
 const ACTIVITY_THROTTLE_MS = 500;
 
-// Media sources: the screensaver shows only while audio is actually playing, so
-// pausing closes it (the backend otherwise keeps the last track's metadata
-// stale). The two passive receivers below have no play/pause concept — their
-// screensaver stays up while the sender is connected (source_state 'active').
+// Media sources: the countdown only runs while audio is actually playing — an
+// idle unit showing a paused track has nothing to fade into. The two passive
+// receivers below have no play/pause concept, so a connected sender is enough.
+// Arming only: neither list ever dismisses a screensaver already up.
 const PLAYBACK_GATED_SOURCES = ['radio', 'podcast', 'airplay', 'dlna', 'qobuz', 'music_library', 'spotify', 'cd', 'tidal'];
 const PASSIVE_SOURCES = ['bluetooth', 'mac'];
 
@@ -91,16 +91,35 @@ export function useScreensaver() {
     (settingsStore.screenScreensaver.screensaver_delay_seconds ?? 15) * 1000
   );
 
-  const shouldMonitorInactivity = computed(() => {
-    // Pi-screen-only: the screensaver is the physical display's idle state, so a
-    // remote Mac/iPhone viewing the UI never shows it (matches ui_scale + color
-    // filter). Also removes the need for the portrait CSS hide hack it once used.
+  /**
+   * What keeps the screensaver up is having something to show: a source still on
+   * the air. Nothing about the playback itself belongs here.
+   *
+   * Arming and dismissing are two questions, and answering both with one
+   * expression is the bug this split fixes. `is_playing` dips to false when a
+   * track ends *on its own*, so the screensaver closed itself between two tracks
+   * — no touch, no user, just the gap. Four sources carry that dip, each from
+   * its own channel: Spotify's `not_playing` event (published straight from the
+   * event, without re-reading /status — which is why polling /status at 10 Hz
+   * across two boundaries never sees it), Tidal's BUFFERING/IDLE player states,
+   * DLNA's STOPPED transport state, and AirPlay's `pfls` flush. A skip commanded
+   * from the sender never produced it, which is what made it look intermittent.
+   */
+  const screensaverStillApplies = computed(() => {
+    // Pi-screen-only: a remote Mac/iPhone viewing the UI never shows it (matches
+    // ui_scale + color filter). Also removes the need for the portrait CSS hide
+    // hack it once used.
     if (!isKiosk()) return false;
     if (!settingsStore.screenScreensaver.screensaver_enabled) return false;
     // Lyrics is itself a full-screen reading view that scrolls on its own: covering
     // it after a delay would hide the thing being read, without any user inactivity.
     if (lyricsStore.isOpen) return false;
-    if (unifiedStore.systemState.source_state !== 'active') return false;
+    return unifiedStore.systemState.source_state === 'active';
+  });
+
+  /** Whether the inactivity countdown may run: the above, plus live playback. */
+  const canArmScreensaver = computed(() => {
+    if (!screensaverStillApplies.value) return false;
     const source = unifiedStore.systemState.active_source;
     if (PASSIVE_SOURCES.includes(source)) return true;
     if (PLAYBACK_GATED_SOURCES.includes(source)) {
@@ -120,7 +139,7 @@ export function useScreensaver() {
 
   function resetInactivityTimer() {
     clearInactivityTimer();
-    if (!shouldMonitorInactivity.value || isScreensaverVisible.value) return;
+    if (!canArmScreensaver.value || isScreensaverVisible.value) return;
 
     inactivityTimer = timer.setTimeout(() => {
       isScreensaverVisible.value = true;
@@ -405,21 +424,28 @@ export function useScreensaver() {
     if (wasVisible && !visible) screensaverRevealNonce.value += 1;
   });
 
-  watch(shouldMonitorInactivity, (shouldMonitor) => {
-    if (shouldMonitor) {
+  watch(canArmScreensaver, (canArm) => {
+    if (canArm) {
       addActivityListeners();
       resetInactivityTimer();
     } else {
+      // Only the countdown stops. A screensaver already up survives a pause and
+      // the between-tracks gap; the overlay's own pointerdown still closes it.
       removeActivityListeners();
       clearInactivityTimer();
-      isScreensaverVisible.value = false;
     }
   }, { immediate: true });
+
+  // The one automatic dismissal: the source being drawn is no longer on the air,
+  // so the overlay would be showing a track nothing is playing.
+  watch(screensaverStillApplies, (stillApplies) => {
+    if (!stillApplies) isScreensaverVisible.value = false;
+  });
 
   watch(
     () => settingsStore.screenScreensaver.screensaver_delay_seconds,
     () => {
-      if (shouldMonitorInactivity.value && !isScreensaverVisible.value) {
+      if (canArmScreensaver.value && !isScreensaverVisible.value) {
         resetInactivityTimer();
       }
     }
