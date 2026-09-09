@@ -16,7 +16,7 @@ const props = defineProps({
     variant: {
         type: String,
         default: 'background-strong',
-        validator: (value) => ['background-strong', 'background-neutral', 'brand', 'on-dark', 'outline', 'outline-neutral', 'important'].includes(value)
+        validator: (value) => ['background-strong', 'background-neutral', 'brand', 'on-dark', 'on-grey', 'outline', 'outline-neutral', 'important'].includes(value)
     },
     size: {
         type: String,
@@ -179,6 +179,19 @@ function handleClick(event) {
     color: var(--color-text-light);
 }
 
+/* === ON-GREY variant (translucent dark plate for artwork, IconButton's twin) === */
+.btn--on-grey.btn--normal {
+    background-color: var(--color-background-contrast-12);
+    color: var(--color-text-contrast);
+    backdrop-filter: blur(var(--blur-02));
+}
+
+.btn--on-grey.btn--disabled {
+    background-color: var(--color-background-contrast-12);
+    color: var(--color-text-contrast-50);
+    backdrop-filter: blur(var(--blur-02));
+}
+
 /* === OUTLINE variant === */
 .btn--outline.btn--normal {
     background-color: var(--color-background-neutral);
@@ -241,6 +254,12 @@ function handleClick(event) {
 .btn--on-dark.btn--loading {
     background-color: var(--color-background-neutral-12);
     color: var(--color-text-contrast);
+}
+
+.btn--on-grey.btn--loading {
+    background-color: var(--color-background-contrast-12);
+    color: var(--color-text-contrast);
+    backdrop-filter: blur(var(--blur-02));
 }
 
 .btn--outline.btn--loading {
