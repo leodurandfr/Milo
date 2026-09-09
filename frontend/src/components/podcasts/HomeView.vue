@@ -43,7 +43,7 @@
       <div class="transition-container">
         <transition name="content-fade">
           <div v-if="loadingTopCharts" key="loading-podcasts" class="podcasts-grid">
-            <SkeletonPodcastCard v-for="i in 6" :key="`skeleton-podcast-${i}`" />
+            <SkeletonPodcastCard v-for="i in columns * 2" :key="`skeleton-podcast-${i}`" />
           </div>
         </transition>
 
@@ -65,7 +65,7 @@
         <transition name="content-fade">
           <div v-if="!loadingTopCharts && !topChartsApiError" key="loaded-podcasts" class="podcasts-grid">
             <PodcastCard
-              v-for="(podcast, index) in topCharts.slice(0, 6)"
+              v-for="(podcast, index) in topPodcasts"
               :key="podcast.itunes_id || podcast.uuid"
               :podcast="podcast"
               :position="index + 1"
@@ -98,6 +98,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useCardGridColumns } from '@/composables/useCardGridColumns'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
@@ -134,6 +135,11 @@ function isPodcastLoading(podcast) {
   if (!props.loadingPodcastId) return false
   return podcast.itunes_id === props.loadingPodcastId || podcast.uuid === props.loadingPodcastId
 }
+
+// Two whole rows of the chart, whatever the screen lays out — a fixed count
+// would leave orphans on every column count but the one it was written for.
+const { columns } = useCardGridColumns()
+const topPodcasts = computed(() => topCharts.value.slice(0, columns.value * 2))
 
 // Use store's computed for hasSubscriptions (preloaded in App.vue)
 const hasSubscriptions = computed(() => podcastStore.hasSubscriptions)
@@ -234,7 +240,7 @@ onMounted(() => {
 
 .podcasts-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(var(--card-grid-columns), minmax(0, 1fr));
   gap: var(--space-02);
 }
 
@@ -289,9 +295,6 @@ onMounted(() => {
 
 /* Mobile: Responsive adaptations */
 @media (max-aspect-ratio: 4/3) {
-  .podcasts-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
   .genres-grid {
     grid-template-columns: repeat(2, 1fr);
   }

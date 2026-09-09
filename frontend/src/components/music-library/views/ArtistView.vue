@@ -61,17 +61,14 @@ watch(() => props.artistId, async (id) => {
   align-self: start;
 }
 
+/* Same column count and column gap as the radio favorites grid, so an album
+   cover and a station logo are the same size on the same screen. Rows keep the
+   wider gap: the card carries two lines of text under the cover. */
 .albums-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(var(--card-grid-columns), minmax(0, 1fr));
   row-gap: var(--space-05);
-  column-gap: var(--space-04);
+  column-gap: var(--space-03);
 }
 
-@media (max-aspect-ratio: 4/3) {
-  .albums-grid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    column-gap: var(--space-03);
-  }
-}
 </style>

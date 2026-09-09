@@ -86,13 +86,6 @@ const favoriteStations = computed(() => radioStore.favoriteStations || [])
 .favorites-grid {
   display: grid;
   gap: var(--space-03);
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-/* Mobile: Responsive adaptations */
-@media (max-aspect-ratio: 4/3) {
-  .favorites-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
+  grid-template-columns: repeat(var(--card-grid-columns), minmax(0, 1fr));
 }
 </style>
