@@ -144,6 +144,10 @@ class MusicLibrarySource(MpvAudioSource):
         # albums)), so the merged view and the "everything mounted" view of the
         # same spaces are one entry rather than two.
         self._album_cache: Dict[Tuple[int, ...], Tuple[float, List[Dict[str, Any]]]] = {}
+        # A–Z artist index per browse scope, same shape and lifetime as the
+        # album cache above: the artist grid and the search results both read it
+        # (see get_artist_index).
+        self._artist_cache: Dict[Tuple[int, ...], Tuple[float, List[Dict[str, Any]]]] = {}
         # playlist id → its first track's album id, for placing a playlist Milō
         # did not create in a storage space (see playlists_in_scope).
         self._playlist_album: Dict[str, Optional[str]] = {}
@@ -238,6 +242,34 @@ class MusicLibrarySource(MpvAudioSource):
         what they return is post-filtered against this set.
         """
         return await self._scope_album_ids(await self.browse_scope())
+
+    async def get_artist_index(self, scope: List[int]) -> List[Dict[str, Any]]:
+        """A browse scope's A–Z artist index (``getArtists``), cached.
+
+        Cached because it has two readers, not because one is slow: the artist
+        grid renders it, and search borrows the ``albumCount`` it carries. That
+        borrowing is the point. ``search3`` honours ``musicFolderId`` for the
+        rows it returns but not for the counter it hangs on an artist row, so it
+        answers the artist's count across the *whole* catalog — measured, same
+        instant, same scope: an artist with 2 albums on the mounted NAS and 3 on
+        an unplugged iPod came back as 2 from ``getArtists`` and 5 from
+        ``search3``. ``getArtists`` is the one that scopes it.
+
+        Same TTL and same invalidation as the album cache — a rescan or a share
+        change moves both.
+        """
+        key = tuple(sorted(scope))
+        now = asyncio.get_event_loop().time()
+        cached = self._artist_cache.get(key)
+        if cached is not None and now - cached[0] < ALBUM_CACHE_TTL_S:
+            return cached[1]
+        client = await self.get_navidrome_client()
+        if client is None:
+            return []
+        index = await client.get_artists(scope)
+        if index:
+            self._artist_cache[key] = (now, index)
+        return index
 
     async def get_merged_albums(self, scope: List[int]) -> List[Dict[str, Any]]:
         """A browse scope's catalog, alphabetical, multi-disc sets collapsed.
@@ -422,8 +454,9 @@ class MusicLibrarySource(MpvAudioSource):
         self._playlist_album.pop(playlist_id, None)
 
     def invalidate_album_cache(self) -> None:
-        """Drop every scope's merged-album cache so the next grid load rebuilds
-        it (called after an explicit rescan or a share add/update/remove).
+        """Drop every scope's cached catalog — merged albums and artist index —
+        so the next grid load rebuilds it (called after an explicit rescan or a
+        share add/update/remove).
 
         The playlist→album memo goes with it: both answer "what is in this
         storage space", and a rescan is exactly when that changes. So does the
@@ -431,6 +464,7 @@ class MusicLibrarySource(MpvAudioSource):
         and the one moment an artist Deezer had no photo for is worth re-asking.
         """
         self._album_cache.clear()
+        self._artist_cache.clear()
         self._playlist_album.clear()
         self._artist_images.invalidate()
         if self._navidrome is not None:
