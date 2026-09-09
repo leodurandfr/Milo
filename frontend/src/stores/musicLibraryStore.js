@@ -992,6 +992,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // =========================================================================
   // UI STATE (persisted across navigation)
   // =========================================================================
+  // Survives navigating into an album and back (LibraryHome unmounts there);
+  // MusicLibrarySource resets it to 'albums' every time the library is opened.
   const activeTab = ref('albums'); // albums | artists | genres | playlists
 
   // =========================================================================

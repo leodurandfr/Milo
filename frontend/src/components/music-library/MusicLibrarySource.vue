@@ -132,6 +132,13 @@ const store = useMusicLibraryStore();
 const { t } = useI18n();
 const timer = useTimer();
 
+// Opening the library always lands on Albums. The tab is store state so it
+// survives navigating into an album and back — which also makes it outlive this
+// component, and coming back tomorrow on whichever tab was last touched is not
+// where anyone left off. Reset in setup rather than onMounted: children mount
+// first, so LibraryHome would otherwise fetch the stale tab before the reset.
+store.activeTab = 'albums';
+
 // Scroll-aware navigation stack (save/restore across push/back).
 const audioLayoutRef = ref(null);
 const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null);

@@ -23,6 +23,8 @@ that rescan as a background task, and left real it has been measured reaching
 this appliance's live Navidrome after the test ended.
 """
 
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -122,6 +124,9 @@ class TestResumeThatCannotBeRestored:
         session = {
             "queue": list(TRACKS), "queue_unshuffled": list(TRACKS),
             "queue_index": 0, "position": 0, "shuffle": False,
+            # Fresh: this class is about the arms that fail *inside* a restore,
+            # so nothing here must trip the staleness guard first.
+            "captured_at": asyncio.get_event_loop().time(),
         }
         session.update(overrides)
         return session

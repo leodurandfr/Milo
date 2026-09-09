@@ -18,7 +18,9 @@ reshuffles the upcoming tracks without interrupting the current one).
 Resume-on-return (P3-12): when playback stops because the user switched to
 another source or the idle auto-stop fired, the live session (queue / track /
 position) is snapshotted in memory; the next activation restores it PAUSED so a
-tap on play continues where it left off. An explicit Stop or a naturally-finished
+tap on play continues where it left off — for as long as the snapshot is fresh
+(``RESUME_TTL_S``), after which the library opens on nothing rather than on a
+paused track from another sitting. An explicit Stop or a naturally-finished
 queue forgets it, and it is deliberately not persisted (a reboot starts fresh).
 
 Where the music comes from is NOT here: the configured SMB/NFS shares and the
@@ -64,6 +66,13 @@ PREV_RESTART_THRESHOLD_S = 3
 ALBUM_CACHE_TTL_S = 30.0
 # getAlbumList2's per-request ceiling — loop by it to pull the whole catalog.
 _ALBUM_PAGE = 500
+
+# How long a resume-on-return snapshot stays worth restoring, measured from the
+# moment playback stopped. It exists to cover a detour — a source switch, the
+# idle auto-stop while the user is answering the door — not a later sitting:
+# past this, opening the library on a paused track nobody remembers starting
+# reads as a bug, and the fresh READY placeholder is what the user wants.
+RESUME_TTL_S = 600.0
 
 
 class MusicLibrarySource(MpvAudioSource):
@@ -957,18 +966,26 @@ class MusicLibrarySource(MpvAudioSource):
             "queue_library_id": self._queue_library_id,
             "position": self._position,
             "shuffle": self._shuffle,
+            # Monotonic, like the album cache: the appliance has no RTC, so its
+            # wall clock jumps when NTP lands and would age the snapshot by hours.
+            "captured_at": asyncio.get_event_loop().time(),
         }
 
     async def _restore_resume_session(self) -> bool:
         """Reload the saved session PAUSED at its stored track/position.
 
         Consumes ``self._resume`` (cleared regardless of outcome). Returns False
-        when the catalog isn't ready or the load fails, so _do_start falls back to
-        the READY placeholder.
+        when the snapshot has aged past ``RESUME_TTL_S``, when the catalog isn't
+        ready or when the load fails, so _do_start falls back to the READY
+        placeholder.
         """
         session = self._resume
         self._resume = None
         if not session or not self._mpv:
+            return False
+        age = asyncio.get_event_loop().time() - session["captured_at"]
+        if age > RESUME_TTL_S:
+            self._logger.info("Saved session is %.0fs old — starting fresh", age)
             return False
         client = await self.get_navidrome_client()
         if client is None:
