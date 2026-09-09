@@ -453,6 +453,13 @@ class TestWebSocketSendFailure:
         reading would otherwise hold the broadcast for its full send timeout,
         and every viewer's UI would stutter with it. Closing it is also what
         makes the browser notice and reconnect.
+
+        That close is spawned, not awaited, so it is observed one loop turn
+        after the broadcast returns — `close()` runs the closing handshake and
+        a peer that stopped reading holds it for 30s, which is why it may not
+        gate the fan-out (see test_broadcast_dict_does_not_await_the_close_of_a
+        _dead_connection). Awaited or spawned, it must still happen: that is
+        what the assertion below pins.
         """
         from backend.ws import WebSocketManager
 
@@ -482,5 +489,7 @@ class TestWebSocketSendFailure:
                 await manager.broadcast_dict({"category": "system", "type": "ping"})
 
         healthy.send_text.assert_awaited_once()
+        await asyncio.sleep(0)  # let the spawned close-out run
         slow.close.assert_awaited_once()
         assert "Slow client, closing connection" in caplog.text
+        await manager.cleanup()

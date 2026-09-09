@@ -19,6 +19,7 @@ from typing import Set, Dict, Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from backend.core.models.ws_events import SystemInitialState, VolumeChanged
+from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,11 @@ class WebSocketManager:
 
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
+        self._bg = BackgroundTaskSet(logger, "ws_manager")
+
+    async def cleanup(self) -> None:
+        """Drain the pending close-outs (see broadcast_dict)."""
+        await self._bg.cancel_all()
 
     async def connect(self, websocket: WebSocket) -> None:
         """Accept and register a WebSocket connection."""
@@ -44,11 +50,24 @@ class WebSocketManager:
         logger.debug(f"WebSocket disconnected, total: {len(self.active_connections)}")
 
     async def broadcast_dict(self, event_data: Dict[str, Any]) -> None:
-        """Broadcast event to all connections in parallel with timeout.
+        """Broadcast event to all connections in parallel, bounded by SEND_TIMEOUT.
 
-        Connections that fail or timeout are closed and removed.
+        Connections that fail or timeout are removed here and closed out of band.
         Slow/idle clients (background tabs, sleeping devices) are expected
         and handled silently — logged at DEBUG to avoid noise.
+
+        The close is deliberately NOT awaited. `WebSocket.close()` runs the
+        closing handshake, and uvicorn hands `websockets` no `close_timeout`, so
+        a peer that is still connected but no longer reading holds it for
+        3 × the library default: measured at 30.00s on this stack, against
+        1.00s for the send it follows. Awaiting it inside the gather made
+        SEND_TIMEOUT decorative and turned every broadcast into a half-minute
+        stall — including `SystemTransitionStart`, which `transition_to_source`
+        emits inside its own 10s budget, so one abandoned browser tab could
+        spend that budget three times over and settle the source the user had
+        just selected in ERROR. Closing still earns its place (a slow but live
+        client must learn it was dropped, or it renders stale state forever);
+        it just has no business gating delivery to everyone else.
         """
         if not self.active_connections:
             return
@@ -65,11 +84,6 @@ class WebSocketManager:
                 logger.debug("Slow client, closing connection")
             except Exception as e:
                 logger.debug(f"Send to client failed: {e}")
-            # Close dead connection so the client detects disconnect immediately
-            try:
-                await connection.close()
-            except Exception as e:
-                logger.debug(f"Close on dead WS connection failed: {e}")
             return connection, "failed"
 
         results = await asyncio.gather(
@@ -86,7 +100,18 @@ class WebSocketManager:
 
         if disconnected:
             self.active_connections -= disconnected
+            for connection in disconnected:
+                self._bg.spawn(
+                    self._close_dead_connection(connection), label="close-dead-client"
+                )
             logger.debug(f"Removed {len(disconnected)} dead connection(s)")
+
+    async def _close_dead_connection(self, connection: WebSocket) -> None:
+        """Close a dropped connection so the client detects the disconnect."""
+        try:
+            await connection.close()
+        except Exception as e:
+            logger.debug(f"Close on dead WS connection failed: {e}")
 
 
 class WebSocketServer:

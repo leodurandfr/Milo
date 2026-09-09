@@ -136,6 +136,54 @@ class TestWebSocketManager:
         assert bad_ws not in manager.active_connections
         assert len(manager.active_connections) == 1
 
+    @pytest.mark.asyncio
+    async def test_broadcast_dict_does_not_await_the_close_of_a_dead_connection(self, manager):
+        """A peer that stopped reading must not hold up everyone else's events.
+
+        `WebSocket.close()` runs the closing handshake and uvicorn hands
+        `websockets` no `close_timeout`, so a connected-but-unresponsive client
+        holds it for 3x the library default -- measured at 30.00s on this stack,
+        against the 1.00s SEND_TIMEOUT of the send it follows. Awaited inside the
+        gather it stalled every broadcast, `SystemTransitionStart` included, which
+        `transition_to_source` emits inside its own 10s budget: one abandoned
+        browser tab spent that budget and settled the source the user had just
+        selected in ERROR (09/09, music_library).
+
+        The neighbour above cannot see this -- its `bad_ws` is a plain AsyncMock
+        whose close() returns at once, so it proves the removal and never the
+        bound. Ordering is asserted rather than elapsed time: the close records
+        itself, and an awaited close would record before the broadcast returns.
+        """
+        order = []
+
+        async def record_close():
+            order.append("close-ran")
+
+        good_ws = AsyncMock()
+        bad_ws = AsyncMock()
+        bad_ws.send_text = AsyncMock(side_effect=Exception("Connection lost"))
+        bad_ws.close = AsyncMock(side_effect=record_close)
+
+        manager.active_connections.add(good_ws)
+        manager.active_connections.add(bad_ws)
+
+        await manager.broadcast_dict({"category": "test", "type": "broadcast"})
+        order.append("broadcast-returned")
+
+        assert order == ["broadcast-returned"], (
+            "broadcast_dict awaited the close of a dead connection: "
+            f"{order} -- SEND_TIMEOUT is then decorative"
+        )
+        assert bad_ws not in manager.active_connections
+        good_ws.send_text.assert_called_once()
+
+        # The close still happens, out of band, and cleanup() drains it.
+        await asyncio.sleep(0)
+        assert order == ["broadcast-returned", "close-ran"], (
+            "the dead connection was dropped without ever being closed"
+        )
+        await manager.cleanup()
+
 
 class TestWebSocketServer:
     """Tests for the WebSocket server"""

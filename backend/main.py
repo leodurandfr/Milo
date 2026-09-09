@@ -194,6 +194,7 @@ async def lifespan(app: FastAPI):
         ("crossover", crossover_service.cleanup),
         ("hostname_conflict", get_service("hostname_conflict_service").cleanup),
         ("music_library_shares", get_service("music_library_source").shares.cleanup),
+        ("websockets", ws_manager.cleanup),
     ]
     if rotary_controller:
         # Absent on a unit with no encoder; a release, so position is free
