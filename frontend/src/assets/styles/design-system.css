@@ -75,6 +75,17 @@
     --space-09: 96px;
 
 
+    /* === CARD GRIDS === */
+    /* Columns of the square-artwork grids (radio favorites, album browse). The
+       count comes from the viewport rather than from the grid's own width,
+       because AudioSourceLayout narrows the content column by the player's
+       340px: an auto-fill grid would lose a column the moment the player opens
+       (and at ui_scale 115% no minimum can hold four — the player then eats a
+       third of the column). A step every 320px keeps the card between ~160 and
+       ~290px from the unit's 1280 screen up to an ultrawide. */
+    --card-grid-columns: 4;
+
+
 
     /* === TEXT STYLES === */
 
@@ -193,9 +204,20 @@
 
 
 
+/* === RESPONSIVE - CARD GRIDS === */
+@media (min-width: 1600px) { :root { --card-grid-columns: 5; } }
+@media (min-width: 1920px) { :root { --card-grid-columns: 6; } }
+@media (min-width: 2240px) { :root { --card-grid-columns: 7; } }
+@media (min-width: 2560px) { :root { --card-grid-columns: 8; } }
+@media (min-width: 2880px) { :root { --card-grid-columns: 9; } }
+@media (min-width: 3200px) { :root { --card-grid-columns: 10; } }
+
+
 /* === RESPONSIVE - MOBILE === */
 @media (max-aspect-ratio: 4/3) {
     :root {
+        --card-grid-columns: 3;
+
         /* === SPACING (Mobile) === */
         --space-05: 16px;
         --space-06: 24px;

@@ -97,14 +97,8 @@ onMounted(loadData)
 
 .podcasts-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--card-grid-columns), minmax(0, 1fr));
   gap: var(--space-02);
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .podcasts-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 </style>
