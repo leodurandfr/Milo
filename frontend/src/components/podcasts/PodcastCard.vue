@@ -10,11 +10,13 @@
       <p v-if="podcast.publisher" class="podcast-publisher text-mono-medium">{{ podcast.publisher }}</p>
     </div>
 
-    <div v-if="showActions" class="card-actions" @click.stop>
-      <Button v-if="!isSubscribed" variant="brand" size="small" @click="emit('subscribe', podcast.uuid)">
+    <div v-if="showActions" class="card-actions">
+      <Button v-if="!isSubscribed" variant="brand" size="small" @pointerdown.stop
+        @click.stop="emit('subscribe', podcast.uuid)">
         {{ t('podcasts.subscribe') }}
       </Button>
-      <Button v-else variant="background-strong" size="small" @click="emit('unsubscribe', podcast.uuid)">
+      <Button v-else variant="background-strong" size="small" @pointerdown.stop
+        @click.stop="emit('unsubscribe', podcast.uuid)">
         {{ t('podcasts.unsubscribe') }}
       </Button>
     </div>
