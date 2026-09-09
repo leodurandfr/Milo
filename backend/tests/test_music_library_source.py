@@ -14,7 +14,7 @@ import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
 from backend.core.models.audio_state import SourceState
-from backend.sources.music_library.source import MusicLibrarySource
+from backend.sources.music_library.source import RESUME_TTL_S, MusicLibrarySource
 
 
 @pytest.fixture
@@ -78,6 +78,21 @@ TRACKS = [
     {"id": "s2", "title": "Two", "artist": "DP", "album": "Disc", "coverArt": "al1", "duration": 200},
     {"id": "s3", "title": "Three", "artist": "DP", "album": "Disc", "coverArt": "al1", "duration": 300},
 ]
+
+
+def _session(age_s=0.0, **overrides):
+    """A resume snapshot as _capture_resume_session writes it, aged by `age_s`."""
+    session = {
+        "queue": list(TRACKS),
+        "queue_unshuffled": list(TRACKS),
+        "queue_index": 0,
+        "queue_library_id": None,
+        "position": 0,
+        "shuffle": False,
+        "captured_at": asyncio.get_event_loop().time() - age_s,
+    }
+    session.update(overrides)
+    return session
 
 
 class TestCompliance:
@@ -573,13 +588,7 @@ class TestResume:
     @pytest.mark.asyncio
     async def test_restore_loads_paused_at_saved_position(self, source):
         source._mpv = _mpv_with_props({"duration": 200})
-        source._resume = {
-            "queue": list(TRACKS),
-            "queue_unshuffled": list(TRACKS),
-            "queue_index": 1,
-            "position": 60,
-            "shuffle": False,
-        }
+        source._resume = _session(queue_index=1, position=60)
 
         ok = await source._restore_resume_session()
 
@@ -646,7 +655,7 @@ class TestResume:
     async def test_restore_fails_without_catalog(self, source):
         source._mpv = _mpv()
         source.get_navidrome_client = AsyncMock(return_value=None)
-        source._resume = {"queue": list(TRACKS), "queue_index": 0, "position": 0}
+        source._resume = _session()
 
         ok = await source._restore_resume_session()
 
@@ -655,14 +664,35 @@ class TestResume:
         source._mpv.load_playlist.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_a_stale_snapshot_is_not_restored(self, source):
+        """Past RESUME_TTL_S the library opens on nothing, not on a paused track.
+
+        The snapshot covers a detour (a source switch, the idle auto-stop), not
+        a later sitting: restored hours afterwards it puts a now-playing on the
+        player for music the user does not remember starting, and the docked
+        player appears with it. Nothing else drops it — it is in memory and read
+        only here — so this check is the only thing standing between the two.
+        """
+        source._mpv = _mpv_with_props({"duration": 200})
+        source._resume = _session(age_s=RESUME_TTL_S + 1)
+
+        assert await source._restore_resume_session() is False
+        assert source._resume is None
+        assert source._queue == []
+        source._mpv.load_playlist.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_snapshot_within_the_ttl_still_resumes(self, source):
+        """The detour the TTL exists to allow: gone a while, but not a sitting."""
+        source._mpv = _mpv_with_props({"duration": 200})
+        source._resume = _session(age_s=RESUME_TTL_S - 1, queue_index=1)
+
+        assert await source._restore_resume_session() is True
+        assert source._queue_index == 1
+
+    @pytest.mark.asyncio
     async def test_do_start_restores_saved_session(self, source):
-        source._resume = {
-            "queue": list(TRACKS),
-            "queue_unshuffled": list(TRACKS),
-            "queue_index": 0,
-            "position": 0,
-            "shuffle": False,
-        }
+        source._resume = _session()
         source._start_service_and_wait = AsyncMock(return_value=True)
         source._load_auto_stop_config = AsyncMock()
         source._start_monitor = Mock()
