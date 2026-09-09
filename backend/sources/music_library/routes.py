@@ -151,8 +151,9 @@ async def get_artists(
 ) -> Dict[str, Any]:
     """All artists as A–Z index buckets (Subsonic getArtists)."""
     async with _catalog_errors("Error listing artists", source):
-        client = await _require_client(source)
-        return {"index": await client.get_artists(await source.browse_scope(library_id))}
+        await _require_client(source)
+        scope = await source.browse_scope(library_id)
+        return {"index": await source.get_artist_index(scope)}
 
 
 @router.get("/artist/{artist_id}")
@@ -265,20 +266,37 @@ async def search(
     artist_count: int = Query(20, ge=0, le=100),
     library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
-    """Fuzzy search across artists/albums/songs (Subsonic search3)."""
+    """Fuzzy search across artists/albums/songs (Subsonic search3).
+
+    The artist rows get their albumCount rewritten from the scope's artist index
+    (see source.get_artist_index): search3 scopes the rows it returns but not
+    that counter, so left as-is an artist row advertises albums held by an
+    unplugged storage space — the very albums the list below it, and the artist
+    page behind it, both correctly withhold.
+    """
     async with _catalog_errors("Error searching library", source):
         if not query.strip():
             return {"artists": [], "albums": [], "songs": []}
         client = await _require_client(source)
+        scope = await source.browse_scope(library_id)
         result = await client.search3(
             query,
-            await source.browse_scope(library_id),
+            scope,
             song_count=song_count,
             album_count=album_count,
             artist_count=artist_count,
         )
+        artists = result["artist"]
+        if artists:
+            counts = {
+                artist["id"]: artist["albumCount"]
+                for bucket in await source.get_artist_index(scope)
+                for artist in bucket.get("artist") or []
+            }
+            for artist in artists:
+                artist["albumCount"] = counts.get(artist["id"], 0)
         return {
-            "artists": result["artist"],
+            "artists": artists,
             "albums": merge_albums(result["album"]),
             "songs": result["song"],
         }

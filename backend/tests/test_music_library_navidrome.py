@@ -337,7 +337,12 @@ def nav_client():
     c.get_album = AsyncMock(return_value={"id": "al-1", "name": "Discovery"})
     c.get_album_list = AsyncMock(return_value=[{"id": "al-1"}])
     c.get_songs_by_genre = AsyncMock(return_value=[{"id": "s-1"}])
-    c.search3 = AsyncMock(return_value={"artist": [{"id": "ar-1"}], "album": [], "song": []})
+    # search3 hangs the artist's catalog-wide album count on the row it returns,
+    # ignoring the musicFolderId it was given — hence 5 here against the 2 the
+    # scoped index below reports for the same artist.
+    c.search3 = AsyncMock(
+        return_value={"artist": [{"id": "ar-1", "albumCount": 5}], "album": [], "song": []}
+    )
     c.get_playlists = AsyncMock(return_value=[{"id": "pl-1"}])
     c.get_playlist = AsyncMock(return_value={"id": "pl-1", "entry": []})
     c.create_playlist = AsyncMock(return_value={"id": "pl-9", "name": "Road Trip"})
@@ -371,6 +376,10 @@ def source(nav_client):
     src.browse_scope = AsyncMock(return_value=[2])
     src.mounted_album_ids = AsyncMock(return_value={"al-1"})
     src.get_merged_albums = AsyncMock(return_value=[{"id": "al-1"}])
+    # The scope's artist index — the one counter Navidrome computes per library.
+    src.get_artist_index = AsyncMock(
+        return_value=[{"name": "D", "artist": [{"id": "ar-1", "albumCount": 2}]}]
+    )
     src.genres_in_scope = AsyncMock(return_value=[{"value": "Techno"}])
     src.playlists_in_scope = AsyncMock(return_value=[{"id": "pl-scoped"}])
     return src
@@ -388,7 +397,9 @@ class TestBrowseRoutes:
     def test_artists_envelope(self, api, nav_client):
         r = api.get("/api/music-library/artists")
         assert r.status_code == 200
-        assert r.json() == {"index": [{"name": "D", "artist": []}]}
+        assert r.json() == {
+            "index": [{"name": "D", "artist": [{"id": "ar-1", "albumCount": 2}]}]
+        }
 
     def test_artist_wraps(self, api):
         r = api.get("/api/music-library/artist/ar-1")
@@ -521,7 +532,36 @@ class TestSearchRoute:
     def test_search_shapes_envelope(self, api):
         r = api.get("/api/music-library/search", params={"query": "daft"})
         assert r.status_code == 200
-        assert r.json() == {"artists": [{"id": "ar-1"}], "albums": [], "songs": []}
+        assert r.json() == {
+            "artists": [{"id": "ar-1", "albumCount": 2}],
+            "albums": [],
+            "songs": [],
+        }
+
+    def test_artist_count_comes_from_the_scoped_index_not_search3(self, api, source):
+        """A search result must not advertise albums a mounted storage space
+        cannot serve.
+
+        search3 scopes the rows it returns but not the albumCount it puts on an
+        artist row, so it answers the artist's whole-catalog total — 5 against
+        the 2 the same scope really holds, measured on a unit with an unplugged
+        USB library indexed. The row the artist page will render is the one from
+        the scoped index, so that is the number the search shows.
+        """
+        artists = api.get(
+            "/api/music-library/search", params={"query": "daft"}
+        ).json()["artists"]
+        assert [a["albumCount"] for a in artists] == [2]
+
+    def test_artist_missing_from_the_scope_counts_zero(self, api, source):
+        """An artist search3 returns that the scoped index does not hold has
+        nothing to offer here — the count says so rather than keeping search3's.
+        """
+        source.get_artist_index = AsyncMock(return_value=[{"name": "D", "artist": []}])
+        artists = api.get(
+            "/api/music-library/search", params={"query": "daft"}
+        ).json()["artists"]
+        assert [a["albumCount"] for a in artists] == [0]
 
     def test_empty_query_short_circuits(self, api, nav_client):
         r = api.get("/api/music-library/search", params={"query": "  "})
@@ -687,7 +727,7 @@ class TestScanRoute:
 class TestAuthRecovery:
     def test_auth_error_invalidates_client_and_503(self, api, source, nav_client):
         from backend.sources.music_library.navidrome_client import NavidromeAuthError
-        nav_client.get_artists = AsyncMock(side_effect=NavidromeAuthError("bad creds"))
-        r = api.get("/api/music-library/artists")
+        nav_client.get_artist = AsyncMock(side_effect=NavidromeAuthError("bad creds"))
+        r = api.get("/api/music-library/artist/ar-1")
         assert r.status_code == 503
         source.invalidate_navidrome_client.assert_awaited_once()
