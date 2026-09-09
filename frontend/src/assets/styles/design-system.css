@@ -176,6 +176,11 @@
 
     --transition-in-out: 250ms cubic-bezier(0.5, 0, 0.1, 1);
 
+    /* A dissolve between two texts handing over. Linear on purpose: an eased
+       opacity does most of its work in the middle third, which reads as a switch
+       being thrown rather than as one text becoming the other. */
+    --transition-crossfade: 800ms linear;
+
     --transition-spring-light: 0.82s
     linear(0, 0.0361, 0.1269, 0.2493, 0.3852, 0.5214, 0.6484, 0.7604, 0.8544, 0.9294, 0.9863, 1.0266, 1.0528, 1.0673, 1.0728, 1.0716, 1.066, 1.0575, 1.0478, 1.0377, 1.0282, 1.0197, 1.0124, 1.0066, 1.0021, 0.9988, 0.9966, 0.9953, 0.9947, 0.9947, 0.995, 0.9956, 0.9963, 0.997, 0.9977, 0.9984, 0.999, 0.9994, 0.9998, 1, 1.0002, 1.0003, 1.0004, 1.0004, 1.0004, 1.0003, 1.0003, 1.0002, 1.0002, 1.0001, 1);
 

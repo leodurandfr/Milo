@@ -28,7 +28,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useLyricsStore } from '@/stores/lyricsStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useTimer } from '@/composables/useTimer';
@@ -56,12 +56,15 @@ const isSynced = computed(() =>
 
 const plainLines = computed(() => (isSynced.value || !props.plain ? [] : props.plain.split('\n')));
 
+// The playhead the lyrics are read against: the source's position corrected by
+// the store's offset (0 in direct, minus the snapcast buffer in multiroom — see
+// lyricsStore.syncOffsetMs). Both the highlight and the scroll read this one.
+const syncedPosition = computed(() => currentPosition.value + lyricsStore.syncOffsetMs);
+
 // Index of the last line whose timestamp has passed the current position.
 const activeIndex = computed(() => {
   if (!isSynced.value || !isPositionInitialized.value) return -1;
-  // Offset owned by the store: 0 in direct, minus the snapcast buffer in
-  // multiroom (see lyricsStore.syncOffsetMs).
-  const pos = currentPosition.value + lyricsStore.syncOffsetMs;
+  const pos = syncedPosition.value;
   const lines = props.synced;
   let idx = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -85,44 +88,137 @@ function setLineRef(el, i) {
   if (el) lineRefs[i] = el;
 }
 
-function centerLine(i, behavior) {
-  const el = lineRefs[i];
-  const container = scrollRef.value;
-  if (i < 0 || !el || !container) return false;
-  const top = el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
-  container.scrollTo({ top, behavior });
-  return true;
-}
-
 const scrollKey = computed(() => `${lyricsStore.trackArtist}|||${lyricsStore.trackTitle}`);
 
-// Keep the active line centered: snap instantly to the current line on the
-// first known position (opening mid-song), then follow smoothly as it advances.
-// The very first attempt can land a frame before the just-mounted line refs are
-// painted (centerLine returns false); watch() only re-fires on the next value
-// CHANGE, so without a retry a paused/slow-changing track would leave the view
-// stuck behind the loading state indefinitely. Retry across a few frames to
-// catch up almost instantly in that case.
-const hasCenteredOnce = ref(false);
-// Which track the current centering belongs to. A track change does NOT remount
-// this component (the parent keys it on the source), so comparing keys is what
-// makes the next center snap like a fresh open instead of smoothly animating all
-// the way up from the previous track's scroll position. Deliberately separate
-// from hasCenteredOnce, which stays true so the loading overlay doesn't flash
-// back in between tracks.
-const centeredKey = ref(null);
-function attemptCenter(i, behavior, framesLeft = 10) {
-  if (centerLine(i, behavior)) {
-    hasCenteredOnce.value = true;
-    centeredKey.value = scrollKey.value;
-  } else if (framesLeft > 0) {
-    requestAnimationFrame(() => attemptCenter(i, behavior, framesLeft - 1));
-  }
+// === Scrolling ===
+//
+// One move per line: the active line is brought to the centre when it becomes
+// active, and the page rests until the next one. Interpolating continuously
+// between lines was tried and reads as drift rather than as rhythm — the song
+// is carried by the highlight, and the page should follow it, not anticipate it.
+//
+// What it does NOT use is scrollTo({behavior:'smooth'}): the browser's curve
+// spends most of its budget in the first instants, which lands as a lurch and is
+// not tunable. This is a cubic ease-in-out — it leaves slowly, crosses quickly,
+// and settles slowly.
+//
+// Deliberately longer than the crossfade it accompanies (--transition-crossfade,
+// 800ms): the words have finished handing over while the page is still coming to
+// rest, which is what makes the movement felt rather than watched. They start
+// together, which is what ties them; they need not end together.
+const SCROLL_DURATION_MS = 1200;
+
+// Matches --easeInOutCubic in the design system (cubic-bezier(0.65, 0, 0.35, 1)).
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - ((-2 * t + 2) ** 3) / 2;
 }
-watch(activeIndex, (i) => {
-  if (i < 0) return;
-  attemptCenter(i, centeredKey.value === scrollKey.value ? 'smooth' : 'auto');
-}, { immediate: true, flush: 'post' });
+
+// Anchors are measured, so they cost a layout read. Measuring the whole track in
+// one pass and keeping it until the lyrics or the viewport change means a line
+// change costs arithmetic, not a reflow — this runs on the kiosk's Pi.
+let anchors = null;
+
+// Land on the line instead of gliding to it: true on the first placement and
+// after every invalidation, since fresh anchors describe a layout the current
+// scrollTop knows nothing about (a new track, a resize).
+let needsSnap = true;
+
+function invalidateAnchors() {
+  anchors = null;
+  needsSnap = true;
+}
+
+function measureAnchors() {
+  const container = scrollRef.value;
+  if (!container || !props.synced) return null;
+  const half = container.clientHeight / 2;
+  const measured = props.synced.map((_, i) => {
+    const el = lineRefs[i];
+    return el ? el.offsetTop - half + el.clientHeight / 2 : null;
+  });
+  // One missing ref means the lines aren't painted yet, and measuring now would
+  // freeze half-laid-out numbers into the cache for the rest of the track.
+  return measured.some(a => a === null) ? null : measured;
+}
+
+// Gates the parent's loading screen only, and never goes back to false: a track
+// change does NOT remount this component (the parent keys it on the source), so
+// lowering it between tracks would flash the loader back in.
+const hasCenteredOnce = ref(false);
+
+let rafId = null;
+let tween = null;
+
+function stopTween() {
+  if (rafId !== null) cancelAnimationFrame(rafId);
+  rafId = null;
+  tween = null;
+}
+
+function stepTween(now) {
+  const container = scrollRef.value;
+  if (!container || !tween) {
+    rafId = null;
+    return;
+  }
+  const progress = Math.min(1, (now - tween.startedAt) / SCROLL_DURATION_MS);
+  container.scrollTop = tween.from + (tween.to - tween.from) * easeInOutCubic(progress);
+  rafId = progress < 1 ? requestAnimationFrame(stepTween) : null;
+  if (rafId === null) tween = null;
+}
+
+// Brings the active line to the centre. The lines can still be unpainted on the
+// first call (the refs land a frame later), and a watch only re-fires on the
+// next value CHANGE — so a paused or slow track would sit behind the loading
+// state forever without asking again across a few frames.
+function scrollToActiveLine(framesLeft = 10) {
+  const container = scrollRef.value;
+  const i = activeIndex.value;
+  if (!container || i < 0) return;
+
+  if (!anchors) anchors = measureAnchors();
+  if (!anchors) {
+    if (framesLeft > 0) requestAnimationFrame(() => scrollToActiveLine(framesLeft - 1));
+    return;
+  }
+
+  const max = Math.max(0, container.scrollHeight - container.clientHeight);
+  const to = Math.min(Math.max(anchors[i], 0), max);
+  hasCenteredOnce.value = true;
+
+  if (needsSnap) {
+    stopTween();
+    container.scrollTop = to;
+    needsSnap = false;
+    return;
+  }
+
+  // From wherever the page currently is, not from the previous line's anchor: a
+  // line landing mid-glide continues the trip instead of restarting it, and a
+  // hand-scrolled page is recovered from where the hand left it.
+  tween = { from: container.scrollTop, to, startedAt: performance.now() };
+  if (rafId === null) rafId = requestAnimationFrame(stepTween);
+}
+
+watch(activeIndex, () => scrollToActiveLine(), { immediate: true, flush: 'post' });
+
+function relayout() {
+  invalidateAnchors();
+  scrollToActiveLine();
+}
+
+onMounted(() => window.addEventListener('resize', relayout));
+onUnmounted(() => {
+  stopTween();
+  window.removeEventListener('resize', relayout);
+});
+
+// Two relayouts per track, deliberately: the store renames the track as soon as
+// the lookup starts, while `synced` only lands when it answers. The first drops
+// anchors measured on the previous lyrics; the second measures the new ones —
+// and placing from here, not only from the activeIndex watch, is what covers a
+// new track whose first line happens to carry the same index as the old one.
+watch([scrollKey, () => props.synced], relayout, { flush: 'post' });
 
 // Belt-and-suspenders: never block the view forever on the loading state —
 // reveal it as-is if centering still hasn't landed after a generous wait
@@ -160,7 +256,7 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
 
 .lyrics-scroll {
   /* position:relative so the lines' offsetTop is measured against this
-     container — centerLine()'s scroll math depends on it. Fills the
+     container — the anchor math in measureAnchors() depends on it. Fills the
      full-screen body; scrolls internally. */
   position: relative;
   flex: 1;
@@ -209,10 +305,13 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
 
 /* Light-on-dark over the blurred artwork backdrop; state modulates brightness
    through opacity only (color stays contrast-white so stylelint's
-   no-color-literal rule holds). Opacity eases so the highlight glides. */
+   no-color-literal rule holds).
+   The dissolve starts with the glide to the next line and finishes before it
+   (SCROLL_DURATION_MS is longer on purpose), so the handover is one gesture that
+   settles rather than a fade followed by a move. */
 .lyrics-line {
   color: var(--color-text-contrast);
-  transition: opacity var(--transition-in-out);
+  transition: opacity var(--transition-crossfade);
 }
 
 .lyrics-line.is-active {
@@ -225,6 +324,12 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
 
 .lyrics-line.is-past {
   opacity: 0.1;
+  /* The line leaving has nearly twice the distance of the line arriving
+     (1 → 0.1 against 0.45 → 1), so on the shared duration it would drop at twice
+     the speed — an exit that snaps while the entrance strolls. Stretched to the
+     same brightness-per-second: 0.9 / (0.55 / 800ms). Re-derive it if either
+     opacity above moves, or the pair stops reading as one dissolve. */
+  transition-duration: 1300ms;
 }
 
 .lyrics-line.is-plain-line {
