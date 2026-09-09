@@ -180,6 +180,28 @@ describe('artwork parity between the player and the screensaver', () => {
     expect(browserPlayerCode).toMatch(/kind === 'avatar'/);
   });
 
+  it('cuts the same corner on the cover in both views', () => {
+    // The crossfade superimposes the two squares, so the cover is the one
+    // element whose *shape* has to match, not just its content. It did not: the
+    // screensaver hard-coded the large radius the player only uses in its
+    // stacked portrait layout, so on the landscape screen — the only aspect
+    // ratio the kiosk ever shows — a 32px corner dissolved into a 16px one.
+    //
+    // Read from the stylesheets rather than restated here: what is asserted is
+    // that the two answer the same, at every aspect ratio, whatever that answer
+    // becomes.
+    const radii = (source) =>
+      [...stripComments(source).matchAll(/\.artwork\s*\{([^}]*)\}/g)]
+        .map((m) => m[1].match(/border-radius:\s*([^;]+);/)?.[1].trim())
+        .filter(Boolean);
+
+    const playerRadii = radii(player);
+    // Two: the base rule and the portrait override. Zero would make the
+    // comparison below pass on a pair of empty lists.
+    expect(playerRadii.length).toBe(2);
+    expect(radii(screensaverView)).toEqual(playerRadii);
+  });
+
   it('takes the screensaver layout from useRichDisplay instead of deciding again', () => {
     // Media card or status card is already answered, once, for the view sitting
     // behind the overlay. AirPlay and Bluetooth used to restate that rule here
