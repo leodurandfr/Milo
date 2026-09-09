@@ -542,8 +542,7 @@
       "tracks": "ट्रैक"
     },
     "albumDetails": "एल्बम विवरण",
-    "artistAlbum": "{artist} का एल्बम",
-    "artistAlbums": "{artist} के एल्बम",
+    "artistDetails": "कलाकार विवरण",
     "variousArtists": "विभिन्न कलाकार",
     "featuring": "फ़ीट. {artists}",
     "genre": "शैली",

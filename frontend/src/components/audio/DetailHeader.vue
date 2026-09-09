@@ -33,7 +33,7 @@
         <IconButton v-if="showShuffle" icon="shuffle" variant="on-dark" size="small"
           :aria-label="t('musicLibrary.shuffle')" @click="$emit('shuffle')" />
         <IconButton v-if="showPlay" icon="play" variant="brand" size="medium"
-          :aria-label="t('musicLibrary.play')" @click="$emit('play')" />
+          :loading="playLoading" :aria-label="t('musicLibrary.play')" @click="$emit('play')" />
       </div>
     </div>
   </div>
@@ -79,6 +79,12 @@ const props = defineProps({
   showPlay: {
     type: Boolean,
     default: true,
+  },
+  // Spinner on the play button, for a header whose queue is only assembled on
+  // the press (the artist page fetches one album per release).
+  playLoading: {
+    type: Boolean,
+    default: false,
   },
   showShuffle: {
     type: Boolean,

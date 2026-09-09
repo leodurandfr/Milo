@@ -542,8 +542,7 @@
       "tracks": "Brani"
     },
     "albumDetails": "Dettagli album",
-    "artistAlbum": "Album di {artist}",
-    "artistAlbums": "Album di {artist}",
+    "artistDetails": "Dettagli artista",
     "variousArtists": "Artisti vari",
     "featuring": "feat. {artists}",
     "genre": "Genere",
