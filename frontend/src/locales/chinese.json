@@ -542,8 +542,7 @@
       "tracks": "曲目"
     },
     "albumDetails": "专辑详情",
-    "artistAlbum": "{artist} 的专辑",
-    "artistAlbums": "{artist} 的专辑",
+    "artistDetails": "艺术家详情",
     "variousArtists": "群星",
     "featuring": "feat. {artists}",
     "genre": "类型",

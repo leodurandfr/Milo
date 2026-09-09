@@ -182,10 +182,7 @@ const playerArtwork = computed(() => store.displayTrack?.albumArtUrl || null);
 const currentTitle = computed(() => {
   switch (currentView.value) {
     case 'album': return t('musicLibrary.albumDetails');
-    case 'artist':
-      return currentParams.value.artistAlbumCount === 1
-        ? t('musicLibrary.artistAlbum', { artist: currentParams.value.artistName })
-        : t('musicLibrary.artistAlbums', { artist: currentParams.value.artistName });
+    case 'artist': return t('musicLibrary.artistDetails');
     case 'genre': return currentParams.value.genreLabel || t('musicLibrary.genre');
     case 'playlist': return t('musicLibrary.playlistDetails');
     case 'liked': return t('musicLibrary.playlists.likedSongs');
@@ -196,7 +193,7 @@ const currentTitle = computed(() => {
 });
 
 const detailsTitleView = computed(() =>
-  ['album', 'playlist'].includes(currentView.value)
+  ['album', 'artist', 'playlist'].includes(currentView.value)
 );
 
 // === Navigation ===
@@ -204,7 +201,7 @@ function openAlbum(album) {
   push('album', { albumId: album.id, albumName: album.name });
 }
 function openArtist(artist) {
-  push('artist', { artistId: artist.id, artistName: artist.name, artistAlbumCount: artist.albumCount });
+  push('artist', { artistId: artist.id, artistName: artist.name });
 }
 function openGenre(genre) {
   push('genre', { genre: genre.value, genreLabel: genre.value });

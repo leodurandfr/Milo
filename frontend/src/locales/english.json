@@ -542,8 +542,7 @@
       "tracks": "Tracks"
     },
     "albumDetails": "Album details",
-    "artistAlbum": "Album by {artist}",
-    "artistAlbums": "Albums by {artist}",
+    "artistDetails": "Artist details",
     "variousArtists": "Various Artists",
     "featuring": "feat. {artists}",
     "genre": "Genre",
