@@ -6,8 +6,9 @@
 // track_artist rather than the canonical title/artist (see radioStore.trackInfo;
 // the station itself is a continuous stream, not a track).
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
+import { useSnapcastStore } from './snapcastStore';
 import { apiCall } from '@/services/apiCall';
 
 // Mac carries no title/artist at all and a podcast is spoken word, not a song.
@@ -39,10 +40,60 @@ export const useLyricsStore = defineStore('lyrics', () => {
   const trackArtist = ref('');
   const trackTitle = ref('');
 
+  // Snapserver's stream buffer, in ms — the last value read from the server
+  // config, kept for the session. See syncOffsetMs.
+  const multiroomBufferMs = ref(null);
+
   // The "Title · Artist" line the "no lyrics found for" empty state shows below
   // its message — i.e. the exact track loadLyrics() searched with. The loading
   // screen deliberately shows no track, just what it's doing.
   const trackLine = computed(() => `${trackTitle.value} · ${trackArtist.value}`);
+
+  // What synced lyrics must add to the source position to line up with what the
+  // room actually hears.
+  //
+  // Snapserver schedules every chunk `buffer_ms` into the future so all speakers
+  // play it at the same instant, so in multiroom the sound heard at any moment is
+  // what the source wrote buffer_ms ago — while metadata.position reports where
+  // the source *is*. The highlight is therefore held BACK by the buffer (the
+  // offset is negative); it used to be pushed forward by a fixed 500 ms, which
+  // doubled the error instead of cancelling it. Direct mode has no such stage,
+  // and the DAC-side latency it does have is the same in both modes, so it is
+  // not part of the difference and is not modelled.
+  //
+  // The value is read, never guessed: buffer_ms is a user-facing setting (presets
+  // 180 / 700 / 1500 ms, free between 150 and 3000), so a constant could only
+  // ever be right for one of them. Per-client delay_ms is deliberately left out —
+  // it shifts one speaker, and nothing tells us which room the reader is in.
+  const syncOffsetMs = computed(() => {
+    const unifiedStore = useUnifiedAudioStore();
+    if (!unifiedStore.systemState.multiroom_enabled) return 0;
+    return -(multiroomBufferMs.value ?? 0);
+  });
+
+  // A failed read keeps the last known value (snapserver restarting is exactly
+  // when this can fail) — a one-preset-stale offset beats none at all.
+  async function loadSyncOffset() {
+    const unifiedStore = useUnifiedAudioStore();
+    if (!unifiedStore.systemState.multiroom_enabled) return;
+    const config = await useSnapcastStore().fetchServerConfig();
+    if (config?.buffer_ms) multiroomBufferMs.value = config.buffer_ms;
+  }
+
+  // Driven by state, not by open(): multiroom can be switched on from anywhere
+  // (a second browser, Milo-Mac) while the view is already up, and with no value
+  // read the offset silently degrades to 0 — the largest error there is, and the
+  // one this whole computation exists to remove. Every (open × multiroom) edge
+  // asks again, which is also what retries a read that failed with nothing to
+  // keep. Not watched any finer: the buffer itself only moves from the multiroom
+  // settings page, a deliberate act that ends in a snapserver restart.
+  watch(
+    () => {
+      const unifiedStore = useUnifiedAudioStore();
+      return isOpen.value && !!unifiedStore.systemState.multiroom_enabled;
+    },
+    (shouldRead) => { if (shouldRead) loadSyncOffset(); }
+  );
 
   let abortController = null;
 
@@ -153,6 +204,7 @@ export const useLyricsStore = defineStore('lyrics', () => {
   return {
     isOpen, open, close,
     loading, found, synced, plain, trackArtist, trackTitle, trackLine, loadLyrics,
+    syncOffsetMs, loadSyncOffset,
     getScrollPosition, saveScrollPosition
   };
 });

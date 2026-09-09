@@ -219,6 +219,10 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     saveDisplayCache,
 
     // Actions - Server Config
+    // fetchServerConfig is exported raw (it mutates nothing but `capabilities`)
+    // because the lyrics view needs the live buffer_ms without touching the
+    // settings page's edit buffer — loadServerConfig() would overwrite it.
+    fetchServerConfig,
     loadServerConfig,
     applyServerConfig,
     selectCodec,
