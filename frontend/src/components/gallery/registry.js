@@ -218,9 +218,14 @@ export const REGISTRY = {
     args: { variant: 'brand' },
     slots: { default: 'Button' },
     overrides: { leftIcon: OPTIONAL_ICON },
-    // Six of the seven variants are self-coloured; `on-dark` is a translucent
-    // white plate with white text, and shows as neither on the light stage.
-    surface: args => (args.variant === 'on-dark' ? 'contrast' : null)
+    // Six of the eight variants are self-coloured; the two translucent plates
+    // need a backdrop to show at all — `on-dark` is white on white, and
+    // `on-grey` is the dark plate the app puts over artwork, so it wants the
+    // mid tone rather than the dark one (IconButton splits the same way).
+    surface: args => {
+      if (args.variant === 'on-grey') return 'medium';
+      return args.variant === 'on-dark' ? 'contrast' : null;
+    }
   },
 
   IconButton: {
