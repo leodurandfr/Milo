@@ -547,7 +547,7 @@ const PODCAST_SUBSCRIPTIONS = [
 ];
 
 /**
- * A Podcast Index top-charts page. `image_url` is left off so LazyImage takes
+ * An Apple top-charts page. `image_url` is left off so LazyImage takes
  * its bundled-placeholder branch — the artwork is a CDN fetch the gallery has
  * no business making, and the placeholder is what a slow one shows anyway.
  */
@@ -1243,7 +1243,7 @@ export const SOURCE_PAGES = [
         },
         player: null
       }),
-      browsing('podcast', 'Catalogue unavailable', 'Podcast Index did not answer, so the backend sets `api_error` instead of failing — a distinct branch from "no results", and the only one that says why the chart is empty. Deliberately not the status card: the loss is one block. The subscriptions above it are local data and still play, which is the whole reason this stays a per-view message with a retry.', {
+      browsing('podcast', 'Catalogue unavailable', 'Apple did not answer, so the backend sets `api_error` instead of failing — a distinct branch from "no results", and the only one that says why the chart is empty. Deliberately not the status card: the loss is one block. The subscriptions above it are local data and still play, which is the whole reason this stays a per-view message with a retry.', {
         condition: ['api_error'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
@@ -1277,7 +1277,7 @@ export const SOURCE_PAGES = [
       offline(
         'podcast',
         'no_internet',
-        'Distinct from api_error, which stays: that one says Podcast Index did not answer and is perfectly reachable while online. This one says the link itself has no route out, so the catalogue, the feeds and the audio are all gone at once.'
+        'Distinct from api_error, which stays: that one says Apple did not answer and is perfectly reachable while online. This one says the link itself has no route out, so the catalogue, the feeds and the audio are all gone at once.'
       ),
       errored(
         'podcast',

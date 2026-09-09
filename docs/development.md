@@ -75,7 +75,7 @@ backend/
 │   ├── bluetooth/            # BluetoothSource + agent + monitor (BlueALSA) + avrcp (BlueZ)
 │   ├── mac/                  # MacSource + routes
 │   ├── radio/                # RadioSource + routes + browser_api
-│   ├── podcast/              # PodcastSource + routes + podcastindex_api
+│   ├── podcast/              # PodcastSource + routes + podcast_catalog + feed_resolver + rss_parser
 │   ├── cd/                   # CDSource + routes
 │   ├── dlna/                 # DlnaSource + metadata_reader (UPnP bridge) + routes
 │   ├── qobuz/                # QobuzSource + monitor (qobuz-proxy /api/status poll)
@@ -526,7 +526,7 @@ Music Library (`backend/sources/music_library/`) is a **Family C** source (activ
 player, `<AudioPlayer>` — it has an in-app browser) but the first one split into a catalog
 **engine** + a **player** — the reference for a source backed by an external index
 and a storage/mount layer. Mental model: **≈ the Podcast source, with Navidrome
-standing in for Podcast Index and a mount layer underneath.**
+standing in for the podcast catalogue and a mount layer underneath.**
 
 - **Two services, deliberately named differently.**
   `milo-navidrome.service` is the always-on catalog **engine** (tech-named after the

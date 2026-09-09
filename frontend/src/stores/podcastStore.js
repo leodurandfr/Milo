@@ -59,7 +59,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   });
 
   // === CATALOGUE STATE ===
-  // The `api_error` key a discovery route returns: Podcast Index did not
+  // The `api_error` key a discovery route returns: Apple did not
   // answer. Not a claim about the link — subscriptions are local and an
   // episode still plays from its own host while this is set.
   const apiError = ref(false);

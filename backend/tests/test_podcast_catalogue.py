@@ -1,9 +1,9 @@
 # backend/tests/test_podcast_catalogue.py
-"""`podcastindex_api.py` — the parts of the catalogue client nothing entered.
+"""`podcast_catalog.py` — the client's Apple half, and its feed half.
 
-`test_podcastindex_api.py` covers the normalizers and, since B-era work, the
-"upstream failed" arms. What it never ran is the other half of each of those
-pairs:
+The Apple half (charts, search, caches) is unchanged by the move off Podcast
+Index and so is its coverage here. What it never ran is the other half of each
+failure pair:
 
 * **the successful iTunes Search parse.** Lines 429-437 had never executed, so
   the podcast search screen's entire data path — read as text because Apple
@@ -16,10 +16,16 @@ pairs:
   hits costs one upstream call per screen; a cache that never evicts grows for
   the life of the process.
 
-The doubles are the ones already built in `test_podcastindex_api.py`, kept in
-one place: a canned response usable as the async context manager the client
+The feed half replaced Podcast Index entirely: `TestOpeningAPodcast` and
+`TestFindingOneEpisode` below stand where the Podcast Index resolution and
+content tests stood. The parsing itself is not retested here — that is
+`test_podcast_rss_parser.py`; what these assert is what the *client* does with
+it, which is caching, copying and failing.
+
+The doubles are canned responses usable as the async context manager the client
 opens, assigned as the *session* rather than by replacing a method of the unit
-(`_ensure_session` only builds a session when there is none).
+(`_ensure_session` only builds a session when there is none). The client holds
+two sessions — its own and the resolver's — so both are pointed at the double.
 """
 import asyncio
 import json
@@ -28,28 +34,34 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.sources.podcast.podcastindex_api import (
+from backend.sources.podcast.podcast_catalog import (
     GENRE_TO_ITUNES_ID,
-    PodcastIndexAPI,
+    PodcastCatalog,
+    is_upstream_error,
 )
+from backend.sources.podcast.rss_parser import make_episode_id
 
 
 @pytest.fixture
 def api():
-    return PodcastIndexAPI(api_key="test-key", api_secret="test-secret")
+    return PodcastCatalog()
 
 
 class _FakeResponse:
-    def __init__(self, status, payload=None, text=""):
+    def __init__(self, status, payload=None, text="", body=b""):
         self.status = status
         self._payload = payload
         self._text = text
+        self._body = body
 
     async def json(self):
         return self._payload
 
     async def text(self):
         return self._text
+
+    async def read(self):
+        return self._body
 
     async def __aenter__(self):
         return self
@@ -67,6 +79,7 @@ def _answers_with(api, *responses):
         side_effect=lambda *a, **kw: queued.pop(0) if len(queued) > 1 else queued[0]
     )
     api.session = session
+    api.resolver.session = session
     return session
 
 
@@ -75,6 +88,7 @@ def _raises(api, exc):
     session.closed = False
     session.get = MagicMock(side_effect=exc)
     api.session = session
+    api.resolver.session = session
     return session
 
 
@@ -117,16 +131,37 @@ class TestTheSearchThatSucceeds:
         assert [p["name"] for p in result["podcasts"]] == ["Radiolab"]
         assert "api_error" not in result
 
-    async def test_a_search_hit_carries_no_feed_id_yet(self, api):
-        """The contract the routes' subscribed-flag join depends on: an
-        iTunes-sourced hit has `uuid=None` until `lookup_by_itunes_id` resolves
-        it, so only the Apple id can match a stored subscription."""
+    async def test_a_search_hit_is_ready_to_open(self, api):
+        """The contract the routes' subscribed-flag join depends on: a hit's
+        `uuid` is its Apple id, which is also what a subscription stores. There
+        is no resolution step left to fail between seeing a result and opening
+        it — that step is what answered "No podcast found for iTunes ID"."""
         _answers_with(api, _FakeResponse(200, text=_itunes_search(ITUNES_HIT)))
 
         podcast = (await api.search_podcasts("radiolab"))["podcasts"][0]
 
-        assert podcast["uuid"] is None
+        assert podcast["uuid"] == "152249110"
         assert podcast["itunes_id"] == "152249110"
+
+    async def test_one_fetch_serves_every_page(self, api):
+        """Apple is asked once per (country, term); the pages are sliced from
+        that. Driven through the session rather than by patching the client's
+        own search method, which would pin a private name instead of the
+        behaviour."""
+        # Ids start at 1: a collectionId of 0 is falsy and the client drops it,
+        # which is the guard `test_a_hit_with_no_collection_id_is_dropped` owns.
+        hits = [dict(ITUNES_HIT, collectionId=i, collectionName=f"P{i}")
+                for i in range(1, 61)]
+        session = _answers_with(api, _FakeResponse(200, text=_itunes_search(*hits)))
+
+        page1 = await api.search_podcasts("radiolab", page=1, limit=25)
+        page3 = await api.search_podcasts("radiolab", page=3, limit=25)
+
+        assert session.get.call_count == 1
+        assert len(page1["podcasts"]) == 25
+        assert page1["podcasts"][0]["itunes_id"] == "1"
+        assert len(page3["podcasts"]) == 10   # 60 hits -> 25 + 25 + 10
+        assert page1["pagination"]["podcasts"] == {"total": 60, "pages": 3}
 
     async def test_the_thumbnail_is_upscaled_to_the_size_the_ui_renders(self, api):
         """Apple's search API answers with a 100 px thumbnail; the podcast grid
@@ -364,120 +399,272 @@ class TestCacheEviction:
         assert "k0" in api._discovery_cache
 
 
-class TestResolvingAnAppleId:
-    async def test_a_known_feed_resolves_to_its_podcast_index_id(self, api):
-        _answers_with(api, _FakeResponse(200, payload={
-            "status": "true", "feed": {"id": 920666, "title": "Radiolab"}
-        }))
-
-        assert await api.lookup_by_itunes_id("152249110") == "920666"
-
-    async def test_a_feed_podcast_index_does_not_index_answers_none(self, api):
-        """Podcast Index answers 200 with an empty `feed` for an Apple id it
-        has never crawled; the caller turns None into the 404 that stops the
-        details page opening."""
-        _answers_with(api, _FakeResponse(200, payload={"status": "true", "feed": []}))
-
-        assert await api.lookup_by_itunes_id("152249110") is None
-
-    async def test_a_feed_without_an_id_answers_none(self, api):
-        """Measured note: the `feed.get("id")` half of the guard is inert for
-        *this* case. `lookup_by_itunes_id` is `@handle_errors(default=None)`, so
-        removing the check turns the missing key into a KeyError the decorator
-        answers None to — the same answer. Only a feed carrying a falsy id
-        would separate the two, and that is a shape nobody has captured from
-        Podcast Index, so no test invents one (11th blind spot). What is worth
-        asserting is the answer itself: a dict with no id must not become a
-        feedId. Family B1-11 / B7-13."""
-        _answers_with(api, _FakeResponse(200, payload={
-            "status": "true", "feed": {"title": "Radiolab"}
-        }))
-
-        assert await api.lookup_by_itunes_id("152249110") is None
-
-    async def test_an_apple_id_that_is_not_a_number_never_reaches_the_network(
-        self, api
-    ):
-        """The id comes from a chart entry, i.e. from Apple; a non-numeric one
-        means the chart parse drifted, and sending it upstream turns a local
-        bug into an upstream error nobody attributes correctly."""
-        session = _answers_with(api, _FakeResponse(200, payload={}))
-
-        assert await api.lookup_by_itunes_id("not-a-number") is None
-        session.get.assert_not_called()
-
-    async def test_an_upstream_failure_answers_none(self, api):
-        _answers_with(api, _FakeResponse(503, text="down"))
-
-        assert await api.lookup_by_itunes_id("152249110") is None
+FEED_URL = "https://cdn.example/radiolab.xml"
 
 
-class TestSeriesAndEpisodeCaching:
-    SERIES_OK = {
-        "status": "true",
-        "feed": {"id": 920666, "title": "Radiolab", "artwork": "http://img/rl.png"},
-    }
-    EPISODES_OK = {
-        "status": "true",
-        "items": [{"id": 1, "title": "One", "enclosureUrl": "http://cdn/1.mp3"}],
-    }
+def _feed_bytes(*guids, title="Radiolab", first_day=1):
+    items = "".join(
+        f"<item><title>Ep {g}</title><guid>{g}</guid>"
+        f"<pubDate>Wed, {first_day + i:02d} Jan 2025 10:00:00 +0000</pubDate>"
+        f'<enclosure url="https://cdn.example/{g}.mp3" length="1" type="audio/mpeg"/>'
+        f"</item>"
+        for i, g in enumerate(guids)
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">'
+        f"<channel><title>{title}</title>"
+        '<itunes:image href="https://cdn.example/art.jpg"/>'
+        f"{items}</channel></rss>"
+    ).encode("utf-8")
+
+
+def _lookup(feed_url=FEED_URL, collection_id=152249110):
+    body = {"resultCount": 1, "results": [
+        {"collectionId": collection_id, "feedUrl": feed_url}
+    ]}
+    return _FakeResponse(200, text=json.dumps(body))
+
+
+class TestOpeningAPodcast:
+    """A chart entry opens straight onto the publisher's feed: resolve the URL
+    from Apple, download once, serve every page from that."""
+
+    async def test_a_podcast_opens_with_its_episodes(self, api):
+        _answers_with(api, _lookup(), _FakeResponse(200, body=_feed_bytes("a", "b")))
+
+        series = await api.get_podcast_series("152249110")
+
+        assert series["name"] == "Radiolab"
+        assert series["uuid"] == "152249110"
+        assert series["total_episodes"] == 2
+        assert series["episodes"][0]["audio_url"].endswith(".mp3")
 
     async def test_a_second_open_of_the_same_series_hits_no_network(self, api):
-        """Opening a podcast is two parallel upstream calls, one of which pulls
-        the whole back-catalogue; paging its episode list must not repeat them."""
+        """A feed is indivisible and publishers ignore conditional requests, so
+        every miss is a full download. Paging the episode list must not repeat
+        it."""
         session = _answers_with(
-            api,
-            _FakeResponse(200, payload=self.SERIES_OK),
-            _FakeResponse(200, payload=self.EPISODES_OK),
+            api, _lookup(), _FakeResponse(200, body=_feed_bytes("a", "b", "c"))
         )
 
-        first = await api.get_podcast_series("920666")
-        await api.get_podcast_series("920666", episodes_page=2)
+        first = await api.get_podcast_series("152249110")
+        await api.get_podcast_series("152249110", episodes_page=2)
 
         assert first["name"] == "Radiolab"
         assert session.get.call_count == 2
 
-    async def test_a_series_whose_feed_call_failed_is_not_cached(self, api):
-        """Caching a failure would leave the podcast unopenable for the whole
-        cache window, with a 404 the owner cannot clear."""
-        _answers_with(api, _FakeResponse(503, text="down"))
-
-        assert await api.get_podcast_series("920666") is None
-        assert api._series_cache == {}
-
-    async def test_a_series_answer_with_no_feed_id_is_not_a_series(self, api):
+    async def test_pages_are_sliced_from_the_one_download(self, api):
         _answers_with(
-            api,
-            _FakeResponse(200, payload={"status": "true", "feed": {"title": "X"}}),
-            _FakeResponse(200, payload=self.EPISODES_OK),
+            api, _lookup(), _FakeResponse(200, body=_feed_bytes("a", "b", "c"))
         )
 
-        assert await api.get_podcast_series("920666") is None
+        page = await api.get_podcast_series(
+            "152249110", episodes_page=2, episodes_limit=2
+        )
 
-    async def test_a_cached_episode_is_handed_out_as_a_copy(self, api):
+        assert [e["guid"] for e in page["episodes"]] == ["a"]
+        # The count is the whole feed, not the page: the "load more" cutoff
+        # reads it.
+        assert page["total_episodes"] == 3
+
+    async def test_oldest_first_reverses_the_list(self, api):
+        _answers_with(
+            api, _lookup(), _FakeResponse(200, body=_feed_bytes("a", "b", "c"))
+        )
+
+        latest = await api.get_podcast_series("152249110")
+        oldest = await api.get_podcast_series("152249110", sort_order="OLDEST")
+
+        assert [e["guid"] for e in latest["episodes"]] == ["c", "b", "a"]
+        assert [e["guid"] for e in oldest["episodes"]] == ["a", "b", "c"]
+
+    async def test_a_podcast_apple_publishes_no_feed_for_is_not_a_series(self, api):
+        """A subscriber-only show. The caller turns None into the 404 that
+        shows the 'not available' notice."""
+        _answers_with(api, _FakeResponse(200, text=json.dumps(
+            {"resultCount": 1, "results": [{"collectionId": 152249110}]}
+        )), _FakeResponse(404, text=""))
+
+        assert await api.get_podcast_series("152249110") is None
+
+    async def test_a_feed_that_failed_to_download_is_an_outage_not_an_absence(
+        self, api
+    ):
+        """The publisher's CDN answered 503. Reported as absence, the details
+        view would tell the owner the podcast is gone and pop itself; and
+        caching that would keep it "gone" for the whole cache window."""
+        _answers_with(api, _lookup(), _FakeResponse(503, body=b""))
+
+        assert is_upstream_error(await api.get_podcast_series("152249110"))
+        assert api._feed_cache == {}
+
+    async def test_a_document_that_is_not_a_feed_is_an_outage(self, api):
+        """A captcha or an error page arrives with HTTP 200. The feed exists;
+        this attempt failed."""
+        _answers_with(api, _lookup(), _FakeResponse(200, body=b"<html>nope</html>"))
+
+        assert is_upstream_error(await api.get_podcast_series("152249110"))
+        assert api._feed_cache == {}
+
+    async def test_apple_being_unreachable_is_an_outage(self, api):
+        """The failure one layer up: the resolver could not ask. Answering
+        `None` here is what would make an offline appliance report every
+        podcast as unavailable."""
+        _raises(api, asyncio.TimeoutError())
+
+        assert is_upstream_error(await api.get_podcast_series("152249110"))
+
+    async def test_the_series_a_caller_gets_can_be_enriched_safely(self, api):
+        """The route stamps `is_subscribed` on what it receives. Handing out the
+        cached object would make one reader's subscription state everyone's."""
+        _answers_with(api, _lookup(), _FakeResponse(200, body=_feed_bytes("a")))
+
+        first = await api.get_podcast_series("152249110")
+        first["is_subscribed"] = True
+        first["episodes"][0]["playback_progress"] = {"position": 42}
+        second = await api.get_podcast_series("152249110")
+
+        assert "is_subscribed" not in second
+        assert "playback_progress" not in second["episodes"][0]
+
+
+class TestFindingOneEpisode:
+    """`{itunes_id}:{guid hash}` addresses an episode without a directory. The
+    feed is fetched whole because the audio URL lives in it."""
+
+    async def test_an_episode_is_found_by_its_identifier(self, api):
+        _answers_with(api, _lookup(), _FakeResponse(200, body=_feed_bytes("a", "b")))
+
+        episode = await api.get_episode(make_episode_id("152249110", "b"))
+
+        assert episode["guid"] == "b"
+        assert episode["audio_url"] == "https://cdn.example/b.mp3"
+
+    async def test_an_identifier_naming_no_episode_answers_none(self, api):
+        """The guid vanished from the feed — the publisher pulled the episode.
+        A stored position pointing at it must not resurrect anything."""
+        _answers_with(api, _lookup(), _FakeResponse(200, body=_feed_bytes("a")))
+
+        assert await api.get_episode(make_episode_id("152249110", "gone")) is None
+
+    async def test_something_that_is_not_an_identifier_never_reaches_apple(self, api):
+        """A bare Podcast Index id, or junk. Sending it upstream turns a local
+        bug into an upstream error nobody attributes correctly."""
+        session = _answers_with(api, _lookup())
+
+        assert await api.get_episode("16795089") is None
+        session.get.assert_not_called()
+
+    async def test_the_episode_a_caller_gets_can_be_enriched_safely(self, api):
         """The route enriches the returned dict in place with
-        `playback_progress`. Handing out the cached object would leave one
-        listener's playhead on every later reader's copy."""
-        _answers_with(api, _FakeResponse(200, payload={
-            "status": "true",
-            "episode": {"id": 16795089, "title": "One", "enclosureUrl": "http://c/1.mp3"},
-        }))
+        `playback_progress`; the cached object must not carry it away."""
+        _answers_with(api, _lookup(), _FakeResponse(200, body=_feed_bytes("a")))
+        episode_id = make_episode_id("152249110", "a")
 
-        first = await api.get_episode("16795089")
+        first = await api.get_episode(episode_id)
         first["playback_progress"] = {"position": 42}
-        second = await api.get_episode("16795089")
+        second = await api.get_episode(episode_id)
 
         assert "playback_progress" not in second
 
-    async def test_an_episode_answer_with_no_id_is_not_an_episode(self, api):
-        _answers_with(api, _FakeResponse(
-            200, payload={"status": "true", "episode": {"title": "One"}}
-        ))
+    async def test_a_download_failure_is_an_outage_not_a_missing_episode(self, api):
+        _answers_with(api, _lookup(), _FakeResponse(503, body=b""))
 
-        assert await api.get_episode("16795089") is None
+        assert is_upstream_error(
+            await api.get_episode(make_episode_id("152249110", "a"))
+        )
+        assert api._feed_cache == {}
 
-    async def test_an_upstream_failure_leaves_the_episode_cache_empty(self, api):
-        _answers_with(api, _FakeResponse(503, text="down"))
 
-        assert await api.get_episode("16795089") is None
-        assert api._episode_cache == {}
+class TestMergingSubscriptions:
+    """The subscriptions screen merges every subscribed feed by date."""
+
+    async def test_episodes_from_several_feeds_are_merged_newest_first(self, api):
+        session = MagicMock()
+        session.closed = False
+        answers = {
+            # Distinct days across both feeds, so the merged order is decided
+            # by the dates and not by which feed answered first.
+            "111": _FakeResponse(200, body=_feed_bytes("old", title="A", first_day=1)),
+            "222": _FakeResponse(
+                200, body=_feed_bytes("x", "new", title="B", first_day=2)
+            ),
+        }
+
+        def _get(url, **kw):
+            if "itunes.apple.com/lookup" in url:
+                ids = kw.get("params", {}).get("id", "")
+                return _FakeResponse(200, text=json.dumps({"results": [
+                    {"collectionId": int(i), "feedUrl": f"https://cdn/{i}.xml"}
+                    for i in ids.split(",")
+                ]}))
+            return answers["111" if "/111." in url else "222"]
+
+        session.get = MagicMock(side_effect=_get)
+        api.session = session
+        api.resolver.session = session
+
+        result = await api.get_latest_episodes(["111", "222"])
+
+        assert [e["guid"] for e in result["results"]] == ["new", "x", "old"]
+
+    async def test_the_whole_set_is_resolved_in_one_lookup(self, api):
+        """Apple's lookup endpoint takes 200 ids per call. Resolving one
+        subscription at a time would make a cold subscriptions screen cost one
+        request per followed podcast, every two hours, forever."""
+        lookups = []
+
+        def _get(url, **kw):
+            if "itunes.apple.com/lookup" in url:
+                lookups.append(kw.get("params", {}).get("id", ""))
+                return _FakeResponse(200, text=json.dumps({"results": [
+                    {"collectionId": int(i), "feedUrl": f"https://cdn/{i}.xml"}
+                    for i in kw["params"]["id"].split(",")
+                ]}))
+            return _FakeResponse(200, body=_feed_bytes("a"))
+
+        session = MagicMock()
+        session.closed = False
+        session.get = MagicMock(side_effect=_get)
+        api.session = session
+        api.resolver.session = session
+
+        await api.get_latest_episodes(["111", "222", "333"])
+
+        assert lookups == ["111,222,333"]
+
+    async def test_no_subscriptions_costs_no_request(self, api):
+        session = _answers_with(api, _lookup())
+
+        assert await api.get_latest_episodes([]) == {"results": [], "total": 0}
+        session.get.assert_not_called()
+
+    async def test_every_feed_failing_is_reported_as_a_catalogue_outage(self, api):
+        """One dead feed among several is not worth telling the user the
+        catalogue is down; all of them is."""
+        _raises(api, asyncio.TimeoutError())
+
+        result = await api.get_latest_episodes(["111", "222"])
+
+        assert result["results"] == []
+        assert result["api_error"] is True
+
+    async def test_subscriptions_apple_publishes_no_feed_for_are_not_an_outage(
+        self, api
+    ):
+        """Empty because those podcasts have no public feed, not because
+        anything failed. Offering a retry here offers a retry that can never
+        succeed."""
+        _answers_with(
+            api,
+            _FakeResponse(200, text=json.dumps(
+                {"results": [{"collectionId": 111}, {"collectionId": 222}]}
+            )),
+            _FakeResponse(404, text=""),
+        )
+
+        result = await api.get_latest_episodes(["111", "222"])
+
+        assert result["results"] == []
+        assert "api_error" not in result

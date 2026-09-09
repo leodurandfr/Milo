@@ -866,7 +866,7 @@ export const REGISTRY = {
   EpisodeCard: {
     component: EpisodeCard,
     args: { showCompleteButton: true, class: 'canvas-column' },
-    // `date_published` is epoch seconds, the Podcast Index unit, and `duration`
+    // `date_published` is epoch seconds, as the parser emits it, and `duration`
     // is seconds — the same pair TrackRow reads as seconds and ProgressBar as
     // milliseconds. Fixed values rather than a computed "now": a date that moves
     // with the clock would make the card read differently every day.
@@ -900,7 +900,7 @@ export const REGISTRY = {
   GenreCard: {
     component: GenreCard,
     args: { label: 'True Crime', value: 'PODCASTSERIES_TRUE_CRIME' },
-    // Borrowed, never restated: the ids are the Podcast Index vocabulary, and a
+    // Borrowed, never restated: the ids are Milō's genre vocabulary, and a
     // select written from the labels instead (`comedy` for PODCASTSERIES_COMEDY)
     // is what left every tile here imageless, the default included.
     overrides: { value: { kind: 'enum', options: PODCAST_GENRE_IDS } }

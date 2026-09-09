@@ -14,7 +14,7 @@
       <MessageContent v-else-if="topPodcasts.length === 0" icon="podcast" :title="t('podcasts.noPodcastsInGenre')" />
       <div v-else class="podcasts-grid">
         <PodcastCard v-for="podcast in topPodcasts" :key="podcast.itunes_id || podcast.uuid" :podcast="podcast"
-          :isLoading="isPodcastLoading(podcast)" @select="$emit('select-podcast', podcast)" />
+          @select="$emit('select-podcast', podcast)" />
       </div>
     </section>
   </div>
@@ -40,19 +40,10 @@ const props = defineProps({
     type: String,
     required: true
   },
-  loadingPodcastId: {
-    type: [String, Number],
-    default: null
-  }
 })
 
 const emit = defineEmits(['select-podcast'])
 
-// Check if a specific podcast is currently loading (lookup in progress)
-function isPodcastLoading(podcast) {
-  if (!props.loadingPodcastId) return false
-  return podcast.itunes_id === props.loadingPodcastId || podcast.uuid === props.loadingPodcastId
-}
 const topPodcasts = ref([])
 const apiError = ref(false)
 

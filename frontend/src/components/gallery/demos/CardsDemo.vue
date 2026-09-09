@@ -64,10 +64,9 @@
         <PodcastCard :podcast="podcast" :position="12" />
       </div>
     </GalleryVariant>
-    <GalleryVariant label="no artwork, and :is-loading" stacked>
+    <GalleryVariant label="no artwork" stacked>
       <div class="column">
         <PodcastCard :podcast="{ uuid: 'x', name: 'Affaires sensibles', publisher: 'France Inter' }" />
-        <PodcastCard :podcast="podcast" is-loading />
       </div>
     </GalleryVariant>
   </GalleryItem>
@@ -168,7 +167,7 @@ import { musicPlaceholder } from '@/constants/placeholders';
 
 const { t } = useI18n();
 
-// Assembled exactly as HomeView assembles its grid: the id is the Podcast Index
+// Assembled exactly as HomeView assembles its grid: the id is the Apple
 // vocabulary and the label is its translation. Three ids written out by hand is
 // what left every tile here imageless — `comedy` is the slug the file is named
 // after, never the key the artwork is stored under.
@@ -188,7 +187,7 @@ const podcast = {
   is_subscribed: false
 };
 
-// Seconds and epoch-seconds, the Podcast Index units. Fixed rather than relative
+// Seconds and epoch-seconds, the units the parser emits. Fixed rather than relative
 // to now, so the rendered date does not change from one day to the next.
 const episode = {
   uuid: 'e1',

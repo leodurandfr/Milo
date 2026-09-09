@@ -53,7 +53,7 @@ by default (README Rule 3):
 | CD | a **USB drive + audio discs**, including one absent from the online catalogue |
 | Qobuz Connect | a **paid Qobuz account** |
 | Tidal Connect | a **paid Tidal account** |
-| Podcasts | **Podcast Index API credentials** with monthly quota left |
+| Podcasts | nothing — Apple and the publishers' feeds are both keyless |
 | IR remote | an **Apple Remote A1156** + wired IR receiver |
 | Bluetooth remote | an **ANTICATER VK-01** (or compatible BT HID remote) |
 | Music Library over SMB/NFS | a **NAS/share**; USB-only covers half the source |

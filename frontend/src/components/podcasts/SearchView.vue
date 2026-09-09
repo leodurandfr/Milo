@@ -9,7 +9,7 @@
       <!-- Loading state -->
       <MessageContent v-if="loading" loading :loading-delay="0" :title="t('podcasts.loading')" />
 
-      <!-- Podcast Index did not answer — subscriptions and playback are unaffected -->
+      <!-- Apple did not answer — subscriptions and playback are unaffected -->
       <MessageContent
         v-else-if="podcastStore.apiError"
         icon="network"
@@ -29,7 +29,7 @@
           </h2>
           <div class="podcasts-grid">
             <PodcastCard v-for="podcast in searchResults.podcasts" :key="podcast.itunes_id || podcast.uuid"
-              :podcast="podcast" :isLoading="isPodcastLoading(podcast)"
+              :podcast="podcast"
               @select="$emit('select-podcast', podcast)" />
           </div>
           <div v-if="searchCurrentPage.podcasts < searchPagination.podcasts.pages" class="load-more-container">
@@ -64,10 +64,6 @@ import Button from '@/components/ui/Button.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
 const props = defineProps({
-  loadingPodcastId: {
-    type: [String, Number],
-    default: null
-  }
 })
 
 const emit = defineEmits(['select-podcast'])
@@ -75,10 +71,6 @@ const podcastStore = usePodcastStore()
 const { t } = useI18n()
 
 // True while the tapped iTunes search hit is being resolved to a feedId.
-function isPodcastLoading(podcast) {
-  if (!props.loadingPodcastId) return false
-  return podcast.itunes_id === props.loadingPodcastId || podcast.uuid === props.loadingPodcastId
-}
 
 // Get reactive refs from store (persisted across navigation)
 const {

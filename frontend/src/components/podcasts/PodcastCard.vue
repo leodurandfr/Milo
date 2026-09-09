@@ -2,9 +2,6 @@
   <div v-press="clickable" class="podcast-card" :class="{ clickable }"
     @click="handleCardClick">
     <LazyImage :src="podcast.image_url" :fallback="podcastPlaceholder" :alt="podcast.name" lazy class="card-image">
-      <div v-if="isLoading" class="card-loading-overlay">
-        <LoadingSpinner :size="48" />
-      </div>
     </LazyImage>
 
     <div class="card-info">
@@ -28,7 +25,6 @@
 import { computed } from 'vue'
 import { useI18n } from '@/services/i18n'
 import Button from '@/components/ui/Button.vue'
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import LazyImage from '@/components/ui/LazyImage.vue'
 import { podcastPlaceholder } from '@/constants/placeholders'
 
@@ -50,10 +46,6 @@ const props = defineProps({
   clickable: {
     type: Boolean,
     default: true
-  },
-  isLoading: {
-    type: Boolean,
-    default: false
   }
 })
 

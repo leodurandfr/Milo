@@ -81,7 +81,7 @@ class TestTheContinueListeningQueue:
         assert await store.get_in_progress_episodes() == []
 
     async def test_an_episode_with_no_known_duration_is_not_in_the_queue(self, store):
-        """Podcast Index serves `duration: null` often enough to matter.
+        """A feed omits `itunes:duration` often enough to matter.
 
         Measured constat: the `duration > 0` clause is **inert**, shadowed by
         the `position < duration - 30` test below it — with duration 0 and any

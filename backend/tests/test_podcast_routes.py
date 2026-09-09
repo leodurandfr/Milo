@@ -20,7 +20,7 @@ Three things the handlers do that the services underneath cannot:
 * **the composite `/play`.** CLAUDE.md sanctions exactly two multi-command
   routes and this is one of them: play, then resume-seek, in one request.
 
-The doubles here answer with the shapes `podcastindex_api.py` really returns
+The doubles here answer with the shapes `podcast_catalog.py` really returns
 (`{"results": [...]}` for the iTunes charts, `{"podcasts": [...],
 "pagination": ...}` for search, `"api_error": True` only on an upstream
 failure) — a double that can represent a state the producer cannot is the 17th
@@ -58,7 +58,6 @@ def source():
     src.podcast_api.search_podcasts = AsyncMock(
         return_value={"podcasts": [], "pagination": {"podcasts": {"total": 0, "pages": 0}}}
     )
-    src.podcast_api.lookup_by_itunes_id = AsyncMock(return_value=None)
     src.podcast_api.get_podcast_series = AsyncMock(return_value=None)
     src.podcast_api.get_episode = AsyncMock(return_value=None)
     src.podcast_api.get_latest_episodes = AsyncMock(return_value={"results": []})
@@ -257,32 +256,6 @@ class TestByGenre:
         assert client.get("/api/podcast/discover/by-genre").status_code == 422
 
 
-class TestItunesLookup:
-    """`GET /lookup/itunes/{id}` — how a chart entry becomes openable.
-
-    Chart and search hits carry only an Apple id; `PodcastSource.vue` calls this
-    to turn it into the Podcast Index feedId every other route takes.
-    """
-
-    def test_a_resolved_feed_comes_back_with_both_ids(self, client, source):
-        source.podcast_api.lookup_by_itunes_id.return_value = "feed-9"
-
-        body = client.get("/api/podcast/lookup/itunes/12345").json()
-
-        assert body == {"uuid": "feed-9", "itunes_id": "12345"}
-
-    def test_a_podcast_podcast_index_does_not_know_is_a_404(self, client, source, caplog):
-        """A 404 here is what stops `PodcastSource.vue` opening a details page
-        for a feed no other route can serve."""
-        source.podcast_api.lookup_by_itunes_id.return_value = None
-
-        with caplog.at_level("ERROR", logger="backend.sources.podcast.routes"):
-            resp = client.get("/api/podcast/lookup/itunes/12345")
-
-        assert resp.status_code == 404
-        assert "12345" in caplog.text
-
-
 class TestSearch:
     """`GET /search` — `podcastStore.searchPodcasts`."""
 
@@ -327,43 +300,23 @@ class TestSearch:
 
         assert [p["is_subscribed"] for p in podcasts] == [False, True]
 
-    def test_a_hit_with_no_feed_id_is_flagged_by_its_apple_id(
+    def test_a_hit_is_flagged_against_the_one_identifier_there_is(
         self, client, source, settings
     ):
-        """This is the half `/top-charts` does not have. Search hits are
-        iTunes-sourced and carry `uuid=None` until opened, so the feedId join
-        can never fire for them; the Apple id captured at subscribe time is the
-        only thing that can. Drop it and every already-followed podcast shows
-        "subscribe" in search results."""
+        """A hit's uuid is its Apple id, which is what a subscription stores.
+        There is no second identifier to join on any more — and no hit without
+        one, since the resolution step that produced `uuid=None` is gone. Break
+        this and every already-followed podcast shows "subscribe"."""
         source.podcast_api.search_podcasts.return_value = {
-            "podcasts": [{"uuid": None, "itunes_id": "111"},
-                         {"uuid": None, "itunes_id": "222"}],
+            "podcasts": [{"uuid": "111", "itunes_id": "111"},
+                         {"uuid": "222", "itunes_id": "222"}],
             "pagination": {"podcasts": {"total": 2, "pages": 1}},
         }
-        source.podcast_data.get_subscriptions.return_value = [
-            {"uuid": "feed-2", "itunes_id": "222"}
-        ]
+        source.podcast_data.get_subscriptions.return_value = [{"uuid": "222"}]
 
         podcasts = client.get("/api/podcast/search?term=x").json()["podcasts"]
 
         assert [p["is_subscribed"] for p in podcasts] == [False, True]
-
-    def test_a_subscription_without_an_apple_id_matches_nothing_by_apple_id(
-        self, client, source, settings
-    ):
-        """Both lookup sets drop their falsy keys, so a subscription stored
-        before `itunes_id` existed cannot make a `None`-id hit match."""
-        source.podcast_api.search_podcasts.return_value = {
-            "podcasts": [{"uuid": None, "itunes_id": None}],
-            "pagination": {"podcasts": {"total": 1, "pages": 1}},
-        }
-        source.podcast_data.get_subscriptions.return_value = [
-            {"uuid": "feed-2", "itunes_id": None}
-        ]
-
-        podcasts = client.get("/api/podcast/search?term=x").json()["podcasts"]
-
-        assert podcasts[0]["is_subscribed"] is False
 
     def test_the_subscriptions_are_read_once_for_both_lookup_sets(
         self, client, source, settings
@@ -420,22 +373,46 @@ class TestSeries:
     def test_the_paging_and_sort_order_reach_the_catalogue(self, client, source):
         source.podcast_api.get_podcast_series.return_value = {"episodes": []}
 
-        client.get("/api/podcast/series/feed-1?page=2&limit=10&sort_order=OLDEST")
+        client.get("/api/podcast/series/152249110?page=2&limit=10&sort_order=OLDEST")
 
         kwargs = source.podcast_api.get_podcast_series.await_args.kwargs
-        assert kwargs["feed_id"] == "feed-1"
+        assert kwargs["itunes_id"] == "152249110"
         assert kwargs["episodes_page"] == 2
         assert kwargs["episodes_limit"] == 10
         assert kwargs["sort_order"] == "OLDEST"
 
-    def test_a_series_the_catalogue_does_not_have_is_a_404(self, client, source, caplog):
-        source.podcast_api.get_podcast_series.return_value = None
+    def test_a_catalogue_outage_is_a_503_not_a_404(self, client, source, caplog):
+        """A publisher CDN answering 503 is a passing failure. Answered as 404
+        the frontend shows the permanent "not available" notice and pops the
+        view, so a hiccup reads as a podcast that no longer exists."""
+        source.podcast_api.get_podcast_series.return_value = {"_upstream_error": True}
 
         with caplog.at_level("ERROR", logger="backend.sources.podcast.routes"):
+            resp = client.get("/api/podcast/series/152249110")
+
+        assert resp.status_code == 503
+        assert "152249110" in caplog.text
+
+    def test_an_episode_the_catalogue_could_not_read_is_a_503(self, client, source):
+        source.podcast_api.get_episode.return_value = {"_upstream_error": True}
+
+        assert client.get("/api/podcast/episode/1:abc").status_code == 503
+
+    def test_a_podcast_with_no_public_feed_is_a_404_and_not_an_error(
+        self, client, source, caplog
+    ):
+        """Apple publishes no feed for a subscriber-only show. That is an
+        answer, not a fault: logged at ERROR it would raise the
+        WebSocketLogHandler banner over the whole appliance every time someone
+        taps one."""
+        source.podcast_api.get_podcast_series.return_value = None
+
+        with caplog.at_level("DEBUG", logger="backend.sources.podcast.routes"):
             resp = client.get("/api/podcast/series/nope")
 
         assert resp.status_code == 404
         assert "nope" in caplog.text
+        assert [r.levelname for r in caplog.records] == ["DEBUG"]
 
     def test_the_details_page_learns_whether_this_podcast_is_followed(
         self, client, source
@@ -499,14 +476,19 @@ class TestEpisode:
 
         assert "playback_progress" not in client.get("/api/podcast/episode/ep-1").json()
 
-    def test_an_episode_the_catalogue_does_not_have_is_a_404(self, client, source, caplog):
+    def test_an_episode_no_longer_in_its_feed_is_a_404_and_not_an_error(
+        self, client, source, caplog
+    ):
+        """The publisher pulled the episode, or the stored id predates a feed
+        change. Expected, so it must not reach the banner."""
         source.podcast_api.get_episode.return_value = None
 
-        with caplog.at_level("ERROR", logger="backend.sources.podcast.routes"):
+        with caplog.at_level("DEBUG", logger="backend.sources.podcast.routes"):
             resp = client.get("/api/podcast/episode/nope")
 
         assert resp.status_code == 404
         assert "nope" in caplog.text
+        assert [r.levelname for r in caplog.records] == ["DEBUG"]
 
 
 class TestPlay:
@@ -611,32 +593,21 @@ class TestSubscriptions:
         assert body["total"] == 2
 
     def test_every_field_of_a_subscribe_reaches_the_store(self, client, source):
-        """`itunes_id` is the one that matters later: it is what lets a search
-        hit — which carries no feedId — come back flagged as subscribed."""
+        """The uuid is the Apple id, so one identifier is stored where two used
+        to be — a search hit is recognised by the same value it opens with."""
         client.post("/api/podcast/subscriptions", json={
-            "uuid": "feed-1",
+            "uuid": "152249110",
             "name": "One",
             "image_url": "http://img/1.jpg",
             "children_hash": "h1",
-            "itunes_id": 42,
         })
 
         assert source.podcast_data.add_subscription.await_args.kwargs == {
-            "podcast_uuid": "feed-1",
+            "podcast_uuid": "152249110",
             "name": "One",
             "image_url": "http://img/1.jpg",
             "children_hash": "h1",
-            "itunes_id": 42,
         }
-
-    def test_a_subscribe_without_an_apple_id_is_accepted(self, client, source):
-        """Podcasts opened from a feedId have no Apple id to carry."""
-        resp = client.post("/api/podcast/subscriptions", json={
-            "uuid": "feed-1", "name": "One", "image_url": "http://img/1.jpg",
-        })
-
-        assert resp.status_code == 200
-        assert source.podcast_data.add_subscription.await_args.kwargs["itunes_id"] is None
 
     def test_a_subscribe_missing_its_name_is_refused_before_the_store(
         self, client, source
@@ -680,36 +651,34 @@ class TestLatestEpisodes:
         assert body == {"results": [], "total": 0}
         source.podcast_api.get_latest_episodes.assert_not_awaited()
 
-    def test_the_stored_name_and_image_travel_with_each_feed_id(self, client, source):
-        """`/episodes/byfeedid` items may omit `feedTitle`, so the stored
-        metadata is the only fallback for the podcast name and artwork under an
-        episode row."""
+    def test_each_subscription_is_fanned_out_to_by_its_apple_id(self, client, source):
+        """No stored name or artwork travels with it any more: each feed names
+        and illustrates itself, which is what removed the fallback that existed
+        only because Podcast Index items could omit `feedTitle`."""
         source.podcast_data.get_subscriptions.return_value = [
-            {"uuid": "feed-1", "name": "One", "image_url": "http://img/1.jpg"},
+            {"uuid": "111", "name": "One", "image_url": "http://img/1.jpg"},
         ]
 
         client.get("/api/podcast/subscriptions/latest-episodes")
 
-        kwargs = source.podcast_api.get_latest_episodes.await_args.kwargs
-        assert kwargs["feed_ids"] == ["feed-1"]
-        assert kwargs["feed_meta"] == {
-            "feed-1": {"name": "One", "image_url": "http://img/1.jpg"}
-        }
+        assert source.podcast_api.get_latest_episodes.await_args.kwargs[
+            "itunes_ids"
+        ] == ["111"]
 
-    def test_a_subscription_with_no_feed_id_is_not_fanned_out_to(self, client, source):
-        """A subscription stored from a chart entry before it was resolved has
-        `uuid=None`; asking the catalogue for feed `None` is one wasted HTTP
-        call per page load, forever."""
+    def test_a_subscription_with_no_identifier_is_not_fanned_out_to(
+        self, client, source
+    ):
+        """Asking for feed `None` is one wasted HTTP call per page load."""
         source.podcast_data.get_subscriptions.return_value = [
-            {"uuid": None, "name": "Unresolved"},
-            {"uuid": "feed-1", "name": "One"},
+            {"uuid": None, "name": "Broken"},
+            {"uuid": "111", "name": "One"},
         ]
 
         client.get("/api/podcast/subscriptions/latest-episodes")
 
-        assert source.podcast_api.get_latest_episodes.await_args.kwargs["feed_ids"] == [
-            "feed-1"
-        ]
+        assert source.podcast_api.get_latest_episodes.await_args.kwargs[
+            "itunes_ids"
+        ] == ["111"]
 
     def test_the_paging_reaches_the_catalogue(self, client, source):
         source.podcast_data.get_subscriptions.return_value = [{"uuid": "feed-1"}]

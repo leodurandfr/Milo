@@ -79,7 +79,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['play-episode', 'select-episode'])
+const emit = defineEmits(['play-episode', 'select-episode', 'unavailable'])
 const podcastStore = usePodcastStore()
 
 const podcast = ref(null)
@@ -99,7 +99,15 @@ const { loading, execute: loadPodcast } = useAsyncData(async () => {
     message: 'Error loading podcast details',
     params: { page: 1, limit: 25 },
   })
-  if (!result.ok) return
+  if (!result.ok) {
+    // 404: Apple publishes no public feed for this id — a subscriber-only
+    // show, and it will not resolve later either. Anything else (503 when the
+    // catalog could not be read, a dropped link) is passing, and saying "not
+    // available" for it would tell the owner a podcast is gone over a hiccup.
+    // Either way the view must not sit blank.
+    emit('unavailable', result.error?.status === 404 ? 'absent' : 'transient')
+    return
+  }
   podcast.value = result.data
   allEpisodes.value = result.data.episodes || []
   podcastStore.enrichEpisodesWithProgress(allEpisodes.value)
@@ -113,7 +121,6 @@ async function handleSubscribe() {
     name: podcast.value.name || '',
     image_url: podcast.value.image_url || '',
     children_hash: podcast.value.children_hash || '',
-    itunes_id: podcast.value.itunes_id ?? null,
   }, {
     category: 'podcast',
     message: 'Error subscribing',

@@ -25,7 +25,7 @@ from backend.shared.network import is_network_error
 class TestIsNetworkError:
     """`shared/network.py` — what the catalog clients retry rather than report.
 
-    Consumers: the Radio Browser, Podcast Index and Navidrome clients, which
+    Consumers: the Radio Browser, podcast catalogue and Navidrome clients, which
     turn a True into `NetworkUnavailableError` and a soft "check your
     connection". A False that became True would bury a genuine parse or auth
     failure behind an offline banner, and the reverse would report a flaky DNS

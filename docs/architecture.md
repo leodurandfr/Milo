@@ -146,13 +146,13 @@ there is no global offline banner any more: it fired on every `!online`,
 including while listening over Bluetooth.
 
 The catalogue flag `api_error` is a different layer and stays: Podcast's
-discovery routes and Radio's station search set it when the third-party
-directory (api.podcastindex.org, radio-browser.info) does not answer, which
-happens while perfectly online. It is deliberately *not* a source-level fact
-and never reaches the status card — the loss is partial and per-view, so it is
-answered in the block that failed, with a retry: Radio's favourites and its
-streams keep working with radio-browser.info down, and a subscribed podcast
-still plays with Podcast Index down.
+discovery routes and Radio's station search set it when the upstream catalogue
+(itunes.apple.com, radio-browser.info) does not answer, which happens while
+perfectly online. It is deliberately *not* a source-level fact and never reaches
+the status card — the loss is partial and per-view, so it is answered in the
+block that failed, with a retry: Radio's favourites and its streams keep working
+with radio-browser.info down, and a subscribed podcast still plays with Apple's
+charts down, since its episodes come from the publisher.
 
 ### 1. Spotify Connect (go-librespot)
 
@@ -312,23 +312,29 @@ still plays with Podcast Index down.
 - Cache duration: 60 minutes
 - Max image size: 10MB (JPG, PNG, WEBP, GIF)
 
-### 5. Podcasts (mpv + Podcast Index API)
+### 5. Podcasts (mpv + Apple discovery + publisher RSS feeds)
 
 **What is it?**
 - Podcast streaming via mpv media player
-- Discovery via the Podcast Index REST API (search + episode metadata), with
-  charts (top + by genre) from the iTunes RSS feeds
-- [**Go to Podcast Index API**](https://podcastindex-org.github.io/docs-api/)
+- Discovery from Apple: charts (top + by genre) from the keyless iTunes RSS
+  feeds, term search from the keyless iTunes Search API
+- Content — a podcast's details, its episodes, an episode's audio URL — read
+  from the RSS feed its publisher serves
 
 **How does it work?**
 - Reuses the `MpvController` shared with the Radio source (separate mpv instance)
-- Podcast Index provides podcast search and episode listings; the app
-  authenticates with a single **app-level key + secret** embedded in the backend
-  (`config/constants.py`) — no per-user credentials, no quota. Auth is a per-request
-  SHA-1 signature (`X-Auth-Key`/`X-Auth-Date`/`Authorization`, 3-min window).
-  Search is **podcasts-only** (Podcast Index has no cross-podcast episode search).
-- Charts (top + by genre) stay on the keyless **iTunes RSS** feeds for exact Apple
-  ordering; results are resolved to Podcast Index feeds via `/podcasts/byitunesid`
+- No third-party directory and no credentials. A chart or search hit carries its
+  Apple id, which **is** the series `uuid`; `feed_resolver.py` turns it into the
+  publisher's feed URL (Apple's `/lookup` first, its product page second, for the
+  publishers who withhold the URL from the API), and `rss_parser.py` reads the
+  feed. An episode is addressed by `{itunes_id}:{sha1(guid)[:16]}`.
+- Search is **podcasts-only** (there is no cross-podcast episode search)
+- Podcast Index used to serve the episode layer and was removed 2026-09-09: it
+  indexed feeds by the very URL Apple withholds, so it had no mapping for Radio
+  France, FIP and franceinfo and answered "no feeds match this itunes id" for 77
+  of the 454 podcasts in the French charts. Reading the publisher's feed removes
+  the middleman and the failure with it, and is what AntennaPod, podgrab, Poddr,
+  kima-hub and Anytime all do.
 - Responses are cached in-memory (120min TTL)
 - Playback progress is saved every 10s and resumed on next launch (if > 10s in)
 - Speed control (0.5x–2x) and seek supported
@@ -514,7 +520,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - **Player:** `sources/music_library` browses the Subsonic API through the backend proxy and
   builds an mpv native playlist from `stream?id=…&format=raw` URLs (bit-perfect, no transcode),
   played gapless (`--gapless-audio`) to `alsa/milo_music_library` → CamillaDSP — the same shape
-  as Podcast, with Navidrome standing in for Podcast Index. The queue is built from any context
+  as Podcast, with Navidrome standing in for the podcast catalogue. The queue is built from any context
   (album / genre / playlist / search)
 - **Cover art** is proxied localhost-only behind `/api/music-library/cover/{id}`; the frontend
   never talks to Navidrome (or sees its credentials) directly. Online metadata/art agents are

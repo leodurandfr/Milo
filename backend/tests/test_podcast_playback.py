@@ -180,7 +180,7 @@ class TestStartingAnEpisode:
         assert "load_stream" not in source._mpv.verbs()
 
     async def test_an_episode_with_no_audio_url_is_a_refusal_not_a_crash(self, source):
-        """Podcast Index serves entries whose enclosure is missing; loading
+        """A feed can carry an item whose enclosure is missing; loading
         `None` into mpv is an error with no episode name in it."""
         source._podcast_api.get_episode.return_value = {"uuid": "ep-1", "name": "One"}
 
@@ -809,7 +809,7 @@ class TestTheEndOfAnEpisode:
         assert source.set_state.call_args.args[0] is SourceState.READY
 
     async def test_the_duration_becoming_known_is_broadcast_at_once(self, source):
-        """Podcast Index serves `duration: null` often enough that the progress
+        """A feed omits `itunes:duration` often enough that the progress
         bar would otherwise be missing for up to a whole sync interval."""
         source._current_episode = dict(EPISODE)
         source._is_playing = True
