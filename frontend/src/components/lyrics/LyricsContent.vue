@@ -29,17 +29,9 @@
 
 <script setup>
 import { computed, ref, watch, onMounted } from 'vue';
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useTimer } from '@/composables/useTimer';
-
-// Multiroom (Snapcast) inserts a playback buffer between the source position and
-// the audio the listener actually hears, so synced lyrics can feel off. Apply a
-// fixed, empirically-tuned offset to the highlight while multiroom is active;
-// direct mode has no buffer, so no offset. Sign convention: positive advances the
-// highlight (lyrics run ahead of the raw position); negative would delay it.
-const MULTIROOM_LEAD_MS = 500;
 
 const props = defineProps({
   source: { type: String, required: true },
@@ -49,14 +41,9 @@ const props = defineProps({
 
 const emit = defineEmits(['update:ready']);
 
-const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
 const timer = useTimer();
 const { currentPosition, duration, isPositionInitialized } = useSourceProgress(props.source, { compensateStaleness: true });
-
-const leadMs = computed(() =>
-  unifiedStore.systemState.multiroom_enabled ? MULTIROOM_LEAD_MS : 0
-);
 
 // Sync when we have timestamped lines AND the source is a real player (a
 // duration means it exposes a position clock; radio has neither → plain). We
@@ -72,7 +59,9 @@ const plainLines = computed(() => (isSynced.value || !props.plain ? [] : props.p
 // Index of the last line whose timestamp has passed the current position.
 const activeIndex = computed(() => {
   if (!isSynced.value || !isPositionInitialized.value) return -1;
-  const pos = currentPosition.value + leadMs.value;
+  // Offset owned by the store: 0 in direct, minus the snapcast buffer in
+  // multiroom (see lyricsStore.syncOffsetMs).
+  const pos = currentPosition.value + lyricsStore.syncOffsetMs;
   const lines = props.synced;
   let idx = -1;
   for (let i = 0; i < lines.length; i++) {
