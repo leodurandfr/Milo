@@ -418,15 +418,25 @@ function handleClose() {
   contain: strict;
 }
 
+/* The radius is AudioPlayerFull's, at both aspect ratios — this square is
+   superimposed on that one for the whole leave crossfade, so a corner that
+   differs is the one thing in the stack that reads as two covers rather than
+   one moving. */
 .artwork {
   position: relative;
   z-index: 3;
   width: 100%;
   height: 100%;
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-04);
   overflow: hidden;
   box-shadow: var(--shadow-artwork);
   pointer-events: none;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .artwork {
+    border-radius: var(--radius-07);
+  }
 }
 
 .artwork img,
