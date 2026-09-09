@@ -617,7 +617,12 @@
    drifts. AudioSourceView keeps only its own lyrics-slot override, which is
    scoped and so still outranks this. */
 .audio-content-enter-active {
-    transition: all var(--transition-spring);
+    /* Springy rise, quicker fade — the same split every stagger in the app uses.
+       `all` put the opacity on the spring's 1.28s too, which read as the cover
+       still arriving well after it had stopped moving. */
+    transition:
+        transform var(--transition-spring),
+        opacity var(--transition-normal);
     z-index: 1;
 }
 
