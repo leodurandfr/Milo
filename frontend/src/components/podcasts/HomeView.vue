@@ -47,7 +47,7 @@
           </div>
         </transition>
 
-        <!-- The catalog could not be loaded, whether Podcast Index did not answer or the
+        <!-- The catalog could not be loaded, whether Apple did not answer or the
              request itself failed — the subscriptions block above is unaffected -->
         <transition name="content-fade">
           <MessageContent
@@ -69,7 +69,6 @@
               :key="podcast.itunes_id || podcast.uuid"
               :podcast="podcast"
               :position="index + 1"
-              :isLoading="isPodcastLoading(podcast)"
               @select="$emit('select-podcast', podcast)"
             />
           </div>
@@ -114,13 +113,7 @@ import MessageContent from '@/components/ui/MessageContent.vue'
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode', 'browse-genre'])
 const { t } = useI18n()
 
-// loadingPodcastId is set by the parent (PodcastSource) while it resolves an
-// iTunes chart entry's feedId — used to show a spinner on the tapped card.
 const props = defineProps({
-  loadingPodcastId: {
-    type: [String, Number],
-    default: null
-  }
 })
 
 const podcastStore = usePodcastStore()
@@ -131,10 +124,6 @@ const topCharts = ref([])
 const topChartsApiError = ref(false)
 
 // True while the tapped iTunes chart entry is being resolved to a feedId.
-function isPodcastLoading(podcast) {
-  if (!props.loadingPodcastId) return false
-  return podcast.itunes_id === props.loadingPodcastId || podcast.uuid === props.loadingPodcastId
-}
 
 // Two whole rows of the chart, whatever the screen lays out — a fixed count
 // would leave orphans on every column count but the one it was written for.

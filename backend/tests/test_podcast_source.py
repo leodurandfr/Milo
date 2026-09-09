@@ -15,7 +15,6 @@ import json
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
-from backend.config.constants import PODCASTINDEX_API_KEY, PODCASTINDEX_API_SECRET
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.data import PodcastDataService
 from backend.core.models.audio_state import SourceState
@@ -54,12 +53,10 @@ class TestPodcastSourceConfig:
     """Test PodcastSource configuration."""
 
     def test_default_config(self):
-        """Test default configuration values (app-level Podcast Index credentials)."""
+        """Test default configuration values."""
         source = PodcastSource()
 
         assert source._mpv_socket == "/run/milo/podcast-ipc.sock"
-        assert source._podcast_api.api_key == PODCASTINDEX_API_KEY
-        assert source._podcast_api.api_secret == PODCASTINDEX_API_SECRET
 
     def test_custom_config(self):
         """Test custom configuration."""
@@ -81,7 +78,7 @@ class TestPodcastSourceLifecycle:
                 mock_data.get_setting = AsyncMock(return_value=1.0)
                 mock_data_class.return_value = mock_data
 
-                with patch('backend.sources.podcast.source.PodcastIndexAPI') as mock_api_class:
+                with patch('backend.sources.podcast.source.PodcastCatalog') as mock_api_class:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
@@ -104,7 +101,7 @@ class TestPodcastSourceLifecycle:
                 mock_data.get_setting = AsyncMock(return_value=1.0)
                 mock_data_class.return_value = mock_data
 
-                with patch('backend.sources.podcast.source.PodcastIndexAPI') as mock_api_class:
+                with patch('backend.sources.podcast.source.PodcastCatalog') as mock_api_class:
                     mock_api = AsyncMock()
                     mock_api_class.return_value = mock_api
 
@@ -315,33 +312,26 @@ class TestPodcastDataService:
         assert structure["settings"]["playback_speed"] == 1.0
 
     @pytest.mark.asyncio
-    async def test_subscription_captures_itunes_id(self, tmp_path):
-        """itunes_id is stored as a string, so an iTunes-sourced search result can be
-        matched against it; a subscription saved without one keeps a null."""
+    async def test_resubscribing_refreshes_metadata_without_losing_the_row(
+        self, tmp_path
+    ):
+        """Opening a followed podcast re-posts the subscription with fresh
+        metadata. The row must be updated in place — a second row would list the
+        podcast twice, and a reset `added_at` would reorder the list under the
+        owner."""
         service = PodcastDataService()
         service._data_file = tmp_path / "podcast_data.json"
         await service.initialize()
 
-        await service.add_subscription("1409945", "Underscore_", "img", itunes_id=1556250107)
-        await service.add_subscription("920666", "Radiolab", "img")  # legacy: no itunes_id
+        await service.add_subscription("1556250107", "Underscore_", "img", "h1")
+        first = (await service.get_subscriptions())[0]
+        await service.add_subscription("1556250107", "Underscore_ (v2)", "img2", "h2")
 
-        by_uuid = {s["uuid"]: s for s in await service.get_subscriptions()}
-        assert by_uuid["1409945"]["itunes_id"] == "1556250107"  # coerced to string
-        assert by_uuid["920666"]["itunes_id"] is None
-
-    @pytest.mark.asyncio
-    async def test_resubscribe_does_not_clobber_itunes_id(self, tmp_path):
-        """A metadata refresh without an itunes_id must not wipe a known one."""
-        service = PodcastDataService()
-        service._data_file = tmp_path / "podcast_data.json"
-        await service.initialize()
-
-        await service.add_subscription("1409945", "Underscore_", "img", itunes_id=1556250107)
-        await service.add_subscription("1409945", "Underscore_ (v2)", "img2")  # no itunes_id
-
-        sub = (await service.get_subscriptions())[0]
-        assert sub["itunes_id"] == "1556250107"
-        assert sub["name"] == "Underscore_ (v2)"
+        subscriptions = await service.get_subscriptions()
+        assert len(subscriptions) == 1
+        assert subscriptions[0]["name"] == "Underscore_ (v2)"
+        assert subscriptions[0]["children_hash"] == "h2"
+        assert subscriptions[0]["added_at"] == first["added_at"]
 
 
 class TestConnectionState:

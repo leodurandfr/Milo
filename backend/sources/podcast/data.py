@@ -38,9 +38,10 @@ class PodcastDataService:
     Note: Language/country settings are centralized in /var/lib/milo/settings.json
     """
 
-    # v2: IDs are Podcast Index feedId/episodeId strings — v1 files hold
-    # incompatible legacy UUIDs and must be reset (fail-loud protocol)
-    SCHEMA_VERSION: int = 2
+    # v3: a podcast is keyed by its Apple id and an episode by
+    # `{itunes_id}:{guid hash}`. v2 files hold Podcast Index feedIds and episode
+    # ids, which name nothing here, so they must be reset (fail-loud protocol).
+    SCHEMA_VERSION: int = 3
 
     def __init__(self, state_machine=None):
         self._logger = logging.getLogger("source.podcast.data")
@@ -138,19 +139,18 @@ class PodcastDataService:
         podcast_uuid: str,
         name: str,
         image_url: str,
-        children_hash: str = "",
-        itunes_id: Optional[int] = None
+        children_hash: str = ""
     ) -> bool:
         """
         Add podcast to subscriptions with full metadata.
 
         Args:
-            podcast_uuid: Podcast series UUID
+            podcast_uuid: Podcast series UUID — the Apple id, which is also
+                what a chart or search hit carries, so a subscription is
+                recognised without a second identifier
             name: Podcast name
             image_url: Podcast image URL
-            children_hash: Hash of episodes (for detecting new episodes)
-            itunes_id: Apple podcast ID (lets iTunes-sourced search results be
-                flagged as subscribed). Stored as a string; None when unknown.
+            children_hash: Newest-episode token (for detecting new episodes)
         """
         def apply(data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
             existing = next(
@@ -163,9 +163,6 @@ class PodcastDataService:
                 existing['image_url'] = image_url
                 existing['children_hash'] = children_hash
                 existing['last_checked'] = int(time.time())
-                # Never clobber a known itunes_id with None on a metadata refresh
-                if itunes_id:
-                    existing['itunes_id'] = str(itunes_id)
                 return True, existing
 
             subscription = {
@@ -173,7 +170,6 @@ class PodcastDataService:
                 'name': name,
                 'image_url': image_url,
                 'children_hash': children_hash,
-                'itunes_id': str(itunes_id) if itunes_id else None,
                 'added_at': int(time.time()),
                 'last_checked': int(time.time())
             }

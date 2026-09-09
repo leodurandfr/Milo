@@ -4,7 +4,7 @@ FastAPI routes for Podcast feature.
 
 Provides REST API for:
 - Discovery (top charts, by genre — iTunes RSS, exact Apple Podcasts order)
-- Search (podcasts only — Podcast Index has no cross-podcast episode search)
+- Search (podcasts only — there is no cross-podcast episode search)
 - Content (series details, episode details)
 - Playback (play, pause, resume, speed)
 - Subscriptions (add, remove, list)
@@ -22,7 +22,10 @@ from backend.sources.podcast.models import (
     SubscribeRequest,
 )
 from backend.sources.podcast.source import PodcastSource
-from backend.sources.podcast.podcastindex_api import map_milo_language_to_itunes_country
+from backend.sources.podcast.podcast_catalog import (
+    is_upstream_error,
+    map_milo_language_to_itunes_country,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -40,6 +43,23 @@ def setup_podcast_routes(source_provider) -> APIRouter:
     return router
 
 
+async def _user_locale() -> tuple[str, str]:
+    """(Milō language, iTunes country) — which Apple storefront to read.
+
+    The charts are per-country, and the product-page tier of feed resolution
+    takes the same storefront, so both come from one place.
+    """
+    from backend.dependencies import get_service
+    settings = await get_service("settings_service").load_settings()
+    milo_language = settings['language']
+    return milo_language, map_milo_language_to_itunes_country(milo_language)
+
+
+async def _itunes_country() -> str:
+    """The storefront alone, for the routes that do not report the language."""
+    return (await _user_locale())[1]
+
+
 # === Discovery Routes ===
 
 @router.get("/discover/top-charts")
@@ -49,11 +69,7 @@ async def get_top_charts(
 ) -> Dict[str, Any]:
     """Get Apple Podcasts top charts (iTunes RSS, podcasts-only) using user's language."""
     async with api_error_handler("Error getting top charts", logger):
-        from backend.dependencies import get_service
-        settings_service = get_service("settings_service")
-        settings = await settings_service.load_settings()
-        milo_language = settings['language']
-        itunes_country = map_milo_language_to_itunes_country(milo_language)
+        milo_language, itunes_country = await _user_locale()
 
         result = await source.podcast_api.get_itunes_top_podcasts(
             country_code=itunes_country,
@@ -80,11 +96,7 @@ async def get_content_by_genre(
 ) -> Dict[str, Any]:
     """Get top podcasts for a specific genre using user's language."""
     async with api_error_handler("Error getting content by genre", logger):
-        from backend.dependencies import get_service
-        settings_service = get_service("settings_service")
-        settings = await settings_service.load_settings()
-        milo_language = settings['language']
-        itunes_country = map_milo_language_to_itunes_country(milo_language)
+        milo_language, itunes_country = await _user_locale()
 
         podcasts_result = await source.podcast_api.get_itunes_top_podcasts_by_genre(
             genre=genre,
@@ -104,22 +116,6 @@ async def get_content_by_genre(
         return response
 
 
-@router.get("/lookup/itunes/{itunes_id}")
-async def lookup_podcast_by_itunes_id(
-    itunes_id: str,
-    source: PodcastSource = Depends(get_source)
-) -> Dict[str, Any]:
-    """Lookup the Podcast Index feedId for a podcast using its iTunes ID."""
-    async with api_error_handler("Error looking up podcast by iTunes ID", logger):
-        uuid = await source.podcast_api.lookup_by_itunes_id(itunes_id)
-
-        if not uuid:
-            logger.error("No podcast found for iTunes ID: %s", itunes_id)
-            raise HTTPException(status_code=404, detail=f"No podcast found for iTunes ID: {itunes_id}")
-
-        return {"uuid": uuid, "itunes_id": itunes_id}
-
-
 # === Search Routes ===
 
 @router.get("/search")
@@ -129,7 +125,7 @@ async def search_podcasts(
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(25, ge=1, le=25)
 ) -> Dict[str, Any]:
-    """Search for podcasts (feeds-only; iTunes-backed, resolved to Podcast Index on open)."""
+    """Search for podcasts (feeds-only; iTunes-backed, each hit ready to open)."""
     async with api_error_handler("Error in podcast search", logger):
         empty = {
             "podcasts": [],
@@ -138,30 +134,19 @@ async def search_podcasts(
         if not term:
             return empty
 
-        from backend.dependencies import get_service
-        settings_service = get_service("settings_service")
-        settings = await settings_service.load_settings()
-        milo_language = settings['language']
-        itunes_country = map_milo_language_to_itunes_country(milo_language)
-
         result = await source.podcast_api.search_podcasts(
             term=term,
             page=page,
             limit=limit,
-            country=itunes_country,
+            country=await _itunes_country(),
         )
 
-        # Enrich with subscription status. iTunes-sourced hits carry uuid=None
-        # (resolved on open), so match on itunes_id — captured at subscribe time.
-        # One read: derive both lookup sets from a single subscriptions fetch.
+        # Enrich with subscription status. A hit's uuid is its Apple id, which
+        # is what a subscription stores, so one set answers it.
         subscriptions = await source.podcast_data.get_subscriptions()
-        subscribed_uuids = {s['uuid'] for s in subscriptions if s.get('uuid')}
-        subscribed_itunes = {s['itunes_id'] for s in subscriptions if s.get('itunes_id')}
+        subscribed = {s['uuid'] for s in subscriptions if s.get('uuid')}
         for podcast in result.get('podcasts', []):
-            podcast['is_subscribed'] = (
-                podcast.get('uuid') in subscribed_uuids
-                or podcast.get('itunes_id') in subscribed_itunes
-            )
+            podcast['is_subscribed'] = podcast.get('uuid') in subscribed
 
         response = {
             "podcasts": result.get('podcasts', []),
@@ -187,14 +172,24 @@ async def get_podcast_series(
     """Get podcast series details with episodes."""
     async with api_error_handler("Error getting podcast series", logger):
         series = await source.podcast_api.get_podcast_series(
-            feed_id=uuid,
+            itunes_id=uuid,
             episodes_page=page,
             episodes_limit=limit,
-            sort_order=sort_order
+            sort_order=sort_order,
+            country=await _itunes_country(),
         )
 
+        if is_upstream_error(series):
+            # The feed exists, this attempt failed. A 404 here would tell the
+            # owner the podcast is gone over a passing CDN outage.
+            logger.error("Podcast catalog unreachable for: %s", uuid)
+            raise HTTPException(status_code=503, detail="Podcast catalog unavailable")
+
         if not series:
-            logger.error("Podcast not found: %s", uuid)
+            # Apple publishes no feed for this id — a subscriber-only show, or
+            # an id that names nothing. Expected, so it must not reach the
+            # WebSocketLogHandler banner.
+            logger.debug("No public feed for podcast: %s", uuid)
             raise HTTPException(status_code=404, detail="Podcast not found")
 
         # Add subscription status
@@ -216,9 +211,15 @@ async def get_episode(
 ) -> Dict[str, Any]:
     """Get episode details."""
     async with api_error_handler("Error getting episode", logger):
-        episode = await source.podcast_api.get_episode(uuid)
+        episode = await source.podcast_api.get_episode(
+            uuid, country=await _itunes_country()
+        )
+        if is_upstream_error(episode):
+            logger.error("Podcast catalog unreachable for episode: %s", uuid)
+            raise HTTPException(status_code=503, detail="Podcast catalog unavailable")
+
         if not episode:
-            logger.error("Episode not found: %s", uuid)
+            logger.debug("Episode not in its feed: %s", uuid)
             raise HTTPException(status_code=404, detail="Episode not found")
 
         # Add progress
@@ -288,7 +289,6 @@ async def add_subscription(
             name=request.name,
             image_url=request.image_url,
             children_hash=request.children_hash,
-            itunes_id=request.itunes_id
         )
         return {"status": "success"}
 
@@ -317,18 +317,13 @@ async def get_latest_episodes_from_subscriptions(
         if not subscriptions:
             return {"results": [], "total": 0}
 
-        # Stored name/image fill the episode's podcast block when the
-        # /episodes/byfeedid items omit feedTitle
-        feed_meta = {
-            s['uuid']: {"name": s.get('name', ''), "image_url": s.get('image_url', '')}
-            for s in subscriptions if s.get('uuid')
-        }
-
+        # Each feed names and illustrates itself, so no stored fallback is
+        # needed for the episode's podcast block.
         result = await source.podcast_api.get_latest_episodes(
-            feed_ids=list(feed_meta),
+            itunes_ids=[s['uuid'] for s in subscriptions if s.get('uuid')],
             page=page,
             limit=limit,
-            feed_meta=feed_meta
+            country=await _itunes_country(),
         )
 
         # Add progress to episodes

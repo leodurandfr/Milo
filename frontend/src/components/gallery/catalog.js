@@ -382,7 +382,7 @@ export const ENTRIES = [
     id: 'GenreCard',
     group: 'cards',
     file: 'components/podcasts/GenreCard.vue',
-    summary: 'A genre tile for the podcast home. The image is not passed in: `value` is a Podcast Index genre id and constants/podcastGenres.js resolves it to one of the 12 artworks, so an unknown value renders a tile with no image rather than a broken one.',
+    summary: 'A genre tile for the podcast home. The image is not passed in: `value` is a Milō genre key and constants/podcastGenres.js resolves it to one of the 12 artworks, so an unknown value renders a tile with no image rather than a broken one.',
   },
   {
     id: 'SkeletonPodcastDetails',

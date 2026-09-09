@@ -3,7 +3,7 @@
 
 Navidrome (milo-navidrome.service) indexes the mount root and exposes a
 localhost Subsonic API. This client is the music_library source's window onto
-that catalog — the analog of PodcastIndexAPI for the Podcast source, but the
+that catalog — the analog of PodcastCatalog for the Podcast source, but the
 "server" is our own localhost sidecar instead of a public REST service.
 
 Auth is Subsonic token auth (`t = md5(password + salt)`, fresh salt per call),

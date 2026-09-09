@@ -512,7 +512,7 @@
     "noPodcastsInGenre": "Keine Podcasts in dieser Kategorie gefunden",
     "notAvailable": "Podcast nicht verfügbar",
     "catalogUnavailable": "Katalog nicht verfügbar",
-    "catalogUnavailableHint": "Der Dienst Podcast Index antwortet nicht",
+    "catalogUnavailableHint": "Der Katalogdienst antwortet nicht",
     "retry": "Erneut versuchen",
     "loading": "Wird geladen...",
     "noEpisodesInQueue": "Keine Episoden in der Warteschlange",

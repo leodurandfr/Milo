@@ -512,7 +512,7 @@
     "noPodcastsInGenre": "此类别中没有找到播客",
     "notAvailable": "播客不可用",
     "catalogUnavailable": "目录不可用",
-    "catalogUnavailableHint": "Podcast Index 服务无响应",
+    "catalogUnavailableHint": "播客目录服务无响应",
     "retry": "重试",
     "loading": "正在加载...",
     "noEpisodesInQueue": "队列中没有单集",

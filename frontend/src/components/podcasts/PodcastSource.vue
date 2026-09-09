@@ -18,8 +18,7 @@
     <!-- Content slot: scrollable views -->
     <template #content>
         <!-- Home View (Discovery) -->
-        <HomeView v-if="currentView === 'home'" key="home" :loadingPodcastId="loadingPodcastId"
-          @select-podcast="openPodcastDetails"
+        <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
           @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
 
         <!-- Subscriptions View -->
@@ -27,8 +26,7 @@
           @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
         <!-- Search View -->
-        <SearchView v-else-if="currentView === 'search'" key="search" :loadingPodcastId="loadingPodcastId"
-          @select-podcast="openPodcastDetails" />
+        <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails" />
 
         <!-- Queue View -->
         <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
@@ -36,12 +34,12 @@
 
         <!-- Genre View -->
         <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
-          :genreLabel="selectedGenreLabel" :loadingPodcastId="loadingPodcastId" @select-podcast="openPodcastDetails"
+          :genreLabel="selectedGenreLabel" @select-podcast="openPodcastDetails"
           @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
         <!-- Podcast Details (full screen overlay) -->
         <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details" :uuid="selectedPodcastUuid"
-          @play-episode="playEpisode" @select-episode="openEpisodeDetails" />
+          @play-episode="playEpisode" @select-episode="openEpisodeDetails" @unavailable="onPodcastUnavailable" />
 
         <!-- Episode Details (full screen overlay) -->
         <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details" :uuid="selectedEpisodeUuid"
@@ -165,12 +163,10 @@ const {
 
 // Navigation params (stored separately since composable handles view state)
 const selectedPodcastUuid = computed(() => currentParams.value.podcastUuid || '')
+const selectedPodcastName = computed(() => currentParams.value.podcastName || '')
 const selectedEpisodeUuid = computed(() => currentParams.value.episodeUuid || '')
 const selectedGenre = computed(() => currentParams.value.genre || '')
 const selectedGenreLabel = computed(() => currentParams.value.genreLabel || '')
-
-// Loading state for podcast lookup (iTunes ID → UUID conversion)
-const loadingPodcastId = ref(null)
 
 // Computed title and subtitle based on view
 const currentTitle = computed(() => {
@@ -233,42 +229,39 @@ function onScrollRestored() {
   pendingScrollRestore.value = null
 }
 
-async function openPodcastDetails(podcastOrUuid) {
-  let uuid = ''
-
-  // Handle both UUID (string) and podcast object
+function openPodcastDetails(podcastOrUuid) {
+  // A chart, search or subscription entry carries its own uuid (the Apple id),
+  // so opening one is a navigation and nothing else — there is no resolution
+  // step left that could fail between seeing a podcast and opening it.
   if (typeof podcastOrUuid === 'string') {
-    // Direct UUID from subscriptions or search
-    uuid = podcastOrUuid
-  } else if (podcastOrUuid && podcastOrUuid.uuid) {
-    // Podcast object with UUID already resolved
-    uuid = podcastOrUuid.uuid
-  } else if (podcastOrUuid && podcastOrUuid.itunes_id) {
-    // Podcast object from iTunes RSS without UUID - need to lookup.
-    // A miss means Podcast Index doesn't index this podcast (expected for some
-    // charts entries), so log it as info and tell the user instead of failing silently.
-    loadingPodcastId.value = podcastOrUuid.itunes_id
-    const result = await apiCall.get(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}`, {
-      category: 'podcast',
-      message: 'Podcast not found in catalog',
-      params: { name: podcastOrUuid.name || '', artist: podcastOrUuid.artist || '' },
-      logLevel: 'info',
-    })
-    loadingPodcastId.value = null
-    if (!result.ok || !result.data?.uuid) {
-      unifiedStore.transientNotice = {
-        title: t('podcasts.notAvailable'),
-        detail: podcastOrUuid.name || null,
-      }
-      return
-    }
-    uuid = result.data.uuid
-  } else {
+    push('podcast-details', { podcastUuid: podcastOrUuid })
+    return
+  }
+  if (!podcastOrUuid?.uuid) {
     logger.error('podcast', 'Invalid podcast data', podcastOrUuid)
     return
   }
+  // The name travels so the "not available" notice can name the podcast when
+  // the details view finds no public feed for it.
+  push('podcast-details', {
+    podcastUuid: podcastOrUuid.uuid,
+    podcastName: podcastOrUuid.name || '',
+  })
+}
 
-  push('podcast-details', { podcastUuid: uuid })
+// Raised by PodcastDetails when the series could not be loaded. `reason` keeps
+// a permanent absence apart from a passing failure — the same distinction the
+// backend draws between 404 and 503.
+function onPodcastUnavailable(reason) {
+  // The fetch is async: the owner may have pressed back before it answered, and
+  // popping again would leave the genre view for the home screen and show a
+  // notice naming nothing.
+  if (currentView.value !== 'podcast-details') return
+
+  unifiedStore.transientNotice = reason === 'transient'
+    ? { title: t('podcasts.catalogUnavailable'), detail: t('podcasts.catalogUnavailableHint') }
+    : { title: t('podcasts.notAvailable'), detail: selectedPodcastName.value || null }
+  back()
 }
 
 function openEpisodeDetails(uuid) {

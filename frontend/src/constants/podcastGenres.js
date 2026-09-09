@@ -1,6 +1,6 @@
 // frontend/src/constants/podcastGenres.js
 /**
- * The genre ids the Podcast Index answers to, in the order the browse grid
+ * The genre keys the backend maps to Apple category ids, in the order the browse grid
  * shows them.
  *
  * One declaration for three readers: HomeView builds the grid from it,
