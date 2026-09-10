@@ -44,7 +44,6 @@ lives one layer up and can never contaminate the structure.
 |---|---|
 | `extract_graph.py` | The analyser. Recursive, multi-root, ~2 s for a 157-module backend. |
 | `verify_graph.py` | The independent oracle. Falsifies the analyser using the interpreter. |
-| `fixtures/verified_edges.json` | The confirmed edge set, frozen as a regression guard. |
 | `output/` | Generated graphs and reports. Gitignored — rebuild, don't commit. |
 
 ## The data
