@@ -271,7 +271,7 @@ export const ENTRIES = [
     group: 'structure',
     file: 'components/ui/VolumeBar.vue',
     coupling: 'store',
-    summary: 'The transient volume readout. position: fixed, visible only while unifiedAudioStore.showVolumeBar is set, and its fill interpolates the volume between the two configured limits — all four of those live in stores, so they are in the State section rather than the props table.',
+    summary: 'The transient volume readout. position: fixed, visible only while unifiedAudioStore.showVolumeBar is set, and its fill interpolates the volume between the two configured limits — all four of those live in stores, so they are in the State section rather than the props table. Its one prop is the surface tone: the bar is fixed above every view and cannot see what it is drawn on, so App.vue reads it from the dark surfaces (screensaver, Lyrics) that declare themselves.',
   },
 
   // --- Player parts ---

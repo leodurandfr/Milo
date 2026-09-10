@@ -60,6 +60,7 @@
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useTimer } from '@/composables/useTimer';
+import { markDarkSurface } from '@/composables/useDarkSurface';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/lyricsStore';
 import { getFaviconUrl } from '@/utils/faviconUrl';
@@ -73,6 +74,11 @@ const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
 const timer = useTimer();
+
+// Contrast backdrop filling the whole slot, so the volume bar App.vue mounts
+// over it needs its light variant. Mounted only while open, so the mounted life
+// is the signal.
+markDarkSurface();
 
 const closeButtonWrapper = ref(null);
 const closeButtonRef = ref(null);

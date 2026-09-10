@@ -501,7 +501,10 @@ export const REGISTRY = {
         default: -20,
         apply: (value, stores) => { stores.settings.volumeLimits.max_db = value; }
       }
-    }
+    },
+    // `dark` is the white-fill variant App.vue picks for the screensaver and the
+    // Lyrics view — on the light stage its fill is white on white.
+    surface: args => (args.variant === 'dark' ? 'contrast' : null)
   },
 
   VirtualKeyboard: {
