@@ -26,6 +26,7 @@ at all: the daemon answers on 127.0.0.1:1234 on this machine, and the suite's
 network guard lets loopback through on purpose.
 """
 import asyncio
+import contextlib
 import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock
@@ -412,6 +413,62 @@ class TestConnectionLoop:
 
         assert sleeps == [5.0, 7.5, 5.0, 7.5]
 
+    async def test_the_idle_loop_keeps_probing_a_live_connection(self, service, sleeps):
+        """Without this the loop sleeps forever on a `_connected` that nothing
+        re-examines."""
+        probes = []
+
+        async def _probe():
+            probes.append(1)
+            if len(probes) >= 3:
+                service._running = False
+
+        service._probe_connection = _probe
+        service._restore_after_reconnect = AsyncMock()
+
+        async def _connect():
+            service._connected = True
+            return True
+
+        service._connect_once = _connect
+
+        # Bounded by construction: without the keepalive the idle wait never
+        # re-examines `_connected`, and this loop would spin on a patched
+        # sleep(0) until the machine gave up — the failure shape this file's
+        # `_stop_after` exists to avoid. A timeout turns that into a red test.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(service._connection_loop(), timeout=2)
+
+        assert len(probes) == 3
+
+    async def test_a_keepalive_that_fails_sends_the_loop_back_to_connecting(
+        self, service, sleeps
+    ):
+        """The end-to-end shape: a daemon that died in silence is noticed, and the
+        loop reconnects and restores — with no command from anyone."""
+        restored = []
+        service._restore_after_reconnect = AsyncMock(side_effect=lambda: restored.append(1))
+        attempts = {"n": 0}
+
+        async def _connect():
+            attempts["n"] += 1
+            if attempts["n"] > 2:
+                service._running = False
+                return False
+            service._connected = True
+            return True
+
+        async def _probe():
+            service._connected = False  # what _run does on a failed call
+
+        service._connect_once = _connect
+        service._probe_connection = _probe
+
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(service._connection_loop(), timeout=2)
+
+        assert restored == [1, 1], "a silent death was not noticed, or not restored"
+
     async def test_a_cancelled_loop_stops_without_sleeping_again(self, service, sleeps):
         """Teardown cancels this task; the `break` is what lets `cleanup` join it.
 
@@ -497,6 +554,56 @@ class TestConnectionLoop:
             mod.asyncio.sleep = real_sleep
 
         assert ticks["n"] == 3
+
+
+class TestKeepalive:
+    """The connection carries its own keepalive, because nothing else reads it.
+
+    `pycamilladsp` is a synchronous client: send-then-recv per query, no
+    background read loop, no ping API. Between commands nobody reads the socket,
+    so a peer that closed it goes unnoticed — measured on the unit, a CamillaDSP
+    restart left the appliance muted (the daemon starts with -m) for 94 seconds
+    with the kiosk open, the Mac app polling every 2 s and radio playing. Waiting
+    for a command to fail is not detection: `/api/audio/state` and
+    `/api/volume/state` read the store, and LevelsMonitor samples the daemon only
+    while an equalizer view holds a keepalive.
+    """
+
+    async def test_a_failing_keepalive_marks_the_daemon_gone(
+        self, service, mock_camilla_client
+    ):
+        """This is the whole mechanism: `_run` demotes us, and the loop that owns
+        the reconnect + restore takes it from there."""
+        service._client = mock_camilla_client
+        service._connected = True
+        mock_camilla_client.general.state.side_effect = ConnectionError("closed")
+
+        await service._probe_connection()
+
+        assert service._connected is False
+
+    async def test_a_successful_keepalive_changes_nothing(
+        self, service, mock_camilla_client
+    ):
+        """Twelve round-trips a minute on a loopback socket must stay invisible —
+        no state touched, no log line, no broadcast."""
+        service._client = mock_camilla_client
+        service._connected = True
+
+        await service._probe_connection()
+
+        assert service._connected is True
+
+    async def test_a_keepalive_without_a_client_demotes_rather_than_raising(self, service):
+        """Reachable between a failed command and the reconnect: `_run` clears
+        `_client` on the way down, and the idle loop can still be inside its wait.
+        """
+        service._client = None
+        service._connected = True
+
+        await service._probe_connection()
+
+        assert service._connected is False
 
 
 class TestInitialize:

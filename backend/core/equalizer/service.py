@@ -280,9 +280,18 @@ class CamillaDSPService:
                     reconnect_delay = self.RECONNECT_DELAY
                     await self._restore_after_reconnect()
 
-                    # Idle until a command failure marks us disconnected
+                    # Idle, keeping the connection under observation. Waiting for
+                    # a command to fail is not detection: measured on the unit,
+                    # a CamillaDSP restart left the appliance muted (the daemon
+                    # starts with -m) for 94 s with the kiosk open, the Mac app
+                    # polling every 2 s and radio playing, because nothing that
+                    # runs on its own touches the daemon — /api/audio/state and
+                    # /api/volume/state read the store, and LevelsMonitor samples
+                    # only while an equalizer view holds a keepalive.
                     while self._running and self._connected:
                         await asyncio.sleep(self.RECONNECT_DELAY)
+                        if self._connected:
+                            await self._probe_connection()
 
             except asyncio.CancelledError:
                 break
@@ -296,6 +305,43 @@ class CamillaDSPService:
                 self.logger.info(f"Reconnecting to CamillaDSP in {reconnect_delay:.0f}s...")
                 await asyncio.sleep(reconnect_delay)
                 reconnect_delay = min(reconnect_delay * 1.5, self.MAX_RECONNECT_DELAY)
+
+    async def _probe_connection(self) -> None:
+        """Keepalive on the daemon connection — not a poll for state.
+
+        `pycamilladsp` is a *synchronous* websocket client (`create_connection`
+        + a lock, send-then-recv per query): no background read loop, no
+        callback, no ping API. Nothing reads the socket between commands, so a
+        peer that closed it — sending a FIN the kernel already has — is noticed
+        by no one. The four alternatives and why each is out:
+
+        * **WebSocket ping/pong**, the standard answer: unreachable, the library
+          exposes neither a ping nor a loop that could receive a pong.
+        * **`loop.add_reader` on the socket**, the cleanest and truly event-driven:
+          needs `client._ws._ws.sock`, two levels of private attributes in a
+          library the Update Manager upgrades. An upstream refactor would
+          disable detection in silence.
+        * **TCP keepalive**: adds nothing here. The close is not undetected, it
+          is unread.
+        * **systemd's D-Bus signal on the unit**: the only reachable event-driven
+          option, and it covers strictly less — a unit restart, yes; a daemon
+          alive but wedged, or a stuck socket, no. Both leave the room silent
+          the same way (cf. the silence-pause failure, which shows up nowhere
+          but /proc/asound).
+
+        So the connection carries its own keepalive, exactly as the satellite has
+        always done (milo-client/app/services/equalizer.py::_probe_connection) —
+        two halves of one appliance answering the same question the same way. The
+        failure path is `_run`'s: it marks us disconnected, and the loop above
+        reconnects and restores.
+        """
+        if self._client is None:
+            self._connected = False
+            return
+        try:
+            await self._run(self._client.general.state)
+        except Exception as e:
+            self.logger.warning(f"CamillaDSP connection lost (detected by keepalive): {e}")
 
     async def _connect_once(self) -> bool:
         """Attempt a single connection to CamillaDSP. Returns True on success."""
