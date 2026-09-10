@@ -1,8 +1,8 @@
-// frontend/eslint.config.js
-// Flat config (ESLint v9). Rules are activated progressively per lot —
-// see docs/plans/exec-lint-floor.md. Bootstrap (B0): no rules active beyond
-// the eslint-plugin-vue recommended baseline. Lot A adds axios + console
-// restrictions.
+// frontend/eslint.config.mjs
+// Flat config (ESLint v9), on top of the eslint-plugin-vue recommended baseline.
+// The lint floor CI blocks on is listed in CLAUDE.md: no-restricted-imports
+// (axios outside apiCall.js), no-restricted-syntax (console.*, the global $t)
+// and no-restricted-globals (bare timers).
 import pluginVue from 'eslint-plugin-vue';
 
 // The global `$t()` no longer exists: neither entry point installs it on
