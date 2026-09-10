@@ -200,14 +200,22 @@ function scrollToActiveLine(framesLeft = 10) {
   if (rafId === null) rafId = requestAnimationFrame(stepTween);
 }
 
-watch(activeIndex, () => scrollToActiveLine(), { immediate: true, flush: 'post' });
+watch(activeIndex, () => scrollToActiveLine(), { flush: 'post' });
 
 function relayout() {
   invalidateAnchors();
   scrollToActiveLine();
 }
 
-onMounted(() => window.addEventListener('resize', relayout));
+// The initial placement belongs here and nowhere else: the view mounts mid-song
+// with `synced` already resolved (LyricsView only mounts this once the lookup
+// answered), so neither watch fires on its own — activeIndex is already right
+// and never changes until the next line, and props.synced never changes at all.
+// Without this the reader waited at the top of the page until the song moved on.
+onMounted(() => {
+  scrollToActiveLine();
+  window.addEventListener('resize', relayout);
+});
 onUnmounted(() => {
   stopTween();
   window.removeEventListener('resize', relayout);
