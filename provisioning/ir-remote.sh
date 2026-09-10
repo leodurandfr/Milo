@@ -12,8 +12,8 @@ set -e
 MILO_USER="${MILO_USER:-milo}"
 MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
 
-# Default GPIO pin for the TSOP4838 data line (matches §1.6 / §2.1 of
-# docs/plans/remote-controls.md — pin 11 on the 40-pin header).
+# Default GPIO pin for the TSOP4838 data line — pin 11 on the 40-pin header;
+# the wiring is in docs/hardware/wiring.md.
 IR_REMOTE_GPIO_DEFAULT=17
 
 configure_ir_overlay() {
