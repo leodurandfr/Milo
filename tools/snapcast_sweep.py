@@ -22,10 +22,20 @@ screen + speaker in slow-motion, or record source + speaker in Audacity and read
 offset). The sweep finds the lowest STABLE buffer; absolute latency ~= buffer + a
 small constant you confirm physically.
 
+Reaching the remotes: the satellites are not provisioned identically (different login
+accounts), so one --ssh-user cannot be right for both. Map each client IP to its own
+Host alias from ~/.ssh/config instead -- the alias carries that unit's account and key:
+  --ssh-host 192.168.1.153=canape --ssh-host 192.168.1.60=bureau
+A remote that cannot be read is reported CONNECTION-ONLY and never scored as a pass.
+
+Local journald needs no sudo on a Milo unit (the login user is in `adm`), which is why
+--sudo defaults to off; `sudo journalctl` is not in the sudoers policy and would prompt.
+
 Usage:
   # Preflight only (no config change): check API/RPC reachability, discover clients,
   # test SSH + journald access on every remote, print the planned grid + time estimate.
-  python tools/snapcast_sweep.py --source-url http://stream.example/test.flac --dry-run
+  python tools/snapcast_sweep.py --source-url http://stream.example/test.flac --dry-run \
+      --ssh-host 192.168.1.153=canape --ssh-host 192.168.1.60=bureau
 
   # Real sweep, 10-minute window per config:
   python tools/snapcast_sweep.py --station-id <favorite-id> --window 600
@@ -42,7 +52,6 @@ import os
 import re
 import signal
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -190,17 +199,21 @@ def journal_local(unit, since_epoch, use_sudo):
     return rc, out, err
 
 
-def journal_remote(ip, ssh_user, unit, since_epoch, remote_sudo, askpass=None):
+def journal_remote(target, unit, since_epoch, remote_sudo, askpass=None):
+    """`target` is whatever ssh should be handed: a `user@ip`, or a Host alias from
+    ~/.ssh/config (see --ssh-host). The alias is the better answer on a fleet whose
+    units are not provisioned identically: it carries that unit's own login account
+    and key instead of one --ssh-user that can only be right for one of them."""
     remote = (("sudo -n " if remote_sudo else "")
               + f"journalctl -u {unit} --since @{since_epoch} --no-pager -o cat")
     if askpass:
         # Transient password auth via SSH_ASKPASS — no persistent key on the remote.
         cmd = ["setsid", "-w", "ssh", "-o", "StrictHostKeyChecking=accept-new",
-               "-o", "ConnectTimeout=5", f"{ssh_user}@{ip}", remote]
+               "-o", "ConnectTimeout=5", target, remote]
         env = {**os.environ, "SSH_ASKPASS": askpass, "SSH_ASKPASS_REQUIRE": "force"}
     else:
         cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
-               f"{ssh_user}@{ip}", remote]
+               target, remote]
         env = None
     rc, out, err = _run(cmd, timeout=30, env=env)
     return rc, out, err
@@ -219,6 +232,7 @@ class Sweep:
         self.api = api
         self.rpc = rpc
         self.pattern = re.compile(args.underrun_pattern, re.IGNORECASE)
+        self.ssh_alias = dict(m.split("=", 1) for m in args.ssh_host)
         self.original = None
         self.original_source = None
         self.remotes = []       # [{ip, name, observable}]
@@ -232,12 +246,18 @@ class Sweep:
         cfg = (r or {}).get("config")
         if not cfg:
             raise SystemExit(f"Cannot read current config (is multiroom enabled?): {r}")
-        sc = cfg.get("stream_config", {})
+        # GET and PUT share one flat shape -- the four keys sit directly under `config`,
+        # exactly as the PUT body carries them back. Missing key = fail loud: guessing a
+        # default here is how a sweep silently restores something other than what it found.
+        missing = [k for k in ("buffer_ms", "codec", "chunk_ms", "snapclient_buffer_time")
+                   if k not in cfg]
+        if missing:
+            raise SystemExit(f"server-config is missing {missing}; payload was: {cfg}")
         self.original = {
-            "buffer_ms": int(sc["buffer_ms"]),
-            "codec": sc["codec"],
-            "chunk_ms": int(sc["chunk_ms"]),
-            "snapclient_buffer_time": int(cfg.get("snapclient_buffer_time", 80)),
+            "buffer_ms": int(cfg["buffer_ms"]),
+            "codec": cfg["codec"],
+            "chunk_ms": int(cfg["chunk_ms"]),
+            "snapclient_buffer_time": int(cfg["snapclient_buffer_time"]),
         }
         try:
             self.original_source = (self.api.audio_state() or {}).get("active_source")
@@ -283,12 +303,15 @@ class Sweep:
             self.remotes.append({"ip": c["ip"], "name": c["name"] or c["ip"], "observable": False})
         return clients
 
+    def _ssh_target(self, ip):
+        return self.ssh_alias.get(ip, f"{self.args.ssh_user}@{ip}")
+
     def probe_remote_observability(self):
         """Test SSH + journald access per remote so the sweep declares up front
         whether each remote will be log-observed or connection-only."""
         now = int(time.time())
         for r in self.remotes:
-            rc, out, err = journal_remote(r["ip"], self.args.ssh_user, REMOTE_SNAPCLIENT_UNIT,
+            rc, out, err = journal_remote(self._ssh_target(r["ip"]), REMOTE_SNAPCLIENT_UNIT,
                                           now - 5, self.args.remote_sudo, self.args.ssh_askpass)
             r["observable"] = (rc == 0)
             status = "log-observed" if rc == 0 else f"CONNECTION-ONLY (ssh rc={rc}: {err.strip()[:80]})"
@@ -419,16 +442,24 @@ class Sweep:
         return n, lines, True
 
     def _remote_underruns_total(self, t0):
-        total = 0
+        """Live progress only -- the verdict uses _remote_underruns_detail().
+
+        A remote whose journal cannot be read contributes no count, so the total is
+        reported as a floor ("2+") rather than as a figure: an undercount printed as
+        exact is what makes a half-blind window look clean while it runs.
+        """
+        total, blind = 0, False
         for r in self.remotes:
             if not r["observable"]:
                 continue
-            rc, out, _ = journal_remote(r["ip"], self.args.ssh_user, REMOTE_SNAPCLIENT_UNIT, t0,
+            rc, out, _ = journal_remote(self._ssh_target(r["ip"]), REMOTE_SNAPCLIENT_UNIT, t0,
                                         self.args.remote_sudo, self.args.ssh_askpass)
             if rc == 0:
                 n, _ = count_underruns(out, self.pattern)
                 total += n
-        return total
+            else:
+                blind = True
+        return f"{total}+" if blind else total
 
     def _remote_underruns_detail(self, t0):
         detail = {}
@@ -436,7 +467,7 @@ class Sweep:
             if not r["observable"]:
                 detail[r["name"]] = "unobserved"
                 continue
-            rc, out, _ = journal_remote(r["ip"], self.args.ssh_user, REMOTE_SNAPCLIENT_UNIT, t0,
+            rc, out, _ = journal_remote(self._ssh_target(r["ip"]), REMOTE_SNAPCLIENT_UNIT, t0,
                                         self.args.remote_sudo, self.args.ssh_askpass)
             detail[r["name"]] = count_underruns(out, self.pattern)[0] if rc == 0 else "error"
         return detail
@@ -556,10 +587,22 @@ def main():
                     help="seconds to wait after audio resumes before opening the measurement "
                     "window (skips the post-restart reconnect/ALSA-reopen transition)")
     ap.add_argument("--settle-timeout", type=int, default=60, help="max wait for clients to reconnect")
-    ap.add_argument("--ssh-user", default="milo", help="ssh user for remote journald access")
+    ap.add_argument("--ssh-host", action="append", default=[], metavar="IP=ALIAS",
+                    help="map a client IP to an ssh Host alias from ~/.ssh/config, e.g. "
+                         "--ssh-host 192.168.1.153=canape. Repeatable. Preferred over "
+                         "--ssh-user: the alias carries that unit's own account and key")
+    ap.add_argument("--ssh-user", default="milo",
+                    help="ssh user for remote journald access. The satellites are NOT "
+                         "provisioned identically -- one unit logs in as 'milo', the other "
+                         "as 'milo-client'. A remote this user cannot reach is reported "
+                         "unobserved, never counted as a silent pass")
     ap.add_argument("--ssh-askpass", help="path to an askpass helper (echoes the ssh password) "
                     "for transient password auth instead of key-based BatchMode")
-    ap.add_argument("--sudo", action="store_true", default=True, help="use sudo for local journalctl")
+    # Default off: on a Milo unit the login user is in the `adm` group, so journalctl
+    # answers without sudo -- while `sudo journalctl` is NOT in the sudoers policy and
+    # would prompt, which fails with no tty and scores every config INVALID(read).
+    ap.add_argument("--sudo", action="store_true", default=False,
+                    help="use sudo for local journalctl (only where the user is not in `adm`)")
     ap.add_argument("--no-sudo", dest="sudo", action="store_false")
     ap.add_argument("--remote-sudo", action="store_true", help="use 'sudo -n' for remote journalctl")
     ap.add_argument("--underrun-pattern", default=DEFAULT_UNDERRUN_PATTERN,
