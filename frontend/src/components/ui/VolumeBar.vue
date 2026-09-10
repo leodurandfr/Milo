@@ -62,7 +62,6 @@ const volumeFillStyle = computed(() => ({
      a dark backdrop exactly as it settles it into a light one. */
   --glass-bg: var(--color-background-medium-16);
   --glass-radius: var(--radius-full);
-  --glass-stroke-width: 1px;
   position: fixed;
   left: 50%;
   transform: translate(-50%, -80px);

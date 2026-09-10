@@ -190,10 +190,6 @@ function handleClick(event) {
   backface-visibility: hidden;
 }
 
-.icon-button--rounded::before {
-  opacity: 0.8;
-}
-
 /* The glass plate on a dark ground. The wash is the mid grey Dock and VolumeBar
    already share — it lifts off a dark backdrop exactly as it settles into a
    light one — and the rim swaps to the dark ramp, whose comment carries the
