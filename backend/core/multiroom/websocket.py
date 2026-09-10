@@ -907,6 +907,41 @@ class SnapcastWebSocketService:
             self.logger.error(f"Error syncing equalizer to {mac_id}: {e}", exc_info=True)
             return False
 
+    async def _sync_client_gain_to_client(self, mac_id: str) -> bool:
+        """Apply a client's level trim on admission — the local unit included.
+
+        Sibling of _sync_standalone_equalizer_to_client, for the one DSP setting
+        that is a client property (Client.gain_db) instead of part of the EQ
+        record, so the record push carries it nowhere. It is pushed whatever its
+        value, 0.0 included: clearing a stale trim is the same operation.
+
+        The two halves recover it differently, which is why this runs for both.
+        A satellite persists its own CamillaDSP config, so this only has to carry
+        a trim that *changed* while it was away. The local unit persists nothing
+        (`_set_config` is set_active only) — so this admission, which also runs
+        for it at boot, is what puts its trim back at all. That is the same shape
+        as the crossover, which CrossoverService re-applies from CLIENT_CONNECTED.
+
+        force=True: during admission the client is deliberately not online yet
+        (set_online_after), and the router would skip it.
+        """
+        try:
+            client = self.registry.get_client(mac_id) if self.registry else None
+            if not client or not self._volume_service:
+                return True
+
+            eq = self._volume_service.equalizer_controller
+            if not await eq.set_equalizer_gain(mac_id, client.gain_db, force=True):
+                self.logger.warning(f"SYNC_GAIN: Hardware refused the trim for {mac_id}")
+                return False
+
+            self.logger.info(f"SYNC_GAIN: Applied {client.gain_db:+.1f} dB trim to {mac_id}")
+            return True
+
+        except Exception as e:
+            self.logger.warning(f"SYNC_GAIN: Failed to sync the trim to {mac_id}: {e}")
+            return False
+
     async def _sync_reconnecting_client_volume(
         self, mac_id: str, set_online_after: bool = False,
         max_retries: int = 5, retry_delay: float = 3.0,
@@ -986,6 +1021,12 @@ class SnapcastWebSocketService:
                     # guard inside the callee). Done before showing online so the
                     # client is fully configured first.
                     await self._sync_standalone_equalizer_to_client(mac_id)
+
+                    # The level trim rides beside the record, not inside it: it
+                    # is a client property, so the push above carries it nowhere
+                    # and a trim changed while the speaker was away would never
+                    # reach its DSP.
+                    await self._sync_client_gain_to_client(mac_id)
 
                     # Same reason the EQ record is re-pushed: buffer settings
                     # changed while the client was away never reached it, and

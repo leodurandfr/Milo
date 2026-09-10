@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from services.equalizer import EqualizerService
 from models import (
     FilterUpdate, FiltersBatchUpdate, CompressorUpdate, LoudnessUpdate,
-    MonoUpdate, DelayUpdate, VolumeUpdate, MuteUpdate,
+    MonoUpdate, DelayUpdate, GainUpdate, VolumeUpdate, MuteUpdate,
     CrossoverUpdate, LowpassUpdate, EqualizerEnabledUpdate
 )
 
@@ -202,6 +202,28 @@ def create_equalizer_router(equalizer_service: EqualizerService) -> APIRouter:
             raise
         except Exception as e:
             logger.error(f"Error updating delay: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # === Level trim ===
+
+    @router.put("/gain")
+    async def update_gain(update: GainUpdate):
+        """Set the level trim (a fixed Gain stage, in dB).
+
+        Balances this speaker against the rest of the system. Separate from the
+        volume fader on purpose, and outside the master bypass gate — a bypass
+        that unbalanced the room would be a bug.
+        """
+        try:
+            success = await equalizer_service.set_gain(update.gain_db)
+            if success:
+                return {"status": "success", "gain_db": equalizer_service.gain_db}
+            else:
+                raise HTTPException(status_code=400, detail="Failed to update gain")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error updating gain: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # === Crossover ===

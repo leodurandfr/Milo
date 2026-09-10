@@ -244,6 +244,57 @@ class TestDacMode:
         camilladsp.set_volume.assert_awaited_once_with(0.0)
         assert service._volume_control is False
 
+    async def test_flipping_to_dac_drops_the_level_trim_too(self, service, camilladsp):
+        """A trim is attenuation like any other, so the unity pin is only true if
+        it goes as well — otherwise the amplifier is fed a signal Milō swore it
+        had not touched. The record is cleared with it: a stored trim on a
+        speaker whose amp owns the level applies to nothing, and would come back
+        the day the flag flips."""
+        from backend.core.multiroom.models import Client
+
+        service._hardware_service = Mock()
+        service._hardware_service.set_volume_control = AsyncMock()
+        service._state_store.ensure_local_client("aa:bb:cc:dd:ee:ff", -40.0)
+        registry = Mock()
+        registry.get_client = Mock(return_value=Client(
+            mac_id="aa:bb:cc:dd:ee:ff", name="Main", ip="127.0.0.1", gain_db=-4.5
+        ))
+        registry.set_client_gain = AsyncMock()
+        registry.update_client = AsyncMock()
+        registry.get_all_zones = Mock(return_value={})
+        service.attach_registry(registry)
+        service._equalizer_controller.set_equalizer_gain = AsyncMock(return_value=True)
+
+        await service.set_local_volume_control(False)
+
+        service._equalizer_controller.set_equalizer_gain.assert_awaited_once_with(
+            "aa:bb:cc:dd:ee:ff", 0.0
+        )
+        registry.set_client_gain.assert_awaited_once_with("aa:bb:cc:dd:ee:ff", 0.0)
+
+    async def test_flipping_to_dac_without_a_trim_touches_nothing(self, service, camilladsp):
+        """The common case. A push here would reload the DSP pipeline on every
+        flip for a filter that was never there."""
+        from backend.core.multiroom.models import Client
+
+        service._hardware_service = Mock()
+        service._hardware_service.set_volume_control = AsyncMock()
+        service._state_store.ensure_local_client("aa:bb:cc:dd:ee:ff", -40.0)
+        registry = Mock()
+        registry.get_client = Mock(return_value=Client(
+            mac_id="aa:bb:cc:dd:ee:ff", name="Main", ip="127.0.0.1"
+        ))
+        registry.set_client_gain = AsyncMock()
+        registry.update_client = AsyncMock()
+        registry.get_all_zones = Mock(return_value={})
+        service.attach_registry(registry)
+        service._equalizer_controller.set_equalizer_gain = AsyncMock(return_value=True)
+
+        await service.set_local_volume_control(False)
+
+        service._equalizer_controller.set_equalizer_gain.assert_not_awaited()
+        registry.set_client_gain.assert_not_awaited()
+
     async def test_flipping_back_to_managed_restores_the_stored_level(
         self, service, camilladsp
     ):
@@ -363,6 +414,7 @@ class TestBootPush:
         service._equalizer_controller = Mock()
         service._equalizer_controller.apply_volumes_parallel = AsyncMock(return_value={})
         service._equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
+        service._equalizer_controller.set_equalizer_gain = AsyncMock(return_value=True)
         service.broadcast_volume_state = AsyncMock()
         return service
 
@@ -484,6 +536,86 @@ class TestBootPush:
 
         assert "Timeout waiting for push lock" in caplog.text
         service._do_push_volume_to_all_clients.assert_not_awaited()
+
+
+class TestLocalLevelTrim:
+    """`sync_local_gain` — the one thing that re-derives the local trim.
+
+    Its durable home is `Client.gain_db` in the registry, and the server's
+    CamillaDSP config file carries nothing across a restart. Three disjoint
+    events can leave the local graph without it and none of them sees the other
+    two: a daemon restart (reconnect callback, no client event), a mode switch
+    (client events, and the daemon does NOT restart — measured on the unit), and
+    the boot push. Before this existed the trim was silently lost on every
+    reboot: the admission sweep runs its full recipe only for a client the
+    registry has never seen, and the registry is persisted.
+    """
+
+    @pytest.fixture
+    def trimmed(self, service):
+        from backend.core.multiroom.models import Client
+
+        service._state_store._local_mac_id = "aa:bb:cc:dd:ee:ff"
+        registry = Mock()
+        registry.get_client = Mock(return_value=Client(
+            mac_id="aa:bb:cc:dd:ee:ff", name="Main", ip="127.0.0.1", gain_db=-4.5
+        ))
+        registry.get_all_zones = Mock(return_value={})
+        service._client_registry = registry
+        service._equalizer_controller = Mock()
+        service._equalizer_controller.set_equalizer_gain = AsyncMock(return_value=True)
+        return service
+
+    async def test_multiroom_applies_the_recorded_trim(self, trimmed):
+        trimmed._is_multiroom_enabled = Mock(return_value=True)
+
+        await trimmed.sync_local_gain()
+
+        trimmed._equalizer_controller.set_equalizer_gain.assert_awaited_once_with(
+            "aa:bb:cc:dd:ee:ff", -4.5, force=True
+        )
+
+    async def test_direct_mode_pushes_zero_and_keeps_the_record(self, trimmed):
+        """The trim balances this speaker against the others and there are none.
+        The record is untouched, so coming back to multiroom restores it."""
+        trimmed._is_multiroom_enabled = Mock(return_value=False)
+
+        await trimmed.sync_local_gain()
+
+        trimmed._equalizer_controller.set_equalizer_gain.assert_awaited_once_with(
+            "aa:bb:cc:dd:ee:ff", 0.0, force=True
+        )
+        trimmed._client_registry.set_client_gain.assert_not_called()
+
+    async def test_an_unknown_local_client_pushes_nothing(self, trimmed):
+        """Boot ordering: the DSP can connect before the local mac is known."""
+        trimmed._state_store._local_mac_id = None
+
+        await trimmed.sync_local_gain()
+
+        trimmed._equalizer_controller.set_equalizer_gain.assert_not_awaited()
+
+    async def test_a_reconnect_re_derives_it_from_the_record(self, trimmed, camilladsp):
+        """The daemon comes back with the graph its config file holds, which
+        carries no trim — and no client event fires, so this callback is the only
+        thing that can put it back."""
+        trimmed._is_multiroom_enabled = Mock(return_value=True)
+        await trimmed._state_store.register_client("aa:bb:cc:dd:ee:ff", volume_db=-40.0)
+
+        await trimmed.reapply_current_volume()
+
+        trimmed._equalizer_controller.set_equalizer_gain.assert_awaited_once_with(
+            "aa:bb:cc:dd:ee:ff", -4.5, force=True
+        )
+
+    async def test_a_dac_reconnect_never_reaches_the_trim(self, trimmed, camilladsp):
+        """Its amp owns the level; the re-pin at unity returns before anything
+        else, and a trim is attenuation like any other."""
+        trimmed._volume_control = False
+
+        await trimmed.reapply_current_volume()
+
+        trimmed._equalizer_controller.set_equalizer_gain.assert_not_awaited()
 
 
 class TestSyncFromEqualizer:
@@ -934,3 +1066,50 @@ class TestZoneDelta:
 
         assert "No clients to update in zone zone-1" in caplog.text
         zoned._equalizer_controller.apply_volumes_parallel.assert_not_awaited()
+
+
+class TestBootPushCarriesTheTrim:
+    """The boot push restores level, mute — and trim, which is level state too.
+
+    The local unit needs it because its CamillaDSP came up with the graph its
+    config file holds, and nothing else runs at boot: the admission sweep's full
+    recipe is for clients the persisted registry has never seen.
+    """
+
+    @pytest.fixture
+    def pushable(self, service):
+        from backend.core.multiroom.models import Client
+
+        service._equalizer_controller = Mock()
+        service._equalizer_controller.apply_volumes_parallel = AsyncMock(
+            return_value={"aa:bb": True, "cc:dd": True}
+        )
+        service._equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
+        service._equalizer_controller.set_equalizer_gain = AsyncMock(return_value=True)
+        service.broadcast_volume_state = AsyncMock()
+        service._online_client_ids = Mock(return_value=["aa:bb", "cc:dd"])
+        registry = Mock()
+        registry.get_client = Mock(side_effect=lambda mac: {
+            "aa:bb": Client(mac_id="aa:bb", name="Main", ip="127.0.0.1", gain_db=-4.5),
+            "cc:dd": Client(mac_id="cc:dd", name="Kitchen", ip="192.168.1.50"),
+        }.get(mac))
+        service._client_registry = registry
+        return service
+
+    async def test_each_client_gets_its_recorded_trim(self, pushable):
+        await pushable._do_push_volume_to_all_clients()
+
+        calls = {c.args[0]: c.args[1]
+                 for c in pushable._equalizer_controller.set_equalizer_gain.await_args_list}
+        assert calls == {"aa:bb": -4.5, "cc:dd": 0.0}
+
+    async def test_a_client_that_refuses_its_trim_does_not_stop_the_others(self, pushable):
+        """Same rule as the mute loop: one satellite refusing must not leave the
+        rest of the house unbalanced."""
+        pushable._equalizer_controller.set_equalizer_gain = AsyncMock(
+            side_effect=[RuntimeError("gone"), True]
+        )
+
+        await pushable._do_push_volume_to_all_clients()
+
+        assert pushable._equalizer_controller.set_equalizer_gain.await_count == 2

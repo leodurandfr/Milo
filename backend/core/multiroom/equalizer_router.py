@@ -132,6 +132,32 @@ class EqualizerRouter:
 
         return await self._route(mac_id, local, remote, "set_mute", force=force)
 
+    # === LEVEL TRIM ===
+
+    async def set_gain(self, mac_id: str, gain_db: float, force: bool = False) -> Dict[str, Any]:
+        """Set a client's level trim (a fixed Gain stage, in dB).
+
+        A DAC client is skipped for the same reason `set_volume` skips it: its
+        external amp owns the level, and Milō attenuates nothing on that path.
+        """
+        client = self._get_client(mac_id)
+        if client and not client.volume_control:
+            logger.debug(f"Skipping level trim for DAC client {mac_id}")
+            return {"status": "skipped", "reason": "external_volume_control"}
+
+        async def local():
+            if self._camilladsp_service:
+                success = await self._camilladsp_service.set_gain(gain_db)
+                return {"status": "success" if success else "error", "gain_db": gain_db}
+            return {"status": "error", "message": "Equalizer service not available"}
+
+        async def remote(ip: str):
+            return await self._proxy_service.request(
+                ip, "PUT", "/equalizer/gain", {"gain_db": gain_db}
+            )
+
+        return await self._route(mac_id, local, remote, "set_gain", force=force)
+
     # === FILTERS ===
 
     async def update_filter(

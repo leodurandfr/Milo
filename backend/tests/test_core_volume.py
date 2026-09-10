@@ -1148,6 +1148,12 @@ class TestVolumeService:
         service._state_store._local_mac_id = mac
         service._client_registry = Mock()
         service._client_registry.update_client = AsyncMock()
+        # Untrimmed, so the DAC flip has no level trim to clear — that branch is
+        # covered in test_volume_dac_and_boot.py::TestDacMode.
+        from backend.core.multiroom.models import Client
+        service._client_registry.get_client = Mock(return_value=Client(
+            mac_id=mac, name="Main", ip="127.0.0.1"
+        ))
         service.broadcast_volume_state = AsyncMock()
 
         await service.set_local_volume_control(False)

@@ -103,7 +103,7 @@
         </div>
       </SettingsSection>
 
-      <!-- Multiroom tuning (multiroom only): independent EQ + playback delay -->
+      <!-- Multiroom tuning (multiroom only): independent EQ + level trim + playback delay -->
       <template v-if="multiroomEnabled">
         <!-- EQ independence — toggle only, zone members only -->
         <ToggleSection
@@ -112,6 +112,20 @@
           :enabled="eqIndependent"
           @change="toggleEqIndependent"
         />
+
+        <!-- Level trim — every speaker Milō attenuates, never a DAC client,
+             whose amp owns its level. Toggle expands the slider (0 = aligned) -->
+        <ToggleSection
+          v-if="canTrim"
+          :title="t('multiroom.tuning.gain')"
+          :enabled="gainEnabled"
+          @change="handleGainToggle"
+        >
+          <SettingItem :label="t('multiroom.tuning.gainHint')">
+            <RangeSlider v-model="gainDb" :min="-12" :max="12" :step="0.5" value-unit="dB"
+              @change="handleGainChange" />
+          </SettingItem>
+        </ToggleSection>
 
         <!-- Playback delay — toggle expands to the delay slider (0 = off) -->
         <ToggleSection
@@ -201,6 +215,15 @@ const selectedSpeakerType = ref('bookshelf');
 const volumeControl = ref(true);
 const eqIndependent = ref(false);
 const delayMs = ref(0);
+const gainDb = ref(0);
+// Applied the first time the trim is enabled; also remembers the last non-zero
+// value so toggling OFF then ON restores the user's choice (mirror of the delay).
+const DEFAULT_GAIN_DB = -3;
+const lastGain = ref(DEFAULT_GAIN_DB);
+// Unlike the delay, whose slider starts at 1, this one has 0 in the middle of
+// its travel — so the section cannot derive "open" from the value, or crossing
+// 0 mid-drag would collapse it under the finger. Seeded from the record instead.
+const gainEnabled = ref(false);
 // Default applied the first time the delay is enabled; also remembers the last
 // non-zero value so toggling OFF then ON restores the user's choice.
 const DEFAULT_DELAY_MS = 20;
@@ -242,8 +265,14 @@ const isAudioDirty = computed(() =>
   selectedAudioId.value && savedAudioId.value && selectedAudioId.value !== savedAudioId.value
 );
 
+// The main unit is never "offline" in the sense this screen means. Its
+// snapclient can drop (the buffer-config route restarts it), and the registry
+// says offline for those seconds — but the unit is right here, its settings are
+// still editable, and the offline screen's only action is Delete, which the
+// backend now refuses for it anyway.
 const isOffline = computed(() => {
-  return client.value ? !client.value.online : true;
+  if (!client.value) return true;
+  return !client.value.online && !client.value.is_local;
 });
 
 // Display name for offline message
@@ -257,8 +286,13 @@ const clientZone = computed(() => {
 
 const isInZone = computed(() => !!clientZone.value);
 
-// EQ independence and delay are multiroom-only tuning.
+// EQ independence, level trim and delay are multiroom-only tuning.
 const multiroomEnabled = computed(() => audioStore.systemState.multiroom_enabled);
+
+// Who can be trimmed: any speaker whose level Milō actually manages, the main
+// unit included. A DAC client's external amp owns its level — the backend
+// refuses that one.
+const canTrim = computed(() => !!client.value && volumeControl.value);
 
 // The delay is "enabled" whenever a non-zero delay is set (mirror of auto-stop).
 const delayEnabled = computed(() => delayMs.value > 0);
@@ -296,6 +330,17 @@ watch(
   () => client.value?.eq_independent,
   (v) => {
     if (v !== undefined) eqIndependent.value = v === true;
+  }
+);
+watch(
+  () => client.value?.gain_db,
+  (v) => {
+    if (v == null) return;
+    gainDb.value = v;
+    if (v !== 0) {
+      lastGain.value = v;
+      gainEnabled.value = true;
+    }
   }
 );
 watch(
@@ -376,6 +421,37 @@ async function toggleEqIndependent(enabled) {
     logger.error('multiroom', 'Error saving EQ independence', error);
     eqIndependent.value = previous; // Revert on failure
   }
+}
+
+async function persistGain(value) {
+  const previous = gainDb.value;
+  try {
+    await multiroomClientStore.setClientGain(props.macId, value);
+  } catch (error) {
+    logger.error('multiroom', 'Error saving client gain', error);
+    // The backend pushes to the speaker before it records the value, so a
+    // failure means nothing changed anywhere — show that.
+    gainDb.value = client.value?.gain_db ?? previous;
+    gainEnabled.value = gainDb.value !== 0;
+  }
+}
+
+// Toggle ON restores the last (or default) trim; OFF realigns the speaker (0 dB).
+function handleGainToggle(enabled) {
+  gainEnabled.value = enabled;
+  if (enabled) {
+    gainDb.value = lastGain.value;
+  } else {
+    if (gainDb.value !== 0) lastGain.value = gainDb.value;
+    gainDb.value = 0;
+  }
+  persistGain(gainDb.value);
+}
+
+function handleGainChange(value) {
+  if (value !== 0) lastGain.value = value;
+  gainDb.value = value;
+  persistGain(value);
 }
 
 async function persistDelay(value) {
@@ -507,6 +583,9 @@ onMounted(async () => {
     volumeControl.value = client.value.volume_control !== false;
     eqIndependent.value = client.value.eq_independent === true;
     delayMs.value = client.value.delay_ms ?? 0;
+    gainDb.value = client.value.gain_db ?? 0;
+    gainEnabled.value = gainDb.value !== 0;
+    if (gainDb.value !== 0) lastGain.value = gainDb.value;
     if (delayMs.value > 0) lastDelay.value = delayMs.value;
 
     // Load audio card options and current card for remote clients

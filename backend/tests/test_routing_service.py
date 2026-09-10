@@ -36,6 +36,7 @@ class _CamillaStub:
         self._effects_enabled = enabled
         self.bypass_effects = AsyncMock(return_value=True)
         self.restore_effects = AsyncMock(return_value=True)
+        self.set_gain = AsyncMock(return_value=True)
 
     @property
     def effects_enabled(self) -> bool:
@@ -367,6 +368,7 @@ class TestAudioRoutingService:
         vs.update_volume_mode = AsyncMock(return_value=None)
         vs.push_volume_to_all_clients = AsyncMock(return_value=True)
         vs.sync_all_clients_from_equalizer = AsyncMock(return_value=True)
+        vs.sync_local_gain = AsyncMock(return_value=None)
         return vs
 
     @pytest.mark.asyncio
@@ -397,6 +399,36 @@ class TestAudioRoutingService:
 
         volume_service.sync_all_clients_from_equalizer.assert_awaited_once()
         volume_service.push_volume_to_all_clients.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_both_directions_sync_the_local_level_trim(self, routing_service):
+        """A mode switch is the only event that can empty the local trim without
+        anything else noticing: it does NOT restart CamillaDSP (measured on the
+        unit — the daemon's ActiveEnterTimestamp is unchanged across off/on), so
+        no reconnect callback fires, and the admission sweep runs its full recipe
+        only for a client the persisted registry has never seen — after the first
+        boot, none. Leaving clears it, coming back re-applies the record, and one
+        mode-aware call does both."""
+        volume_service = self._volume_service_stub()
+        routing_service.set_volume_service(volume_service)
+
+        await routing_service._post_transition_setup_best_effort(False)
+        await routing_service._post_transition_setup_best_effort(True)
+
+        assert volume_service.sync_local_gain.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_trim_sync_that_fails_does_not_fail_the_transition(self, routing_service, caplog):
+        """Everything in this phase is best-effort: the mode has already
+        switched, and a refused trim is a balance to redo, not a transition to
+        roll back."""
+        volume_service = self._volume_service_stub()
+        volume_service.sync_local_gain = AsyncMock(side_effect=RuntimeError("dsp gone"))
+        routing_service.set_volume_service(volume_service)
+
+        await routing_service._post_transition_setup_best_effort(False)
+
+        assert "Could not sync the level trim" in caplog.text
 
     @pytest.mark.asyncio
     async def test_detect_initial_state_failure_keeps_flag_false(self, routing_service, mock_settings_service):

@@ -125,7 +125,9 @@
     "tuning": {
       "eqIndependent": "独立均衡器",
       "delay": "延迟",
-      "delayHint": "延迟此扬声器的播放，使其与其他扬声器对齐。"
+      "delayHint": "延迟此扬声器的播放，使其与其他扬声器对齐。",
+      "gain": "电平微调",
+      "gainHint": "调整此扬声器的电平，使其与其他扬声器保持平衡。"
     },
     "pending": {
       "title": "检测到新 Milō Client",

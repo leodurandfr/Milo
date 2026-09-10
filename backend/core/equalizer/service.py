@@ -136,6 +136,12 @@ class CamillaDSPService:
             "low_boost": 8.0
         }
         self._mono: bool = False
+        # Same arrangement for the subwoofer split: the zone record owns it
+        # (CrossoverService derives it from the members' speaker types), these are
+        # only what `_restore_after_reconnect` re-applies. Mirrors the caches the
+        # satellite keeps in milo-client/app/services/equalizer.py.
+        self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
+        self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._volume: Dict[str, Any] = {
             "main": 0.0,  # dB
             "mute": False
@@ -357,6 +363,21 @@ class CamillaDSPService:
             # Mono is a spatial setting, not an effect — restore independently of bypass
             if self._mono and not await self.set_mono(enabled=True, persist=False):
                 self.logger.error("Reconnected but CamillaDSP refused to restore mono")
+
+            # And the subwoofer split, for the same reason the satellite needs no
+            # equivalent: its config file carries the filters across a restart,
+            # this one's does not. Updating CamillaDSP from the Update Manager
+            # stops and starts this unit alone, and without these two lines the
+            # speaker came back full range under a subwoofer still playing bass,
+            # until the next client admission re-derived it.
+            if self._crossover["enabled"] and not await self.set_crossover_filter(
+                True, self._crossover["frequency"], self._crossover["q"]
+            ):
+                self.logger.error("Reconnected but CamillaDSP refused to restore the highpass")
+            if self._lowpass["enabled"] and not await self.set_lowpass_filter(
+                True, self._lowpass["frequency"], self._lowpass["q"]
+            ):
+                self.logger.error("Reconnected but CamillaDSP refused to restore the lowpass")
 
         except Exception as e:
             self.logger.error(f"Error restoring state after reconnect: {e}")
@@ -760,6 +781,12 @@ class CamillaDSPService:
     async def _set_passband_filter(self, filter_name: str, filter_type: str,
                                     enabled: bool, freq: float, q: float) -> bool:
         """Internal helper for highpass/lowpass filters"""
+        cache = self._crossover if filter_name == "crossover_highpass" else self._lowpass
+        cache["enabled"] = enabled
+        if enabled:
+            cache["frequency"] = freq
+            cache["q"] = q
+
         if not self._connected:
             return False
 
@@ -787,6 +814,57 @@ class CamillaDSPService:
     async def set_lowpass_filter(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
         """Apply lowpass filter to send only bass to subwoofer."""
         return await self._set_passband_filter("crossover_lowpass", "Lowpass", enabled, frequency, q)
+
+    # === Level Trim ===
+
+    @handle_errors(default=False)
+    async def set_gain(self, gain_db: float) -> bool:
+        """Set this unit's level trim — a fixed Gain stage on both channels.
+
+        The local half of the per-client trim the satellites carry
+        (milo-client/app/services/equalizer.py::set_gain), and the same two
+        properties hold here: it is named apart from eq_band_*/loudness_*/
+        compressor so the master bypass cannot strip it, and it is not the
+        volume fader, which keeps its own full range.
+
+        This holds no state of its own, on purpose. The server never writes its
+        CamillaDSP config to disk (`_set_config` is set_active only), so a cache
+        here would be a second copy of a value whose one durable home is
+        `Client.gain_db` in the multiroom registry — and it is VolumeService that
+        re-derives it from there on every event that can empty the graph
+        (`sync_local_gain`). This is the primitive that writes it, nothing more,
+        exactly like `_set_passband_filter`.
+        """
+        gain_db = max(-12.0, min(12.0, gain_db))
+
+        if not self._connected:
+            return False
+
+        async with self._config_lock:
+            config = await self._get_config()
+
+            # A push that changes nothing must not reload the pipeline: the boot
+            # push and the reconnect callback both re-send the record, and the
+            # common case is a fleet where nothing was ever trimmed.
+            current = config["filters"].get("gain_trim", {}).get("parameters", {}).get("gain")
+            if current == (gain_db if gain_db != 0.0 else None):
+                return True
+
+            if gain_db != 0.0:
+                config["filters"]["gain_trim"] = {
+                    "type": "Gain",
+                    "parameters": {"gain": gain_db, "inverted": False, "mute": False}
+                }
+                self._add_filter_to_pipeline(config, "gain_trim")
+            else:
+                if "gain_trim" in config["filters"]:
+                    del config["filters"]["gain_trim"]
+                self._remove_filter_from_pipeline(config, "gain_trim")
+
+            await self._set_config(config)
+
+        self.logger.info(f"Level trim set to {gain_db:+.1f} dB")
+        return True
 
     # === Level Monitoring ===
 

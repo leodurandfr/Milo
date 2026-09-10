@@ -107,6 +107,30 @@ class EqualizerController:
             self.logger.warning(f"Failed to set volume for {mac_id}: {e}")
             return False
 
+    async def set_equalizer_gain(self, mac_id: str, gain_db: float, force: bool = False) -> bool:
+        """Set a client's level trim via EqualizerRouter.
+
+        Not a volume — a fixed Gain stage balancing this speaker against the
+        others — but it travels the same road for the same reasons: one router
+        that knows local from remote, one timeout, one retry policy.
+        """
+        try:
+            if not self._router:
+                self.logger.warning(f"Cannot set level trim for {mac_id}: router not configured")
+                return False
+            result = await asyncio.wait_for(
+                self._router.set_gain(mac_id, gain_db, force=force),
+                timeout=self._timeout
+            )
+            return self._is_success(result)
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout setting level trim for {mac_id}")
+            return False
+        except Exception as e:
+            self.logger.warning(f"Failed to set level trim for {mac_id}: {e}")
+            return False
+
     async def set_equalizer_mute(self, mac_id: str, mute: bool, force: bool = False) -> bool:
         """Set mute state for a client's equalizer via EqualizerRouter."""
         try:

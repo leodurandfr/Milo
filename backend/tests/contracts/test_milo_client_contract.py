@@ -4,7 +4,7 @@
 installed on every multiroom satellite and is the only thing listening on
 CLIENT_API_PORT; the server backend drives each satellite's DSP entirely over
 that HTTP surface (volume, mute, EQ bands, compressor, loudness, mono, the
-master bypass gate, crossover/lowpass, snapclient buffer config).
+master bypass gate, crossover/lowpass, the level trim, snapclient buffer config).
 
 Nothing else guards that surface. It is not versioned, both sides ship in the
 same commit, and a mismatch produces no import error and no failing route — it

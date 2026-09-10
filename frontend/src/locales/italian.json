@@ -125,7 +125,9 @@
     "tuning": {
       "eqIndependent": "Equalizzatore indipendente",
       "delay": "Ritardo",
-      "delayHint": "Ritardi la riproduzione di questo altoparlante per allinearlo agli altri."
+      "delayHint": "Ritardi la riproduzione di questo altoparlante per allinearlo agli altri.",
+      "gain": "Regolazione del livello",
+      "gainHint": "Regoli il livello di questo altoparlante per bilanciarlo con gli altri."
     },
     "pending": {
       "title": "Nuovo Milō Client rilevato",
