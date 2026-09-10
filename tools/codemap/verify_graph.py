@@ -35,7 +35,6 @@ the audit found are in CLAUDE.md.
 
 Usage:
     venv/bin/python tools/codemap/verify_graph.py [--graph output/backend_graph.json]
-                                                  [--freeze]
 """
 
 from __future__ import annotations
@@ -58,7 +57,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 DEFAULT_GRAPH = "tools/codemap/output/backend_graph.json"
-FIXTURE = "tools/codemap/fixtures/verified_edges.json"
 
 
 def binding_import(module_name: str, symbol: str, call_line: int) -> Tuple[Optional[str], str, bool]:
@@ -339,8 +337,6 @@ def main() -> int:
     warnings.filterwarnings("ignore")
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--graph", default=DEFAULT_GRAPH)
-    ap.add_argument("--freeze", action="store_true",
-                    help="write the confirmed set as a regression fixture")
     args = ap.parse_args()
 
     graph = json.loads((REPO_ROOT / args.graph).read_text(encoding="utf-8"))
@@ -370,24 +366,6 @@ def main() -> int:
     out = REPO_ROOT / "tools/codemap/output/verify_report.json"
     out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"\nfull verdicts -> {out.relative_to(REPO_ROOT)}")
-
-    if args.freeze:
-        fixture = REPO_ROOT / FIXTURE
-        fixture.parent.mkdir(parents=True, exist_ok=True)
-        confirmed = sorted(
-            f"{r['file']}:{r['line']}:{r['expr']}->{r['callee']}"
-            for r in report["edges"] if r["verdict"] == "confirmed"
-        )
-        fixture.write_text(json.dumps({
-            "_about": "Runtime-confirmed resolved edges, frozen as a regression guard. "
-                      "Human-reviewed ground truth, not a self-written assertion: each "
-                      "entry was confirmed by Python's own name resolution. If a "
-                      "resolver change drops one of these, that is a regression.",
-            "graph_scope": graph.get("scope"),
-            "count": len(confirmed),
-            "edges": confirmed,
-        }, indent=2) + "\n", encoding="utf-8")
-        print(f"frozen {len(confirmed)} edges -> {FIXTURE}")
 
     return 1 if mismatches or report["node_table_issues"] else 0
 

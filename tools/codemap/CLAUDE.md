@@ -37,7 +37,7 @@ rather than commit (~1.8 s for the whole backend).
 **After any resolver change, re-run the oracle** — `verify_graph.py` re-checks every
 resolved edge with Python's own runtime name resolution (real MRO, real imports,
 decorators unwrapped), never with the extractor's logic; `undecidable` is not a pass.
-`fixtures/verified_edges.json` freezes the confirmed set as a regression guard.
+The run itself is the guard: it is cheap, and it reads the tree as it stands.
 
 ```bash
 venv/bin/python tools/codemap/verify_graph.py --graph tools/codemap/output/backend_graph.json
@@ -81,9 +81,13 @@ down.
   a function-local import must not resolve a call in another function. 0 occurrences
   in the backend, and it stays checked.
 
-`fixtures/verified_edges.json` is a 2026-07-27 oracle snapshot, regenerated with
-`--freeze`, outside the lint floor — leave it alone unless you are deliberately
-re-baselining.
+**There is no frozen edge fixture, and that is deliberate (2026-09-10).**
+`fixtures/verified_edges.json` existed for six weeks and was written by `--freeze` and
+read by nothing — three documents called it a regression guard that no code ever
+consulted, and it had silently gone stale (55 of its 2923 edges pointed at files deleted
+since). A snapshot of *this* tree is not a guard for the *next* one anyway: every
+legitimate deletion drops confirmed edges, so re-baselining would be the normal case.
+Re-run the oracle instead. Don't reintroduce it.
 
 ## Next
 
