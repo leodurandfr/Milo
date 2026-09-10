@@ -409,7 +409,9 @@
    --glass-bg (default: --color-background-neutral-50)
    --glass-blur (default: --blur-02)
    --glass-radius (default: --radius-05)
-   --glass-stroke-width (default: 2px)
+   --glass-stroke-width (default: 1.5px — one width for every glass plate; the
+     rim is drawn in raw pixels and reads the same at any element size, so a
+     per-component value is drift, not optical compensation)
    --glass-stroke (default: --stroke-glass; --stroke-glass-dark on a dark ground) */
 
 .glass-surface {
@@ -426,7 +428,7 @@
     content: '';
     position: absolute;
     inset: 0;
-    padding: var(--glass-stroke-width, 2px);
+    padding: var(--glass-stroke-width, 1.5px);
     background: var(--glass-stroke, var(--stroke-glass));
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;

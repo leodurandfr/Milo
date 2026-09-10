@@ -527,7 +527,6 @@ onUnmounted(() => {
   --glass-bg: var(--color-background-medium-16);
   --glass-blur: var(--blur-03);
   --glass-radius: var(--radius-07);
-  --glass-stroke-width: 1.5px;
   position: absolute;
   bottom: 100%;
   left: 0;
@@ -632,7 +631,6 @@ onUnmounted(() => {
   --glass-bg: var(--color-background-medium-16);
   --glass-blur: var(--blur-03);
   --glass-radius: var(--radius-07);
-  --glass-stroke-width: 1.5px;
   position: relative;
   border-radius: var(--radius-07);
   padding: var(--space-04);
@@ -647,7 +645,6 @@ onUnmounted(() => {
 
 .additional-app-content {
   --glass-radius: var(--radius-04);
-  --glass-stroke-width: 1.5px;
 }
 
 .volume-controls {
