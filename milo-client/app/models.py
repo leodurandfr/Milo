@@ -45,6 +45,13 @@ class DelayUpdate(BaseModel):
     right: Optional[float] = None
 
 
+class GainUpdate(BaseModel):
+    """Level trim in dB — a fixed Gain stage compensating this speaker's
+    sensitivity against the others. Not a volume: the fader is untouched."""
+
+    gain_db: float = Field(..., ge=-12.0, le=12.0)
+
+
 class VolumeUpdate(BaseModel):
     """Model for volume update request."""
     volume: float

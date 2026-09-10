@@ -125,7 +125,9 @@
     "tuning": {
       "eqIndependent": "Equalizador independente",
       "delay": "Atraso",
-      "delayHint": "Atrase a reprodução desta coluna para a alinhar com as outras."
+      "delayHint": "Atrase a reprodução desta coluna para a alinhar com as outras.",
+      "gain": "Ajuste de nível",
+      "gainHint": "Ajuste o nível desta coluna para a equilibrar com as outras."
     },
     "pending": {
       "title": "Novo Milō Client detetado",

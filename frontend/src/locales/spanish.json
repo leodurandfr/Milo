@@ -125,7 +125,9 @@
     "tuning": {
       "eqIndependent": "Ecualizador independiente",
       "delay": "Retardo",
-      "delayHint": "Retrase la reproducción de este altavoz para alinearlo con los demás."
+      "delayHint": "Retrase la reproducción de este altavoz para alinearlo con los demás.",
+      "gain": "Ajuste de nivel",
+      "gainHint": "Ajuste el nivel de este altavoz para equilibrarlo con los demás."
     },
     "pending": {
       "title": "Nuevo Milō Client detectado",

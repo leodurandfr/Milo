@@ -373,6 +373,16 @@ class Client:
         delay_ms: Per-client playback delay in ms, applied as native Snapcast
             latency (Client.SetLatency). Milō owns it as the source of truth and
             re-pushes it on reconnection; it is NOT a CamillaDSP filter.
+        gain_db: Level trim in dB — a fixed CamillaDSP Gain stage compensating a
+            speaker that plays louder or quieter than the others, so every client
+            can sit at the same volume on the multiroom screen. Carried by every
+            client Milō attenuates, the local unit included (a DAC client is the
+            exception: its external amp owns the level). It is NOT a volume: the
+            fader keeps its own full range, which is what stops the balance from
+            collapsing when a shared level change drives one client into a limit
+            (see VolumeService._compute_multiroom_updates). Applied only while
+            multiroom is on — in direct mode there is no rest of the system to
+            balance against, so AudioRoutingService clears the local one.
 
     Properties:
         is_local: True if this is the local client (ip == "127.0.0.1")
@@ -387,6 +397,7 @@ class Client:
     volume_control: bool = True  # False = DAC card, external amp manages volume
     eq_independent: bool = False  # True = zone member with its own EQ (still in zone for audio)
     delay_ms: int = 0  # Native Snapcast per-client latency in ms
+    gain_db: float = 0.0  # Level trim in dB, applied as a CamillaDSP Gain stage
 
     # The only fields that outlive a reboot, and the single declaration of the
     # settings.json shape (ClientRegistryService persists exactly this). The
@@ -395,7 +406,7 @@ class Client:
     # belong to VolumeStateStore, which is the only place they live.
     PERSISTED_FIELDS = (
         "mac_id", "name", "ip", "zone_id", "speaker_type", "volume_control",
-        "eq_independent", "delay_ms",
+        "eq_independent", "delay_ms", "gain_db",
     )
 
     def to_dict(self, include_runtime: bool = True) -> Dict[str, Any]:
@@ -422,7 +433,8 @@ class Client:
             "speaker_type": self.speaker_type,
             "volume_control": self.volume_control,
             "eq_independent": self.eq_independent,
-            "delay_ms": self.delay_ms
+            "delay_ms": self.delay_ms,
+            "gain_db": self.gain_db
         }
         if include_runtime:
             result["online"] = self.online
@@ -442,7 +454,8 @@ class Client:
             speaker_type=data.get("speaker_type", DEFAULT_SPEAKER_TYPE),
             volume_control=data.get("volume_control", True),
             eq_independent=data.get("eq_independent", False),
-            delay_ms=data.get("delay_ms", 0)
+            delay_ms=data.get("delay_ms", 0),
+            gain_db=data.get("gain_db", 0.0)
         )
 
     @property

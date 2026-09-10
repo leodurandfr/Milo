@@ -127,6 +127,7 @@ CLIENT_ALLOWED = frozenset({
     "volume_control",
     "eq_independent",
     "delay_ms",
+    "gain_db",
     "online",
     "is_local",
 })

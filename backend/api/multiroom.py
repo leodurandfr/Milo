@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.api.route_helpers import api_error_handler
 from backend.api.models import (
     ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest,
-    ClientEqIndependentRequest, ClientDelayRequest,
+    ClientEqIndependentRequest, ClientDelayRequest, ClientGainRequest,
     RegisterClientRequest, ConfigurePendingClientRequest,
     ConfigureClientAudioRequest,
 )
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
     from backend.core.multiroom.client_registry import ClientRegistryService
     from backend.core.multiroom.crossover import CrossoverService
+    from backend.core.multiroom.equalizer_router import EqualizerRouter
     from backend.core.multiroom.pending_clients import PendingClientsService
     from backend.core.multiroom.snapcast import SnapcastService
 
@@ -71,6 +72,26 @@ async def _mark_unreachable(registry_service, mac_id: str, client_ip: str, exc: 
     logger.warning(f"Client {mac_id} unreachable at {client_ip}, marking offline: {exc}")
     if registry_service:
         await registry_service.set_client_online(mac_id, False)
+
+
+def _require_satellite(client) -> None:
+    """Refuse a satellite-only route aimed at the main unit.
+
+    Three routes mean nothing for the local client: its milo-client API (the
+    server runs none — `milo-client/app` is installed on satellites only), its
+    audio card + reboot, and its removal. Unguarded, each one reached
+    127.0.0.1:CLIENT_API_PORT, failed, and called `_mark_unreachable` on the way
+    out — which flips the MAIN unit to offline, and that is exactly what puts a
+    "Système hors ligne · Supprimer" screen on its own settings page. The delete
+    then erases the name, speaker type, delay and level trim of a client that
+    re-registers itself seconds later with defaults: a silent reset, no audio
+    fault, nothing in the journal.
+    """
+    if client.is_local:
+        raise HTTPException(
+            status_code=400,
+            detail="This endpoint addresses a multiroom satellite, not the main unit",
+        )
 
 
 async def _push_volume_control(
@@ -175,7 +196,8 @@ def create_multiroom_router(
     multiroom_equalizer_service: Optional["MultiroomEqualizerService"] = None,
     pending_clients_service: Optional["PendingClientsService"] = None,
     crossover_service: Optional["CrossoverService"] = None,
-    snapcast_service: Optional["SnapcastService"] = None
+    snapcast_service: Optional["SnapcastService"] = None,
+    equalizer_router: Optional["EqualizerRouter"] = None
 ):
     """
     Creates multiroom router with dependency injection.
@@ -266,6 +288,23 @@ def create_multiroom_router(
                     mac_id, client.ip, request.volume_control,
                     registry_service=registry_service,
                 )
+
+            # Handing the level over to an external amp drops the trim, in the
+            # DSP and in the record. A trim is attenuation too, so leaving it
+            # would break the one promise a DAC client gets — that Milō
+            # attenuates nothing on that path — and a stored one would be a
+            # value nothing ever applies again, waiting to come back the day the
+            # flag flips. Done here, before the flag moves: the router skips a
+            # client that is already declared DAC.
+            if (
+                request.volume_control is False
+                and client.volume_control
+                and client.gain_db != 0.0
+            ):
+                logger.info(f"Clearing the level trim of {mac_id}: its amp now owns the level")
+                if equalizer_router:
+                    await equalizer_router.set_gain(mac_id, 0.0)
+                await registry_service.set_client_gain(mac_id, 0.0)
 
             updated_client = await registry_service.update_client(
                 mac_id,
@@ -371,6 +410,61 @@ def create_multiroom_router(
 
             return {"status": "success", "client": _client_with_online(updated_client)}
 
+    @router.patch("/clients/{mac_id}/gain", response_model=ClientMutationResponse)
+    async def set_client_gain(mac_id: str, request: ClientGainRequest):
+        """Set a client's level trim (a fixed CamillaDSP Gain stage, in dB).
+
+        Compensates a speaker that plays louder or quieter than the others, so
+        every client can sit at the same volume. It is not a volume: the fader
+        keeps its own range, which is what stops a shared level change from
+        collapsing the balance when one client reaches a limit.
+
+        Addresses the exact client — the main unit and a satellite alike, through
+        the one router that already knows which is which.
+
+        Returns:
+            {"status": "success", "client": {...}}
+
+        Raises:
+            400: The client is a DAC whose external amp owns its level
+            404: Client not found
+            502: The DSP refused the trim
+            503: Satellite unreachable
+        """
+        async with api_error_handler(f"Error setting gain for client {mac_id}", logger):
+            client = registry_service.get_client(mac_id)
+            if not client:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Client with mac_id '{mac_id}' not found"
+                )
+            if not client.volume_control:
+                # Same promise EqualizerRouter.set_volume keeps for a DAC client:
+                # its external amp owns the level and Milō attenuates nothing on
+                # that path. A digital trim would be attenuation by another name.
+                raise HTTPException(
+                    status_code=400,
+                    detail="This speaker's external amplifier owns its level"
+                )
+
+            # Hardware first: a refusal must not leave the registry claiming a
+            # trim the DSP never took — the admission sync would then replay that
+            # record as if it were the truth. An offline client is the exception:
+            # the router skips it, there is nothing to refuse, and that same sync
+            # is what delivers the value when it comes back.
+            if equalizer_router:
+                result = await equalizer_router.set_gain(mac_id, request.gain_db)
+                if result.get("status") == "error":
+                    logger.error(f"DSP refused the level trim for {mac_id}: {result}")
+                    raise HTTPException(
+                        status_code=502,
+                        detail=result.get("message", "The equalizer refused the level trim")
+                    )
+
+            updated_client = await registry_service.set_client_gain(mac_id, request.gain_db)
+
+            return {"status": "success", "client": _client_with_online(updated_client)}
+
     @router.delete("/clients/{mac_id}", response_model=MultiroomMessageResponse)
     async def delete_client(mac_id: str):
         """
@@ -390,6 +484,10 @@ def create_multiroom_router(
             404: Client not found
         """
         async with api_error_handler(f"Error deleting client {mac_id}", logger):
+            client = registry_service.get_client(mac_id)
+            if client:
+                _require_satellite(client)
+
             success = await registry_service.unregister_client(mac_id)
             if not success:
                 raise HTTPException(
@@ -408,6 +506,7 @@ def create_multiroom_router(
             client = registry_service.get_client(mac_id)
             if not client:
                 raise HTTPException(status_code=404, detail=f"Client '{mac_id}' not found")
+            _require_satellite(client)
 
             timeout = aiohttp.ClientTimeout(total=5)
             try:
@@ -427,6 +526,7 @@ def create_multiroom_router(
             client = registry_service.get_client(mac_id)
             if not client:
                 raise HTTPException(status_code=404, detail=f"Client '{mac_id}' not found")
+            _require_satellite(client)
 
             from backend.hardware.registry import AUDIO_CARDS, is_dac_card
             card_info = AUDIO_CARDS.get(request.audio_id, {})

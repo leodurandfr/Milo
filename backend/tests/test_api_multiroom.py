@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from backend.api.multiroom import create_multiroom_router
 from backend.api.models import ZoneCreate, ZoneUpdate, MAX_ZONE_NAME_LENGTH
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.multiroom.models import Client, Zone, EqualizerSettings
 
 
@@ -291,6 +292,158 @@ class TestEqIndependentEndpoint:
             client.put("/api/multiroom/clients/mac-1/eq-independent", json={"enabled": False})
 
         assert "Failed to re-adopt" not in caplog.text
+
+
+@pytest.fixture
+def gain_client():
+    """Router wired for the level-trim route.
+
+    Carries what that route decides on: an online satellite, an offline one, the
+    main unit (ip 127.0.0.1) and a DAC client — plus the router that reaches the
+    DSP, since the trim is pushed before it is recorded.
+    """
+    clients = {
+        "mac-1": Client(mac_id="mac-1", name="Kitchen", ip="192.168.1.50", online=True),
+        "mac-off": Client(mac_id="mac-off", name="Garage", ip="192.168.1.52", online=False),
+        "mac-local": Client(mac_id="mac-local", name="Main", ip="127.0.0.1", online=True),
+        "mac-dac": Client(mac_id="mac-dac", name="Study", ip="192.168.1.53", online=True,
+                          volume_control=False),
+        "mac-trimmed": Client(mac_id="mac-trimmed", name="Hall", ip="192.168.1.54",
+                              online=True, gain_db=-4.5),
+    }
+    registry = Mock()
+    registry.get_client = Mock(side_effect=clients.get)
+
+    def _set_gain(mac_id, gain_db):
+        clients[mac_id] = dataclasses.replace(clients[mac_id], gain_db=gain_db)
+        return clients[mac_id]
+
+    def _update(mac_id, **fields):
+        clients[mac_id] = dataclasses.replace(
+            clients[mac_id], **{k: v for k, v in fields.items() if v is not None}
+        )
+        return clients[mac_id]
+
+    registry.set_client_gain = AsyncMock(side_effect=_set_gain)
+    registry.update_client = AsyncMock(side_effect=_update)
+
+    eq_router = Mock()
+    eq_router.set_gain = AsyncMock(return_value={"status": "success", "gain_db": -3.5})
+
+    app = FastAPI()
+    app.include_router(create_multiroom_router(registry, None, None, None, None, eq_router))
+    return TestClient(app), registry, eq_router
+
+
+class TestClientGainEndpoint:
+    """PATCH /api/multiroom/clients/{mac_id}/gain — the per-speaker level trim."""
+
+    def test_the_trim_reaches_the_dsp_and_then_the_record(self, gain_client):
+        client, registry, eq_router = gain_client
+        resp = client.patch("/api/multiroom/clients/mac-1/gain", json={"gain_db": -3.5})
+
+        assert resp.status_code == 200
+        assert resp.json()["client"]["gain_db"] == -3.5
+        eq_router.set_gain.assert_awaited_once_with("mac-1", -3.5)
+        registry.set_client_gain.assert_awaited_once_with("mac-1", -3.5)
+
+    def test_the_main_unit_is_trimmed_like_any_other(self, gain_client):
+        """It is a client like the others — same admission path, same router —
+        so it carries a trim too. The router is what knows it is local."""
+        client, registry, eq_router = gain_client
+        resp = client.patch("/api/multiroom/clients/mac-local/gain", json={"gain_db": -2.0})
+
+        assert resp.status_code == 200
+        eq_router.set_gain.assert_awaited_once_with("mac-local", -2.0)
+        registry.set_client_gain.assert_awaited_once_with("mac-local", -2.0)
+
+    def test_a_refused_push_writes_nothing(self, gain_client):
+        """The DSP is addressed first on purpose: a record holding a trim it
+        never took is what the admission sync would later replay as truth, and
+        the screen would show a balance nobody is hearing."""
+        client, registry, eq_router = gain_client
+        eq_router.set_gain = AsyncMock(return_value={"status": "error", "message": "nope"})
+
+        resp = client.patch("/api/multiroom/clients/mac-1/gain", json={"gain_db": -3.5})
+
+        assert resp.status_code == 502
+        registry.set_client_gain.assert_not_awaited()
+
+    def test_an_unreachable_satellite_writes_nothing(self, gain_client):
+        """The proxy raises rather than answering, and api_error_handler maps it
+        to the carried status — the record must not move either way."""
+        client, registry, eq_router = gain_client
+        eq_router.set_gain = AsyncMock(
+            side_effect=SatelliteUnreachable("192.168.1.50", "unreachable", 503)
+        )
+
+        resp = client.patch("/api/multiroom/clients/mac-1/gain", json={"gain_db": -3.5})
+
+        assert resp.status_code == 503
+        registry.set_client_gain.assert_not_awaited()
+
+    def test_a_skipped_offline_client_is_still_recorded(self, gain_client):
+        """The router skips an offline client instead of failing — nothing could
+        refuse, and the admission sync is what delivers the value later."""
+        client, registry, eq_router = gain_client
+        eq_router.set_gain = AsyncMock(
+            return_value={"status": "skipped", "reason": "client_offline"}
+        )
+
+        resp = client.patch("/api/multiroom/clients/mac-off/gain", json={"gain_db": 2.0})
+
+        assert resp.status_code == 200
+        registry.set_client_gain.assert_awaited_once_with("mac-off", 2.0)
+
+    def test_a_dac_client_carries_no_trim(self, gain_client):
+        """Milō promised to attenuate nothing on that path (EqualizerRouter skips
+        its volume): a digital trim would be attenuation by another name."""
+        client, registry, eq_router = gain_client
+        resp = client.patch("/api/multiroom/clients/mac-dac/gain", json={"gain_db": -3.5})
+
+        assert resp.status_code == 400
+        eq_router.set_gain.assert_not_awaited()
+        registry.set_client_gain.assert_not_awaited()
+
+    def test_handing_the_level_to_an_amp_drops_the_trim(self, gain_client):
+        """A trim is attenuation, and a DAC client's one promise is that Milō
+        attenuates nothing on its path. Cleared in the DSP *and* in the record:
+        a stored trim nothing applies again would come back the day the flag
+        flips. Order matters — the router skips a client already declared DAC."""
+        client, registry, eq_router = gain_client
+
+        with patch("backend.api.multiroom._push_volume_control", new=AsyncMock()):
+            resp = client.patch("/api/multiroom/clients/mac-trimmed",
+                                json={"volume_control": False})
+
+        assert resp.status_code == 200
+        eq_router.set_gain.assert_awaited_once_with("mac-trimmed", 0.0)
+        registry.set_client_gain.assert_awaited_once_with("mac-trimmed", 0.0)
+
+    def test_handing_the_level_to_an_amp_with_no_trim_pushes_nothing(self, gain_client):
+        """The common case: a flip must not reload the DSP pipeline for a filter
+        that was never there."""
+        client, registry, eq_router = gain_client
+
+        with patch("backend.api.multiroom._push_volume_control", new=AsyncMock()):
+            resp = client.patch("/api/multiroom/clients/mac-1",
+                                json={"volume_control": False})
+
+        assert resp.status_code == 200
+        eq_router.set_gain.assert_not_awaited()
+        registry.set_client_gain.assert_not_awaited()
+
+    def test_out_of_range_is_refused(self, gain_client):
+        client, registry, _ = gain_client
+        resp = client.patch("/api/multiroom/clients/mac-1/gain", json={"gain_db": 40})
+
+        assert resp.status_code == 422
+        registry.set_client_gain.assert_not_awaited()
+
+    def test_unknown_client_404(self, gain_client):
+        client, _, _ = gain_client
+        resp = client.patch("/api/multiroom/clients/nope/gain", json={"gain_db": 0})
+        assert resp.status_code == 404
 
 
 class TestClientDelayEndpoint:
@@ -1591,3 +1744,69 @@ class TestRebootAfterAudioChange:
 
         assert response.status_code == 200
         mock_registry_service.update_client.assert_awaited_once()
+
+
+class TestSatelliteOnlyRoutesRefuseTheMainUnit:
+    """Three routes mean nothing for the local client, and none of them said so.
+
+    Each reached 127.0.0.1:CLIENT_API_PORT — where the server runs no
+    milo-client — failed, and called `_mark_unreachable`, flipping the MAIN unit
+    to offline. That is what puts a "system offline · Delete" screen on its own
+    settings page, and the delete erases the name, speaker type, delay and level
+    trim of a client that re-registers itself seconds later with defaults.
+    """
+
+    @pytest.fixture
+    def satellite_routes_client(self):
+        clients = {
+            "mac-local": Client(mac_id="mac-local", name="Main", ip="127.0.0.1", online=True),
+            "mac-sat": Client(mac_id="mac-sat", name="Kitchen", ip="192.168.1.50", online=True),
+        }
+        registry = Mock()
+        registry.get_client = Mock(side_effect=clients.get)
+        registry.unregister_client = AsyncMock(return_value=True)
+        registry.set_client_online = AsyncMock()
+        registry.update_client = AsyncMock(side_effect=lambda mac_id, **f: clients[mac_id])
+
+        app = FastAPI()
+        app.include_router(create_multiroom_router(registry))
+        return TestClient(app), registry
+
+    def test_the_main_unit_cannot_be_deleted(self, satellite_routes_client):
+        client, registry = satellite_routes_client
+
+        resp = client.delete("/api/multiroom/clients/mac-local")
+
+        assert resp.status_code == 400
+        registry.unregister_client.assert_not_awaited()
+
+    def test_a_satellite_can_still_be_deleted(self, satellite_routes_client):
+        """The guard must not cost the gesture it exists next to: retiring a
+        speaker is the normal use of this route."""
+        client, registry = satellite_routes_client
+
+        resp = client.delete("/api/multiroom/clients/mac-sat")
+
+        assert resp.status_code == 200
+        registry.unregister_client.assert_awaited_once_with("mac-sat")
+
+    def test_the_main_unit_is_not_asked_for_a_milo_client_api(self, satellite_routes_client):
+        """No HTTP attempt, so no _mark_unreachable, so the unit stays online."""
+        client, registry = satellite_routes_client
+
+        resp = client.get("/api/multiroom/clients/mac-local/hardware")
+
+        assert resp.status_code == 400
+        registry.set_client_online.assert_not_awaited()
+
+    def test_the_main_unit_is_not_sent_an_audio_card_and_a_reboot(self, satellite_routes_client):
+        """Its card lives in the appliance's own hardware settings, and that
+        route ends in POST /api/hardware/reboot on the target."""
+        client, registry = satellite_routes_client
+
+        resp = client.put("/api/multiroom/clients/mac-local/audio",
+                          json={"audio_id": "hifiberry_amp2"})
+
+        assert resp.status_code == 400
+        registry.set_client_online.assert_not_awaited()
+        registry.update_client.assert_not_awaited()

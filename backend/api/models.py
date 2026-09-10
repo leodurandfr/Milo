@@ -564,6 +564,15 @@ class ClientDelayRequest(BaseModel):
     delay_ms: int = Field(..., ge=0, le=100, description="Playback delay in milliseconds")
 
 
+class ClientGainRequest(BaseModel):
+    """Set a remote client's level trim (a fixed CamillaDSP Gain stage, in dB).
+
+    The +/-12 dB range is the speaker-level-trim convention of AV receivers, and
+    is what a sensitivity spread between two speakers actually needs.
+    """
+    gain_db: float = Field(..., ge=-12.0, le=12.0, description="Level trim in dB")
+
+
 class RegisterClientRequest(BaseModel):
     """Request from a milo-client to register as a pending speaker."""
     mac_id: str = Field(..., min_length=17, max_length=17)

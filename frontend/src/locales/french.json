@@ -125,7 +125,9 @@
     "tuning": {
       "eqIndependent": "Égaliseur indépendant",
       "delay": "Délai",
-      "delayHint": "Retardez la lecture de cette enceinte pour l'aligner sur les autres."
+      "delayHint": "Retardez la lecture de cette enceinte pour l'aligner sur les autres.",
+      "gain": "Ajustement de gain",
+      "gainHint": "Ajustez le niveau de cette enceinte pour l'équilibrer avec les autres."
     },
     "pending": {
       "title": "Nouveau Milō Client détecté",

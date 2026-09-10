@@ -270,6 +270,10 @@ makes this silent.
 | Pending client | A freshly installed client appears under "Pending speakers" without a reload | targeted |
 | Pairing reboot | Finishing the wizard on a new client **actually reboots it** (it drops off the network, then returns with the chosen card working). The server only warns on a failed reboot, so a wizard that reports success while the satellite never restarted is the silent failure to watch for | targeted |
 | Crossover | With a subwoofer online in a zone, the badge shows the frequency and the mains lose their bass; taking the sub offline restores full-range | targeted |
+| Level trim | A trim in Settings > Multiroom > a speaker changes that speaker's audible level **without moving its volume slider** — on a satellite and on the main unit alike. The other speakers do not move | targeted |
+| Trim under bypass | With a trim set, switching the equalizer's master toggle off leaves the balance untouched. It is not an effect, and nothing in CI can hear that it was stripped | targeted |
+| Trim and crossover after a CamillaDSP update | Update CamillaDSP from Settings > Updates (it stops and starts `milo-camilladsp` alone, so the daemon reloads a pristine graph): the main unit's trim **and** its highpass must both come back. Before the reconnect restore existed, a speaker returned full range under a subwoofer still playing bass, silently | targeted |
+| Trim leaving multiroom | Turning multiroom off clears the main unit's trim, so the only speaker left plays at its nominal level; turning it back on re-applies it on admission | targeted |
 | Disable | Turning multiroom off returns to direct mode with audio intact (ALSA device switch) | targeted |
 | Offline client | Unplugging a client leaves the others playing and marks it offline | targeted |
 | Server config write | Changing codec or buffer in Settings > Multiroom restarts snapserver, every client reconnects and plays, and the new values are still shown after a reload. A **rejected** value must surface as an error, not a silent success | targeted |

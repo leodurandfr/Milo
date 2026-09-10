@@ -653,6 +653,18 @@ class VolumeService:
                 except Exception as e:
                     self.logger.warning(f"PUSH_VOLUME: Failed to apply mute to {cid}: {e}")
 
+        # And each client's level trim, which is level state like the other two.
+        # The local unit needs it because its CamillaDSP came up with the graph
+        # its config file holds; a satellite does not (its own file carries the
+        # trim) but gets it anyway, which also catches a trim changed while it
+        # was away. A trim of 0 removes nothing that is not already absent.
+        for cid in client_ids:
+            gain_db = self._recorded_gain(cid)
+            try:
+                await self._equalizer_controller.set_equalizer_gain(cid, gain_db, force=True)
+            except Exception as e:
+                self.logger.warning(f"PUSH_VOLUME: Failed to apply the level trim to {cid}: {e}")
+
         await self.broadcast_volume_state(show_bar=False)
         return len(failures) == 0
 
@@ -828,6 +840,11 @@ class VolumeService:
                 await self._camilladsp_service.set_volume(0.0)
                 await self._camilladsp_service.set_mute(False)
                 self.logger.info("DAC mode: CamillaDSP pinned at 0 dB")
+                # A level trim is attenuation too: left in the graph it would
+                # make that unity pin a lie. Cleared in the record as well —
+                # a stored trim on a speaker whose amp owns the level is a value
+                # nothing applies again, waiting to come back when the flag flips.
+                await self._clear_local_gain()
             else:
                 # Restore managed volume from state
                 await self.reapply_current_volume()
@@ -838,6 +855,58 @@ class VolumeService:
             )
         self.logger.info(f"Local volume_control set to {enabled}")
         await self.broadcast_volume_state(show_bar=False)
+
+    def _recorded_gain(self, mac_id: str) -> float:
+        """The level trim the registry holds for a client (0.0 when unknown)."""
+        client = self._client_registry.get_client(mac_id) if self._client_registry else None
+        return client.gain_db if client else 0.0
+
+    async def sync_local_gain(self) -> None:
+        """Apply the local unit's recorded level trim to its DSP — or 0 in direct mode.
+
+        The trim has one durable home, `Client.gain_db`, and the server's
+        CamillaDSP config file carries nothing across a restart — so something
+        has to re-derive it. Three disjoint events can leave the local graph
+        without it, and none of them sees the other two:
+
+        * a daemon restart (boot, a CamillaDSP update, a crash) fires the
+          reconnect callback and no client event — `reapply_current_volume`;
+        * a multiroom mode switch fires client events and does NOT restart the
+          daemon (measured: its ActiveEnterTimestamp is unchanged across
+          off/on) — AudioRoutingService's post-transition step;
+        * the boot push restores every online client's level, and the trim rides
+          with it there for the satellites too.
+
+        Direct mode pushes 0: the trim balances this speaker against the others,
+        and there are no others. The record is untouched, so coming back to
+        multiroom re-applies it.
+
+        What does NOT cover any of this is the admission sync: its sweep only
+        runs the full recipe for a client the registry has never seen, and the
+        registry is persisted — so after the first boot no client is ever new.
+        """
+        mac_id = self._state_store.local_mac_id
+        if not mac_id or not self._equalizer_controller:
+            return
+        target = self._recorded_gain(mac_id) if self._is_multiroom_enabled() else 0.0
+        if not await self._equalizer_controller.set_equalizer_gain(mac_id, target, force=True):
+            self.logger.warning(f"Could not apply the local level trim ({target:+.1f} dB)")
+
+    async def _clear_local_gain(self) -> None:
+        """Drop the local unit's level trim, DSP and record, if it holds one.
+
+        Called on the way into DAC mode only — and before the flag moves, since
+        EqualizerRouter.set_gain skips a client already declared DAC.
+        """
+        mac_id = self._state_store.local_mac_id
+        if not mac_id or not self._client_registry:
+            return
+        client = self._client_registry.get_client(mac_id)
+        if not client or client.gain_db == 0.0:
+            return
+        self.logger.info("DAC mode: clearing the local level trim")
+        await self._equalizer_controller.set_equalizer_gain(mac_id, 0.0)
+        await self._client_registry.set_client_gain(mac_id, 0.0)
 
     @handle_errors(default=None)
     async def reapply_current_volume(self) -> None:
@@ -862,6 +931,9 @@ class VolumeService:
         await self._camilladsp_service.set_volume(volume_db)
         await self._camilladsp_service.set_mute(local_mute)
         self.logger.info(f"Re-applied volume after CamillaDSP reconnect: {volume_db:.1f}dB, mute={local_mute}")
+        # The daemon came back with the graph its config file holds, which carries
+        # no trim — see sync_local_gain for why nothing else covers this event.
+        await self.sync_local_gain()
 
     async def _apply_startup_volume(self) -> None:
         """

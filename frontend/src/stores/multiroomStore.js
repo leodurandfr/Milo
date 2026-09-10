@@ -532,6 +532,24 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   /**
+   * Set a client's level trim (a fixed CamillaDSP Gain stage, in dB).
+   * Compensates a speaker that plays louder or quieter than the others; the
+   * main unit carries one too, a DAC client does not (its amp owns the level).
+   * State updates arrive via the client_state_changed WS event.
+   * @param {string} macId - Client mac_id
+   * @param {number} gainDb - Level trim in dB (-12 to +12)
+   * @returns {Promise<Object>} Updated client data
+   */
+  async function setClientGain(macId, gainDb) {
+    const result = await apiCall.patch(`/api/multiroom/clients/${macId}/gain`, { gain_db: gainDb }, {
+      category: 'store',
+      message: 'Error updating client gain',
+      rethrow: true,
+    });
+    return result.data;
+  }
+
+  /**
    * Permanently delete a client from the registry.
    * Removes client from all zones and clears persisted configuration.
    * @param {string} macId - Client mac_id
@@ -703,6 +721,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     updateClient,
     setClientEqIndependent,
     setClientDelay,
+    setClientGain,
     deleteClient,
 
     // Client hardware

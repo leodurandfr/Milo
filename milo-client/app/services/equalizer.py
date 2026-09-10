@@ -59,6 +59,7 @@ class EqualizerService:
     - Compressor settings
     - Loudness compensation
     - Channel delay
+    - Level trim (speaker balance)
     - Volume/mute control
     - Crossover filters
     """
@@ -96,6 +97,7 @@ class EqualizerService:
             "low_boost": 8.0
         }
         self._delay = {"left": 0.0, "right": 0.0}
+        self._gain_db: float = 0.0
         self._volume = {"main": 0.0, "mute": True}  # Matches CamillaDSP startup state (-m flag)
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
@@ -136,6 +138,11 @@ class EqualizerService:
     def delay(self) -> Dict[str, Any]:
         """Returns delay state."""
         return self._delay
+
+    @property
+    def gain_db(self) -> float:
+        """Level trim in dB (a fixed Gain stage, never the volume fader)."""
+        return self._gain_db
 
     @property
     def volume_state(self) -> Dict[str, Any]:
@@ -305,7 +312,7 @@ class EqualizerService:
                 raise
 
     async def _load_state_from_config(self):
-        """Load compressor/loudness/delay state from current CamillaDSP config."""
+        """Load compressor/loudness/delay/trim state from current CamillaDSP config."""
         try:
             config = await self._get_config()
             if not config:
@@ -361,6 +368,14 @@ class EqualizerService:
                     self.logger.info(
                         f"Loaded delay state from config: L={self._delay['left']:.1f}ms R={self._delay['right']:.1f}ms"
                     )
+
+            # Check for the level trim (absent filter == no trim)
+            if "filters" in config:
+                if "gain_trim" in config["filters"]:
+                    self._gain_db = config["filters"]["gain_trim"].get("parameters", {}).get("gain", 0.0)
+                    self.logger.info(f"Loaded level trim from config: {self._gain_db:+.1f} dB")
+                else:
+                    self._gain_db = 0.0
 
             # Check for mono mixer (pipeline's Mixer step name)
             for step in config.get("pipeline", []):
@@ -746,6 +761,60 @@ class EqualizerService:
             return True
         except Exception as e:
             self.logger.error(f"Error setting delay: {e}")
+            return False
+
+    @serialised_config_write
+    async def set_gain(self, gain_db: float) -> bool:
+        """Set the level trim — a fixed Gain stage on both channels, in dB.
+
+        This is a calibration, not an effect: it compensates this speaker's
+        sensitivity against the rest of the system so every client can sit at
+        the same volume. Two consequences it must keep.
+
+        It is deliberately NOT named eq_band_* / loudness_* / compressor, which
+        is what keeps `set_equalizer_enabled` from stripping it: a master bypass
+        that unbalanced the room would be a bug, not a bypass.
+
+        And it is not the volume fader, which keeps its own full range — that
+        separation is the whole point, since a shared level change can then move
+        every client without one of them reaching a limit before the others.
+
+        A trim of 0 removes the filter entirely rather than writing a 0 dB one,
+        so the config of an untrimmed speaker is the config it always had.
+        """
+        self._gain_db = max(-12.0, min(12.0, gain_db))
+
+        try:
+            config = await self._get_config()
+            if not config:
+                return False
+
+            if "filters" not in config:
+                config["filters"] = {}
+
+            # A push that changes nothing must not reload the pipeline: the
+            # server re-pushes the trim on every admission, and the common case
+            # is a fleet where nothing was ever trimmed.
+            current = config["filters"].get("gain_trim", {}).get("parameters", {}).get("gain")
+            if current == (self._gain_db if self._gain_db != 0.0 else None):
+                return True
+
+            if self._gain_db != 0.0:
+                config["filters"]["gain_trim"] = {
+                    "type": "Gain",
+                    "parameters": {"gain": self._gain_db, "inverted": False, "mute": False}
+                }
+                self._add_filter_to_pipeline(config, "gain_trim")
+            else:
+                if "gain_trim" in config.get("filters", {}):
+                    del config["filters"]["gain_trim"]
+                self._remove_filter_from_pipeline(config, "gain_trim")
+
+            await self._apply_config(config)
+            self.logger.info(f"Level trim set to {self._gain_db:+.1f} dB")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting gain: {e}")
             return False
 
     async def get_volume(self) -> Dict[str, Any]:

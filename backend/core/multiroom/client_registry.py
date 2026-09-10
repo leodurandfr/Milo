@@ -375,6 +375,31 @@ class ClientRegistryService:
         })
         return client
 
+    async def set_client_gain(self, mac_id: str, gain_db: float) -> Optional[Client]:
+        """Set a client's level trim (a fixed CamillaDSP Gain stage, in dB).
+
+        Persists and broadcasts CLIENT_UPDATED so the value reaches the frontend.
+        Pushing it to the satellite's DSP is the caller's concern — the registry
+        only owns the source-of-truth value on the client record, which is what
+        the reconnection sync replays for a client that was away when it changed.
+
+        Returns the updated client, or None if not found.
+        """
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if not client:
+                self.logger.warning(f"Cannot set gain: client {mac_id} not found")
+                return None
+            client.gain_db = gain_db
+            client_dict = client.to_dict()
+
+        await self._persist_state()
+        await self._emit_event(RegistryEventType.CLIENT_UPDATED, {
+            "mac_id": mac_id,
+            "client": client_dict
+        })
+        return client
+
     async def set_client_delay(self, mac_id: str, delay_ms: int) -> Optional[Client]:
         """Set a client's per-client playback delay (native Snapcast latency).
 

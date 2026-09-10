@@ -760,6 +760,21 @@ class AudioRoutingService:
         except Exception as e:
             self.logger.warning(f"POST_TRANSITION: Volume sync failed (non-fatal): {e}")
 
+        # The local level trim, in both directions. Leaving multiroom clears it —
+        # it balances this speaker against the others and in direct mode there
+        # are none, so a lingering trim would shift the whole volume range of the
+        # only speaker left, with no control on screen to explain it (the tuning
+        # section is multiroom-only). Coming back re-applies the record, and this
+        # is the only thing that does: the mode switch does not restart
+        # CamillaDSP (measured — its ActiveEnterTimestamp is unchanged across
+        # off/on), so no reconnect callback fires, and the admission sweep's full
+        # recipe only runs for a client the persisted registry has never seen.
+        try:
+            if self.volume_service:
+                await self.volume_service.sync_local_gain()
+        except Exception as e:
+            self.logger.warning(f"POST_TRANSITION: Could not sync the level trim: {e}")
+
         # multiroom_ready — clears the UI transition spinner. Fires whenever
         # enabling (the mode IS up); each client's level arrives with its own
         # admission, which the spinner never waited for anyway.

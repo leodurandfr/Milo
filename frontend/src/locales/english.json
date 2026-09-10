@@ -125,7 +125,9 @@
     "tuning": {
       "eqIndependent": "Independent EQ",
       "delay": "Delay",
-      "delayHint": "Delay this speaker's playback to align it with the others."
+      "delayHint": "Delay this speaker's playback to align it with the others.",
+      "gain": "Level trim",
+      "gainHint": "Trim this speaker's level to balance it with the others."
     },
     "pending": {
       "title": "New Milō Client detected",

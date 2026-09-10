@@ -597,3 +597,98 @@ class TestEqualizerMono:
         persisted = yaml.safe_load(Path(equalizer_service.config_file).read_text())
         mixer = [s for s in persisted["pipeline"] if s["type"] == "Mixer"]
         assert [s["name"] for s in mixer] == ["mono"]
+
+
+class TestEqualizerServiceLevelTrim:
+    """The level trim is a calibration, not an effect.
+
+    It compensates this speaker's sensitivity so every client can sit at the
+    same volume, which means two things must hold on the unit: the master
+    bypass must leave it alone (a bypass that unbalanced the room is a bug),
+    and it must survive a reboot on the satellite's own config, since the
+    server only re-pushes it when the speaker was away while it changed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_trim_is_a_gain_filter_on_both_channels(
+        self, equalizer_service, mock_camilla_client
+    ):
+        config = mock_camilla_client.config.active.return_value
+
+        assert await equalizer_service.set_gain(-4.5) is True
+
+        assert config["filters"]["gain_trim"]["type"] == "Gain"
+        assert config["filters"]["gain_trim"]["parameters"]["gain"] == -4.5
+        step = next(s for s in config["pipeline"] if s["type"] == "Filter")
+        assert "gain_trim" in step["names"]
+        assert equalizer_service.gain_db == -4.5
+
+    @pytest.mark.asyncio
+    async def test_a_trim_of_zero_leaves_no_filter_behind(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """An untrimmed speaker gets the config it always had — no 0 dB stage."""
+        config = mock_camilla_client.config.active.return_value
+        await equalizer_service.set_gain(-4.5)
+
+        assert await equalizer_service.set_gain(0.0) is True
+
+        assert "gain_trim" not in config["filters"]
+        step = next(s for s in config["pipeline"] if s["type"] == "Filter")
+        assert "gain_trim" not in step["names"]
+
+    @pytest.mark.asyncio
+    async def test_an_unchanged_trim_does_not_reload_the_pipeline(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """The server re-pushes the trim on every admission, and applying a
+        config restarts CamillaDSP's processing — so a push that changes nothing
+        must reach the daemon not at all."""
+        await equalizer_service.set_gain(-4.5)
+        mock_camilla_client.config.set_active.reset_mock()
+
+        assert await equalizer_service.set_gain(-4.5) is True
+
+        mock_camilla_client.config.set_active.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_the_master_bypass_does_not_strip_the_trim(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """Bypassing the equalizer must not unbalance the room: the trim is not
+        an effect, and it is named apart from eq_band_*/loudness_*/compressor
+        precisely so the bypass cannot reach it."""
+        config = mock_camilla_client.config.active.return_value
+        await equalizer_service.set_gain(-4.5)
+
+        await equalizer_service.set_equalizer_enabled(False)
+
+        assert config["filters"]["gain_trim"]["parameters"]["gain"] == -4.5
+        step = next(s for s in config["pipeline"] if s["type"] == "Filter")
+        assert "gain_trim" in step["names"]
+        assert "eq_band_1" not in step["names"]  # the bypass did happen
+
+    @pytest.mark.asyncio
+    async def test_the_trim_is_read_back_from_the_persisted_config(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """On (re)connect the cache is rebuilt from the config CamillaDSP
+        reloaded, so the satellite reports the trim it is actually applying."""
+        config = mock_camilla_client.config.active.return_value
+        config["filters"]["gain_trim"] = {
+            "type": "Gain",
+            "parameters": {"gain": 6.0, "inverted": False, "mute": False},
+        }
+
+        await equalizer_service._load_state_from_config()
+
+        assert equalizer_service.gain_db == 6.0
+
+    @pytest.mark.asyncio
+    async def test_the_trim_reaches_the_disk(self, equalizer_service, mock_camilla_client):
+        """The server re-pushes a trim only when it changed while the speaker was
+        away — a reboot recovers it from the satellite's own config or not at all."""
+        await equalizer_service.set_gain(-4.5)
+
+        persisted = yaml.safe_load(Path(equalizer_service.config_file).read_text())
+        assert persisted["filters"]["gain_trim"]["parameters"]["gain"] == -4.5

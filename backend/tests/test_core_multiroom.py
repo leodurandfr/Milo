@@ -76,7 +76,8 @@ class TestClient:
             online=True,
             zone_id="zone-123",
             eq_independent=True,
-            delay_ms=40
+            delay_ms=40,
+            gain_db=-3.5
         )
 
         # Default: include runtime fields (for WebSocket events - )
@@ -90,13 +91,14 @@ class TestClient:
         assert data["zone_id"] == "zone-123"
         assert data["eq_independent"] is True
         assert data["delay_ms"] == 40
+        assert data["gain_db"] == -3.5
         # Runtime fields are now included by default for complete WebSocket events
         assert data["online"] is True
 
         # Verify all expected fields are present (including is_local, host, volume_control)
         expected_fields = {"mac_id", "name", "ip", "host", "speaker_type", "zone_id",
                           "online", "is_local", "volume_control",
-                          "eq_independent", "delay_ms"}
+                          "eq_independent", "delay_ms", "gain_db"}
         assert set(data.keys()) == expected_fields
 
         # Explicit: the persistence shape drops every field with another

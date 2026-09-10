@@ -125,7 +125,9 @@
     "tuning": {
       "eqIndependent": "Unabhängiger EQ",
       "delay": "Verzögerung",
-      "delayHint": "Verzögern Sie die Wiedergabe dieses Lautsprechers, um ihn an die anderen anzugleichen."
+      "delayHint": "Verzögern Sie die Wiedergabe dieses Lautsprechers, um ihn an die anderen anzugleichen.",
+      "gain": "Pegelanpassung",
+      "gainHint": "Passen Sie den Pegel dieses Lautsprechers an, um ihn an die anderen anzugleichen."
     },
     "pending": {
       "title": "Neuer Milō Client erkannt",
