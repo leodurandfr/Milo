@@ -18,7 +18,7 @@
     <!-- App content only renders after boot completes AND setup is done -->
     <template v-else-if="isBootComplete">
       <router-view />
-      <VolumeBar />
+      <VolumeBar :variant="isDarkSurface ? 'dark' : 'light'" />
       <Dock
         v-if="showChrome"
         @open-equalizer="isEqualizerOpen = true"
@@ -108,6 +108,7 @@ import { useSystemStore } from '@/stores/systemStore';
 import { useFanStore } from '@/stores/fanStore';
 import { useUpdatesStore } from '@/stores/updatesStore';
 import { i18n, useI18n } from '@/services/i18n';
+import { useDarkSurface } from '@/composables/useDarkSurface';
 import useWebSocket from '@/services/websocket';
 import { wsEventRegistry } from '@/schemas/ws';
 import { logger } from '@/services/logger';
@@ -147,6 +148,11 @@ const systemStore = useSystemStore();
 const fanStore = useFanStore();
 const updatesStore = useUpdatesStore();
 const { on, parsedOn, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
+
+// The volume bar is fixed above every view, so it is the one component that
+// cannot see what it is drawn on. The dark full-bleed surfaces (screensaver,
+// Lyrics) declare themselves; the bar just takes the matching variant.
+const { isDarkSurface } = useDarkSurface();
 const { loadHardwareInfo } = useHardwareConfig();
 const timer = useTimer();
 

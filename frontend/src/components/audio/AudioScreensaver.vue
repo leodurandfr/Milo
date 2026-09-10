@@ -94,6 +94,7 @@ import { useArtworkTransition } from '@/composables/useArtworkTransition';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
 import { artworkFallback } from '@/utils/nowPlayingArtwork';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { markDarkSurface } from '@/composables/useDarkSurface';
 
 const props = defineProps({
   isVisible: {
@@ -159,6 +160,12 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close']);
+
+// Black under dimmed artwork, edge to edge and above everything but the volume
+// bar — which is mounted by App.vue and would otherwise draw its near-black fill
+// straight onto it. Keyed on the prop rather than on the mount, because this
+// component stays mounted between screensavers.
+markDarkSurface(() => props.isVisible);
 
 // The same held-cover transition AudioPlayerFull runs, from the same composable:
 // this view crossfades into that one on dismiss, so a transition that behaved
