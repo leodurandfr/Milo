@@ -95,6 +95,39 @@ export const useLyricsStore = defineStore('lyrics', () => {
     (shouldRead) => { if (shouldRead) loadSyncOffset(); }
   );
 
+  // The buffer can also move while the view stays open: the Lyrics view renders
+  // inside AudioSourceView's content slot, so the Dock keeps painting over it
+  // and the settings modal opens without ever closing the view. The watch above
+  // sees no edge on that path, and between `responsive` and `robust` the offset
+  // would sit 1.3 s wrong until the reader happened to close and reopen.
+  //
+  // A success is adopted rather than re-read: the PUT restarts snapserver, so a
+  // GET fired here can answer config: null (routing.py gates on is_available),
+  // which would keep the stale value and retry nothing. The applied config is
+  // already known locally — hasServerConfigChanges back to false says the
+  // server took it, and serverConfig then IS the server's.
+  //
+  // A failure is asked about instead, because the route is not atomic: it
+  // restarts snapserver on the new buffer_ms at step 4 and only then 502s if
+  // the local snapclient refuses to restart at step 5 ("Configuration saved
+  // but … did not restart"). The frontend cannot tell that apart from a config
+  // the server never took, and treating both as "keep the old value" leaves the
+  // room on 1500 ms with the offset at -180. Snapserver is up by then — it is
+  // the snapclient that failed — so the read is answered.
+  watch(
+    () => useSnapcastStore().isApplyingServerConfig,
+    (applying, wasApplying) => {
+      if (applying || !wasApplying) return;
+      const snapcastStore = useSnapcastStore();
+      if (snapcastStore.hasServerConfigChanges) {
+        loadSyncOffset();
+        return;
+      }
+      const applied = snapcastStore.serverConfig.buffer_ms;
+      if (applied) multiroomBufferMs.value = applied;
+    }
+  );
+
   let abortController = null;
 
   // Per-track result cache (artist|||title → {found, synced, plain}). Reopening

@@ -56,10 +56,27 @@ const isSynced = computed(() =>
 
 const plainLines = computed(() => (isSynced.value || !props.plain ? [] : props.plain.split('\n')));
 
+// How early a line is made active, to pay for the time its arrival takes to be
+// seen. The states differ by opacity alone and cross on --transition-crossfade
+// (800ms, linear), so a line switched exactly on its timestamp only *starts*
+// brightening there; the eye reads the change around a third of the way in.
+// Leading by 300ms lands that moment on the sung word instead of after it.
+//
+// This is a rendering cost, not an audio one: the crossfade is the same length
+// in direct and in multiroom, so the lead is unconditional and deliberately
+// lives here rather than in lyricsStore.syncOffsetMs, which models where the
+// sound *is* and is measured right. Folding the two together is what the fixed
+// MULTIROOM_LEAD_MS did — one constant doing two jobs, neither correctable
+// without disturbing the other.
+const RENDER_LEAD_MS = 300;
+
 // The playhead the lyrics are read against: the source's position corrected by
 // the store's offset (0 in direct, minus the snapcast buffer in multiroom — see
-// lyricsStore.syncOffsetMs). Both the highlight and the scroll read this one.
-const syncedPosition = computed(() => currentPosition.value + lyricsStore.syncOffsetMs);
+// lyricsStore.syncOffsetMs) and advanced by the render lead above. Both the
+// highlight and the scroll read this one.
+const syncedPosition = computed(
+  () => currentPosition.value + lyricsStore.syncOffsetMs + RENDER_LEAD_MS
+);
 
 // Index of the last line whose timestamp has passed the current position.
 const activeIndex = computed(() => {
