@@ -11,11 +11,13 @@
 
     <Teleport to="body">
       <Transition name="dropdown-menu">
-        <div v-if="isOpen" ref="menuRef" class="dropdown-menu" :class="{ 'open-upward': openUpward, 'open-leftward': openLeftward }"
+        <div v-if="isOpen" ref="menuRef" class="dropdown-menu"
+          :class="[`dropdown-menu--${size}`, { 'open-upward': openUpward, 'open-leftward': openLeftward }]"
           :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }"
           @scroll.stop>
-          <div v-for="(option, index) in options" :key="option.value" class="dropdown-item heading-3"
-            :class="{ 'is-selected': option.value === modelValue }" @click="selectOption(option.value)">
+          <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
+            :class="[size === 'small' ? 'heading-4' : 'heading-3', { 'is-selected': option.value === modelValue }]"
+            @click="selectOption(option.value)">
             {{ option.label }}
           </div>
         </div>
@@ -79,6 +81,23 @@ const selectedLabel = computed(() => {
 });
 
 /**
+ * The kiosk `ui_scale`, which the menu applies to itself.
+ *
+ * The menu teleports to `body`, outside the `#app` that transform sizes, so it
+ * inherits nothing — `.dropdown-menu` re-applies the scale so its typography
+ * matches the trigger's. Its own layout sizes are therefore app-space, and
+ * every one of them has to be multiplied back to be compared with a viewport
+ * distance. Read from the custom property rather than measured, so the number
+ * here is by construction the one the CSS used.
+ */
+function getUiScale() {
+  const scale = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')
+  );
+  return scale > 0 ? scale : 1;
+}
+
+/**
  * The trigger's viewport box *at rest*.
  *
  * The menu is positioned one tick after the click, while v-press still holds
@@ -123,12 +142,18 @@ function calculateDropdownDirection() {
   const triggerRect = getTriggerRestRect();
   if (!triggerRect) return;
 
+  const menuScale = getUiScale();
+  const GAP = 4 * menuScale; // 4px gap below the trigger, in the menu's own space
+  // `min-width` is a layout size of the scaled menu, so it is app-space — unlike
+  // top/left, which are viewport coordinates the transform leaves alone.
+  const menuLayoutWidth = triggerRect.width / menuScale;
+
   // Get actual menu height if available (after render), otherwise use max
-  const actualMenuHeight = menuRef.value?.offsetHeight || MENU_MAX_HEIGHT;
+  const actualMenuHeight = (menuRef.value?.offsetHeight || MENU_MAX_HEIGHT) * menuScale;
 
   // Detect horizontal overflow: align right edge of menu to right edge of trigger
   const MENU_MIN_WIDTH = 200; // CSS min-width of dropdown-menu
-  const menuWidth = menuRef.value?.offsetWidth || Math.max(MENU_MIN_WIDTH, triggerRect.width);
+  const menuWidth = (menuRef.value?.offsetWidth || Math.max(MENU_MIN_WIDTH, menuLayoutWidth)) * menuScale;
   const spaceRight = window.innerWidth - triggerRect.left;
   openLeftward.value = spaceRight < menuWidth && triggerRect.right > menuWidth;
 
@@ -137,9 +162,9 @@ function calculateDropdownDirection() {
     : triggerRect.left;
 
   menuPosition.value = {
-    top: `${triggerRect.bottom + 4}px`, // 4px gap below trigger
+    top: `${triggerRect.bottom + GAP}px`,
     left: `${left}px`,
-    width: `${triggerRect.width}px`
+    width: `${menuLayoutWidth}px`
   };
 
   // Find the scrollable parent container
@@ -162,7 +187,7 @@ function calculateDropdownDirection() {
 
     // Adjust position if opening upward - use actual menu height
     if (openUpward.value) {
-      menuPosition.value.top = `${triggerRect.top - actualMenuHeight - 4}px`;
+      menuPosition.value.top = `${triggerRect.top - actualMenuHeight - GAP}px`;
     }
     return;
   }
@@ -177,7 +202,7 @@ function calculateDropdownDirection() {
 
   // Adjust position if opening upward - use actual menu height
   if (openUpward.value) {
-    menuPosition.value.top = `${triggerRect.top - actualMenuHeight - 4}px`;
+    menuPosition.value.top = `${triggerRect.top - actualMenuHeight - GAP}px`;
   }
 }
 
@@ -372,6 +397,24 @@ onBeforeUnmount(() => {
   max-height: 340px;
   overflow-y: auto;
   min-width: 200px;
+
+  /* The menu teleports to `body`, outside the `#app` the kiosk scale transforms,
+     so it has to re-apply that scale itself: without it the list renders in
+     screen px while the trigger renders in app px x ui_scale, and the two
+     typographies disagree by exactly that factor. Origin top-left leaves the box
+     anchored on the viewport coordinates calculateDropdownDirection() computes. */
+  transform: scale(var(--ui-scale, 1));
+  transform-origin: top left;
+}
+
+/* Size: small — the menu carries the trigger's metrics, not the base ones. */
+.dropdown-menu--small .dropdown-item {
+  padding: var(--space-02) var(--space-03);
+}
+
+.dropdown-menu--small .dropdown-item::after {
+  left: var(--space-03);
+  right: var(--space-03);
 }
 
 .dropdown-item {
@@ -405,54 +448,46 @@ onBeforeUnmount(() => {
   color: var(--color-brand);
 }
 
-/* Transition animations */
+/* Transition animations.
+
+   Every state below restates the scale: `transform` is one property, so a
+   keyframe that named only the translation would drop the kiosk scale for the
+   duration of the animation and snap it back at the end. The translation is
+   written after the scale on purpose — it then reads in the menu's own space,
+   like its padding. No `transform-origin` here either: a translation is
+   origin-independent, so the origins this block used to set were inert, and an
+   origin other than the top-left one `.dropdown-menu` sets would now displace
+   the scaled box mid-animation. */
 .dropdown-menu-enter-active {
   transition:
     opacity var(--transition-fast),
     transform var(--transition-fast);
-  transform-origin: top;
 }
 
 .dropdown-menu-leave-active {
   transition:
     opacity var(--transition-fast-leave),
     transform var(--transition-fast-leave);
-  transform-origin: top;
-}
-
-.dropdown-menu.open-upward.dropdown-menu-enter-active,
-.dropdown-menu.open-upward.dropdown-menu-leave-active {
-  transform-origin: bottom;
-}
-
-.dropdown-menu.open-leftward.dropdown-menu-enter-active,
-.dropdown-menu.open-leftward.dropdown-menu-leave-active {
-  transform-origin: top right;
-}
-
-.dropdown-menu.open-upward.open-leftward.dropdown-menu-enter-active,
-.dropdown-menu.open-upward.open-leftward.dropdown-menu-leave-active {
-  transform-origin: bottom right;
 }
 
 .dropdown-menu-enter-from {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: scale(var(--ui-scale, 1)) translateY(-8px);
 }
 
 .dropdown-menu.open-upward.dropdown-menu-enter-from {
   opacity: 0;
-  transform: translateY(8px);
+  transform: scale(var(--ui-scale, 1)) translateY(8px);
 }
 
 .dropdown-menu-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: scale(var(--ui-scale, 1)) translateY(-8px);
 }
 
 .dropdown-menu.open-upward.dropdown-menu-leave-to {
   opacity: 0;
-  transform: translateY(8px);
+  transform: scale(var(--ui-scale, 1)) translateY(8px);
 }
 
 /* Mobile adjustments */
