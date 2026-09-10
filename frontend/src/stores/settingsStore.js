@@ -467,7 +467,7 @@ export const useSettingsStore = defineStore('settings', () => {
       appEl.style.width = '';
       appEl.style.height = '';
       appEl.style.overflow = '';
-      appEl.style.removeProperty('--ui-scale');
+      document.documentElement.style.removeProperty('--ui-scale');
     } else {
       appEl.style.transform = `scale(${scale})`;
       appEl.style.transformOrigin = 'top left';
@@ -477,8 +477,10 @@ export const useSettingsStore = defineStore('settings', () => {
       // Published for the CSS under the transform: the app is laid out in
       // 100vh/scale pixels, so a rule sizing anything against dvh counts screen
       // pixels the layout never gets. Dividing by this is how such a rule reads
-      // the height the app actually has.
-      appEl.style.setProperty('--ui-scale', String(scale));
+      // the height the app actually has. On the root rather than on #app, so
+      // that what teleports OUT of #app can read it too and re-apply the scale
+      // it no longer inherits — the dropdown menu is the one such element.
+      document.documentElement.style.setProperty('--ui-scale', String(scale));
     }
   }
   const updateRadioSettings = makeUpdater(radioSettings);

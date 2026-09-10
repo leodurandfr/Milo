@@ -9,6 +9,11 @@
  * Publish it without applying the transform (or the reverse) and the rail's band
  * is wrong by 15% on the panel and right on every dev machine, where the scale
  * is 1. That is what this pins: the two always move together.
+ *
+ * It is published on the document root, not on #app, because Dropdown's menu
+ * teleports to `body` and re-applies the scale from it — set it on #app and the
+ * menu reads nothing, so its list draws at screen px next to a trigger drawn at
+ * app px, which is the size mismatch this pairing exists to prevent.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -23,9 +28,11 @@ describe('settingsStore — ui_scale published for the CSS under it', () => {
   let app;
 
   const transformScale = () => app.style.transform.match(/scale\(([\d.]+)\)/)?.[1];
+  const publishedScale = () => document.documentElement.style.getPropertyValue('--ui-scale');
 
   beforeEach(() => {
     resetApiCallMock();
+    document.documentElement.style.removeProperty('--ui-scale');
     app = document.createElement('div');
     app.id = 'app';
     document.body.appendChild(app);
@@ -36,7 +43,7 @@ describe('settingsStore — ui_scale published for the CSS under it', () => {
     store.updateScreenUiScale({ ui_scale: 1.15 });
 
     expect(transformScale()).toBe('1.15');
-    expect(app.style.getPropertyValue('--ui-scale')).toBe(transformScale());
+    expect(publishedScale()).toBe(transformScale());
     // The height it pairs with, which is what makes a viewport unit overshoot.
     expect(app.style.height).toBe('calc(100vh / 1.15)');
   });
@@ -46,6 +53,6 @@ describe('settingsStore — ui_scale published for the CSS under it', () => {
     store.updateScreenUiScale({ ui_scale: 1.0 });
 
     expect(app.style.transform).toBe('');
-    expect(app.style.getPropertyValue('--ui-scale')).toBe('');
+    expect(publishedScale()).toBe('');
   });
 });
