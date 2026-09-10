@@ -6,7 +6,7 @@
     :class="[
       `icon-button--${variant}`,
       `icon-button--${size}`,
-      { 'icon-button--loading': loading },
+      { 'icon-button--loading': loading, 'icon-button--tone-dark': tone === 'dark' },
       variant === 'rounded' ? 'glass-surface glass-border' : ''
     ]"
     :disabled="disabled"
@@ -42,6 +42,17 @@ const props = defineProps({
     default: 'medium',
     validator: (value) => ['small', 'medium', 'large'].includes(value)
   },
+  // The tone of the ground the button is drawn on, not the tone of the button
+  // — same sense as MessageContent's `variant` and VolumeBar's. Only `rounded`
+  // reads it: it is the one variant whose plate is glass, so it is the one that
+  // has to be told what is behind it. Passed explicitly rather than read from
+  // useDarkSurface(): that counter stays raised for a light modal opened over
+  // Lyrics, which would flip that modal's own close button.
+  tone: {
+    type: String,
+    default: 'light',
+    validator: (value) => ['light', 'dark'].includes(value)
+  },
   loading: {
     type: Boolean,
     default: false
@@ -68,7 +79,7 @@ const iconColor = computed(() => {
   if (props.variant === 'on-grey') {
     return 'var(--color-text-contrast)';
   } else if (props.variant === 'rounded') {
-    return 'var(--color-text)';
+    return props.tone === 'dark' ? 'var(--color-text-contrast)' : 'var(--color-text)';
   } else if (props.variant === 'on-dark') {
     return 'var(--color-text-contrast)';
   } else if (props.variant === 'brand') {
@@ -183,6 +194,16 @@ function handleClick(event) {
   opacity: 0.8;
 }
 
+/* The glass plate on a dark ground. The wash is the mid grey Dock and VolumeBar
+   already share — it lifts off a dark backdrop exactly as it settles into a
+   light one — and the rim swaps to the dark ramp, whose comment carries the
+   measurement. */
+.icon-button--rounded.icon-button--tone-dark {
+  --glass-bg: var(--color-background-medium-16);
+  --glass-stroke: var(--stroke-glass-dark);
+  color: var(--color-text-contrast);
+}
+
 /* Disable press opacity for semi-transparent backgrounds (scale only) */
 .icon-button--rounded.interactive-press:active,
 .icon-button--rounded.interactive-press.pressed {
@@ -218,6 +239,11 @@ function handleClick(event) {
 .icon-button--rounded.icon-button--loading {
   background: var(--color-background-neutral-50);
   color: var(--color-text);
+}
+
+.icon-button--rounded.icon-button--tone-dark.icon-button--loading {
+  background: var(--color-background-medium-16);
+  color: var(--color-text-contrast);
 }
 
 .icon-button--brand.icon-button--loading {
