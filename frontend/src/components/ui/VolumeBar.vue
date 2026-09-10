@@ -124,7 +124,7 @@ const volumeFillStyle = computed(() => ({
 }
 
 /* === Variants ===
-   Three layers flip; the plate above is shared. The fill takes the far end of
+   Four layers flip; the plate above is shared. The fill takes the far end of
    the ramp — near-black on light, white on dark — and carries the contrast on
    its own, so the track only has to hint at how far the value has travelled: on
    dark that is a second coat of the plate's own wash, about half the step the
@@ -145,6 +145,10 @@ const volumeFillStyle = computed(() => ({
   --volume-track: var(--color-background-medium-16);
   --volume-fill: var(--color-background-neutral);
   --volume-text: var(--color-text-secondary);
+  /* The fourth layer: the glass rim. White at .48 sits 13/255 off this plate on
+     a light ground and 100 on a dark one, so the shared stroke that reads as a
+     highlight there draws an outline here — see --stroke-glass-dark. */
+  --glass-stroke: var(--stroke-glass-dark);
 }
 
 @media (max-aspect-ratio: 4/3) {

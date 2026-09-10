@@ -51,6 +51,14 @@
     /* === STROKES === */
     --stroke-glass: linear-gradient(190deg, rgba(255, 255, 255, .48) 0.43%, rgba(255, 255, 255, .06) 21.15%, rgba(255, 255, 255, .48) 47.85%, rgba(255, 255, 255, .06) 78.57%);
 
+    /* Same specular sweep for a glass plate sitting on a dark ground. The alphas
+       are not the ones above and cannot be: on a light surface the .48 peak
+       lands 2/255 off the plate it rims, on the Lyrics backdrop it lands 80 —
+       the white is 40x louder for the same number. Matching that 2 literally
+       would take alpha ~.01, i.e. no edge at all, so the ramp is set to the
+       quietest rim that still reads as one, keeping the 8:1 peak/trough ratio. */
+    --stroke-glass-dark: linear-gradient(190deg, rgba(255, 255, 255, .14) 0.43%, rgba(255, 255, 255, .02) 21.15%, rgba(255, 255, 255, .14) 47.85%, rgba(255, 255, 255, .02) 78.57%);
+
     /* === SOURCE GRADIENTS === */
     /* The tint AudioSourceLayout washes behind the top of a browsing source.
        Three one-off brand colours that belong to no ramp, which is why they
@@ -401,7 +409,8 @@
    --glass-bg (default: --color-background-neutral-50)
    --glass-blur (default: --blur-02)
    --glass-radius (default: --radius-05)
-   --glass-stroke-width (default: 2px)                                   */
+   --glass-stroke-width (default: 2px)
+   --glass-stroke (default: --stroke-glass; --stroke-glass-dark on a dark ground) */
 
 .glass-surface {
     background: var(--glass-bg, var(--color-background-neutral-50));
@@ -418,7 +427,7 @@
     position: absolute;
     inset: 0;
     padding: var(--glass-stroke-width, 2px);
-    background: var(--stroke-glass);
+    background: var(--glass-stroke, var(--stroke-glass));
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;

@@ -237,6 +237,10 @@ export const REGISTRY = {
     // strips make.
     surface: args => {
       if (args.variant === 'on-grey') return 'medium';
+      // `tone` names the ground the caller promises, so the strip has to honour
+      // it — a dark-toned glass plate shown on the light strip is the exact
+      // mismatch it exists to fix.
+      if (args.tone === 'dark') return 'contrast';
       return ['on-dark', 'ghost'].includes(args.variant) ? 'contrast' : null;
     }
   },

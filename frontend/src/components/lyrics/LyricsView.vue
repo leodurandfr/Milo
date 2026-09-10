@@ -20,7 +20,7 @@
     </Transition>
 
     <div ref="closeButtonWrapper" class="lyrics-view-close">
-      <IconButton ref="closeButtonRef" icon="close" variant="rounded" size="large"
+      <IconButton ref="closeButtonRef" icon="close" variant="rounded" size="large" tone="dark"
         :aria-label="t('common.close')" @click="lyricsStore.close()" />
     </div>
 
