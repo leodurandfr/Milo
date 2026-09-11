@@ -5,6 +5,17 @@ directly. get_lyrics()'s caching contract is tested with a stubbed _lookup and t
 class-level CACHE_DIR redirected to tmp_path, so no network and no /var/lib/milo
 write is ever touched. The thin HTTP boundary (_get/_search) is exercised with a
 minimal fake session, like test_music_library_navidrome.py does.
+
+Two of the rules here were paid for in the field, on a track whose lyrics LRCLIB
+had all along (Moussa - Laguna, 62 synced lines):
+
+- an answer that is not 200 is NOT "this track has no lyrics". lrclib.net serves
+  `503 ServerOverloaded` in bursts, and reading one as a miss wrote a permanent
+  negative to disk — the track then showed "no lyrics found" forever.
+- the album is not part of the query. LRCLIB matched `album_name` exactly, and
+  its own record for that track carries a mojibake album (`La nuit je r^ve`, an
+  ASCII caret), so the correct string 404s and every lookup fell through to the
+  fuzzy search — the very call that was 503ing.
 """
 import asyncio
 import json
@@ -18,10 +29,13 @@ import aiohttp
 import pytest
 
 from backend.core.lyrics.service import (
+    _NEGATIVE_TTL,
     LyricsService,
     LyricsUnavailable,
     _clean,
     _from_record,
+    _is_fresh,
+    _is_well_formed,
     _parse_lrc,
 )
 
@@ -35,7 +49,30 @@ def service(tmp_path, monkeypatch):
 
 
 def _found(plain="la la"):
+    """The wire payload — what get_lyrics returns and the route spreads."""
     return {"found": True, "synced": [{"t": 0, "line": plain}], "plain": plain}
+
+
+def _miss():
+    return {"found": False, "synced": None, "plain": None}
+
+
+def _record(payload=None, age_s=0):
+    """A cached record: a payload plus the timestamp the expiry rule reads."""
+    return {**(payload or _found()), "checked_at": time.time() - age_s}
+
+
+@pytest.fixture
+def no_ttl(monkeypatch):
+    """Shorten the negative shelf life to nothing, for the end-to-end re-ask.
+
+    Shortening the constant rather than freezing the clock: the module imports
+    `time`, so patching `time.time` through it reaches the stdlib module and
+    stops the clock for everything in the process, not just the service. The
+    rule itself is pinned against the real constant in TestFreshness, with
+    explicit record ages.
+    """
+    monkeypatch.setattr("backend.core.lyrics.service._NEGATIVE_TTL", 0)
 
 
 class TestParseLrc:
@@ -140,15 +177,69 @@ class TestCacheKey:
             LyricsService._cache_key("A", "Song", None)
         )
 
-    def test_album_participates_in_the_key(self):
-        assert LyricsService._cache_key("A", "B", "Album One") != (
-            LyricsService._cache_key("A", "B", "Album Two")
+    def test_a_different_track_is_a_different_key(self):
+        assert LyricsService._cache_key("A", "One", None) != (
+            LyricsService._cache_key("A", "Two", None)
+        )
+        assert LyricsService._cache_key("A", "One", None) != (
+            LyricsService._cache_key("B", "One", None)
         )
 
-    def test_missing_album_matches_empty_album(self):
-        assert LyricsService._cache_key("A", "B", None) == (
-            LyricsService._cache_key("A", "B", "")
+    def test_two_recordings_of_one_song_are_two_entries(self):
+        """`_clean` strips "(Live at Wembley)" before matching, so artist+title
+        alone collapses a live take onto the studio one — and the cache would
+        then answer with the other recording's LRC before the duration, the
+        thing that tells them apart, ever reached LRCLIB."""
+        studio = LyricsService._cache_key("A", "Song", 240_000)
+        live = LyricsService._cache_key("A", "Song (Live at Wembley)", 315_000)
+        assert studio != live
+
+    def test_the_key_rounds_the_duration_exactly_as_the_query_does(self):
+        """Keyed on milliseconds, two rips of one track 3 ms apart would be two
+        entries for one LRCLIB answer. The query sends seconds; so does the key,
+        so the two cannot disagree."""
+        assert LyricsService._cache_key("A", "B", 240_100) == (
+            LyricsService._cache_key("A", "B", 239_900)
         )
+
+    def test_no_duration_is_its_own_key(self):
+        """Radio's Shazam feed carries none, and LRCLIB is asked without it."""
+        assert LyricsService._cache_key("A", "B", None) == LyricsService._cache_key("A", "B", 0)
+        assert LyricsService._cache_key("A", "B", None) != LyricsService._cache_key("A", "B", 240_000)
+
+
+class TestFreshness:
+    """The rule that separates the two kinds of cached answer."""
+
+    def test_a_positive_never_expires(self):
+        assert _is_fresh(_record(_found(), age_s=10 * _NEGATIVE_TTL)) is True
+
+    def test_a_negative_inside_the_ttl_is_served(self):
+        assert _is_fresh(_record(_miss(), age_s=60)) is True
+
+    def test_a_negative_past_the_ttl_is_not(self):
+        """LRCLIB is crowd-sourced and grows: "no lyrics" is an answer with a
+        shelf life, and a new release is exactly the case that outlives it."""
+        assert _is_fresh(_record(_miss(), age_s=_NEGATIVE_TTL + 1)) is False
+
+    @pytest.mark.parametrize("record", [
+        None, "not a dict", {}, {"found": True, "synced": None, "plain": None},
+    ])
+    def test_a_record_missing_a_field_is_not_well_formed(self, record):
+        """A cache file from an older shape must read as a miss, not raise and
+        not be served — that is what buys this cache its no-migration rule."""
+        assert _is_well_formed(record) is False
+
+    @pytest.mark.parametrize("checked_at", ["2026-09-11T17:00:00", None, [], {}])
+    def test_a_timestamp_of_the_wrong_type_is_not_well_formed(self, checked_at):
+        """Presence is not enough: `_is_fresh` subtracts from this field and
+        runs outside the read's try/except, so a string here raised a TypeError
+        out of the service and 500'd that one track until the file was deleted
+        by hand — the one outcome a disposable cache must never produce."""
+        assert _is_well_formed({**_miss(), "checked_at": checked_at}) is False
+
+    def test_a_found_flag_of_the_wrong_type_is_not_well_formed(self):
+        assert _is_well_formed({**_miss(), "found": "yes", "checked_at": 0.0}) is False
 
 
 class TestGetLyricsCaching:
@@ -157,8 +248,10 @@ class TestGetLyricsCaching:
     def _stub_lookup(self, service, monkeypatch, result):
         calls = []
 
-        async def fake_lookup(artist, title, album, duration_ms):
-            calls.append((artist, title, album, duration_ms))
+        async def fake_lookup(artist, title, duration_ms):
+            calls.append((artist, title, duration_ms))
+            if isinstance(result, Exception):
+                raise result
             return result
 
         monkeypatch.setattr(service, "_lookup", fake_lookup)
@@ -195,22 +288,57 @@ class TestGetLyricsCaching:
 
     async def test_negative_result_is_cached(self, service, monkeypatch):
         # A genuine "LRCLIB answered, no match" is cached so it isn't re-queried.
-        empty = {"found": False, "synced": None, "plain": None}
-        calls = self._stub_lookup(service, monkeypatch, empty)
+        calls = self._stub_lookup(service, monkeypatch, _miss())
         assert (await service.get_lyrics("A", "B"))["found"] is False
         assert (await service.get_lyrics("A", "B"))["found"] is False
         assert len(calls) == 1
 
+    async def test_an_expired_negative_is_asked_again(
+        self, service, monkeypatch, no_ttl
+    ):
+        """LRCLIB gains entries daily. Cached with no expiry, the answer for a
+        track released this week is frozen at the one moment it was most likely
+        to be missing, and nothing short of deleting the file ever revisits it.
+        """
+        calls = self._stub_lookup(service, monkeypatch, _miss())
+        await service.get_lyrics("A", "B")
+        await service.get_lyrics("A", "B")
+
+        assert len(calls) == 2
+
+    async def test_a_positive_is_never_asked_again(
+        self, service, monkeypatch, no_ttl
+    ):
+        """The control on the rule above: a track's lyrics do not change, so no
+        shelf life reaches them — here, not even one of zero seconds."""
+        calls = self._stub_lookup(service, monkeypatch, _found())
+        await service.get_lyrics("A", "B")
+        assert (await service.get_lyrics("A", "B"))["found"] is True
+
+        assert len(calls) == 1
+
+    async def test_the_returned_payload_carries_no_cache_bookkeeping(
+        self, service, monkeypatch
+    ):
+        """The route spreads this dict straight onto the wire (`{"status": ...,
+        **result}`), so an internal field here becomes a public API field."""
+        self._stub_lookup(service, monkeypatch, _found())
+        fresh = await service.get_lyrics("A", "B")
+        cached = await service.get_lyrics("A", "B")
+
+        assert set(fresh) == {"found", "synced", "plain"}
+        assert set(cached) == {"found", "synced", "plain"}
+
     async def test_transient_failure_raises_and_is_not_cached(
         self, service, monkeypatch, tmp_path
     ):
-        """Regression: a network error (_lookup → None) must not poison the cache.
+        """Regression: an unreachable LRCLIB must not poison the cache.
 
         It once returned the same empty dict as a genuine 404, so one outage
         persisted found=false to disk forever — and, once the route reported it
         as a success, into the frontend's per-session cache too.
         """
-        calls = self._stub_lookup(service, monkeypatch, None)
+        calls = self._stub_lookup(service, monkeypatch, LyricsUnavailable("down"))
         with pytest.raises(LyricsUnavailable):
             await service.get_lyrics("A", "B")
         assert list(tmp_path.glob("*.json")) == []  # nothing persisted
@@ -228,19 +356,21 @@ class TestGetLyricsCaching:
 
         files = list(tmp_path.glob("*.json"))
         assert len(files) == 1
-        assert json.loads(files[0].read_text(encoding="utf-8")) == payload
+        written = json.loads(files[0].read_text(encoding="utf-8"))
+        assert {k: written[k] for k in payload} == payload
+        assert isinstance(written["checked_at"], float)
 
     async def test_lookup_receives_the_untrimmed_display_values(self, service, monkeypatch):
         # The match key is normalized, but the query keeps the real tags.
         calls = self._stub_lookup(service, monkeypatch, _found())
-        await service.get_lyrics("  Artist ", " Title ", album="Album", duration_ms=180000)
-        assert calls == [("Artist", "Title", "Album", 180000)]
+        await service.get_lyrics("  Artist ", " Title ", duration_ms=180000)
+        assert calls == [("Artist", "Title", 180000)]
 
     async def test_memory_cache_evicts_oldest(self, service):
         from backend.core.lyrics.service import _MEM_CACHE_MAX
 
         for i in range(_MEM_CACHE_MAX + 10):
-            service._store_mem(f"key-{i}", _found())
+            service._store_mem(f"key-{i}", _record())
         assert len(service._mem) == _MEM_CACHE_MAX
         assert "key-0" not in service._mem
         assert f"key-{_MEM_CACHE_MAX + 9}" in service._mem
@@ -271,10 +401,17 @@ def _session(status=200, body=None):
 
 class TestGetEndpoint:
     async def test_404_is_a_miss(self, service):
+        """The one non-200 that is an answer: LRCLIB has no such track, so the
+        fuzzy search is worth trying."""
         assert await service._get(_session(404), {}) is None
 
-    async def test_non_200_is_a_miss(self, service):
-        assert await service._get(_session(500), {}) is None
+    @pytest.mark.parametrize("status", [429, 500, 502, 503])
+    async def test_any_other_non_200_is_an_outage_not_a_miss(self, service, status):
+        """Measured: lrclib.net serves 503 ServerOverloaded in bursts. Read as a
+        miss, one burst writes a permanent "this track has no lyrics" to disk —
+        which is exactly what happened to a track LRCLIB had all along."""
+        with pytest.raises(LyricsUnavailable):
+            await service._get(_session(status), {})
 
     async def test_200_returns_the_record(self, service):
         record = {"plainLyrics": "x"}
@@ -296,16 +433,25 @@ class TestSearchSelection:
         assert picked["plainLyrics"] == "words"
 
     async def test_empty_list_is_a_miss(self, service):
+        """LRCLIB searched and found nothing. That IS an answer, and the only
+        one on this endpoint that may be cached."""
         assert await service._search(_session(200, []), "A", "B") is None
-
-    async def test_non_list_body_is_a_miss(self, service):
-        assert await service._search(_session(200, {"error": "x"}), "A", "B") is None
-
-    async def test_non_200_is_a_miss(self, service):
-        assert await service._search(_session(500), "A", "B") is None
 
     async def test_results_without_any_lyrics_are_a_miss(self, service):
         assert await service._search(_session(200, [{"trackName": "x"}]), "A", "B") is None
+
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    async def test_a_non_200_is_an_outage_not_a_miss(self, service, status):
+        """The fallback carries the whole lookup whenever the exact match 404s,
+        so a 503 here is what poisons the cache."""
+        with pytest.raises(LyricsUnavailable):
+            await service._search(_session(status), "A", "B")
+
+    async def test_a_non_list_body_is_an_outage_not_a_miss(self, service):
+        """An error object where the result list belongs is LRCLIB failing to
+        answer, not a track without lyrics."""
+        with pytest.raises(LyricsUnavailable):
+            await service._search(_session(200, {"error": "x"}), "A", "B")
 
 
 class _SessionRecorder:
@@ -361,10 +507,10 @@ class TestLookup:
     track played during it.
     """
 
-    async def test_the_exact_lookup_carries_the_whole_track_identity(
+    async def test_the_exact_lookup_carries_artist_track_and_duration(
         self, service, monkeypatch, no_throttle
     ):
-        """LRCLIB's `/get` matches on artist + track + album + duration.
+        """LRCLIB's `/get` matches on artist + track + duration — and no album.
 
         The duration is seconds, rounded from the metadata's milliseconds; sent
         as milliseconds it matches nothing and every track falls through to the
@@ -373,26 +519,40 @@ class TestLookup:
         session = _SessionRecorder([(200, {"plainLyrics": "words"})])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
-        await service._lookup("Miles Davis", "So What", "Kind of Blue", 545_000)
+        await service._lookup("Miles Davis", "So What", 545_000)
 
         url, params = session.requests[0]
         assert url.endswith("/get")
         assert params == {
             "artist_name": "Miles Davis",
             "track_name": "So What",
-            "album_name": "Kind of Blue",
             "duration": "545",
         }
 
-    async def test_a_track_with_no_album_or_duration_asks_without_them(
-        self, service, monkeypatch, no_throttle
-    ):
-        """Radio's in-band ICY feed has neither. Sent as empty strings or a zero
-        duration, LRCLIB matches on them and answers nothing."""
+    async def test_the_album_is_never_sent(self, service, monkeypatch, no_throttle):
+        """LRCLIB filters `album_name` by exact string match, with none of the
+        ±2 s tolerance it gives duration, against free text its contributors
+        typed. Measured: its record for Moussa - Laguna spells the album
+        `La nuit je r^ve` (an ASCII caret), so the correct string 404s forever
+        and the whole lookup falls onto the fuzzy search. Sources that carry an
+        album were strictly worse off than radio, which carries none.
+        """
         session = _SessionRecorder([(200, {"plainLyrics": "words"})])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
-        await service._lookup("Artist", "Title", None, None)
+        await service._lookup("Moussa", "Laguna", 181_000)
+
+        assert "album_name" not in session.requests[0][1]
+
+    async def test_a_track_with_no_duration_asks_without_it(
+        self, service, monkeypatch, no_throttle
+    ):
+        """Radio's Shazam feed has no duration. Sent as a zero, LRCLIB matches
+        on it and answers nothing."""
+        session = _SessionRecorder([(200, {"plainLyrics": "words"})])
+        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
+
+        await service._lookup("Artist", "Title", None)
 
         assert session.requests[0][1] == {"artist_name": "Artist", "track_name": "Title"}
 
@@ -409,12 +569,59 @@ class TestLookup:
         ])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
-        result = await service._lookup("Artist", "Title (feat. X)", None, None)
+        result = await service._lookup("Artist", "Title (feat. X)", None)
 
         assert [url for url, _ in session.requests] == [
             "https://lrclib.net/api/get", "https://lrclib.net/api/search",
         ]
         assert result["found"] is True
+
+    async def test_a_refused_exact_match_still_reaches_the_search(
+        self, service, monkeypatch, no_throttle
+    ):
+        """A 503 on `/get` must take the same road as a 404, not end the lookup.
+
+        The two are separate endpoints and a burst hits them independently —
+        measured on this unit: `/get` answering 503 while `/search` answered 200
+        for the same track, in the same window. Raising on the first refusal
+        traded a poisoned cache for an empty Lyrics view on tracks the search
+        would have resolved, which is a smaller bug but still a bug.
+        """
+        session = _SessionRecorder([
+            (503, {"name": "ServerOverloaded"}),
+            (200, [{"syncedLyrics": "[00:01.00]found by search"}]),
+        ])
+        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
+
+        result = await service._lookup("Artist", "Title", None)
+
+        assert [url for url, _ in session.requests] == [
+            "https://lrclib.net/api/get", "https://lrclib.net/api/search",
+        ]
+        assert result["found"] is True
+
+    async def test_only_both_calls_refusing_is_an_outage(
+        self, service, monkeypatch, no_throttle
+    ):
+        """The other half of the rule above: when neither endpoint answered,
+        there is no answer to cache and the next open must retry."""
+        session = _SessionRecorder([(503, None), (503, None)])
+        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
+
+        with pytest.raises(LyricsUnavailable):
+            await service._lookup("Artist", "Title", None)
+
+        assert len(session.requests) == 2
+
+    async def test_a_refused_exact_match_then_an_empty_search_is_a_negative(
+        self, service, monkeypatch, no_throttle
+    ):
+        """The search answered — it searched and found nothing. That is a real
+        result even though the exact match refused, and it is cached."""
+        session = _SessionRecorder([(503, None), (200, [])])
+        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
+
+        assert await service._lookup("Artist", "Title", None) == _miss()
 
     async def test_a_hit_on_the_exact_match_does_not_search(
         self, service, monkeypatch, no_throttle
@@ -424,7 +631,7 @@ class TestLookup:
         session = _SessionRecorder([(200, {"plainLyrics": "words"})])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
-        await service._lookup("Artist", "Title", None, None)
+        await service._lookup("Artist", "Title", None)
 
         assert len(session.requests) == 1
 
@@ -436,7 +643,7 @@ class TestLookup:
         session = _SessionRecorder([(404, None), (200, [])])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
-        result = await service._lookup("Artist", "Title", None, None)
+        result = await service._lookup("Artist", "Title", None)
 
         assert result == {"found": False, "synced": None, "plain": None}
 
@@ -444,10 +651,10 @@ class TestLookup:
         aiohttp.ClientError("connection reset"),
         asyncio.TimeoutError(),
     ])
-    async def test_an_unreachable_lrclib_answers_None_and_caches_nothing(
+    async def test_an_unreachable_lrclib_raises_and_caches_nothing(
         self, service, monkeypatch, no_throttle, failure, caplog
     ):
-        """None is the signal `get_lyrics` turns into `LyricsUnavailable`.
+        """`LyricsUnavailable` is the one answer `get_lyrics` does not store.
 
         Answered as a negative instead, a thirty-second outage is frozen into
         "no lyrics" for every track played during it — on disk, permanently,
@@ -457,7 +664,8 @@ class TestLookup:
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
         with caplog.at_level(logging.WARNING):
-            assert await service._lookup("Artist", "Title", None, None) is None
+            with pytest.raises(LyricsUnavailable):
+                await service._lookup("Artist", "Title", None)
 
         assert "Lyrics lookup failed" in caplog.text
 
@@ -469,7 +677,7 @@ class TestLookup:
         session = _SessionRecorder([(200, {"plainLyrics": "x"})])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
-        await service._lookup("Artist", "Title", None, None)
+        await service._lookup("Artist", "Title", None)
 
         assert "Milo" in session.kwargs["headers"]["User-Agent"]
 
@@ -481,7 +689,7 @@ class TestLookup:
         session = _SessionRecorder([(200, {"plainLyrics": "x"})])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
-        await service._lookup("Artist", "Title", None, None)
+        await service._lookup("Artist", "Title", None)
 
         assert session.kwargs["timeout"].total == 8
 
@@ -502,7 +710,7 @@ class TestLookup:
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
         service._last_call = time.monotonic()
 
-        await service._lookup("Artist", "Title", None, None)
+        await service._lookup("Artist", "Title", None)
 
         assert len(slept) == 2
         assert all(0 < d <= 5.0 for d in slept)
@@ -537,9 +745,10 @@ class TestDiskCache:
         """The mem cache is 256 entries and dies with the process; the disk cache
         is what makes the second play of a track instant."""
         key = service._cache_key("Artist", "Title", None)
-        await service._write_disk(key, _found("words"))
+        record = _record(_found("words"))
+        await service._write_disk(key, record)
 
-        assert await service._read_disk(key) == _found("words")
+        assert await service._read_disk(key) == record
 
     async def test_the_write_is_atomic(self, service, tmp_path):
         """A partially written cache file is read back as a corrupt one on the
@@ -547,7 +756,7 @@ class TestDiskCache:
         on it, and the rename is what makes the visible file always complete.
         """
         key = service._cache_key("Artist", "Title", None)
-        await service._write_disk(key, _found())
+        await service._write_disk(key, _record())
 
         assert (tmp_path / f"{key}.json").is_file()
         assert not list(tmp_path.glob("*.tmp"))
@@ -568,6 +777,32 @@ class TestDiskCache:
         errors.log with one line per new track."""
         assert await service._read_disk(service._cache_key("A", "B", None)) is None
 
+    async def test_an_expired_negative_on_disk_reads_as_a_miss(self, service):
+        """What makes the TTL survive a reboot. Held only in memory it would
+        reset on every restart — and the appliance restarts far less often than
+        a week."""
+        key = service._cache_key("Artist", "Title", None)
+        await service._write_disk(key, _record(_miss(), age_s=_NEGATIVE_TTL + 1))
+
+        assert await service._read_disk(key) is None
+
+    async def test_an_expired_positive_on_disk_is_still_served(self, service):
+        """The control: the expiry is the negative's alone."""
+        key = service._cache_key("Artist", "Title", None)
+        record = _record(_found(), age_s=10 * _NEGATIVE_TTL)
+        await service._write_disk(key, record)
+
+        assert await service._read_disk(key) == record
+
+    async def test_a_file_from_an_older_shape_reads_as_a_miss(self, service, tmp_path):
+        """The no-migration rule, made real: this cache carries no
+        schema_version, so a record written before the expiry field existed must
+        cost one refetch — not a KeyError inside the route."""
+        key = service._cache_key("Artist", "Title", None)
+        (tmp_path / f"{key}.json").write_text('{"found": false, "synced": null, "plain": null}')
+
+        assert await service._read_disk(key) is None
+
     async def test_a_write_that_fails_is_survivable_and_leaves_no_temp_file(
         self, service, tmp_path, monkeypatch, caplog
     ):
@@ -585,7 +820,7 @@ class TestDiskCache:
         monkeypatch.setattr("backend.core.lyrics.service.os.replace", _boom)
 
         with caplog.at_level(logging.WARNING):
-            await service._write_disk(key, _found())
+            await service._write_disk(key, _record())
 
         monkeypatch.setattr("backend.core.lyrics.service.os.replace", real_replace)
         assert "Lyrics cache write failed" in caplog.text

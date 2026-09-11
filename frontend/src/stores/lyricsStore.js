@@ -130,9 +130,15 @@ export const useLyricsStore = defineStore('lyrics', () => {
 
   let abortController = null;
 
-  // Per-track result cache (artist|||title → {found, synced, plain}). Reopening
-  // the view for a track already looked up this session resolves instantly, with
-  // no loader — lyrics never change, so a memory cache is enough for the appliance.
+  // Per-track cache of FOUND lyrics only (artist|||title → {synced, plain}).
+  // Reopening the view for a track already looked up this session resolves
+  // instantly, with no loader — lyrics never change, so a memory cache is enough.
+  //
+  // A "no lyrics" answer is deliberately not kept here. LRCLIB gains entries
+  // daily, so that answer expires (the backend re-asks after a week) — and this
+  // tab is the kiosk's, open for days at a time, which would hold a negative
+  // long past the point the backend had stopped believing it. Re-asking costs
+  // one local request the backend answers from its own memory.
   const cache = new Map();
 
   const scrollPositions = new Map();
@@ -195,7 +201,6 @@ export const useLyricsStore = defineStore('lyrics', () => {
       params: {
         artist,
         title,
-        album: meta.album || '',
         duration: meta.duration || 0,
       },
       signal,
@@ -219,8 +224,9 @@ export const useLyricsStore = defineStore('lyrics', () => {
       found.value = !!result.data.found;
       synced.value = result.data.synced || null;
       plain.value = result.data.plain || null;
-      // Cache the resolved lookup (found or not) so reopening this track is instant.
-      cache.set(key, { found: found.value, synced: synced.value, plain: plain.value });
+      if (found.value) {
+        cache.set(key, { found: true, synced: synced.value, plain: plain.value });
+      }
     }
   }
 
