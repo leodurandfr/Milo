@@ -146,3 +146,74 @@ describe('lyricsStore — sync offset', () => {
     expect(store.syncOffsetMs).toBe(-700);
   });
 });
+
+
+/**
+ * The session cache decides how long this tab believes an answer, so it has to
+ * agree with what the backend believes. Lyrics that were found never change, so
+ * they are kept; "no lyrics" does change — LRCLIB gains entries daily and the
+ * backend re-asks after a week — and the kiosk tab stays open for days, so
+ * keeping a negative here would outlive the backend's own expiry with no way to
+ * clear it short of reloading the page.
+ */
+describe('lyricsStore — what loadLyrics asks for, and what it keeps', () => {
+  let store;
+  let unified;
+
+  const lyricsFor = (title, artist) => {
+    unified.systemState.active_source = 'spotify';
+    unified.systemState.metadata = { title, artist, album: 'Some Album', duration: 181000 };
+  };
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useLyricsStore();
+    unified = useUnifiedAudioStore();
+    unified.systemState.multiroom_enabled = false;
+  });
+
+  it('asks on artist, title and duration — never the album', async () => {
+    lyricsFor('Laguna', 'Moussa');
+    apiCall.get.mockResolvedValueOnce(ok({ status: 'success', found: false, synced: null, plain: null }));
+
+    await store.loadLyrics();
+
+    const [url, options] = apiCall.get.mock.calls[0];
+    expect(url).toBe('/api/lyrics');
+    expect(options.params).toEqual({ artist: 'Moussa', title: 'Laguna', duration: 181000 });
+  });
+
+  it('serves found lyrics from the session cache on a second look', async () => {
+    lyricsFor('Laguna', 'Moussa');
+    apiCall.get.mockResolvedValueOnce(ok({
+      status: 'success', found: true, synced: [{ t: 0, line: 'a' }], plain: 'a',
+    }));
+
+    await store.loadLyrics();
+    await store.loadLyrics();
+
+    expect(apiCall.get).toHaveBeenCalledTimes(1);
+    expect(store.found).toBe(true);
+  });
+
+  it('asks again for a track that had no lyrics', async () => {
+    lyricsFor('Laguna', 'Moussa');
+    apiCall.get.mockResolvedValue(ok({ status: 'success', found: false, synced: null, plain: null }));
+
+    await store.loadLyrics();
+    await store.loadLyrics();
+
+    expect(apiCall.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks again after an unreachable LRCLIB, which is not an answer at all', async () => {
+    lyricsFor('Laguna', 'Moussa');
+    apiCall.get.mockResolvedValue(fail('unreachable'));
+
+    await store.loadLyrics();
+    await store.loadLyrics();
+
+    expect(apiCall.get).toHaveBeenCalledTimes(2);
+    expect(store.found).toBe(false);
+  });
+});

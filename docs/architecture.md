@@ -590,23 +590,40 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 
 **How does it work?**
 - A **transverse** feature: `core/lyrics/LyricsService` is keyed off the
-  now-playing `(artist, title, album, duration)` of whichever source is active,
+  now-playing `(artist, title, duration)` of whichever source is active,
   so it works for any rich-metadata source. Mac, Podcasts and Bluetooth are
   excluded client-side — the first two have no `(artist, title)` to key off, and
   Bluetooth has one but no playhead worth syncing to: AVRCP position updates are
   a notification the sender may send coarsely or not at all. Radio reads its
   Shazam-recognized `track_artist`/`track_title` instead of the station name
-- One route, `GET /api/lyrics?artist=&title=&album=&duration=`; the frontend
+- One route, `GET /api/lyrics?artist=&title=&duration=`; the frontend
   fetches on modal open (and on track change while open), never over WebSocket
 - LRCLIB needs no API key and returns both an LRC (synced) and a plain body.
   Matching drops parenthetical annotations and `- Remastered …` suffixes before
   falling back to search
-- Results are cached on disk under `/var/lib/milo/lyrics/` **including
-  negatives**, so a track with no lyrics is not re-queried. An unreachable
-  LRCLIB is deliberately *not* cached (`LyricsUnavailable` → HTTP 200 +
-  `status: error`) so a brief outage isn't frozen into "no lyrics"
+- **No album, deliberately.** LRCLIB filters `album_name` by exact string match
+  with none of the ±2 s tolerance it gives duration, against free text its
+  contributors typed — and its own data carries mojibake (measured: one record
+  spells an album with an ASCII caret for a circumflex), so the correct string
+  404s forever and the whole lookup falls onto the fuzzy search. Duration is the
+  discriminator instead, and it is in the cache key for the same reason it is in
+  the query: without it a live take and the studio one share an entry
+- **Three answers, cached differently.** Lyrics found → kept with no expiry, a
+  track's lyrics do not change. A genuine no-match → kept for one week only:
+  LRCLIB is crowd-sourced and *grows*, so "no lyrics" is an answer with a shelf
+  life and a new release is exactly the case that outlives it. An unreachable
+  *or refusing* LRCLIB → cached nowhere (`LyricsUnavailable` → HTTP 200 +
+  `status: error`), so a brief outage isn't frozen into "no lyrics". Any status
+  but 200 and the `/get` 404 is that third case: lrclib.net serves
+  `503 ServerOverloaded` in bursts, and reading one as a miss is what wrote
+  permanent false negatives to disk
 - The disk cache is a disposable derived cache — no `schema_version`, no
-  fail-loud protocol; wipe the directory if the shape changes
+  fail-loud protocol. A file that does not carry the expected fields, with the
+  expected types, reads as a miss, so a shape change costs one refetch per
+  track rather than a migration. That self-healing read covers correctness, not
+  reclamation: a change to the **cache key** leaves every existing file at an
+  address nothing will ever look up again, so `rm /var/lib/milo/lyrics/*.json`
+  is part of deploying one — as it is for any change to the record shape
 
 **Configuration:**
 - No service — in-process, `aiohttp` (8s timeout, 0.3s polite spacing, 256-entry

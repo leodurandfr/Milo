@@ -52,18 +52,26 @@ class TestLyricsRoute:
         }
 
     def test_duration_is_forwarded_as_milliseconds(self, api, lyrics_service):
-        api.get(
-            "/api/lyrics",
-            params={"artist": "A", "title": "B", "album": "C", "duration": 180000},
-        )
+        api.get("/api/lyrics", params={"artist": "A", "title": "B", "duration": 180000})
         lyrics_service.get_lyrics.assert_awaited_once_with(
-            artist="A", title="B", album="C", duration_ms=180000
+            artist="A", title="B", duration_ms=180000
         )
 
     def test_optional_params_default_to_none(self, api, lyrics_service):
         api.get("/api/lyrics", params={"artist": "A", "title": "B"})
         lyrics_service.get_lyrics.assert_awaited_once_with(
-            artist="A", title="B", album=None, duration_ms=None
+            artist="A", title="B", duration_ms=None
+        )
+
+    def test_an_album_is_not_part_of_the_lookup(self, api, lyrics_service):
+        """LRCLIB matches album_name as an exact string against free text its
+        contributors typed, with none of the tolerance it gives duration — it
+        404s far more often than it disambiguates. Sending one made every source
+        that carries an album worse off than radio, which carries none.
+        """
+        api.get("/api/lyrics", params={"artist": "A", "title": "B", "album": "C"})
+        lyrics_service.get_lyrics.assert_awaited_once_with(
+            artist="A", title="B", duration_ms=None
         )
 
     @pytest.mark.parametrize("params", [{}, {"artist": "A"}, {"title": "B"}])
