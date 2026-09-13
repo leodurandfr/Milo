@@ -74,6 +74,15 @@ _ALBUM_PAGE = 500
 # reads as a bug, and the fresh READY placeholder is what the user wants.
 RESUME_TTL_S = 600.0
 
+# Scrobble threshold — the Last.fm rule Navidrome implements: a play counts once
+# it has been listened to for half the track or four minutes, whichever comes
+# first, and a track shorter than 30 s never counts at all. This submission is
+# the ONLY thing that feeds play_date/play_count, which is what getAlbumList2
+# type=recent and type=frequent are built from (fetching `stream` counts for
+# nothing — OpenSubsonic forbids servers from treating it as a play).
+SCROBBLE_MIN_DURATION_S = 30
+SCROBBLE_MAX_THRESHOLD_S = 240
+
 
 class MusicLibrarySource(MpvAudioSource):
     """Music Library source (Family C): UI-driven gapless queue playback over a
@@ -175,6 +184,15 @@ class MusicLibrarySource(MpvAudioSource):
         # activation. In-memory only (a reboot forgets it), and deliberately NOT
         # reset by _reset_playback_state so it survives the stop→start cycle.
         self._resume: Optional[Dict[str, Any]] = None
+        # Scrobble bookkeeping for the track currently playing. Seconds are
+        # accumulated from how far the playhead moved rather than read off
+        # _position: a seek forward would carry the playhead past the threshold
+        # with nothing having been heard.
+        self._played_seconds: float = 0.0
+        self._scrobbled: bool = False
+        # mpv's playhead as the previous tick saw it; None until the first tick
+        # of a pass gives the accounting a baseline.
+        self._last_tick_position: Optional[float] = None
 
     # =========================================================================
     # NAVIDROME CLIENT (shared with routes.py)
@@ -540,6 +558,7 @@ class MusicLibrarySource(MpvAudioSource):
         self._duration = 0
         self._shuffle = False
         self._loading = False
+        self._reset_scrobble_state()
 
     async def _do_start(self) -> bool:
         """Start the mpv service, connect IPC, and idle on the READY placeholder
@@ -673,6 +692,7 @@ class MusicLibrarySource(MpvAudioSource):
         self._queue_index = start_index
         self._shuffle = shuffle
         self._position = 0
+        self._reset_scrobble_state()
         self._duration = int(tracks[start_index].get("duration") or 0)
         self._is_playing = False
         self._is_buffering = True
@@ -696,6 +716,7 @@ class MusicLibrarySource(MpvAudioSource):
         self._is_playing = True
         self._loading = False
         self._handle_pause_change(False)
+        self._scrobble_now_playing()
         self._update_connection_state()
         self.broadcast_error_cleared()
         return self.success_response(f"Playing {len(tracks)} track(s)")
@@ -730,8 +751,10 @@ class MusicLibrarySource(MpvAudioSource):
             if not restarted:
                 return self.mpv_refused("restart track")
             self._position = 0
+            self._reset_scrobble_state()
             self._is_playing = True
             self._handle_pause_change(False)
+            self._scrobble_now_playing()
             self._update_connection_state()
             return self.success_response("Restarted track")
         return await self._switch_to_index(self._queue_index - 1)
@@ -754,11 +777,13 @@ class MusicLibrarySource(MpvAudioSource):
 
         self._queue_index = index
         self._position = 0
+        self._reset_scrobble_state()
         self._duration = int(self._queue[index].get("duration") or 0)
         self._is_playing = True
         self._is_buffering = True  # cleared by the monitor once the playhead moves
         self._loading = False
         self._handle_pause_change(False)
+        self._scrobble_now_playing()
         self._update_connection_state()
         self.broadcast_error_cleared()
         return self.success_response(f"Playing track {index + 1}")
@@ -914,8 +939,10 @@ class MusicLibrarySource(MpvAudioSource):
         ):
             self._queue_index = playlist_pos
             self._position = 0
+            self._reset_scrobble_state()
             self._duration = int(self._queue[playlist_pos].get("duration") or 0)
             self._is_buffering = False
+            self._scrobble_now_playing()
             self._update_connection_state()
 
         if position is not None:
@@ -945,6 +972,19 @@ class MusicLibrarySource(MpvAudioSource):
         ):
             self.broadcast_position_update(self._position * 1000, self._duration * 1000)
 
+        # Listening time for the scrobble threshold: how far the playhead
+        # actually moved since the last tick, capped at one tick. Neither half of
+        # that cap is decoration — a seek forward jumps the position with nothing
+        # heard (so the jump is capped), and a stalled stream leaves mpv's
+        # `pause` False with the playhead frozen (so a still position credits
+        # nothing). Counting ticks alone would submit a play for either.
+        if self._is_playing and position is not None:
+            if self._last_tick_position is not None:
+                advanced = position - self._last_tick_position
+                self._played_seconds += max(0.0, min(advanced, self.MONITOR_TICK_S))
+            self._last_tick_position = position
+            self._maybe_submit_scrobble()
+
         # Auto-stop on pause edges (device release after the configured timeout).
         if pause_state is not None:
             self._handle_pause_change(bool(pause_state))
@@ -971,6 +1011,88 @@ class MusicLibrarySource(MpvAudioSource):
         position = await self._mpv.get_property("time-pos")
         if position is not None:
             self._position = int(position)
+
+    # =========================================================================
+    # SCROBBLE (Navidrome play history)
+    # =========================================================================
+
+    def _reset_scrobble_state(self) -> None:
+        """Start the accounting over for a new listen.
+
+        The "already scrobbled" flag belongs to a PASS, not to a song id: a queue
+        can list the same track twice (an album with a reprise, a playlist built
+        by hand), and each pass over it is a play of its own.
+        """
+        self._played_seconds = 0.0
+        self._scrobbled = False
+        self._last_tick_position = None
+
+    def _current_track(self) -> Optional[Dict[str, Any]]:
+        """The queue entry now playing, or None when the queue is empty/out of range."""
+        if not self._queue or not (0 <= self._queue_index < len(self._queue)):
+            return None
+        return self._queue[self._queue_index]
+
+    def _scrobble_now_playing(self) -> None:
+        """Announce the track that just started (``submission=false``).
+
+        Counts nothing — it is what makes Navidrome show the track as currently
+        playing. Fire-and-forget on purpose: every caller is on the path that
+        makes the now-playing card appear, and none of them may wait on
+        Navidrome.
+        """
+        track = self._current_track()
+        if track and track.get("id"):
+            self._bg.spawn(
+                self._send_scrobble(track["id"], submission=False),
+                label="scrobble-now-playing",
+            )
+
+    def _maybe_submit_scrobble(self) -> None:
+        """Submit the play once it has been listened to past the threshold.
+
+        This is the call that writes play_date/play_count, so it is what makes
+        the library's ``type=recent`` and ``type=frequent`` lists non-empty.
+        Fired once per pass, from the accumulated listening time rather than the
+        playhead.
+        """
+        if self._scrobbled:
+            return
+        track = self._current_track()
+        if not track or not track.get("id"):
+            return
+        duration = self._duration or int(track.get("duration") or 0)
+        if duration < SCROBBLE_MIN_DURATION_S:
+            return
+        if self._played_seconds < min(duration / 2, SCROBBLE_MAX_THRESHOLD_S):
+            return
+        # Set before spawning, not in the task: the next tick lands long before a
+        # slow Navidrome answers, and would submit the same play again.
+        self._scrobbled = True
+        self._bg.spawn(
+            self._send_scrobble(track["id"], submission=True),
+            label="scrobble-submission",
+        )
+
+    async def _send_scrobble(self, song_id: str, submission: bool) -> None:
+        """One scrobble call, swallowed whole on failure.
+
+        Listening history is bookkeeping: a Navidrome that is down, slow or
+        refusing must cost a log line and nothing else — never a gap in the
+        music.
+        """
+        try:
+            client = await self.get_navidrome_client()
+            if client is None:
+                return
+            if not await client.scrobble(song_id, submission=submission):
+                self._logger.warning(
+                    "Navidrome refused scrobble (submission=%s) for %s",
+                    submission,
+                    song_id,
+                )
+        except Exception as e:
+            self._logger.warning(f"Scrobble failed for {song_id}: {e}")
 
     # =========================================================================
     # RESUME-ON-RETURN (in-memory session snapshot)

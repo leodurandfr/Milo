@@ -36,9 +36,12 @@ def source(config):
     src._service_manager.stop = AsyncMock(return_value=True)
     src._service_manager.is_active = AsyncMock(return_value=True)
 
-    # Navidrome client: only stream_url is used at play time.
+    # Navidrome client: stream_url at play time, scrobble for the play history.
     src.get_navidrome_client = AsyncMock(
-        return_value=Mock(stream_url=lambda song_id: f"http://nav/stream/{song_id}")
+        return_value=Mock(
+            stream_url=lambda song_id: f"http://nav/stream/{song_id}",
+            scrobble=AsyncMock(return_value=True),
+        )
     )
     return src
 
@@ -456,6 +459,269 @@ class TestSetShuffle:
         result = await source.command("set_shuffle", {"shuffle": True})
         assert result["success"] is False
         source._mpv.replace_playlist_tail.assert_not_called()
+
+
+async def _drain_scrobbles():
+    """Let the fire-and-forget scrobble tasks finish.
+
+    They are spawned unawaited on purpose — playback must never wait on
+    Navidrome — so a test that asserts on them has to run them.
+    """
+    tasks = [t for t in asyncio.all_tasks() if "scrobble" in t.get_name()]
+    if tasks:
+        await asyncio.gather(*tasks)
+
+
+def _submissions(client):
+    """The calls that actually count a play (``submission=True``)."""
+    return [
+        call for call in client.scrobble.await_args_list
+        if call.kwargs.get("submission") is True
+    ]
+
+
+def _now_playings(client):
+    return [
+        call for call in client.scrobble.await_args_list
+        if call.kwargs.get("submission") is False
+    ]
+
+
+async def _listen(source, seconds, from_position=None):
+    """Run monitor ticks worth `seconds` of listening, playhead advancing.
+
+    Listening is credited from how far the playhead moved, so a pass needs one
+    baseline tick before anything can be counted — this helper supplies it
+    whenever the source has no baseline yet (the first call after a track
+    change), exactly as the real monitor's first tick of a track does. What the
+    caller asks for is therefore what gets credited.
+    """
+    if from_position is not None:
+        start = float(from_position)
+    elif source._last_tick_position is not None:
+        # Pick up one tick past where the last call left the playhead, so a pass
+        # split across two calls is one continuous listen.
+        start = source._last_tick_position + source.MONITOR_TICK_S
+    else:
+        start = float(source._position)
+
+    props = {
+        "idle-active": False,
+        "playlist-pos": source._queue_index,
+        "time-pos": start,
+        "duration": source._duration,
+        "pause": False,
+    }
+    mpv = _mpv()
+
+    async def _get(name):
+        return props.get(name)
+
+    mpv.get_property = AsyncMock(side_effect=_get)
+    source._mpv = mpv
+
+    ticks = int(seconds / source.MONITOR_TICK_S)
+    if source._last_tick_position is None:
+        ticks += 1
+    for _ in range(ticks):
+        await source._on_monitor_tick()
+        props["time-pos"] += source.MONITOR_TICK_S
+        props["playlist-pos"] = source._queue_index
+    await _drain_scrobbles()
+
+
+class TestScrobble:
+    """The listening history. Navidrome counts a play ONLY on
+    ``scrobble(submission=true)`` — OpenSubsonic forbids it from counting a
+    `stream` fetch — so this is what fills play_date/play_count and therefore
+    what makes the library's ``type=recent`` and ``type=frequent`` lists
+    non-empty. Every failure here is that history silently staying empty, or a
+    play counted twice.
+    """
+
+    @staticmethod
+    def _track(song_id, duration):
+        return {"id": song_id, "title": song_id, "artist": "DP",
+                "album": "Disc", "duration": duration}
+
+    async def _play(self, source, tracks, start_index=0):
+        source._mpv = _mpv()
+        await source.command(
+            "play_context", {"tracks": tracks, "start_index": start_index}
+        )
+        await _drain_scrobbles()
+        return await source.get_navidrome_client()
+
+    @pytest.mark.asyncio
+    async def test_the_play_counts_only_once_past_half_the_track(self, source):
+        """Half the track is the Last.fm threshold Navidrome applies. Submitting
+        early inflates the history; submitting on every later tick multiplies the
+        play count of whatever the user left running."""
+        client = await self._play(source, [self._track("s1", 200)])
+
+        await _listen(source, 99)
+        assert _submissions(client) == []
+
+        await _listen(source, 1)
+        assert len(_submissions(client)) == 1
+        assert _submissions(client)[0].args[0] == "s1"
+
+        # Still one after the rest of the track: the flag is not re-armed.
+        await _listen(source, 200)
+        assert len(_submissions(client)) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_long_track_counts_at_four_minutes_not_at_half(self, source):
+        """The threshold is the *earlier* of the two, which is the only thing
+        that makes a 40-minute live set ever count."""
+        client = await self._play(source, [self._track("s1", 2400)])
+
+        await _listen(source, 239)
+        assert _submissions(client) == []
+
+        await _listen(source, 1)
+        assert len(_submissions(client)) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_track_under_thirty_seconds_never_counts(self, source):
+        """Interludes and jingles are excluded by the same rule — an album full
+        of them would otherwise dominate ``type=frequent``."""
+        client = await self._play(source, [self._track("skit", 20)])
+
+        await _listen(source, 60)
+
+        assert _submissions(client) == []
+
+    @pytest.mark.asyncio
+    async def test_seeking_forward_is_not_listening(self, source):
+        """The threshold is measured in seconds actually played. Read off the
+        playhead instead, a single drag to the end of the track would count a
+        play of a track nobody heard."""
+        client = await self._play(source, [self._track("s1", 60)])
+        await _listen(source, 5)
+
+        await source.command("seek", {"position_ms": 55_000})
+        await _listen(source, 1, from_position=56.0)
+
+        assert source._position == 56          # the playhead did jump
+        assert _submissions(client) == []      # the listening did not
+
+        await _listen(source, 24)
+        assert len(_submissions(client)) == 1
+
+    @pytest.mark.asyncio
+    async def test_the_same_track_twice_in_a_queue_counts_twice(self, source):
+        """The flag belongs to a pass, not to a song id: an album with a reprise
+        or a hand-built playlist can hold the same id twice, and the second
+        listen is a second play."""
+        track = self._track("s1", 60)
+        client = await self._play(source, [track, dict(track)])
+
+        await _listen(source, 35)
+        assert len(_submissions(client)) == 1
+
+        # mpv stepped to the second entry on its own (gapless auto-advance).
+        source._mpv = _mpv_with_props({
+            "idle-active": False, "playlist-pos": 1,
+            "time-pos": 1.0, "duration": 60, "pause": False,
+        })
+        await source._on_monitor_tick()
+        await _drain_scrobbles()
+        await _listen(source, 35)
+
+        assert len(_submissions(client)) == 2
+
+    @pytest.mark.asyncio
+    async def test_a_track_switch_re_arms_the_threshold(self, source):
+        """`next` mid-track must not carry the accumulated seconds over, nor
+        leave the flag set so the new track never counts."""
+        client = await self._play(
+            source, [self._track("s1", 200), self._track("s2", 200)]
+        )
+        await _listen(source, 99)
+
+        await source.command("next", {})
+        await _drain_scrobbles()
+        await _listen(source, 1)
+
+        # 99 + 1 would have crossed the threshold had the counter carried over.
+        assert _submissions(client) == []
+
+        await _listen(source, 99)
+        assert [call.args[0] for call in _submissions(client)] == ["s2"]
+
+    @pytest.mark.asyncio
+    async def test_replaying_a_track_after_a_stop_counts_again(self, source):
+        client = await self._play(source, [self._track("s1", 60)])
+        await _listen(source, 30)
+        assert len(_submissions(client)) == 1
+
+        await source.command("stop", {})
+        await self._play(source, [self._track("s1", 60)])
+        await _listen(source, 30)
+
+        assert len(_submissions(client)) == 2
+
+    @pytest.mark.asyncio
+    async def test_the_start_of_a_track_is_announced_without_counting_it(self, source):
+        """`submission=false` is what shows the track as now playing in
+        Navidrome; it must never be the call that counts the play."""
+        client = await self._play(source, [self._track("s1", 200),
+                                           self._track("s2", 200)])
+        assert [call.args[0] for call in _now_playings(client)] == ["s1"]
+
+        await source.command("next", {})
+        await _drain_scrobbles()
+
+        assert [call.args[0] for call in _now_playings(client)] == ["s1", "s2"]
+        assert _submissions(client) == []
+
+    @pytest.mark.asyncio
+    async def test_a_stalled_stream_is_not_listening(self, source):
+        """A frozen playhead with mpv still reporting `pause` False is what a
+        dead share or a cache-starved stream looks like. Crediting the ticks
+        would count a play of silence."""
+        client = await self._play(source, [self._track("s1", 60)])
+        source._mpv = _mpv_with_props({
+            "idle-active": False, "playlist-pos": 0,
+            "time-pos": 3.0, "duration": 60, "pause": False,
+        })
+
+        for _ in range(200):
+            await source._on_monitor_tick()
+        await _drain_scrobbles()
+
+        assert _submissions(client) == []
+
+    @pytest.mark.asyncio
+    async def test_restarting_the_track_with_prev_is_a_second_play(self, source):
+        """Prev past the restart threshold replays the track in place instead of
+        stepping back, so it never reaches _switch_to_index. Left out, the whole
+        replay counts for nothing — and a Prev pressed mid-track would carry its
+        listened seconds into the new pass."""
+        client = await self._play(source, [self._track("s1", 60)])
+        await _listen(source, 30)
+        assert len(_submissions(client)) == 1
+
+        await source.command("prev", {})
+        await _drain_scrobbles()
+        await _listen(source, 30)
+
+        assert len(_submissions(client)) == 2
+        assert len(_now_playings(client)) == 2
+
+    @pytest.mark.asyncio
+    async def test_a_refusing_navidrome_never_reaches_the_music(self, source):
+        """Listening history is bookkeeping: a sidecar that is down, slow or
+        refusing costs a log line, not a gap in playback."""
+        client = await self._play(source, [self._track("s1", 60)])
+        client.scrobble = AsyncMock(side_effect=RuntimeError("navidrome down"))
+
+        await _listen(source, 40)
+
+        assert source.state == SourceState.ACTIVE
+        assert source._is_playing is True
+        assert source._queue_index == 0
 
 
 class TestMergedAlbumCache:

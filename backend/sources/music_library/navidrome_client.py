@@ -504,6 +504,26 @@ class NavidromeClient:
         response = await self._make_request(endpoint, {param: item_id})
         return bool(response) and not response.get("_network_error")
 
+    # === Play history ===
+
+    async def scrobble(self, song_id: str, submission: bool = True) -> bool:
+        """Register a listen (Subsonic ``scrobble``).
+
+        This is the ONLY thing that feeds Navidrome's ``play_date``/``play_count``
+        — and therefore ``getAlbumList2`` ``type=recent``/``frequent``. Fetching
+        ``stream`` never counts: OpenSubsonic forbids servers from treating it as
+        a play, so without this call the listening history stays empty forever.
+
+        ``submission=False`` is the "now playing" ping (shows the track as
+        currently playing, counts nothing); ``submission=True`` is the play
+        itself. Subsonic's optional ``time`` is not sent — every call here is
+        made as the track plays, which is what Navidrome assumes without it.
+        """
+        response = await self._make_request(
+            "scrobble", {"id": song_id, "submission": str(submission).lower()}
+        )
+        return bool(response) and not response.get("_network_error")
+
     # === Playback / media URLs ===
 
     def stream_url(self, song_id: str) -> str:

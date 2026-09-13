@@ -31,6 +31,11 @@ class MpvAudioSource(BaseAudioSource):
     # Frontend interpolates locally, so this is just drift correction.
     POSITION_SYNC_INTERVAL = 30
 
+    # Seconds between two _on_monitor_tick() calls. Declared here because it is
+    # the loop below that sets it, and a subclass counting elapsed playback in
+    # ticks (music_library's scrobble threshold) needs the same number.
+    MONITOR_TICK_S = 1.0
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._mpv_socket = self._config.get(
@@ -102,7 +107,7 @@ class MpvAudioSource(BaseAudioSource):
         mpv_was_up = False
         try:
             while True:
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(self.MONITOR_TICK_S)
 
                 # Per-pass, not around the loop: one raising hook used to end
                 # the monitor for the rest of the session — no disconnect

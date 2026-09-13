@@ -341,6 +341,39 @@ class TestWhatTheSentinelDecides:
 
 
 # =============================================================================
+# The one call that writes listening history
+# =============================================================================
+
+class TestScrobbleWire:
+    """`scrobble` is the only thing that feeds play_date/play_count, and the wire
+    spelling IS the contract: OpenSubsonic servers must not count a `stream`
+    fetch as a play, and Navidrome records one only for `submission=true`. A
+    parameter named or spelled differently is a listening history that stays
+    empty with every call answering 200."""
+
+    async def test_a_play_is_submitted_as_the_lowercase_string_subsonic_reads(self, client):
+        session = attach(client, _Response(json_body=ok({})))
+
+        assert await client.scrobble("s-1") is True
+        assert session.calls[0][0] == f"{BASE}/rest/scrobble"
+        assert session.params(0)["id"] == ["s-1"]
+        assert session.params(0)["submission"] == ["true"]
+
+    async def test_now_playing_says_so_rather_than_counting_a_play(self, client):
+        session = attach(client, _Response(json_body=ok({})))
+
+        assert await client.scrobble("s-1", submission=False) is True
+        assert session.params(0)["submission"] == ["false"]
+
+    async def test_an_unreachable_sidecar_is_a_play_not_recorded(self, client):
+        """The caller logs and moves on; claiming True would be a play the
+        history never got."""
+        attach(client, aiohttp.ClientOSError(111, "Connection refused"))
+
+        assert await client.scrobble("s-1") is False
+
+
+# =============================================================================
 # The URL mpv is handed
 # =============================================================================
 
