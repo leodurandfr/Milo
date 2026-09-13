@@ -36,10 +36,24 @@ from backend.sources.podcast.routes import setup_podcast_routes
 from backend.sources.podcast.source import VALID_PLAYBACK_SPEEDS
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def settings(monkeypatch):
-    """Stand in for the global `get_service("settings_service")` the discovery
-    and search handlers import inside their own body."""
+    """Stand in for the global `get_service("settings_service")` the route
+    handlers import inside their own body.
+
+    Autouse, because reaching the real registry is not a thing a test opts into
+    by forgetting. Every route that reads the Apple storefront goes through
+    `_itunes_country()` -> `_user_locale()` -> `get_service("settings_service")`,
+    so the series, episode and latest-episode handlers need this exactly as much
+    as discovery and search do — they just never asked for it. Unpatched, a real
+    `SettingsService` is built against `/var/lib/milo` and writes its defaults
+    there whenever `settings.json` is absent — which conftest's appliance-write
+    guard then fails the test for, by name.
+
+    That is invisible on the appliance, where the file always exists and no
+    write happens, and fires on every clean checkout: it is what turned CI red
+    on 2026-09-10 while `pytest` stayed green on the unit.
+    """
     svc = Mock()
     svc.load_settings = AsyncMock(return_value={"language": "french"})
     monkeypatch.setattr("backend.dependencies.get_service", lambda name: svc)
