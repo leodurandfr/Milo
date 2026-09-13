@@ -128,6 +128,8 @@ watch(trackKey, () => lyricsStore.loadLyrics());
 // - a source with no plausible track metadata (bluetooth/mac/podcast) → "not compatible"
 // - radio playing but no track recognized yet (neither Shazam nor in-band) → "no song detected"
 // - a compatible source with no track loaded → "nothing playing"
+// - a track identity is known but LRCLIB refused to answer → "service unavailable",
+//   which is the one of these the reader should respond to by reopening the view
 // - a track identity is known and a lookup completed with found=false → "no lyrics found for",
 //   with the searched title/artist shown below (same track values loadLyrics() searched with).
 const emptyState = computed(() => {
@@ -144,6 +146,9 @@ const emptyState = computed(() => {
       message: source === 'radio' ? t('lyrics.noTrackDetected') : t('lyrics.notPlaying'),
       showTrack: false
     };
+  }
+  if (lyricsStore.unavailable) {
+    return { message: t('lyrics.unavailable'), showTrack: true };
   }
   return { message: t('lyrics.noLyrics'), showTrack: true };
 });

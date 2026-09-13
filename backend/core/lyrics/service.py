@@ -20,8 +20,10 @@ Three answers, and the whole point of this module is keeping them apart:
 - **LRCLIB did not answer** — `LyricsUnavailable`, cached nowhere, so the next
   open retries (the route maps it to a 200 + status=error, which the frontend
   also skips caching). *Any* status other than 200 or the `/get` 404 is this
-  case: lrclib.net answers `503 ServerOverloaded` in bursts, and reading that
-  as "this track has no lyrics" is what wrote permanent negatives to disk.
+  case: lrclib.net answers `503 ServerOverloaded` to a few percent of calls,
+  and reading that as "this track has no lyrics" is what wrote permanent
+  negatives to disk. A 5xx is retried once before it counts as an outage at all
+  (see `_request`), which is what makes this answer rare rather than weekly.
 
 The **album is deliberately not part of the query or the cache key**. LRCLIB
 filters `album_name` by exact string match with no tolerance, against free text
@@ -44,7 +46,7 @@ import re
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiofiles
 import aiohttp
@@ -54,6 +56,9 @@ logger = logging.getLogger("core.lyrics")
 _LRCLIB_BASE = "https://lrclib.net/api"
 _HTTP_TIMEOUT = 8
 _MIN_INTERVAL = 0.3  # polite spacing between LRCLIB calls (serialised by lock)
+# How long a 5xx waits before its one retry. Long enough to clear the overload
+# that caused it, short enough to stay inside the lookup the reader is waiting on.
+_RETRY_DELAY = 0.8
 _MEM_CACHE_MAX = 256
 # How long a "this track has no lyrics" answer is trusted. A week is one query
 # per lyricless track per week — nothing against a cache that otherwise answers
@@ -69,6 +74,25 @@ _CACHE_FIELDS = ("found", "synced", "plain", "checked_at")
 # match key and the search-fallback query (e.g. "(feat. X)", "- Remastered 2011").
 _PARENS_RE = re.compile(r"\s*[\(\[][^)\]]*[\)\]]")
 _SUFFIX_RE = re.compile(r"\s*-\s.*$")
+# Featuring credits, which tags carry and LRCLIB's own records mostly do not:
+# "Dr. Dre Feat. Mary J. Blige" → "Dr. Dre". Measured on that track, LRCLIB
+# stores the artist as "Dr. Dre feat. Mary J. Blige & Rell", so the tagged string
+# 404s on /get and drags every featuring track onto the fuzzy path — where it
+# loses a second time, the search ranking a 304 s variant above the 330 s one the
+# file actually is. On "Dr. Dre" both endpoints answer on the first call. `&` is
+# deliberately left alone: "Earth, Wind & Fire" and "Eminem & Dr. Dre" are names,
+# not credits, and LRCLIB stores them whole. Two bounds keep the strip honest:
+# the lookbehind, because a credit always FOLLOWS something ("Ft. Worth Blues"
+# and "Featuring the Sound" are whole names, and without it they cleaned to the
+# empty string); and the dot required on bare "ft", because "ft" is also feet
+# ("10 Ft Tall" -> "10"). A Fort abbreviated "Ft." is the known residual — rarer
+# in a music library than the credit, and it costs a fuzzy search, not an error.
+_FEAT_RE = re.compile(
+    r"(?<=\S)\s+(?:\b(?:feat|featuring)\b\.?|\bft\.)\s+.*$", re.IGNORECASE
+)
+# What a credit introduced by " - " leaves behind once it is gone, in the one
+# path that does not also run _SUFFIX_RE: "Forever - feat. Drake" -> "Forever -".
+_DANGLING_SEP_RE = re.compile(r"\s*-\s*$")
 # One LRC line = one or more [mm:ss.xx] stamps followed by the lyric text.
 _LRC_LINE_RE = re.compile(r"((?:\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\])+)(.*)")
 _LRC_TS_RE = re.compile(r"\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]")
@@ -118,10 +142,36 @@ def _is_well_formed(record: Any) -> bool:
 
 
 def _clean(text: str) -> str:
-    """Strip parentheticals + trailing suffixes for matching (display keeps them)."""
-    text = _PARENS_RE.sub("", text or "")
+    """Strip parentheticals, trailing suffixes and featuring credits for matching
+    (display keeps them).
+
+    Order matters: the suffix rule runs first, so "Forever - feat. Drake" loses
+    the whole tail rather than leaving the dangling "Forever -" the credit rule
+    alone would (it strips from the word, and `- ` needs something after it).
+
+    Never returns the empty string. "(Untitled)" and "- Remastered" are titles
+    made entirely of what this strips, and an empty query is a guaranteed miss
+    cached as a week-long negative — the raw text at least has a chance.
+    """
+    original = (text or "").strip()
+    text = _PARENS_RE.sub("", original)
     text = _SUFFIX_RE.sub("", text)
-    return text.strip()
+    text = _FEAT_RE.sub("", text)
+    return text.strip() or original
+
+
+def _strip_credit(text: str) -> str:
+    """Drop a featuring credit and nothing else — what the exact match needs.
+
+    `_clean` is the matching normalizer: it also drops parentheticals and
+    trailing suffixes, which is right for the fuzzy search and the cache key and
+    wrong here. LRCLIB's /get compares the title as an exact string, and
+    "(Don't Fear) The Reaper", "Hurt (Live)" and "Lolo (Intro)" are how it
+    stores them — cleaning those away turns a match into a guaranteed 404 and
+    hands the track to the duration-blind search. The credit is the one piece
+    both sides agree is noise: LRCLIB files it under the lead artist.
+    """
+    return _DANGLING_SEP_RE.sub("", _FEAT_RE.sub("", text or "")).strip()
 
 
 def _parse_lrc(lrc: str) -> Optional[List[Dict[str, Any]]]:
@@ -215,18 +265,26 @@ class LyricsService:
     ) -> Dict[str, Any]:
         """Resolve a track via LRCLIB: exact match first, fuzzy search on a miss.
 
+        A "miss" is three things, not one: LRCLIB has no such track (404), it
+        refused to answer (5xx, after `_request` spent the retry), or it answered
+        with a record carrying no lyrics at all. The third is the one that reads
+        like success and is not — see below.
+
         Returns the normalized result — found may be False, which is an answer
         and is cached. Raises LyricsUnavailable only if LRCLIB answered neither
         call, which is not an answer and is cached nowhere.
         """
-        params = {"artist_name": artist, "track_name": title}
+        # The credit only, never the full `_clean` — see `_strip_credit`. Measured:
+        # "Dr. Dre Feat. Mary J. Blige" 404s here where "Dr. Dre" answers, because
+        # LRCLIB files the track under the lead artist. Duration stays the
+        # discriminator the stripped credit pretended to be: /get matches it ±2 s.
+        params = {"artist_name": _strip_credit(artist), "track_name": _strip_credit(title)}
         if duration_ms:
             params["duration"] = str(round(duration_ms / 1000))
         try:
             timeout = aiohttp.ClientTimeout(total=_HTTP_TIMEOUT)
             headers = {"User-Agent": _USER_AGENT}
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-                await self._throttle()
                 try:
                     record = await self._get(session, params)
                 except LyricsUnavailable as e:
@@ -239,28 +297,71 @@ class LyricsService:
                     # answer, and only then is nothing cached.
                     logger.info("LRCLIB exact match unavailable (%s) — searching", e)
                     record = None
-                if record is None:
-                    # Exact match missed (wrong/absent duration, tag noise) or
-                    # refused — retry with a fuzzy search on the normalized
-                    # artist/title.
-                    await self._throttle()
-                    record = await self._search(session, artist, title)
+                # Resolved here rather than at the return, because whether the
+                # exact record actually carries lyrics is what decides if the
+                # search still gets its turn.
+                #
+                # An exact record with nothing in it is not an answer. LRCLIB's
+                # copy for a given (artist, title, duration) can be a stub, and
+                # it can be flagged `instrumental` on a track that plainly is not
+                # — measured: its exact record for Dr. Dre's "The Message" is
+                # `instrumental: true` with both lyric fields null, while the
+                # search has the synced lyrics for the same song. Treating that
+                # as a result is a "no lyrics found" on a track LRCLIB has; so a
+                # stub takes the same road as the 404 and the refusal.
+                resolved = _from_record(record)
+                if not resolved["found"]:
+                    resolved = _from_record(await self._search(session, artist, title))
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logger.warning("Lyrics lookup failed for %s - %s: %s", artist, title, e)
             raise LyricsUnavailable(f"{artist} - {title}: {e}") from e
-        return _from_record(record)
+        return resolved
+
+    async def _request(
+        self, session: aiohttp.ClientSession, path: str, params: Dict[str, str]
+    ) -> Tuple[int, Any]:
+        """One LRCLIB call, retried once on a 5xx. Returns (status, body or None).
+
+        lrclib.net does not fail in sustained outages — it refuses a few percent
+        of calls at random with 503 ServerOverloaded. Measured on this unit: one
+        call in twenty, and the immediate retry succeeded. A lookup spends two
+        calls, so that was ~10 % of tracks reaching the reader as "no lyrics
+        found" for a track LRCLIB had all along — 40 % of every empty Lyrics
+        screen over a week. One retry takes it to ~0.25 %; a second would buy a
+        thousandth of that and delay a real outage by another second. So: one.
+
+        A 429 is deliberately NOT retried. That one is LRCLIB asking for less
+        traffic, and answering it with a second call is the wrong reply; it
+        propagates as the outage it is, cached nowhere, retried on the next open.
+
+        The politeness spacing lives here rather than in `_lookup` so that it
+        counts the retry too — it is an LRCLIB call like any other.
+        """
+        status = 0
+        for attempt in (1, 2):
+            if attempt == 2:
+                await asyncio.sleep(_RETRY_DELAY)
+            await self._throttle()
+            async with session.get(f"{_LRCLIB_BASE}/{path}", params=params) as resp:
+                if resp.status == 200:
+                    return resp.status, await resp.json(content_type=None)
+                status = resp.status
+            if status < 500:
+                return status, None
+            logger.info("LRCLIB /%s answered HTTP %s — retrying once", path, status)
+        return status, None
 
     async def _get(
         self, session: aiohttp.ClientSession, params: Dict[str, str]
     ) -> Optional[Dict[str, Any]]:
         """The exact match. None means LRCLIB has no such track — a 404 is the
         one non-200 status that is an answer rather than a failure."""
-        async with session.get(f"{_LRCLIB_BASE}/get", params=params) as resp:
-            if resp.status == 404:
-                return None
-            if resp.status != 200:
-                raise LyricsUnavailable(f"LRCLIB /get answered HTTP {resp.status}")
-            return await resp.json(content_type=None)
+        status, body = await self._request(session, "get", params)
+        if status == 404:
+            return None
+        if status != 200:
+            raise LyricsUnavailable(f"LRCLIB /get answered HTTP {status}")
+        return body
 
     async def _search(
         self, session: aiohttp.ClientSession, artist: str, title: str
@@ -268,10 +369,9 @@ class LyricsService:
         """The fuzzy fallback. An empty list is a genuine "no lyrics"; anything
         that is not a list of results is LRCLIB failing to answer."""
         params = {"track_name": _clean(title), "artist_name": _clean(artist)}
-        async with session.get(f"{_LRCLIB_BASE}/search", params=params) as resp:
-            if resp.status != 200:
-                raise LyricsUnavailable(f"LRCLIB /search answered HTTP {resp.status}")
-            results = await resp.json(content_type=None)
+        status, results = await self._request(session, "search", params)
+        if status != 200:
+            raise LyricsUnavailable(f"LRCLIB /search answered HTTP {status}")
         if not isinstance(results, list):
             raise LyricsUnavailable("LRCLIB /search answered a non-list body")
         # Prefer a synced hit; else the first with any lyrics.

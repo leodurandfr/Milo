@@ -3,6 +3,7 @@
     "title": "Songtext",
     "loading": "Songtext wird geladen",
     "noLyrics": "Kein Songtext gefunden für",
+    "unavailable": "Songtext-Dienst vorübergehend nicht verfügbar",
     "notPlaying": "Nichts wird abgespielt",
     "notCompatible": "Quelle nicht mit der Songtextsuche kompatibel",
     "noTrackDetected": "Kein Titel erkannt",

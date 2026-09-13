@@ -3,6 +3,7 @@
     "title": "Testo",
     "loading": "Caricamento del testo",
     "noLyrics": "Nessun testo trovato per",
+    "unavailable": "Servizio testi temporaneamente non disponibile",
     "notPlaying": "Nessuna riproduzione",
     "notCompatible": "Sorgente non compatibile con la ricerca del testo",
     "noTrackDetected": "Nessun brano rilevato",

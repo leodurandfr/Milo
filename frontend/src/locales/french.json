@@ -3,6 +3,7 @@
     "title": "Paroles",
     "loading": "Chargement des paroles",
     "noLyrics": "Paroles introuvables pour",
+    "unavailable": "Service de paroles momentanément indisponible",
     "notPlaying": "Aucune lecture en cours",
     "notCompatible": "Source audio non compatible avec la recherche de paroles",
     "noTrackDetected": "Aucune chanson détectée",

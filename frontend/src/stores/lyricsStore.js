@@ -35,6 +35,11 @@ export const useLyricsStore = defineStore('lyrics', () => {
   const found = ref(false);
   const synced = ref(null); // [{ t: <ms>, line: <str> }] | null
   const plain = ref(null); // string | null
+  // LRCLIB refused rather than answered. Distinct from found=false, which is
+  // LRCLIB saying this track has no lyrics: one invites closing the view, the
+  // other invites reopening it. Collapsing them is what made an outage read as
+  // "Paroles introuvables" on a track LRCLIB had all along.
+  const unavailable = ref(false);
 
   // The track the current lyrics belong to (for the modal's empty-state copy).
   const trackArtist = ref('');
@@ -167,6 +172,7 @@ export const useLyricsStore = defineStore('lyrics', () => {
 
     // Nothing playing, or a mute receiver with no metadata → empty state, no request.
     if (!artist || !title) {
+      unavailable.value = false;
       found.value = false;
       synced.value = null;
       plain.value = null;
@@ -178,6 +184,7 @@ export const useLyricsStore = defineStore('lyrics', () => {
     const key = `${artist}|||${title}`;
     const cached = cache.get(key);
     if (cached) {
+      unavailable.value = false;
       found.value = cached.found;
       synced.value = cached.synced;
       plain.value = cached.plain;
@@ -187,6 +194,7 @@ export const useLyricsStore = defineStore('lyrics', () => {
 
     // Miss → reset before the request resolves so the previous track's lyrics
     // never flash on a new one (Option A: refetch per track change).
+    unavailable.value = false;
     found.value = false;
     synced.value = null;
     plain.value = null;
@@ -227,7 +235,11 @@ export const useLyricsStore = defineStore('lyrics', () => {
       if (found.value) {
         cache.set(key, { found: true, synced: synced.value, plain: plain.value });
       }
+      return;
     }
+    // Nothing is cached here either way, so reopening retries — and now the
+    // empty state can say so instead of blaming the track.
+    unavailable.value = true;
   }
 
   // Opened from the dock, over whichever source view is currently on screen
@@ -242,7 +254,7 @@ export const useLyricsStore = defineStore('lyrics', () => {
 
   return {
     isOpen, open, close,
-    loading, found, synced, plain, trackArtist, trackTitle, trackLine, loadLyrics,
+    loading, found, unavailable, synced, plain, trackArtist, trackTitle, trackLine, loadLyrics,
     syncOffsetMs, loadSyncOffset,
     getScrollPosition, saveScrollPosition
   };

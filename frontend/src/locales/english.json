@@ -3,6 +3,7 @@
     "title": "Lyrics",
     "loading": "Loading the lyrics",
     "noLyrics": "No lyrics found for",
+    "unavailable": "Lyrics service temporarily unavailable",
     "notPlaying": "Nothing playing",
     "notCompatible": "Source not compatible with lyrics search",
     "noTrackDetected": "No song detected",

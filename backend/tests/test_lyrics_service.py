@@ -33,6 +33,7 @@ from backend.core.lyrics.service import (
     LyricsService,
     LyricsUnavailable,
     _clean,
+    _strip_credit,
     _from_record,
     _is_fresh,
     _is_well_formed,
@@ -131,12 +132,93 @@ class TestClean:
     def test_strips_trailing_suffix(self):
         assert _clean("Song - Remastered 2011") == "Song"
 
+    @pytest.mark.parametrize("artist", [
+        "Dr. Dre Feat. Mary J. Blige",
+        "Dr. Dre feat. Mary J. Blige",
+        "Dr. Dre ft. Mary J. Blige",
+        "Dr. Dre featuring Mary J. Blige",
+    ])
+    def test_strips_a_featuring_credit_whatever_its_spelling(self, artist):
+        """Measured against LRCLIB: the tagged string 404s on `/get` and ranks a
+        304 s variant first on `/search`, while the stripped one answers the
+        exact 330 s record on the first call. Tags spell the credit four ways
+        and LRCLIB stores none of them."""
+        assert _clean(artist) == "Dr. Dre"
+
+    def test_a_credit_after_a_separator_takes_the_separator_with_it(self):
+        """`_SUFFIX_RE` runs before the credit rule for this: stripping from the
+        word alone leaves "Forever -", a dangling hyphen that reaches the query
+        and the cache key."""
+        assert _clean("Forever - feat. Drake") == "Forever"
+
+    @pytest.mark.parametrize("name", ["10 Ft Tall", "30 ft down"])
+    def test_bare_ft_is_feet_not_a_credit(self, name):
+        """"ft" without a dot is a unit far more often than an abbreviation, and
+        truncating "10 Ft Tall" to "10" is a query that can only miss."""
+        assert _clean(name) == name
+
+    @pytest.mark.parametrize("title", ["(Untitled)", "- Remastered"])
+    def test_a_title_made_only_of_strippable_parts_survives(self, title):
+        """`_clean` must never hand back "". These are real titles made entirely
+        of what it strips, and an empty query is a guaranteed miss — cached as a
+        week-long negative on a track that was never actually asked about."""
+        assert _clean(title) == title
+
+    @pytest.mark.parametrize("name", [
+        "Ft. Worth Blues",
+        "Featuring the Sound",
+    ])
+    def test_a_name_that_opens_on_the_word_is_left_whole(self, name):
+        """A credit always follows something. Without that bound, a real title
+        starting on the word collapses to the empty string — and an empty
+        track_name is a query that can only miss, silently, forever."""
+        assert _clean(name) == name
+
+    @pytest.mark.parametrize("artist", [
+        "Earth, Wind & Fire",
+        "Eminem & Dr. Dre",
+        "Daft Punk",
+        "Fatboy Slim",
+    ])
+    def test_an_ampersand_or_an_embedded_ft_is_part_of_the_name(self, artist):
+        """`&` joins credited artists in a name LRCLIB stores whole, so stripping
+        it would search for "Earth, Wind". And "ft" inside a word ("Daft",
+        "Fatboy") is not a credit — the boundary is what keeps it from being one."""
+        assert _clean(artist) == artist
+
     def test_trims_whitespace(self):
         assert _clean("  Song  ") == "Song"
 
     def test_tolerates_empty(self):
         assert _clean("") == ""
         assert _clean(None) == ""
+
+
+class TestStripCredit:
+    """`_strip_credit` — the narrow normalizer the exact match uses.
+
+    `/get` compares the title as an exact string. Running the full `_clean` on it
+    turns a match into a guaranteed 404 and hands the track to the duration-blind
+    fuzzy search, which is the failure this whole path exists to avoid.
+    """
+
+    @pytest.mark.parametrize("title", [
+        "(Don't Fear) The Reaper",
+        "Hurt (Live)",
+        "Lolo (Intro)",
+        "Saa Magni - 2003 Remaster",
+    ])
+    def test_what_lrclib_stores_is_left_whole(self, title):
+        assert _strip_credit(title) == title
+
+    def test_the_credit_is_still_dropped(self):
+        """The one piece both sides agree is noise: LRCLIB files the track under
+        the lead artist. Measured — "Dr. Dre Feat. Mary J. Blige" 404s on `/get`
+        where "Dr. Dre" answers."""
+        assert _strip_credit("Dr. Dre Feat. Mary J. Blige") == "Dr. Dre"
+
+    def test_a_separator_left_behind_goes_too(self):
+        assert _strip_credit("Forever - feat. Drake") == "Forever"
 
 
 class TestFromRecord:
@@ -418,6 +500,57 @@ class TestGetEndpoint:
         assert await service._get(_session(200, record), {}) == record
 
 
+class TestRetry:
+    """`_request` — the one retry a 5xx earns, and the one a 429 does not.
+
+    Measured on this unit: lrclib.net refuses ~5 % of calls at random with 503
+    ServerOverloaded, and the immediate retry succeeds. A lookup spends two
+    calls, so without this the reader saw "no lyrics found" on ~10 % of tracks
+    LRCLIB had — 40 % of every empty Lyrics screen over a week of listening.
+    """
+
+    async def test_a_5xx_is_retried_and_the_second_answer_stands(self, service):
+        session = _SessionRecorder([(503, None), (200, {"plainLyrics": "words"})])
+
+        record = await service._get(session, {})
+
+        assert record == {"plainLyrics": "words"}
+        assert len(session.requests) == 2
+
+    async def test_a_retried_exact_match_never_reaches_the_search(
+        self, service, monkeypatch, no_throttle
+    ):
+        """The point of the retry: a 503 that clears must resolve on the exact
+        match, which carries the duration. Falling through to the fuzzy search
+        anyway would keep the failure mode the retry exists to remove."""
+        session = _SessionRecorder([(503, None), (200, {"plainLyrics": "words"})])
+        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
+
+        result = await service._lookup("Artist", "Title", 200_000)
+
+        assert result["found"] is True
+        assert [url for url, _ in session.requests] == ["https://lrclib.net/api/get"] * 2
+
+    async def test_a_429_is_not_retried(self, service):
+        """A 429 is LRCLIB asking for less traffic. Answering it with a second
+        call is the wrong reply, so it propagates as the outage it is — which
+        caches nothing and is retried on the next open instead."""
+        session = _SessionRecorder([(429, None)])
+
+        with pytest.raises(LyricsUnavailable):
+            await service._get(session, {})
+
+        assert len(session.requests) == 1
+
+    async def test_a_404_is_not_retried(self, service):
+        """It is an answer, not a refusal — retrying it would double every
+        lookup for a track LRCLIB genuinely does not have."""
+        session = _SessionRecorder([(404, None)])
+
+        assert await service._get(session, {}) is None
+        assert len(session.requests) == 1
+
+
 class TestSearchSelection:
     async def test_prefers_a_synced_result_over_an_earlier_plain_one(self, service):
         body = [
@@ -487,6 +620,18 @@ class _SessionRecorder:
         return _Resp(*reply)
 
 
+@pytest.fixture(autouse=True)
+def no_retry_delay(monkeypatch):
+    """Collapse the wait before a 5xx retry, everywhere.
+
+    Autouse because the retry is not a path a test opts into: any test feeding a
+    5xx pays it, including the parametrized outage cases on both endpoints. The
+    delay's value is never asserted — only that the second call happens — so
+    zeroing it here costs no coverage.
+    """
+    monkeypatch.setattr("backend.core.lyrics.service._RETRY_DELAY", 0)
+
+
 @pytest.fixture
 def no_throttle(monkeypatch):
     """Collapse the 0.3 s politeness spacing.
@@ -528,6 +673,33 @@ class TestLookup:
             "track_name": "So What",
             "duration": "545",
         }
+
+    async def test_the_exact_lookup_drops_the_credit_and_keeps_the_title_whole(
+        self, service, monkeypatch, no_throttle
+    ):
+        """`/get` must ask for what `_cache_key` keyed on, not the raw tag.
+
+        The key has always normalized through `_clean` while the query sent the
+        raw string, so two spellings sharing one cache entry were only ever
+        Two halves, and they pull in opposite directions. The credit must go:
+        measured, "Dr. Dre Feat. Mary J. Blige" 404s on `/get` and ranks a 304 s
+        variant first on `/search`, where "Dr. Dre" reaches the 330 s take the
+        file actually is. The parenthetical must stay: `/get` matches the title
+        as an exact string, so `_clean`'s "Lolo" for "Lolo (Intro)" would 404 a
+        track LRCLIB has. Hence `_strip_credit` rather than `_clean` here.
+        """
+        session = _SessionRecorder([(200, {"plainLyrics": "words"})])
+        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
+
+        await service._lookup("Dr. Dre Feat. Mary J. Blige", "Lolo (Intro)", 330_000)
+
+        _, params = session.requests[0]
+        assert params["artist_name"] == "Dr. Dre"
+        # The parenthetical stays: `/get` matches the title as an exact string and
+        # "Lolo (Intro)" is how LRCLIB stores it. Sending `_clean`'s "Lolo" here
+        # 404s every such track onto the duration-blind search.
+        assert params["track_name"] == "Lolo (Intro)"
+        assert params["duration"] == "330"
 
     async def test_the_album_is_never_sent(self, service, monkeypatch, no_throttle):
         """LRCLIB filters `album_name` by exact string match, with none of the
@@ -589,14 +761,19 @@ class TestLookup:
         """
         session = _SessionRecorder([
             (503, {"name": "ServerOverloaded"}),
+            (503, {"name": "ServerOverloaded"}),
             (200, [{"syncedLyrics": "[00:01.00]found by search"}]),
         ])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
         result = await service._lookup("Artist", "Title", None)
 
+        # Two `/get` calls, because a 5xx earns one retry before it counts as a
+        # refusal at all — and only then does the search get its turn.
         assert [url for url, _ in session.requests] == [
-            "https://lrclib.net/api/get", "https://lrclib.net/api/search",
+            "https://lrclib.net/api/get",
+            "https://lrclib.net/api/get",
+            "https://lrclib.net/api/search",
         ]
         assert result["found"] is True
 
@@ -605,23 +782,64 @@ class TestLookup:
     ):
         """The other half of the rule above: when neither endpoint answered,
         there is no answer to cache and the next open must retry."""
-        session = _SessionRecorder([(503, None), (503, None)])
+        session = _SessionRecorder([(503, None)] * 4)
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
         with pytest.raises(LyricsUnavailable):
             await service._lookup("Artist", "Title", None)
 
-        assert len(session.requests) == 2
+        # Both endpoints, each having spent its retry: four refusals is what it
+        # now takes for LRCLIB to have genuinely not answered.
+        assert len(session.requests) == 4
+
+    async def test_an_exact_match_carrying_no_lyrics_still_reaches_the_search(
+        self, service, monkeypatch, no_throttle
+    ):
+        """A record is not an answer — lyrics are.
+
+        Measured against LRCLIB: its exact record for Dr. Dre's "The Message"
+        is flagged `instrumental` with both lyric fields null, on a track that
+        plainly is not instrumental, while `/search` has the synced lyrics for
+        the same song. Ending the lookup on a 200 that carries nothing reports
+        "no lyrics found" for a track LRCLIB has — the exact bug the fuzzy
+        fallback exists to prevent, reached through the front door.
+        """
+        session = _SessionRecorder([
+            (200, {"instrumental": True, "plainLyrics": None, "syncedLyrics": None}),
+            (200, [{"syncedLyrics": "[00:01.00]found by search"}]),
+        ])
+        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
+
+        result = await service._lookup("Artist", "Title", 200_000)
+
+        assert result["found"] is True
+        assert [url for url, _ in session.requests] == [
+            "https://lrclib.net/api/get", "https://lrclib.net/api/search",
+        ]
+
+    async def test_a_genuinely_empty_pair_stays_a_negative(
+        self, service, monkeypatch, no_throttle
+    ):
+        """The other side: when the search has nothing either, the stub was the
+        truth and the answer is a real negative, cached like any other."""
+        session = _SessionRecorder([(200, {"instrumental": True}), (200, [])])
+        monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
+
+        assert await service._lookup("Artist", "Title", None) == _miss()
 
     async def test_a_refused_exact_match_then_an_empty_search_is_a_negative(
         self, service, monkeypatch, no_throttle
     ):
         """The search answered — it searched and found nothing. That is a real
         result even though the exact match refused, and it is cached."""
-        session = _SessionRecorder([(503, None), (200, [])])
+        session = _SessionRecorder([(503, None), (503, None), (200, [])])
         monkeypatch.setattr("backend.core.lyrics.service.aiohttp.ClientSession", session)
 
         assert await service._lookup("Artist", "Title", None) == _miss()
+        # The empty list must be the SEARCH answering, not a retried `/get`
+        # swallowing it — which is how this test once passed while asserting
+        # nothing: `_from_record([])` is falsy, so the miss looked identical.
+        assert session.requests[-1][0] == "https://lrclib.net/api/search"
 
     async def test_a_hit_on_the_exact_match_does_not_search(
         self, service, monkeypatch, no_throttle

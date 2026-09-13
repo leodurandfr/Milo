@@ -3,6 +3,7 @@
     "title": "歌词",
     "loading": "正在加载歌词",
     "noLyrics": "未找到歌词",
+    "unavailable": "歌词服务暂时不可用",
     "notPlaying": "未在播放",
     "notCompatible": "该音源不支持歌词搜索",
     "noTrackDetected": "未检测到歌曲",

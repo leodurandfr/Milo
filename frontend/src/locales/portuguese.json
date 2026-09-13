@@ -3,6 +3,7 @@
     "title": "Letra",
     "loading": "Carregando a letra",
     "noLyrics": "Nenhuma letra encontrada para",
+    "unavailable": "Serviço de letras temporariamente indisponível",
     "notPlaying": "Nada em reprodução",
     "notCompatible": "Fonte não compatível com a busca de letras",
     "noTrackDetected": "Nenhuma música detectada",

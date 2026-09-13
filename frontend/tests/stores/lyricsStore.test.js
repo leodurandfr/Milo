@@ -216,4 +216,43 @@ describe('lyricsStore — what loadLyrics asks for, and what it keeps', () => {
     expect(apiCall.get).toHaveBeenCalledTimes(2);
     expect(store.found).toBe(false);
   });
+
+  // The empty state reads `unavailable` to choose between two opposite messages:
+  // "this track has no lyrics" (close the view) and "the service refused" (reopen
+  // it). They were one screen, so a 503 burst reached the reader as a statement
+  // about their track — which is how a track LRCLIB had all along was reported
+  // as having no lyrics.
+  it('marks a refused lookup unavailable, not lyricless', async () => {
+    lyricsFor('The Message', 'Dr. Dre Feat. Mary J. Blige');
+    apiCall.get.mockResolvedValue(fail('unreachable'));
+
+    await store.loadLyrics();
+
+    expect(store.unavailable).toBe(true);
+    expect(store.found).toBe(false);
+  });
+
+  it('leaves a genuine no-match alone, which is an answer about the track', async () => {
+    lyricsFor('Laguna', 'Moussa');
+    apiCall.get.mockResolvedValue(ok({ status: 'success', found: false, synced: null, plain: null }));
+
+    await store.loadLyrics();
+
+    expect(store.unavailable).toBe(false);
+    expect(store.found).toBe(false);
+  });
+
+  it('clears the outage once the service answers again', async () => {
+    lyricsFor('Laguna', 'Moussa');
+    apiCall.get.mockResolvedValueOnce(fail('unreachable'));
+    await store.loadLyrics();
+
+    apiCall.get.mockResolvedValueOnce(ok({
+      status: 'success', found: true, synced: [{ t: 0, line: 'a' }], plain: 'a',
+    }));
+    await store.loadLyrics();
+
+    expect(store.unavailable).toBe(false);
+    expect(store.found).toBe(true);
+  });
 });
