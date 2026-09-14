@@ -146,12 +146,13 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
    * Apply a storage picture — the WS push and the initial GET share this, so
    * both paths land identically.
    */
-  function applyStorages({ storages: list, scanning }) {
+  function applyStorages({ storages: list, scanning, catalog_ready: ready }) {
     if (Array.isArray(list)) {
       storages.value = list;
       storagesLoaded.value = true;
     }
     if (typeof scanning === 'boolean') applyScanning(scanning);
+    if (typeof ready === 'boolean') catalogReady.value = ready;
   }
 
   async function loadStorages({ force = false } = {}) {
@@ -747,6 +748,13 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   const isScanning = computed(() => scanning.value);
 
+  // Whether Navidrome answers at all. False while it boots, restarts, or comes
+  // back from an update — and during that window every count reads zero and
+  // every list comes back empty, which is exactly what a storage space holding
+  // no music looks like. The view needs the difference: the generic empty state
+  // tells someone whose NAS is mounted and full to go connect a NAS.
+  const catalogReady = ref(true);
+
   // Tracks indexed in the storage space on screen. This is the honest progress
   // figure: Navidrome's global scan status reports a `count` that does NOT move
   // until a scan ends (it read 2419 — the previous scan's total — for all 18
@@ -790,6 +798,16 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // new library set, so there is nothing to refetch before this runs.
   watch(isScanning, (now, before) => {
     if (now || !before) return;
+    reloadCachedLists();
+  });
+
+  // Navidrome answering again is the same kind of event: whatever was fetched
+  // while it was down was cached as an empty catalog, and no scan is coming to
+  // clear it — a restart is not a scan. Without this the lists stay empty until
+  // the source itself is restarted, which is what a Navidrome update looked like
+  // from the browser.
+  watch(catalogReady, (now, before) => {
+    if (!now || before) return;
     reloadCachedLists();
   });
 
@@ -1115,6 +1133,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
     // Scan state (pushed with the storage list)
     isScanning,
+    catalogReady,
     activeStorageTrackCount,
     rescan,
 

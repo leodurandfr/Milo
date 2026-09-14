@@ -501,9 +501,11 @@ class MusicLibrarySource(MpvAudioSource):
         entries = await self._shares.storages_with_stats()
         await self._stop_if_storage_gone(entries)
         if self.state_machine:
+            scan = self._shares.scan_state()
             await self.state_machine.broadcast(MusicLibraryStoragesChanged(
                 storages=entries,
-                scanning=bool(self._shares.scan_state().get("scanning")),
+                scanning=bool(scan.get("scanning")),
+                catalog_ready=bool(scan.get("catalog_ready")),
             ))
 
     async def _stop_if_storage_gone(self, entries: List[Dict[str, Any]]) -> None:

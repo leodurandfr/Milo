@@ -568,6 +568,8 @@
     "building": "A construir a biblioteca...",
     "buildingHint": "A indexar a sua música. Isto pode demorar alguns minutos.",
     "buildingProgress": "{count} faixas indexadas...",
+    "catalogStarting": "A iniciar o catálogo...",
+    "catalogStartingHint": "O catálogo musical está a iniciar. A sua biblioteca aparece dentro de momentos.",
     "queueEmpty": "Nada na fila",
     "queueEmptyHint": "Reproduza um álbum, playlist ou faixa para criar uma fila.",
     "albumsCount": "{count} álbuns",

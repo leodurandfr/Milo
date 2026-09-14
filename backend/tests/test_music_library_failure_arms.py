@@ -30,6 +30,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from backend.sources.music_library import storage as storage_mod
 from backend.sources.music_library.libraries import NavidromeLibraryService
+from backend.sources.music_library.navidrome_client import ScanRequest, ScanStatus
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.sources.music_library.storage import StorageManager
 
@@ -382,8 +383,8 @@ class TestDeferredScan:
         held a core for two and a half minutes before this bound existed. A
         double that runs out of answers turns that into a red in milliseconds."""
         client = AsyncMock()
-        client.start_scan = AsyncMock(return_value=True)
-        polls = iter([{"scanning": True}] * 6)
+        client.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
+        polls = iter([ScanStatus(available=True, scanning=True)] * 6)
 
         async def _status():
             try:
@@ -418,7 +419,8 @@ class TestDeferredScan:
         self, manager, navidrome
     ):
         navidrome.get_scan_status = AsyncMock(
-            side_effect=[{"scanning": True}, {"scanning": False}]
+            side_effect=[ScanStatus(available=True, scanning=True),
+                         ScanStatus(available=True, scanning=False)]
         )
 
         await manager._scan_when_idle()

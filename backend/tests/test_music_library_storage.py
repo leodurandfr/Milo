@@ -6,12 +6,14 @@ helpers (mocked subprocess), the devnode→mountpoint bookkeeping, and the
 Navidrome rescan trigger. The pyudev monitor thread itself needs real udev
 events and is exercised on the Pi, not here.
 """
+import logging
 import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from backend.config.constants import MILO_MOUNT_CMD, MILO_UMOUNT_CMD
+from backend.sources.music_library.navidrome_client import ScanRequest, ScanStatus
 from backend.sources.music_library.storage import StorageManager
 
 
@@ -45,14 +47,14 @@ def _scan_status(scanning):
     """One getScanStatus reply. Navidrome answers startScan with "ok" even when
     it drops the request, so this reply is the manager's ONLY way to know a scan
     is already running — see StorageManager.request_scan."""
-    return {"scanning": scanning, "count": 0, "folderCount": 0}
+    return ScanStatus(available=True, scanning=scanning)
 
 
 @pytest.fixture
 def navidrome():
     """A provisioned Navidrome client that records scan triggers, idle by default."""
     client = AsyncMock()
-    client.start_scan = AsyncMock(return_value=True)
+    client.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
     client.get_scan_status = AsyncMock(return_value=_scan_status(False))
     return client
 
@@ -387,3 +389,35 @@ async def test_cleanup_cancels_a_pending_waiter(manager, navidrome):
     await manager.cleanup()
     assert pending.cancelled()
     assert manager._deferred_scan is None
+
+
+async def test_a_catalog_that_is_not_up_yet_is_not_reported_as_a_refusal(
+    manager, navidrome, caplog
+):
+    """The mount path fires a scan the moment a key appears — which, at boot, is
+    while Navidrome is still starting. Logged as a refusal it became a warning
+    per plugged-in key, for a daemon that had simply not answered yet."""
+    navidrome.start_scan.return_value = ScanRequest.UNAVAILABLE
+
+    with caplog.at_level(logging.WARNING, logger="source.music_library.storage"):
+        with patch("asyncio.create_subprocess_exec",
+                   return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")):
+            await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
+                                       "host": "nas.local", "path": "music"})
+
+    navidrome.start_scan.assert_awaited_once()
+    assert caplog.records == []
+
+
+async def test_a_scan_navidrome_really_refused_is_still_warned_about(
+    manager, navidrome, caplog
+):
+    navidrome.start_scan.return_value = ScanRequest.REFUSED
+
+    with caplog.at_level(logging.WARNING, logger="source.music_library.storage"):
+        with patch("asyncio.create_subprocess_exec",
+                   return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")):
+            await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
+                                       "host": "nas.local", "path": "music"})
+
+    assert any("refused" in r.getMessage() for r in caplog.records)

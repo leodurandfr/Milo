@@ -34,6 +34,7 @@ from backend.sources.music_library import navidrome_client as module
 from backend.sources.music_library.navidrome_client import (
     NavidromeAuthError,
     NavidromeClient,
+    ScanRequest,
     load_navidrome_credentials,
 )
 
@@ -236,7 +237,9 @@ class TestSubsonicTransport:
     async def test_a_successful_envelope_is_unwrapped(self, client):
         attach(client, _Response(json_body=ok({"scanStatus": {"scanning": True, "count": 12}})))
 
-        assert await client.get_scan_status() == {"scanning": True, "count": 12}
+        status = await client.get_scan_status()
+
+        assert (status.available, status.scanning) == (True, True)
 
     async def test_rejected_credentials_are_raised_not_swallowed(self, client):
         """Subsonic 40/41. The route wrapper turns this into a 503 *and* drops the
@@ -257,7 +260,7 @@ class TestSubsonicTransport:
         attach(client, _Response(json_body=failed(70, "Data not found")))
 
         with caplog.at_level(logging.ERROR, logger="source.music_library.navidrome"):
-            assert await client.get_scan_status() is None
+            assert (await client.get_scan_status()).scanning is None
 
         assert any("70" in r.getMessage() for r in caplog.records)
 
@@ -265,7 +268,7 @@ class TestSubsonicTransport:
         attach(client, _Response(500, body="upstream exploded"))
 
         with caplog.at_level(logging.ERROR, logger="source.music_library.navidrome"):
-            assert await client.get_scan_status() is None
+            assert (await client.get_scan_status()).scanning is None
 
         assert any("upstream exploded" in r.getMessage() for r in caplog.records)
 
@@ -295,24 +298,49 @@ class TestSubsonicTransport:
 class TestWhatTheSentinelDecides:
 
     async def test_a_scan_asked_of_an_absent_sidecar_is_not_a_scan(self, client):
-        """`start_scan` returning True on a call that never happened is what
+        """`start_scan` claiming success on a call that never happened is what
         `request_scan` would read as "indexing is under way": the storage space
         then waits for the hourly pass with nothing said."""
         attach(client, aiohttp.ClientOSError(111, "Connection refused"))
 
-        assert await client.start_scan() is False
+        assert await client.start_scan() is ScanRequest.UNAVAILABLE
+
+    async def test_a_sidecar_that_is_only_booting_has_refused_nothing(self, client):
+        """The distinction the two callers act on. Collapsed into one falsy
+        answer, the seconds Navidrome spends migrating its database after an
+        update were reported as a refusal — an ERROR, so the log banner carried
+        "Navidrome refused the scan request" over a working appliance."""
+        attach(client, _Response(500, body="boom"))
+
+        assert await client.start_scan() is ScanRequest.REFUSED
 
     async def test_a_scan_that_was_accepted_is_incremental(self, client):
         session = attach(client, _Response(json_body=ok({"scanStatus": {"scanning": True}})))
 
-        assert await client.start_scan() is True
+        assert await client.start_scan() is ScanRequest.STARTED
         assert session.calls[0][0] == f"{BASE}/rest/startScan"
         assert session.params(0)["fullScan"] == ["false"]
 
     async def test_scan_status_is_unknown_rather_than_idle_when_unreachable(self, client):
         attach(client, aiohttp.ClientOSError(111, "Connection refused"))
 
-        assert await client.get_scan_status() is None
+        status = await client.get_scan_status()
+
+        # Unreachable is not idle, and it is not scanning either: it is the one
+        # thing the storage list cannot show on its own, since every count it
+        # carries reads zero whether the catalog is empty or merely absent.
+        assert status.available is False
+        # Not False: "idle" read off a failed poll is a scan that just ended,
+        # which drops every catalog cache built from the index before it.
+        assert status.scanning is None
+
+    async def test_a_sidecar_that_answers_badly_is_still_reachable(self, client):
+        """An HTTP or API error came from a server that is up. Folding it into
+        "unavailable" would put the catalog's starting state on screen for a
+        fault that has nothing to do with booting."""
+        attach(client, _Response(500, body="boom"))
+
+        assert (await client.get_scan_status()).available is True
 
     async def test_favourites_are_empty_rather_than_broken_when_unreachable(self, client):
         """The favourites view is a read; an unreachable sidecar shows nothing,

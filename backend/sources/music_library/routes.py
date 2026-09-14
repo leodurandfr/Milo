@@ -70,6 +70,7 @@ from backend.sources.music_library.navidrome_client import (
     ALBUM_LIST_TYPES,
     NavidromeAuthError,
     NavidromeClient,
+    ScanRequest,
 )
 from backend.sources.music_library.source import MusicLibrarySource
 
@@ -613,7 +614,16 @@ async def trigger_scan(
     """
     async with _catalog_errors("Error starting scan", source):
         client = await _require_client(source)
-        if not await client.start_scan():
+        outcome = await client.start_scan()
+        if outcome is ScanRequest.UNAVAILABLE:
+            # The same 503 _require_client serves, for the same reason one step
+            # later: Navidrome restarts on every update and migrates its database
+            # before it listens. Not an error — an error here reaches the log
+            # banner, which is how ten seconds of booting became "Navidrome
+            # refused the scan request" on screen.
+            logger.info("Navidrome is not answering yet; scan not requested")
+            raise HTTPException(status_code=503, detail="Music library catalog not ready")
+        if outcome is ScanRequest.REFUSED:
             logger.error("Navidrome refused the scan request")
             raise HTTPException(status_code=502, detail="Navidrome refused the scan")
         # The catalog is about to change — drop the merged-album cache so the next
@@ -642,9 +652,11 @@ async def list_storages(
     ``source/storages_changed`` WS event, which carries this exact shape.
     """
     async with api_error_handler("Error listing storage spaces", logger):
+        scan = source.shares.scan_state()
         return {
             "storages": await source.shares.storages_with_stats(),
-            "scanning": bool(source.shares.scan_state().get("scanning")),
+            "scanning": bool(scan.get("scanning")),
+            "catalog_ready": bool(scan.get("catalog_ready")),
         }
 
 

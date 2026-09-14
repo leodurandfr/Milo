@@ -568,6 +568,8 @@
     "building": "Creazione della libreria...",
     "buildingHint": "Indicizzazione della sua musica. Potrebbe richiedere qualche minuto.",
     "buildingProgress": "{count} brani indicizzati...",
+    "catalogStarting": "Avvio del catalogo...",
+    "catalogStartingHint": "Il catalogo musicale si sta avviando. La sua libreria apparirà tra un istante.",
     "queueEmpty": "Coda vuota",
     "queueEmptyHint": "Riproduca un album, una playlist o un brano per creare una coda.",
     "albumsCount": "{count} album",

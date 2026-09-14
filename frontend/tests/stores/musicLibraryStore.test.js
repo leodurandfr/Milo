@@ -517,3 +517,47 @@ describe('musicLibraryStore — revalidating the albums grid', () => {
     expect(store.albumsHasMore).toBe(true);
   });
 });
+
+describe('musicLibraryStore — a catalog that was not answering', () => {
+  let store;
+
+  beforeEach(async () => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+    // Navidrome is down: the storage list is still served from the mount table,
+    // but every count reads zero and every catalog call answers empty.
+    apiCall.get.mockResolvedValueOnce(
+      ok({ storages: [{ ...NAS, track_count: 0, album_count: 0 }], scanning: false, catalog_ready: false })
+    );
+    await store.loadStorages();
+    await nextTick();
+  });
+
+  it('separates "not answering" from "nothing here"', () => {
+    expect(store.catalogReady).toBe(false);
+    // The state the view must NOT reach: it tells a user whose NAS is mounted
+    // and full to go connect a NAS.
+    expect(store.unindexedStorage).toBeNull();
+  });
+
+  it('refetches the lists it cached empty once Navidrome answers again', async () => {
+    apiCall.get.mockResolvedValueOnce(ok({ albums: [] }));
+    await store.loadAlbums();
+    expect(store.albums).toHaveLength(0);
+
+    apiCall.get.mockResolvedValueOnce(ok({ albums: [{ id: 'a-1' }, { id: 'a-2' }] }));
+    store.handleStoragesEvent({ data: { storages: [NAS], scanning: false, catalog_ready: true } });
+    await nextTick();
+    await vi.waitFor(() => expect(store.albums).toHaveLength(2));
+  });
+
+  it('does not refetch on a push that merely repeats the good news', async () => {
+    store.handleStoragesEvent({ data: { storages: [NAS], scanning: false, catalog_ready: true } });
+    await nextTick();
+    apiCall.get.mockClear();
+
+    store.handleStoragesEvent({ data: { storages: [NAS], scanning: false, catalog_ready: true } });
+    await nextTick();
+    expect(apiCall.get).not.toHaveBeenCalled();
+  });
+});

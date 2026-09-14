@@ -27,6 +27,8 @@ distinction can be lost is here.
 import hashlib
 import logging
 import secrets
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
@@ -68,6 +70,42 @@ ALBUM_LIST_TYPES = frozenset(
 
 class NavidromeAuthError(Exception):
     """Raised when Navidrome rejects our credentials (Subsonic error 40/41)."""
+
+
+class ScanRequest(Enum):
+    """What became of a ``startScan``, as three outcomes that must not merge.
+
+    ``UNAVAILABLE`` is Navidrome not answering at all — it restarts on every
+    update and takes seconds to migrate its database, and the source asks for a
+    scan the moment it starts. Reporting that as a refusal is what put a red
+    banner, and an "there is nothing here" catalog, over a ten-second window.
+    """
+    STARTED = "started"
+    UNAVAILABLE = "unavailable"
+    REFUSED = "refused"
+
+
+@dataclass(frozen=True)
+class ScanStatus:
+    """Navidrome's scan state, carrying the reachability answering it implies.
+
+    ``available`` is the whole reason this is not a bare bool: a catalog that
+    cannot be reached and a catalog with nothing in it look identical from every
+    read here (each one fails open to an empty list), and only this says which.
+
+    ``scanning`` is None when Navidrome did not say — unreachable, or reachable
+    and answering an error. Not False: read as "idle", a failed poll is a scan
+    that just ended, which drops every catalog cache built from the old index.
+    """
+    available: bool
+    scanning: Optional[bool] = None
+
+
+# The verdict when there is no client to ask at all — the cred file is not
+# written yet, or an auth rejection dropped it. Exactly as unusable as a daemon
+# that is down, and every catalog route answers 503 either way, so the caller
+# reads it from here rather than restating it.
+CATALOG_UNREACHABLE = ScanStatus(available=False)
 
 
 def _encode_query(query: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -240,28 +278,46 @@ class NavidromeClient:
 
     # === Health / scan ===
 
-    async def start_scan(self) -> bool:
-        """Trigger a library scan.
+    async def start_scan(self) -> ScanRequest:
+        """Trigger a library scan, saying which of the three things happened.
 
         Always the incremental one. It indexes what appeared, marks what it can
         no longer find and un-marks what came back — every refresh Milo needs.
         A full scan only adds a re-read of every tag, which no Milo path asks
         for; ``navidrome scan --full`` on the unit is the escape hatch if a tag
         edit ever has to be picked up without its file's mtime moving.
+
+        A library whose mount has gone is **not** a refusal: Navidrome scans the
+        others, answers ``ok``, and reports the failure as a field of its scan
+        status. Only an API-level rejection is ``REFUSED``.
         """
         response = await self._make_request("startScan", {"fullScan": "false"})
-        return bool(response) and not response.get("_network_error")
+        if response is None:
+            return ScanRequest.REFUSED
+        if response.get("_network_error"):
+            return ScanRequest.UNAVAILABLE
+        return ScanRequest.STARTED
 
-    async def get_scan_status(self) -> Optional[Dict[str, Any]]:
-        """Return ``{scanning, count, folderCount}`` or None on error.
+    async def get_scan_status(self) -> ScanStatus:
+        """Whether a scan is running — and whether Navidrome answered at all.
 
-        ``count`` is the number of tracks indexed so far — surfaced over WS as
-        scan progress in later phases.
+        Its own per-scan counts are deliberately not carried: Subsonic reports
+        one global track count that does not move until a scan ends (it read
+        "2419" for the 18 minutes an iPod took to index), so progress comes from
+        the per-library records in ``libraries.stats()`` instead.
         """
         response = await self._make_request("getScanStatus")
-        if not response or response.get("_network_error"):
-            return None
-        return response.get("scanStatus")
+        if response is not None and response.get("_network_error"):
+            return ScanStatus(available=False)
+        if response is None:
+            # It answered, just not with an answer (HTTP or API error, both
+            # already logged above). Reachable; scan state unknown.
+            return ScanStatus(available=True)
+        status = response.get("scanStatus")
+        if status is None:
+            # An ok envelope with nothing in it says no more than an error does.
+            return ScanStatus(available=True)
+        return ScanStatus(available=True, scanning=bool(status.get("scanning")))
 
     # === Catalog browse ===
 

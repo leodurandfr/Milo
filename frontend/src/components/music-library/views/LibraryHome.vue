@@ -179,10 +179,13 @@ const buildingSubtitle = computed(() =>
 // A tab with nothing in it has three possible reasons, and they are NOT
 // interchangeable — the middle one used to be rendered as the last one, which
 // told a user whose NAS was mounted and full to go connect a NAS:
-//   1. a scan is filling it        → wait, here is the progress
-//   2. the index lost its files    → the music is there, re-index it
-//   3. there is genuinely nothing  → connect some storage
-// Only (2) is actionable, and it is the only one a person can't diagnose alone.
+//   1. the catalog isn't answering → it is starting, wait
+//   2. a scan is filling it        → wait, here is the progress
+//   3. the index lost its files    → the music is there, re-index it
+//   4. there is genuinely nothing  → connect some storage
+// Only (3) is actionable, and it is the only one a person can't diagnose alone.
+// (1) has to come first: while Navidrome is down every count reads zero and
+// every list is empty, so all four look alike and the last one wins by default.
 const rescanning = ref(false);
 
 async function handleRescan() {
@@ -193,6 +196,13 @@ async function handleRescan() {
 }
 
 function emptyState(titleKey, subtitleKey) {
+  if (!store.catalogReady) {
+    return {
+      loading: true,
+      title: t('musicLibrary.catalogStarting'),
+      subtitle: t('musicLibrary.catalogStartingHint'),
+    };
+  }
   if (store.isScanning) {
     return {
       loading: true,
@@ -312,7 +322,12 @@ onMounted(async () => {
   // music dropped on the NAS from another machine. Nothing is awaited: the scan
   // is asynchronous on Navidrome's side and the lists refresh themselves when
   // the scan flag drops, so it must not delay the first paint.
-  store.rescan();
+  //
+  // Not while the catalog is still starting: there is nothing to refresh yet,
+  // and asking is a request answered 503 for no one's benefit. The storages call
+  // above is awaited, so the flag is known by here. The opportunity is not lost
+  // — the backend asks for the scan it owed the moment Navidrome answers again.
+  if (store.catalogReady) store.rescan();
 });
 </script>
 

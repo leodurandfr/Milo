@@ -31,6 +31,7 @@ from backend.shared.background import BackgroundTaskSet
 from backend.sources.music_library.data import MusicLibraryDataService
 from backend.sources.music_library.libraries import NavidromeLibraryService
 from backend.sources.music_library.models import ShareRequest
+from backend.sources.music_library.navidrome_client import CATALOG_UNREACHABLE
 from backend.sources.music_library.storage import NavidromeProvider, StorageManager
 
 # Bounded catch-up schedule (seconds between attempts) for network shares whose
@@ -105,7 +106,10 @@ class NetworkShareService:
         # scan watcher — so there is one push per change, not one per caller.
         self._on_storages_changed = on_storages_changed
         # Last scan state seen by the watcher, so it only pushes on a change.
-        self._scan: Dict[str, Any] = {"scanning": False}
+        # Optimistic until the watcher's first poll, which runs immediately:
+        # claiming "still starting" on a healthy unit would be a worse lie than
+        # the sub-second window it would cover.
+        self._scan: Dict[str, Any] = {"scanning": False, "catalog_ready": True}
         # Cuts the watcher's current sleep short. Set whenever something has just
         # made a scan likely, so a short one is not missed between two polls.
         self._scan_kick = asyncio.Event()
@@ -353,7 +357,7 @@ class NetworkShareService:
         return entries
 
     def scan_state(self) -> Dict[str, Any]:
-        """Whether a Navidrome scan is running right now, as last polled."""
+        """Whether a scan is running, and whether Navidrome answers, as polled."""
         return dict(self._scan)
 
     async def request_scan(self) -> None:
@@ -377,7 +381,7 @@ class NetworkShareService:
         the moment of this push. The kick then has the watcher confirm the end of
         it within one active poll rather than one idle one.
         """
-        self._scan = {"scanning": True}
+        self._scan = {"scanning": True, "catalog_ready": True}
         await self._on_storages_changed()
         self._scan_kick.set()
 
@@ -411,21 +415,40 @@ class NetworkShareService:
     async def _poll_scan(self) -> bool:
         """One poll; broadcasts on a change. Returns whether a scan is running."""
         client = await self._navidrome_provider()
-        if client is None:
-            return False
-        status = await client.get_scan_status()
-        if status is None:
-            return False
+        # No client is exactly as unusable as a daemon that is down — the cred
+        # file is not written yet, or an auth rejection dropped it — and every
+        # catalog route answers 503 in both cases. Reported as ready, it is the
+        # state the flag exists to end: an absent catalog drawn as an empty one.
+        status = (
+            await client.get_scan_status() if client is not None
+            else CATALOG_UNREACHABLE
+        )
         was_scanning = bool(self._scan.get("scanning"))
-        scanning = bool(status.get("scanning"))
-        self._scan = {"scanning": scanning}
+        was_ready = bool(self._scan.get("catalog_ready"))
+        # A poll that got no answer says nothing about the scan; keeping the last
+        # word is what stops a restart from reading as a scan that just ended.
+        scanning = was_scanning if status.scanning is None else status.scanning
+        self._scan = {"scanning": scanning, "catalog_ready": status.available}
         # While a scan runs, each poll carries the storage spaces' growing track
         # counts, so a freshly-plugged key's tab fills as it is indexed. A scan
         # that just ended also invalidates the catalog caches built from it.
-        if scanning or was_scanning:
-            if was_scanning and not scanning:
+        #
+        # Navidrome becoming reachable again is the same kind of event and used
+        # to push nothing at all: every count read while it was down came back
+        # zero, and no later poll had a reason to correct them — measured, a
+        # restart left an open browser on an empty catalog until the source
+        # itself was restarted.
+        regained = status.available and not was_ready
+        if status.available != was_ready or (status.available and (scanning or was_scanning)):
+            if (was_scanning and not scanning) or regained:
                 self._on_catalog_changed()
             await self._on_storages_changed()
+        if regained:
+            # The scan owed from while it was down. Every path that would have
+            # asked — the source starting, a mount landing, the library view
+            # opening — was answered "not answering yet" and dropped it, and the
+            # next one after that is Navidrome's own 6-hourly pass.
+            await self.request_scan()
         return scanning
 
     async def _watch_share_liveness(self) -> None:

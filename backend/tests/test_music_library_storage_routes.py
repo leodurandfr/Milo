@@ -40,7 +40,7 @@ def shares():
         {"id": USB_UUID, "kind": "usb", "name": "iPod", "mounted": True,
          "library_id": 7, "track_count": 12},
     ])
-    service.scan_state = MagicMock(return_value={"scanning": False})
+    service.scan_state = MagicMock(return_value={"scanning": False, "catalog_ready": True})
     service.rename_usb = AsyncMock(return_value=True)
     service.usb_is_mounted = AsyncMock(return_value=False)
     service.forget_usb = AsyncMock(return_value=True)
@@ -87,6 +87,7 @@ class TestStoragesListing:
         assert response.json() == {
             "storages": shares.storages_with_stats.return_value,
             "scanning": False,
+            "catalog_ready": True,
         }
 
     def test_a_scan_in_flight_is_reported(self, api, shares):

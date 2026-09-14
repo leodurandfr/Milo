@@ -568,6 +568,8 @@
     "building": "Bibliothek wird aufgebaut...",
     "buildingHint": "Ihre Musik wird indiziert. Dies kann einige Minuten dauern.",
     "buildingProgress": "{count} Titel indiziert...",
+    "catalogStarting": "Katalog wird gestartet...",
+    "catalogStartingHint": "Der Musikkatalog startet. Ihre Bibliothek erscheint in Kürze.",
     "queueEmpty": "Warteschlange leer",
     "queueEmptyHint": "Spielen Sie ein Album, eine Playlist oder einen Titel ab, um eine Warteschlange zu erstellen.",
     "albumsCount": "{count} Alben",

@@ -279,6 +279,12 @@ class MusicLibraryStoragesChanged(WsEvent):
     track_count, album_count, missing_count}``. ``scanning`` rides along because
     a scan is precisely what makes those counts move — one event, so a tab can
     never hold a storage list and a scan flag that disagree.
+
+    ``catalog_ready`` is false while Navidrome is not answering — a restart, an
+    update, a boot. Every count above then reads zero and every catalog list
+    comes back empty, which is indistinguishable from a storage space holding
+    nothing: this is the field that separates the two, and the only thing that
+    tells a browser already open that the catalog is back.
     """
     CATEGORY = "source"
     TYPE = "storages_changed"
@@ -286,6 +292,7 @@ class MusicLibraryStoragesChanged(WsEvent):
     source: Literal["music_library"] = "music_library"
     storages: List[Dict[str, Any]]
     scanning: bool
+    catalog_ready: bool = True
 
 
 # =============================================================================

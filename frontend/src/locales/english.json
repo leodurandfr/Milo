@@ -568,6 +568,8 @@
     "building": "Building library…",
     "buildingHint": "Indexing your music. This can take a few minutes.",
     "buildingProgress": "{count} tracks indexed…",
+    "catalogStarting": "Starting the catalog…",
+    "catalogStartingHint": "The music catalog is starting. Your library appears in a moment.",
     "queueEmpty": "Nothing in the queue",
     "queueEmptyHint": "Play an album, playlist or track to build a queue.",
     "albumsCount": "{count} albums",

@@ -34,7 +34,7 @@ from backend.config.constants import (
     MILO_UMOUNT_CMD,
     MUSIC_LIBRARY_MOUNT_ROOT,
 )
-from backend.sources.music_library.navidrome_client import NavidromeClient
+from backend.sources.music_library.navidrome_client import NavidromeClient, ScanRequest
 
 logger = logging.getLogger("source.music_library.storage")
 
@@ -493,11 +493,10 @@ class StorageManager:
         that stays uncatalogued until the 6-hourly schedule.
         """
         try:
-            status = await client.get_scan_status()
+            return bool((await client.get_scan_status()).scanning)
         except Exception as exc:
             self.logger.debug("Could not read Navidrome scan status: %s", exc)
             return False
-        return bool(status and status.get("scanning"))
 
     async def _scan_when_idle(self) -> None:
         """Wait out the running scan, then run the one the mount is owed.
@@ -530,7 +529,13 @@ class StorageManager:
     async def _start_scan(self, client: NavidromeClient) -> None:
         """The one place a scan is actually asked for."""
         try:
-            if not await client.start_scan():
-                self.logger.warning("Navidrome refused the scan request")
+            outcome = await client.start_scan()
         except Exception as exc:
             self.logger.warning("Navidrome scan trigger failed: %s", exc)
+            return
+        if outcome is ScanRequest.REFUSED:
+            self.logger.warning("Navidrome refused the scan request")
+        elif outcome is ScanRequest.UNAVAILABLE:
+            # Its own periodic pass covers this once it is up; nothing is lost
+            # by not having asked, and this fires on every boot.
+            self.logger.debug("Navidrome not answering yet; no scan requested")

@@ -568,6 +568,8 @@
     "building": "Constitution de la bibliothèque…",
     "buildingHint": "Indexation de votre musique. Cela peut prendre quelques minutes.",
     "buildingProgress": "{count} morceaux indexés…",
+    "catalogStarting": "Démarrage du catalogue…",
+    "catalogStartingHint": "Le catalogue musical démarre. Votre bibliothèque réapparaît dans un instant.",
     "queueEmpty": "File d'attente vide",
     "queueEmptyHint": "Lisez un album, une playlist ou un titre pour créer une file d'attente.",
     "albumsCount": "{count} albums",

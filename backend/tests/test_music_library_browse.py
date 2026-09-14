@@ -5,6 +5,7 @@ Covers the smbclient share/folder parsers and error classification, the NFS
 export lister, the resilient /shares/browse route envelope, and
 StorageManager.get_mounted_share_ids (the per-share connected indicator).
 """
+import logging
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
@@ -18,6 +19,7 @@ from backend.sources.music_library.browse import (
     browse_share,
 )
 from backend.sources.music_library.models import ShareRequest
+from backend.sources.music_library.navidrome_client import ScanRequest
 from backend.sources.music_library.routes import router, setup_music_library_routes
 from backend.sources.music_library.storage import StorageManager
 
@@ -182,7 +184,7 @@ class TestScanRoutes:
 
     def test_a_refused_scan_is_reported(self, harness):
         api, source, client = harness
-        client.start_scan = AsyncMock(return_value=False)
+        client.start_scan = AsyncMock(return_value=ScanRequest.REFUSED)
 
         r = api.post("/api/music-library/scan")
 
@@ -190,9 +192,26 @@ class TestScanRoutes:
         client.start_scan.assert_awaited_once()
         source.shares.note_scan_started.assert_not_awaited()
 
+    def test_a_catalog_still_booting_is_not_a_refusal(self, harness, caplog):
+        """Navidrome restarts on every update and migrates before it listens.
+
+        Reported as a refusal, those seconds reached the WebSocket log banner as
+        "Navidrome refused the scan request" — measured on the unit, seven times
+        in one second, while the catalog was simply not up yet.
+        """
+        api, source, client = harness
+        client.start_scan = AsyncMock(return_value=ScanRequest.UNAVAILABLE)
+
+        with caplog.at_level(logging.INFO):
+            r = api.post("/api/music-library/scan")
+
+        assert r.status_code == 503
+        assert not [rec for rec in caplog.records if rec.levelno >= logging.ERROR]
+        source.shares.note_scan_started.assert_not_awaited()
+
     def test_an_accepted_scan_is_watched(self, harness):
         api, source, client = harness
-        client.start_scan = AsyncMock(return_value=True)
+        client.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
 
         r = api.post("/api/music-library/scan")
 
