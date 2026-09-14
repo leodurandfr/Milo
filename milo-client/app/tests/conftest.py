@@ -2,7 +2,7 @@
 Pytest fixtures for Milo Client tests.
 """
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 import sys
 from pathlib import Path
 
@@ -12,14 +12,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 @pytest.fixture
 def mock_camilla_client():
-    """Mock CamillaDSP client."""
-    client = MagicMock()
+    """Mock of CamillaDspClient — the daemon, as the client hands it over.
 
-    # General
-    client.general.state.return_value = "Running"
+    Every method is a coroutine now that the client is async, so this is an
+    AsyncMock: a MagicMock would hand each call back as an un-awaited object
+    that every `if config is None` in the service reads as a live config.
+    """
+    client = AsyncMock()
 
-    # Config
-    client.config.active.return_value = {
+    client.get_state.return_value = "Running"
+
+    client.get_config.return_value = {
         "filters": {
             "eq_band_1": {"parameters": {"type": "Peaking", "freq": 100, "gain": 0, "q": 1.0}},
             "eq_band_2": {"parameters": {"type": "Peaking", "freq": 1000, "gain": 0, "q": 1.0}},
@@ -29,19 +32,14 @@ def mock_camilla_client():
             {"type": "Filter", "channels": [0, 1], "names": ["eq_band_1", "eq_band_2"]}
         ]
     }
-    client.config.file_path.return_value = "/var/lib/milo-client/camilladsp/config.yml"
-    client.config.set_active = Mock()
-    client.config.read_and_parse_file = Mock(return_value=client.config.active.return_value)
+    client.get_config_file_path.return_value = "/var/lib/milo-client/camilladsp/config.yml"
+    client.read_config_file.return_value = client.get_config.return_value
 
-    # Volume
-    client.volume.main_volume.return_value = -20.0
-    client.volume.main_mute.return_value = False
-    client.volume.set_main_volume = Mock()
-    client.volume.set_main_mute = Mock()
+    client.get_volume.return_value = -20.0
+    client.get_mute.return_value = False
 
-    # Levels
-    client.levels.capture_peak.return_value = [-30.0, -30.0]
-    client.levels.playback_peak.return_value = [-25.0, -25.0]
+    client.get_capture_peak.return_value = [-30.0, -30.0]
+    client.get_playback_peak.return_value = [-25.0, -25.0]
 
     return client
 
@@ -54,8 +52,7 @@ def equalizer_service(mock_camilla_client, tmp_path):
     fails: pointed at the real /var/lib path these tests would assert success on
     a write that never happened, which is the bug they are meant to cover.
     """
-    with patch("services.equalizer.CAMILLADSP_AVAILABLE", True), \
-         patch("services.equalizer.CamillaClient", return_value=mock_camilla_client):
+    with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
         from services.equalizer import EqualizerService
         service = EqualizerService(config_file=str(tmp_path / "config.yml"))
         service._client = mock_camilla_client

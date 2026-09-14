@@ -56,7 +56,7 @@ class TestFilterParameterUpdate:
 
     @pytest.fixture
     def connected_camilladsp_service(self, mock_settings_service, mock_state_machine, mock_camilla_client):
-        """Create connected Equalizer service with mocked CamillaClient"""
+        """Create connected Equalizer service with a mocked CamillaDspClient"""
         service = CamillaDSPService(
             settings_service=mock_settings_service
         )

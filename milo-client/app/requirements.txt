@@ -19,4 +19,7 @@ pydantic>=2.10.0
 # Multipart form parsing (required for file uploads)
 python-multipart>=0.0.9
 
-# Note: camilladsp is installed separately from PyPI (not available on piwheels)
+# WebSocket client for the local CamillaDSP daemon (services/camilladsp_client.py).
+# Also a runtime dep of uvicorn[standard], which is why the field already has it:
+# a satellite update ships the milo-client/ tree alone and never runs pip.
+websockets>=14.0

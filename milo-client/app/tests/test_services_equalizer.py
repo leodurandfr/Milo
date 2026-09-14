@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 
 class TestEqualizerServiceProperties:
@@ -16,10 +16,6 @@ class TestEqualizerServiceProperties:
     def test_connected_property(self, equalizer_service):
         """Should return connection state."""
         assert equalizer_service.connected is True
-
-    def test_available_property(self, equalizer_service):
-        """Should return True when CamillaDSP library is available."""
-        assert equalizer_service.available is True
 
     def test_compressor_property(self, equalizer_service):
         """Should return compressor state dict."""
@@ -75,7 +71,7 @@ class TestEqualizerServiceFilters:
         """Should update filter gain in config."""
         result = await equalizer_service.set_filter("eq_band_1", gain=3.0)
         assert result is True
-        mock_camilla_client.config.set_active.assert_called()
+        mock_camilla_client.set_config.assert_called()
 
 
 class TestEqualizerServiceVolume:
@@ -104,7 +100,7 @@ class TestEqualizerServiceVolume:
         result = await equalizer_service.set_mute(True)
         assert result is True
         assert equalizer_service.volume_state["mute"] is True
-        mock_camilla_client.volume.set_main_mute.assert_called_with(True)
+        mock_camilla_client.set_mute.assert_called_with(True)
 
 
 class TestEqualizerServiceCompressor:
@@ -195,14 +191,23 @@ class TestEqualizerServiceConnection:
     """Test EqualizerService connection handling."""
 
     @pytest.mark.asyncio
-    async def test_connect_when_unavailable(self):
-        """Should return False when CamillaDSP library unavailable."""
-        with patch("services.equalizer.CAMILLADSP_AVAILABLE", False):
+    async def test_connect_when_the_daemon_is_not_there(self):
+        """Should answer False, and leave no half-built client behind.
+
+        This is the cold boot: milo-client-camilladsp.service is ordered After=
+        this unit, so the daemon is not listening yet and the first attempt
+        always lands here. The loop owns the retry — what it must not inherit is
+        a `_client` that looks connected.
+        """
+        refuses = AsyncMock()
+        refuses.connect.side_effect = OSError("connection refused")
+        with patch("services.equalizer.CamillaDspClient", return_value=refuses):
             from services.equalizer import EqualizerService
             service = EqualizerService()
             result = await service.connect()
             assert result is False
             assert service.connected is False
+            assert service._client is None
 
     @pytest.mark.asyncio
     async def test_connect_once_skips_when_already_connected(self, equalizer_service):
@@ -214,7 +219,7 @@ class TestEqualizerServiceConnection:
     @pytest.mark.asyncio
     async def test_probe_detects_dead_connection(self, equalizer_service, mock_camilla_client):
         """Should mark disconnected when probe fails."""
-        mock_camilla_client.general.state.side_effect = IOError("Connection refused")
+        mock_camilla_client.get_state.side_effect = IOError("Connection refused")
         await equalizer_service._probe_connection()
         assert equalizer_service.connected is False
         assert equalizer_service._client is None
@@ -222,7 +227,7 @@ class TestEqualizerServiceConnection:
     @pytest.mark.asyncio
     async def test_probe_keeps_connected_on_success(self, equalizer_service, mock_camilla_client):
         """Should stay connected when probe succeeds."""
-        mock_camilla_client.general.state.return_value = "Running"
+        mock_camilla_client.get_state.return_value = "Running"
         await equalizer_service._probe_connection()
         assert equalizer_service.connected is True
 
@@ -231,30 +236,33 @@ class TestEqualizerServiceConnection:
         """Should restore cached volume and mute after reconnection."""
         equalizer_service._volume = {"main": -25.0, "mute": False}
         await equalizer_service._restore_after_reconnect()
-        mock_camilla_client.volume.set_main_volume.assert_called_with(-25.0)
-        mock_camilla_client.volume.set_main_mute.assert_called_with(False)
+        mock_camilla_client.set_volume.assert_called_with(-25.0)
+        mock_camilla_client.set_mute.assert_called_with(False)
 
     @pytest.mark.asyncio
     async def test_exec_reconnects_on_failure(self, mock_camilla_client):
-        """Should reconnect and retry when first attempt fails."""
-        with patch("services.equalizer.CAMILLADSP_AVAILABLE", True), \
-             patch("services.equalizer.CamillaClient", return_value=mock_camilla_client):
+        """Should reconnect and retry when first attempt fails.
+
+        The retry is handed the *live* client rather than the one the first
+        attempt used: a reconnect builds a new one, and a call closed over the
+        dead one would retry down the socket that just failed.
+        """
+        with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
             from services.equalizer import EqualizerService
             service = EqualizerService()
             service._client = mock_camilla_client
             service._connected = True
 
-            call_count = 0
-            def flaky_call():
-                nonlocal call_count
-                call_count += 1
-                if call_count == 1:
+            seen = []
+            async def flaky_call(client):
+                seen.append(client)
+                if len(seen) == 1:
                     raise IOError("Connection lost")
                 return "ok"
 
             result = await service._exec(flaky_call)
             assert result == "ok"
-            assert call_count == 2
+            assert seen == [mock_camilla_client, mock_camilla_client]
 
     @pytest.mark.asyncio
     async def test_stop_connection_loop_cleans_up(self, equalizer_service):
@@ -287,7 +295,7 @@ class TestEqualizerServiceMasterBypass:
     @pytest.mark.asyncio
     async def test_disable_removes_eq_bands_from_pipeline_keeps_defs(self, equalizer_service, mock_camilla_client):
         """Disabling must strip eq_band_* from the pipeline (not just compressor/loudness)."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         result = await equalizer_service.set_equalizer_enabled(False)
         assert result is True
         assert equalizer_service.equalizer_enabled is False
@@ -301,7 +309,7 @@ class TestEqualizerServiceMasterBypass:
     @pytest.mark.asyncio
     async def test_enable_readds_eq_bands_to_pipeline(self, equalizer_service, mock_camilla_client):
         """Re-enabling must re-add the EQ bands to the pipeline."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         await equalizer_service.set_equalizer_enabled(False)
         result = await equalizer_service.set_equalizer_enabled(True)
         assert result is True
@@ -314,7 +322,7 @@ class TestEqualizerServiceMasterBypass:
     async def test_load_state_derives_enabled_false_when_bands_not_piped(self, equalizer_service, mock_camilla_client):
         """On (re)connect, enabled state must be derived from the persisted config:
         bands defined but absent from the pipeline => bypassed => enabled False."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         config["pipeline"] = [{"type": "Filter", "channels": [0, 1], "names": []}]
         equalizer_service._equalizer_enabled = True
         await equalizer_service._load_state_from_config()
@@ -332,7 +340,7 @@ class TestEqualizerServiceFilterTuning:
     @pytest.mark.asyncio
     async def test_set_filter_applies_filter_type(self, equalizer_service, mock_camilla_client):
         """filter_type should set the Biquad band type."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         result = await equalizer_service.set_filter("eq_band_1", gain=2.0, filter_type="Lowshelf")
         assert result is True
         assert config["filters"]["eq_band_1"]["parameters"]["type"] == "Lowshelf"
@@ -340,7 +348,7 @@ class TestEqualizerServiceFilterTuning:
     @pytest.mark.asyncio
     async def test_set_filter_does_not_repipe_a_bypassed_band(self, equalizer_service, mock_camilla_client):
         """Tuning a band on a bypassed client must apply the gain without restoring the band."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         await equalizer_service.set_equalizer_enabled(False)
         assert "eq_band_1" not in config["pipeline"][0]["names"]
 
@@ -411,14 +419,13 @@ class TestEqualizerServiceConfigPersistence:
             "processors": {},
             "pipeline": [{"type": "Filter", "channels": [0, 1], "names": ["eq_band_1"]}],
         }
-        client = MagicMock()
-        client.config.active.side_effect = lambda: copy.deepcopy(device)
-        client.config.set_active = Mock(
+        client = AsyncMock()
+        client.get_config.side_effect = lambda: copy.deepcopy(device)
+        client.set_config = AsyncMock(
             side_effect=lambda cfg: device.update(copy.deepcopy(cfg))
         )
 
-        with patch("services.equalizer.CAMILLADSP_AVAILABLE", True), \
-             patch("services.equalizer.CamillaClient", return_value=client):
+        with patch("services.equalizer.CamillaDspClient", return_value=client):
             from services.equalizer import EqualizerService
             service = EqualizerService(config_file=str(tmp_path / "config.yml"))
             service._client = client
@@ -452,7 +459,7 @@ class TestEqualizerWholeRecordPush:
     async def test_a_batch_applies_every_tuning_key(self, equalizer_service, mock_camilla_client):
         """The keys are the wire contract with apply_record, which sends id, gain,
         freq, q and filter_type for each band of the record."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
 
         result = await equalizer_service.set_filters_batch([
             {"id": "eq_band_1", "gain": 4.5, "freq": 250.0, "q": 1.4, "filter_type": "Lowshelf"},
@@ -477,7 +484,7 @@ class TestEqualizerWholeRecordPush:
             {"id": "eq_band_2", "gain": 2.0},
         ])
 
-        assert mock_camilla_client.config.set_active.call_count == 1
+        assert mock_camilla_client.set_config.call_count == 1
 
     @pytest.mark.asyncio
     async def test_the_batch_reaches_the_disk(self, equalizer_service, mock_camilla_client):
@@ -493,7 +500,7 @@ class TestEqualizerWholeRecordPush:
     async def test_a_band_the_config_does_not_define_is_not_created(self, equalizer_service, mock_camilla_client):
         """A stray definition would sit in filters/ doing nothing until the master
         toggle re-piped the bands it finds, and then be audible."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
 
         result = await equalizer_service.set_filters_batch([
             {"id": "eq_band_1", "gain": 1.0},
@@ -508,7 +515,7 @@ class TestEqualizerWholeRecordPush:
         """Bands carry tuning only, on a satellite exactly as locally — the master
         toggle owns pipeline membership. If a batch regained that power, the
         reconnection sync would un-bypass every client it re-synced."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         await equalizer_service.set_equalizer_enabled(False)
 
         await equalizer_service.set_filters_batch([{"id": "eq_band_1", "gain": 5.0}])
@@ -525,7 +532,7 @@ class TestEqualizerWholeRecordPush:
         different callers — a slider goes through set_filter, a reconnect through
         the batch — so a drift between them shows up as a client that tunes
         correctly under the hand and wrongly after a power cut."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
 
         await equalizer_service.set_filter("eq_band_1", gain=4.5, freq=250.0, q=1.4, filter_type="Lowshelf")
         after_single_push = copy.deepcopy(config["filters"]["eq_band_1"])
@@ -548,7 +555,7 @@ class TestEqualizerMono:
 
     @staticmethod
     def _with_mixer(mock_camilla_client, name="stereo"):
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         config["pipeline"].append({"type": "Mixer", "name": name})
         return config
 
@@ -613,7 +620,7 @@ class TestEqualizerServiceLevelTrim:
     async def test_a_trim_is_a_gain_filter_on_both_channels(
         self, equalizer_service, mock_camilla_client
     ):
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
 
         assert await equalizer_service.set_gain(-4.5) is True
 
@@ -628,7 +635,7 @@ class TestEqualizerServiceLevelTrim:
         self, equalizer_service, mock_camilla_client
     ):
         """An untrimmed speaker gets the config it always had — no 0 dB stage."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         await equalizer_service.set_gain(-4.5)
 
         assert await equalizer_service.set_gain(0.0) is True
@@ -645,11 +652,11 @@ class TestEqualizerServiceLevelTrim:
         config restarts CamillaDSP's processing — so a push that changes nothing
         must reach the daemon not at all."""
         await equalizer_service.set_gain(-4.5)
-        mock_camilla_client.config.set_active.reset_mock()
+        mock_camilla_client.set_config.reset_mock()
 
         assert await equalizer_service.set_gain(-4.5) is True
 
-        mock_camilla_client.config.set_active.assert_not_called()
+        mock_camilla_client.set_config.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_the_master_bypass_does_not_strip_the_trim(
@@ -658,7 +665,7 @@ class TestEqualizerServiceLevelTrim:
         """Bypassing the equalizer must not unbalance the room: the trim is not
         an effect, and it is named apart from eq_band_*/loudness_*/compressor
         precisely so the bypass cannot reach it."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         await equalizer_service.set_gain(-4.5)
 
         await equalizer_service.set_equalizer_enabled(False)
@@ -674,7 +681,7 @@ class TestEqualizerServiceLevelTrim:
     ):
         """On (re)connect the cache is rebuilt from the config CamillaDSP
         reloaded, so the satellite reports the trim it is actually applying."""
-        config = mock_camilla_client.config.active.return_value
+        config = mock_camilla_client.get_config.return_value
         config["filters"]["gain_trim"] = {
             "type": "Gain",
             "parameters": {"gain": 6.0, "inverted": False, "mute": False},

@@ -15,7 +15,7 @@ and runs nothing, so it can prove a setter is *written* here and never that it i
 running the real `initialize()` of every service: pyudev enumerating the block
 devices of this Pi and chaining into `sudo -n milo-mount`, D-Bus sessions against
 the live BlueZ and NetworkManager, an mpv IPC socket in `/run/milo`, a Navidrome
-login, and `CamillaClient` on 127.0.0.1:1234 — the daemon driving the room. The
+login, and a CamillaDSP client on 127.0.0.1:1234 — the daemon driving the room. The
 `registry` fixture below makes that impossible rather than unlikely: the lazy
 cache is pre-seeded, so `_create_service` is never entered, and the fixture
 asserts afterwards that it was not.

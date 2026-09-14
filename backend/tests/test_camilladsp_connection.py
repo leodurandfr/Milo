@@ -29,10 +29,11 @@ import asyncio
 import contextlib
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+import backend.core.equalizer.service as service_module
 from backend.core.equalizer.service import CamillaDSPService, CamillaDspState
 from backend.shared.persistence import SchemaVersionMismatch
 
@@ -48,7 +49,7 @@ class ReachedTheLiveDaemon(BaseException):
 
 @pytest.fixture(autouse=True)
 def never_the_real_camilladsp(monkeypatch):
-    """Make the real `CamillaClient` impossible to build for the whole file.
+    """Make a real `CamillaDspClient` impossible to build for the whole file.
 
     This checkout *is* the appliance and CamillaDSP is listening on
     127.0.0.1:1234 right now. `conftest.keep_the_suite_off_the_network` refuses
@@ -61,15 +62,13 @@ def never_the_real_camilladsp(monkeypatch):
     Fail the access rather than spy on it, the same way `test_wifi_adoption` does
     with nmcli.
     """
-    import camilladsp
-
     def _refuse(*args, **kwargs):
         raise ReachedTheLiveDaemon(
-            f"a test built the real CamillaClient{args!r} — it would have "
+            f"a test built the real CamillaDspClient{args!r} — it would have "
             "connected to the daemon driving this room"
         )
 
-    monkeypatch.setattr(camilladsp, "CamillaClient", _refuse)
+    monkeypatch.setattr(service_module, "CamillaDspClient", _refuse)
 
 
 @pytest.fixture
@@ -92,27 +91,25 @@ def service(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client_factory(monkeypatch):
-    """Install a `CamillaClient` double and hand back the calls it recorded.
+    """Install a `CamillaDspClient` double and hand back the calls it recorded.
 
     Returns `(built, client)`: `built` collects one `(host, port)` per
     construction, so a test can state that a second connect did NOT build a
     second client — which is what the `_connected` early return is for.
     """
-    import camilladsp
-
     built: list = []
-    client = MagicMock()
-    client.general.state.return_value = "Running"
-    client.volume.main_volume.return_value = -20.0
-    client.volume.main_mute.return_value = False
-    client.levels.capture_peak.return_value = [-30.0, -30.0]
-    client.levels.playback_peak.return_value = [-25.0, -25.0]
+    client = AsyncMock()
+    client.get_state.return_value = "Running"
+    client.get_volume.return_value = -20.0
+    client.get_mute.return_value = False
+    client.get_capture_peak.return_value = [-30.0, -30.0]
+    client.get_playback_peak.return_value = [-25.0, -25.0]
 
     def _build(host, port):
         built.append((host, port))
         return client
 
-    monkeypatch.setattr(camilladsp, "CamillaClient", _build)
+    monkeypatch.setattr(service_module, "CamillaDspClient", _build)
     return built, client
 
 
@@ -122,7 +119,7 @@ class TestConnectOnce:
     async def test_a_successful_connect_addresses_the_configured_daemon(
         self, service, client_factory
     ):
-        """host/port come from the service, not from pycamilladsp's own defaults.
+        """host/port come from the service, not from the client's own defaults.
 
         A satellite runs its own daemon; the server addresses only its own. A
         connect that ignored the constructor arguments would still succeed here,
@@ -144,7 +141,7 @@ class TestConnectOnce:
         and refuses to change the level: the knob turns and nothing happens.
         """
         _, client = client_factory
-        client.general.state.return_value = "Paused"
+        client.get_state.return_value = "Paused"
 
         await service._connect_once()
 
@@ -177,7 +174,7 @@ class TestConnectOnce:
         happens to emit.
         """
         _, client = client_factory
-        client.general.state.return_value = "Inactive"
+        client.get_state.return_value = "Inactive"
 
         await service._connect_once()
 
@@ -204,15 +201,13 @@ class TestConnectOnce:
     async def test_a_refused_connect_drops_the_client_it_half_built(self, service, monkeypatch):
         """Every guard in the service is `if not self._client`.
 
-        `CamillaClient(...)` succeeds before `connect()` is attempted, so a
+        `CamillaDspClient(...)` succeeds before `connect()` is attempted, so a
         failure leaves a live-looking handle on a socket that was never opened.
         Kept, `_run` would hand it commands forever and each one would raise.
         """
-        import camilladsp
-
-        client = MagicMock()
+        client = AsyncMock()
         client.connect.side_effect = OSError("connection refused")
-        monkeypatch.setattr(camilladsp, "CamillaClient", lambda host, port: client)
+        monkeypatch.setattr(service_module, "CamillaDspClient", lambda host, port: client)
 
         assert await service._connect_once() is False
 
@@ -228,40 +223,13 @@ class TestConnectOnce:
         Setting it here would tell `_apply_startup_volume` the daemon is ready
         when it is not, and the startup volume would be pushed into nothing.
         """
-        import camilladsp
-
-        client = MagicMock()
+        client = AsyncMock()
         client.connect.side_effect = OSError("connection refused")
-        monkeypatch.setattr(camilladsp, "CamillaClient", lambda host, port: client)
+        monkeypatch.setattr(service_module, "CamillaDspClient", lambda host, port: client)
 
         await service._connect_once()
 
         assert not service._connection_ready.is_set()
-
-    async def test_a_missing_pycamilladsp_is_reported_and_not_retried_blindly(
-        self, service, monkeypatch, caplog
-    ):
-        """The import lives inside the function so a host without the wheel still boots.
-
-        Reported at error because on the appliance the package is always there:
-        seeing this line means the venv is broken, and no amount of reconnecting
-        will fix it.
-        """
-        import builtins
-
-        real_import = builtins.__import__
-
-        def _no_camilladsp(name, *args, **kwargs):
-            if name == "camilladsp":
-                raise ImportError("No module named 'camilladsp'")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", _no_camilladsp)
-
-        with caplog.at_level(logging.ERROR):
-            assert await service._connect_once() is False
-
-        assert "pycamilladsp not installed" in caplog.text
 
     async def test_connect_is_the_public_name_for_one_attempt(self, service, client_factory):
         """`AudioRoutingService` calls `connect()` at startup, not the private twin."""
@@ -523,9 +491,9 @@ class TestConnectionLoop:
     ):
         """`_run` clears `_connected` on the first failed command; this is the pickup.
 
-        There is no other signal — pycamilladsp does not push a close event — so
-        the inner idle loop polling `_connected` is the entire detection path for
-        a daemon that went away mid-session.
+        No close event reaches the service itself — the client raises, `_run`
+        demotes — so the inner idle loop polling `_connected` is the entire
+        detection path for a daemon that went away mid-session.
         """
         service._restore_after_reconnect = AsyncMock()
         ticks = {"n": 0}
@@ -557,16 +525,19 @@ class TestConnectionLoop:
 
 
 class TestKeepalive:
-    """The connection carries its own keepalive, because nothing else reads it.
+    """The connection asks the daemon a question, because a live socket is not an answer.
 
-    `pycamilladsp` is a synchronous client: send-then-recv per query, no
-    background read loop, no ping API. Between commands nobody reads the socket,
-    so a peer that closed it goes unnoticed — measured on the unit, a CamillaDSP
-    restart left the appliance muted (the daemon starts with -m) for 94 seconds
-    with the kiosk open, the Mac app polling every 2 s and radio playing. Waiting
-    for a command to fail is not detection: `/api/audio/state` and
-    `/api/volume/state` read the store, and LevelsMonitor samples the daemon only
-    while an equalizer view holds a keepalive.
+    Measured on the unit: a CamillaDSP restart left the appliance muted (the
+    daemon starts with -m) for 94 seconds with the kiosk open, the Mac app
+    polling every 2 s and radio playing. Waiting for a command to fail is not
+    detection — `/api/audio/state` and `/api/volume/state` read the store, and
+    LevelsMonitor samples the daemon only while an equalizer view holds a
+    keepalive.
+
+    The socket now carries WebSocket ping/pong on its own, which `pycamilladsp`
+    could not, and that covers a peer that closed. It does not cover a daemon
+    that answers pings while its command loop is wedged, which is why the probe
+    still asks `GetState`.
     """
 
     async def test_a_failing_keepalive_marks_the_daemon_gone(
@@ -576,7 +547,7 @@ class TestKeepalive:
         the reconnect + restore takes it from there."""
         service._client = mock_camilla_client
         service._connected = True
-        mock_camilla_client.general.state.side_effect = ConnectionError("closed")
+        mock_camilla_client.get_state.side_effect = ConnectionError("closed")
 
         await service._probe_connection()
 
@@ -747,12 +718,12 @@ class TestDisconnect:
 
 
 class TestDaemonState:
-    """Mapping pycamilladsp's ProcessingState onto ours."""
+    """Mapping the daemon's own state names onto ours."""
 
     @pytest.mark.parametrize("reported,expected", [
-        ("ProcessingState.RUNNING", CamillaDspState.RUNNING),
-        ("ProcessingState.PAUSED", CamillaDspState.PAUSED),
-        ("ProcessingState.INACTIVE", CamillaDspState.INACTIVE),
+        ("Running", CamillaDspState.RUNNING),
+        ("Paused", CamillaDspState.PAUSED),
+        ("Inactive", CamillaDspState.INACTIVE),
     ])
     async def test_each_processing_state_maps_to_its_own(
         self, service, client_factory, reported, expected
@@ -760,7 +731,7 @@ class TestDaemonState:
         """PAUSED is the one that matters: it is the silence-pause failure mode,
         and `is_volume_control_available` must still say yes in it."""
         _, client = client_factory
-        client.general.state.return_value = reported
+        client.get_state.return_value = reported
         service._client = client
         service._connected = True
 
@@ -769,11 +740,12 @@ class TestDaemonState:
     async def test_an_unknown_state_is_read_as_inactive_not_disconnected(
         self, service, client_factory
     ):
-        """Fail open: a pycamilladsp release that adds a state must not make the
+        """Fail open: a CamillaDSP release that adds a state must not make the
         volume control disappear. INACTIVE keeps `is_volume_control_available`
-        true; DISCONNECTED would refuse every write."""
+        true; DISCONNECTED would refuse every write. `Starting` and `Stalled`
+        are today's two — both transient, neither worth a state of our own."""
         _, client = client_factory
-        client.general.state.return_value = "ProcessingState.STARTING"
+        client.get_state.return_value = "Starting"
         service._client = client
         service._connected = True
 
@@ -789,7 +761,7 @@ class TestDaemonState:
         """`@handle_errors(default=DISCONNECTED)` — the read is on the connect path,
         so a raise here must not take the connection down with it."""
         _, client = client_factory
-        client.general.state.side_effect = OSError("gone")
+        client.get_state.side_effect = OSError("gone")
         service._client = client
         service._connected = True
 
@@ -834,23 +806,23 @@ class TestGetStatus:
     async def test_the_sample_rate_is_read_only_while_the_daemon_is_running(
         self, service, client_factory
     ):
-        """`rate.capture()` answers nothing useful on an inactive daemon.
+        """The capture rate is nothing useful on an inactive daemon.
 
         Asked anyway it is one more round-trip per status poll for a value the
         screen would render as a stale rate from the previous stream.
         """
         _, client = client_factory
-        client.rate.capture.return_value = 44100
+        client.get_capture_rate.return_value = 44100
         await service._connect_once()
 
         running = await service.get_status()
 
-        client.general.state.return_value = "ProcessingState.INACTIVE"
+        client.get_state.return_value = "Inactive"
         inactive = await service.get_status()
 
         assert running["sample_rate"] == 44100
         assert "sample_rate" not in inactive
-        client.rate.capture.assert_called_once()
+        client.get_capture_rate.assert_awaited_once()
 
     async def test_a_failed_rate_probe_does_not_cost_the_rest_of_the_status(
         self, service, client_factory
@@ -861,7 +833,7 @@ class TestGetStatus:
         would render the whole EQ screen as unavailable.
         """
         _, client = client_factory
-        client.rate.capture.side_effect = OSError("no rate")
+        client.get_capture_rate.side_effect = OSError("no rate")
         await service._connect_once()
 
         status = await service.get_status()
@@ -958,17 +930,6 @@ class TestCleanup:
 
         client.disconnect.assert_called_once()
         assert service._client is None
-
-    async def test_cleanup_shuts_down_the_executor(self, service):
-        """The executor is a real thread pool; one per service instance.
-
-        Left running it keeps a non-daemon thread alive and the interpreter with
-        it, which is the difference between a clean stop and systemd's SIGKILL.
-        """
-        await service.cleanup()
-
-        with pytest.raises(RuntimeError):
-            service._executor.submit(lambda: None)
 
 
 class TestPersistState:

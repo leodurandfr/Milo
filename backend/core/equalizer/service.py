@@ -6,12 +6,12 @@ Replaces alsaequal with full parametric EQ capabilities.
 import asyncio
 import contextlib
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
+from backend.core.equalizer.camilladsp_client import CamillaDspClient
 from backend.core.equalizer.config_builder import (
     compressor_processor_def,
     eq_filter_def,
@@ -80,10 +80,10 @@ class CamillaDSPService:
         self._state = CamillaDspState.DISCONNECTED
         self._lock = asyncio.Lock()
         # Serializes the read-modify-write of the daemon config graph across
-        # concurrent callers. The executor (max_workers=1) serializes individual
-        # DSP calls, but NOT the get_config/set_config *pair* — the await between
-        # them lets another coroutine read the same pre-change graph and write a
-        # stale copy back (last-writer-wins). This lock makes each RMW atomic.
+        # concurrent callers. The client serializes individual DSP calls, but NOT
+        # the get_config/set_config *pair* — the await between them lets another
+        # coroutine read the same pre-change graph and write a stale copy back
+        # (last-writer-wins). This lock makes each RMW atomic.
         # Distinct from `_lock` (connect/disconnect) on purpose: a filter drag
         # must not queue behind a reconnect, and is only ever held across a local
         # DSP RMW (never across remote-proxy I/O), so the drag hot path stays free.
@@ -98,10 +98,6 @@ class CamillaDSPService:
 
         # Callback for volume restoration after reconnection (set by dependencies.py)
         self._on_reconnect_callback = None
-
-        # Single-thread executor for pycamilladsp sync calls (serializes all DSP commands
-        # to prevent concurrent access to the non-thread-safe CamillaClient)
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="camilladsp")
 
         # Initialize with 10 default flat bands so get_filters() never returns
         # an empty list before equalizer.json is loaded (fresh install) or
@@ -119,7 +115,6 @@ class CamillaDSPService:
             }
             for i, freq in enumerate(DEFAULT_EQ_FREQS)
         ]
-        self._loop = None  # Cached event loop
 
         # Advanced equalizer settings cache
         self._compressor: Dict[str, Any] = {
@@ -168,12 +163,10 @@ class CamillaDSPService:
         """Set async callback invoked after successful reconnection (used for volume restore)."""
         self._on_reconnect_callback = callback
 
-    async def _run(self, func):
-        """Run sync pycamilladsp call in executor. Marks disconnected on failure."""
-        if not self._loop:
-            self._loop = asyncio.get_running_loop()
+    async def _run(self, call, *args):
+        """Await one daemon call. Marks disconnected on failure."""
         try:
-            return await self._loop.run_in_executor(self._executor, func)
+            return await call(*args)
         except Exception:
             if self._connected:
                 self.logger.warning("CamillaDSP command failed, marking disconnected")
@@ -309,37 +302,28 @@ class CamillaDSPService:
     async def _probe_connection(self) -> None:
         """Keepalive on the daemon connection — not a poll for state.
 
-        `pycamilladsp` is a *synchronous* websocket client (`create_connection`
-        + a lock, send-then-recv per query): no background read loop, no
-        callback, no ping API. Nothing reads the socket between commands, so a
-        peer that closed it — sending a FIN the kernel already has — is noticed
-        by no one. The four alternatives and why each is out:
+        The socket now carries WebSocket ping/pong on its own (the library pings
+        every 20 s, and CamillaDSP answers in 0.25 ms — measured over a 45 s idle
+        connection on 2026-09-14), which is what `pycamilladsp` could never do:
+        it was synchronous, with no loop to receive a pong in. That covers a peer
+        that closed or a socket that died.
 
-        * **WebSocket ping/pong**, the standard answer: unreachable, the library
-          exposes neither a ping nor a loop that could receive a pong.
-        * **`loop.add_reader` on the socket**, the cleanest and truly event-driven:
-          needs `client._ws._ws.sock`, two levels of private attributes in a
-          library the Update Manager upgrades. An upstream refactor would
-          disable detection in silence.
-        * **TCP keepalive**: adds nothing here. The close is not undetected, it
-          is unread.
-        * **systemd's D-Bus signal on the unit**: the only reachable event-driven
-          option, and it covers strictly less — a unit restart, yes; a daemon
-          alive but wedged, or a stuck socket, no. Both leave the room silent
-          the same way (cf. the silence-pause failure, which shows up nowhere
-          but /proc/asound).
+        This `GetState` covers strictly more, which is why it stays: a daemon
+        whose command loop is wedged answers pings all the same, and so does one
+        that is alive but no longer processing. Both leave the room silent (cf.
+        the silence-pause failure, which shows up nowhere but /proc/asound). The
+        satellite asks the same question the same way
+        (milo-client/app/services/equalizer.py::_probe_connection) — two halves
+        of one appliance.
 
-        So the connection carries its own keepalive, exactly as the satellite has
-        always done (milo-client/app/services/equalizer.py::_probe_connection) —
-        two halves of one appliance answering the same question the same way. The
-        failure path is `_run`'s: it marks us disconnected, and the loop above
-        reconnects and restores.
+        The failure path is `_run`'s: it marks us disconnected, and the loop
+        above reconnects and restores.
         """
         if self._client is None:
             self._connected = False
             return
         try:
-            await self._run(self._client.general.state)
+            await self._run(self._client.get_state)
         except Exception as e:
             self.logger.warning(f"CamillaDSP connection lost (detected by keepalive): {e}")
 
@@ -350,19 +334,11 @@ class CamillaDSPService:
                 return True
 
             try:
-                try:
-                    from camilladsp import CamillaClient
-                except ImportError as e:
-                    self.logger.error(f"pycamilladsp not installed: {e}")
-                    return False
+                self._client = CamillaDspClient(self.host, self.port)
 
-                self._client = CamillaClient(self.host, self.port)
-
-                # Use run_in_executor directly to avoid reactive detection in _run()
-                # during connection establishment
-                if not self._loop:
-                    self._loop = asyncio.get_running_loop()
-                await self._loop.run_in_executor(self._executor, self._client.connect)
+                # Called directly rather than through _run(): the reactive
+                # disconnect detection there has nothing to demote yet.
+                await self._client.connect()
 
                 self._connected = True
                 self._state = await self._get_daemon_state()
@@ -449,18 +425,17 @@ class CamillaDSPService:
         if not self._client:
             return CamillaDspState.DISCONNECTED
 
-        # pycamilladsp v3 API: general.state() returns ProcessingState enum
-        state = await self._run(self._client.general.state)
+        state = await self._run(self._client.get_state)
 
-        # Map ProcessingState enum to our CamillaDspState
-        state_str = str(state).split('.')[-1].upper()
+        # The daemon names its own states: Running / Paused / Inactive /
+        # Starting / Stalled. The last two are transient and read as INACTIVE.
         state_map = {
             "RUNNING": CamillaDspState.RUNNING,
             "PAUSED": CamillaDspState.PAUSED,
             "INACTIVE": CamillaDspState.INACTIVE,
         }
 
-        return state_map.get(state_str, CamillaDspState.INACTIVE)
+        return state_map.get(str(state).upper(), CamillaDspState.INACTIVE)
 
     async def get_status(self) -> Dict[str, Any]:
         try:
@@ -489,8 +464,7 @@ class CamillaDSPService:
             # Add rate/buffer info if running
             if state == CamillaDspState.RUNNING:
                 try:
-                    # pycamilladsp v3 API: rate.capture()
-                    rate = await self._run(self._client.rate.capture)
+                    rate = await self._run(self._client.get_capture_rate)
                     status["sample_rate"] = rate
                 except Exception as e:
                     self.logger.debug("CamillaDSP sample rate probe failed: %s", e)
@@ -509,11 +483,11 @@ class CamillaDSPService:
 
     async def _get_config(self) -> Dict[str, Any]:
         """Get config from active or file if inactive. Always returns a valid config dict."""
-        config = await self._run(self._client.config.active)
+        config = await self._run(self._client.get_config)
         if config is None:
-            path = await self._run(self._client.config.file_path)
+            path = await self._run(self._client.get_config_file_path)
             if path:
-                config = await self._run(lambda: self._client.config.read_and_parse_file(path))
+                config = await self._run(self._client.read_config_file, path)
         if config is None:
             config = {}
         config.setdefault("filters", {})
@@ -522,7 +496,7 @@ class CamillaDSPService:
 
     async def _set_config(self, config: Dict) -> None:
         """Apply config to CamillaDSP"""
-        await self._run(lambda: self._client.config.set_active(config))
+        await self._run(self._client.set_config, config)
 
     # === Pure Config Mutators (no I/O, no lock) ===
     #
@@ -658,8 +632,8 @@ class CamillaDSPService:
             return self._volume
 
         try:
-            volume = await self._run(self._client.volume.main_volume)
-            mute = await self._run(self._client.volume.main_mute)
+            volume = await self._run(self._client.get_volume)
+            mute = await self._run(self._client.get_mute)
             self._volume = {"main": volume, "mute": mute}
             return self._volume
         except Exception as e:
@@ -672,7 +646,7 @@ class CamillaDSPService:
         if not self._connected:
             self.logger.warning(f"set_volume({volume:.1f}dB) rejected: CamillaDSP not connected")
             return False
-        await self._run(lambda: self._client.volume.set_main_volume(volume))
+        await self._run(self._client.set_volume, volume)
         self._volume["main"] = volume
         return True
 
@@ -681,7 +655,7 @@ class CamillaDSPService:
         if not self._connected:
             self.logger.warning(f"set_mute({muted}) rejected: CamillaDSP not connected")
             return False
-        await self._run(lambda: self._client.volume.set_main_mute(muted))
+        await self._run(self._client.set_mute, muted)
         self._volume["mute"] = muted
         return True
 
@@ -921,8 +895,8 @@ class CamillaDSPService:
             return {"available": False}
 
         capture, playback = await asyncio.gather(
-            self._run(self._client.levels.capture_peak),
-            self._run(self._client.levels.playback_peak),
+            self._run(self._client.get_capture_peak),
+            self._run(self._client.get_playback_peak),
         )
         return {"available": True, "input_peak": capture, "output_peak": playback}
 
@@ -1316,8 +1290,5 @@ class CamillaDSPService:
 
         # Disconnect from daemon
         await self.disconnect()
-
-        # Shut down the dedicated executor
-        self._executor.shutdown(wait=False)
 
         self.logger.info("CamillaDSP service cleanup complete")

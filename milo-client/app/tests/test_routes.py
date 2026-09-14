@@ -23,7 +23,6 @@ def mock_equalizer_service():
     """Mock EqualizerService for route tests."""
     service = Mock(spec=EqualizerService)
     service.connected = True
-    service.available = True
     service.compressor = {"enabled": False, "threshold": -20.0, "ratio": 4.0}
     service.loudness = {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
     service.delay = {"left": 0.0, "right": 0.0}

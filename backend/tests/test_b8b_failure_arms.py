@@ -312,8 +312,8 @@ class TestCamillaDspReadGuards:
         default would hand the new speaker a level nobody chose. The cache is
         the last value Milō itself applied, which is the right answer.
         """
-        client = MagicMock()
-        client.volume.main_volume.side_effect = OSError("socket gone")
+        client = AsyncMock()
+        client.get_volume.side_effect = OSError("socket gone")
         service._client = client
         service._connected = True
         service._volume = {"main": -22.0, "mute": False}
@@ -331,9 +331,9 @@ class TestCamillaDspReadGuards:
         `LevelsMonitor` calls this at 10 Hz, so serialising them doubles the
         DSP traffic of every open EQ view.
         """
-        client = MagicMock()
-        client.levels.capture_peak.return_value = [-30.0, -31.0]
-        client.levels.playback_peak.return_value = [-25.0, -26.0]
+        client = AsyncMock()
+        client.get_capture_peak.return_value = [-30.0, -31.0]
+        client.get_playback_peak.return_value = [-25.0, -26.0]
         service._client = client
         service._connected = True
 

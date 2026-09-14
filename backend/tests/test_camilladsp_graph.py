@@ -156,7 +156,7 @@ class TestCrossover:
 
         Answered True, the UI would show a crossover the daemon never applied.
         """
-        mock_camilla_client.config.set_active.side_effect = ValueError("invalid pipeline")
+        mock_camilla_client.set_config.side_effect = ValueError("invalid pipeline")
 
         assert await service.set_crossover_filter(True, frequency=80.0) is False
 

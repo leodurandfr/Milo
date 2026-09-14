@@ -15,15 +15,9 @@ import logging
 import os
 import time
 import yaml
-from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, Optional, List
 
-# Try to import CamillaDSP client
-try:
-    from camilladsp import CamillaClient
-    CAMILLADSP_AVAILABLE = True
-except ImportError:
-    CAMILLADSP_AVAILABLE = False
+from services.camilladsp_client import CamillaDspClient
 
 # Constants
 CAMILLADSP_HOST = "127.0.0.1"
@@ -77,10 +71,6 @@ class EqualizerService:
         self._reconnect_task: Optional[asyncio.Task] = None
         self._running = True
 
-        # Single-thread executor for pycamilladsp sync calls (serializes all DSP
-        # commands to prevent concurrent access to the non-thread-safe CamillaClient)
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="camilladsp")
-
         # Cached state
         self._filters: List[Dict[str, Any]] = []
         self._compressor = {
@@ -108,11 +98,6 @@ class EqualizerService:
     def connected(self) -> bool:
         """Returns whether CamillaDSP is connected."""
         return self._connected
-
-    @property
-    def available(self) -> bool:
-        """Returns whether CamillaDSP client library is available."""
-        return CAMILLADSP_AVAILABLE
 
     @property
     def equalizer_enabled(self) -> bool:
@@ -177,19 +162,9 @@ class EqualizerService:
             if self._connected:
                 return True
 
-            if not CAMILLADSP_AVAILABLE:
-                self.logger.warning("CamillaDSP client library not available")
-                return False
-
             try:
-                self._client = CamillaClient(self.host, self.port)
-                await asyncio.get_running_loop().run_in_executor(
-                    self._executor, self._client.connect
-                )
-                # Set socket timeout so recv() doesn't block forever when
-                # CamillaDSP shuts down — allows the probe to detect the failure
-                if self._client._ws and self._client._ws.sock:
-                    self._client._ws.sock.settimeout(RECONNECT_DELAY)
+                self._client = CamillaDspClient(self.host, self.port, timeout=RECONNECT_DELAY)
+                await self._client.connect()
                 self._connected = True
                 self.logger.info(f"Connected to CamillaDSP at {self.host}:{self.port}")
                 return True
@@ -212,7 +187,8 @@ class EqualizerService:
                 await self._reconnect_task
             except asyncio.CancelledError:
                 pass
-        self._executor.shutdown(wait=True)
+        if self._client:
+            await self._client.disconnect()
 
     async def _connection_loop(self) -> None:
         """Background reconnection loop with exponential backoff and periodic probe.
@@ -264,9 +240,7 @@ class EqualizerService:
             self._connected = False
             return
         try:
-            await asyncio.get_running_loop().run_in_executor(
-                self._executor, lambda: client.general.state()
-            )
+            await client.get_state()
         except Exception as e:
             self.logger.warning(f"CamillaDSP connection lost (detected by probe): {e}")
             self._connected = False
@@ -282,20 +256,21 @@ class EqualizerService:
         try:
             volume = self._volume["main"]
             mute = self._volume["mute"]
-            await self._exec(lambda: self._client.volume.set_main_volume(volume))
-            await self._exec(lambda: self._client.volume.set_main_mute(mute))
+            await self._exec(lambda c: c.set_volume(volume))
+            await self._exec(lambda c: c.set_mute(mute))
             self.logger.info(
                 f"Restored volume after reconnect: {volume:.1f} dB, mute={mute}"
             )
         except Exception as e:
             self.logger.error(f"Error restoring volume after reconnect: {e}")
 
-    async def _exec(self, func):
+    async def _exec(self, call):
         """
         Execute a CamillaDSP operation with auto-reconnect on connection loss.
 
-        On first failure, resets connection state and retries once after reconnecting.
-        Uses lambdas to ensure the new client is used after reconnection.
+        On first failure, resets connection state and retries once after
+        reconnecting. `call` is handed the live client rather than closing over
+        one, because a reconnect builds a new one and the retry must reach it.
         """
         for attempt in range(2):
             if not self._connected:
@@ -303,7 +278,7 @@ class EqualizerService:
             if not self._connected:
                 raise ConnectionError("Not connected to CamillaDSP")
             try:
-                return await asyncio.get_running_loop().run_in_executor(self._executor, func)
+                return await call(self._client)
             except Exception:
                 self._connected = False
                 if attempt == 0:
@@ -403,8 +378,8 @@ class EqualizerService:
     async def get_status(self) -> Dict[str, Any]:
         """Get equalizer status."""
         try:
-            state = await self._exec(lambda: self._client.general.state())
-            state_str = str(state).split('.')[-1].lower()
+            state = await self._exec(lambda c: c.get_state())
+            state_str = str(state).lower()
 
             return {
                 "available": True,
@@ -422,13 +397,11 @@ class EqualizerService:
 
     async def _get_config(self) -> Optional[Dict[str, Any]]:
         """Get CamillaDSP config."""
-        config = await self._exec(lambda: self._client.config.active())
+        config = await self._exec(lambda c: c.get_config())
         if config is None:
-            config_path = await self._exec(lambda: self._client.config.file_path())
+            config_path = await self._exec(lambda c: c.get_config_file_path())
             if config_path:
-                config = await self._exec(
-                    lambda: self._client.config.read_and_parse_file(config_path)
-                )
+                config = await self._exec(lambda c: c.read_config_file(config_path))
         return config
 
     async def _apply_config(self, config: Dict[str, Any]) -> None:
@@ -439,7 +412,7 @@ class EqualizerService:
         answered 200 with nothing written comes back on its old EQ at the next
         reboot, and only a second physical unit shows it.
         """
-        await self._exec(lambda: self._client.config.set_active(config))
+        await self._exec(lambda c: c.set_config(config))
         await self._save_config_to_file(config)
 
     async def _save_config_to_file(self, config: Dict[str, Any]) -> None:
@@ -821,8 +794,8 @@ class EqualizerService:
         """Get current equalizer volume settings."""
         if self._connected and self._client:
             try:
-                volume = await self._exec(lambda: self._client.volume.main_volume())
-                mute = await self._exec(lambda: self._client.volume.main_mute())
+                volume = await self._exec(lambda c: c.get_volume())
+                mute = await self._exec(lambda c: c.get_mute())
                 self._volume["main"] = volume
                 self._volume["mute"] = mute
             except Exception as e:
@@ -832,8 +805,8 @@ class EqualizerService:
     async def get_levels(self) -> Dict[str, Any]:
         """Get current audio levels (peak values for input/output)."""
         try:
-            capture_levels = await self._exec(lambda: self._client.levels.capture_peak())
-            playback_levels = await self._exec(lambda: self._client.levels.playback_peak())
+            capture_levels = await self._exec(lambda c: c.get_capture_peak())
+            playback_levels = await self._exec(lambda c: c.get_playback_peak())
             return {
                 "available": True,
                 "input_peak": capture_levels,
@@ -848,9 +821,7 @@ class EqualizerService:
         self._volume["main"] = max(-80, min(0, volume))
 
         try:
-            await self._exec(
-                lambda: self._client.volume.set_main_volume(self._volume["main"])
-            )
+            await self._exec(lambda c: c.set_volume(self._volume["main"]))
             self.logger.info(f"[{time.time():.3f}] VOLUME_SET: Volume set to {self._volume['main']:.1f} dB")
             return True
         except Exception as e:
@@ -862,7 +833,7 @@ class EqualizerService:
         self._volume["mute"] = muted
 
         try:
-            await self._exec(lambda: self._client.volume.set_main_mute(muted))
+            await self._exec(lambda c: c.set_mute(muted))
             self.logger.info(f"[{time.time():.3f}] MUTE_SET: Mute set to {muted}")
             return True
         except Exception as e:

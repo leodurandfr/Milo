@@ -62,10 +62,7 @@ async def lifespan(app: FastAPI):
     # can therefore never succeed; it only bought ~4.5 s of sleeps and an ERROR in
     # the journal on every boot. The loop owns every attempt, the first included,
     # and it also restores volume/mute, which the startup connect never did.
-    if equalizer_service.available:
-        equalizer_service.start_connection_loop()
-    else:
-        logger.warning("CamillaDSP client library not available")
+    equalizer_service.start_connection_loop()
 
     logger.info("Milo Client API startup complete")
 

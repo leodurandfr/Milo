@@ -88,17 +88,15 @@ _ALLOWED_RECEIVERS = {"self", "cls"}
 
 # The rule is about objects this repo owns: the remedy it names — "expose a
 # public method on the owner" — only exists for those. A third-party client has
-# no owner to extend, so an access it leaves no public route to is exempt, one
-# named site at a time.
+# no owner to extend, so an access it leaves no public route to would be exempt,
+# one named site at a time.
 #
-# pyCamillaDSP's client keeps its websocket private and offers no handle on it
-# (`dir(CamillaClient)` has config/volume/levels/… and nothing socket-shaped).
-# The satellite must set a recv timeout there or a CamillaDSP shutdown leaves
-# its connection probe blocked forever, which is the failure this appliance
-# spent a summer on.
-_VENDOR_INTERNALS = {
-    ("milo-client/app/services/equalizer.py", "self._client._ws"),
-}
+# There is none left. The last entry was the satellite reaching through
+# `self._client._ws.sock` to set a recv timeout, because pyCamillaDSP kept its
+# websocket private and offered no handle on it — and a CamillaDSP shutdown left
+# the connection probe blocked for ever without it. That library is gone:
+# `CamillaDspClient` is Milō's own and takes the timeout as an argument.
+_VENDOR_INTERNALS = set()
 
 
 def test_no_cross_object_private_access():

@@ -856,7 +856,7 @@ class TestCamillaDSPService:
         monkeypatch.setattr(camilladsp_service, "_schedule_persist", lambda: None)
 
         camilla_daemon.load({"filters": {}, "pipeline": [], "processors": {}})
-        mock_camilla_client.config.set_active.side_effect = RuntimeError("daemon connection dropped")
+        mock_camilla_client.set_config.side_effect = RuntimeError("daemon connection dropped")
 
         before = (
             camilladsp_service._filters,
@@ -928,7 +928,7 @@ class TestConnectedVolumePath:
         # @handle_errors(default=False) makes False the crash value, so the
         # positive return is what distinguishes "it worked" from "it never ran".
         assert result is True
-        mock_camilla_client.volume.set_main_volume.assert_called_once_with(-12.5)
+        mock_camilla_client.set_volume.assert_awaited_once_with(-12.5)
 
         connected._connected = False
         assert (await connected.get_volume())["main"] == -12.5
@@ -941,7 +941,7 @@ class TestConnectedVolumePath:
         result = await connected.set_mute(True)
 
         assert result is True
-        mock_camilla_client.volume.set_main_mute.assert_called_once_with(True)
+        mock_camilla_client.set_mute.assert_awaited_once_with(True)
 
         connected._connected = False
         assert (await connected.get_volume())["mute"] is True
@@ -960,9 +960,9 @@ class TestInactiveDaemonConfigFallback:
     """An EQ write issued while CamillaDSP is inactive must still start from the
     graph the daemon holds on disk.
 
-    `config.active()` answers None whenever the daemon is not processing (between
+    `get_config()` answers None whenever the daemon is not processing (between
     streams, right after a restart). `_get_config` falls back to
-    `read_and_parse_file(file_path())` for exactly that window. Without the
+    `read_config_file(get_config_file_path())` for exactly that window. Without the
     fallback the service would start from an empty graph and push it back,
     dropping every filter it did not write itself — crossover included — into the
     config the daemon reloads on its next start. Silent: nothing raises, and the
@@ -1021,8 +1021,8 @@ class TestInactiveDaemonConfigFallback:
 
         await service.set_filter("eq_band_00", freq=100, gain=4.0, q=1.41)
 
-        mock_camilla_client.config.read_and_parse_file.assert_called_once_with(
-            camilla_daemon.file_path()
+        mock_camilla_client.read_config_file.assert_awaited_once_with(
+            camilla_daemon.get_config_file_path()
         )
 
     async def test_a_daemon_with_nothing_to_read_still_takes_the_write(self, service, camilla_daemon):
@@ -1046,7 +1046,7 @@ class TestInactiveDaemonConfigFallback:
 
         await service.set_filter("eq_band_00", freq=100, gain=4.0, q=1.41)
 
-        mock_camilla_client.config.read_and_parse_file.assert_not_called()
+        mock_camilla_client.read_config_file.assert_not_awaited()
 
 
 # =============================================================================

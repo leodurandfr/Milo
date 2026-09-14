@@ -57,7 +57,6 @@ on_chroot << 'CHROOT'
 sudo -u milo python3 -m venv /home/milo/milo/milo-client/venv
 sudo -u milo bash -c "source /home/milo/milo/milo-client/venv/bin/activate && pip install --upgrade pip"
 sudo -u milo bash -c "source /home/milo/milo/milo-client/venv/bin/activate && pip install -r /home/milo/milo/milo-client/app/requirements.txt"
-sudo -u milo bash -c "source /home/milo/milo/milo-client/venv/bin/activate && pip install git+https://github.com/HEnquist/pycamilladsp.git"
 CHROOT
 
 # Seed the satellite's own identity, for the half of this unified image that
