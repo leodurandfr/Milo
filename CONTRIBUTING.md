@@ -10,7 +10,8 @@ takes a few seconds. It then covers every contribution you make afterwards.
 
 The CLA exists so Milō can be offered under more than one licence in the future (for
 example, a commercial licence to a hardware manufacturer) while the project itself stays
-
+source-available under PolyForm Shield 1.0.0 for everyone. You keep full ownership of
+what you write.
 
 ## Getting set up
 

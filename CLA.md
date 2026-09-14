@@ -33,7 +33,8 @@ You expressly agree that Léo Durand may license Your Contribution under any lic
 terms, including terms that differ from the licence currently applied to the Work, and
 including proprietary or commercial licence terms. This is what allows the project to be
 offered under more than one licence — for example, a commercial licence to a hardware
-manufacturer — while remaining free and open source for everyone else.
+manufacturer — while remaining source-available under PolyForm Shield 1.0.0 for
+everyone else.
 
 ## 3. Patent licence
 

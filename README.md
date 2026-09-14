@@ -228,4 +228,6 @@ Control Milō from your other devices:
 
 ## License
 
-
+[PolyForm Shield 1.0.0](LICENSE) — source-available. Read it, run it, change it,
+self-host it, commercially or not. The one thing it withholds is using Milō to build
+a product or service that competes with Milō.
