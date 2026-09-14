@@ -172,8 +172,25 @@ class CamillaDSPService:
                 self.logger.warning("CamillaDSP command failed, marking disconnected")
                 self._connected = False
                 self._state = CamillaDspState.DISCONNECTED
-                self._client = None
+                self._drop_client()
             raise
+
+    def _drop_client(self) -> None:
+        """Let go of the client, and close the socket it may still be holding.
+
+        Not every failure that lands here is a dead socket: a command the daemon
+        understood and *refused* raises too, and leaves the connection open and
+        in step. Releasing the reference does not close it — the client's read
+        and ping tasks hold it alive — so it would sit there pinging every 20 s
+        while the loop opens a replacement beside it. Measured: three refused
+        commands, three live sockets.
+
+        Closed in the background, because the closing handshake must not be paid
+        by the volume write that just failed.
+        """
+        stale, self._client = self._client, None
+        if stale is not None:
+            self._bg.spawn(stale.disconnect(), label="close_stale_client")
 
     @property
     def state(self) -> CamillaDspState:
@@ -353,7 +370,7 @@ class CamillaDSPService:
             except Exception as e:
                 self._connected = False
                 self._state = CamillaDspState.DISCONNECTED
-                self._client = None
+                self._drop_client()
                 self.logger.warning(f"Failed to connect to CamillaDSP: {e}")
                 return False
 

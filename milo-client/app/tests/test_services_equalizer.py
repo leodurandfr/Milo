@@ -265,6 +265,37 @@ class TestEqualizerServiceConnection:
             assert seen == [mock_camilla_client, mock_camilla_client]
 
     @pytest.mark.asyncio
+    async def test_a_reconnect_closes_the_client_it_replaces(self, equalizer_service):
+        """Letting go of a client is not the same as closing its socket.
+
+        A command the daemon *refused* clears `_connected` exactly like a dead
+        socket does, but leaves the connection open and in step. The client's
+        own read and ping tasks hold it alive, so overwriting `_client` does not
+        collect it — it would go on pinging the local daemon every 20 s, one
+        orphan per refused push from the server.
+        """
+        stale = equalizer_service._client
+        equalizer_service._connected = False
+
+        with patch("services.equalizer.CamillaDspClient", return_value=AsyncMock()):
+            assert await equalizer_service._connect_once() is True
+
+        stale.disconnect.assert_awaited_once()
+        assert equalizer_service._client is not stale
+
+    @pytest.mark.asyncio
+    async def test_a_probe_that_finds_the_daemon_gone_closes_it_too(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """Same reason on the other path that drops a client."""
+        mock_camilla_client.get_state.side_effect = IOError("Connection refused")
+
+        await equalizer_service._probe_connection()
+
+        assert equalizer_service._client is None
+        mock_camilla_client.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_stop_connection_loop_cleans_up(self, equalizer_service):
         """Should cancel the background task on stop."""
         equalizer_service.start_connection_loop()

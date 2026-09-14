@@ -89,7 +89,12 @@ class CamillaDspClient:
         without being CamillaDSP fails here rather than at the first command.
         """
         self._ws = await ws_connect(
-            f"ws://{self.host}:{self.port}", open_timeout=self.timeout
+            f"ws://{self.host}:{self.port}",
+            open_timeout=self.timeout,
+            # Bounds the closing handshake too: a socket dropped after a refusal
+            # is closed on a background path, and a peer that went away without
+            # a FIN must not hold that path for the library's 10 s default.
+            close_timeout=self.timeout,
         )
         try:
             self.version = await self.get_version()

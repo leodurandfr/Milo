@@ -577,6 +577,71 @@ class TestKeepalive:
         assert service._connected is False
 
 
+class TestDroppingTheClient:
+    """Letting go of a client is not the same as closing its socket.
+
+    `_run` demotes on *any* exception, and a command the daemon understood and
+    refused raises exactly like a dead socket does — but leaves the connection
+    open and in step. The library's read and ping tasks hold that connection
+    alive, so releasing the reference does not collect it: measured against a
+    stand-in daemon, three refused commands left three live sockets pinging
+    every 20 s while the loop opened replacements beside them.
+    """
+
+    async def test_a_failed_command_closes_the_socket_it_let_go_of(
+        self, service, client_factory
+    ):
+        _, client = client_factory
+        await service._connect_once()
+        client.get_volume.side_effect = RuntimeError("daemon refused")
+
+        with pytest.raises(RuntimeError):
+            await service._run(service._client.get_volume)
+
+        await asyncio.sleep(0)  # the close is spawned, not awaited in-line
+        assert service._client is None
+        client.disconnect.assert_awaited_once()
+
+    async def test_the_close_does_not_delay_the_caller_that_failed(
+        self, service, client_factory
+    ):
+        """A volume write that already failed must not then wait on a closing
+        handshake with a peer that may be gone. The close is spawned."""
+        _, client = client_factory
+        await service._connect_once()
+        closing = asyncio.Event()
+
+        async def _hangs_up_slowly():
+            await closing.wait()
+
+        client.disconnect.side_effect = _hangs_up_slowly
+        client.set_volume.side_effect = RuntimeError("daemon refused")
+
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(
+                service._run(service._client.set_volume, -20.0), timeout=1.0
+            )
+
+        closing.set()
+        await service._bg.cancel_all()
+
+    async def test_a_second_failure_does_not_close_the_same_client_twice(
+        self, service, client_factory
+    ):
+        """`_run` only acts while `_connected`; the arm must stay single-shot or
+        the replacement the loop just built would be closed under it."""
+        _, client = client_factory
+        await service._connect_once()
+        client.get_volume.side_effect = RuntimeError("daemon refused")
+
+        for _ in range(3):
+            with contextlib.suppress(RuntimeError):
+                await service._run(client.get_volume)
+        await asyncio.sleep(0)
+
+        client.disconnect.assert_awaited_once()
+
+
 class TestInitialize:
     """Startup: what must happen before the loop is allowed to run."""
 

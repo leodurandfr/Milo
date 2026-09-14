@@ -163,6 +163,12 @@ class EqualizerService:
                 return True
 
             try:
+                # The client this one replaces may still be holding an open
+                # socket: a command the daemon *refused* clears _connected the
+                # same way a dead one does, and releasing the reference does not
+                # close it — the client's read and ping tasks hold it alive.
+                # Left behind it would ping the local daemon every 20 s for ever.
+                await self._drop_client()
                 self._client = CamillaDspClient(self.host, self.port, timeout=RECONNECT_DELAY)
                 await self._client.connect()
                 self._connected = True
@@ -244,7 +250,7 @@ class EqualizerService:
         except Exception as e:
             self.logger.warning(f"CamillaDSP connection lost (detected by probe): {e}")
             self._connected = False
-            self._client = None
+            await self._drop_client()
 
     async def _restore_after_reconnect(self) -> None:
         """Restore volume/mute from cache after CamillaDSP reconnection.
@@ -263,6 +269,17 @@ class EqualizerService:
             )
         except Exception as e:
             self.logger.error(f"Error restoring volume after reconnect: {e}")
+
+    async def _drop_client(self) -> None:
+        """Let go of the client, closing the socket it may still be holding.
+
+        Awaited rather than spawned: both callers are the connection loop or a
+        reconnect, neither of which is on a request's critical path, and the
+        satellite has no task set to hand it to.
+        """
+        stale, self._client = self._client, None
+        if stale is not None:
+            await stale.disconnect()
 
     async def _exec(self, call):
         """
