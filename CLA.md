@@ -1,5 +1,9 @@
 # Contributor License Agreement
 
+**In short:** you keep ownership of what you write. You allow Léo Durand to use it in
+Milō, including under commercial terms. You confirm you have the right to give it.
+Opening a pull request means you accept the terms below.
+
 Thank you for your interest in contributing to Milō.
 
 This agreement clarifies the intellectual property licence granted with contributions
@@ -82,8 +86,7 @@ would make the representations above inaccurate.
 
 ---
 
-## How to sign
+## How to accept
 
-You do not need to sign anything in advance. When you open your first pull request, a
-bot will comment with a link. Signing takes a few seconds and applies to all your future
-contributions to this project.
+There is nothing to sign and nothing to install. Opening a pull request means you
+accept these terms, for that contribution and every one you make afterwards.
