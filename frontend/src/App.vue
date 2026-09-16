@@ -112,6 +112,7 @@ import { useDarkSurface } from '@/composables/useDarkSurface';
 import useWebSocket from '@/services/websocket';
 import { wsEventRegistry } from '@/schemas/ws';
 import { logger } from '@/services/logger';
+import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import { isKiosk } from '@/utils/kiosk';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
@@ -277,7 +278,15 @@ function hideBootMessage() {
 }
 
 // === Notification banner (connection issues and errors after boot) ===
-const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+// A source's display name is not derivable from its id (`mac` → macOS,
+// `music_library` → Music Library), so it comes from the same table the source
+// list reads. Anything that is not a source id (`system`, `audio`) has no label
+// key and keeps its capitalised id.
+const sourceLabel = (id) => {
+  const key = AUDIO_SOURCE_LABEL_KEYS[id];
+  if (key) return t(key);
+  return id ? id.charAt(0).toUpperCase() + id.slice(1) : '';
+};
 
 // Watch connection state with iOS-specific delay to avoid flash on quick reconnects
 watch(isConnected, (connected) => {
@@ -362,7 +371,7 @@ watch(() => unifiedStore.commandError, (err) => {
   if (!err) return;
   unifiedStore.commandError = null;
   if (commandErrorTimer) timer.clear(commandErrorTimer);
-  const source = capitalize(err.source || 'audio');
+  const source = sourceLabel(err.source || 'audio');
   currentError.value = { title: `${source} · ${t('notification.commandFailed')}`, detail: err.command };
   commandErrorTimer = timer.setTimeout(() => {
     if (currentError.value?.detail === err.command) {
@@ -627,7 +636,7 @@ onMounted(async () => {
     on('source', 'error', (event) => {
       const source = event.data?.source || 'source';
       currentError.value = {
-        title: t('notification.sourceErrorTitle', { source: capitalize(source) }),
+        title: t('notification.sourceErrorTitle', { source: sourceLabel(source) }),
         detail: event.data?.message || 'error',
         source,
       };
@@ -643,7 +652,7 @@ onMounted(async () => {
       const source = event.data?.source || 'system';
       const message = event.data?.message || 'Unknown error';
       currentError.value = {
-        title: t('notification.sourceErrorTitle', { source: capitalize(source) }),
+        title: t('notification.sourceErrorTitle', { source: sourceLabel(source) }),
         detail: message,
       };
     }),

@@ -2,7 +2,7 @@
 <template>
   <div class="main-view">
     <!-- Secret hotspot to open Settings -->
-    <div class="SettingsAccess" role="button" aria-label="Open settings" @click="handleSettingsClick"></div>
+    <div class="SettingsAccess" @click="handleSettingsClick"></div>
 
     <div class="content-container">
       <AudioSourceView />

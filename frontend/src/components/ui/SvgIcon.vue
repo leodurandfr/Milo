@@ -1,4 +1,4 @@
-<!-- frontend/src/components/ui/Icon.vue -->
+<!-- frontend/src/components/ui/SvgIcon.vue -->
 <template>
   <div
     class="icon"

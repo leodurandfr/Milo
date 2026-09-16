@@ -20,7 +20,7 @@
                the two came to disagree in the first place. -->
           <div class="artwork" :class="{ 'artwork-pending': artworkPending }">
             <img v-if="shownArtwork" :src="shownArtwork"
-              alt="Artwork" />
+              alt="" />
             <img v-else-if="fallback.kind === 'image'" :src="fallback.src"
               alt="" class="artwork-placeholder" />
             <div v-else class="artwork-fallback">
