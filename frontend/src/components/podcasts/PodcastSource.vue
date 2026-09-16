@@ -11,8 +11,8 @@
     <!-- Header actions (only on home view) -->
     <template v-if="currentView === 'home'" #header-actions="{ iconVariant }">
       <IconButton icon="heartOff" :variant="iconVariant" @click="goToSubscriptions" />
-      <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
       <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
+      <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
     </template>
 
     <!-- Content slot: scrollable views -->
