@@ -153,7 +153,7 @@ function shareTitle(share) {
 // exist, so they have no index at all and keep their empty-state label.
 function storageSubtitle(count) {
   return count
-    ? t('musicLibrary.songsCount', { count })
+    ? t('musicLibrary.tracksCount', { count })
     : t('musicLibrary.storage.nothingIndexed');
 }
 

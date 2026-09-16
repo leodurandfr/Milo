@@ -87,7 +87,7 @@
                 <div v-for="genre in store.genres" :key="genre.value" v-press class="genre-row"
                   @click="$emit('select-genre', genre)">
                   <span class="genre-name heading-3">{{ genre.value }}</span>
-                  <span class="genre-count text-mono-medium">{{ t('musicLibrary.songsCount', { count: genre.songCount || 0 })
+                  <span class="genre-count text-mono-medium">{{ t('musicLibrary.tracksCount', { count: genre.songCount || 0 })
                   }}</span>
                 </div>
               </div>
@@ -104,7 +104,7 @@
           </div>
 
           <MediaRow icon="heart" :title="t('musicLibrary.playlists.likedSongs')"
-            :subtitle="t('musicLibrary.songsCount', { count: store.likedSongsCount })"
+            :subtitle="t('musicLibrary.tracksCount', { count: store.likedSongsCount })"
             @click="$emit('select-liked')" />
 
           <div class="transition-container">
@@ -117,7 +117,7 @@
                 v-bind="emptyState('musicLibrary.noPlaylists')" />
               <div v-else key="loaded" class="rows-list">
                 <MediaRow v-for="playlist in store.playlists" :key="playlist.id" :cover-id="playlist.coverArt"
-                  :title="playlist.name" :subtitle="t('musicLibrary.songsCount', { count: playlist.songCount || 0 })"
+                  :title="playlist.name" :subtitle="t('musicLibrary.tracksCount', { count: playlist.songCount || 0 })"
                   @click="$emit('select-playlist', playlist)" />
               </div>
             </Transition>

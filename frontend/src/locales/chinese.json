@@ -6,12 +6,12 @@
     "unavailable": "歌词服务暂时不可用",
     "notPlaying": "未在播放",
     "notCompatible": "该音源不支持歌词搜索",
-    "noTrackDetected": "未检测到歌曲",
+    "noTrackDetected": "未检测到曲目",
     "playbackControls": "播放控制"
   },
   "app": {
     "connectionUnavailable": "连接不可用",
-    "connecting": "正在连接..."
+    "connecting": "正在连接…"
   },
   "notification": {
     "connectionLostTitle": "连接丢失",
@@ -45,8 +45,8 @@
     "confirmRestart": "确认重启",
     "shutdown": "关机",
     "confirmShutdown": "确认关机",
-    "restartInProgress": "正在重启...",
-    "shutdownInProgress": "正在关机...",
+    "restartInProgress": "正在重启…",
+    "shutdownInProgress": "正在关机…",
     "remoteControls": "遥控器",
     "btRemote": "蓝牙遥控器",
     "irRemote": "红外遥控器"
@@ -72,11 +72,11 @@
       "noDriveConnected": "未连接"
     },
     "radioSource": {
-      "favoritesTitle": "喜爱的网络电台",
-      "discoverTitle": "搜索网络电台",
+      "favoritesTitle": "喜爱的电台",
+      "discoverTitle": "搜索电台",
       "searchPlaceholder": "电台名称",
-      "loadingCountries": "正在加载国家...",
-      "loadingStations": "正在加载电台...",
+      "loadingCountries": "正在加载国家…",
+      "loadingStations": "正在加载电台…",
       "searchUnavailable": "搜索不可用",
       "searchUnavailableHint": "电台目录无响应",
       "connectionError": "连接错误",
@@ -84,7 +84,7 @@
       "retry": "重试",
       "noStationsFound": "未找到电台",
       "minCharactersRequired": "请输入至少3个字符进行搜索",
-      "noFavorites": "没有喜爱的广播",
+      "noFavorites": "没有喜爱的电台",
       "playRadio": "收听",
       "stopRadio": "停止"
     }
@@ -94,9 +94,9 @@
     "starting": "正在启动多房间",
     "zonesAndSystems": "音频系统",
     "individualSystems": "独立系统",
-    "loadingSystems": "正在加载系统...",
+    "loadingSystems": "正在加载系统…",
     "noSystems": "没有系统连接",
-    "restarting": "正在重启多房间...",
+    "restarting": "正在重启多房间…",
     "error": "激活多房间时出错",
     "enableFailed": "无法启用多房间",
     "disableFailed": "无法停用多房间",
@@ -132,15 +132,15 @@
     },
     "pending": {
       "title": "检测到新 Milō Client",
-      "notConfigured": "音频卡未配置",
-      "rebooting": "正在重启...",
+      "notConfigured": "声卡未配置",
+      "rebooting": "正在重启…",
       "configureTitle": "配置 Milō Client",
       "confirmReboot": "确认重启？",
-      "audioCard": "音频卡",
-      "namePlaceholder": "例如 厨房",
+      "audioCard": "声卡",
+      "namePlaceholder": "例如：厨房",
       "applyAndReboot": "应用并重启",
-      "applying": "正在应用...",
-      "rebootingMessage": "Milō Client 正在重启...",
+      "applying": "正在应用…",
+      "rebootingMessage": "Milō Client 正在重启…",
       "rebootingDescription": "Milō Client 重新连接后将出现在活跃系统列表中。",
       "rebootTimeout": "这比预期时间更长。Milō Client 可能仍在重启中。",
       "errorTitle": "配置失败",
@@ -153,7 +153,7 @@
       "useServerWifi": "使用服务器网络 ({ssid})",
       "changeNetwork": "更改",
       "enterCredentials": "服务器未通过 WiFi 连接。请输入此扬声器的网络凭据。",
-      "adopting": "配置中...",
+      "adopting": "配置中…",
       "errorPush": "扬声器未接受该配置"
     },
     "systemOffline": "「{name}」已离线",
@@ -175,7 +175,7 @@
       "editZone": "编辑区域",
       "deleteZone": "删除区域",
       "confirmDeleteZone": "确认删除",
-      "deletingZone": "删除中..."
+      "deletingZone": "删除中…"
     },
     "equalizer": {
       "title": "10 频段"
@@ -226,10 +226,10 @@
     "meters": {
       "title": "音频输出电平"
     },
-    "connecting": "正在连接..."
+    "connecting": "正在连接…"
   },
   "status": {
-    "loading": "正在启动...",
+    "loading": "正在启动…",
     "loadingOf": "启动中",
     "loadingOfMasculine": "启动中",
     "loadingOfFeminine": "启动中",
@@ -241,16 +241,16 @@
     "noInternet": "无法访问互联网",
     "networkSettings": "网络设置",
     "retry": "重试",
+    "readyToPlay": "准备播放",
+    "loadingAlbum": "正在加载专辑",
+    "ejecting": "正在弹出…",
     "playing": "播放中",
     "connectedTo": "已连接到",
     "audioReceivedFrom": "接收音频来自",
     "disconnect": "断开连接",
-    "disconnecting": "正在断开...",
+    "disconnecting": "正在断开…",
     "unknownTitle": "未知标题",
-    "unknownArtist": "未知艺术家",
-    "readyToPlay": "准备播放",
-    "loadingAlbum": "正在加载专辑",
-    "ejecting": "正在弹出..."
+    "unknownArtist": "未知艺术家"
   },
   "volumeSettings": {
     "volumeManagement": "音量由 Milō 管理",
@@ -271,9 +271,9 @@
     "autoSleep": "屏幕休眠",
     "sleepDelay": "应用无操作时，在以下时间后关闭屏幕：",
     "screensaver": "屏幕保护程序",
+    "screensaverDelay": "在以下时间后启动屏幕保护程序：",
     "uiScale": "显示",
     "uiScaleLevel": "界面缩放",
-    "screensaverDelay": "在以下时间后启动屏幕保护程序：",
     "colorFilter": "暖色滤镜",
     "colorFilterWarmth": "强度"
   },
@@ -286,7 +286,7 @@
     "irRemote": "红外接收器",
     "applyAndReboot": "应用并重启",
     "confirmReboot": "确认重启",
-    "rebooting": "正在重启..."
+    "rebooting": "正在重启…"
   },
   "fanSettings": {
     "status": "状态",
@@ -302,7 +302,7 @@
     "targetTemp": "目标温度",
     "addPoint": "添加点",
     "removePoint": "删除点",
-    "disabledNote": "风扇已关闭 — 处理器依靠其热降频（85°C）来保证安全。"
+    "disabledNote": "风扇已关闭 — 处理器依靠其热降频（85 °C）来保证安全。"
   },
   "audioPlayback": {
     "autoStop": "暂停时自动停止",
@@ -319,11 +319,11 @@
       "intact": "完整"
     },
     "apply": "应用并重启",
-    "restarting": "正在重启..."
+    "restarting": "正在重启…"
   },
   "qobuzSettings": {
     "accountTitle": "账户设置",
-    "loading": "正在检查状态...",
+    "loading": "正在检查状态…",
     "connect": "连接",
     "disconnect": "断开连接",
     "notConnectedTitle": "Qobuz 账户未连接",
@@ -335,7 +335,7 @@
     "crossfade": "淡入淡出",
     "crossfadeDuration": "连续曲目之间的淡入淡出时长：",
     "restartToApply": "重启以应用",
-    "restarting": "正在重启..."
+    "restarting": "正在重启…"
   },
   "multiroomSettings": {
     "presets": "预设",
@@ -358,7 +358,7 @@
     "retry": "重试",
     "notAvailable": "不可用",
     "update": "更新",
-    "updating": "更新中...",
+    "updating": "更新中…",
     "errorDetectingSatellites": "检测 Milō Client 时出错",
     "upToDate": "已是最新",
     "dependenciesHint": "安装应用及与之一同验证的程序版本。",
@@ -384,16 +384,16 @@
     "noNetworks": "未检测到网络",
     "password": "密码",
     "connect": "连接",
-    "connecting": "正在连接...",
+    "connecting": "正在连接…",
     "connectFailed": "连接失败",
+    "save": "保存",
+    "saving": "保存中…",
+    "saveFailed": "保存网络失败",
     "forget": "忘记",
     "refresh": "刷新",
     "wifiNetworks": "WiFi 网络",
     "wifiCountry": "WiFi 国家",
     "selectCountry": "选择您的国家",
-    "save": "保存",
-    "saving": "保存中...",
-    "saveFailed": "保存网络失败",
     "ready": "就绪"
   },
   "applications": {
@@ -418,7 +418,7 @@
   },
   "common": {
     "settings": "设置",
-    "deleting": "删除中...",
+    "deleting": "删除中…",
     "close": "关闭",
     "backToTop": "返回顶部",
     "selectOption": "选择一个选项"
@@ -437,23 +437,23 @@
     },
     "manageStation": {
       "name": "电台名称",
-      "namePlaceholder": "例：中国之声",
+      "namePlaceholder": "例如：中国之声",
       "image": "电台图片",
       "chooseImage": "选择图片",
       "url": "流媒体URL",
-      "urlPlaceholder": "例：http://streaming.radio.cn/stream",
+      "urlPlaceholder": "例如：http://streaming.radio.cn/stream",
       "country": "国家",
       "selectCountry": "选择国家",
       "genre": "类型",
-      "genrePlaceholder": "例：流行、摇滚、爵士",
+      "genrePlaceholder": "例如：流行、摇滚、爵士",
       "codec": "编解码器",
-      "codecPlaceholder": "例：MP3、AAC、OGG",
+      "codecPlaceholder": "例如：MP3、AAC、OGG",
       "bitrate": "比特率 (kbps)",
-      "bitratePlaceholder": "例：128、192、320",
-      "adding": "正在添加...",
-      "loading": "正在加载...",
+      "bitratePlaceholder": "例如：128、192、320",
+      "adding": "正在添加…",
+      "loading": "正在加载…",
       "invalidImageFormat": "不支持的图片格式。请使用JPG、PNG、WEBP或GIF。",
-      "imageTooLarge": "图片太大。最大5MB。",
+      "imageTooLarge": "图片太大。最大5 MB。",
       "addFailed": "添加电台失败",
       "errorOccurred": "发生错误",
       "addStationTitle": "添加电台",
@@ -471,7 +471,7 @@
     "addedStationsTitle": "已添加的电台",
     "addStation": "添加电台",
     "trackRecognition": "歌曲识别",
-    "trackRecognitionDescription": "通过 Shazam 识别正在播放的歌曲"
+    "trackRecognitionDescription": "使用 Shazam 识别正在播放的曲目"
   },
   "podcasts": {
     "podcasts": "播客",
@@ -503,7 +503,7 @@
     },
     "searchPlaceholder": "播客或主播名称",
     "podcastsTitle": "播客",
-    "noResultsFor": "没有找到\"{query}\"的结果",
+    "noResultsFor": "没有找到「{query}」的结果",
     "noResults": "没有找到结果",
     "searchPrompt": "搜索播客",
     "loadMorePodcasts": "加载更多播客",
@@ -517,10 +517,9 @@
     "catalogUnavailable": "目录不可用",
     "catalogUnavailableHint": "播客目录服务无响应",
     "retry": "重试",
-    "loading": "正在加载...",
+    "loading": "正在加载…",
     "noEpisodesInQueue": "队列中没有单集",
     "noEpisodesInQueueHint": "开始收听单集，它们将显示在这里",
-    "episodesCount2": "单集",
     "subscribed": "已订阅",
     "subscribe": "订阅",
     "description": "描述",
@@ -530,7 +529,8 @@
     "alreadyListened": "已收听",
     "today": "今天",
     "yesterday": "昨天",
-    "unsubscribe": "取消订阅"
+    "unsubscribe": "取消订阅",
+    "episodesCount": "{count} 个单集"
   },
   "musicLibrary": {
     "tabs": {
@@ -554,10 +554,10 @@
     "queue": "播放队列",
     "searchPlaceholder": "艺术家、专辑、曲目",
     "searchPrompt": "搜索您的音乐库",
-    "noResultsFor": "没有找到\"{query}\"的结果",
+    "noResultsFor": "没有找到「{query}」的结果",
     "play": "播放",
     "shuffle": "随机播放",
-    "loading": "加载中...",
+    "loading": "正在加载…",
     "notFound": "未找到",
     "noTracks": "没有曲目",
     "noArtists": "暂无艺术家",
@@ -565,21 +565,20 @@
     "noPlaylists": "暂无播放列表",
     "emptyLibrary": "暂无音乐",
     "emptyLibraryHint": "连接包含音乐的 NAS 服务器或 USB 存储设备以构建音乐库。",
-    "building": "正在构建音乐库...",
+    "building": "正在构建音乐库…",
     "buildingHint": "正在为您的音乐编制索引，这可能需要几分钟时间。",
-    "buildingProgress": "已索引 {count} 首曲目...",
-    "catalogStarting": "正在启动音乐目录...",
+    "buildingProgress": "已索引 {count} 首曲目…",
+    "catalogStarting": "正在启动音乐目录…",
     "catalogStartingHint": "音乐目录正在启动，您的音乐库稍后显示。",
     "queueEmpty": "播放队列为空",
     "queueEmptyHint": "播放专辑、播放列表或曲目以创建播放队列。",
     "albumsCount": "{count} 张专辑",
     "tracksCount": "{count} 首曲目",
-    "songsCount": "{count} 首歌曲",
     "minutesShort": "分钟",
     "discLabel": "光盘 {number}",
     "playlists": {
       "newPlaylist": "新建播放列表",
-      "likedSongs": "喜欢的歌曲",
+      "likedSongs": "喜欢的曲目",
       "createTitle": "新建播放列表",
       "renameTitle": "重命名播放列表",
       "namePlaceholder": "播放列表名称",
@@ -596,13 +595,13 @@
     },
     "shares": {
       "title": "音乐来源",
-      "description": "存储在 NAS 服务器或 USB 驱动器上的音乐。",
+      "description": "存储在服务器或 USB 存储上的音乐。",
       "addShare": "添加服务器",
       "addTitle": "添加服务器",
       "editTitle": "编辑服务器",
       "type": "协议",
       "name": "名称",
-      "namePlaceholder": "我的 NAS 音乐",
+      "namePlaceholder": "我的音乐服务器",
       "nameHint": "在 Milō 中显示的名称 — 可以随意重命名。",
       "host": "服务器",
       "hostPlaceholder": "192.168.1.10 或 nas.local",
@@ -615,23 +614,23 @@
       "password": "密码",
       "passwordPlaceholder": "可选",
       "passwordKeepHint": "留空以保留已保存的密码",
-      "nfsNoCredentials": "NFS 共享通过服务器和 IP 地址进行授权 — 不使用用户名或密码。",
+      "nfsNoCredentials": "NFS 通过服务器和 IP 地址进行授权 — 不使用用户名或密码。",
       "add": "添加服务器",
       "save": "保存",
       "remove": "移除服务器",
       "confirmRemove": "确认移除",
-      "errorGeneric": "无法保存共享。请检查详细信息并重试。",
+      "errorGeneric": "无法保存服务器。请检查详细信息并重试。",
       "wizard": {
         "browseTitle": "选择源文件夹",
-        "authTitle": "登录 NAS",
+        "authTitle": "登录服务器",
         "manualTitle": "手动添加",
-        "serverTitle": "选择您的 NAS",
+        "serverTitle": "选择您的服务器",
         "serverDesc": "在您的网络中找到的服务器。选择您的服务器进行连接。",
         "rescan": "扫描",
         "noServers": "在您的网络中未找到服务器。",
         "manual": "手动输入",
         "alreadyConnected": "已连接",
-        "authPrompt": "此服务器需要登录。留空以使用访客共享。",
+        "authPrompt": "此服务器需要登录。留空以使用访客访问。",
         "connect": "连接",
         "wrongCredentials": "登录失败。请检查您的用户名和密码。",
         "retry": "重试",
@@ -641,12 +640,12 @@
         "noSharesGuest": "未登录时看不到任何共享文件夹。",
         "signIn": "登录",
         "useFolder": "使用「{name}」",
-        "savedNotMounted": "已保存，但该共享未能连接。您可以从列表中编辑它。",
+        "savedNotMounted": "已保存，但该服务器未能连接。您可以从列表中编辑它。",
         "done": "完成",
-        "indexing": "正在为您的音乐编制索引...",
+        "indexing": "正在为您的音乐编制索引…",
         "indexingCount": "找到 {count} 首曲目",
         "indexedTitle": "音乐库已连接并导入",
-        "indexedShare": "在此共享中找到 {count} 首曲目。",
+        "indexedShare": "在此服务器中找到 {count} 首曲目。",
         "indexedTotal": "您的音乐库中共有 {count} 首曲目。",
         "indexedEmpty": "已连接，但在此文件夹中未找到音乐。"
       },
@@ -660,34 +659,34 @@
       "notIndexedHint": "文件都在，但索引已经找不到它们了。重新索引即可找回音乐。",
       "reindex": "重新索引",
       "separateTitle": "分开显示各存储设备",
-      "separateDescription": "为每个 U 盘和网络服务器显示一个标签页。关闭后将合并浏览全部音乐。",
-      "nothingIndexed": "未索引任何歌曲"
+      "separateDescription": "为每个 USB 存储和服务器显示一个标签页。关闭后将合并浏览全部音乐。",
+      "nothingIndexed": "未索引任何曲目"
     },
     "usb": {
       "title": "USB 存储",
       "notConnected": "未连接",
       "rename": "重命名",
-      "renameTitle": "重命名 U 盘",
-      "namePlaceholder": "U 盘名称",
+      "renameTitle": "重命名 USB 存储",
+      "namePlaceholder": "USB 存储名称",
       "name": "名称",
-      "nameHint": "显示在音乐库中，重新插入 U 盘时保留。留空则使用磁盘卷标（{label}）。",
-      "renameError": "无法重命名此 U 盘",
-      "forgetTitle": "忘记此 U 盘",
+      "nameHint": "显示在音乐库中，重新插入 USB 存储时保留。留空则使用磁盘卷标（{label}）。",
+      "renameError": "无法重命名此 USB 存储",
+      "forgetTitle": "忘记此 USB 存储",
       "forget": "忘记",
       "confirmForget": "确认忘记",
       "forgetDescription": "从音乐库中移除其 {count} 首已索引曲目。重新插入后将重新完整索引。",
-      "forgetError": "无法忘记此 U 盘"
+      "forgetError": "无法忘记此 USB 存储"
     },
     "nas": {
-      "title": "NAS 服务器",
+      "title": "服务器",
       "notConnected": "没有已连接的服务器"
     },
     "maintenance": {
       "title": "音乐库刷新",
       "description": "完整重新索引您的音乐库，添加新音乐并移除已删除的曲目。",
       "refresh": "刷新",
-      "refreshing": "正在刷新...",
-      "refreshProgress": "已索引 {count} 首曲目...",
+      "refreshing": "正在刷新…",
+      "refreshProgress": "已索引 {count} 首曲目…",
       "refreshingLabel": "正在索引…"
     }
   },
@@ -727,10 +726,10 @@
       "screen": "屏幕",
       "applyAndReboot": "应用并重启",
       "confirmReboot": "确认重启",
-      "rebooting": "正在重启...",
+      "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。",
+      "rebooting": "正在重启…",
       "rebootingDescription": "请等待系统重启。",
       "rebootTimeout": "重启超时。请刷新页面。",
-      "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。",
       "volumeNotManaged": "音量未由 Milō 管理"
     }
   },
@@ -801,7 +800,7 @@
     "connected": "已连接",
     "notConnected": "未连接",
     "discover": "搜索",
-    "discovering": "搜索中...",
+    "discovering": "搜索中…",
     "unpair": "取消配对",
     "batteryLow": "电量低",
     "disabledTitle": "蓝牙接收器未启用",
@@ -819,7 +818,7 @@
     "wizard": {
       "idleTitle": "配对您的 Apple Remote",
       "idleDetails": "按下方按钮，然后按下 Apple Remote 上的任意键。",
-      "waitingTitle": "请按下遥控器上的任意按钮...",
+      "waitingTitle": "请按下遥控器上的任意按钮…",
       "waitingDetails": "剩余 {seconds} 秒",
       "timeoutTitle": "未检测到遥控器",
       "timeoutDetails": "请检查接收器接线后重试。",

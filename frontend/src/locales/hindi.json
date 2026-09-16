@@ -6,12 +6,12 @@
     "unavailable": "बोल सेवा अस्थायी रूप से अनुपलब्ध",
     "notPlaying": "कुछ नहीं चल रहा",
     "notCompatible": "यह स्रोत बोल खोज के साथ संगत नहीं है",
-    "noTrackDetected": "कोई गाना नहीं मिला",
+    "noTrackDetected": "कोई ट्रैक नहीं मिला",
     "playbackControls": "प्लेबैक नियंत्रण"
   },
   "app": {
     "connectionUnavailable": "कनेक्शन उपलब्ध नहीं",
-    "connecting": "कनेक्ट हो रहा है..."
+    "connecting": "कनेक्ट हो रहा है…"
   },
   "notification": {
     "connectionLostTitle": "कनेक्शन खो गया",
@@ -45,8 +45,8 @@
     "confirmRestart": "पुनः आरंभ की पुष्टि करें",
     "shutdown": "बंद करें",
     "confirmShutdown": "बंद करने की पुष्टि करें",
-    "restartInProgress": "पुनः आरंभ हो रहा है...",
-    "shutdownInProgress": "बंद हो रहा है...",
+    "restartInProgress": "पुनः आरंभ हो रहा है…",
+    "shutdownInProgress": "बंद हो रहा है…",
     "remoteControls": "रिमोट कंट्रोल",
     "btRemote": "Bluetooth रिमोट",
     "irRemote": "IR रिमोट"
@@ -72,11 +72,11 @@
       "noDriveConnected": "कनेक्टेड नहीं"
     },
     "radioSource": {
-      "favoritesTitle": "पसंदीदा वेब रेडियो",
-      "discoverTitle": "वेब रेडियो खोजें",
+      "favoritesTitle": "पसंदीदा स्टेशन",
+      "discoverTitle": "स्टेशन खोजें",
       "searchPlaceholder": "स्टेशन का नाम",
-      "loadingCountries": "देश लोड हो रहे हैं...",
-      "loadingStations": "स्टेशन लोड हो रहे हैं...",
+      "loadingCountries": "देश लोड हो रहे हैं…",
+      "loadingStations": "स्टेशन लोड हो रहे हैं…",
       "searchUnavailable": "खोज उपलब्ध नहीं",
       "searchUnavailableHint": "स्टेशन निर्देशिका जवाब नहीं दे रही",
       "connectionError": "कनेक्शन त्रुटि",
@@ -84,7 +84,7 @@
       "retry": "पुनः प्रयास करें",
       "noStationsFound": "कोई स्टेशन नहीं मिला",
       "minCharactersRequired": "खोजने के लिए कम से कम 3 अक्षर दर्ज करें",
-      "noFavorites": "कोई पसंदीदा रेडियो नहीं",
+      "noFavorites": "कोई पसंदीदा स्टेशन नहीं",
       "playRadio": "सुनें",
       "stopRadio": "रोकें"
     }
@@ -94,9 +94,9 @@
     "starting": "मल्टीरूम शुरू हो रहा है",
     "zonesAndSystems": "ऑडियो सिस्टम",
     "individualSystems": "व्यक्तिगत सिस्टम",
-    "loadingSystems": "सिस्टम लोड हो रहे हैं...",
+    "loadingSystems": "सिस्टम लोड हो रहे हैं…",
     "noSystems": "कोई सिस्टम कनेक्ट नहीं है",
-    "restarting": "मल्टीरूम पुनः आरंभ हो रहा है...",
+    "restarting": "मल्टीरूम पुनः आरंभ हो रहा है…",
     "error": "मल्टीरूम सक्रिय करने में त्रुटि",
     "enableFailed": "मल्टीरूम सक्रिय नहीं किया जा सका",
     "disableFailed": "मल्टीरूम निष्क्रिय नहीं किया जा सका",
@@ -133,14 +133,14 @@
     "pending": {
       "title": "नया Milō Client पाया गया",
       "notConfigured": "ऑडियो कार्ड कॉन्फ़िगर नहीं है",
-      "rebooting": "पुनः आरंभ हो रहा है...",
+      "rebooting": "पुनः आरंभ हो रहा है…",
       "configureTitle": "Milō Client कॉन्फ़िगर करें",
       "confirmReboot": "रीबूट की पुष्टि करें?",
       "audioCard": "ऑडियो कार्ड",
       "namePlaceholder": "उदा. रसोई",
       "applyAndReboot": "लागू करें और रीस्टार्ट करें",
-      "applying": "लागू हो रहा है...",
-      "rebootingMessage": "Milō Client रीस्टार्ट हो रहा है...",
+      "applying": "लागू हो रहा है…",
+      "rebootingMessage": "Milō Client रीस्टार्ट हो रहा है…",
       "rebootingDescription": "Milō Client फिर से कनेक्ट होने पर सक्रिय सिस्टम सूची में दिखाई देगा।",
       "rebootTimeout": "इसमें अपेक्षा से अधिक समय लग रहा है। Milō Client अभी भी रीस्टार्ट हो रहा हो सकता है।",
       "errorTitle": "कॉन्फ़िगरेशन विफल",
@@ -153,10 +153,10 @@
       "useServerWifi": "सर्वर का नेटवर्क उपयोग करें ({ssid})",
       "changeNetwork": "बदलें",
       "enterCredentials": "सर्वर WiFi से कनेक्ट नहीं है। इस स्पीकर के लिए नेटवर्क क्रेडेंशियल दर्ज करें।",
-      "adopting": "कॉन्फ़िगर किया जा रहा है...",
+      "adopting": "कॉन्फ़िगर किया जा रहा है…",
       "errorPush": "स्पीकर ने कॉन्फ़िगरेशन स्वीकार नहीं किया"
     },
-    "systemOffline": "« {name} » ऑफ़लाइन है",
+    "systemOffline": "\"{name}\" ऑफ़लाइन है",
     "systemOfflineDescription": "यह ऑडियो सिस्टम वर्तमान में Milō से कनेक्ट नहीं है।<br>IP: {ip}",
     "deleteSystem": "इस ऑडियो सिस्टम को हटाएं",
     "offline": "ऑफ़लाइन",
@@ -168,14 +168,14 @@
     "selectPreset": "प्रीसेट",
     "zones": {
       "zoneName": "ज़ोन का नाम",
-      "zoneNamePlaceholder": "उदाहरण: लिविंग रूम",
+      "zoneNamePlaceholder": "उदा. लिविंग रूम",
       "selectClients": "ऑडियो सिस्टम चुनें",
       "minimumClients": "एक ज़ोन के लिए कम से कम 2 ऑडियो सिस्टम आवश्यक हैं।",
       "createZone": "ज़ोन बनाएं",
       "editZone": "ज़ोन संपादित करें",
       "deleteZone": "ज़ोन हटाएं",
       "confirmDeleteZone": "हटाने की पुष्टि करें",
-      "deletingZone": "हटाया जा रहा है..."
+      "deletingZone": "हटाया जा रहा है…"
     },
     "equalizer": {
       "title": "10 बैंड"
@@ -226,10 +226,10 @@
     "meters": {
       "title": "ऑडियो आउटपुट स्तर"
     },
-    "connecting": "कनेक्ट हो रहा है..."
+    "connecting": "कनेक्ट हो रहा है…"
   },
   "status": {
-    "loading": "शुरू हो रहा है...",
+    "loading": "शुरू हो रहा है…",
     "loadingOf": "शुरू हो रहा है",
     "loadingOfMasculine": "शुरू हो रहा है",
     "loadingOfFeminine": "शुरू हो रहा है",
@@ -241,16 +241,16 @@
     "noInternet": "इंटरनेट उपलब्ध नहीं है",
     "networkSettings": "नेटवर्क सेटिंग्स",
     "retry": "पुनः प्रयास करें",
+    "readyToPlay": "चलाने के लिए तैयार",
+    "loadingAlbum": "एल्बम लोड हो रहा है",
+    "ejecting": "निकाला जा रहा है…",
     "playing": "चल रहा है",
     "connectedTo": "से जुड़ा हुआ",
     "audioReceivedFrom": "से ऑडियो प्राप्त",
     "disconnect": "डिस्कनेक्ट",
-    "disconnecting": "डिस्कनेक्ट किया जा रहा है...",
+    "disconnecting": "डिस्कनेक्ट किया जा रहा है…",
     "unknownTitle": "अज्ञात शीर्षक",
-    "unknownArtist": "अज्ञात कलाकार",
-    "readyToPlay": "चलाने के लिए तैयार",
-    "loadingAlbum": "एल्बम लोड हो रहा है",
-    "ejecting": "निकाला जा रहा है..."
+    "unknownArtist": "अज्ञात कलाकार"
   },
   "volumeSettings": {
     "volumeManagement": "वॉल्यूम Milō द्वारा प्रबंधित",
@@ -271,9 +271,9 @@
     "autoSleep": "स्क्रीन स्लीप",
     "sleepDelay": "ऐप निष्क्रिय होने पर, स्क्रीन बंद करें:",
     "screensaver": "स्क्रीनसेवर",
+    "screensaverDelay": "इतने समय बाद स्क्रीनसेवर शुरू करें:",
     "uiScale": "प्रदर्शन",
     "uiScaleLevel": "इंटरफ़ेस स्केल",
-    "screensaverDelay": "इतने समय बाद स्क्रीनसेवर शुरू करें:",
     "colorFilter": "गर्म रंग फ़िल्टर",
     "colorFilterWarmth": "तीव्रता"
   },
@@ -286,7 +286,7 @@
     "irRemote": "इन्फ्रारेड रिसीवर",
     "applyAndReboot": "लागू करें और पुनः आरंभ करें",
     "confirmReboot": "पुनः आरंभ की पुष्टि करें",
-    "rebooting": "पुनः आरंभ हो रहा है..."
+    "rebooting": "पुनः आरंभ हो रहा है…"
   },
   "fanSettings": {
     "status": "स्थिति",
@@ -302,7 +302,7 @@
     "targetTemp": "लक्ष्य तापमान",
     "addPoint": "एक बिंदु जोड़ें",
     "removePoint": "बिंदु हटाएँ",
-    "disabledNote": "पंखा बंद है — सुरक्षा के लिए प्रोसेसर अपनी थर्मल थ्रॉटलिंग (85°C) पर निर्भर करता है।"
+    "disabledNote": "पंखा बंद है — सुरक्षा के लिए प्रोसेसर अपनी थर्मल थ्रॉटलिंग (85 °C) पर निर्भर करता है।"
   },
   "audioPlayback": {
     "autoStop": "विराम पर स्वतः बंद",
@@ -319,11 +319,11 @@
       "intact": "अक्षुण्ण"
     },
     "apply": "लागू करें और पुनः आरंभ करें",
-    "restarting": "पुनः आरंभ हो रहा है..."
+    "restarting": "पुनः आरंभ हो रहा है…"
   },
   "qobuzSettings": {
     "accountTitle": "खाता सेटिंग्स",
-    "loading": "स्थिति जांची जा रही है...",
+    "loading": "स्थिति जांची जा रही है…",
     "connect": "कनेक्ट करें",
     "disconnect": "डिस्कनेक्ट",
     "notConnectedTitle": "Qobuz खाता कनेक्ट नहीं है",
@@ -335,7 +335,7 @@
     "crossfade": "क्रॉसफ़ेड",
     "crossfadeDuration": "लगातार ट्रैक के बीच फ़ेड की अवधि:",
     "restartToApply": "लागू करने के लिए पुनरारंभ करें",
-    "restarting": "पुनः आरंभ हो रहा है..."
+    "restarting": "पुनः आरंभ हो रहा है…"
   },
   "multiroomSettings": {
     "presets": "प्रीसेट्स",
@@ -358,7 +358,7 @@
     "retry": "पुनः प्रयास करें",
     "notAvailable": "उपलब्ध नहीं",
     "update": "अपडेट करें",
-    "updating": "अपडेट हो रहा है...",
+    "updating": "अपडेट हो रहा है…",
     "errorDetectingSatellites": "सैटेलाइट का पता लगाने में त्रुटि",
     "upToDate": "अप टू डेट",
     "dependenciesHint": "ऐप और उसके साथ मान्य किए गए प्रोग्राम संस्करण इंस्टॉल करता है।",
@@ -384,16 +384,16 @@
     "noNetworks": "कोई नेटवर्क नहीं मिला",
     "password": "पासवर्ड",
     "connect": "कनेक्ट करें",
-    "connecting": "कनेक्ट हो रहा है...",
+    "connecting": "कनेक्ट हो रहा है…",
     "connectFailed": "कनेक्शन विफल",
+    "save": "सहेजें",
+    "saving": "सहेज रहे हैं…",
+    "saveFailed": "नेटवर्क सहेजने में विफल",
     "forget": "भूल जाएं",
     "refresh": "रीफ़्रेश",
     "wifiNetworks": "WiFi नेटवर्क",
     "wifiCountry": "WiFi देश",
     "selectCountry": "अपना देश चुनें",
-    "save": "सहेजें",
-    "saving": "सहेज रहे हैं...",
-    "saveFailed": "नेटवर्क सहेजने में विफल",
     "ready": "तैयार"
   },
   "applications": {
@@ -418,7 +418,7 @@
   },
   "common": {
     "settings": "सेटिंग्स",
-    "deleting": "हटाया जा रहा है...",
+    "deleting": "हटाया जा रहा है…",
     "close": "बंद करें",
     "backToTop": "ऊपर जाएँ",
     "selectOption": "एक विकल्प चुनें"
@@ -437,23 +437,23 @@
     },
     "manageStation": {
       "name": "स्टेशन का नाम",
-      "namePlaceholder": "उदाहरण: ऑल इंडिया रेडियो",
+      "namePlaceholder": "उदा. ऑल इंडिया रेडियो",
       "image": "स्टेशन छवि",
       "chooseImage": "एक छवि चुनें",
       "url": "स्ट्रीम URL",
-      "urlPlaceholder": "उदाहरण: http://streaming.radio.in/stream",
+      "urlPlaceholder": "उदा. http://streaming.radio.in/stream",
       "country": "देश",
       "selectCountry": "एक देश चुनें",
       "genre": "शैली",
-      "genrePlaceholder": "उदाहरण: पॉप, रॉक, जैज़",
+      "genrePlaceholder": "उदा. पॉप, रॉक, जैज़",
       "codec": "कोडेक",
-      "codecPlaceholder": "उदाहरण: MP3, AAC, OGG",
+      "codecPlaceholder": "उदा. MP3, AAC, OGG",
       "bitrate": "बिटरेट (kbps)",
-      "bitratePlaceholder": "उदाहरण: 128, 192, 320",
-      "adding": "जोड़ा जा रहा है...",
-      "loading": "लोड हो रहा है...",
+      "bitratePlaceholder": "उदा. 128, 192, 320",
+      "adding": "जोड़ा जा रहा है…",
+      "loading": "लोड हो रहा है…",
       "invalidImageFormat": "असमर्थित छवि प्रारूप। JPG, PNG, WEBP या GIF का उपयोग करें।",
-      "imageTooLarge": "छवि बहुत बड़ी है। अधिकतम 5MB।",
+      "imageTooLarge": "छवि बहुत बड़ी है। अधिकतम 5 MB।",
       "addFailed": "स्टेशन जोड़ने में विफल",
       "errorOccurred": "एक त्रुटि हुई",
       "addStationTitle": "स्टेशन जोड़ें",
@@ -471,7 +471,7 @@
     "addedStationsTitle": "जोड़े गए स्टेशन",
     "addStation": "स्टेशन जोड़ें",
     "trackRecognition": "गाना पहचान",
-    "trackRecognitionDescription": "Shazam के माध्यम से चल रहे गानों की पहचान करें"
+    "trackRecognitionDescription": "Shazam से चल रहे ट्रैक पहचानें"
   },
   "podcasts": {
     "podcasts": "पॉडकास्ट",
@@ -517,10 +517,9 @@
     "catalogUnavailable": "कैटलॉग उपलब्ध नहीं",
     "catalogUnavailableHint": "पॉडकास्ट कैटलॉग सेवा जवाब नहीं दे रही",
     "retry": "पुनः प्रयास करें",
-    "loading": "लोड हो रहा है...",
+    "loading": "लोड हो रहा है…",
     "noEpisodesInQueue": "कतार में कोई एपिसोड नहीं",
     "noEpisodesInQueueHint": "एपिसोड सुनना शुरू करें और वे यहां दिखाई देंगे",
-    "episodesCount2": "एपिसोड",
     "subscribed": "सदस्यता ली गई",
     "subscribe": "सदस्यता लें",
     "description": "विवरण",
@@ -530,7 +529,8 @@
     "alreadyListened": "पहले ही सुना गया",
     "today": "आज",
     "yesterday": "कल",
-    "unsubscribe": "सदस्यता रद्द करें"
+    "unsubscribe": "सदस्यता रद्द करें",
+    "episodesCount": "{count} एपिसोड"
   },
   "musicLibrary": {
     "tabs": {
@@ -557,7 +557,7 @@
     "noResultsFor": "\"{query}\" के लिए कोई परिणाम नहीं",
     "play": "चलाएं",
     "shuffle": "शफ़ल",
-    "loading": "लोड हो रहा है...",
+    "loading": "लोड हो रहा है…",
     "notFound": "नहीं मिला",
     "noTracks": "कोई ट्रैक नहीं",
     "noArtists": "अभी तक कोई कलाकार नहीं",
@@ -565,21 +565,20 @@
     "noPlaylists": "अभी तक कोई प्लेलिस्ट नहीं",
     "emptyLibrary": "अभी तक कोई संगीत नहीं",
     "emptyLibraryHint": "लाइब्रेरी बनाने के लिए अपने संगीत सहित NAS सर्वर या USB स्टोरेज कनेक्ट करें।",
-    "building": "लाइब्रेरी बन रही है...",
+    "building": "लाइब्रेरी बन रही है…",
     "buildingHint": "आपका संगीत अनुक्रमित किया जा रहा है। इसमें कुछ मिनट लग सकते हैं।",
-    "buildingProgress": "{count} ट्रैक अनुक्रमित...",
-    "catalogStarting": "कैटलॉग शुरू हो रहा है...",
+    "buildingProgress": "{count} ट्रैक अनुक्रमित…",
+    "catalogStarting": "कैटलॉग शुरू हो रहा है…",
     "catalogStartingHint": "संगीत कैटलॉग शुरू हो रहा है। आपकी लाइब्रेरी कुछ ही क्षणों में दिखाई देगी।",
     "queueEmpty": "कतार में कुछ नहीं",
     "queueEmptyHint": "कतार बनाने के लिए कोई एल्बम, प्लेलिस्ट या ट्रैक चलाएं।",
     "albumsCount": "{count} एल्बम",
     "tracksCount": "{count} ट्रैक",
-    "songsCount": "{count} गाने",
     "minutesShort": "मिन",
     "discLabel": "डिस्क {number}",
     "playlists": {
       "newPlaylist": "नई प्लेलिस्ट",
-      "likedSongs": "पसंदीदा गाने",
+      "likedSongs": "पसंदीदा ट्रैक",
       "createTitle": "नई प्लेलिस्ट",
       "renameTitle": "प्लेलिस्ट का नाम बदलें",
       "namePlaceholder": "प्लेलिस्ट का नाम",
@@ -596,13 +595,13 @@
     },
     "shares": {
       "title": "संगीत स्रोत",
-      "description": "आपका संगीत, NAS सर्वर या USB ड्राइव पर संग्रहीत।",
+      "description": "आपका संगीत, सर्वर या USB स्टोरेज पर संग्रहीत।",
       "addShare": "एक सर्वर जोड़ें",
       "addTitle": "एक सर्वर जोड़ें",
       "editTitle": "सर्वर संपादित करें",
       "type": "प्रोटोकॉल",
       "name": "नाम",
-      "namePlaceholder": "मेरा NAS संगीत",
+      "namePlaceholder": "मेरा संगीत सर्वर",
       "nameHint": "Milō में दिखाया गया नाम — इसे किसी भी नाम में बदलें।",
       "host": "सर्वर",
       "hostPlaceholder": "192.168.1.10 या nas.local",
@@ -615,23 +614,23 @@
       "password": "पासवर्ड",
       "passwordPlaceholder": "वैकल्पिक",
       "passwordKeepHint": "सहेजा गया पासवर्ड रखने के लिए खाली छोड़ें",
-      "nfsNoCredentials": "NFS शेयर सर्वर और IP पते के आधार पर अधिकृत होते हैं — किसी उपयोगकर्ता नाम या पासवर्ड का उपयोग नहीं किया जाता।",
+      "nfsNoCredentials": "NFS सर्वर और IP पते के आधार पर अधिकृत होते हैं — किसी उपयोगकर्ता नाम या पासवर्ड का उपयोग नहीं किया जाता।",
       "add": "सर्वर जोड़ें",
       "save": "सहेजें",
       "remove": "सर्वर हटाएं",
       "confirmRemove": "हटाने की पुष्टि करें",
-      "errorGeneric": "शेयर सहेजा नहीं जा सका। विवरण जांचें और पुनः प्रयास करें।",
+      "errorGeneric": "सर्वर सहेजा नहीं जा सका। विवरण जांचें और पुनः प्रयास करें।",
       "wizard": {
         "browseTitle": "स्रोत फ़ोल्डर चुनें",
-        "authTitle": "NAS में साइन इन करें",
+        "authTitle": "सर्वर में साइन इन करें",
         "manualTitle": "मैन्युअल रूप से जोड़ें",
-        "serverTitle": "अपना NAS चुनें",
+        "serverTitle": "अपना सर्वर चुनें",
         "serverDesc": "आपके नेटवर्क पर मिले सर्वर। कनेक्ट करने के लिए अपना सर्वर चुनें।",
         "rescan": "स्कैन करें",
         "noServers": "आपके नेटवर्क पर कोई सर्वर नहीं मिला।",
         "manual": "मैन्युअल रूप से दर्ज करें",
         "alreadyConnected": "पहले से कनेक्टेड",
-        "authPrompt": "इस सर्वर को साइन इन की आवश्यकता है। गेस्ट शेयर के लिए खाली छोड़ें।",
+        "authPrompt": "इस सर्वर को साइन इन की आवश्यकता है। गेस्ट पहुंच के लिए खाली छोड़ें।",
         "connect": "कनेक्ट करें",
         "wrongCredentials": "साइन इन विफल। अपना उपयोगकर्ता नाम और पासवर्ड जांचें।",
         "retry": "पुनः प्रयास करें",
@@ -641,12 +640,12 @@
         "noSharesGuest": "बिना साइन इन किए कोई साझा फ़ोल्डर दिखाई नहीं देता।",
         "signIn": "साइन इन करें",
         "useFolder": "\"{name}\" का उपयोग करें",
-        "savedNotMounted": "सहेजा गया, लेकिन शेयर कनेक्ट नहीं हुआ। आप इसे सूची से संपादित कर सकते हैं।",
+        "savedNotMounted": "सहेजा गया, लेकिन सर्वर कनेक्ट नहीं हुआ। आप इसे सूची से संपादित कर सकते हैं।",
         "done": "पूर्ण",
-        "indexing": "आपका संगीत अनुक्रमित हो रहा है...",
+        "indexing": "आपका संगीत अनुक्रमित हो रहा है…",
         "indexingCount": "{count} ट्रैक मिले",
         "indexedTitle": "लाइब्रेरी कनेक्ट और आयात हो गई",
-        "indexedShare": "इस शेयर पर {count} ट्रैक मिले।",
+        "indexedShare": "इस सर्वर पर {count} ट्रैक मिले।",
         "indexedTotal": "आपकी लाइब्रेरी में {count} ट्रैक।",
         "indexedEmpty": "कनेक्टेड, लेकिन इस फ़ोल्डर में कोई संगीत नहीं मिला।"
       },
@@ -660,34 +659,34 @@
       "notIndexedHint": "फ़ाइलें वहीं हैं, लेकिन इंडेक्स ने उन्हें खो दिया है। फिर से इंडेक्स करने पर संगीत वापस आ जाएगा।",
       "reindex": "फिर से इंडेक्स करें",
       "separateTitle": "स्टोरेज अलग-अलग दिखाएँ",
-      "separateDescription": "हर USB ड्राइव और नेटवर्क सर्वर के लिए एक टैब दिखाता है। बंद करने पर सारा संगीत एक साथ दिखेगा।",
-      "nothingIndexed": "कोई गाना अनुक्रमित नहीं"
+      "separateDescription": "हर USB स्टोरेज और सर्वर के लिए एक टैब दिखाता है। बंद करने पर सारा संगीत एक साथ दिखेगा।",
+      "nothingIndexed": "कोई ट्रैक अनुक्रमित नहीं"
     },
     "usb": {
       "title": "USB स्टोरेज",
       "notConnected": "कनेक्ट नहीं है",
       "rename": "नाम बदलें",
-      "renameTitle": "USB ड्राइव का नाम बदलें",
-      "namePlaceholder": "USB ड्राइव का नाम",
+      "renameTitle": "USB स्टोरेज का नाम बदलें",
+      "namePlaceholder": "USB स्टोरेज का नाम",
       "name": "नाम",
-      "nameHint": "लाइब्रेरी में दिखता है और ड्राइव दोबारा लगाने पर बना रहता है। डिस्क लेबल ({label}) उपयोग करने के लिए खाली छोड़ें।",
-      "renameError": "इस USB ड्राइव का नाम नहीं बदला जा सका",
-      "forgetTitle": "यह ड्राइव भूल जाएं",
+      "nameHint": "लाइब्रेरी में दिखता है और USB स्टोरेज दोबारा लगाने पर बना रहता है। डिस्क लेबल ({label}) उपयोग करने के लिए खाली छोड़ें।",
+      "renameError": "इस USB स्टोरेज का नाम नहीं बदला जा सका",
+      "forgetTitle": "यह USB स्टोरेज भूल जाएं",
       "forget": "भूल जाएं",
       "confirmForget": "भूलने की पुष्टि करें",
       "forgetDescription": "लाइब्रेरी से इसके {count} इंडेक्स किए गए ट्रैक हटाता है। दोबारा जोड़ने पर यह फिर से पूरा इंडेक्स होगा।",
-      "forgetError": "यह USB ड्राइव भुलाई नहीं जा सकी"
+      "forgetError": "यह USB स्टोरेज भुलाया नहीं जा सका"
     },
     "nas": {
-      "title": "NAS सर्वर",
+      "title": "सर्वर",
       "notConnected": "कोई कनेक्टेड नहीं"
     },
     "maintenance": {
       "title": "लाइब्रेरी रीफ़्रेश",
       "description": "आपकी लाइब्रेरी को पूरी तरह से पुनः अनुक्रमित करता है, नया संगीत जोड़ता है और हटाए गए ट्रैक हटाता है।",
       "refresh": "रीफ़्रेश",
-      "refreshing": "रीफ़्रेश हो रहा है...",
-      "refreshProgress": "{count} ट्रैक अनुक्रमित...",
+      "refreshing": "रीफ़्रेश हो रहा है…",
+      "refreshProgress": "{count} ट्रैक अनुक्रमित…",
       "refreshingLabel": "इंडेक्सिंग जारी है…"
     }
   },
@@ -727,10 +726,10 @@
       "screen": "स्क्रीन",
       "applyAndReboot": "लागू करें और रीस्टार्ट करें",
       "confirmReboot": "पुनः आरंभ की पुष्टि करें",
-      "rebooting": "पुनः आरंभ हो रहा है...",
+      "accessHint": "पुनरारंभ के बाद, नेटवर्क {ssid} से कनेक्ट करें और Milō तक पहुंचने के लिए अपने ब्राउज़र में milo.local खोलें।",
+      "rebooting": "पुनः आरंभ हो रहा है…",
       "rebootingDescription": "कृपया सिस्टम के पुनः आरंभ होने तक प्रतीक्षा करें।",
       "rebootTimeout": "पुनः आरंभ का समय समाप्त हो गया। कृपया पेज को रीफ़्रेश करें।",
-      "accessHint": "पुनरारंभ के बाद, नेटवर्क {ssid} से कनेक्ट करें और Milō तक पहुंचने के लिए अपने ब्राउज़र में milo.local खोलें।",
       "volumeNotManaged": "वॉल्यूम Milō द्वारा प्रबंधित नहीं"
     }
   },
@@ -801,7 +800,7 @@
     "connected": "कनेक्टेड",
     "notConnected": "कनेक्टेड नहीं",
     "discover": "खोजें",
-    "discovering": "खोज रहा है...",
+    "discovering": "खोज रहा है…",
     "unpair": "अनपेयर करें",
     "batteryLow": "बैटरी कम",
     "disabledTitle": "ब्लूटूथ रिसीवर सक्षम नहीं है",
@@ -819,7 +818,7 @@
     "wizard": {
       "idleTitle": "अपना Apple Remote पेयर करें",
       "idleDetails": "नीचे दिए गए बटन पर दबाएँ, फिर अपने Apple Remote पर कोई भी बटन दबाएँ।",
-      "waitingTitle": "अपने रिमोट पर कोई बटन दबाएँ...",
+      "waitingTitle": "अपने रिमोट पर कोई बटन दबाएँ…",
       "waitingDetails": "{seconds}s शेष",
       "timeoutTitle": "कोई रिमोट नहीं मिला",
       "timeoutDetails": "रिसीवर की वायरिंग जाँचें और पुनः प्रयास करें।",

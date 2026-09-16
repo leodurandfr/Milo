@@ -11,7 +11,7 @@
   },
   "app": {
     "connectionUnavailable": "Connessione non disponibile",
-    "connecting": "Connessione in corso..."
+    "connecting": "Connessione in corso…"
   },
   "notification": {
     "connectionLostTitle": "Connessione persa",
@@ -45,8 +45,8 @@
     "confirmRestart": "Conferma riavvio",
     "shutdown": "Spegni",
     "confirmShutdown": "Conferma spegnimento",
-    "restartInProgress": "Riavvio in corso...",
-    "shutdownInProgress": "Spegnimento in corso...",
+    "restartInProgress": "Riavvio…",
+    "shutdownInProgress": "Spegnimento in corso…",
     "remoteControls": "Telecomandi",
     "btRemote": "Telecomando Bluetooth",
     "irRemote": "Telecomando IR"
@@ -68,15 +68,15 @@
     "cdSource": {
       "unknownAlbum": "Album sconosciuto",
       "unknownArtist": "Artista sconosciuto",
-      "trackN": "Traccia {n}",
+      "trackN": "Brano {n}",
       "noDriveConnected": "Non collegato"
     },
     "radioSource": {
-      "favoritesTitle": "Web radio preferite",
-      "discoverTitle": "Cerca web radio",
+      "favoritesTitle": "Stazioni preferite",
+      "discoverTitle": "Cerca stazioni",
       "searchPlaceholder": "Nome della stazione",
-      "loadingCountries": "Caricamento paesi...",
-      "loadingStations": "Caricamento stazioni...",
+      "loadingCountries": "Caricamento paesi…",
+      "loadingStations": "Caricamento stazioni…",
       "searchUnavailable": "Ricerca non disponibile",
       "searchUnavailableHint": "L'elenco delle stazioni non risponde",
       "connectionError": "Errore di connessione",
@@ -84,7 +84,7 @@
       "retry": "Riprova",
       "noStationsFound": "Nessuna stazione trovata",
       "minCharactersRequired": "Inserisca almeno 3 caratteri per cercare",
-      "noFavorites": "Nessuna radio preferita",
+      "noFavorites": "Nessuna stazione preferita",
       "playRadio": "Ascolta",
       "stopRadio": "Ferma"
     }
@@ -94,9 +94,9 @@
     "starting": "Avvio Multiroom",
     "zonesAndSystems": "Sistemi audio",
     "individualSystems": "Sistemi individuali",
-    "loadingSystems": "Caricamento sistemi...",
+    "loadingSystems": "Caricamento sistemi…",
     "noSystems": "Nessun sistema connesso",
-    "restarting": "Riavvio multiroom in corso...",
+    "restarting": "Riavvio multiroom in corso…",
     "error": "Errore durante l'attivazione del multiroom",
     "enableFailed": "Impossibile attivare il multiroom",
     "disableFailed": "Impossibile disattivare il multiroom",
@@ -133,14 +133,14 @@
     "pending": {
       "title": "Nuovo Milō Client rilevato",
       "notConfigured": "Scheda audio non configurata",
-      "rebooting": "Riavvio in corso...",
+      "rebooting": "Riavvio…",
       "configureTitle": "Configura Milō Client",
       "confirmReboot": "Confermare il riavvio?",
       "audioCard": "Scheda audio",
       "namePlaceholder": "es. Cucina",
       "applyAndReboot": "Applica e riavvia",
-      "applying": "Applicazione...",
-      "rebootingMessage": "Il Milō Client si sta riavviando...",
+      "applying": "Applicazione…",
+      "rebootingMessage": "Il Milō Client si sta riavviando…",
       "rebootingDescription": "Il Milō Client apparirà nella lista dei sistemi attivi una volta riconnesso.",
       "rebootTimeout": "Sta impiegando più tempo del previsto. Il Milō Client potrebbe essere ancora in riavvio.",
       "errorTitle": "Configurazione fallita",
@@ -153,10 +153,10 @@
       "useServerWifi": "Usa la rete del server ({ssid})",
       "changeNetwork": "Cambia",
       "enterCredentials": "Il server non è connesso via WiFi. Inserisca le credenziali di rete per questo altoparlante.",
-      "adopting": "Configurazione in corso...",
+      "adopting": "Configurazione in corso…",
       "errorPush": "L'altoparlante non ha accettato la configurazione"
     },
-    "systemOffline": "« {name} » è offline",
+    "systemOffline": "«{name}» è offline",
     "systemOfflineDescription": "Questo sistema audio non è attualmente connesso a Milō.<br>IP: {ip}",
     "deleteSystem": "Elimina questo sistema audio",
     "offline": "Offline",
@@ -168,14 +168,14 @@
     "selectPreset": "Preset",
     "zones": {
       "zoneName": "Nome della zona",
-      "zoneNamePlaceholder": "es: Soggiorno",
+      "zoneNamePlaceholder": "es. Soggiorno",
       "selectClients": "Seleziona sistemi audio",
       "minimumClients": "Una zona richiede almeno 2 sistemi audio.",
       "createZone": "Crea una zona",
       "editZone": "Modifica la zona",
       "deleteZone": "Elimina la zona",
       "confirmDeleteZone": "Conferma eliminazione",
-      "deletingZone": "Eliminazione in corso..."
+      "deletingZone": "Eliminazione in corso…"
     },
     "equalizer": {
       "title": "10 Bande"
@@ -226,10 +226,10 @@
     "meters": {
       "title": "Livelli di uscita audio"
     },
-    "connecting": "Connessione in corso..."
+    "connecting": "Connessione in corso…"
   },
   "status": {
-    "loading": "Avvio...",
+    "loading": "Avvio…",
     "loadingOf": "Avvio",
     "loadingOfMasculine": "Avvio",
     "loadingOfFeminine": "Avvio",
@@ -241,16 +241,16 @@
     "noInternet": "Nessun accesso a Internet",
     "networkSettings": "Impostazioni di rete",
     "retry": "Riprova",
+    "readyToPlay": "Pronto per la riproduzione",
+    "loadingAlbum": "Caricamento album",
+    "ejecting": "Espulsione in corso…",
     "playing": "In riproduzione",
     "connectedTo": "Connesso a",
     "audioReceivedFrom": "Audio ricevuto da",
     "disconnect": "Disconnetti",
-    "disconnecting": "Disconnessione...",
+    "disconnecting": "Disconnessione…",
     "unknownTitle": "Titolo sconosciuto",
-    "unknownArtist": "Artista sconosciuto",
-    "readyToPlay": "Pronto per la riproduzione",
-    "loadingAlbum": "Caricamento album",
-    "ejecting": "Espulsione in corso..."
+    "unknownArtist": "Artista sconosciuto"
   },
   "volumeSettings": {
     "volumeManagement": "Volume gestito da Milō",
@@ -271,9 +271,9 @@
     "autoSleep": "Sospensione schermo",
     "sleepDelay": "In caso di inattività dell'app, spegnere lo schermo dopo:",
     "screensaver": "Salvaschermo",
+    "screensaverDelay": "Avviare il salvaschermo dopo:",
     "uiScale": "Display",
     "uiScaleLevel": "Scala dell'interfaccia",
-    "screensaverDelay": "Avviare il salvaschermo dopo:",
     "colorFilter": "Filtro colore caldo",
     "colorFilterWarmth": "Intensità"
   },
@@ -286,7 +286,7 @@
     "irRemote": "Ricevitore infrarossi",
     "applyAndReboot": "Applica e riavvia",
     "confirmReboot": "Conferma riavvio",
-    "rebooting": "Riavvio in corso..."
+    "rebooting": "Riavvio…"
   },
   "fanSettings": {
     "status": "Stato",
@@ -302,7 +302,7 @@
     "targetTemp": "Temperatura obiettivo",
     "addPoint": "Aggiungi un punto",
     "removePoint": "Rimuovi punto",
-    "disabledNote": "La ventola è spenta — il processore si affida alla sua limitazione termica (85 °C) per la sicurezza."
+    "disabledNote": "La ventola è spenta — il processore si affida alla sua limitazione termica (85 °C) per la sicurezza."
   },
   "audioPlayback": {
     "autoStop": "Stop automatico in pausa",
@@ -319,11 +319,11 @@
       "intact": "Intatto"
     },
     "apply": "Applica e riavvia",
-    "restarting": "Riavvio in corso..."
+    "restarting": "Riavvio…"
   },
   "qobuzSettings": {
     "accountTitle": "Impostazioni account",
-    "loading": "Verifica dello stato...",
+    "loading": "Verifica dello stato…",
     "connect": "Connetti",
     "disconnect": "Disconnetti",
     "notConnectedTitle": "Account Qobuz non connesso",
@@ -335,7 +335,7 @@
     "crossfade": "Dissolvenza incrociata",
     "crossfadeDuration": "Dissolvenza tra brani consecutivi su:",
     "restartToApply": "Riavvia per applicare",
-    "restarting": "Riavvio in corso..."
+    "restarting": "Riavvio…"
   },
   "multiroomSettings": {
     "presets": "Preset",
@@ -358,7 +358,7 @@
     "retry": "Riprova",
     "notAvailable": "Non disponibile",
     "update": "Aggiorna",
-    "updating": "Aggiornamento...",
+    "updating": "Aggiornamento…",
     "errorDetectingSatellites": "Errore durante il rilevamento dei satelliti",
     "upToDate": "Aggiornato",
     "dependenciesHint": "Installa l'app e le versioni dei programmi validate con essa.",
@@ -384,16 +384,16 @@
     "noNetworks": "Nessuna rete rilevata",
     "password": "Password",
     "connect": "Connetti",
-    "connecting": "Connessione in corso...",
+    "connecting": "Connessione in corso…",
     "connectFailed": "Connessione fallita",
+    "save": "Salva",
+    "saving": "Salvataggio…",
+    "saveFailed": "Impossibile salvare la rete",
     "forget": "Dimentica",
     "refresh": "Aggiorna",
     "wifiNetworks": "Reti WiFi",
     "wifiCountry": "Paese WiFi",
     "selectCountry": "Selezioni il suo paese",
-    "save": "Salva",
-    "saving": "Salvataggio...",
-    "saveFailed": "Impossibile salvare la rete",
     "ready": "Pronto"
   },
   "applications": {
@@ -418,7 +418,7 @@
   },
   "common": {
     "settings": "Impostazioni",
-    "deleting": "Eliminazione in corso...",
+    "deleting": "Eliminazione in corso…",
     "close": "Chiudi",
     "backToTop": "Torna su",
     "selectOption": "Seleziona un'opzione"
@@ -437,23 +437,23 @@
     },
     "manageStation": {
       "name": "Nome della stazione",
-      "namePlaceholder": "Es: Radio Italia",
+      "namePlaceholder": "es. Radio Italia",
       "image": "Immagine della stazione",
       "chooseImage": "Scegli un'immagine",
       "url": "URL dello stream",
-      "urlPlaceholder": "Es: http://streaming.radio.it/stream",
+      "urlPlaceholder": "es. http://streaming.radio.it/stream",
       "country": "Paese",
       "selectCountry": "Seleziona un paese",
       "genre": "Genere",
-      "genrePlaceholder": "Es: Pop, Rock, Jazz",
+      "genrePlaceholder": "es. Pop, Rock, Jazz",
       "codec": "Codec",
-      "codecPlaceholder": "Es: MP3, AAC, OGG",
+      "codecPlaceholder": "es. MP3, AAC, OGG",
       "bitrate": "Bitrate (kbps)",
-      "bitratePlaceholder": "Es: 128, 192, 320",
-      "adding": "Aggiunta in corso...",
-      "loading": "Caricamento...",
+      "bitratePlaceholder": "es. 128, 192, 320",
+      "adding": "Aggiunta in corso…",
+      "loading": "Caricamento…",
       "invalidImageFormat": "Formato immagine non supportato. Usi JPG, PNG, WEBP o GIF.",
-      "imageTooLarge": "Immagine troppo grande. Massimo 5MB.",
+      "imageTooLarge": "Immagine troppo grande. Massimo 5 MB.",
       "addFailed": "Impossibile aggiungere la stazione",
       "errorOccurred": "Si è verificato un errore",
       "addStationTitle": "Aggiungi una stazione",
@@ -503,7 +503,7 @@
     },
     "searchPlaceholder": "Nome di un podcast o conduttore",
     "podcastsTitle": "Podcast",
-    "noResultsFor": "Nessun risultato per \"{query}\"",
+    "noResultsFor": "Nessun risultato per «{query}»",
     "noResults": "Nessun risultato trovato",
     "searchPrompt": "Cerca podcast",
     "loadMorePodcasts": "Carica più podcast",
@@ -517,10 +517,9 @@
     "catalogUnavailable": "Catalogo non disponibile",
     "catalogUnavailableHint": "Il servizio catalogo non risponde",
     "retry": "Riprova",
-    "loading": "Caricamento...",
+    "loading": "Caricamento…",
     "noEpisodesInQueue": "Nessun episodio in coda",
     "noEpisodesInQueueHint": "Inizi ad ascoltare degli episodi e appariranno qui",
-    "episodesCount2": "episodi",
     "subscribed": "Iscritto",
     "subscribe": "Iscriviti",
     "description": "Descrizione",
@@ -530,7 +529,8 @@
     "alreadyListened": "Già ascoltato",
     "today": "Oggi",
     "yesterday": "Ieri",
-    "unsubscribe": "Annulla iscrizione"
+    "unsubscribe": "Annulla iscrizione",
+    "episodesCount": "{count} episodio | {count} episodi"
   },
   "musicLibrary": {
     "tabs": {
@@ -554,10 +554,10 @@
     "queue": "Coda",
     "searchPlaceholder": "Artisti, album, brani",
     "searchPrompt": "Cerchi nella sua libreria",
-    "noResultsFor": "Nessun risultato per \"{query}\"",
+    "noResultsFor": "Nessun risultato per «{query}»",
     "play": "Riproduci",
     "shuffle": "Casuale",
-    "loading": "Caricamento...",
+    "loading": "Caricamento…",
     "notFound": "Non trovato",
     "noTracks": "Nessun brano",
     "noArtists": "Nessun artista",
@@ -565,16 +565,15 @@
     "noPlaylists": "Nessuna playlist",
     "emptyLibrary": "Ancora nessuna musica",
     "emptyLibraryHint": "Colleghi un server NAS o un'unità USB con la sua musica per creare la libreria.",
-    "building": "Creazione della libreria...",
+    "building": "Creazione della libreria…",
     "buildingHint": "Indicizzazione della sua musica. Potrebbe richiedere qualche minuto.",
-    "buildingProgress": "{count} brani indicizzati...",
-    "catalogStarting": "Avvio del catalogo...",
+    "buildingProgress": "{count} brano indicizzato… | {count} brani indicizzati…",
+    "catalogStarting": "Avvio del catalogo…",
     "catalogStartingHint": "Il catalogo musicale si sta avviando. La sua libreria apparirà tra un istante.",
     "queueEmpty": "Coda vuota",
     "queueEmptyHint": "Riproduca un album, una playlist o un brano per creare una coda.",
-    "albumsCount": "{count} album",
-    "tracksCount": "{count} brani",
-    "songsCount": "{count} canzoni",
+    "albumsCount": "{count} album | {count} album",
+    "tracksCount": "{count} brano | {count} brani",
     "minutesShort": "min",
     "discLabel": "Disco {number}",
     "playlists": {
@@ -596,13 +595,13 @@
     },
     "shares": {
       "title": "Sorgenti musicali",
-      "description": "La sua musica, memorizzata su un server NAS o un'unità USB.",
+      "description": "La sua musica, memorizzata su un server o una memoria USB.",
       "addShare": "Aggiungi un server",
       "addTitle": "Aggiungi un server",
       "editTitle": "Modifica server",
       "type": "Protocollo",
       "name": "Nome",
-      "namePlaceholder": "Musica del mio NAS",
+      "namePlaceholder": "Il mio server musicale",
       "nameHint": "L'etichetta mostrata in Milō — la rinomini come preferisce.",
       "host": "Server",
       "hostPlaceholder": "192.168.1.10 o nas.local",
@@ -615,23 +614,23 @@
       "password": "Password",
       "passwordPlaceholder": "Facoltativo",
       "passwordKeepHint": "Lasci vuoto per mantenere la password salvata",
-      "nfsNoCredentials": "Le condivisioni NFS si autenticano tramite server e indirizzo IP — non viene usato alcun nome utente o password.",
+      "nfsNoCredentials": "NFS si autentica tramite server e indirizzo IP — non viene usato alcun nome utente o password.",
       "add": "Aggiungi server",
       "save": "Salva",
       "remove": "Rimuovi server",
       "confirmRemove": "Conferma la rimozione",
-      "errorGeneric": "Impossibile salvare la condivisione. Controlli i dettagli e riprovi.",
+      "errorGeneric": "Impossibile salvare il server. Controlli i dettagli e riprovi.",
       "wizard": {
         "browseTitle": "Seleziona cartella sorgente",
-        "authTitle": "Accedi al NAS",
+        "authTitle": "Accedi al server",
         "manualTitle": "Aggiungi manualmente",
-        "serverTitle": "Scelga il suo NAS",
+        "serverTitle": "Scelga il suo server",
         "serverDesc": "Server trovati sulla sua rete. Scelga il suo per connettersi.",
         "rescan": "Scansiona",
         "noServers": "Nessun server trovato sulla sua rete.",
         "manual": "Inserisci manualmente",
         "alreadyConnected": "Già connesso",
-        "authPrompt": "Questo server richiede l'accesso. Lasci vuoto per una condivisione ospite.",
+        "authPrompt": "Questo server richiede l'accesso. Lasci vuoto per un accesso ospite.",
         "connect": "Connetti",
         "wrongCredentials": "Accesso non riuscito. Controlli il nome utente e la password.",
         "retry": "Riprova",
@@ -640,14 +639,14 @@
         "emptyFolder": "Nessuna sottocartella qui.",
         "noSharesGuest": "Nessuna cartella condivisa è visibile senza accedere.",
         "signIn": "Accedi",
-        "useFolder": "Usa « {name} »",
-        "savedNotMounted": "Salvato, ma la condivisione non si è connessa. Può modificarla dall'elenco.",
+        "useFolder": "Usa «{name}»",
+        "savedNotMounted": "Salvato, ma il server non si è connesso. Può modificarlo dall'elenco.",
         "done": "Fatto",
-        "indexing": "Indicizzazione della sua musica...",
-        "indexingCount": "{count} brani trovati",
+        "indexing": "Indicizzazione della sua musica…",
+        "indexingCount": "{count} brano trovato | {count} brani trovati",
         "indexedTitle": "Libreria connessa e importata",
-        "indexedShare": "{count} brani trovati in questa condivisione.",
-        "indexedTotal": "{count} brani nella sua libreria.",
+        "indexedShare": "{count} brano trovato su questo server. | {count} brani trovati su questo server.",
+        "indexedTotal": "{count} brano nella sua libreria. | {count} brani nella sua libreria.",
         "indexedEmpty": "Connesso, ma non è stata trovata musica in questa cartella."
       },
       "pathLabel": "Percorso di accesso"
@@ -660,34 +659,34 @@
       "notIndexedHint": "I file ci sono, ma l'indice li ha persi di vista. Reindicizzare riporta la musica.",
       "reindex": "Reindicizza",
       "separateTitle": "Separa gli archivi",
-      "separateDescription": "Mostra una scheda per ogni chiavetta USB e server di rete. Disattivi per sfogliare tutta la sua musica insieme.",
-      "nothingIndexed": "Nessuna canzone indicizzata"
+      "separateDescription": "Mostra una scheda per ogni memoria USB e server. Disattivi per sfogliare tutta la sua musica insieme.",
+      "nothingIndexed": "Nessun brano indicizzato"
     },
     "usb": {
-      "title": "Archiviazione USB",
+      "title": "Memoria USB",
       "notConnected": "Non connesso",
       "rename": "Rinomina",
-      "renameTitle": "Rinomina la chiavetta USB",
-      "namePlaceholder": "Nome della chiavetta USB",
+      "renameTitle": "Rinomina la memoria USB",
+      "namePlaceholder": "Nome della memoria USB",
       "name": "Nome",
-      "nameHint": "Mostrato nella libreria e mantenuto quando la chiavetta viene ricollegata. Lasci vuoto per usare l'etichetta del disco ({label}).",
-      "renameError": "Impossibile rinominare questa chiavetta USB",
-      "forgetTitle": "Dimentica questa chiavetta",
+      "nameHint": "Mostrato nella libreria e mantenuto quando la memoria USB viene ricollegata. Lasci vuoto per usare l'etichetta del disco ({label}).",
+      "renameError": "Impossibile rinominare questa memoria USB",
+      "forgetTitle": "Dimentica questa memoria USB",
       "forget": "Dimentica",
       "confirmForget": "Conferma la rimozione",
-      "forgetDescription": "Rimuove i suoi {count} brani indicizzati dalla libreria. Ricollegandola verrà indicizzata da capo.",
-      "forgetError": "Impossibile dimenticare questa chiavetta USB"
+      "forgetDescription": "Rimuove il suo {count} brano indicizzato dalla libreria. Ricollegandola verrà indicizzata da capo. | Rimuove i suoi {count} brani indicizzati dalla libreria. Ricollegandola verrà indicizzata da capo.",
+      "forgetError": "Impossibile dimenticare questa memoria USB"
     },
     "nas": {
-      "title": "Server NAS",
+      "title": "Server",
       "notConnected": "Nessuno connesso"
     },
     "maintenance": {
       "title": "Aggiornamento della libreria",
       "description": "Reindicizza completamente la sua libreria, aggiungendo la nuova musica e rimuovendo i brani eliminati.",
       "refresh": "Aggiorna",
-      "refreshing": "Aggiornamento in corso...",
-      "refreshProgress": "{count} brani indicizzati...",
+      "refreshing": "Aggiornamento in corso…",
+      "refreshProgress": "{count} brano indicizzato… | {count} brani indicizzati…",
       "refreshingLabel": "Indicizzazione in corso…"
     }
   },
@@ -727,10 +726,10 @@
       "screen": "Schermo",
       "applyAndReboot": "Applica e riavvia",
       "confirmReboot": "Conferma riavvio",
-      "rebooting": "Riavvio in corso...",
+      "accessHint": "Dopo il riavvio, si connetta alla rete {ssid} e apra milo.local nel suo browser per accedere a Milō.",
+      "rebooting": "Riavvio…",
       "rebootingDescription": "Attenda il riavvio del sistema.",
       "rebootTimeout": "Riavvio scaduto. Aggiorni la pagina.",
-      "accessHint": "Dopo il riavvio, si connetta alla rete {ssid} e apra milo.local nel suo browser per accedere a Milō.",
       "volumeNotManaged": "Volume non gestito da Milō"
     }
   },
@@ -801,7 +800,7 @@
     "connected": "Connesso",
     "notConnected": "Non connesso",
     "discover": "Cerca",
-    "discovering": "Ricerca...",
+    "discovering": "Ricerca…",
     "unpair": "Disaccoppia",
     "batteryLow": "Batteria scarica",
     "disabledTitle": "Ricevitore Bluetooth non attivato",
@@ -819,7 +818,7 @@
     "wizard": {
       "idleTitle": "Accoppi il suo Apple Remote",
       "idleDetails": "Prema il pulsante qui sotto, poi prema un tasto qualsiasi sul suo Apple Remote.",
-      "waitingTitle": "Prema un pulsante qualsiasi del telecomando...",
+      "waitingTitle": "Prema un pulsante qualsiasi del telecomando…",
       "waitingDetails": "{seconds} s rimanenti",
       "timeoutTitle": "Nessun telecomando rilevato",
       "timeoutDetails": "Controlli il cablaggio del ricevitore e riprovi.",
