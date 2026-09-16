@@ -6,7 +6,6 @@ import { i18n } from './services/i18n'
 import { apiCall } from './services/apiCall'
 import { vPress } from './directives'
 import './assets/styles/reset.css'
-import './assets/styles/screen-corrections.css'
 import './assets/styles/design-system.css'
 
 // Rate-limited error reporter to backend (max 1 per second).
