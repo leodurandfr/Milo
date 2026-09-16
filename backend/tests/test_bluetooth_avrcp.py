@@ -113,7 +113,7 @@ class TestARemoteSessionsWidget:
     Measured on the unit 2026-09-16 (the values below are that capture). Left
     alone it costs twice: the player's second line reads as a claim about where
     the audio is going, and `artwork_resolver` asks iTunes which artist
-    "Écoute en cours sur Mac mini de Léo" is — a question no catalogue answers,
+    "Écoute en cours sur Mac mini de Léo" is — a question no catalog answers,
     so the cover slot stays empty for the whole session.
     """
 

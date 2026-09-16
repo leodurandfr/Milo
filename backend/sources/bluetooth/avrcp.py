@@ -190,7 +190,7 @@ def parse_track(track: Dict[str, Any]) -> Dict[str, Any]:
     player draws no progress bar rather than a full one.
 
     **A remote session publishes its widget, not its track**, and that is the
-    one shape normalised here. An iPhone whose Now Playing is a *remote* one —
+    one shape normalized here. An iPhone whose Now Playing is a *remote* one —
     it is controlling a Mac, a HomePod, an Apple TV — mirrors the two lines of
     the iOS card into AVRCP instead of the fields they were built from.
     Measured on the unit 2026-09-16, iPhone connected, music running on a Mac
@@ -203,13 +203,13 @@ def parse_track(track: Dict[str, Any]) -> Dict[str, Any]:
     Both halves of the damage follow from that. `artist` is a sentence, so the
     player's second line reads as a claim about where the audio is going; and
     `shared/artwork_resolver.py` asks iTunes *which artist is this?* with it,
-    which no catalogue can answer. Measured against the live resolver: the pair
+    which no catalog can answer. Measured against the live resolver: the pair
     above returns nothing, while `("Curtis Mayfield", "Here but I'm Gone")`
     returns a cover.
 
     The signature is the shape, not the sentence: a status line is whatever
     language the phone is set to, and matching it would be eight translations
-    of a guess. A remote card is recognised by an **absent Album** — a normal
+    of a guess. A remote card is recognized by an **absent Album** — a normal
     iOS session carries one, measured, see this module's header — together with
     a Title holding the joiner exactly once. Requiring both, and a single
     occurrence, is what keeps a track genuinely named with a bullet from being
