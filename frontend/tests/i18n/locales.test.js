@@ -19,10 +19,17 @@ const otherLocales = Object.keys(locales).filter(name => name !== CANONICAL);
 
 const usage = scanI18nUsage();
 
-/** The `{n}` names a string interpolates, sorted. Non-strings have none. */
+/**
+ * The `{n}` names a string interpolates, sorted and deduplicated.
+ *
+ * Deduplicated because a `singular | plural` string repeats its placeholder
+ * once per form, and the number of forms is a property of the language:
+ * Chinese and Hindi carry one where English carries two. What must match is
+ * which names the locale fills, not how many times it spells them.
+ */
 function placeholdersOf(value) {
   if (typeof value !== 'string') return [];
-  return [...value.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();
+  return [...new Set([...value.matchAll(/\{(\w+)\}/g)].map(m => m[1]))].sort();
 }
 
 /** A key is live if referenced literally or covered by a dynamic prefix. */

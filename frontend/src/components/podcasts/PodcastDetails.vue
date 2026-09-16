@@ -14,7 +14,7 @@
             :fallback="podcastPlaceholder"
             :title="podcast.name"
             :subtitle="podcast.publisher || podcast.author"
-            :subtitle-meta="`${podcast.total_episodes} ${t('podcasts.episodesCount2')}`"
+            :subtitle-meta="t('podcasts.episodesCount', { count: podcast.total_episodes })"
             :show-play="false"
             :show-shuffle="false"
           >

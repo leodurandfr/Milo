@@ -1,7 +1,19 @@
 // frontend/src/services/i18n.js - Translation service with standardized codes
 import { ref } from 'vue';
 import { apiCall } from '@/services/apiCall';
+import { bcp47For } from '@/constants/countries';
 import { logger } from '@/services/logger';
+
+/**
+ * Which form index `count` selects, per language, for a `singular | plural`
+ * string. French and Hindi put 0 in the singular; Chinese has one form.
+ */
+const PLURAL_RULES = {
+  french: (n) => (n < 2 ? 0 : 1),
+  hindi: (n) => (n < 2 ? 0 : 1),
+  chinese: () => 1,
+};
+const PLURAL_RULES_DEFAULT = (n) => (n === 1 ? 0 : 1);
 
 class I18nService {
   constructor() {
@@ -50,13 +62,42 @@ class I18nService {
     return path.split('.').reduce((current, key) => current?.[key], obj);
   }
 
+  /**
+   * Pick the form matching `count` in a `singular | plural` string.
+   *
+   * Reduced to the two forms Milō's strings actually carry. A locale absent
+   * from the table takes the `n === 1` rule; a string carrying no `|` is
+   * returned whole, which is how Chinese and Hindi — whose nouns do not
+   * inflect here — keep a single form.
+   */
+  selectPlural(template, params) {
+    if (typeof template !== 'string' || !template.includes('|')) return template;
+    if (typeof params?.count !== 'number') return template;
+
+    const forms = template.split('|').map(form => form.trim());
+    const rule = PLURAL_RULES[this.currentLanguage.value] || PLURAL_RULES_DEFAULT;
+    return forms[Math.min(rule(params.count), forms.length - 1)];
+  }
+
   // Helper to interpolate parameters into translation strings
   interpolate(template, params) {
     if (!params || typeof template !== 'string') return template;
 
+    // A count reaches the screen as a number, so it is grouped the way the
+    // language groups thousands — 10 069, 10,069 or 10,069 by Indian grouping.
+    const locale = bcp47For(this.currentLanguage.value);
     return template.replace(/\{(\w+)\}/g, (match, key) => {
-      return params.hasOwnProperty(key) ? params[key] : match;
+      if (!params.hasOwnProperty(key)) return match;
+      const value = params[key];
+      return typeof value === 'number' ? value.toLocaleString(locale) : value;
     });
+  }
+
+  // The document tag drives hyphenation, glyph fallback and what a screen
+  // reader announces, so it follows the UI language rather than staying on the
+  // value index.html was shipped with.
+  applyDocumentLanguage() {
+    document.documentElement.lang = bcp47For(this.currentLanguage.value);
   }
 
   t(key, params = {}) {
@@ -66,7 +107,7 @@ class I18nService {
     if (translations) {
       const value = this.getNestedValue(translations, key);
       if (value !== undefined) {
-        return this.interpolate(value, params);
+        return this.interpolate(this.selectPlural(value, params), params);
       }
     }
 
@@ -76,7 +117,7 @@ class I18nService {
       if (fallbackTranslations) {
         const fallbackValue = this.getNestedValue(fallbackTranslations, key);
         if (fallbackValue !== undefined) {
-          return this.interpolate(fallbackValue, params);
+          return this.interpolate(this.selectPlural(fallbackValue, params), params);
         }
       }
     }
@@ -103,6 +144,7 @@ class I18nService {
       await this.loadTranslations(serverLanguage);
       this.currentLanguage.value = serverLanguage;
     }
+    this.applyDocumentLanguage();
     this.isInitialized = true;
   }
 
@@ -121,6 +163,7 @@ class I18nService {
     if (newLanguage !== this.currentLanguage.value) {
       await this.loadTranslations(newLanguage);
       this.currentLanguage.value = newLanguage;
+      this.applyDocumentLanguage();
     }
   }
 
