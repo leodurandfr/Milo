@@ -242,23 +242,15 @@ const contentKey = computed(() => {
    a second thing to keep true. Only the lyrics exception is local — being
    scoped, it outranks the shared rules it overrides. */
 
-/* Lyrics fades in/out in place instead of using the generic slide — the spring
-   transform above would drag the blurred backdrop along with it. Both
-   directions are a plain opacity fade (the backdrop's own progressive reveal
-   is its own separate transition, see .lyrics-bg in LyricsView.vue). */
+/* Lyrics fades in/out in place. The rise is no longer something to opt out of —
+   it only reaches an element marked `.source-motion`, and this slot marks none,
+   which is exactly what keeps the spring from dragging the blurred backdrop
+   along with it. What is still local is the timing: one symmetric curve rather
+   than the shared normal-in/fast-out pair. (The backdrop's own progressive
+   reveal is a separate transition, see .lyrics-bg in LyricsView.vue.) */
 .lyrics-slot.audio-content-enter-active,
 .lyrics-slot.audio-content-leave-active {
   transition: opacity var(--transition-in-out);
-}
-.lyrics-slot.audio-content-enter-from,
-.lyrics-slot.audio-content-leave-to {
-  opacity: 0;
-  transform: none;
-}
-.lyrics-slot.audio-content-enter-to,
-.lyrics-slot.audio-content-leave-from {
-  opacity: 1;
-  transform: none;
 }
 
 </style>

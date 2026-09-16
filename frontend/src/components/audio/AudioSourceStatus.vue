@@ -1,6 +1,11 @@
 <!-- AudioSourceStatus.vue -->
 <template>
-  <div class="source-status" :class="{ 'screensaver-revealing': revealing }">
+  <!-- source-motion sits on the card itself, not on its contents: the card
+       floats clear of every screen edge and clips nothing, so moving it reveals
+       no cut. Sliding its contents inside a pinned card would mean giving the
+       card overflow: hidden — inventing the very edge the swap was fixed to
+       stop showing. -->
+  <div class="source-status source-motion" :class="{ 'screensaver-revealing': revealing }">
     <div class="source-status-content">
       <div class="source-status-inner">
         <!-- Device info section -->

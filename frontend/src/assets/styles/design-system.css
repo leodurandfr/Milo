@@ -623,37 +623,97 @@
    comes up from below, and z-index keeps the entering view on top through the
    overlap. Direction is always bottom-to-top, whichever way the switch went.
 
+   THE SLOT ITSELF ONLY FADES. Each slot is `inset: 0` — it *is* the screen — and
+   every source view inside one is a box that clips at exactly those edges
+   (`.connect-player` is overflow:hidden, `.audio-source-layout` is
+   overflow-y:auto). While such a box stays welded to the screen its clip line is
+   invisible; transform it and the line comes inboard, so the leaving view showed
+   a hard cut through its own content a `--space-06` above the screen bottom, with
+   the page background below it. Same cause as the strip that opened around the
+   player's full-bleed panel, and as the blur cropped on three sides.
+
+   So the rise lives one level down, on whatever element the view marks
+   `.source-motion` — its content, never its clipping box nor the background that
+   box is welded to. A view that marks nothing simply fades (lyrics, and the
+   sticky player pane, which on mobile is teleported clear of the slot anyway).
+
    Lives here rather than in AudioSourceView because the gallery's source pages
    replay the same swap, and a transition copied into a second file is one that
-   drifts. AudioSourceView keeps only its own lyrics-slot override, which is
-   scoped and so still outranks this. */
+   drifts. AudioSourceView keeps only its own lyrics-slot timing, which is scoped
+   and so still outranks this. */
+
+/* The slot never transforms — `transform` is listed below purely for its
+   duration. Vue times a swap off the computed transition of the transitioned
+   element itself, which is this one, and strips the classes the moment that
+   timeout expires; the rise now runs on .source-motion one level down, where
+   Vue cannot see it, so with only the 400ms fade declared here the 1.28s spring
+   was cut a third of the way in. Declaring the envelope keeps the leaving view
+   mounted, and the classes on it, until the rise has finished. */
 .audio-content-enter-active {
-    /* Springy rise, quicker fade — the same split every stagger in the app uses.
-       `all` put the opacity on the spring's 1.28s too, which read as the cover
-       still arriving well after it had stopped moving. */
     transition:
-        transform var(--transition-spring),
-        opacity var(--transition-normal);
+        opacity var(--transition-normal),
+        transform var(--transition-spring);
     z-index: 1;
 }
 
 .audio-content-leave-active {
-    transition: all var(--transition-fast-leave);
+    transition:
+        opacity var(--transition-fast-leave),
+        transform var(--transition-fast-leave);
     z-index: 0;
 }
 
-.audio-content-enter-from {
-    opacity: 0;
-    transform: translateY(var(--space-06)) scale(0.98);
-}
-
+.audio-content-enter-from,
 .audio-content-leave-to {
     opacity: 0;
-    transform: translateY(calc(-1 * var(--space-06))) scale(0.98);
 }
 
 .audio-content-enter-to,
 .audio-content-leave-from {
     opacity: 1;
-    transform: translateY(0) scale(1);
+}
+
+/* Springy rise, and only the transform — the opacity above rides its own,
+   quicker curve. `all` on either half put the fade on the spring's 1.28s too,
+   which read as the view still arriving well after it had stopped moving.
+
+   The duration travels as a custom property rather than this rule declaring the
+   whole `transition`, because `transition` is a shorthand: one declaration
+   replaces another instead of adding to it, and two of the marked elements own
+   one already (.content-container animates its width as the player pane opens,
+   .player-wrapper its width, padding and opacity). Declaring `transition` here
+   lost that tie on specificity and the rise snapped to its end value in a single
+   frame — measured. A custom property composes instead: an element that owns a
+   shorthand opts the transform in beside its own properties, an element that
+   owns none is served by the base rule below, and the timings still live only
+   here. Adding a marker to an element that already transitions something means
+   adding `transform var(--source-motion-duration, 0s)` to its own declaration.
+
+   A keyframe animation would compose too, and was tried — but an animation
+   restarts from its `from`, so a swap interrupted mid-rise (routine: the status
+   card re-keys on its own wording) jumped 24px in one frame. A transition
+   interpolates from wherever it had got to. */
+.source-motion {
+    transition: transform var(--source-motion-duration, 0s);
+}
+
+.audio-content-enter-active .source-motion {
+    --source-motion-duration: var(--transition-spring);
+}
+
+.audio-content-leave-active .source-motion {
+    --source-motion-duration: var(--transition-fast-leave);
+}
+
+.audio-content-enter-from .source-motion {
+    transform: translateY(var(--space-06)) scale(0.98);
+}
+
+.audio-content-leave-to .source-motion {
+    transform: translateY(calc(-1 * var(--space-06))) scale(0.98);
+}
+
+.audio-content-enter-to .source-motion,
+.audio-content-leave-from .source-motion {
+    transform: none;
 }

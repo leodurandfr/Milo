@@ -1,7 +1,9 @@
 <!-- AudioPlayerFull.vue - Full-screen player for Spotify, AirPlay, and CD -->
 <template>
   <div class="connect-player">
-    <div class="now-playing">
+    <!-- source-motion: what the source swap rises, leaving .connect-player (the
+         clipping box and the panel's fill) welded to the screen edges. -->
+    <div class="now-playing source-motion">
       <!-- Left side: Cover image with CSS staggering -->
       <div class="artwork-section stagger-1" :class="{ 'art-collapsed': hideContent }">
         <div class="artwork-container">
@@ -280,11 +282,18 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
 }
 
 /* === COMPONENT STYLES === */
+/* The clipping box, and therefore where the panel's fill lives: it is welded to
+   the slot's edges, so its overflow cut and the fill's edge both sit exactly on
+   the screen edge, where neither can be seen. The fill used to sit on
+   .now-playing, which carries the swap's rise — so a source change lifted it and
+   opened a strip of page background along the bottom. See .source-motion in
+   design-system.css. */
 .connect-player {
   width: 100%;
   height: 100%;
   overflow: hidden;
   position: relative;
+  background: var(--color-background-neutral);
 }
 
 .now-playing {
@@ -292,7 +301,6 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
   height: 100%;
   padding: var(--space-05) var(--space-06) var(--space-05) var(--space-05);
   gap: var(--space-06);
-  background: var(--color-background-neutral);
 }
 
 /* Artwork */

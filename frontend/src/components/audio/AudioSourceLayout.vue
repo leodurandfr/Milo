@@ -7,9 +7,12 @@
       :class="`gradient-${gradient}`"
     />
 
-    <!-- Content area: scrollable views -->
+    <!-- Content area: scrollable views. source-motion: what the source swap
+         rises, together with .player-wrapper below — .audio-source-layout above
+         is the scroll clip and .background-gradient is pinned to it, so those
+         two stay welded to the screen edges instead. -->
     <div
-      class="content-container"
+      class="content-container source-motion"
       :class="{ 'has-player': showPlayer, 'screensaver-revealing': revealing }"
     >
       <!-- Back-to-top threshold marker. Absolute so it takes no row in the flex
@@ -43,9 +46,12 @@
       </div>
     </div>
 
-    <!-- Player wrapper: animates width on desktop, transparent on mobile -->
+    <!-- Player wrapper: animates width on desktop, transparent on mobile.
+         Marked source-motion so the sticky pane leaves with the column beside it
+         rather than standing still while it rises. Inert on mobile, where the
+         wrapper is display: contents and the player is teleported to <body>. -->
     <div
-      :class="['player-wrapper', { 'has-player': showPlayer }]"
+      :class="['player-wrapper source-motion', { 'has-player': showPlayer }]"
     >
       <slot name="player" :is-mobile="isMobile"></slot>
     </div>
@@ -337,12 +343,29 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   gap: var(--space-06);
   flex-shrink: 0;
   touch-action: pan-y;
-  transition: width 0.6s cubic-bezier(0.5, 0, 0, 1);
+  /* The transform half is the source swap's rise opting in beside this
+     element's own width animation — `transition` is a shorthand, so the shared
+     rule cannot add to it from outside. See .source-motion in
+     design-system.css, which owns the duration. */
+  transition:
+    width 0.6s cubic-bezier(0.5, 0, 0, 1),
+    transform var(--source-motion-duration, 0s);
+  /* The source swap rises this element (see .source-motion in
+     design-system.css), and its scale has to shrink towards the top rather than
+     the default centre. This column is top-anchored and taller than the screen,
+     so a centred origin pushes the top back down by half the overshoot while the
+     translate pulls it up — the header rose 19px of the 32 it was given, and the
+     leave read as a zoom-out about the middle instead of a departure upwards.
+     AudioPlayerFull needs no such thing: its moving element is exactly the
+     viewport, so its centre and the screen's are the same point. */
+  transform-origin: 50% 0;
 }
 
 .content-container.has-player {
   width: calc(100% - var(--audio-player-wrapper-width));
-  transition: width var(--transition-spring);
+  transition:
+    width var(--transition-spring),
+    transform var(--source-motion-duration, 0s);
 }
 
 /* View stack: leaving + entering views share one grid cell, so the box reserves
@@ -389,10 +412,14 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   flex-shrink: 0;
   position: sticky;
   top: 0;
+  /* transform: the source swap's rise, opting in beside this element's own
+     animations — see .content-container above for why it has to be declared
+     here rather than by the shared rule. */
   transition:
     width 0.6s cubic-bezier(0.5, 0, 0, 1),
     padding-left 0.6s cubic-bezier(0.5, 0, 0, 1),
-    opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
+    opacity 0.6s cubic-bezier(0.5, 0, 0, 1),
+    transform var(--source-motion-duration, 0s);
   pointer-events: none;
 }
 
@@ -404,7 +431,8 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   transition:
     width var(--transition-spring),
     padding-left var(--transition-spring),
-    opacity 0.4s ease-out;
+    opacity 0.4s ease-out,
+    transform var(--source-motion-duration, 0s);
   pointer-events: all;
 }
 
