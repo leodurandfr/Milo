@@ -39,7 +39,9 @@
              connect-account CTA. The <button> IS the full-width bar so the whole
              surface is clickable. -->
         <button v-if="actionButton" @click="actionButton.onClick" :disabled="actionButton.disabled"
-          class="action-button heading-3">{{ actionButton.label }}</button>
+          class="action-button heading-3">
+          <LoadingSpinner v-if="actionButton.loading" size="inherit" />{{ actionButton.label }}
+        </button>
       </div>
     </div>
   </div>
@@ -48,6 +50,7 @@
 <script setup>
 import { computed } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import { useI18n } from '@/services/i18n';
 import { useScreensaverRevealPulse } from '@/composables/useScreensaverReveal';
@@ -244,6 +247,7 @@ const actionButton = computed(() => {
     return {
       label: props.isDisconnecting ? t('status.disconnecting') : t('status.disconnect'),
       disabled: props.isDisconnecting,
+      loading: props.isDisconnecting,
       onClick: () => emit('disconnect'),
     };
   }
@@ -359,7 +363,10 @@ const actionButton = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: var(--space-02);
   padding: var(--space-02) var(--space-05);
+  /* Le spinner se cale sur la ligne du libellé, donc sur son palier portrait. */
+  --spinner-size: var(--line-height-h3);
   background: var(--color-background-strong);
   border: none;
   border-radius: var(--radius-04);

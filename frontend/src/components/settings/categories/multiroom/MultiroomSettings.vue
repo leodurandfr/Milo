@@ -111,6 +111,7 @@
           </SettingsSection>
 
           <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
+            :loading="snapcastStore.isApplyingServerConfig"
             :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
             {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
           </Button>

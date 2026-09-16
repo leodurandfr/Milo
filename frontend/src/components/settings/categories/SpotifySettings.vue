@@ -36,6 +36,7 @@
       variant="brand"
       size="medium"
       class="apply-button-sticky"
+      :loading="isApplying"
       :disabled="isApplying"
       @click="applyNow"
     >
