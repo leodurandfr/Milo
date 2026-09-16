@@ -6,16 +6,20 @@ which measured that bluetoothctl ran, not that anything applied. Measured on the
 unit 2026-08-15, with the source started and reporting a configured adapter:
 `Pairable: no`, so no unpaired device could pair at all.
 """
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, Mock
 
-from dbus_next import Variant
+from dbus_next import DBusError, Variant
 
+from backend.sources.bluetooth import adapter as adapter_module
 from backend.sources.bluetooth.adapter import (
     ADAPTER_IFACE,
     ADAPTER_PATH,
     A2DP_SOURCE_UUID,
     DEVICE_IFACE,
+    PROPS_IFACE,
     BluetoothAdapter,
 )
 
@@ -66,6 +70,113 @@ class TestReadBack:
 
         assert await adapter.power_on() is False
         assert await adapter.set_exposure(discoverable=False, pairable=False) is False
+
+
+class TestDroppingOnePeer:
+    """`disconnect_device` — what the "Disconnect" button and the single-device
+    rule both call now.
+
+    It replaced two copies of `bluetoothctl disconnect <address>`, which exited
+    0 on having issued the request. The read-back is the whole difference, so it
+    is what these pin — including on the paths where the call itself failed.
+    """
+
+    @staticmethod
+    def _adapter(*, connected_after=False, disconnect=None):
+        """Only `_interface` is doubled, so the read-back resolves through the
+        real `_properties` and its path is asserted with the call's."""
+        adapter = BluetoothAdapter()
+        device = Mock()
+        device.call_disconnect = disconnect or AsyncMock()
+        props = Mock()
+        props.call_get = AsyncMock(return_value=Variant("b", connected_after))
+
+        async def interface(path, name):
+            interface.paths.append((path, name))
+            return device if name == DEVICE_IFACE else props
+
+        interface.paths = []
+        adapter._interface = interface
+        return adapter, device, interface
+
+    @pytest.mark.asyncio
+    async def test_a_peer_that_let_go_is_a_success(self):
+        adapter, device, _ = self._adapter(connected_after=False)
+
+        assert await adapter.disconnect_device("AA:BB:CC:DD:EE:FF") is True
+        device.call_disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_peer_still_connected_afterwards_is_a_failure(self):
+        """The whole reason this left bluetoothctl: BlueZ can accept the call
+        and the link survive it. Reported as success, the button looks inert."""
+        adapter, _, _ = self._adapter(connected_after=True)
+
+        assert await adapter.disconnect_device("AA:BB:CC:DD:EE:FF") is False
+
+    @pytest.mark.asyncio
+    async def test_the_call_and_the_read_back_address_the_same_object(self):
+        """A wrong path drops somebody else's link, or reads somebody else's
+        Connected and calls that a verification. BlueZ spells a device with the
+        separators replaced and the case raised."""
+        adapter, _, interface = self._adapter(connected_after=False)
+
+        await adapter.disconnect_device("aa:bb:cc:dd:ee:ff")
+
+        expected = f"{ADAPTER_PATH}/dev_AA_BB_CC_DD_EE_FF"
+        assert [name for _, name in interface.paths] == [DEVICE_IFACE, PROPS_IFACE]
+        assert {path for path, _ in interface.paths} == {expected}
+
+    @pytest.mark.asyncio
+    async def test_a_refused_call_still_defers_to_the_read_back(self):
+        """`NotConnected` on a peer that already left is the answer we want.
+        Treated as a failure, a phone that dropped on its own while the BlueALSA
+        feed was down would answer the button with "did not release the link"
+        and raise the UI's error banner for a link that is already gone."""
+        adapter, _, _ = self._adapter(
+            connected_after=False,
+            disconnect=AsyncMock(side_effect=DBusError(
+                "org.bluez.Error.NotConnected", "Not connected"
+            )),
+        )
+
+        assert await adapter.disconnect_device("AA:BB") is True
+
+    @pytest.mark.asyncio
+    async def test_a_refused_call_is_not_a_success_on_its_own(self):
+        """The other half of the rule above: deferring to the read-back must not
+        become "any error means it worked"."""
+        adapter, _, _ = self._adapter(
+            connected_after=True,
+            disconnect=AsyncMock(side_effect=DBusError(
+                "org.bluez.Error.Failed", "nope"
+            )),
+        )
+
+        assert await adapter.disconnect_device("AA:BB") is False
+
+    @pytest.mark.asyncio
+    async def test_a_call_that_never_answers_is_bounded_and_refused(self, monkeypatch):
+        """dbus-next bounds `introspect` and nothing else. Unbounded, a
+        bluetoothd that stops answering parks the HTTP request the button made
+        AND stops the BlueALSA connect/disconnect feed, which awaits this
+        inline. Both `bluetoothctl` spawns this replaced carried a 10 s cap."""
+        async def never():
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(adapter_module, "DBUS_CALL_TIMEOUT", 0.01)
+        adapter, _, _ = self._adapter(disconnect=lambda: never())
+
+        assert await adapter.disconnect_device("AA:BB") is False
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_peer_is_a_failure_not_an_exception(self):
+        """This runs from a BlueALSA monitor callback; raising would kill the
+        feed that called it."""
+        adapter = BluetoothAdapter()
+        adapter._interface = AsyncMock(side_effect=RuntimeError("no such object"))
+
+        assert await adapter.disconnect_device("AA:BB") is False
 
 
 class TestAudioPeerSelection:

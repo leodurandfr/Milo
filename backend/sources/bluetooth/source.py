@@ -297,30 +297,25 @@ class BluetoothSource(BaseAudioSource):
         return self.success_response()
 
     async def _cmd_disconnect(self) -> Dict[str, Any]:
-        """Disconnect current device."""
+        """Drop the sender currently holding the source.
+
+        Logged at info, which is not decoration: this is the only command a
+        person issues against the Bluetooth link, `command()` traces at debug,
+        and an evening was spent unable to tell a button that did nothing from
+        one whose link was taken back seconds later by a second paired device.
+        The line names the sender, so the journal says which one left.
+        """
         if not self.connected_device:
             return self.error_response("No device connected")
 
         address = self.connected_device.get("address")
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "bluetoothctl", "disconnect", address,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
+        name = self.connected_device.get("name")
+        self._logger.info(f"Disconnect requested for {name} ({address})")
 
-            if proc.returncode != 0:
-                return self.error_response(stderr.decode().strip())
+        if not await self.adapter.disconnect_device(address):
+            return self.error_response(f"{name} did not release the link")
 
-            return self.success_response("Device disconnecting")
-
-        except asyncio.TimeoutError:
-            proc.kill()
-            self._logger.error(f"Timeout disconnecting device {address}")
-            return self.error_response("Disconnect timed out")
-        except Exception as e:
-            return self.error_response(str(e))
+        return self.success_response("Device disconnected")
 
     # === BlueALSA Monitor Callbacks ===
 
@@ -329,7 +324,7 @@ class BluetoothSource(BaseAudioSource):
         # Single device enforcement: disconnect if another device is already connected
         if self.connected_device and self.connected_device.get("address") != address:
             self._logger.info(f"Disconnecting {name} ({address}) - another device already connected")
-            await self._disconnect_device(address)
+            await self.adapter.disconnect_device(address)
             return
 
         if not self.connected_device:
@@ -354,27 +349,6 @@ class BluetoothSource(BaseAudioSource):
             f"BlueALSA feed lost ({reason}) — connect/disconnect will no longer be "
             f"detected; switch away from Bluetooth and back to restart it"
         )
-
-    @handle_errors(default=False)
-    async def _disconnect_device(self, address: str) -> bool:
-        """Disconnect a device by address."""
-        proc = await asyncio.create_subprocess_exec(
-            "bluetoothctl", "disconnect", address,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE
-        )
-        try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
-        except asyncio.TimeoutError:
-            proc.kill()
-            self._logger.error(f"Timeout disconnecting device {address}")
-            return False
-
-        if proc.returncode != 0:
-            self._logger.error(f"Disconnect failed: {stderr.decode().strip()}")
-            return False
-
-        return True
 
     async def _on_device_disconnected(self, address: str, name: str) -> None:
         """Handle device disconnection from BlueALSA monitor."""

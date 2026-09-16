@@ -212,14 +212,22 @@ These are shared by every source; they break for all of them at once.
 | No seek | The progress bar cannot be dragged (the protocol exposes none) | targeted |
 | Session recovery | Restarting milo-tidal, then casting again from the phone, starts a session — the daemon wedges for good if `startService` was missed | targeted |
 
-### Bluetooth (A — mute receiver)
+### Bluetooth (C — active player)
+
+Two feeds, and only one is guaranteed: BlueALSA answers *who is connected*, BlueZ AVRCP
+answers *what is playing*. A sender may publish an empty track or no player at all, so the
+card and the player are both expected screens — see `sources/bluetooth/avrcp.py`.
 
 | Check | Expected observable | Set |
 |---|---|---|
 | Pairing | Milō is discoverable and pairs from a phone | targeted |
 | State | UI shows "Connected to [device name]" with a Disconnect button; "Ready" when idle | targeted |
-| Audio | Playback from the phone is audible; no metadata is expected | targeted |
-| Disconnect | The button drops the link and the UI returns to "Ready" | targeted |
+| Audio | Playback from the phone is audible | targeted |
+| Metadata | Title and artist appear and change with the track; transport buttons work. A sender publishing neither keeps the status card, which is correct | targeted |
+| Cover | The slot fills within a few seconds — resolved from the track text, not carried by AVRCP — or stays on the source glyph. Never a broken image | targeted |
+| Remote session | An iPhone controlling *another* device (a Mac, a HomePod) publishes the iOS card's two lines. The player must show title and artist, never "Now playing on …" | targeted |
+| Disconnect | The button drops the link and the UI returns to "Ready". **Watch for a few seconds**: a second paired device takes the freed link on its own, which looks like a button that did nothing. `journalctl -u milo-backend | grep "Disconnect requested"` says which sender was asked | targeted |
+| One sender at a time | While one device holds the link, the others are `Blocked` and Milō disappears from their output lists. Expected, not a fault | targeted |
 
 ### Mac / ROC (A) ⚠ Mac required
 

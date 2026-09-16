@@ -106,6 +106,73 @@ class TestParseTrack:
         assert parse_track({"Title": "Says", "Duration": 0})["duration"] is None
 
 
+class TestARemoteSessionsWidget:
+    """An iPhone controlling a Mac publishes the two lines of the iOS card, not
+    the fields they were built from.
+
+    Measured on the unit 2026-09-16 (the values below are that capture). Left
+    alone it costs twice: the player's second line reads as a claim about where
+    the audio is going, and `artwork_resolver` asks iTunes which artist
+    "Écoute en cours sur Mac mini de Léo" is — a question no catalogue answers,
+    so the cover slot stays empty for the whole session.
+    """
+
+    REMOTE_CARD = {
+        "Title": "Here but I'm Gone \u2022 Curtis Mayfield",
+        "Artist": "Écoute en cours sur Mac mini de Léo",
+        "TrackNumber": 8,
+        "NumberOfTracks": 13,
+        "Duration": 318200,
+    }
+
+    def test_the_two_halves_are_given_back_to_the_fields_they_came_from(self):
+        parsed = parse_track(self.REMOTE_CARD)
+
+        assert parsed["title"] == "Here but I'm Gone"
+        assert parsed["artist"] == "Curtis Mayfield"
+
+    def test_the_status_line_never_reaches_the_player(self):
+        """It is the sentence the person asked not to see, and the string that
+        poisons the cover lookup."""
+        assert "Écoute en cours" not in str(parse_track(self.REMOTE_CARD).values())
+
+    def test_a_normal_session_is_left_exactly_as_it_is(self):
+        """The discriminator is the absent Album — a normal iOS session carries
+        one (measured, see the module header). Without that half, every track
+        whose name holds a bullet would be taken apart."""
+        parsed = parse_track({
+            "Title": "Wild Wild West \u2022 Live",
+            "Artist": "Kool Moe Dee",
+            "Album": "Knowledge Is King",
+            "Duration": 1000,
+        })
+
+        assert parsed["title"] == "Wild Wild West \u2022 Live"
+        assert parsed["artist"] == "Kool Moe Dee"
+
+    def test_two_joiners_are_not_this_shape(self):
+        """A card has exactly two lines. More than one joiner is a track name
+        that happens to use the character, and splitting it would invent an
+        artist."""
+        parsed = parse_track({"Title": "A \u2022 B \u2022 C", "Artist": "Real"})
+
+        assert (parsed["title"], parsed["artist"]) == ("A \u2022 B \u2022 C", "Real")
+
+    def test_a_padded_joiner_does_not_leave_whitespace_in_the_halves(self):
+        """The outer strip cleans the title's ends, not the inside of a split."""
+        parsed = parse_track({"Title": "Says  \u2022  Nils Frahm"})
+
+        assert (parsed["title"], parsed["artist"]) == ("Says", "Nils Frahm")
+
+    def test_a_trailing_joiner_is_not_this_shape(self):
+        """`"Solo \u2022 "` arrives stripped, so the pattern's own spacing is
+        gone and nothing is split — the title keeps the character it was given
+        rather than losing it for an artist that does not exist."""
+        parsed = parse_track({"Title": "Solo \u2022 ", "Artist": "Real"})
+
+        assert (parsed["title"], parsed["artist"]) == ("Solo \u2022", "Real")
+
+
 class TestPlayerTracking:
     """What the controller derives from the signals BlueZ sends it."""
 

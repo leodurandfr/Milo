@@ -1,30 +1,23 @@
 # backend/tests/test_bluetooth_disconnect.py
 """`sources/bluetooth/source.py` — dropping a sender, and the AVRCP dispatch.
 
-The uncovered half of this file at 39ff9daf was everything that talks to
-`bluetoothctl` (`_cmd_disconnect` 7 lines, `_disconnect_device` 11, both at
-zero), the AVRCP command arms, and the connect/disconnect bookkeeping the
-BlueALSA monitor drives.
+Two paths ask for a sender to let go: the API (`_cmd_disconnect`, the
+"Disconnect" button) and the single-device rule (`_on_device_connected`, which
+kicks a second phone arriving while one is already connected). They used to be
+the same `bluetoothctl disconnect <address>` written twice with different return
+conventions, so a timeout fixed in one was not fixed in the other. Both now call
+`BluetoothAdapter.disconnect_device`, which verifies the peer is gone — what
+that verification buys is pinned in `test_bluetooth_adapter.py`; what is pinned
+here is that each path asks for the *right* address and reports the answer.
 
-The two disconnect paths are worth reading together, because they are the same
-`bluetoothctl disconnect <address>` written twice with different return
-conventions: one answers the API (`_cmd_disconnect`, the "Disconnect" button),
-the other answers the single-device rule (`_disconnect_device`, which kicks a
-second phone that arrives while one is already connected). Nothing shares the
-spawn between them, so a timeout fixed in one is not fixed in the other — a
-constat, pinned below rather than refactored.
+Rule 5: the package-wide `MessageBus` guard is re-declared (four modules open a
+bus; the B7 lesson is that covering one is not covering the package), and the
+adapter is doubled, because the real one would drop this room's actual phone.
 
-Rule 5: `bluetoothctl` is on the appliance probe's deny-list and the real one
-would drop this room's actual phone. Every test here doubles the spawn, and the
-package-wide `MessageBus` guard is re-declared (four modules open a bus; the
-B7 lesson is that covering one is not covering the package).
-
-Note on scope: `bluetoothctl disconnect` drops the link, it does not `remove`
-the pairing. The unpairing hazard that cost this appliance its A2DP bonds twice
-lives in `hardware/bt_remote.py`, not here.
+Note on scope: disconnecting drops the link, it does not `remove` the pairing.
+The unpairing hazard that cost this appliance its A2DP bonds twice lives in
+`hardware/bt_remote.py`, not here.
 """
-import asyncio
-
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
@@ -34,7 +27,6 @@ from backend.sources.bluetooth import (
     avrcp as avrcp_module,
     monitor as monitor_module,
 )
-from backend.sources.bluetooth import source as source_module
 from backend.sources.bluetooth.source import BluetoothSource
 
 
@@ -45,36 +37,6 @@ def never_the_real_system_bus(monkeypatch):
 
     for module in (adapter_module, agent_module, avrcp_module, monitor_module):
         monkeypatch.setattr(module, "MessageBus", refuse, raising=False)
-
-
-@pytest.fixture(autouse=True)
-def never_the_real_bluetoothctl(monkeypatch):
-    """The real one drops this room's phone. Tests install their own double."""
-    async def refuse(*args, **_kwargs):
-        raise AssertionError(f"a test tried to spawn {args[0]!r} for real")
-
-    monkeypatch.setattr(source_module.asyncio, "create_subprocess_exec", refuse)
-
-
-def spawn_that(*, returncode=0, stderr=b"", hangs=False):
-    proc = MagicMock()
-    proc.returncode = returncode
-    proc.kill = Mock()
-    proc.wait = AsyncMock()
-    if hangs:
-        async def never():
-            await asyncio.Event().wait()
-        proc.communicate = never
-    else:
-        proc.communicate = AsyncMock(return_value=(b"", stderr))
-
-    async def _exec(*args, **_kwargs):
-        _exec.argv = list(args)
-        return proc
-
-    _exec.proc = proc
-    _exec.argv = None
-    return _exec
 
 
 @pytest.fixture
@@ -92,106 +54,78 @@ def source():
     src._apply_exposure = AsyncMock(return_value=True)
     src.avrcp = MagicMock()
     src.monitor = MagicMock()
+    src.adapter = MagicMock()
+    src.adapter.disconnect_device = AsyncMock(return_value=True)
     return src
 
 
 class TestTheDisconnectButton:
     """`_cmd_disconnect` — the only command this source takes that is not AVRCP."""
 
-    async def test_the_connected_address_is_what_bluetoothctl_is_given(
-        self, source, monkeypatch
-    ):
-        """argv is the whole of it: a wrong address drops somebody else's link
-        or nothing at all, and `bluetoothctl` exits 0 either way for an address
-        it does not know."""
-        spawn = spawn_that()
-        monkeypatch.setattr(source_module.asyncio, "create_subprocess_exec", spawn)
+    async def test_the_connected_address_is_what_the_adapter_is_given(self, source):
+        """A wrong address drops somebody else's link or nothing at all."""
         source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "iPhone"}
 
         result = await source._cmd_disconnect()
 
         assert result["success"] is True
-        assert spawn.argv == ["bluetoothctl", "disconnect", "AA:BB:CC:DD:EE:FF"]
+        source.adapter.disconnect_device.assert_awaited_once_with("AA:BB:CC:DD:EE:FF")
 
-    async def test_nothing_connected_is_a_refusal_and_no_spawn(self, source):
-        """Without the guard this hands `bluetoothctl` a `None` address."""
+    async def test_nothing_connected_is_a_refusal_and_nothing_is_asked(self, source):
+        """Without the guard this hands the adapter a `None` address."""
         source.connected_device = None
 
         result = await source._cmd_disconnect()
 
         assert result["success"] is False
         assert "No device connected" in result["error"]
+        source.adapter.disconnect_device.assert_not_awaited()
 
-    async def test_a_refusal_from_bluetoothctl_is_carried_to_the_caller(
-        self, source, monkeypatch
-    ):
-        """The button reports what happened rather than a bare failure — this
-        text is what reaches the UI."""
-        monkeypatch.setattr(
-            source_module.asyncio, "create_subprocess_exec",
-            spawn_that(returncode=1, stderr=b"Device AA:BB not available"),
-        )
-        source.connected_device = {"address": "AA:BB", "name": "iPhone"}
+    async def test_a_peer_that_kept_the_link_is_reported_by_name(self, source):
+        """This text is what reaches the UI, and the sender's name is the whole
+        of its usefulness: the person is looking at a room with two paired
+        Apple devices in it."""
+        source.adapter.disconnect_device = AsyncMock(return_value=False)
+        source.connected_device = {"address": "AA:BB", "name": "iPhone de Léo"}
 
         result = await source._cmd_disconnect()
 
         assert result["success"] is False
-        assert "not available" in result["error"]
+        assert "iPhone de Léo" in result["error"]
 
-    async def test_a_bluetoothctl_that_hangs_is_killed_and_refused(
-        self, source, monkeypatch, caplog
+    async def test_the_request_is_traced_at_info_naming_the_sender(
+        self, source, caplog
     ):
-        """`bluetoothctl` blocks on a BlueZ that is not answering. Unbounded
-        this parks the HTTP request the button made."""
-        spawn = spawn_that(hangs=True)
-        monkeypatch.setattr(source_module.asyncio, "create_subprocess_exec", spawn)
-        monkeypatch.setattr(
-            source_module.asyncio, "wait_for",
-            AsyncMock(side_effect=asyncio.TimeoutError),
-        )
-        source.connected_device = {"address": "AA:BB", "name": "iPhone"}
+        """`command()` traces at debug, so without this a disconnect leaves no
+        mark in the journal — which is how a button that worked and a link
+        taken back seconds later by a second paired device became
+        indistinguishable."""
+        source.connected_device = {"address": "AA:BB", "name": "iPhone de Léo"}
 
-        with caplog.at_level("ERROR", logger="source.bluetooth"):
-            result = await source._cmd_disconnect()
+        with caplog.at_level("INFO", logger="source.bluetooth"):
+            await source._cmd_disconnect()
 
-        assert result["success"] is False
-        assert "timed out" in result["error"]
-        spawn.proc.kill.assert_called_once()
-
-    async def test_a_spawn_that_fails_is_a_refusal_not_a_crash(
-        self, source, monkeypatch
-    ):
-        async def boom(*_a, **_kw):
-            raise FileNotFoundError("bluetoothctl")
-
-        monkeypatch.setattr(source_module.asyncio, "create_subprocess_exec", boom)
-        source.connected_device = {"address": "AA:BB", "name": "iPhone"}
-
-        result = await source._cmd_disconnect()
-
-        assert result["success"] is False
+        assert "iPhone de Léo" in caplog.text
+        assert "AA:BB" in caplog.text
 
 
 class TestTheSingleDeviceRule:
-    """`_disconnect_device` — what kicks a second phone off.
+    """What kicks a second phone off.
 
     Two senders on one A2DP sink is what the rule exists to prevent; the second
     is dropped rather than the first, so the person already listening keeps the
     room.
     """
 
-    async def test_a_second_sender_is_dropped_by_address(self, source, monkeypatch):
-        spawn = spawn_that()
-        monkeypatch.setattr(source_module.asyncio, "create_subprocess_exec", spawn)
+    async def test_a_second_sender_is_dropped_by_address(self, source):
         source.connected_device = {"address": "AA:AA", "name": "First"}
 
         await source._on_device_connected("BB:BB", "Second")
 
-        assert spawn.argv == ["bluetoothctl", "disconnect", "BB:BB"]
+        source.adapter.disconnect_device.assert_awaited_once_with("BB:BB")
 
-    async def test_the_first_sender_keeps_the_room(self, source, monkeypatch):
+    async def test_the_first_sender_keeps_the_room(self, source):
         """The card must not follow the phone that was refused."""
-        monkeypatch.setattr(source_module.asyncio, "create_subprocess_exec", spawn_that())
         source.connected_device = {"address": "AA:AA", "name": "First"}
 
         await source._on_device_connected("BB:BB", "Second")
@@ -205,40 +139,8 @@ class TestTheSingleDeviceRule:
 
         await source._on_device_connected("AA:AA", "First")
 
+        source.adapter.disconnect_device.assert_not_awaited()
         assert source.connected_device == {"address": "AA:AA", "name": "First"}
-
-    async def test_a_refused_disconnect_is_reported_false(self, source, monkeypatch):
-        monkeypatch.setattr(
-            source_module.asyncio, "create_subprocess_exec",
-            spawn_that(returncode=1, stderr=b"not available"),
-        )
-
-        assert await source._disconnect_device("BB:BB") is False
-
-    async def test_a_disconnect_that_hangs_is_killed_and_reported_false(
-        self, source, monkeypatch
-    ):
-        spawn = spawn_that(hangs=True)
-        monkeypatch.setattr(source_module.asyncio, "create_subprocess_exec", spawn)
-        monkeypatch.setattr(
-            source_module.asyncio, "wait_for",
-            AsyncMock(side_effect=asyncio.TimeoutError),
-        )
-
-        assert await source._disconnect_device("BB:BB") is False
-        spawn.proc.kill.assert_called_once()
-
-    async def test_a_spawn_failure_is_absorbed_by_the_decorator(
-        self, source, monkeypatch
-    ):
-        """`@handle_errors(default=False)` — this runs from a monitor callback,
-        so raising would kill the feed that called it."""
-        async def boom(*_a, **_kw):
-            raise OSError("no bluetoothctl")
-
-        monkeypatch.setattr(source_module.asyncio, "create_subprocess_exec", boom)
-
-        assert await source._disconnect_device("BB:BB") is False
 
 
 class TestArrivalAndDeparture:

@@ -1,6 +1,6 @@
 # backend/sources/bluetooth/adapter.py
 """
-BlueZ adapter control over D-Bus: exposure and per-peer blocking.
+BlueZ adapter control over D-Bus: exposure, per-peer blocking, disconnection.
 
 This replaces a `bluetoothctl` session fed on stdin. That session reported
 success on `proc.returncode == 0`, which measures that bluetoothctl *ran* — not
@@ -22,11 +22,12 @@ device dials a known address. `Device1.Blocked` refuses the link itself. Only
 peers advertising the A2DP **Source** UUID are touched — the Bluetooth HID
 remote keeps `bluetooth.service` running and must never be blocked with them.
 """
+import asyncio
 import contextlib
 import logging
 from typing import Dict, List, Optional
 
-from dbus_next import Variant
+from dbus_next import DBusError, Variant
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
@@ -40,6 +41,14 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 # A peer that can *send* audio to Milō. The HID remote does not carry it, which
 # is what keeps it out of every block sweep below.
 A2DP_SOURCE_UUID = "0000110a-0000-1000-8000-00805f9b34fb"
+
+# Every call below is bounded by it. dbus-next bounds `introspect` and
+# nothing else, so an unanswering bluetoothd would park the HTTP request the
+# Disconnect button made *and*, because the BlueALSA monitor awaits its
+# connected-callback inline, stop the connect/disconnect feed for good. The
+# two `bluetoothctl` spawns this replaced each carried their own 10 s cap;
+# losing it was the one thing the move to D-Bus must not cost.
+DBUS_CALL_TIMEOUT = 10.0
 
 
 class BluetoothAdapter:
@@ -62,12 +71,16 @@ class BluetoothAdapter:
                 self._bus.disconnect()
             self._bus = None
 
-    async def _properties(self, path: str):
-        """Get the Properties interface of a BlueZ object."""
+    async def _interface(self, path: str, name: str):
+        """Get one interface of a BlueZ object."""
         bus = await self._connect()
         introspection = await bus.introspect("org.bluez", path)
         obj = bus.get_proxy_object("org.bluez", path, introspection)
-        return obj.get_interface(PROPS_IFACE)
+        return obj.get_interface(name)
+
+    async def _properties(self, path: str):
+        """Get the Properties interface of a BlueZ object."""
+        return await self._interface(path, PROPS_IFACE)
 
     async def _set_verified(self, path: str, iface: str, name: str,
                             variant: Variant, expected) -> bool:
@@ -118,6 +131,48 @@ class BluetoothAdapter:
                                      Variant("b", pairable), pairable),
         ]
         return all(results)
+
+    @handle_errors(default=False)
+    async def disconnect_device(self, address: str) -> bool:
+        """Drop the link with one peer, and read back that it is really gone.
+
+        `bluetoothctl disconnect <address>` was what did this, in two copies,
+        and it carried the same blindness as the session this module replaced:
+        it exits 0 on having *issued* the request. Measured on the unit against
+        a streaming iPhone — `Device1.Disconnect` returned in 3 s with
+        `Connected` already false and the peer stayed away, where bluetoothctl
+        took about 6 s and answered success either way, including for an address
+        the adapter does not know.
+
+        The path is built from the address rather than looked up: BlueZ names a
+        device object after it, and a path that does not exist raises here
+        instead of being reported as a disconnection that happened.
+        """
+        path = f"{ADAPTER_PATH}/dev_{address.upper().replace(':', '_')}"
+        device = await self._interface(path, DEVICE_IFACE)
+
+        try:
+            await asyncio.wait_for(device.call_disconnect(), DBUS_CALL_TIMEOUT)
+        except DBusError as e:
+            # `NotConnected` on a peer that already left is the answer we want,
+            # not a failure — and a refusal for any other reason is still not
+            # the verdict. The read-back below is, in both cases: it is the
+            # whole reason this left `bluetoothctl`. Reported as a failure here
+            # instead, a phone that dropped on its own while the BlueALSA feed
+            # was down would answer the button with "did not release the link"
+            # and raise the UI's error banner for a link that is gone.
+            self._logger.debug(f"Disconnect on {address} answered {e}")
+
+        props = await self._properties(path)
+        connected = await asyncio.wait_for(
+            props.call_get(DEVICE_IFACE, "Connected"), DBUS_CALL_TIMEOUT
+        )
+        if connected.value:
+            self._logger.error(
+                f"Bluetooth peer {address} is still connected after Disconnect"
+            )
+            return False
+        return True
 
     @handle_errors(default={})
     async def audio_peers(self) -> Dict[str, str]:
