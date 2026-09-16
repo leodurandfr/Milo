@@ -229,10 +229,7 @@ async function handleSubmit() {
   if (result.ok) {
     emit('success');
   } else {
-    errorMessage.value =
-      typeof result.error === 'string' && result.error
-        ? result.error
-        : t('musicLibrary.shares.errorGeneric');
+    errorMessage.value = t('musicLibrary.shares.errorGeneric');
   }
 }
 

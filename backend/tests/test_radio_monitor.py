@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from backend.core.models.audio_state import SourceState
+from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.radio.source import RadioSource
 from backend.tests.conftest import drain_background_tasks
 
@@ -44,9 +45,9 @@ def source(state_machine):
 
 
 def _errors(state_machine):
-    """The `Unable to load stream` banners the tick emitted."""
+    """The reason codes of the banners the tick emitted."""
     return [
-        call.args[0].message
+        call.args[0].reason
         for call in state_machine.broadcast.await_args_list
         if getattr(call.args[0], "TYPE", None) == "error"
     ]
@@ -90,7 +91,7 @@ class TestStreamThatNeverLoads:
 
         await source._on_monitor_tick()
         await drain_background_tasks()
-        assert _errors(state_machine) == ["Unable to load stream: FIP"]
+        assert _errors(state_machine) == [SourceErrorReason.STREAM_LOAD_FAILED]
 
     @pytest.mark.asyncio
     async def test_the_reported_station_is_dropped_and_the_source_goes_ready(

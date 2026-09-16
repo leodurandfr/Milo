@@ -688,7 +688,7 @@ class BaseAudioSource(ABC):
             duration=duration,
         ))
 
-    def broadcast_error(self, error_message: str) -> None:
+    def broadcast_error(self, reason: str) -> None:
         """
         Broadcast a failed *operation* to the UI notification banner.
 
@@ -707,7 +707,7 @@ class BaseAudioSource(ABC):
         self._bg.spawn(
             self.state_machine.broadcast(SourceError(
                 source=self.source.value,
-                message=error_message,
+                reason=reason,
             )),
             label="broadcast_error",
         )

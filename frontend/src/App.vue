@@ -113,6 +113,7 @@ import useWebSocket from '@/services/websocket';
 import { wsEventRegistry } from '@/schemas/ws';
 import { logger } from '@/services/logger';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
+import { SOURCE_ERROR_KEYS, SOURCE_ERROR_FALLBACK_KEY } from '@/constants/sourceErrors';
 import { isKiosk } from '@/utils/kiosk';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
@@ -637,7 +638,7 @@ onMounted(async () => {
       const source = event.data?.source || 'source';
       currentError.value = {
         title: t('notification.sourceErrorTitle', { source: sourceLabel(source) }),
-        detail: event.data?.message || 'error',
+        detail: t(SOURCE_ERROR_KEYS[event.data?.reason] || SOURCE_ERROR_FALLBACK_KEY),
         source,
       };
     }),

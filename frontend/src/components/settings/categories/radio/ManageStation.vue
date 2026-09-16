@@ -446,7 +446,7 @@ async function handleAddSubmit() {
       logger.info('radio', 'Station added successfully', result.station);
       emit('success', result.station);
     } else {
-      errorMessage.value = result.error || t('radio.manageStation.addFailed');
+      errorMessage.value = t('radio.manageStation.addFailed');
     }
   } catch (error) {
     logger.error('radio', 'Error submitting station form:', error);

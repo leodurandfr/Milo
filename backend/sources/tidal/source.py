@@ -22,6 +22,7 @@ Album art is a Tidal CDN URL loaded directly by the kiosk — no binary artwork
 route, same as Qobuz.
 """
 import asyncio
+from backend.core.models.ws_events import SourceErrorReason
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
@@ -216,7 +217,7 @@ class TidalSource(BaseAudioSource):
         elif command == "notifyPlaybackError":
             code = message.get("errorCode")
             self._logger.error(f"Tidal playback error (code {code})")
-            self.broadcast_error(f"Tidal playback error (code {code})")
+            self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
             return
 
         else:

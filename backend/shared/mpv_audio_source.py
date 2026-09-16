@@ -10,6 +10,7 @@ Hooks:
     _on_monitor_tick(): Called each monitor cycle when mpv is connected
 """
 import asyncio
+from backend.core.models.ws_events import SourceErrorReason
 from typing import Any, Dict, Optional
 
 from backend.core.audio_source import BaseAudioSource
@@ -133,7 +134,7 @@ class MpvAudioSource(BaseAudioSource):
                             # and the hook above only cleared the source's own
                             # fields.
                             await self._publish_idle()
-                            self.broadcast_error("Audio stream disconnected")
+                            self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)
                         continue
 
                     mpv_was_up = True

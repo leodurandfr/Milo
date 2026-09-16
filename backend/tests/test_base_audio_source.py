@@ -8,6 +8,7 @@ Tests cover:
 - BaseAudioSource lifecycle
 """
 import asyncio
+from backend.core.models.ws_events import SourceErrorReason
 import logging
 
 import pytest
@@ -363,12 +364,12 @@ class TestErrorMechanismsStaySeparate:
             side_effect=lambda coro, **kw: spawned.append(asyncio.ensure_future(coro))
         )
 
-        source.broadcast_error("Unable to load stream: FIP")
+        source.broadcast_error(SourceErrorReason.STREAM_LOAD_FAILED)
         await asyncio.gather(*spawned)
 
         envelope = state_machine.ws_manager.broadcast_dict.call_args[0][0]
         assert (envelope["category"], envelope["type"]) == ("source", "error")
-        assert envelope["data"]["message"] == "Unable to load stream: FIP"
+        assert envelope["data"]["reason"] == SourceErrorReason.STREAM_LOAD_FAILED
 
         # The source is still perfectly usable — its browser, its commands.
         assert source.state != SourceState.ERROR
@@ -395,7 +396,7 @@ class TestErrorMechanismsStaySeparate:
         source.broadcast_error_cleared()
         assert spawned == []
 
-        source.broadcast_error("Unable to load stream: FIP")
+        source.broadcast_error(SourceErrorReason.STREAM_LOAD_FAILED)
         source.broadcast_error_cleared()
         await asyncio.gather(*spawned)
 

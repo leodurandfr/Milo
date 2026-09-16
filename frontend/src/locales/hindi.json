@@ -65,6 +65,14 @@
     "qobuz": "Qobuz",
     "tidal": "TIDAL",
     "musicLibrary": "लाइब्रेरी",
+    "errors": {
+      "streamDisconnected": "ऑडियो स्ट्रीम बाधित",
+      "streamLoadFailed": "यह स्ट्रीम लोड नहीं हो सकी",
+      "trackLoadFailed": "यह ट्रैक लोड नहीं हो सका",
+      "playbackFailed": "प्लेबैक विफल",
+      "serviceUnreachable": "सेवा से संपर्क नहीं हो सका",
+      "generic": "एक त्रुटि हुई"
+    },
     "cdSource": {
       "unknownAlbum": "अज्ञात एल्बम",
       "unknownArtist": "अज्ञात कलाकार",

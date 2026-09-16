@@ -14,6 +14,7 @@ Features:
 - Station image management
 """
 import asyncio
+from backend.core.models.ws_events import SourceErrorReason
 import json
 import re
 from typing import Dict, Any, Optional
@@ -299,7 +300,8 @@ class RadioSource(MpvAudioSource):
                 self._is_buffering = False
                 self._current_station = None
                 error_msg = f"Unable to load stream: {station_name}"
-                self.broadcast_error(error_msg)
+                self._logger.error(error_msg)
+                self.broadcast_error(SourceErrorReason.STREAM_LOAD_FAILED)
                 return self.error_response(error_msg)
 
             # Per-station now-playing gate: when the station is opted out via
@@ -323,7 +325,7 @@ class RadioSource(MpvAudioSource):
         except Exception as e:
             self._logger.error(f"Station playback error: {e}")
             self._is_buffering = False
-            self.broadcast_error(str(e))
+            self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
             return self.error_response(str(e))
 
     async def _load_stream(self, url: str) -> bool:
@@ -562,7 +564,7 @@ class RadioSource(MpvAudioSource):
                     self._is_buffering = False
                     self._current_station = None
                     self._metadata = {}
-                    self.broadcast_error(f"Unable to load stream: {station_name}")
+                    self.broadcast_error(SourceErrorReason.STREAM_LOAD_FAILED)
                     self._update_connection_state()
 
         if self._current_station and self._is_playing:

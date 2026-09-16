@@ -37,7 +37,7 @@ from pydantic import BaseModel
 
 from backend.core.models.audio_state import SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
-from backend.core.models.ws_events import MusicLibraryStoragesChanged
+from backend.core.models.ws_events import SourceErrorReason, MusicLibraryStoragesChanged
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.music_library.disc_merge import (
@@ -710,7 +710,7 @@ class MusicLibrarySource(MpvAudioSource):
             self._loading = False
             self._reset_playback_state()
             self.emit_connection_state(False)
-            self.broadcast_error("Failed to start playback")
+            self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
             return self.error_response("Failed to load playlist")
 
         # Playing now; is_buffering stays until the monitor sees the playhead

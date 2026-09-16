@@ -270,9 +270,7 @@ async function createShare(targetPath) {
   const result = await store.addShare(payload);
   creating.value = false;
   if (!result.ok) {
-    errorMsg.value = typeof result.error === 'string' && result.error
-      ? result.error
-      : t('musicLibrary.shares.errorGeneric');
+    errorMsg.value = t('musicLibrary.shares.errorGeneric');
     return;
   }
   if (result.mounted) {

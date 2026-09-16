@@ -499,7 +499,7 @@ async function applyAudioChange() {
       rebootTimedOut.value = true;
     }, REBOOT_TIMEOUT_MS);
   } catch (e) {
-    audioError.value = e?.response?.data?.detail || t('multiroom.pending.errorGeneric');
+    audioError.value = t('multiroom.pending.errorGeneric');
     logger.error('multiroom', 'Error configuring client audio', e);
   } finally {
     isApplying.value = false;

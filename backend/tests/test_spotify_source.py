@@ -33,7 +33,7 @@ from backend.sources.spotify.source import SpotifySource
 from backend.sources.spotify.models import NextPrevParams
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.core.models.audio_state import AudioSource, SourceState
-from backend.core.models.ws_events import SourceError, SourceErrorCleared
+from backend.core.models.ws_events import SourceErrorReason, SourceError, SourceErrorCleared
 
 
 # A go-librespot GET /status body for a live session, shaped like the daemon's.
@@ -1158,7 +1158,7 @@ class TestLogBridge:
         self, spotify_source, wired, line
     ):
         """Every line go-librespot logs on success clears the error it fixed."""
-        spotify_source.broadcast_error("go-librespot is unreachable")
+        spotify_source.broadcast_error(SourceErrorReason.SERVICE_UNREACHABLE)
         assert spotify_source._error_active is True
 
         await spotify_source._handle_log_line(line)
@@ -1192,7 +1192,7 @@ class TestLogBridge:
 
         event = self._broadcast(spotify_source)
         assert isinstance(event, SourceError)
-        assert event.message == "failed loading current track: context has no tracks"
+        assert event.reason == SourceErrorReason.TRACK_LOAD_FAILED
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("line", [

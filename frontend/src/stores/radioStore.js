@@ -441,7 +441,9 @@ export const useRadioStore = defineStore('radio', () => {
 
     // The route raises on failure, so result.ok is the whole verdict.
     if (!result.ok) {
-      return { success: false, error: result.error?.detail || 'Failed to add station' };
+      // apiCall has already logged the backend's detail: what comes back here
+      // is the verdict, and the wording is the component's to translate.
+      return { success: false };
     }
     logger.info('radio', 'Custom station added', result.data.station);
     return { success: true, station: result.data.station };

@@ -39,6 +39,7 @@ from backend.core.models.ws_events import (
     SatelliteUpdateProgress,
     ScreenSleepChanged,
     SourceError,
+    SourceErrorReason,
     SourceErrorCleared,
     SourcePositionUpdate,
     SourceStateChanged,
@@ -97,9 +98,9 @@ CASES = [
     (
         # The banner half of the two error mechanisms: no state on the wire,
         # so a consumer cannot mistake a failed operation for a dead source.
-        SourceError(source="radio", message="Unable to load stream: FIP"),
+        SourceError(source="radio", reason=SourceErrorReason.STREAM_LOAD_FAILED),
         {"category": "source", "type": "error", "origin": "radio",
-         "data": {"source": "radio", "message": "Unable to load stream: FIP"}},
+         "data": {"source": "radio", "reason": "stream_load_failed"}},
         True,
     ),
     (

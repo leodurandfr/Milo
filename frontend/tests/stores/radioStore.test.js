@@ -436,14 +436,17 @@ describe('radioStore', () => {
       expect(store.displayedStations).toHaveLength(1);
     });
 
-    it('surfaces the backend error detail when adding fails', async () => {
+    it('reports a refused creation as a verdict, carrying no text', async () => {
       // The route raises a 400 on a refused creation — a 200 carrying a false
-      // flag is a shape it cannot produce.
+      // flag is a shape it cannot produce. The detail is English and apiCall
+      // has already logged it; carrying it back would put it on screen ahead
+      // of `radio.manageStation.addFailed`, which is the string the user's
+      // language has.
       apiCall.post.mockResolvedValueOnce(fail('Invalid URL', 400));
 
       const result = await store.addCustomStation({ name: 'Bad', url: 'invalid' });
 
-      expect(result).toEqual({ success: false, error: 'Invalid URL' });
+      expect(result).toEqual({ success: false });
     });
 
     it('sends the creation as multipart form data', async () => {

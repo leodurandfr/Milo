@@ -13,6 +13,7 @@ Features:
 - PodcastCatalog for discovery and feed reading
 """
 import asyncio
+from backend.core.models.ws_events import SourceErrorReason
 from typing import Dict, Any, Optional
 
 from pydantic import BaseModel
@@ -258,7 +259,8 @@ class PodcastSource(MpvAudioSource):
                 self._is_buffering = False
                 self._current_episode = None
                 error_msg = "Failed to load stream"
-                self.broadcast_error(error_msg)
+                self._logger.error(error_msg)
+                self.broadcast_error(SourceErrorReason.STREAM_LOAD_FAILED)
                 return self.error_response(error_msg)
 
             # Check if mpv is paused after loading and unpause if needed
@@ -294,7 +296,7 @@ class PodcastSource(MpvAudioSource):
             self._logger.error(f"Episode playback error: {e}")
             self._loading = False
             self._is_buffering = False
-            self.broadcast_error(str(e))
+            self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
             return self.error_response(str(e))
 
     async def _wait_and_seek(self, position: int) -> None:

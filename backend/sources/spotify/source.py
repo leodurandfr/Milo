@@ -13,6 +13,7 @@ Features:
 - Metadata tracking with album art and position
 """
 import asyncio
+from backend.core.models.ws_events import SourceErrorReason
 import contextlib
 import os
 import re
@@ -790,9 +791,10 @@ class SpotifySource(BaseAudioSource):
             self.broadcast_error_cleared()
             return
 
-        # Critical error: track loading failed - show raw log message
+        # Critical error: track loading failed
         if "failed loading current track" in line:
-            self.broadcast_error(self._extract_log_message(line))
+            self._logger.error(self._extract_log_message(line))
+            self.broadcast_error(SourceErrorReason.TRACK_LOAD_FAILED)
             return
 
         # Connection failures — accesspoint unreachable (running) or zeroconf /
@@ -808,7 +810,8 @@ class SpotifySource(BaseAudioSource):
             self._last_error_time = now
 
             if self._connection_error_count >= 3:
-                self.broadcast_error(self._extract_log_message(line))
+                self._logger.error(self._extract_log_message(line))
+                self.broadcast_error(SourceErrorReason.SERVICE_UNREACHABLE)
                 self._connection_error_count = 0
 
         # Ignore normal WebSocket closures (StatusNormalClosure)

@@ -65,6 +65,14 @@
     "qobuz": "Qobuz",
     "tidal": "TIDAL",
     "musicLibrary": "Musikbibliothek",
+    "errors": {
+      "streamDisconnected": "Audiostream unterbrochen",
+      "streamLoadFailed": "Dieser Stream konnte nicht geladen werden",
+      "trackLoadFailed": "Dieser Titel konnte nicht geladen werden",
+      "playbackFailed": "Wiedergabe fehlgeschlagen",
+      "serviceUnreachable": "Dienst nicht erreichbar",
+      "generic": "Ein Fehler ist aufgetreten"
+    },
     "cdSource": {
       "unknownAlbum": "Unbekanntes Album",
       "unknownArtist": "Unbekannter Künstler",

@@ -188,19 +188,39 @@ class SourceStateChanged(WsEvent):
     metadata: Optional[Dict[str, Any]] = None
 
 
+class SourceErrorReason:
+    """The codes SourceError.reason may carry.
+
+    Each has one localized string per language in `audioSources.errors.*`; a
+    code with no entry falls back to the generic one, so the banner is never
+    empty. Adding a code means adding that string to the eight locales — the
+    frontend's SOURCE_ERROR_KEYS table is what pins the two lists together.
+    """
+    STREAM_DISCONNECTED = "stream_disconnected"   # the stream dropped mid-playback
+    STREAM_LOAD_FAILED = "stream_load_failed"     # the stream never opened
+    TRACK_LOAD_FAILED = "track_load_failed"       # the sender refused this track
+    PLAYBACK_FAILED = "playback_failed"           # playback could not start
+    SERVICE_UNREACHABLE = "service_unreachable"   # the external service is down
+
+
 class SourceError(WsEvent):
-    """App.vue raises the notification banner from it; SourceErrorCleared dismisses.
+    """App.vue maps `reason` via SOURCE_ERROR_KEYS to a localized banner detail;
+    SourceErrorCleared dismisses it.
 
     The banner half of the two error mechanisms: an *operation* failed (a station
     that will not tune, a command the daemon refused) while the source stays
     usable. The source being down is a state instead — SourceState.ERROR in
     full_state — and no consumer should infer one from the other.
+
+    A code, never a sentence: this text is read by a user who chose one of eight
+    languages, so the wording belongs to the frontend. The technical detail stays
+    on this side, in the log line each producer writes next to the broadcast.
     """
     CATEGORY = "source"
     TYPE = "error"
     INCLUDE_FULL_STATE = True
     source: str
-    message: str
+    reason: str  # see SourceErrorReason
 
 
 class SourceErrorCleared(WsEvent):

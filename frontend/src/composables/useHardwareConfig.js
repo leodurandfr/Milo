@@ -16,7 +16,6 @@ import { useTimer } from '@/composables/useTimer';
 // Shared global state — lightweight info (screen type/resolution)
 const hardwareInfo = ref(null);
 const isLoading = ref(false);
-const error = ref(null);
 
 // Shared global state — full hardware config + dropdown options
 const hardwareConfig = ref(null);
@@ -67,7 +66,6 @@ export function useHardwareConfig() {
     }
 
     isLoading.value = true;
-    error.value = null;
 
     const result = await apiCall.get('/api/settings/hardware-info', {
       category: 'hardware',
@@ -80,7 +78,6 @@ export function useHardwareConfig() {
       hardwareInfo.value = result.data.hardware;
       logger.debug('hardware', 'Hardware info loaded', result.data.hardware);
     } else {
-      error.value = result.error?.detail || 'Failed to load hardware info';
       hardwareInfo.value = {
         screen_type: 'none',
         screen_resolution: { width: null, height: null }
@@ -141,7 +138,6 @@ export function useHardwareConfig() {
   return {
     hardwareInfo,
     isLoading,
-    error,
     loadHardwareInfo,
     reload,
     screenType,

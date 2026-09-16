@@ -912,7 +912,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         shareId: result.data.share?.id || null,
       };
     }
-    return { ok: false, error: result.error?.detail };
+    return { ok: false };
   }
 
   async function updateShare(shareId, payload) {
@@ -924,7 +924,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       await loadShares({ force: true });
       return { ok: true, mounted: !!result.data.share?.mounted };
     }
-    return { ok: false, error: result.error?.detail };
+    return { ok: false };
   }
 
   async function removeShare(shareId) {

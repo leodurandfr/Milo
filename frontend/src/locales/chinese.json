@@ -65,6 +65,14 @@
     "qobuz": "Qobuz",
     "tidal": "TIDAL",
     "musicLibrary": "音乐库",
+    "errors": {
+      "streamDisconnected": "音频流已中断",
+      "streamLoadFailed": "无法加载此音频流",
+      "trackLoadFailed": "无法加载此曲目",
+      "playbackFailed": "播放失败",
+      "serviceUnreachable": "无法连接服务",
+      "generic": "发生错误"
+    },
     "cdSource": {
       "unknownAlbum": "未知专辑",
       "unknownArtist": "未知艺术家",

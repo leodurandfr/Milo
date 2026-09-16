@@ -191,7 +191,7 @@ export function useNetwork() {
       password.value = '';
       await Promise.all([loadStatus(), scanNetworks(), loadSavedNetworks()]);
     } else {
-      connectError.value = result.error?.detail || (t ? t('network.connectFailed') : 'Connection failed');
+      connectError.value = t('network.connectFailed');
     }
     connecting.value = false;
   }
@@ -213,7 +213,7 @@ export function useNetwork() {
         wifi: { ...status.value.wifi, saved_ssid: network.ssid },
       };
     } else {
-      connectError.value = result.error?.detail || (t ? t('network.saveFailed') : 'Save failed');
+      connectError.value = t('network.saveFailed');
     }
     connecting.value = false;
   }

@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from backend.core.models.audio_state import SourceState
+from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.radio.source import RadioSource
 from backend.tests.conftest import drain_background_tasks
 
@@ -60,7 +61,7 @@ def source(state_machine):
 
 def _errors(state_machine):
     return [
-        call.args[0].message
+        call.args[0].reason
         for call in state_machine.broadcast.await_args_list
         if getattr(call.args[0], "TYPE", None) == "error"
     ]
@@ -216,7 +217,7 @@ class TestStreamRefusedByMpv:
 
         assert result["success"] is False
         assert result["error"] == "Unable to load stream: FIP"
-        assert _errors(state_machine) == ["Unable to load stream: FIP"]
+        assert _errors(state_machine) == [SourceErrorReason.STREAM_LOAD_FAILED]
         assert source._current_station is None
         assert source._is_buffering is False
 
@@ -243,7 +244,7 @@ class TestStreamRefusedByMpv:
         assert result["success"] is False
         assert "ipc gone" in result["error"]
         assert source._is_buffering is False
-        assert _errors(state_machine) == ["ipc gone"]
+        assert _errors(state_machine) == [SourceErrorReason.PLAYBACK_FAILED]
 
 
 class TestNowPlayingGates:
