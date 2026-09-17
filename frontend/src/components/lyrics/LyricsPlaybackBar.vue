@@ -380,6 +380,10 @@ function onHintClick(event) {
     flex-basis: 100%;
     display: flex;
     justify-content: center;
+    /* Stacked, the transport reads as a section of its own rather than a third
+       line of the same block — it gets more air above it than the row gap the
+       title/progress pair shares. */
+    margin-top: var(--space-03);
   }
 
   /* Stacked rows are already full-width and centred, so the spacer column has
