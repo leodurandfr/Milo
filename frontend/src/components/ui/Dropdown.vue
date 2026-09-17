@@ -206,6 +206,24 @@ function calculateDropdownDirection() {
   }
 }
 
+/**
+ * Commit the start of the enter transition once the direction is known.
+ *
+ * The menu is inserted with the transition already armed, and the direction is
+ * only decided a tick later — so the browser animates the *correction* rather
+ * than applying it: an upward menu was measured travelling -8px -> 0, i.e.
+ * downward, while wearing `open-upward` from its first frame. A reflow with
+ * transitions off pins the corrected value, leaving only the from -> to leg to
+ * animate. The reflow is harmless when the direction did not change.
+ */
+function settleEnterTransform() {
+  const el = menuRef.value;
+  if (!el) return;
+  el.style.transition = 'none';
+  void el.offsetHeight; // forces the corrected transform to be committed untransitioned
+  el.style.transition = '';
+}
+
 async function toggleDropdown() {
   if (!isOpen.value) {
     // Reset direction defaults (recalculated after render with actual dimensions)
@@ -225,6 +243,8 @@ async function toggleDropdown() {
     // Runs as microtask before CSS transition starts (double-rAF)
     await nextTick();
     calculateDropdownDirection();
+    await nextTick();
+    settleEnterTransform();
   } else {
     isOpen.value = false;
   }

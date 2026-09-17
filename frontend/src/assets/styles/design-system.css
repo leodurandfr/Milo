@@ -404,7 +404,7 @@
 
 
 /* === TRANSPORT SCALE === */
-/* The one place a playback control's icon size is declared. Two tiers, three
+/* The one place a playback control's icon size is declared. Three tiers, four
    roles; a consumer picks a tier on its row and a role on each button, and
    never writes a pixel. SvgIcon reads `--svg-size` with its own native value as
    the fallback, so these inherit down with no `:deep()` and no specificity war.
@@ -425,12 +425,37 @@
    What is load-bearing is that the three tiers carry the *same* proportion. The
    4px grid rounds them a few percent apart and that is as close as the grid
    allows; a real divergence is drift, and the guardrail says so. Every value is
-   a multiple of 4. */
+   a multiple of 4.
+
+   Why a fourth role. `secondary` is calibrated on the flattest glyph of the set:
+   `next`/`previous` stand 12.0 units tall in the 24 the box holds, where every
+   other glyph stands 16 to 20.5. Rasterised at 240px, `rewind15`/`forward30`
+   cover 115 units² of ink against the arrows' 141 — they are *lighter* — yet
+   they fill 20.5 units in both axes, so at an equal box they occupy 60% more of
+   it. On the compact tier that put the podcast's seek pair at 28.1 x 30.8px
+   beside a pause drawn 25.7 x 29.3: the flanking control came out larger than
+   the control it flanks, in both axes, in the state a playing podcast spends
+   its time in. The glyphs are not at fault — 20.5 sits with `shuffle`'s 20.3
+   and `heart`'s 21.0, and outline marks are drawn larger than solid ones on
+   purpose — so the correction belongs to the rung, not to the file. A glyph
+   that fills its box in both axes takes `secondary-round`.
+
+   A ceiling bounds it, not a proportion: the flanking glyph must not outgrow
+   the `pause` it flanks, which caps it at primary x 0.78 — the pause stands
+   16.0 units where the ring stands 20.45, so 43.8/37.6/34.4px. 36/32/28 sits a
+   grid step under that, because at the ceiling itself the pair still read as
+   level with the pause rather than under it; like the tiers above, the last
+   step was settled by eye on the row, not derived. The floor is the two digits
+   the glyphs carry: 8.2px tall at the compact value, against the 5.8 that ruled
+   `utility` out. A bound rounded to a 4px grid on values near 32 carries most
+   of a step of noise, so the tiers land 6.7% apart on this pair where the
+   others hold 5 — the guardrail gives it its own tolerance and says why. */
 
 /* The full-screen player on a desktop-shaped viewport. */
 .transport-scale {
     --transport-primary: 56px;
     --transport-secondary: 48px;
+    --transport-secondary-round: 36px;
     --transport-utility: 28px;
 }
 
@@ -442,6 +467,7 @@
 .transport-scale--phone {
     --transport-primary: 48px;
     --transport-secondary: 40px;
+    --transport-secondary-round: 32px;
     --transport-utility: 24px;
 }
 
@@ -451,6 +477,7 @@
 .transport-scale--compact {
     --transport-primary: 44px;
     --transport-secondary: 36px;
+    --transport-secondary-round: 28px;
     --transport-utility: 20px;
 }
 
@@ -464,6 +491,12 @@
 .transport-secondary {
     --svg-size: var(--transport-secondary);
     --spinner-size: var(--transport-secondary);
+}
+
+/* The flanking rung for a glyph that fills its box in both axes — see above. */
+.transport-secondary-round {
+    --svg-size: var(--transport-secondary-round);
+    --spinner-size: var(--transport-secondary-round);
 }
 
 .transport-utility {

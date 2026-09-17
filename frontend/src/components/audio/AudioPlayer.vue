@@ -881,18 +881,99 @@ img.player-artwork.loaded {
   width: 100%;
 }
 
-/* Podcast: the speed dropdown is pulled out of the centred transport row and
-   pinned to the row's left edge (.controls is the positioned ancestor). */
+/* Podcast: the row is three columns — speed, transport, nothing — so the
+   transport stays centred on the row whatever the speed chip measures. It was
+   pinned with `position: absolute; left: 0` instead, which holds only while the
+   chip is narrower than the gap left of the transport: giving it a rim widened
+   it to 66px and it landed 18px on top of the -15s button's target. Being out
+   of flow is also what dropped it *under* the row in the expanded sheet, where
+   a second rule had to put it back and stacked it. One layout now serves both. */
+.source-podcast .controls,
+.expanded-card.source-podcast .expanded-controls {
+  display: grid;
+  /* minmax(0, 1fr), not 1fr: a plain fr track keeps a min-content floor, so a
+     speed chip wider than its share grows the track and walks the transport
+     off-centre — 18px, measured, with the chip at its first rim size. At zero
+     the two side tracks are always equal, so the transport is centred whatever
+     the chip measures, and a chip that outgrew its track would spill over it
+     rather than move the row. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+}
+
+/* Both items name their row, the transport's included: auto-placement fills
+   row by row, so a chip asking for column 1 after the transport has taken
+   column 2 lands on a second row instead of beside it. Measured, before this
+   was explicit. */
+.source-podcast :deep(.playback-controls) {
+  grid-area: 1 / 2;
+}
+
 :deep(.speed-selector) {
   display: flex;
   align-items: center;
-  position: absolute;
-  left: 0;
+  grid-area: 1 / 1;
+  justify-self: start;
+}
+
+/* The sheet's column is far wider than the desktop one, so the same left edge
+   that keeps the chip aligned with the progress bar in the column leaves it
+   marooned here — it is centred in its track instead, equidistant from the
+   card's edge and from the transport. Only the sheet: in the column the two
+   placements differ by 3px, and the alignment is worth more than that.
+
+   The column gap goes with it, and only here: it would sit between the chip's
+   track and the transport, on that side alone, so a chip centred in its track
+   would still read off-centre — 16.5px from the card's edge against 32.5 from
+   the transport, measured. The docked bar keeps its own gap: taking it away
+   there moved the play button 8px toward the screen edge, which is a different
+   row's business. */
+.expanded-card.source-podcast .expanded-controls {
+  column-gap: 0;
+}
+
+.expanded-card.source-podcast :deep(.speed-selector) {
+  justify-self: center;
 }
 
 :deep(.speed-selector .dropdown) {
   width: auto;
   flex: none;
+}
+
+/* The speed reads as a control rather than as loose text: a pill rim around it.
+   The `minimal` variant clears the trigger's own box-shadow, so the rim is put
+   back the same way the base variant draws it, inset, which keeps the chip's
+   box out of the row's arithmetic. The rim colour is a background token used as
+   a stroke on purpose — it is the only 12% white the palette declares, and the
+   player has no border token for a dark ground. The padding is the chip's whole
+   size: it is a label with a rim, not a button, and it sits next to a transport
+   it must not compete with. */
+:deep(.speed-selector .dropdown-trigger) {
+  padding: var(--space-01) 0;
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 0 0 1px var(--color-background-neutral-12);
+}
+
+/* Full contrast, not the `minimal` variant's 50% white: the chip states the
+   speed currently playing, which is a value and not a placeholder. */
+:deep(.speed-selector .dropdown-label) {
+  color: var(--color-text-contrast);
+}
+
+/* Open: the chip fills, so it reads as the thing the menu belongs to. The rim
+   goes with the fill (12% white is invisible on it) and the label has to flip
+   with it — `minimal` draws it at 50% white, which would vanish. Three classes
+   deep on purpose: the base trigger's own `.is-open` carries a brand ring at
+   equal specificity, and which of the two won would come down to stylesheet
+   order between this file and Dropdown's. */
+:deep(.speed-selector .dropdown-trigger.is-open) {
+  background: var(--color-background-neutral);
+  box-shadow: none;
+}
+
+:deep(.speed-selector .dropdown-trigger.is-open .dropdown-label) {
+  color: var(--color-text);
 }
 
 :deep(.speed-selector .dropdown-menu) {
@@ -1140,13 +1221,6 @@ img.player-artwork.loaded {
      (.horizontal-layout) — push it to the row's edge. */
   :deep(.radio-controls) {
     justify-content: flex-end;
-  }
-
-  /* Nothing to pin against in the single mini-bar row: the speed selector goes
-     back in flow. (Only reached in the expanded sheet — it is .desktop-only in
-     the docked bar.) */
-  :deep(.speed-selector) {
-    position: static;
   }
 
   /* Radio, track detected: two 48px thumbnails overlapping by half. The station

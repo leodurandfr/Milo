@@ -34,7 +34,7 @@ const VAR_OWNERS = [
   'components/ui/Button.vue'
 ];
 
-const ROLES = ['primary', 'secondary', 'utility'];
+const ROLES = ['primary', 'secondary', 'secondary-round', 'utility'];
 
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -122,18 +122,65 @@ describe('transport icon scale', () => {
       '.transport-scale--compact': tierOf('.transport-scale--compact')
     };
 
-    for (const [name, { primary, secondary, utility }] of Object.entries(tiers)) {
-      expect([primary, secondary, utility].every((v) => v % 4 === 0), `${name} off the 4px grid`).toBe(true);
+    for (const [name, tier] of Object.entries(tiers)) {
+      const { primary, secondary, utility } = tier;
+      const round = tier['secondary-round'];
+      expect(ROLES.map((r) => tier[r]).every((v) => v % 4 === 0), `${name} off the 4px grid`).toBe(true);
       expect(primary, `${name}: primary must lead`).toBeGreaterThan(secondary);
       expect(secondary, `${name}: secondary must lead utility`).toBeGreaterThan(utility);
       expect(primary / utility, `${name}: utility is not subordinate enough`).toBeGreaterThanOrEqual(2);
+      // secondary-round is the same flanking role for a glyph that fills its
+      // box, so it sits strictly between the two: level with `secondary` it
+      // would be the oversized pair it exists to fix, level with `utility` its
+      // digits stop being readable.
+      expect(round, `${name}: secondary-round must sit under secondary`).toBeLessThan(secondary);
+      expect(round, `${name}: secondary-round must sit above utility`).toBeGreaterThan(utility);
     }
 
-    const ratios = Object.values(tiers).map((t) => t.primary / t.secondary);
-    expect(
-      (Math.max(...ratios) - Math.min(...ratios)) / Math.min(...ratios),
-      'the tiers no longer read as one proportion'
-    ).toBeLessThan(TIER_TOLERANCE);
+    // `secondary-round` answers to a ceiling, not to a proportion: a glyph that
+    // fills its box may not outgrow the `pause` it flanks, or the flanking
+    // control reads as the main one — which is the inversion this role was
+    // added to end. The ring's extent is read from the clipPath its own file
+    // declares, so a redrawn glyph moves the ceiling with it; the pause's 16.0
+    // units are stated, its path being too involved to parse for one number.
+    const ringHeight = (() => {
+      const svg = readFileSync(join(SRC, 'assets/icons/rewind-15.svg'), 'utf8');
+      const clip = svg.match(/<clipPath[^>]*>\s*<path[^>]*\sd="([^"]+)"/);
+      expect(clip, 'rewind-15 no longer declares the clipPath its extent is read from').not.toBeNull();
+      // `M2.625.938h18.677V21.39H2.625z` — SVG drops the separator between a
+      // number and a following decimal, so split on the number grammar rather
+      // than on whitespace: [x0, y0, width, yBottom, ...].
+      const n = clip[1].match(/\d+\.\d+|\.\d+|\d+/g).map(Number);
+      return n[3] - n[1];
+    })();
+    // A parse that silently yields nothing must fail here, not pass on an empty
+    // surface: every other glyph in the set stands between 12 and 21 units.
+    expect(ringHeight, 'the ring extent parsed to something implausible').toBeGreaterThan(19);
+    expect(ringHeight, 'the ring extent parsed to something implausible').toBeLessThan(22);
+    const PAUSE_HEIGHT = 16.0;
+
+    for (const [name, tier] of Object.entries(tiers)) {
+      const ceiling = (tier.primary * PAUSE_HEIGHT) / ringHeight;
+      expect(
+        tier['secondary-round'],
+        `${name}: secondary-round outgrows the pause it flanks (ceiling ${ceiling.toFixed(1)}px)`
+      ).toBeLessThanOrEqual(ceiling);
+    }
+
+    // Both proportions are checked, not just the first: a tier retuned on its
+    // own is drift whichever pair of roles it breaks. The round pair gets a
+    // wider band because the ceiling above is what sets it and the 4px grid
+    // then rounds it down — one grid step is already 12% on values near 32.
+    for (const [lead, follow, tolerance] of [
+      ['primary', 'secondary', TIER_TOLERANCE],
+      ['secondary', 'secondary-round', 0.1]
+    ]) {
+      const ratios = Object.values(tiers).map((t) => t[lead] / t[follow]);
+      expect(
+        (Math.max(...ratios) - Math.min(...ratios)) / Math.min(...ratios),
+        `the tiers no longer read as one proportion on ${lead}/${follow}`
+      ).toBeLessThan(tolerance);
+    }
 
     // Each tier is strictly smaller than the one above it, or it has no reason
     // to exist as a separate tier.

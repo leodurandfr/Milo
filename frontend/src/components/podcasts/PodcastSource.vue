@@ -79,19 +79,22 @@
              desktop-only — on mobile the mini-player's swipe gesture covers +30s (right)
              / -15s (left), speed moves into the future expanded mini-player view. -->
         <template #controls>
-          <!-- The seek pair takes the `secondary` rung, not `utility`: it is what
-               flanks the play here, so it stands where prev/next stand in every
-               other row. `desktop-only` hides it in the docked bar, but not in
-               the expanded sheet — that is where the rung is actually seen on a
-               phone, and where 20px would have made the digits unreadable. -->
+          <!-- The seek pair takes `secondary-round`, not `secondary`: its two
+               glyphs are the only ones in the set that fill their box in both
+               axes, and on `secondary` — a rung calibrated on the flattest glyph
+               there is — they came out larger than the pause they flank. Not
+               `utility` either, which would leave the digits unreadable. The
+               measurements are in design-system.css. `desktop-only` hides the
+               pair in the docked bar but not in the expanded sheet, which is
+               where a phone actually sees it. -->
           <div class="playback-controls" @click.stop>
-            <IconButton icon="rewind15" variant="ghost" size="small" class="desktop-only transport-secondary"
+            <IconButton icon="rewind15" variant="ghost" size="small" class="desktop-only transport-secondary-round"
               @click="seekBackward" />
 
             <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
               class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
 
-            <IconButton icon="forward30" variant="ghost" size="small" class="desktop-only transport-secondary"
+            <IconButton icon="forward30" variant="ghost" size="small" class="desktop-only transport-secondary-round"
               @click="seekForward" />
           </div>
 

@@ -170,9 +170,10 @@
                 Library a five-button row — and half of AudioPlayer's CSS keys
                 off those exact class names (.ml-transport-main, .speed-selector,
                 .desktop-only), so the classes are the contract, not decoration.
-                Same for transport-primary/secondary/utility: they are what the
-                design system sizes each control from, so a button missing one
-                here would be drawn at a size the appliance never uses.
+                Same for the four transport roles: they are what the design
+                system sizes each control from, so a button missing one here
+                would be drawn at a size the appliance never uses — and the seek
+                pair takes secondary-round, which is the rung it wears there.
                 Handlers are left off: the state is the scenario's to describe.
               -->
               <template #controls="{ expanded }">
@@ -208,7 +209,7 @@
                 <template v-else-if="page.source === 'podcast'">
                   <div class="playback-controls">
                     <IconButton icon="rewind15" variant="ghost" size="small"
-                      class="desktop-only transport-secondary" />
+                      class="desktop-only transport-secondary-round" />
                     <IconButton
                       :icon="browser.player.isPlaying ? 'pause' : 'play'"
                       variant="ghost"
@@ -217,7 +218,7 @@
                       :loading="!!browser.player.isLoading"
                     />
                     <IconButton icon="forward30" variant="ghost" size="small"
-                      class="desktop-only transport-secondary" />
+                      class="desktop-only transport-secondary-round" />
                   </div>
                   <div class="speed-selector desktop-only">
                     <Dropdown :model-value="speedValue" :options="speedOptions" variant="minimal" />
