@@ -139,9 +139,9 @@ const podcastStore = usePodcastStore()
 const unifiedStore = useUnifiedAudioStore()
 const { t } = useI18n()
 
-// Ref to AudioSourceLayout — used to access its scroll container ($el) for position save/restore
+// Ref to AudioSourceLayout — used to access its scroll container for position save/restore
 const audioLayoutRef = ref(null)
-const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null)
+const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null)
 
 // Navigation with stack — scrollElRef enables scroll position save on push() and restore on back()
 const { currentView, currentParams, canGoBack, push, back, pendingScrollRestore } =

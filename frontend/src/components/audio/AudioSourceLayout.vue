@@ -1,81 +1,90 @@
 <template>
-  <div class="audio-source-layout" ref="layoutRef">
-    <!-- Background gradient (Radio/Podcast only) -->
-    <div
-      v-if="gradient"
-      class="background-gradient"
-      :class="`gradient-${gradient}`"
-    />
+  <div class="audio-source-frame">
+    <!-- Background gradient (Radio/Podcast only). It hangs from the frame
+         rather than from the scroller below, because a touch rubber-band
+         translates every layer inside the scroll flow and WebKit paints nothing
+         above the content origin — a gradient living in there just detaches
+         from the top edge on drag-down. syncGradientToScroll() gives it back
+         the scroll offset it loses by sitting out here. -->
+    <div v-if="gradient" class="gradient-clip">
+      <div
+        ref="gradientRef"
+        class="background-gradient"
+        :class="`gradient-${gradient}`"
+      />
+    </div>
 
-    <!-- Content area: scrollable views. source-motion: what the source swap
-         rises, together with .player-wrapper below — .audio-source-layout above
-         is the scroll clip and .background-gradient is pinned to it, so those
-         two stay welded to the screen edges instead. -->
-    <div
-      class="content-container source-motion"
-      :class="{ 'has-player': showPlayer, 'screensaver-revealing': revealing }"
-    >
-      <!-- Back-to-top threshold marker. Absolute so it takes no row in the flex
-           column (a zero-height item would still claim the container's gap), and
-           outside .transition-wrapper so a view swap never re-creates it. -->
-      <div ref="scrollSentinel" class="scroll-top-sentinel"></div>
-
-      <NavigationHeader
-        ref="headerRef"
-        :title="headerTitle"
-        :subtitle="headerSubtitle"
-        :show-back="headerShowBack"
-        :variant="headerVariant"
-        :icon="headerIcon"
-        :actions-key="headerActionsKey"
-        :title-muted="headerTitleMuted"
-        @back="$emit('header-back')"
+    <div class="audio-source-layout" ref="layoutRef">
+      <!-- Content area: scrollable views. source-motion: what the source swap
+           rises, together with .player-wrapper below — .audio-source-layout is
+           the scroll clip and .background-gradient hangs off the frame, so those
+           two stay welded to the screen edges instead. -->
+      <div
+        class="content-container source-motion"
+        :class="{ 'has-player': showPlayer, 'screensaver-revealing': revealing }"
       >
-        <template #actions="slotProps">
-          <slot name="header-actions" v-bind="slotProps" />
-        </template>
-      </NavigationHeader>
+        <!-- Back-to-top threshold marker. Absolute so it takes no row in the flex
+             column (a zero-height item would still claim the container's gap), and
+             outside .transition-wrapper so a view swap never re-creates it. -->
+        <div ref="scrollSentinel" class="scroll-top-sentinel"></div>
 
-      <!-- Content with crossfade animation (wrapper isolates position: absolute during leave) -->
-      <div class="transition-wrapper">
-        <Transition name="fade-slide" appear @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
-          <div :key="contentKey" class="content-inner">
-            <slot name="content" :is-mobile="isMobile" />
-          </div>
+        <NavigationHeader
+          ref="headerRef"
+          :title="headerTitle"
+          :subtitle="headerSubtitle"
+          :show-back="headerShowBack"
+          :variant="headerVariant"
+          :icon="headerIcon"
+          :actions-key="headerActionsKey"
+          :title-muted="headerTitleMuted"
+          @back="$emit('header-back')"
+        >
+          <template #actions="slotProps">
+            <slot name="header-actions" v-bind="slotProps" />
+          </template>
+        </NavigationHeader>
+
+        <!-- Content with crossfade animation (wrapper isolates position: absolute during leave) -->
+        <div class="transition-wrapper">
+          <Transition name="fade-slide" appear @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
+            <div :key="contentKey" class="content-inner">
+              <slot name="content" :is-mobile="isMobile" />
+            </div>
+          </Transition>
+        </div>
+      </div>
+
+      <!-- Player wrapper: animates width on desktop, transparent on mobile.
+           Marked source-motion so the sticky pane leaves with the column beside it
+           rather than standing still while it rises. Inert on mobile, where the
+           wrapper is display: contents and the player is teleported to <body>. -->
+      <div
+        :class="['player-wrapper source-motion', { 'has-player': showPlayer }]"
+      >
+        <slot name="player" :is-mobile="isMobile"></slot>
+      </div>
+
+      <!-- Back to top. The anchor owns the horizontal position (it tracks the
+           content column as the player opens); the button owns the entrance. -->
+      <div :class="['scroll-top-anchor', { 'has-player': showPlayer }]">
+        <Transition name="scroll-top">
+          <IconButton
+            v-if="scrollTopVisible"
+            class="scroll-top-button"
+            icon="caretUp"
+            variant="rounded"
+            size="large"
+            :aria-label="t('common.backToTop')"
+            @click="scrollToTop"
+          />
         </Transition>
       </div>
-    </div>
-
-    <!-- Player wrapper: animates width on desktop, transparent on mobile.
-         Marked source-motion so the sticky pane leaves with the column beside it
-         rather than standing still while it rises. Inert on mobile, where the
-         wrapper is display: contents and the player is teleported to <body>. -->
-    <div
-      :class="['player-wrapper source-motion', { 'has-player': showPlayer }]"
-    >
-      <slot name="player" :is-mobile="isMobile"></slot>
-    </div>
-
-    <!-- Back to top. The anchor owns the horizontal position (it tracks the
-         content column as the player opens); the button owns the entrance. -->
-    <div :class="['scroll-top-anchor', { 'has-player': showPlayer }]">
-      <Transition name="scroll-top">
-        <IconButton
-          v-if="scrollTopVisible"
-          class="scroll-top-button"
-          icon="caretUp"
-          variant="rounded"
-          size="large"
-          :aria-label="t('common.backToTop')"
-          @click="scrollToTop"
-        />
-      </Transition>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onBeforeUpdate } from 'vue'
+import { ref, computed, onBeforeUpdate, onMounted, onBeforeUnmount } from 'vue'
 import NavigationHeader from '@/components/ui/NavigationHeader.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -88,6 +97,17 @@ const { t } = useI18n()
 
 const layoutRef = ref(null)
 const headerRef = ref(null)
+const gradientRef = ref(null)
+
+// The scroll container, for the callers that save and restore a scroll position
+// across navigation. Exposed by name because the root element is the frame, not
+// the scroller: $el would hand them a box whose scrollTop is always 0, and a
+// restore that silently lands at the top is how music-library's lost its own.
+defineExpose({
+  get scrollElement() {
+    return layoutRef.value
+  },
+})
 
 const props = defineProps({
   /**
@@ -190,8 +210,33 @@ const pendingScrollRef = computed(() => props.pendingScrollRestore)
 const { prepareNavigation, onBeforeLeave: baseOnBeforeLeave, onEnter, onAfterLeave: baseOnAfterLeave } = useViewTransition({
   scrollElRef: layoutRef,
   pendingScrollRestore: pendingScrollRef,
-  onScrollRestored: () => emit('scroll-restored'),
+  onScrollRestored: () => {
+    syncGradientToScroll()
+    emit('scroll-restored')
+  },
   headerRef,
+})
+
+// The gradient hangs off the frame, so the scroll offset it used to inherit is
+// applied here. Clamped at zero on purpose: a touch rubber-band drives scrollTop
+// negative, and refusing that one direction of travel is what welds the gradient
+// to the top edge while the content bounces away from it. CSS cannot do it —
+// measured on iOS, WebKit paints nothing above the content origin during a
+// bounce, so a layer inside the scroll flow detaches whatever is drawn behind it.
+function syncGradientToScroll() {
+  const el = gradientRef.value
+  if (!el) return
+  const offset = Math.max(0, layoutRef.value?.scrollTop || 0)
+  el.style.transform = `translate3d(0, ${-offset}px, 0)`
+}
+
+onMounted(() => {
+  layoutRef.value?.addEventListener('scroll', syncGradientToScroll, { passive: true })
+  syncGradientToScroll()
+})
+
+onBeforeUnmount(() => {
+  layoutRef.value?.removeEventListener('scroll', syncGradientToScroll)
 })
 
 // Gradient fade on navigation when scroll position crosses the visibility boundary
@@ -211,7 +256,7 @@ function onBeforeLeave(el) {
   gradientNeedsFadeOut = !isForwardNav && !!props.gradient && currentScroll <= 16 && targetScroll > 16
 
   if (gradientNeedsFadeOut) {
-    const gradientEl = layoutRef.value?.querySelector('.background-gradient')
+    const gradientEl = gradientRef.value
     if (gradientEl) {
       gradientEl.style.opacity = '0'
     }
@@ -224,7 +269,7 @@ function onAfterLeave() {
   baseOnAfterLeave()
 
   if (gradientNeedsFadeIn) {
-    const gradientEl = layoutRef.value?.querySelector('.background-gradient')
+    const gradientEl = gradientRef.value
     if (gradientEl) {
       gradientEl.style.opacity = '0'
       gradientEl.style.transition = 'none'
@@ -238,7 +283,7 @@ function onAfterLeave() {
   if (gradientNeedsFadeOut) {
     // Gradient already faded out, scroll restored — reset inline styles
     // (gradient is scrolled out of view, so instant reset is invisible)
-    const gradientEl = layoutRef.value?.querySelector('.background-gradient')
+    const gradientEl = gradientRef.value
     if (gradientEl) {
       gradientEl.style.transition = 'none'
       gradientEl.style.opacity = ''
@@ -275,6 +320,26 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 </script>
 
 <style scoped>
+/* The non-scrolling frame. Same box as the scroller it holds, and the only
+   reason it exists: it gives .background-gradient a parent a bounce cannot
+   move. It must not clip — an `overflow` here would make it a scroll container,
+   and the scroller's overscroll would chain into it instead of rubber-banding. */
+.audio-source-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Holds the gradient's travel once the view is scrolled. A sibling of the
+   scroller rather than its parent, for the reason just above: this one clips,
+   and sits outside the scroll chain where that costs nothing. */
+.gradient-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 /* Layout wrapper */
 .audio-source-layout {
   --audio-player-wrapper-width: 340px;
@@ -295,15 +360,6 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 /* Same, WebKit — keeps content width independent of scrollbar presence. */
 .audio-source-layout::-webkit-scrollbar {
   display: none;
-}
-
-/* iOS only (via the WebKit-only -webkit-touch-callout probe): suppress the
-   rubber-band overscroll that bounces content away from the top on drag-down.
-   Chrome Android is left untouched so its native pull-to-refresh still works. */
-@supports (-webkit-touch-callout: none) {
-  .audio-source-layout {
-    overscroll-behavior-y: none;
-  }
 }
 
 /* Background gradient (Radio/Podcast) */

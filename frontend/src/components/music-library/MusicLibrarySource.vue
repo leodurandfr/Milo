@@ -141,7 +141,7 @@ store.activeTab = 'albums';
 
 // Scroll-aware navigation stack (save/restore across push/back).
 const audioLayoutRef = ref(null);
-const layoutScrollRef = computed(() => audioLayoutRef.value?.$el ?? null);
+const layoutScrollRef = computed(() => audioLayoutRef.value?.scrollElement ?? null);
 const { currentView, currentParams, canGoBack, push, back, reset, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: layoutScrollRef });
 
