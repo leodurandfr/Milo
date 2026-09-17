@@ -362,7 +362,6 @@
     "remaining": "{seconds} s left",
     "stageProbing": "Measuring the speakers",
     "stageComputing": "Computing the settings",
-    "speaker": "Speaker",
     "latency": "Latency",
     "loss": "Loss"
   },

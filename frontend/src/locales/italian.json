@@ -362,7 +362,6 @@
     "remaining": "{seconds} s rimanenti",
     "stageProbing": "Misurazione dei diffusori",
     "stageComputing": "Calcolo delle impostazioni",
-    "speaker": "Diffusore",
     "latency": "Latenza",
     "loss": "Perdita"
   },

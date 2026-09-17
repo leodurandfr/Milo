@@ -362,7 +362,6 @@
     "remaining": "{seconds} s restantes",
     "stageProbing": "Mesure des enceintes",
     "stageComputing": "Calcul des réglages",
-    "speaker": "Enceinte",
     "latency": "Latence",
     "loss": "Perte"
   },

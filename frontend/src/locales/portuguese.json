@@ -362,7 +362,6 @@
     "remaining": "faltam {seconds} s",
     "stageProbing": "A medir as colunas",
     "stageComputing": "A calcular as definições",
-    "speaker": "Coluna",
     "latency": "Latência",
     "loss": "Perda"
   },

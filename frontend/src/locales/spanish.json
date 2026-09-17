@@ -362,7 +362,6 @@
     "remaining": "quedan {seconds} s",
     "stageProbing": "Midiendo los altavoces",
     "stageComputing": "Calculando los ajustes",
-    "speaker": "Altavoz",
     "latency": "Latencia",
     "loss": "Pérdida"
   },

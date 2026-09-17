@@ -362,7 +362,6 @@
     "remaining": "剩余 {seconds} 秒",
     "stageProbing": "正在测量音箱",
     "stageComputing": "正在计算设置",
-    "speaker": "音箱",
     "latency": "延迟",
     "loss": "丢包"
   },

@@ -149,36 +149,39 @@
                 {{ t('multiroomSettings.valuesAreMeasured') }}
               </p>
 
-              <!-- A table once it has headers: "1.59 ms" beside "0 %" needs
-                   naming, and naming a column is what a header row is for. -->
-              <table class="analysis-links">
-                <thead>
-                  <tr class="analysis-links__row">
-                    <th class="analysis-links__icon"></th>
-                    <th class="text-mono-small analysis-links__head">{{ t('multiroomSettings.speaker') }}</th>
-                    <th class="text-mono-small analysis-links__head analysis-links__value">
-                      {{ t('multiroomSettings.latency') }}
-                    </th>
-                    <th class="text-mono-small analysis-links__head analysis-links__value">
-                      {{ t('multiroomSettings.loss') }}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in measuredLinks" :key="row.mac_id" class="analysis-links__row">
-                    <td class="analysis-links__icon">
-                      <SvgIcon v-if="row.link === 'ethernet'" name="network" :size="16" />
-                      <WifiSignal v-else :signal="row.signal_percent ?? 100" :size="16" />
-                    </td>
-                    <td class="text-mono-medium analysis-links__name">{{ row.name }}</td>
-                    <td class="text-mono-medium analysis-links__value">{{ row.rtt_max_ms }} ms</td>
-                    <td class="text-mono-medium analysis-links__value"
-                      :class="{ 'analysis-links__value--warn': row.loss_pct > 0 }">
-                      {{ row.loss_pct }} %
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <!-- One card per measured speaker, in the same grid the info
+                   panel uses for its figures: the table's headers were there
+                   to name two columns, and a label beside each value names
+                   them without a header row to align. -->
+              <div class="analysis-grid">
+                <div v-for="row in measuredLinks" :key="row.mac_id" class="analysis-item">
+                  <div class="analysis-item__head">
+                    <SvgIcon v-if="row.link === 'ethernet'" name="network" :size="20" />
+                    <WifiSignal v-else :signal="row.signal_percent ?? 100" :size="20" />
+                    <!-- The face the same speaker's name wears in the list
+                         above, where ListItemButton titles a row carrying a
+                         subtitle. -->
+                    <span class="heading-4 analysis-item__name">{{ row.name }}</span>
+                  </div>
+                  <div class="analysis-item__metrics">
+                    <div class="analysis-item__metric">
+                      <span class="text-mono-medium analysis-item__label">
+                        {{ t('multiroomSettings.latency') }}
+                      </span>
+                      <span class="text-mono-medium analysis-item__value">{{ row.rtt_max_ms }} ms</span>
+                    </div>
+                    <div class="analysis-item__metric">
+                      <span class="text-mono-medium analysis-item__label">
+                        {{ t('multiroomSettings.loss') }}
+                      </span>
+                      <span class="text-mono-medium analysis-item__value"
+                        :class="{ 'analysis-item__value--warn': row.loss_pct > 0 }">
+                        {{ row.loss_pct }} %
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </template>
           </SettingsSection>
 
@@ -655,58 +658,65 @@ onBeforeUnmount(() => {
   margin: var(--space-03) 0 0;
 }
 
-/* Framed, with the light separators a settings card uses — the heaviness of
-   the first table came from its borders, not from having columns. */
-.analysis-links {
-  width: 100%;
-  /* Bounded: at full panel width on a desktop the speaker name and its two
-     figures sat at opposite ends of the card with a hand's breadth of nothing
-     between them. */
-  max-width: 30rem;
-  border-collapse: collapse;
+/* Same card grid as the info panel's figures: a framed table was the one
+   element on these screens drawing its own borders. */
+.analysis-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-02);
   margin-top: var(--space-02);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-02);
-  overflow: hidden;
 }
 
-.analysis-links__row > * {
-  padding: var(--space-01) var(--space-02);
-  text-align: left;
+.analysis-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+  padding: var(--space-03) var(--space-04);
+  border-radius: var(--radius-04);
+  background: var(--color-background-strong);
 }
 
-.analysis-links thead .analysis-links__row > * {
-  padding-top: var(--space-02);
-}
-
-.analysis-links tbody tr:last-child > * {
-  padding-bottom: var(--space-02);
-}
-
-.analysis-links tbody .analysis-links__row > * {
-  border-top: 1px solid var(--color-border);
-}
-
-.analysis-links__head {
-  color: var(--color-text-light);
-}
-
-.analysis-links__icon {
-  width: 16px;
-  padding-right: 0;
-}
-
-.analysis-links__name {
-  width: 100%;
-}
-
-.analysis-links__value {
-  text-align: right;
-  white-space: nowrap;
+.analysis-item__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
   color: var(--color-text-secondary);
 }
 
-.analysis-links__value--warn {
+.analysis-item__name {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Who was measured, then what was measured: the hairline the settings cards
+   already use, so the name is not read as a third figure's label. */
+.analysis-item__metrics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+  padding-top: var(--space-03);
+  border-top: 1px solid var(--color-border);
+}
+
+.analysis-item__metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-02);
+}
+
+.analysis-item__label {
+  color: var(--color-text-secondary);
+}
+
+.analysis-item__value {
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.analysis-item__value--warn {
   color: var(--color-brand);
 }
 
@@ -727,7 +737,8 @@ onBeforeUnmount(() => {
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .zone-clients,
-  .ungrouped-clients {
+  .ungrouped-clients,
+  .analysis-grid {
     grid-template-columns: 1fr;
   }
 }
