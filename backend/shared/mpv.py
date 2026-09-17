@@ -20,7 +20,7 @@ COMMAND_TIMEOUT = 5.0
 PROBE_TIMEOUT = 1.0
 
 # Total wall-clock budget for connect(). Sized to fit inside the caller's own
-# budget: _do_start runs under AudioStateMachine.TRANSITION_TIMEOUT (10s), of
+# budget: _do_start runs under AudioStateMachine.TRANSITION_TIMEOUT, of
 # which _start_service_and_wait already spends its settle delay.
 CONNECT_TIMEOUT = 6.0
 

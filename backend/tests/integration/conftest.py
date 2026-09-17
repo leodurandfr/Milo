@@ -182,20 +182,3 @@ def failing_source() -> Mock:
     Useful for testing error handling and rollback scenarios.
     """
     return create_mock_source(AudioSource.RADIO, start_success=False)
-
-
-@pytest.fixture
-def slow_source() -> Mock:
-    """
-    Create a mock source that takes a long time to start.
-
-    Useful for testing timeout scenarios.
-    """
-    mock = create_mock_source(AudioSource.RADIO)
-
-    async def slow_start():
-        await asyncio.sleep(10)  # Longer than TRANSITION_TIMEOUT
-        return True
-
-    mock.start = slow_start
-    return mock
