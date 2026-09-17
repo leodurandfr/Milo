@@ -418,21 +418,32 @@
    just under 1.37 on purpose — level in width, led by height — because a wider
    gap read as undersized arrows rather than as an emphasised play.
 
-   What is load-bearing is that the two tiers carry the *same* proportion. The
-   4px grid rounds them a few percent apart (1.33 and 1.38) and that is as close
-   as the grid allows; a real divergence is drift, and the guardrail says so.
-   Every value is a multiple of 4. */
+   What is load-bearing is that the three tiers carry the *same* proportion. The
+   4px grid rounds them a few percent apart and that is as close as the grid
+   allows; a real divergence is drift, and the guardrail says so. Every value is
+   a multiple of 4. */
 
-/* T1 — the full-screen player on a desktop-shaped viewport. */
+/* The full-screen player on a desktop-shaped viewport. */
 .transport-scale {
+    --transport-primary: 52px;
+    --transport-secondary: 40px;
+    --transport-utility: 24px;
+}
+
+/* The same player on a phone. It has a tier of its own rather than borrowing
+   the compact one, because the two are not the same situation: this row still
+   owns the whole screen and keeps the 80/90px tap targets, where a compact row
+   is squeezed into a column beside a browser. Sharing a tier forced one value
+   onto both and made the phone player read as a cramped list control. */
+.transport-scale--phone {
     --transport-primary: 48px;
     --transport-secondary: 36px;
     --transport-utility: 24px;
 }
 
-/* T2 — every compact row, and the full-screen player on a phone. A row that
-   changes tier with the viewport swaps the class from `useIsMobile()` rather
-   than restating three values under a media query. */
+/* A transport row inside a column — Music Library, the lyrics bar, podcast — at
+   any viewport. A row that changes tier with the viewport swaps the class from
+   `useIsMobile()` rather than restating three values under a media query. */
 .transport-scale--compact {
     --transport-primary: 44px;
     --transport-secondary: 32px;

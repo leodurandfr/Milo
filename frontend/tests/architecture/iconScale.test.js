@@ -62,9 +62,9 @@ describe('transport icon scale', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('keeps the two tiers on one proportion', () => {
+  it('keeps the tiers on one proportion', () => {
     // The sizes themselves are a judgement call and move; what must not move is
-    // that a compact row is the *same shape* as a full-screen one, just smaller.
+    // that a smaller tier is the *same shape* as the one above it, just smaller.
     // The 4px grid rounds the two ratios a few percent apart and cannot do
     // better, so the check is a tolerance, not equality — wide enough to survive
     // rounding, tight enough that a tier retuned on its own fails. Everything
@@ -87,8 +87,10 @@ describe('transport icon scale', () => {
       );
     };
 
+    // Ordered widest first; the loop below reads that order as the hierarchy.
     const tiers = {
       '.transport-scale': tierOf('.transport-scale'),
+      '.transport-scale--phone': tierOf('.transport-scale--phone'),
       '.transport-scale--compact': tierOf('.transport-scale--compact')
     };
 
@@ -99,14 +101,19 @@ describe('transport icon scale', () => {
       expect(primary / utility, `${name}: utility is not subordinate enough`).toBeGreaterThanOrEqual(2);
     }
 
-    const [big, small] = Object.values(tiers).map((t) => t.primary / t.secondary);
+    const ratios = Object.values(tiers).map((t) => t.primary / t.secondary);
     expect(
-      Math.abs(big - small) / Math.min(big, small),
-      'the two tiers no longer read as one proportion'
+      (Math.max(...ratios) - Math.min(...ratios)) / Math.min(...ratios),
+      'the tiers no longer read as one proportion'
     ).toBeLessThan(TIER_TOLERANCE);
 
-    // Two distinct tiers, or one of them has no reason to exist.
-    expect(tiers['.transport-scale'].primary).toBeGreaterThan(tiers['.transport-scale--compact'].primary);
+    // Each tier is strictly smaller than the one above it, or it has no reason
+    // to exist as a separate tier.
+    const primaries = Object.values(tiers).map((t) => t.primary);
+    expect(
+      primaries.every((p, i) => i === 0 || p < primaries[i - 1]),
+      `tiers are not strictly decreasing: ${primaries.join(' > ')}`
+    ).toBe(true);
   });
 
   it('matches every declared class against the rows and buttons that wear it', () => {
