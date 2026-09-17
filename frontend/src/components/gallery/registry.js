@@ -69,7 +69,7 @@ import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import SvgIcon, { ICON_NAMES } from '@/components/ui/SvgIcon.vue';
-import AppIcon, { APP_ICON_NAMES } from '@/components/ui/AppIcon.vue';
+import AppIcon, { APP_ICON_NAMES, TILE_SIZE_PX } from '@/components/ui/AppIcon.vue';
 import Logo from '@/components/ui/Logo.vue';
 import Modal from '@/components/ui/Modal.vue';
 import NavigationHeader from '@/components/ui/NavigationHeader.vue';
@@ -406,10 +406,13 @@ export const REGISTRY = {
   AppIcon: {
     component: AppIcon,
     args: { name: 'spotify', size: 64 },
-    // The validator closes over APP_ICON_NAMES, so it cannot be read from source.
+    // Both validators close over a list, so neither can be read from source.
     overrides: {
       name: { kind: 'enum', options: APP_ICON_NAMES },
-      size: { kind: 'enum', options: [32, 64, 72, 'small', 'medium', 'large'] }
+      size: {
+        kind: 'enum',
+        options: [...Object.values(TILE_SIZE_PX), ...Object.keys(TILE_SIZE_PX)]
+      }
     }
   },
 

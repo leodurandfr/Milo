@@ -48,7 +48,7 @@
           @pointerdown="(e) => appHold.onAppHoldStart(id, e)"
           :disabled="unifiedStore.systemState.transitioning" :style="{ transitionDelay: getDockItemDelay(index) }"
           v-press class="dock-item button-interactive-subtle mobile-only">
-          <AppIcon :name="icon" size="large" class="dock-item-icon" />
+          <AppIcon :name="icon" size="tile-lg" class="dock-item-icon" />
         </button>
 
         <!-- Desktop: Audio Sources -->
@@ -57,7 +57,7 @@
           @pointerdown="(e) => appHold.onAppHoldStart(id, e)"
           :disabled="unifiedStore.systemState.transitioning" :style="{ transitionDelay: getDockItemDelay(index) }"
           v-press class="dock-item button-interactive-subtle desktop-only">
-          <AppIcon :name="icon" size="large" class="dock-item-icon" />
+          <AppIcon :name="icon" size="tile-lg" class="dock-item-icon" />
         </button>
 
         <!-- Separator - Desktop: shown if features exist, Mobile: shown if toggle button exists -->
@@ -77,7 +77,7 @@
         <button v-for="({ id, icon, handler }, index) in enabledFeatures" :key="`desktop-feature-${id}`"
           @click="handler" :style="{ transitionDelay: getDockItemDelay(enabledAudioSources.length + 1 + index) }"
           v-press class="dock-item desktop-only button-interactive-subtle">
-          <AppIcon :name="icon" size="large" class="dock-item-icon" />
+          <AppIcon :name="icon" size="tile-lg" class="dock-item-icon" />
         </button>
       </div>
 

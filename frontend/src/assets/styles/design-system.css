@@ -403,6 +403,61 @@
 
 
 
+/* === TRANSPORT SCALE === */
+/* The one place a playback control's icon size is declared. Two tiers, three
+   roles; a consumer picks a tier on its row and a role on each button, and
+   never writes a pixel. SvgIcon reads `--svg-size` with its own native value as
+   the fallback, so these inherit down with no `:deep()` and no specificity war.
+
+   Why the ratio is what it is. Measured on the 24x24 viewBox: `play` covers
+   14.6 units of ink in width, `next`/`previous` cover 20.0 — the arrows are
+   1.37x the wider glyph at an equal box. So a primary:secondary ratio below
+   1.37 leaves prev/next reading *wider* than the play they are supposed to sit
+   under, whatever the box says. 4:3 (1.33) is not enough. Both tiers below stay
+   at or above 1.40, and primary:utility is exactly 2.0 in each.
+
+   Every value is a multiple of 4. */
+
+/* T1 — the full-screen player on a desktop-shaped viewport. */
+.transport-scale {
+    --transport-primary: 48px;
+    --transport-secondary: 32px;
+    --transport-utility: 24px;
+}
+
+/* T2 — every compact row, and the full-screen player on a phone. A row that
+   changes tier with the viewport swaps the class from `useIsMobile()` rather
+   than restating three values under a media query. */
+.transport-scale--compact {
+    --transport-primary: 40px;
+    --transport-secondary: 28px;
+    --transport-utility: 20px;
+}
+
+/* Roles. `--spinner-size` rides along so a control swapping to its loading
+   state keeps the exact footprint of the icon it replaced. */
+.transport-primary {
+    --svg-size: var(--transport-primary);
+    --spinner-size: var(--transport-primary);
+}
+
+.transport-secondary {
+    --svg-size: var(--transport-secondary);
+    --spinner-size: var(--transport-secondary);
+}
+
+.transport-utility {
+    --svg-size: var(--transport-utility);
+    --spinner-size: var(--transport-utility);
+}
+
+/* The spinner's glyph is drawn edge to edge where an icon has its own margin —
+   pulling it in keeps the two the same apparent weight mid-swap. */
+.transport-primary .loading-spinner-content {
+    transform: scale(0.85);
+}
+
+
 /* === GLASSMORPHISM === */
 /* Usage: apply .glass-surface for backdrop blur, .glass-border for stroke.
    Customize via local CSS custom properties:

@@ -67,11 +67,13 @@
              keeps the exact same centred 44% share whether the transport is
              there or not. -->
         <div v-if="tier !== 'name-only'" class="lyrics-bar-controls" :class="{ 'is-spacer': tier !== 'full' }">
-          <div v-if="tier === 'full'" class="playback-controls">
-            <IconButton icon="previous" variant="ghost" size="small" @click="previousTrack" />
+          <div v-if="tier === 'full'" class="playback-controls transport-scale--compact">
+            <IconButton icon="previous" variant="ghost" size="small" class="transport-secondary"
+              @click="previousTrack" />
             <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
-              :loading="isBuffering" @click="togglePlayPause" />
-            <IconButton icon="next" variant="ghost" size="small" :disabled="!hasNext" @click="nextTrack" />
+              class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
+            <IconButton icon="next" variant="ghost" size="small" class="transport-secondary"
+              :disabled="!hasNext" @click="nextTrack" />
           </div>
         </div>
       </div>
@@ -356,27 +358,6 @@ function onHintClick(event) {
   gap: var(--space-02);
 }
 
-/* Transport sizing copied verbatim from AudioPlayer's desktop sidebar rules
-   (.ml-transport-main): 34px prev/next, 44px play/pause + its spinner. Applied
-   at every aspect ratio here — the lyrics bar has one control layout, so the
-   icons keep the desktop scale on the kiosk and on a phone alike. */
-.lyrics-bar-controls :deep(.icon-button--small .svg-responsive) {
-  width: 34px;
-  height: 34px;
-}
-
-.lyrics-bar-controls :deep(.icon-button--medium .svg-responsive) {
-  width: 44px;
-  height: 44px;
-}
-
-.lyrics-bar-controls :deep(.icon-button--medium.icon-button--loading .loading-spinner--medium) {
-  --spinner-size: 44px;
-}
-
-.lyrics-bar-controls :deep(.icon-button--medium.icon-button--loading .loading-spinner--medium .loading-spinner-content) {
-  transform: scale(0.85);
-}
 
 /* Portrait/mobile: the transport + track-info + progress bar don't fit in one
    row at phone widths — stack each section on its own row instead. */

@@ -83,35 +83,48 @@ const svgContent = computed(() => {
   flex-shrink: 0;
   border-radius: var(--radius-02);
   overflow: hidden;
-  width: var(--spinner-size);
-  height: var(--spinner-size);
+  width: var(--spinner-size, 32px);
+  height: var(--spinner-size, 32px);
 }
+
+/* Each rung states its native value as the fallback of `--spinner-size` rather
+   than setting the property, for the same reason SvgIcon states `--svg-size`
+   that way: a custom property set on the element outranks one inherited from an
+   ancestor, so a named size would lock out the caller that wants to drive it.
+   Kept in step with SvgIcon's rungs — a spinner standing in for an icon has to
+   land on the same footprint. */
 
 /* Size variants matching SvgIcon dimensions - Desktop */
 .loading-spinner--small {
-  --spinner-size: 24px;
+  width: var(--spinner-size, 24px);
+  height: var(--spinner-size, 24px);
 }
 
 .loading-spinner--medium {
-  --spinner-size: 28px;
+  width: var(--spinner-size, 28px);
+  height: var(--spinner-size, 28px);
 }
 
 .loading-spinner--large {
-  --spinner-size: 32px;
+  width: var(--spinner-size, 32px);
+  height: var(--spinner-size, 32px);
 }
 
 /* Size variants matching SvgIcon dimensions - Mobile */
 @media (max-aspect-ratio: 4/3) {
   .loading-spinner--small {
-    --spinner-size: 20px;
+    width: var(--spinner-size, 20px);
+    height: var(--spinner-size, 20px);
   }
 
   .loading-spinner--medium {
-    --spinner-size: 24px;
+    width: var(--spinner-size, 24px);
+    height: var(--spinner-size, 24px);
   }
 
   .loading-spinner--large {
-    --spinner-size: 28px;
+    width: var(--spinner-size, 28px);
+    height: var(--spinner-size, 28px);
   }
 }
 

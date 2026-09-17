@@ -2,10 +2,7 @@
 <template>
   <div
     class="icon"
-    :class="[
-      { 'icon--responsive': responsive },
-      sizeClass
-    ]"
+    :class="sizeClass"
     :style="colorStyle"
     v-html="svgContent"
   />
@@ -141,7 +138,6 @@ const instanceId = ++instanceCounter;
 const props = defineProps({
   name: { type: String, required: true },
   size: { type: [String, Number], default: 24 },
-  responsive: { type: Boolean, default: false },
   color: { type: String, default: null }
 })
 
@@ -200,7 +196,7 @@ const svgContent = computed(() => {
   // Make IDs unique to avoid url(#id) conflicts during opacity transitions
   cleanedIcon = prepareSvg(cleanedIcon, `${props.name}-${instanceId}`);
 
-  if (props.responsive || isResponsiveSize.value) {
+  if (isResponsiveSize.value) {
     // For responsive sizing, let CSS handle dimensions
     cleanedIcon = cleanedIcon.replace('<svg', '<svg class="svg-responsive"')
   } else {
@@ -229,49 +225,44 @@ const svgContent = computed(() => {
   display: block;
 }
 
-/* Default responsive behavior (legacy support) */
-.icon :deep(.svg-responsive) {
-  width: 32px;
-  height: 32px;
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .icon :deep(.svg-responsive) {
-    width: 24px;
-    height: 24px;
-  }
-}
+/* Every rung below reads `--svg-size` and falls back to its own native value.
+   The variable is never *set* here on purpose: a custom property declared on
+   the element itself beats one inherited from an ancestor, so posing it would
+   lock the rung and leave a caller no way to override it without `!important`.
+   Left as a fallback at the point of use, any ancestor sizes the icon by plain
+   inheritance — which is how the transport scale in design-system.css drives
+   these without a single `:deep()` of its own. */
 
 /* Size variants with responsive sizing */
 .icon--size-small :deep(.svg-responsive) {
-  width: 24px;
-  height: 24px;
+  width: var(--svg-size, 24px);
+  height: var(--svg-size, 24px);
 }
 
 .icon--size-medium :deep(.svg-responsive) {
-  width: 28px;
-  height: 28px;
+  width: var(--svg-size, 28px);
+  height: var(--svg-size, 28px);
 }
 
 .icon--size-large :deep(.svg-responsive) {
-  width: 32px;
-  height: 32px;
+  width: var(--svg-size, 32px);
+  height: var(--svg-size, 32px);
 }
 
 @media (max-aspect-ratio: 4/3) {
   .icon--size-small :deep(.svg-responsive) {
-    width: 20px;
-    height: 20px;
+    width: var(--svg-size, 20px);
+    height: var(--svg-size, 20px);
   }
 
   .icon--size-medium :deep(.svg-responsive) {
-    width: 24px;
-    height: 24px;
+    width: var(--svg-size, 24px);
+    height: var(--svg-size, 24px);
   }
 
   .icon--size-large :deep(.svg-responsive) {
-    width: 28px;
-    height: 28px;
+    width: var(--svg-size, 28px);
+    height: var(--svg-size, 28px);
   }
 }
 </style>

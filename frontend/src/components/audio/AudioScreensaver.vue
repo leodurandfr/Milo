@@ -76,7 +76,7 @@
     <!-- ===== SIMPLE MODE ===== -->
     <template v-else>
       <div class="simple-screensaver stagger-1">
-        <AppIcon :name="sourceType" size="medium" :class="{ 'simple-icon-invert': sourceType === 'mac' }" />
+        <AppIcon :name="sourceType" size="tile-md" :class="{ 'simple-icon-invert': sourceType === 'mac' }" />
         <p class="simple-status heading-1">{{ title }}</p>
         <h1 class="simple-device-name heading-1">{{ subtitle }}</h1>
       </div>

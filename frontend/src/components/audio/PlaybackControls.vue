@@ -1,23 +1,20 @@
 <template>
-  <div class="controls">
-    <div v-press @click="onPrevious" class="control-button previous">
-      <SvgIcon name="previous" responsive class="icon-secondary" />
-    </div>
-    <div v-press @click="onPlayPause" class="control-button play-pause">
-      <LoadingSpinner v-if="isBuffering" size="inherit" class="play-pause-spinner" />
-      <SvgIcon v-else :name="isPlaying ? 'pause' : 'play'" responsive class="icon-primary" />
-    </div>
-    <div v-press @click="onNext" class="control-button next" :class="{ disabled: !hasNext }">
-      <SvgIcon name="next" responsive class="icon-secondary" />
-    </div>
+  <div class="controls" :class="isMobile ? 'transport-scale--compact' : 'transport-scale'">
+    <IconButton icon="previous" variant="ghost" size="small" color="var(--color-text-light)"
+      class="control-button transport-secondary" @click="$emit('previous')" />
+    <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
+      color="var(--color-text)" class="control-button control-button--primary transport-primary"
+      :loading="isBuffering" @click="$emit('play-pause')" />
+    <IconButton icon="next" variant="ghost" size="small" color="var(--color-text-light)"
+      class="control-button transport-secondary" :disabled="!hasNext" @click="$emit('next')" />
   </div>
 </template>
 
 <script setup>
-import SvgIcon from '@/components/ui/SvgIcon.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import IconButton from '@/components/ui/IconButton.vue';
+import { useIsMobile } from '@/composables/useIsMobile';
 
-const props = defineProps({
+defineProps({
   isPlaying: {
     type: Boolean,
     default: false
@@ -35,13 +32,9 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['play-pause', 'previous', 'next']);
+defineEmits(['play-pause', 'previous', 'next']);
 
-const onPlayPause = () => emit('play-pause');
-const onPrevious = () => emit('previous');
-const onNext = () => {
-  if (props.hasNext) emit('next');
-};
+const { isMobile } = useIsMobile();
 </script>
 
 <style scoped>
@@ -54,60 +47,27 @@ const onNext = () => {
   padding: var(--space-01) var(--space-04);
 }
 
-.control-button {
-  background: none;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* The tap target, which is NOT the icon and does not follow it: 80/90px circles
+   sized for a finger on the kiosk. IconButton sizes itself from its padding, so
+   without these the buttons would collapse to the icon plus 8px. */
+.controls .control-button {
   width: 80px;
   height: 80px;
+  padding: 0;
   border-radius: 50%;
-  transition: background-color 0.2s, var(--transition-press);
+  color: var(--color-text-light);
 }
 
-.control-button.play-pause {
+.controls .control-button--primary {
   width: 90px;
   height: 90px;
-}
-
-.control-button.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-
-.icon-primary {
   color: var(--color-text);
-  pointer-events: none;
 }
 
-.icon-secondary {
-  color: var(--color-text-light);
-  pointer-events: none;
-}
-
-.control-button :deep(.svg-responsive) {
-  width: 48px;
-  height: 48px;
-}
-
-.play-pause-spinner {
-  --spinner-size: 48px;
+/* The ghost variant assumes a dark ground and dims its own colour while
+   loading; this row sits on --color-background, so the spinner keeps the icon's
+   tone instead. */
+.controls .control-button--primary.icon-button--loading {
   color: var(--color-text);
-  pointer-events: none;
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .control-button :deep(.svg-responsive) {
-    width: 40px;
-    height: 40px;
-  }
-
-  .play-pause-spinner {
-    --spinner-size: 40px;
-  }
 }
 </style>

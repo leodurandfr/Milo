@@ -87,7 +87,7 @@
                  anyway, so rendering it there would only be always-hidden markup. -->
             <div v-if="!expanded" class="playback-controls horizontal-layout">
               <IconButton :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="ghost" size="medium"
-                :loading="isBuffering" @click="handlePlayPause" />
+                class="transport-primary" :loading="isBuffering" @click="handlePlayPause" />
             </div>
           </div>
         </template>

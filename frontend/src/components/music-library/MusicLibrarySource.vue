@@ -74,20 +74,20 @@
           <template #controls>
             <div class="ml-controls" @click.stop>
               <div class="playback-controls">
-                <IconButton icon="shuffle" variant="ghost" size="small" class="ml-transport-extra"
+                <IconButton icon="shuffle" variant="ghost" size="small" class="ml-transport-extra transport-utility"
                   :color="store.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
                   @click="store.toggleShuffle()" />
                 <div class="ml-transport-main">
-                  <IconButton icon="previous" variant="ghost" size="small" class="ml-transport-extra"
+                  <IconButton icon="previous" variant="ghost" size="small" class="ml-transport-extra transport-secondary"
                     @click="store.previous()" />
                   <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
-                    :loading="isBuffering" @click="togglePlayPause" />
-                  <IconButton icon="next" variant="ghost" size="small" class="ml-transport-extra"
+                    class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
+                  <IconButton icon="next" variant="ghost" size="small" class="ml-transport-extra transport-secondary"
                     :disabled="!hasNext" @click="store.next()" />
                 </div>
                 <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="ghost" size="small"
                   :color="store.currentStarred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                  class="ml-transport-extra" @click="store.toggleCurrentStar()" />
+                  class="ml-transport-extra transport-utility" @click="store.toggleCurrentStar()" />
               </div>
             </div>
           </template>

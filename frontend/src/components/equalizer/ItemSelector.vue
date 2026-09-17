@@ -16,7 +16,7 @@
           :disabled="tab.disabled"
           @click="handleTargetChange(tab)"
         >
-          <SvgIcon v-if="tab.badge" :name="tab.badge" :size="12" class="tab-badge" />
+          <SvgIcon v-if="tab.badge" :name="tab.badge" :size="16" class="tab-badge" />
           {{ tab.label }}
         </button>
       </div>

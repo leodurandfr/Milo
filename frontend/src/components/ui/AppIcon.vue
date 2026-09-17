@@ -1,6 +1,6 @@
 <template>
   <div class="app-icon" :style="iconStyle" :class="{
-    'size-large': props.size === 'large' || props.size === 72,
+    'size-large': props.size === 'tile-lg' || props.size === 72,
     'app-icon--loading': loading
   }">
     <div class="app-icon-content">
@@ -42,6 +42,18 @@ const iconMapping = {
  * so neither can list a name the component cannot actually resolve.
  */
 export const APP_ICON_NAMES = Object.keys(iconMapping);
+
+/**
+ * The tile rungs, in pixels. Exported so the gallery reads the accepted set
+ * from here rather than from a validator it would have to parse.
+ */
+export const TILE_SIZE_PX = {
+  'tile-sm': 32,
+  'tile-md': 64,
+  'tile-lg': 72
+};
+
+const TILE_SIZES = Object.keys(TILE_SIZE_PX);
 </script>
 
 <script setup>
@@ -57,9 +69,16 @@ const props = defineProps({
     required: true,
     validator: (value) => APP_ICON_NAMES.includes(value)
   },
+  // A tile, not a glyph — which is why the named rungs are `tile-*` and not the
+  // `small|medium|large` SvgIcon and IconButton use. The two scales are an
+  // order of magnitude apart (a Dock tile is 72px where a large glyph is 32),
+  // so sharing the vocabulary meant `size="small"` silently meaning 32 here and
+  // 24 four lines below in the same template.
   size: {
     type: [String, Number],
-    default: 32
+    default: 32,
+    validator: (value) =>
+      typeof value === 'number' || TILE_SIZES.includes(value)
   },
   // The tile while its source is still coming up — a spinner on the plate the
   // artwork would otherwise cover. `name` still applies: it is the same icon,
@@ -122,12 +141,7 @@ const iconStyle = computed(() => {
   if (typeof props.size === 'number') {
     sizeInPx = props.size;
   } else if (typeof props.size === 'string') {
-    switch (props.size) {
-      case 'large': sizeInPx = 72; break;
-      case 'medium': sizeInPx = 64; break;
-      case 'small': sizeInPx = 32; break;
-      default: sizeInPx = 32;
-    }
+    sizeInPx = TILE_SIZE_PX[props.size] ?? 32;
   }
 
   return {

@@ -80,12 +80,14 @@
              / -15s (left), speed moves into the future expanded mini-player view. -->
         <template #controls>
           <div class="playback-controls" @click.stop>
-            <IconButton icon="rewind15" variant="ghost" size="small" class="desktop-only" @click="seekBackward" />
+            <IconButton icon="rewind15" variant="ghost" size="small" class="desktop-only transport-secondary"
+              @click="seekBackward" />
 
             <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
-              :loading="isBuffering" @click="togglePlayPause" />
+              class="transport-primary" :loading="isBuffering" @click="togglePlayPause" />
 
-            <IconButton icon="forward30" variant="ghost" size="small" class="desktop-only" @click="seekForward" />
+            <IconButton icon="forward30" variant="ghost" size="small" class="desktop-only transport-secondary"
+              @click="seekForward" />
           </div>
 
           <div class="speed-selector desktop-only" @click.stop>

@@ -170,6 +170,9 @@
                 Library a five-button row — and half of AudioPlayer's CSS keys
                 off those exact class names (.ml-transport-main, .speed-selector,
                 .desktop-only), so the classes are the contract, not decoration.
+                Same for transport-primary/secondary/utility: they are what the
+                design system sizes each control from, so a button missing one
+                here would be drawn at a size the appliance never uses.
                 Handlers are left off: the state is the scenario's to describe.
               -->
               <template #controls="{ expanded }">
@@ -196,6 +199,7 @@
                       :icon="browser.player.isPlaying ? 'stop' : 'play'"
                       variant="ghost"
                       size="medium"
+                      class="transport-primary"
                       :loading="!!browser.player.isLoading"
                     />
                   </div>
@@ -203,14 +207,17 @@
 
                 <template v-else-if="page.source === 'podcast'">
                   <div class="playback-controls">
-                    <IconButton icon="rewind15" variant="ghost" size="small" class="desktop-only" />
+                    <IconButton icon="rewind15" variant="ghost" size="small"
+                      class="desktop-only transport-secondary" />
                     <IconButton
                       :icon="browser.player.isPlaying ? 'pause' : 'play'"
                       variant="ghost"
                       size="medium"
+                      class="transport-primary"
                       :loading="!!browser.player.isLoading"
                     />
-                    <IconButton icon="forward30" variant="ghost" size="small" class="desktop-only" />
+                    <IconButton icon="forward30" variant="ghost" size="small"
+                      class="desktop-only transport-secondary" />
                   </div>
                   <div class="speed-selector desktop-only">
                     <Dropdown :model-value="speedValue" :options="speedOptions" variant="minimal" />
@@ -220,25 +227,28 @@
                 <div v-else class="ml-controls">
                   <div class="playback-controls">
                     <IconButton
-                      icon="shuffle" variant="ghost" size="small" class="ml-transport-extra"
+                      icon="shuffle" variant="ghost" size="small" class="ml-transport-extra transport-utility"
                       :color="controls.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
                     />
                     <div class="ml-transport-main">
-                      <IconButton icon="previous" variant="ghost" size="small" class="ml-transport-extra" />
+                      <IconButton icon="previous" variant="ghost" size="small"
+                        class="ml-transport-extra transport-secondary" />
                       <IconButton
                         :icon="browser.player.isPlaying ? 'pause' : 'play'"
                         variant="ghost"
                         size="medium"
+                        class="transport-primary"
                         :loading="!!browser.player.isLoading"
                       />
                       <IconButton
-                        icon="next" variant="ghost" size="small" class="ml-transport-extra"
+                        icon="next" variant="ghost" size="small"
+                        class="ml-transport-extra transport-secondary"
                         :disabled="controls.hasNext === false"
                       />
                     </div>
                     <IconButton
                       :icon="controls.starred ? 'heart' : 'heartOff'"
-                      variant="ghost" size="small" class="ml-transport-extra"
+                      variant="ghost" size="small" class="ml-transport-extra transport-utility"
                       :color="controls.starred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
                     />
                   </div>
