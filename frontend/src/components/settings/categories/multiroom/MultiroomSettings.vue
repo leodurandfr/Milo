@@ -394,11 +394,14 @@ const measuredLinks = computed(() =>
   (calibration.value.result?.measurements || []).filter(row => !row.is_local)
 );
 
-// True only while the sliders still hold what was measured. Drag one and the
-// badge goes, because the settings are no longer the measurement.
+// True when what is RUNNING came from the measurement, which is what the line
+// claims. Comparing the sliders instead read false after any reload: they hold
+// the applied configuration then, not the proposal, so the mention vanished on
+// a system whose settings had in fact been measured. `hasServerConfigChanges`
+// is what makes the sliders and the applied config the same question.
 const showsMeasuredValues = computed(() => {
   const config = calibration.value.result?.config;
-  return Boolean(config) &&
+  return Boolean(config) && !snapcastStore.hasServerConfigChanges &&
     Object.keys(config).every(key => snapcastStore.serverConfig[key] === config[key]);
 });
 
@@ -656,6 +659,10 @@ onBeforeUnmount(() => {
    the first table came from its borders, not from having columns. */
 .analysis-links {
   width: 100%;
+  /* Bounded: at full panel width on a desktop the speaker name and its two
+     figures sat at opposite ends of the card with a hand's breadth of nothing
+     between them. */
+  max-width: 30rem;
   border-collapse: collapse;
   margin-top: var(--space-02);
   border: 1px solid var(--color-border);
@@ -664,8 +671,16 @@ onBeforeUnmount(() => {
 }
 
 .analysis-links__row > * {
-  padding: var(--space-02);
+  padding: var(--space-01) var(--space-02);
   text-align: left;
+}
+
+.analysis-links thead .analysis-links__row > * {
+  padding-top: var(--space-02);
+}
+
+.analysis-links tbody tr:last-child > * {
+  padding-bottom: var(--space-02);
 }
 
 .analysis-links tbody .analysis-links__row > * {
