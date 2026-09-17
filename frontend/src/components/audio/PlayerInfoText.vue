@@ -3,7 +3,7 @@
     <div v-if="kicker" class="player-info-kicker">
       <LazyImage v-if="kickerIcon" class="player-info-kicker-icon"
         :src="kickerIcon" :fallback-name="kickerFallbackName" alt="" />
-      <span class="player-info-kicker-label text-mono-small">{{ kicker }}</span>
+      <span class="player-info-kicker-label text-mono-medium">{{ kicker }}</span>
     </div>
     <p class="player-info-title heading-2">{{ title }}</p>
     <p v-if="secondary" class="player-info-secondary text-body">{{ secondary }}</p>

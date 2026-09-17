@@ -842,7 +842,7 @@ img.player-artwork.loaded {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: var(--space-02);
+  gap: var(--space-01);
   width: 100%;
 }
 
@@ -941,44 +941,51 @@ img.player-artwork.loaded {
   flex: none;
 }
 
+/* Every rule below restyles Dropdown's internals through `:deep()`, so each one
+   competes with a rule the primitive writes about itself — and a scoped rule
+   carries its scope attribute in the same specificity class a `:deep()` prefix
+   occupies, so two classes here tie with two classes there and the stylesheet
+   emitted last takes it. Dropdown is emitted last, measured in the built CSS,
+   and the ties cost two visible bugs: the label drew at `minimal`'s 50% white
+   however plainly the rule here asked for full contrast, and
+   `--minimal:focus { box-shadow: none }` erased the rim on click, so the pill
+   lost its outline the first time the menu was opened and stayed bare until
+   something else took the focus. Each rule therefore goes one class deeper than
+   the Dropdown rule it must outrank; `.dropdown`, the primitive's own wrapper,
+   is what buys the step, and the four keep their order among themselves by
+   specificity rather than by position in this file. */
+
 /* The speed reads as a control rather than as loose text: a pill rim around it.
    The `minimal` variant clears the trigger's own box-shadow, so the rim is put
    back the same way the base variant draws it, inset, which keeps the chip's
    box out of the row's arithmetic. The rim colour is a background token used as
-   a stroke on purpose — it is the only 12% white the palette declares, and the
-   player has no border token for a dark ground. The padding is the chip's whole
-   size: it is a label with a rim, not a button, and it sits next to a transport
-   it must not compete with. */
-:deep(.speed-selector .dropdown-trigger) {
+   a stroke on purpose — the player has no border token for a dark ground. The
+   padding is the chip's whole size: it is a label with a rim, not a button, and
+   it sits next to a transport it must not compete with. */
+:deep(.speed-selector .dropdown .dropdown-trigger) {
   padding: var(--space-01) 0;
   border-radius: var(--radius-full);
-  box-shadow: inset 0 0 0 1px var(--color-background-neutral-12);
+  box-shadow: inset 0 0 0 1px var(--color-background-neutral-50);
 }
 
 /* Full contrast, not the `minimal` variant's 50% white: the chip states the
    speed currently playing, which is a value and not a placeholder. */
-:deep(.speed-selector .dropdown-label) {
+:deep(.speed-selector .dropdown .dropdown-trigger .dropdown-label) {
   color: var(--color-text-contrast);
 }
 
 /* Open: the chip fills, so it reads as the thing the menu belongs to. The rim
-   goes with the fill (12% white is invisible on it) and the label has to flip
-   with it — `minimal` draws it at 50% white, which would vanish. Three classes
-   deep on purpose: the base trigger's own `.is-open` carries a brand ring at
-   equal specificity, and which of the two won would come down to stylesheet
-   order between this file and Dropdown's. */
-:deep(.speed-selector .dropdown-trigger.is-open) {
+   goes with the fill — it is invisible on it — and the label has to flip with
+   it, `minimal` drawing it at 50% white, which would vanish. */
+:deep(.speed-selector .dropdown .dropdown-trigger.is-open) {
   background: var(--color-background-neutral);
   box-shadow: none;
 }
 
-:deep(.speed-selector .dropdown-trigger.is-open .dropdown-label) {
+:deep(.speed-selector .dropdown .dropdown-trigger.is-open .dropdown-label) {
   color: var(--color-text);
 }
 
-:deep(.speed-selector .dropdown-menu) {
-  min-width: 100px;
-}
 
 /* Music library: one transport row (shuffle … prev·play·next … like), with the
    trio centred inside it. */

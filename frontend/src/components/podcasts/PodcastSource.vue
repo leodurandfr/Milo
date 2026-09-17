@@ -79,14 +79,14 @@
              desktop-only — on mobile the mini-player's swipe gesture covers +30s (right)
              / -15s (left), speed moves into the future expanded mini-player view. -->
         <template #controls>
-          <!-- The seek pair takes `secondary-round`, not `secondary`: its two
-               glyphs are the only ones in the set that fill their box in both
-               axes, and on `secondary` — a rung calibrated on the flattest glyph
-               there is — they came out larger than the pause they flank. Not
-               `utility` either, which would leave the digits unreadable. The
-               measurements are in design-system.css. `desktop-only` hides the
-               pair in the docked bar but not in the expanded sheet, which is
-               where a phone actually sees it. -->
+          <!-- The seek pair takes `secondary-round`, not `secondary`: it fills
+               its box in both axes, and on `secondary` — a rung calibrated on
+               the flattest glyph there is — it came out larger than the pause
+               it flanks. A rung below would leave its two digits unreadable,
+               which is the floor that sets the value. The measurements are in
+               design-system.css. `desktop-only` hides the pair in the docked
+               bar but not in the expanded sheet, which is where a phone
+               actually sees it. -->
           <div class="playback-controls" @click.stop>
             <IconButton icon="rewind15" variant="ghost" size="small" class="desktop-only transport-secondary-round"
               @click="seekBackward" />

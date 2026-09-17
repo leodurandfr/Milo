@@ -5,7 +5,7 @@
       :class="[`dropdown-trigger--${variant}`, `dropdown-trigger--${size}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label" :class="variant === 'minimal' ? 'text-mono-small' : (size === 'small' ? 'heading-4' : 'heading-3')">{{ selectedLabel }}</span>
+      <span class="dropdown-label" :class="variant === 'minimal' ? 'text-mono-medium' : (size === 'small' ? 'heading-4' : 'heading-3')">{{ selectedLabel }}</span>
       <SvgIcon v-if="variant !== 'minimal'" name="caretDown" :size="size === 'small' ? 20 : 24" class="dropdown-icon" />
     </button>
 
