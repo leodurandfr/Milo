@@ -925,9 +925,30 @@ img.player-artwork.loaded {
     bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-06));
 
     margin: 0;
-    left: 50%;
-    transform: translate(-50%, 0);
-    width: calc(100% - var(--space-02) * 2);
+
+    /* Anchored by both insets rather than centered with translate(-50%), and the
+       absence of a transform is the point. Measured on an iPhone at DPR 3,
+       music library playing, geometry held identical across all three: with
+       translate(-50%, 0) the pause glyph shimmers by a device pixel on every
+       progress tick; with translate(0, 0) it still shimmers; with no transform
+       at all it stops. So a transform on this element is what triggers it,
+       whatever its value. Why is not established — the card is composited
+       regardless (the backdrop-filter above does that on its own), so layer
+       promotion is not the explanation, and two theories died on measurement:
+       a half-device-pixel origin (refuted — the viewport is 390 CSS px, an
+       even number) and a glyph-local raster (refuted — translateZ(0) on the
+       svg changed nothing). What is reproducible is the three-way result
+       above. Only the pause glyph gives it away: two hard vertical edges,
+       where the artwork and the text are too soft to show a third of a CSS
+       pixel, and layout geometry stays stable to 0.00 device pixels the whole
+       time, which is why it reads as a glyph bug rather than a whole-card one.
+       The second condition is the progress fill translating inside the blurred
+       card at 10 Hz; at rest nothing repaints and nothing shimmers. Keep this
+       element transform-free at rest — the entrance below animates translateY
+       alone for the same reason. */
+    left: var(--space-02);
+    right: var(--space-02);
+    width: auto;
     height: auto;
     max-height: none;
     flex-direction: row;
@@ -1109,21 +1130,6 @@ img.player-artwork.loaded {
     --transport-primary: 28px;
   }
 
-  /* The glyph gets a layer of its own. Measured on an iPhone at DPR 3, playing:
-     the button, the glyph, .player-info and the artwork are all stable to 0.00
-     device pixels, yet the icon visibly shimmers — so nothing is moving and what
-     changes is the rasterisation. .audio-player carries a backdrop-filter, and
-     the progress fill translates behind it at 10 Hz, which makes iOS re-sample
-     the blurred backdrop and repaint what sits on top at a slightly different
-     sub-pixel phase each tick. At 3x that is a whole device pixel; at 1x or 2x
-     it stays under the threshold, which is why no desktop window reproduces it.
-     Promoting the glyph means it is rasterised once and merely composited after.
-     Scoped to the docked bar, and on the svg rather than the button so it does
-     not fight .interactive-press for the transform. */
-  .audio-player .controls :deep(.transport-primary svg) {
-    transform: translateZ(0);
-  }
-
   /* Compact mobile player keeps only play/pause; shuffle/prev/next/like are
      desktop-only — the swipe gesture covers prev/next on mobile instead. */
   .audio-player.source-music_library :deep(.ml-transport-extra) {
@@ -1261,7 +1267,8 @@ img.player-artwork.loaded {
   .audio-player-leave-active {
     position: fixed;
     bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-06));
-    left: 50%;
+    left: var(--space-02);
+    right: var(--space-02);
   }
 
   .audio-player-enter-active {
@@ -1278,18 +1285,18 @@ img.player-artwork.loaded {
 
   .audio-player-enter-from {
     opacity: 0;
-    transform: translate(-50%, 120px);
+    transform: translateY(120px);
   }
 
   .audio-player-enter-to,
   .audio-player-leave-from {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: none;
   }
 
   .audio-player-leave-to {
     opacity: 0;
-    transform: translate(-50%, 120px);
+    transform: translateY(120px);
   }
 }
 
