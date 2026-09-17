@@ -65,7 +65,7 @@ ExecStart=/usr/bin/cage -- /usr/bin/chromium \
   --no-sandbox \
   --disable-dev-shm-usage \
   --touch-events=enabled \
-  --enable-features=TouchpadAndWheelScrollLatching \
+  --enable-features=TouchpadAndWheelScrollLatching,ElasticOverscroll \
   --force-device-scale-factor=1 \
   --disable-pinch \
   --ignore-gpu-blocklist \
