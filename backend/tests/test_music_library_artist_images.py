@@ -26,6 +26,7 @@ import pytest
 
 from backend.sources.music_library.artist_images import (
     ArtistImageService,
+    artist_cover_id,
     normalize_name,
     pick_artist,
 )
@@ -249,9 +250,13 @@ class TestCoverIds:
         assert await service.get_cover("al-3nUFxsGWpvvHfA8IuXqRsc_0") is None
         assert await service.get_cover("mf-1x2y3z") is None
 
-    async def test_the_artist_id_is_read_back_out_of_the_cover_id(self, monkeypatch):
-        """`ar-<artist id>_<n>`: the suffix moves when the art does, so it is
-        stripped before Navidrome is asked who this is."""
+    async def test_the_artist_id_is_read_back_whole(self, monkeypatch):
+        """`ar-<artist id>`, and nothing is trimmed off the end.
+
+        Milō mints the id itself (see artist_cover_id), so the parse is its exact
+        inverse. A looser rule would be free to eat part of the id, and what it
+        handed Navidrome would be an artist that does not exist — a blank photo
+        with no error anywhere."""
         asked = []
 
         class Client:
@@ -262,9 +267,13 @@ class TestCoverIds:
         svc = ArtistImageService(get_client=lambda: asyncio.sleep(0, result=Client()))
         monkeypatch.setattr(svc, "get_image", lambda name: asyncio.sleep(0, result=None))
 
-        await svc.get_cover("ar-2oQcvqplsiJFiOwhVpp2Ow_0")
+        # Minted the way production mints it, and carrying the one character a
+        # looser parse would eat — Navidrome used to append `_<n>` here, and the
+        # rule that stripped it cannot tell that suffix from an id.
+        artist_id = "2oQcvqpl_iJFiOwhVpp2Ow"
+        await svc.get_cover(artist_cover_id(artist_id))
 
-        assert asked == ["2oQcvqplsiJFiOwhVpp2Ow"]
+        assert asked == [artist_id]
 
     async def test_the_name_lookup_is_memoised(self, monkeypatch):
         """One getArtist per artist, not one per cover request."""
@@ -278,7 +287,7 @@ class TestCoverIds:
         svc = ArtistImageService(get_client=lambda: asyncio.sleep(0, result=Client()))
         monkeypatch.setattr(svc, "get_image", lambda name: asyncio.sleep(0, result=None))
 
-        await svc.get_cover("ar-abc_0")
-        await svc.get_cover("ar-abc_1")
+        await svc.get_cover("ar-abc")
+        await svc.get_cover("ar-abc")
 
         assert calls == ["abc"]

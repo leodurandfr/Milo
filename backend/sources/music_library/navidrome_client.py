@@ -37,6 +37,7 @@ import aiohttp
 
 from backend.config.constants import NAVIDROME_CRED_FILE, NAVIDROME_URL
 from backend.shared.network import describe_network_error, is_network_error
+from backend.sources.music_library.artist_images import artist_cover_id
 
 # The two sizes _is_placeholder asks for. Small on purpose: above an image's own
 # resolution Navidrome returns the original unresized at every size, which would
@@ -124,6 +125,25 @@ def _encode_query(query: Dict[str, Any]) -> List[Tuple[str, str]]:
         else:
             pairs.append((key, str(value)))
     return pairs
+
+
+def _stamp_artist_covers(artists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Give every artist row the cover id its photo is served by.
+
+    Navidrome no longer supplies one. Since 0.64.0 its artwork worker resolves
+    art ahead of the request and a row carries `coverArt` only once that
+    succeeded — and artist art is the one tier Milō took over (see
+    artist_images), so it resolves none and the field vanished from every artist
+    row at once. The frontend reads `artist.coverArt`, so it stopped asking, and
+    the cover route's fallback — the resolver that holds the photos — was never
+    reached again. Minting the id here is what keeps the three artist producers
+    below to one spelling of it.
+    """
+    for artist in artists:
+        artist_id = artist.get("id")
+        if artist_id:
+            artist["coverArt"] = artist_cover_id(artist_id)
+    return artists
 
 
 def load_navidrome_credentials(
@@ -346,7 +366,7 @@ class NavidromeClient:
             return {"artist": [], "album": [], "song": []}
         result = response.get("searchResult3", {})
         return {
-            "artist": result.get("artist", []) or [],
+            "artist": _stamp_artist_covers(result.get("artist", []) or []),
             "album": result.get("album", []) or [],
             "song": result.get("song", []) or [],
         }
@@ -364,7 +384,10 @@ class NavidromeClient:
         )
         if not response or response.get("_network_error"):
             return []
-        return response.get("artists", {}).get("index", []) or []
+        index = response.get("artists", {}).get("index", []) or []
+        for bucket in index:
+            _stamp_artist_covers(bucket.get("artist") or [])
+        return index
 
     async def get_artist(self, artist_id: str) -> Optional[Dict[str, Any]]:
         """A single artist with its albums (Subsonic ``getArtist``).
@@ -376,7 +399,10 @@ class NavidromeClient:
         response = await self._make_request("getArtist", {"id": artist_id})
         if not response or response.get("_network_error"):
             return None
-        return response.get("artist")
+        artist = response.get("artist")
+        if artist:
+            _stamp_artist_covers([artist])
+        return artist
 
     async def get_album(self, album_id: str) -> Optional[Dict[str, Any]]:
         """A single album with its ordered songs (Subsonic ``getAlbum``)."""

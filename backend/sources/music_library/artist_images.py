@@ -74,10 +74,36 @@ _NO_PHOTO_SLUG = "d41d8cd98f00b204e9800998ecf8427e"
 # tier; the whole picture is ~40 kB.
 _PICTURE_FIELD = "picture_big"
 
-# Navidrome cover ids for an artist are `ar-<artist id>_<n>`, where the suffix
-# changes when its art does. Only the prefix is contractual here — the id is
-# handed straight back to Subsonic getArtist, which is what turns it into a name.
+# The cover id Milō puts on every artist row, and the only shape that reaches
+# get_cover below. Minted here rather than read off Navidrome: since 0.64.0 an
+# item carries a `coverArt` id only once its artwork worker has resolved one,
+# and artist art is exactly what this module took over, so Navidrome resolves
+# none and emitted none — measured, 0 of 550 artists, which left the Artists tab
+# with no id to ask for and this whole module unreachable. The suffix Navidrome
+# used to append is a cache-buster over the same bytes (`al-<id>_<hash>` and a
+# bare `al-<id>` served the same 28 852 bytes, measured), so a bare id loses
+# nothing: Subsonic still answers it with the artist's own local art when the
+# user ships one, which is what keeps that tier ahead of Deezer.
 _ARTIST_COVER_PREFIX = "ar-"
+
+
+def artist_cover_id(artist_id: str) -> str:
+    """The cover id for an artist id — the one place that shape is written."""
+    return f"{_ARTIST_COVER_PREFIX}{artist_id}"
+
+
+def parse_artist_cover_id(cover_id: str) -> Optional[str]:
+    """The artist id inside a cover id, or None for any other kind of id.
+
+    The exact inverse of :func:`artist_cover_id`, and nothing looser: the id is
+    handed straight back to Subsonic getArtist, which is what turns it into a
+    name, so a byte trimmed here reads downstream as an artist that does not
+    exist.
+    """
+    if not cover_id.startswith(_ARTIST_COVER_PREFIX):
+        return None
+    return cover_id[len(_ARTIST_COVER_PREFIX):] or None
+
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -190,9 +216,7 @@ class ArtistImageService:
         None for any other kind of id, so the cover route can call this on every
         miss without deciding what kind of item it was looking at.
         """
-        if not cover_id.startswith(_ARTIST_COVER_PREFIX):
-            return None
-        artist_id = cover_id[len(_ARTIST_COVER_PREFIX):].rsplit("_", 1)[0]
+        artist_id = parse_artist_cover_id(cover_id)
         if not artist_id:
             return None
         name = await self._artist_name(artist_id)

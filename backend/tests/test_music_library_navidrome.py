@@ -18,6 +18,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from backend.sources.music_library.artist_images import parse_artist_cover_id
 from backend.sources.music_library.navidrome_client import NavidromeClient
 from backend.sources.music_library.routes import (
     router,
@@ -40,13 +41,15 @@ class TestNavidromeBrowse:
             "artists": {
                 "ignoredArticles": "The",
                 "index": [
-                    {"name": "D", "artist": [{"id": "ar-1", "name": "Daft Punk"}]},
+                    {"name": "D", "artist": [{"id": "a1", "name": "Daft Punk"}]},
                 ],
             }
         })
         index = await client.get_artists([2])
         assert index == [
-            {"name": "D", "artist": [{"id": "ar-1", "name": "Daft Punk"}]}
+            {"name": "D", "artist": [
+                {"id": "a1", "name": "Daft Punk", "coverArt": "ar-a1"}
+            ]}
         ]
 
     async def test_get_artist_unwraps_artist(self, client):
@@ -113,17 +116,63 @@ class TestNavidromeBrowse:
     async def test_search3_shapes_result(self, client):
         client._make_request = AsyncMock(return_value={
             "searchResult3": {
-                "artist": [{"id": "ar-1"}],
+                "artist": [{"id": "a1"}],
                 "album": [{"id": "al-1"}],
                 "song": [{"id": "s-1"}],
             }
         })
         result = await client.search3("daft", [2])
         assert result == {
-            "artist": [{"id": "ar-1"}],
+            "artist": [{"id": "a1", "coverArt": "ar-a1"}],
             "album": [{"id": "al-1"}],
             "song": [{"id": "s-1"}],
         }
+
+    async def test_every_artist_producer_stamps_a_resolvable_cover_id(self, client):
+        """Every artist row the client hands up carries the cover id its photo
+        is served by, and the photo resolver reads that id back whole.
+
+        What breaks when this fails: nothing raises and nothing logs — the
+        Artists tab simply shows a placeholder for every artist in the library.
+        The frontend asks for art by `artist.coverArt` and skips the request when
+        it is absent, so the cover route's fallback, which is where the photos
+        actually come from, is never reached. That is the shape of the 0.64.0
+        regression: Navidrome stopped supplying the field, since its artwork
+        worker now emits one only for art it resolved itself, and artist art is
+        precisely the tier Milō took over.
+
+        All three producers are driven, because the Artists tab, an artist page
+        and a search each reach a different one.
+        """
+        client._make_request = AsyncMock(return_value={
+            "artists": {"index": [
+                {"name": "D", "artist": [{"id": "a1"}, {"id": "a2"}]},
+                {"name": "P", "artist": [{"id": "a3"}]},
+            ]},
+            # One id carries an underscore: it is what a parse that trims a
+            # suffix off the end would eat, and there is no suffix any more.
+            "artist": {"id": "a_4", "album": [{"id": "al-1"}]},
+            "searchResult3": {"artist": [{"id": "a5"}], "album": [], "song": []},
+        })
+
+        rows = [
+            artist
+            for bucket in await client.get_artists([2])
+            for artist in bucket["artist"]
+        ]
+        rows.append(await client.get_artist("a_4"))
+        rows.extend((await client.search3("daft", [2]))["artist"])
+
+        # The producers have to have produced something, or the loop below is
+        # an assertion about an empty list.
+        assert [row["id"] for row in rows] == ["a1", "a2", "a3", "a_4", "a5"]
+        for row in rows:
+            assert parse_artist_cover_id(row["coverArt"]) == row["id"]
+
+    async def test_an_album_cover_id_is_not_mistaken_for_an_artist(self, client):
+        """The other half of the round trip: the resolver is called on every
+        cover miss, album ids included, and must claim only its own."""
+        assert parse_artist_cover_id("al-7c2Tw1CEUz988dA2iSGNU2_1e50acd9") is None
 
     @pytest.mark.parametrize("payload", [None, {"_network_error": True}])
     async def test_list_methods_degrade_to_empty(self, client, payload):
