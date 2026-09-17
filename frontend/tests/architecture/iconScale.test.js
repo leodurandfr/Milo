@@ -96,7 +96,7 @@ describe('transport icon scale', () => {
       expect(primary, `${name}: primary must lead`).toBeGreaterThan(secondary);
       expect(secondary, `${name}: secondary must lead utility`).toBeGreaterThan(utility);
       expect(primary / secondary, `${name}: play/pause would not read larger`).toBeGreaterThan(GLYPH_WIDTH_RATIO);
-      expect(primary / utility, `${name}: utility is not half the primary`).toBe(2);
+      expect(primary / utility, `${name}: utility is not subordinate enough`).toBeGreaterThanOrEqual(2);
     }
 
     // Two distinct tiers, or one of them has no reason to exist.

@@ -418,10 +418,15 @@
 
    Every value is a multiple of 4. */
 
-/* T1 — the full-screen player on a desktop-shaped viewport. */
+/* T1 — the full-screen player on a desktop-shaped viewport. Its ratio is T2's,
+   not a looser one: at 48/32 the play sat 9.5% wider than the arrows in ink
+   where T2 sits at 4.3%, and the extra clearance read as undersized arrows.
+   52/36 is the nearest pair on the 4px grid that lands back on T2's balance —
+   48/36 would have been closer still in nominal ratio but crosses the parity
+   line, putting the arrows 2.7% wider than the play they frame. */
 .transport-scale {
-    --transport-primary: 48px;
-    --transport-secondary: 32px;
+    --transport-primary: 52px;
+    --transport-secondary: 36px;
     --transport-utility: 24px;
 }
 
