@@ -254,12 +254,30 @@ class TestConnectBudget:
 
     @pytest.mark.asyncio
     async def test_default_budget_fits_a_source_start(self):
-        """connect()'s default must leave room under TRANSITION_TIMEOUT."""
+        """A whole transition must fit under TRANSITION_TIMEOUT, not just mpv.
+
+        This assertion used to count the mpv half alone and omit the largest
+        term: a transition stops the old source and starts the new one, and
+        each of those spends a SystemdServiceManager call. With the mpv side
+        summing to 7.5s under a 10.0s guard it read as satisfied while the real
+        worst case was several times the budget — so the guard fired on bounded
+        work doing its job, and settled the source the user had just picked in
+        ERROR. Derived from the constants so moving any of them fails here
+        rather than in a room with a speaker in it.
+        """
         from backend.core.state import AudioStateMachine
+        from backend.core.systemd import CONTROL_TIMEOUT
         from backend.shared.mpv import CONNECT_TIMEOUT, PROBE_TIMEOUT
 
+        # Stop the old source, start the new one: two systemd calls, then
         # _start_service_and_wait settles for 0.5s before connect() is called.
-        assert CONNECT_TIMEOUT + PROBE_TIMEOUT + 0.5 < AudioStateMachine.TRANSITION_TIMEOUT
+        worst_case = (
+            2 * CONTROL_TIMEOUT
+            + 0.5
+            + PROBE_TIMEOUT
+            + CONNECT_TIMEOUT
+        )
+        assert worst_case < AudioStateMachine.TRANSITION_TIMEOUT
 
 
 class TestReserveIsPerBranch:

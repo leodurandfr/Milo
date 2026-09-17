@@ -55,7 +55,20 @@ class AudioStateMachine:
     obeys the same order through exclusive_transition().
     """
 
-    TRANSITION_TIMEOUT = 10.0
+    # Sized strictly above every bounded step it wraps, so it only ever fires
+    # on the leaves that have no bound of their own (_save_progress writing to
+    # the SD card, a _do_start reading the network). At 10.0 it sat below them:
+    # a stop alone can spend SystemdServiceManager.CONTROL_TIMEOUT, so this
+    # guard cancelled bounded work that was still in flight and settled the
+    # source in ERROR over a stop that then completed a second later.
+    #   stop   CONTROL_TIMEOUT                       10.0
+    #   start  CONTROL_TIMEOUT                       10.0
+    #          _start_service_and_wait settle         0.5
+    #          PROBE_TIMEOUT + CONNECT_TIMEOUT        7.0
+    #                                               =27.5
+    # Pinned against those constants by test_mpv_controller.py, which is what
+    # keeps this number honest when any of them moves.
+    TRANSITION_TIMEOUT = 30.0
     INACTIVITY_TIMEOUT = 43200  # 12 hours in seconds
 
     # States a source can sit in without ever producing audio, so the ones the

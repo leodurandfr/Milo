@@ -7,6 +7,19 @@ from typing import Dict, Any
 
 from backend.shared.decorators import handle_errors
 
+# Ceiling for one start/stop/restart, covering the systemctl child AND the
+# settle probes that follow it. Bounding the child alone left the call's real
+# worst case emergent — 10s for systemctl, plus six `is_active` probes bounded
+# at 5s each, plus their sleeps: 47.5s that nothing declared and nothing above
+# could be sized against. AudioStateMachine.TRANSITION_TIMEOUT wraps this call
+# and sat below that number, so the inner bound was unreachable: the outer one
+# always fired first and cancelled stops that were still legitimately in
+# flight, then reported the source as refusing to stop.
+CONTROL_TIMEOUT = 10.0
+SETTLE_PROBES = 6
+SETTLE_INTERVAL = 0.5
+
+
 class SystemdServiceManager:
     """Generic manager for systemd services."""
 
@@ -196,45 +209,60 @@ class SystemdServiceManager:
             return {"error": str(e)}
 
     async def _control_service(self, service: str, action: str) -> bool:
-        """Controls a systemd service."""
+        """Controls a systemd service, under one deadline for the whole call.
+
+        CONTROL_TIMEOUT covers the systemctl child and the settle probes alike:
+        a probe is itself a `sudo`-free fork+exec, and on a box whose I/O is
+        saturated those cost seconds each, which is how the ceiling used to
+        reach 47.5s without any line saying so.
+
+        The failure message no longer spends an `is_active` of its own to name
+        the state reached. That probe bought nicer wording on the one path
+        where the budget had already run out, and could add 5s to it.
+        """
+        proc = None
         try:
-            self.logger.info(f"{action.capitalize()} service {service}")
+            async with asyncio.timeout(CONTROL_TIMEOUT):
+                self.logger.info(f"{action.capitalize()} service {service}")
 
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", action, service,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE
-            )
+                proc = await asyncio.create_subprocess_exec(
+                    "sudo", "systemctl", action, service,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE
+                )
 
-            _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
+                _, stderr = await proc.communicate()
 
-            if proc.returncode != 0:
-                error_msg = stderr.decode().strip() if stderr else "No error details"
-                self.logger.error(f"Failed to {action} {service} (exit code {proc.returncode}): {error_msg}")
+                if proc.returncode != 0:
+                    error_msg = stderr.decode().strip() if stderr else "No error details"
+                    self.logger.error(f"Failed to {action} {service} (exit code {proc.returncode}): {error_msg}")
+                    return False
+
+                # Wait for the service to reach the desired state. Check first, then
+                # sleep — systemctl start/stop is synchronous, so the unit is usually
+                # already settled on the first probe; sleeping first burned a fixed
+                # 0.5s on every start AND stop (≥1s per source switch) for nothing.
+                # 6 probes at t=0,0.5..2.5s: same 2.5s settle window as before, but a
+                # service already settled on the first probe returns immediately.
+                expected_active = action != "stop"
+                for attempt in range(SETTLE_PROBES):
+                    if await self.is_active(service) == expected_active:
+                        return True
+                    if attempt < SETTLE_PROBES - 1:
+                        await asyncio.sleep(SETTLE_INTERVAL)
+
+                expected_state = "active" if expected_active else "inactive"
+                self.logger.error(
+                    f"Service {service} did not reach {expected_state} after {action}"
+                )
                 return False
 
-            # Wait for the service to reach the desired state. Check first, then
-            # sleep — systemctl start/stop is synchronous, so the unit is usually
-            # already settled on the first probe; sleeping first burned a fixed
-            # 0.5s on every start AND stop (≥1s per source switch) for nothing.
-            # 6 probes at t=0,0.5..2.5s: same 2.5s settle window as before, but a
-            # service already settled on the first probe returns immediately.
-            expected_active = action != "stop"
-            for attempt in range(6):
-                if await self.is_active(service) == expected_active:
-                    return True
-                if attempt < 5:
-                    await asyncio.sleep(0.5)
-
-            # More explicit error message if expected state is not reached
-            actual_state = "active" if await self.is_active(service) else "inactive"
-            expected_state = "active" if expected_active else "inactive"
-            self.logger.error(f"Service {service} is {actual_state} but expected {expected_state} after {action}")
-            return False
-
         except asyncio.TimeoutError:
-            proc.kill()
-            self.logger.error(f"Timeout ({action} {service} took more than 10 seconds)")
+            # proc is None when the deadline fell inside the spawn itself —
+            # `power()` and `set_enabled()` already guard it that way.
+            if proc:
+                proc.kill()
+            self.logger.error(f"Timeout ({action} {service} exceeded {CONTROL_TIMEOUT}s)")
             return False
         except Exception as e:
             self.logger.error(f"Unexpected error during {action} {service}: {e}")

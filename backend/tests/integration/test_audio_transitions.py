@@ -391,12 +391,16 @@ class TestErrorHandling:
         the message that was broadcast.
         """
         sm = integration_state_machine
+        # Shortened so the test measures the guard, not the wall clock: the
+        # production value is sized for a real stop+start and would make this
+        # sleep half a minute long.
+        sm.TRANSITION_TIMEOUT = 0.1
 
         # Create a source that takes too long to start
         slow_source = create_mock_source(AudioSource.RADIO)
 
         async def very_slow_start():
-            await asyncio.sleep(10)  # Longer than TRANSITION_TIMEOUT (5s)
+            await asyncio.sleep(sm.TRANSITION_TIMEOUT * 10)
             return True
 
         slow_source.start = very_slow_start

@@ -120,6 +120,17 @@ def _hanging_proc():
     return proc
 
 
+def _short_control_timeout(monkeypatch):
+    """Collapse the whole-call ceiling of `_control_service`.
+
+    Patches the bound itself rather than `asyncio.wait_for`: the ceiling is now
+    one `asyncio.timeout` over the whole body, so there is no per-step wait_for
+    left on this path to shorten. The value is supplied, never asserted — what
+    the tests pin is that a ceiling exists and governs every step under it.
+    """
+    monkeypatch.setattr("backend.core.systemd.CONTROL_TIMEOUT", 0.05)
+
+
 def _short_wait_for(monkeypatch):
     """Collapse the module's own `asyncio.wait_for` bound, keeping it real.
 
@@ -349,14 +360,63 @@ class TestControlServiceFailureArms:
         child outlives the request; without the False the state machine believes
         the unit started and hands it a command it will never receive.
         """
-        _short_wait_for(monkeypatch)
+        _short_control_timeout(monkeypatch)
         proc = _hanging_proc()
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             with caplog.at_level(logging.ERROR):
                 assert await manager.start("milo-radio") is False
 
         proc.kill.assert_called_once()
-        assert "took more than 10 seconds" in caplog.text
+        assert "Timeout (start milo-radio" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_settle_probe_that_never_answers_still_ends_the_call(
+        self, manager, monkeypatch, caplog
+    ):
+        """The ceiling covers the probes, not just the systemctl child.
+
+        `is_active` is a fork+exec too, and on a box whose I/O is saturated it
+        costs seconds. Six of them in a row, each bounded only by its own 5s,
+        put the call's worst case at 47.5s — a number no caller could size
+        itself above because nothing declared it. Here systemctl answers at
+        once and every probe hangs: the call must still come back False.
+        """
+        _short_control_timeout(monkeypatch)
+        settled = _make_mock_proc(returncode=0)
+
+        def _spawn(*args, **kwargs):
+            # argv[1:3] is ("systemctl", <action>) for the control call and
+            # ("systemctl", "is-active") for a probe — only the probe hangs.
+            return _hanging_proc() if "is-active" in args else settled
+
+        with patch("asyncio.create_subprocess_exec", side_effect=_spawn):
+            with caplog.at_level(logging.ERROR):
+                assert await manager.stop("milo-radio") is False
+
+        assert "Timeout (stop milo-radio" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_deadline_inside_the_spawn_is_reported_as_one(
+        self, manager, monkeypatch, caplog
+    ):
+        """The kill must not run before there is anything to kill.
+
+        The deadline now opens before `create_subprocess_exec`, so it can fire
+        while no child exists yet. Reaching for `proc` there raises NameError,
+        which the broad arm below would log as "Unexpected error" — a spawn
+        that was merely slow would read as a broken sudoers rule.
+        """
+        _short_control_timeout(monkeypatch)
+
+        async def _never_spawns(*args, **kwargs):
+            await asyncio.sleep(3600)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=_never_spawns):
+            with caplog.at_level(logging.ERROR):
+                assert await manager.restart("milo-radio") is False
+
+        assert "Timeout (restart milo-radio" in caplog.text
+        assert "Unexpected error" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_a_spawn_that_raises_is_reported_not_swallowed(self, manager, caplog):
