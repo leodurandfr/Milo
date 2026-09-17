@@ -7,8 +7,9 @@
  *    another source would interpolate someone else's position),
  *  - interpolation is scaled by mpv's playback_speed, so a 1.5× podcast bar
  *    doesn't drift,
- *  - a consumer mounted mid-song can compensate for how stale the last
- *    broadcast is (AirPlay only emits every 30 s).
+ *  - every consumer seeds on how stale the last broadcast is, so one mounting
+ *    mid-song doesn't start a whole broadcast interval behind (AirPlay only
+ *    emits every 30 s; Spotify and Qobuz emit none at all).
  *
  * A host component is mounted only to give the composable a lifecycle; nothing
  * is rendered or asserted on the DOM.
@@ -276,30 +277,54 @@ describe('useSourceProgress', () => {
   });
 
   describe('staleness compensation', () => {
-    it('is off by default — the seed is the broadcast value', () => {
-      broadcast(store, { metadata: { position: 10000, duration: 200000, is_playing: true } });
-      const { progress } = mountProgress('spotify');
-
-      expect(progress.currentPosition.value).toBe(10000);
-    });
-
-    it('advances the seed by the age of the last broadcast when enabled', () => {
-      // The Lyrics modal mounts mid-song and needs line-level sync: seeding at
-      // the raw broadcast value would leave it a whole interval behind.
+    it('advances the seed by the age of the last broadcast', () => {
+      // A consumer mounting mid-song — the Lyrics modal — needs line-level
+      // sync: seeding at the raw broadcast value leaves it a whole interval
+      // behind.
       broadcast(store, { metadata: { position: 10000, duration: 200000, is_playing: true } });
       vi.advanceTimersByTime(4000);
 
-      const { progress } = mountProgress('spotify', { compensateStaleness: true });
+      const { progress } = mountProgress('spotify');
 
       expect(progress.currentPosition.value).toBeGreaterThanOrEqual(13900);
       expect(progress.currentPosition.value).toBeLessThanOrEqual(14100);
+    });
+
+    it('applies to the player remounted when the Lyrics view closes', () => {
+      // The Lyrics view replaces the source's whole slot, so closing it mounts
+      // a fresh player. Seeding at the raw anchor brought its bar back to where
+      // the track was when the view opened — 30 s behind the room, with nothing
+      // to correct it: Spotify and Qobuz broadcast no periodic position.
+      broadcast(store, { metadata: { position: 60000, duration: 300000, is_playing: true } });
+      vi.advanceTimersByTime(30000);
+
+      const { progress } = mountProgress('spotify');
+
+      expect(progress.currentPosition.value).toBeGreaterThanOrEqual(89900);
+      expect(progress.currentPosition.value).toBeLessThanOrEqual(90100);
+    });
+
+    it('scales the compensation by playback_speed, as the tick loop does', () => {
+      // mpv reports media time, so 4 s of wall clock at 2x is 8 s of episode.
+      // Seeding on raw wall clock leaves the bar short by the difference, and
+      // the mpv sources only re-anchor every 30 s.
+      broadcast(store, {
+        source: 'podcast',
+        metadata: { position: 10000, duration: 200000, is_playing: true, playback_speed: 2 },
+      });
+      vi.advanceTimersByTime(4000);
+
+      const { progress } = mountProgress('podcast');
+
+      expect(progress.currentPosition.value).toBeGreaterThanOrEqual(17900);
+      expect(progress.currentPosition.value).toBeLessThanOrEqual(18100);
     });
 
     it('does not compensate while paused', () => {
       broadcast(store, { metadata: { position: 10000, duration: 200000, is_playing: false } });
       vi.advanceTimersByTime(4000);
 
-      const { progress } = mountProgress('spotify', { compensateStaleness: true });
+      const { progress } = mountProgress('spotify');
 
       expect(progress.currentPosition.value).toBe(10000);
     });
@@ -308,7 +333,7 @@ describe('useSourceProgress', () => {
       broadcast(store, { metadata: { position: 9000, duration: 10000, is_playing: true } });
       vi.advanceTimersByTime(30000);
 
-      const { progress } = mountProgress('spotify', { compensateStaleness: true });
+      const { progress } = mountProgress('spotify');
 
       expect(progress.currentPosition.value).toBe(10000);
     });
@@ -383,6 +408,19 @@ describe('useSourceProgress', () => {
       broadcast(store, { source: 'bluetooth', metadata: { position: 148, duration: 241506, is_playing: true } });
       await nextTick();
       expect(progress.currentPosition.value).toBe(148);
+    });
+
+    it('adopts them for a consumer that asked for exact corrections', async () => {
+      // What the Lyrics views opt into: they sync lines, so the fraction of a
+      // second the player smooths over is the whole point.
+      broadcast(store, { source: 'bluetooth', metadata: { position: 815, duration: 286230, is_playing: true } });
+      const { progress } = mountProgress('bluetooth', { exactCorrections: true });
+
+      vi.advanceTimersByTime(800);
+      broadcast(store, { source: 'bluetooth', metadata: { position: 915, duration: 286230, is_playing: true } });
+      await nextTick();
+
+      expect(progress.currentPosition.value).toBe(915);
     });
 
     it('lands exactly while paused, where no local clock is running', async () => {

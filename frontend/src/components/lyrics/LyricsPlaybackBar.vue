@@ -125,7 +125,7 @@ const canSeek = computed(() => tier.value === 'full' && !NO_SEEK_SOURCES.has(pro
 const identity = computed(() => getTrackIdentity(props.source, unifiedStore.systemState.metadata));
 
 const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } =
-  useSourceProgress(props.source, { compensateStaleness: true });
+  useSourceProgress(props.source, { exactCorrections: true });
 
 // Same wire commands as AudioPlayerFull — the "full" tier is exactly the set
 // of sources whose backend COMMANDS include generic pause/resume/next/prev.

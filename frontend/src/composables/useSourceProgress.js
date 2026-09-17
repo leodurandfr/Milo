@@ -8,22 +8,30 @@ import { useTimer } from '@/composables/useTimer';
 // correcting drift, not the playhead moving. See isMinorCorrection.
 const CORRECTION_TOLERANCE_MS = 1200;
 
-export function useSourceProgress(source, { compensateStaleness = false } = {}) {
+export function useSourceProgress(source, { exactCorrections = false } = {}) {
   const unifiedStore = useUnifiedAudioStore();
   const timer = useTimer();
 
-  // Seed value for localPosition. Normally the raw broadcast position; when
-  // compensateStaleness is set (e.g. the Lyrics modal, which mounts mid-song and
-  // needs tight line-level sync), advance it by how long ago that value was
-  // received so a new instance isn't behind by the source's broadcast interval.
-  // Live updates set the store timestamp in the same tick → staleness ≈ 0, so
-  // steady-state behaviour is unchanged.
+  // Seed value for localPosition: the broadcast position advanced by how long
+  // ago it was received. A broadcast is only true as of its own arrival, so an
+  // instance mounting mid-song — the Lyrics modal, and the player remounted
+  // under it when the modal closes — must not restart its clock from an anchor
+  // that has since aged. Measured: with the Lyrics view open 30 s over Spotify,
+  // closing it brought the player's bar back at 1:02 against a room at 1:32,
+  // and nothing corrected it afterwards (Spotify and Qobuz broadcast no
+  // periodic position at all; the mpv sources only every 30 s). Live updates
+  // set the store timestamp in the same tick → staleness ≈ 0, so steady-state
+  // behaviour is unchanged.
   function seedFrom(position) {
-    if (!compensateStaleness) return position;
     const meta = unifiedStore.systemState.metadata || {};
     const ts = unifiedStore.positionTimestamp;
     if (!ts || !meta.is_playing || meta.is_buffering) return position;
-    const seeded = position + Math.max(0, performance.now() - ts);
+    // Scaled by playback_speed for the same reason the tick loop is: the
+    // anchor is media time, and a podcast at 2x advances two seconds of it per
+    // second of wall clock. Seeding on raw wall clock would hand a remounted
+    // bar the age of the anchor at 1x whatever the speed.
+    const speed = meta.playback_speed || 1;
+    const seeded = position + Math.max(0, performance.now() - ts) * speed;
     const dur = meta.duration || 0;
     return dur > 0 ? Math.min(seeded, dur) : seeded;
   }
@@ -84,10 +92,10 @@ export function useSourceProgress(source, { compensateStaleness = false } = {}) 
   // paused source must land exactly, and a track change reseeds through the
   // duration check. Everything that genuinely moves a playhead (a seek, a 15 s
   // skip, a restart) clears the threshold by an order of magnitude. The Lyrics
-  // view opts out via compensateStaleness: it syncs lines, and there a fraction
-  // of a second is the whole point.
+  // view opts out via exactCorrections: it syncs lines, and there a fraction of
+  // a second is the whole point.
   function isMinorCorrection(newPosition, newDuration, oldDuration) {
-    if (compensateStaleness || localPosition.value === null) return false;
+    if (exactCorrections || localPosition.value === null) return false;
     if (newDuration !== oldDuration) return false;
     if (!unifiedStore.systemState.metadata?.is_playing) return false;
     return Math.abs(newPosition - localPosition.value) < CORRECTION_TOLERANCE_MS;

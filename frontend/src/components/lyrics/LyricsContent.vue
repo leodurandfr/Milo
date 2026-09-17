@@ -43,7 +43,7 @@ const emit = defineEmits(['update:ready']);
 
 const lyricsStore = useLyricsStore();
 const timer = useTimer();
-const { currentPosition, duration, isPositionInitialized } = useSourceProgress(props.source, { compensateStaleness: true });
+const { currentPosition, duration, isPositionInitialized } = useSourceProgress(props.source, { exactCorrections: true });
 
 // Sync when we have timestamped lines AND the source is a real player (a
 // duration means it exposes a position clock; radio has neither → plain). We
