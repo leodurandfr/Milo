@@ -62,14 +62,15 @@ describe('transport icon scale', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('keeps both tiers above the ratio the glyphs demand', () => {
-    // `next`/`previous` cover 20.0 units of ink in width against `play`'s 14.6
-    // on the shared 24x24 viewBox — the arrows are 1.37x the wider glyph at an
-    // equal box. Below that, prev/next read wider than the play they sit under
-    // whatever the boxes say, which is why 4:3 (1.33) is not enough. The
-    // assertion is a relation between two declared tokens, never a value this
+  it('keeps the two tiers on one proportion', () => {
+    // The sizes themselves are a judgement call and move; what must not move is
+    // that a compact row is the *same shape* as a full-screen one, just smaller.
+    // The 4px grid rounds the two ratios a few percent apart and cannot do
+    // better, so the check is a tolerance, not equality — wide enough to survive
+    // rounding, tight enough that a tier retuned on its own fails. Everything
+    // asserted here is a relation between declared tokens, never a value this
     // test wrote.
-    const GLYPH_WIDTH_RATIO = 20.0 / 14.6;
+    const TIER_TOLERANCE = 0.06;
     const css = readFileSync(DESIGN_SYSTEM, 'utf8');
 
     const tierOf = (selector) => {
@@ -95,9 +96,14 @@ describe('transport icon scale', () => {
       expect([primary, secondary, utility].every((v) => v % 4 === 0), `${name} off the 4px grid`).toBe(true);
       expect(primary, `${name}: primary must lead`).toBeGreaterThan(secondary);
       expect(secondary, `${name}: secondary must lead utility`).toBeGreaterThan(utility);
-      expect(primary / secondary, `${name}: play/pause would not read larger`).toBeGreaterThan(GLYPH_WIDTH_RATIO);
       expect(primary / utility, `${name}: utility is not subordinate enough`).toBeGreaterThanOrEqual(2);
     }
+
+    const [big, small] = Object.values(tiers).map((t) => t.primary / t.secondary);
+    expect(
+      Math.abs(big - small) / Math.min(big, small),
+      'the two tiers no longer read as one proportion'
+    ).toBeLessThan(TIER_TOLERANCE);
 
     // Two distinct tiers, or one of them has no reason to exist.
     expect(tiers['.transport-scale'].primary).toBeGreaterThan(tiers['.transport-scale--compact'].primary);

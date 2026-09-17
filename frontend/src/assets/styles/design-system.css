@@ -409,23 +409,23 @@
    never writes a pixel. SvgIcon reads `--svg-size` with its own native value as
    the fallback, so these inherit down with no `:deep()` and no specificity war.
 
-   Why the ratio is what it is. Measured on the 24x24 viewBox: `play` covers
-   14.6 units of ink in width, `next`/`previous` cover 20.0 — the arrows are
-   1.37x the wider glyph at an equal box. So a primary:secondary ratio below
-   1.37 leaves prev/next reading *wider* than the play they are supposed to sit
-   under, whatever the box says. 4:3 (1.33) is not enough. Both tiers below stay
-   at or above 1.40, and primary:utility is exactly 2.0 in each.
+   Where the numbers come from. Measured on the 24x24 viewBox: `play` covers
+   14.6 units of ink in width against `next`/`previous`'s 20.0, and it is half
+   again as tall. An equal box therefore makes the arrows read *wider* than the
+   play, and 1.37 is the ratio where the two come out exactly level in width.
+   That is a landmark, not a floor: the play keeps the lead well below it, being
+   taller and carrying the same area in a narrower footprint. Both tiers sit
+   just under 1.37 on purpose — level in width, led by height — because a wider
+   gap read as undersized arrows rather than as an emphasised play.
 
+   What is load-bearing is that the two tiers carry the *same* proportion. The
+   4px grid rounds them a few percent apart (1.33 and 1.38) and that is as close
+   as the grid allows; a real divergence is drift, and the guardrail says so.
    Every value is a multiple of 4. */
 
-/* T1 — the full-screen player on a desktop-shaped viewport. Its ratio is T2's,
-   not a looser one: at 48/32 the play sat 9.5% wider than the arrows in ink
-   where T2 sits at 4.3%, and the extra clearance read as undersized arrows.
-   52/36 is the nearest pair on the 4px grid that lands back on T2's balance —
-   48/36 would have been closer still in nominal ratio but crosses the parity
-   line, putting the arrows 2.7% wider than the play they frame. */
+/* T1 — the full-screen player on a desktop-shaped viewport. */
 .transport-scale {
-    --transport-primary: 52px;
+    --transport-primary: 48px;
     --transport-secondary: 36px;
     --transport-utility: 24px;
 }
@@ -434,8 +434,8 @@
    changes tier with the viewport swaps the class from `useIsMobile()` rather
    than restating three values under a media query. */
 .transport-scale--compact {
-    --transport-primary: 40px;
-    --transport-secondary: 28px;
+    --transport-primary: 44px;
+    --transport-secondary: 32px;
     --transport-utility: 20px;
 }
 
