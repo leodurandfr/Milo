@@ -994,7 +994,7 @@ img.player-artwork.loaded {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-02);
+  gap: var(--space-01);
 }
 
 /* Mobile: Horizontal bottom panel layout */

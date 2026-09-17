@@ -228,7 +228,7 @@
                 <div v-else class="ml-controls">
                   <div class="playback-controls">
                     <IconButton
-                      icon="shuffle" variant="ghost" size="small" class="ml-transport-extra transport-utility"
+                      icon="shuffle" variant="ghost" size="small" class="ml-transport-extra transport-secondary-round"
                       :color="controls.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
                     />
                     <div class="ml-transport-main">
@@ -249,7 +249,7 @@
                     </div>
                     <IconButton
                       :icon="controls.starred ? 'heart' : 'heartOff'"
-                      variant="ghost" size="small" class="ml-transport-extra transport-utility"
+                      variant="ghost" size="small" class="ml-transport-extra transport-secondary-round"
                       :color="controls.starred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
                     />
                   </div>

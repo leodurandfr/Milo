@@ -74,7 +74,7 @@
           <template #controls>
             <div class="ml-controls" @click.stop>
               <div class="playback-controls">
-                <IconButton icon="shuffle" variant="ghost" size="small" class="ml-transport-extra transport-utility"
+                <IconButton icon="shuffle" variant="ghost" size="small" class="ml-transport-extra transport-secondary-round"
                   :color="store.shuffle ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
                   @click="store.toggleShuffle()" />
                 <div class="ml-transport-main">
@@ -87,7 +87,7 @@
                 </div>
                 <IconButton :icon="store.currentStarred ? 'heart' : 'heartOff'" variant="ghost" size="small"
                   :color="store.currentStarred ? 'var(--color-text-contrast)' : 'var(--color-text-contrast-50)'"
-                  class="ml-transport-extra transport-utility" @click="store.toggleCurrentStar()" />
+                  class="ml-transport-extra transport-secondary-round" @click="store.toggleCurrentStar()" />
               </div>
             </div>
           </template>

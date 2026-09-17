@@ -404,7 +404,7 @@
 
 
 /* === TRANSPORT SCALE === */
-/* The one place a playback control's icon size is declared. Three tiers, four
+/* The one place a playback control's icon size is declared. Three tiers, three
    roles; a consumer picks a tier on its row and a role on each button, and
    never writes a pixel. SvgIcon reads `--svg-size` with its own native value as
    the fallback, so these inherit down with no `:deep()` and no specificity war.
@@ -427,7 +427,7 @@
    allows; a real divergence is drift, and the guardrail says so. Every value is
    a multiple of 4.
 
-   Why a fourth role. `secondary` is calibrated on the flattest glyph of the set:
+   Why a third role. `secondary` is calibrated on the flattest glyph of the set:
    `next`/`previous` stand 12.0 units tall in the 24 the box holds, where every
    other glyph stands 16 to 20.5. Rasterised at 240px, `rewind15`/`forward30`
    cover 115 units² of ink against the arrows' 141 — they are *lighter* — yet
@@ -438,7 +438,10 @@
    its time in. The glyphs are not at fault — 20.5 sits with `shuffle`'s 20.3
    and `heart`'s 21.0, and outline marks are drawn larger than solid ones on
    purpose — so the correction belongs to the rung, not to the file. A glyph
-   that fills its box in both axes takes `secondary-round`.
+   that fills its box in both axes takes `secondary-round` — which is where
+   Music Library's shuffle and like sit too, on the 20.3/21.0 measured just
+   above: a rung below the arrows they flank left them reading as half the
+   row's other controls.
 
    A ceiling bounds it, not a proportion: the flanking glyph must not outgrow
    the `pause` it flanks, which caps it at primary x 0.78 — the pause stands
@@ -446,8 +449,8 @@
    grid step under that, because at the ceiling itself the pair still read as
    level with the pause rather than under it; like the tiers above, the last
    step was settled by eye on the row, not derived. The floor is the two digits
-   the glyphs carry: 8.2px tall at the compact value, against the 5.8 that ruled
-   `utility` out. A bound rounded to a 4px grid on values near 32 carries most
+   the glyphs carry: 8.2px tall at the compact value, against the 5.8 a rung at
+   20 would leave. A bound rounded to a 4px grid on values near 32 carries most
    of a step of noise, so the tiers land 6.7% apart on this pair where the
    others hold 5 — the guardrail gives it its own tolerance and says why. */
 
@@ -456,7 +459,6 @@
     --transport-primary: 56px;
     --transport-secondary: 48px;
     --transport-secondary-round: 36px;
-    --transport-utility: 28px;
 }
 
 /* The same player on a phone. It has a tier of its own rather than borrowing
@@ -468,7 +470,6 @@
     --transport-primary: 48px;
     --transport-secondary: 40px;
     --transport-secondary-round: 32px;
-    --transport-utility: 24px;
 }
 
 /* A transport row inside a column — Music Library, the lyrics bar, podcast — at
@@ -478,7 +479,6 @@
     --transport-primary: 44px;
     --transport-secondary: 36px;
     --transport-secondary-round: 28px;
-    --transport-utility: 20px;
 }
 
 /* Roles. `--spinner-size` rides along so a control swapping to its loading
@@ -497,11 +497,6 @@
 .transport-secondary-round {
     --svg-size: var(--transport-secondary-round);
     --spinner-size: var(--transport-secondary-round);
-}
-
-.transport-utility {
-    --svg-size: var(--transport-utility);
-    --spinner-size: var(--transport-utility);
 }
 
 /* The spinner's glyph is drawn edge to edge where an icon has its own margin —

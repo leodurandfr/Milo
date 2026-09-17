@@ -34,7 +34,7 @@ const VAR_OWNERS = [
   'components/ui/Button.vue'
 ];
 
-const ROLES = ['primary', 'secondary', 'secondary-round', 'utility'];
+const ROLES = ['primary', 'secondary', 'secondary-round'];
 
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -123,18 +123,17 @@ describe('transport icon scale', () => {
     };
 
     for (const [name, tier] of Object.entries(tiers)) {
-      const { primary, secondary, utility } = tier;
+      const { primary, secondary } = tier;
       const round = tier['secondary-round'];
       expect(ROLES.map((r) => tier[r]).every((v) => v % 4 === 0), `${name} off the 4px grid`).toBe(true);
       expect(primary, `${name}: primary must lead`).toBeGreaterThan(secondary);
-      expect(secondary, `${name}: secondary must lead utility`).toBeGreaterThan(utility);
-      expect(primary / utility, `${name}: utility is not subordinate enough`).toBeGreaterThanOrEqual(2);
       // secondary-round is the same flanking role for a glyph that fills its
-      // box, so it sits strictly between the two: level with `secondary` it
-      // would be the oversized pair it exists to fix, level with `utility` its
-      // digits stop being readable.
+      // box, so it stays under `secondary`: level with it, it is the oversized
+      // pair the role exists to fix. Its floor is the readability of the two
+      // digits `rewind15`/`forward30` carry, which is a judgement made by eye —
+      // stated in the design system's comment, not assertable without restating
+      // the value the tier already declares.
       expect(round, `${name}: secondary-round must sit under secondary`).toBeLessThan(secondary);
-      expect(round, `${name}: secondary-round must sit above utility`).toBeGreaterThan(utility);
     }
 
     // `secondary-round` answers to a ceiling, not to a proportion: a glyph that
