@@ -62,8 +62,8 @@
               <slot name="controls" :expanded="false">
                 <!-- Default: Simple play/pause -->
                 <div class="playback-controls">
-                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium" :loading="isLoading"
-                    @click="$emit('toggle-play')" />
+                  <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
+                    class="transport-primary" :loading="isLoading" @click="$emit('toggle-play')" />
                 </div>
               </slot>
             </div>
@@ -116,11 +116,11 @@
                 <slot name="progress"></slot>
               </div>
 
-              <div class="expanded-controls transport-scale--compact">
+              <div class="expanded-controls transport-scale--phone">
                 <slot name="controls" :expanded="true">
                   <div class="playback-controls">
                     <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="ghost" size="medium"
-                      :loading="isLoading" @click="$emit('toggle-play')" />
+                      class="transport-primary" :loading="isLoading" @click="$emit('toggle-play')" />
                   </div>
                 </slot>
               </div>
@@ -1012,7 +1012,6 @@ img.player-artwork.loaded {
     justify-content: center;
     flex: 0 0 100%;
     min-width: 0;
-    gap: var(--space-01);
     padding-left: var(--space-02);
   }
 
@@ -1096,9 +1095,33 @@ img.player-artwork.loaded {
      thumbnail in this tight single row. The one place a tier token is bent
      rather than picked — this row is sized against the thumbnail beside it, not
      against the transport scale. Scoped to .audio-player (the docked bar only)
-     so the desktop sidebar and the expanded sheet keep their tier. */
-  .audio-player .playback-controls {
-    --transport-primary: 20px;
+     so the desktop sidebar and the expanded sheet keep their tier.
+
+     It has to hang off .controls, not .playback-controls. Scoped CSS stamps this
+     file's id on the last compound of a selector, and .playback-controls is slot
+     content — it carries the *source's* id, never this component's, so a rule
+     ending on it silently matches nothing. The predecessor of this rule did
+     exactly that for the whole life of the mini-bar: it read `20px`, never
+     applied, and the row quietly took SvgIcon's native mobile medium of 24px
+     instead. 28 is a deliberate step up from that accidental 24.
+     .controls is this component's own element, so it carries the id. */
+  .audio-player .controls {
+    --transport-primary: 28px;
+  }
+
+  /* The glyph gets a layer of its own. Measured on an iPhone at DPR 3, playing:
+     the button, the glyph, .player-info and the artwork are all stable to 0.00
+     device pixels, yet the icon visibly shimmers — so nothing is moving and what
+     changes is the rasterisation. .audio-player carries a backdrop-filter, and
+     the progress fill translates behind it at 10 Hz, which makes iOS re-sample
+     the blurred backdrop and repaint what sits on top at a slightly different
+     sub-pixel phase each tick. At 3x that is a whole device pixel; at 1x or 2x
+     it stays under the threshold, which is why no desktop window reproduces it.
+     Promoting the glyph means it is rasterised once and merely composited after.
+     Scoped to the docked bar, and on the svg rather than the button so it does
+     not fight .interactive-press for the transform. */
+  .audio-player .controls :deep(.transport-primary svg) {
+    transform: translateZ(0);
   }
 
   /* Compact mobile player keeps only play/pause; shuffle/prev/next/like are

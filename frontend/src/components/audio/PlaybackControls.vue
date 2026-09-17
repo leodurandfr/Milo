@@ -21,6 +21,14 @@ defineProps({
   },
   // Source is spinning up / buffering (e.g. CD drive starting): show a spinner
   // in place of the play/pause icon until audio actually flows.
+  //
+  // It also blocks the button, which the hand-rolled version this component
+  // replaced did not. That is deliberate rather than incidental: Music Library,
+  // podcast and radio all already pass isBuffering to IconButton's `loading` and
+  // have always been inert during the wait, so the odd one out was here. A
+  // command sent mid-`start()` reaches a source that has not finished
+  // transitioning, and the state machine drops updates while `transitioning` is
+  // set — the press would look accepted and do nothing.
   isBuffering: {
     type: Boolean,
     default: false
@@ -44,10 +52,10 @@ const { isMobile } = useIsMobile();
    the gaps between the icons slightly *wider* than the margins framing them
    (105 against 100 on the 528px desktop plate, 66 against 59 on the phone's
    356px one), which read as three loose icons rather than one control.
-   --space-06 puts 93px between glyph edges against 105 at the ends on desktop,
-   and 58 against 61 on the phone. The token carries its own mobile step (32
-   desktop, 24 phone), which is what keeps the narrower plate from running out
-   of room. */
+   --space-06 puts 86.5px between glyph edges against 101.5 at the ends on the
+   desktop plate, and 55.5 against 58.5 on the phone's. The token carries its own
+   mobile step (32 desktop, 24 phone), which is what keeps the narrower plate
+   from running out of room. */
 .controls {
   background: var(--color-background);
   border-radius: var(--radius-06);

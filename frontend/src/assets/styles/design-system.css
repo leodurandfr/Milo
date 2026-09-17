@@ -410,13 +410,17 @@
    the fallback, so these inherit down with no `:deep()` and no specificity war.
 
    Where the numbers come from. Measured on the 24x24 viewBox: `play` covers
-   14.6 units of ink in width against `next`/`previous`'s 20.0, and it is half
-   again as tall. An equal box therefore makes the arrows read *wider* than the
-   play, and 1.37 is the ratio where the two come out exactly level in width.
-   That is a landmark, not a floor: the play keeps the lead well below it, being
-   taller and carrying the same area in a narrower footprint. Both tiers sit
-   just under 1.37 on purpose — level in width, led by height — because a wider
-   gap read as undersized arrows rather than as an emphasised play.
+   14.6 units of ink in width against `next`/`previous`'s 20.0, while standing
+   half again as tall — the two carry near-identical area in opposite shapes.
+   Box size alone therefore says very little about which one reads larger: at an
+   equal box the arrows are already the wider mark, and 1.37 is only where the
+   two come out level in width.
+
+   The scale sits well below that, around 1.17-1.22, which was settled by eye on
+   a running unit rather than derived. Every step above it that was tried read as
+   undersized arrows rather than as an emphasised play: the play is carried by
+   its height, and buying it width only strands the arrows. Read the ratios as
+   the outcome of that session, not as a rule to re-derive.
 
    What is load-bearing is that the three tiers carry the *same* proportion. The
    4px grid rounds them a few percent apart and that is as close as the grid
@@ -425,9 +429,9 @@
 
 /* The full-screen player on a desktop-shaped viewport. */
 .transport-scale {
-    --transport-primary: 52px;
-    --transport-secondary: 40px;
-    --transport-utility: 24px;
+    --transport-primary: 56px;
+    --transport-secondary: 48px;
+    --transport-utility: 28px;
 }
 
 /* The same player on a phone. It has a tier of its own rather than borrowing
@@ -437,7 +441,7 @@
    onto both and made the phone player read as a cramped list control. */
 .transport-scale--phone {
     --transport-primary: 48px;
-    --transport-secondary: 36px;
+    --transport-secondary: 40px;
     --transport-utility: 24px;
 }
 
@@ -446,7 +450,7 @@
    `useIsMobile()` rather than restating three values under a media query. */
 .transport-scale--compact {
     --transport-primary: 44px;
-    --transport-secondary: 32px;
+    --transport-secondary: 36px;
     --transport-utility: 20px;
 }
 

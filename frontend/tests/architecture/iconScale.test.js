@@ -23,6 +23,17 @@ const DESIGN_SYSTEM = join(SRC, 'assets/styles/design-system.css');
 /** The two files allowed to state an icon dimension in pixels. */
 const SIZE_OWNERS = ['assets/styles/design-system.css', 'components/ui/SvgIcon.vue'];
 
+/**
+ * Files allowed to put a pixel value on the two variables that drive icon size.
+ * LoadingSpinner declares its own rungs the same way SvgIcon does, and Button
+ * owns a spinner scale of its own that has nothing to do with the transport.
+ */
+const VAR_OWNERS = [
+  ...SIZE_OWNERS,
+  'components/ui/LoadingSpinner.vue',
+  'components/ui/Button.vue'
+];
+
 const ROLES = ['primary', 'secondary', 'utility'];
 
 function walk(dir) {
@@ -36,7 +47,7 @@ const STYLE_FILES = walk(SRC).filter((f) => f.endsWith('.vue') || f.endsWith('.c
 const rel = (f) => relative(SRC, f);
 
 describe('transport icon scale', () => {
-  it('leaves every .svg-responsive dimension to the design system', () => {
+  it('leaves every icon dimension to the design system', () => {
     // A rule that targets .svg-responsive and hardcodes a pixel dimension is the
     // exact shape that was recopied across three files. Anywhere but the two
     // owners, it is a size the scale cannot reach and no tier can override.
@@ -52,12 +63,29 @@ describe('transport icon scale', () => {
       }
     }
 
-    // The extractor must prove it can see the shape it forbids, or a broken
-    // regex would report "no offenders" forever.
+    // Same for the variables themselves. The overrides this scale replaced were
+    // `--spinner-size: 44px` recopied in three files, and they targeted no
+    // .svg-responsive selector at all — the rule above would let every one of
+    // them come back green.
+    for (const file of STYLE_FILES) {
+      if (VAR_OWNERS.includes(rel(file))) continue;
+      const text = readFileSync(file, 'utf8');
+      for (const decl of text.matchAll(/--(svg-size|spinner-size)\s*:\s*([^;}]+)/g)) {
+        if (/\d+px/.test(decl[2])) {
+          offenders.push(`${rel(file)}: --${decl[1]}: ${decl[2].trim()}`);
+        }
+      }
+    }
+
+    // Both extractors must prove they can see the shapes they forbid, or a
+    // broken regex would report "no offenders" forever.
     const owner = readFileSync(join(SRC, 'components/ui/SvgIcon.vue'), 'utf8');
     const seen = [...owner.matchAll(/([^{}]*\.svg-responsive[^{}]*)\{([^}]*)\}/g)];
     expect(seen.length).toBeGreaterThan(3);
     expect(seen.some(([, , body]) => /\d+px/.test(body))).toBe(true);
+
+    const button = readFileSync(join(SRC, 'components/ui/Button.vue'), 'utf8');
+    expect([...button.matchAll(/--spinner-size\s*:\s*\d+px/g)].length).toBeGreaterThan(0);
 
     expect(offenders).toEqual([]);
   });
