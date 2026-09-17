@@ -254,30 +254,28 @@ class TestConnectBudget:
 
     @pytest.mark.asyncio
     async def test_default_budget_fits_a_source_start(self):
-        """A whole transition must fit under TRANSITION_TIMEOUT, not just mpv.
+        """Both claims TRANSITION_TIMEOUT can actually make, and no more.
 
-        This assertion used to count the mpv half alone and omit the largest
-        term: a transition stops the old source and starts the new one, and
-        each of those spends a SystemdServiceManager call. With the mpv side
-        summing to 7.5s under a 10.0s guard it read as satisfied while the real
-        worst case was several times the budget — so the guard fired on bounded
-        work doing its job, and settled the source the user had just picked in
-        ERROR. Derived from the constants so moving any of them fails here
-        rather than in a room with a speaker in it.
+        It used to assert only the mpv half and read as satisfied while the
+        guard sat below a single systemd call — the term that actually cut a
+        transition short. It is tempting to assert the whole transition
+        instead, but that is not a property this codebase has: a transition
+        spends 2 systemd calls on an mpv source and 4 on Bluetooth, whose
+        _do_start and _do_stop drive three units each, so dominating it means
+        a guard past 60s holding `_transition_lock` the whole time. Asserting
+        it would only force that number. These two hold and are worth keeping
+        red-able: one systemd call fits, and so does the mpv connect.
         """
         from backend.core.state import AudioStateMachine
         from backend.core.systemd import CONTROL_TIMEOUT
         from backend.shared.mpv import CONNECT_TIMEOUT, PROBE_TIMEOUT
 
-        # Stop the old source, start the new one: two systemd calls, then
+        assert CONTROL_TIMEOUT < AudioStateMachine.TRANSITION_TIMEOUT
+
         # _start_service_and_wait settles for 0.5s before connect() is called.
-        worst_case = (
-            2 * CONTROL_TIMEOUT
-            + 0.5
-            + PROBE_TIMEOUT
-            + CONNECT_TIMEOUT
-        )
-        assert worst_case < AudioStateMachine.TRANSITION_TIMEOUT
+        assert (
+            CONNECT_TIMEOUT + PROBE_TIMEOUT + 0.5
+        ) < AudioStateMachine.TRANSITION_TIMEOUT
 
 
 class TestReserveIsPerBranch:

@@ -11,11 +11,13 @@ from backend.shared.decorators import handle_errors
 # settle probes that follow it. Bounding the child alone left the call's real
 # worst case emergent — 10s for systemctl, plus six `is_active` probes bounded
 # at 5s each, plus their sleeps: 47.5s that nothing declared and nothing above
-# could be sized against. AudioStateMachine.TRANSITION_TIMEOUT wraps this call
-# and sat below that number, so the inner bound was unreachable: the outer one
-# always fired first and cancelled stops that were still legitimately in
-# flight, then reported the source as refusing to stop.
-CONTROL_TIMEOUT = 10.0
+# could be sized against.
+#
+# 12.5 is not a new tolerance, it is the old one written down: the 10s the
+# child already had, plus the 2.5s the settle loop already spent. Declaring it
+# at 10.0 would have been a quiet narrowing, taking the settle window out of
+# the child's budget on exactly the loaded box where both are needed.
+CONTROL_TIMEOUT = 12.5
 SETTLE_PROBES = 6
 SETTLE_INTERVAL = 0.5
 
@@ -258,9 +260,15 @@ class SystemdServiceManager:
                 return False
 
         except asyncio.TimeoutError:
-            # proc is None when the deadline fell inside the spawn itself —
-            # `power()` and `set_enabled()` already guard it that way.
-            if proc:
+            # Two states have no child to kill, and both are new here: the
+            # deadline now opens before the spawn (proc is None) and closes
+            # after the settle probes, by which point `communicate()` has
+            # already reaped the child — `kill()` then raises
+            # ProcessLookupError, and an exception raised inside an except arm
+            # is not caught by the sibling arm below. It escaped as far as the
+            # lifespan's `asyncio.gather` over the lingering-unit sweep, where
+            # it aborted startup with an empty message.
+            if proc and proc.returncode is None:
                 proc.kill()
             self.logger.error(f"Timeout ({action} {service} exceeded {CONTROL_TIMEOUT}s)")
             return False

@@ -396,6 +396,37 @@ class TestControlServiceFailureArms:
         assert "Timeout (stop milo-radio" in caplog.text
 
     @pytest.mark.asyncio
+    async def test_a_deadline_after_the_child_exited_does_not_raise(
+        self, manager, monkeypatch, caplog
+    ):
+        """The kill arm must survive having nothing left to kill.
+
+        The deadline closes after the settle probes, and by then
+        `communicate()` has reaped the child: `kill()` answers
+        ProcessLookupError, which the sibling `except Exception` cannot catch
+        because it is raised inside a handler. `_control_service` then raises
+        where every caller expects a bool — `main.py`'s lingering-unit sweep
+        gathers these at startup without return_exceptions, so one wedged
+        probe on a slow boot stopped the backend from coming up at all.
+
+        `_hanging_proc` cannot express this: its `kill` is a silent Mock, so
+        the arm reads as exercised while the real failure is a raise.
+        """
+        _short_control_timeout(monkeypatch)
+        exited = _make_mock_proc(returncode=0)
+        exited.kill = Mock(side_effect=ProcessLookupError())
+
+        def _spawn(*args, **kwargs):
+            return _hanging_proc() if "is-active" in args else exited
+
+        with patch("asyncio.create_subprocess_exec", side_effect=_spawn):
+            with caplog.at_level(logging.ERROR):
+                assert await manager.stop("milo-radio") is False
+
+        exited.kill.assert_not_called()
+        assert "Timeout (stop milo-radio" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_a_deadline_inside_the_spawn_is_reported_as_one(
         self, manager, monkeypatch, caplog
     ):

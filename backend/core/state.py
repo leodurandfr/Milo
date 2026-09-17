@@ -55,20 +55,23 @@ class AudioStateMachine:
     obeys the same order through exclusive_transition().
     """
 
-    # Sized strictly above every bounded step it wraps, so it only ever fires
-    # on the leaves that have no bound of their own (_save_progress writing to
-    # the SD card, a _do_start reading the network). At 10.0 it sat below them:
-    # a stop alone can spend SystemdServiceManager.CONTROL_TIMEOUT, so this
-    # guard cancelled bounded work that was still in flight and settled the
-    # source in ERROR over a stop that then completed a second later.
-    #   stop   CONTROL_TIMEOUT                       10.0
-    #   start  CONTROL_TIMEOUT                       10.0
-    #          _start_service_and_wait settle         0.5
-    #          PROBE_TIMEOUT + CONNECT_TIMEOUT        7.0
-    #                                               =27.5
-    # Pinned against those constants by test_mpv_controller.py, which is what
-    # keeps this number honest when any of them moves.
-    TRANSITION_TIMEOUT = 30.0
+    # Above one SystemdServiceManager call, deliberately not above a whole
+    # transition. Dominating one is not achievable with a single number: a
+    # transition costs 2 systemd calls on an mpv source and 4 on Bluetooth,
+    # whose _do_start and _do_stop drive three units each — sizing for that
+    # case puts the guard past 60s, and `_transition_lock` is held throughout,
+    # so the appliance would ignore every source press for a minute on any
+    # switch that wedges. The guard exists to stop the UI hanging forever on a
+    # leaf that has no bound of its own (_save_progress writing to the SD card,
+    # a _do_start reading the network), which argues for a short number.
+    #
+    # At 10.0 it sat below a single one of those calls, so it fired on bounded
+    # work still legitimately in flight — measured on the unit, a stop issued
+    # at 22:31:28.650 reached PID 1 only at 22:31:40.745 while the guard cut at
+    # 22:31:38.4. 15.0 clears one call and nothing more; what happens *after*
+    # it fires (a blind second stop, a "would not stop" nobody verified) is the
+    # part that misreports, and it is not addressed here.
+    TRANSITION_TIMEOUT = 15.0
     INACTIVITY_TIMEOUT = 43200  # 12 hours in seconds
 
     # States a source can sit in without ever producing audio, so the ones the
