@@ -439,8 +439,25 @@ class AudioStateMachine:
         fix; a bool nobody reads would just move this finding up one frame.
         """
         instance = self.sources.get(source)
-        if instance and not await instance.stop():
+        if not instance or await instance.stop():
+            return
+
+        # stop() answers False for two different facts: the unit refused, or
+        # the call ran out of budget with nothing confirmed. Only the first
+        # justifies a line that reaches the banner — the second used to borrow
+        # its wording and accuse a source that had already stopped.
+        still_up = await instance.probe_service_active()
+        if still_up is True:
             logger.error("%s would not stop; starting over it", source.value)
+        elif still_up is None:
+            logger.warning(
+                "%s stop went unconfirmed — the unit may still hold the device",
+                source.value,
+            )
+        else:
+            logger.info(
+                "%s stop was reported failed, but its unit is down", source.value
+            )
 
     @handle_errors(default=False)
     async def _start_source(self, source: AudioSource) -> bool:
@@ -476,11 +493,25 @@ class AudioStateMachine:
         keeps the ALSA device and every later start fails until reboot.
         """
         if unstopped_source not in (AudioSource.NONE, target_source):
-            logger.warning(
-                "Teardown of %s was cut short by the transition timeout — retrying it",
-                unstopped_source.value,
-            )
-            await self._stop_source(unstopped_source)
+            # Ask before re-issuing. The cut teardown often *did* land — the
+            # timeout fires on the budget, not on the unit — and the blind
+            # retry then spent a second systemd call on an already-dead unit,
+            # timed out on a loaded box, and reported it as a refusal. Only a
+            # known-down unit is skipped: unknown still retries, because
+            # leaving one up keeps the ALSA device for every later start.
+            instance = self.sources.get(unstopped_source)
+            still_up = await instance.probe_service_active() if instance else None
+            if still_up is False:
+                logger.info(
+                    "Teardown of %s was cut short, but its unit is down — not re-issuing",
+                    unstopped_source.value,
+                )
+            else:
+                logger.warning(
+                    "Teardown of %s was cut short by the transition timeout — retrying it",
+                    unstopped_source.value,
+                )
+                await self._stop_source(unstopped_source)
 
         if target_source != AudioSource.NONE:
             await self._stop_source(target_source)

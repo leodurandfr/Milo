@@ -3,7 +3,7 @@ Manager for systemd services.
 """
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from backend.shared.decorators import handle_errors
 
@@ -20,6 +20,7 @@ from backend.shared.decorators import handle_errors
 CONTROL_TIMEOUT = 12.5
 SETTLE_PROBES = 6
 SETTLE_INTERVAL = 0.5
+IS_ACTIVE_TIMEOUT = 5.0
 
 
 class SystemdServiceManager:
@@ -160,21 +161,44 @@ class SystemdServiceManager:
             self.logger.error(f"System {action} failed: {e}")
             return False
 
-    @handle_errors(default=False)
-    async def is_active(self, service: str) -> bool:
-        """Checks if a service is active."""
+    @handle_errors(default=None)
+    async def probe_active(self, service: str) -> Optional[bool]:
+        """True, False, or None when the probe could not tell.
+
+        The three answers exist because two of them used to be one. `is_active`
+        collapses None to False, which is right for a caller rendering a status
+        and wrong for one deciding whether work finished: `_control_service`
+        compares the answer against `expected_active`, and a `stop` expects
+        False — so a probe that never came back read as "stopped successfully"
+        for a unit that may still hold the ALSA device, in ~5s, well inside the
+        call's own ceiling. Nothing in the return value distinguished "it is
+        down" from "I could not look".
+
+        `activating` and `deactivating` are False, not None: they are known
+        states, and the unit is genuinely not where it was asked to be yet.
+        """
         proc = await asyncio.create_subprocess_exec(
             "systemctl", "is-active", service,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL
         )
         try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), 5.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), IS_ACTIVE_TIMEOUT)
         except asyncio.TimeoutError:
-            proc.kill()
+            if proc.returncode is None:
+                proc.kill()
             self.logger.error(f"Timeout checking is_active for {service}")
-            return False
+            return None
         return stdout.decode().strip() == "active"
+
+    async def is_active(self, service: str) -> bool:
+        """Whether the unit is known to be active — an unreadable probe is not.
+
+        Kept as the bool every status reader wants (`api/system.py`, the
+        diagnostic collectors, the lifespan sweep). A caller that acts on the
+        answer rather than displaying it wants `probe_active` instead.
+        """
+        return await self.probe_active(service) is True
 
     async def get_status(self, service: str) -> Dict[str, Any]:
         """Retrieves detailed status of a service."""
@@ -246,17 +270,28 @@ class SystemdServiceManager:
                 # 0.5s on every start AND stop (≥1s per source switch) for nothing.
                 # 6 probes at t=0,0.5..2.5s: same 2.5s settle window as before, but a
                 # service already settled on the first probe returns immediately.
+                # probe_active, not is_active: None never equals a bool, so an
+                # unreadable probe cannot satisfy the comparison. Under
+                # is_active it did — for a `stop`, whose expectation is False.
                 expected_active = action != "stop"
+                observed = None
                 for attempt in range(SETTLE_PROBES):
-                    if await self.is_active(service) == expected_active:
+                    observed = await self.probe_active(service)
+                    if observed == expected_active:
                         return True
                     if attempt < SETTLE_PROBES - 1:
                         await asyncio.sleep(SETTLE_INTERVAL)
 
                 expected_state = "active" if expected_active else "inactive"
-                self.logger.error(
-                    f"Service {service} did not reach {expected_state} after {action}"
-                )
+                if observed is None:
+                    self.logger.error(
+                        f"Could not confirm {service} reached {expected_state} "
+                        f"after {action}"
+                    )
+                else:
+                    self.logger.error(
+                        f"Service {service} did not reach {expected_state} after {action}"
+                    )
                 return False
 
         except asyncio.TimeoutError:

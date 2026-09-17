@@ -552,6 +552,9 @@ class TestFailedTransition:
         old_source.initialize = AsyncMock(return_value=True)
         old_source.start = AsyncMock(return_value=True)
         old_source.stop = stop_hangs_once
+        # The unwind asks before re-issuing; True is the branch this test is
+        # about — the cut teardown left the unit up, so it must be retried.
+        old_source.probe_service_active = AsyncMock(return_value=True)
         old_source.is_initialized = False
         old_source.state = SourceState.ACTIVE
         old_source.metadata = {}
@@ -566,6 +569,47 @@ class TestFailedTransition:
         assert result is False
         assert len(stop_calls) == 2
         mock_source.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_cut_teardown_is_not_re_issued_when_the_unit_is_down(
+        self, state_machine, mock_source
+    ):
+        """The timeout fires on the budget, not on the unit.
+
+        A teardown cancelled mid-way has usually landed anyway — measured on
+        the unit, systemd completed the stop a second after the guard cut it.
+        Re-issuing blindly spent a second systemd call on a dead unit, timed
+        out on a loaded box, and came back as `would not stop`: an accusation
+        against a source that had done exactly what it was told. Asking first
+        costs one probe and removes the whole sequence.
+        """
+        stop_calls = []
+
+        async def stop_hangs_once():
+            stop_calls.append(1)
+            if len(stop_calls) == 1:
+                await asyncio.sleep(10)  # cancelled by the transition timeout
+            return True
+
+        old_source = Mock()
+        old_source.initialize = AsyncMock(return_value=True)
+        old_source.start = AsyncMock(return_value=True)
+        old_source.stop = stop_hangs_once
+        # The unit came down while the guard was cancelling the call.
+        old_source.probe_service_active = AsyncMock(return_value=False)
+        old_source.is_initialized = False
+        old_source.state = SourceState.ACTIVE
+        old_source.metadata = {}
+
+        state_machine.register_source(AudioSource.BLUETOOTH, old_source)
+        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        await state_machine.transition_to_source(AudioSource.BLUETOOTH)
+
+        state_machine.TRANSITION_TIMEOUT = 0.1
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
+
+        assert result is False
+        assert len(stop_calls) == 1, "the dead unit was stopped a second time"
 
     @pytest.mark.asyncio
     async def test_a_start_failure_does_not_stop_the_old_source_twice(
@@ -606,8 +650,10 @@ class TestASourceThatWillNotStop:
     """
 
     async def test_a_refused_stop_is_reported_at_error(self, state_machine, caplog):
+        """The unit answered that it is still up: this is the real refusal."""
         stubborn = Mock()
         stubborn.stop = AsyncMock(return_value=False)
+        stubborn.probe_service_active = AsyncMock(return_value=True)
         state_machine.sources[AudioSource.SPOTIFY] = stubborn
 
         with caplog.at_level(logging.ERROR):
@@ -615,6 +661,41 @@ class TestASourceThatWillNotStop:
 
         assert "would not stop" in caplog.text
         assert AudioSource.SPOTIFY.value in caplog.text
+
+    async def test_a_stop_that_landed_late_is_not_called_a_refusal(
+        self, state_machine, caplog
+    ):
+        """`stop()` False with the unit down is a budget that ran out, not a
+        refusal — and the banner used to carry the accusation anyway.
+
+        This is the shape measured on the unit: the transition guard cancelled
+        a stop that systemd completed a second later, and the log named the
+        source as the culprit.
+        """
+        late = Mock()
+        late.stop = AsyncMock(return_value=False)
+        late.probe_service_active = AsyncMock(return_value=False)
+        state_machine.sources[AudioSource.SPOTIFY] = late
+
+        with caplog.at_level(logging.ERROR):
+            await state_machine._stop_source(AudioSource.SPOTIFY)
+
+        assert caplog.text == ""
+
+    async def test_an_unreadable_unit_is_reported_as_unconfirmed(
+        self, state_machine, caplog
+    ):
+        """Neither silence nor an accusation: the device may still be held."""
+        opaque = Mock()
+        opaque.stop = AsyncMock(return_value=False)
+        opaque.probe_service_active = AsyncMock(return_value=None)
+        state_machine.sources[AudioSource.SPOTIFY] = opaque
+
+        with caplog.at_level(logging.WARNING):
+            await state_machine._stop_source(AudioSource.SPOTIFY)
+
+        assert "unconfirmed" in caplog.text
+        assert "would not stop" not in caplog.text
 
     async def test_a_clean_stop_says_nothing(self, state_machine, mock_source, caplog):
         state_machine.sources[AudioSource.SPOTIFY] = mock_source

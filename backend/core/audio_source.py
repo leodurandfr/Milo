@@ -567,6 +567,18 @@ class BaseAudioSource(ABC):
             self._logger.error(f"Failed to check if service '{name}' is active: {e}")
             return False
 
+    async def probe_service_active(self) -> Optional[bool]:
+        """Whether this source's unit is still up, or None when it cannot be told.
+
+        Distinct from `_is_service_active`, which answers True for a source
+        owning no unit — right for "is my service up", wrong for the question
+        the state machine asks after a stop came back False: is something still
+        holding the device? A source with no unit is holding nothing.
+        """
+        if not self.service_name:
+            return False
+        return await self._service_manager.probe_active(self.service_name)
+
     async def _start_service_and_wait(self, settle: float = 0.5) -> bool:
         """Start the systemd service and wait for it to settle."""
         if not await self._start_service():

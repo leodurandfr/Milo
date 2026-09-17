@@ -332,12 +332,20 @@ class TestIsActive:
     async def test_a_wedged_systemctl_is_killed_and_read_as_inactive(
         self, manager, monkeypatch, caplog
     ):
-        """Six of these run inside `_control_service`'s settle loop.
+        """The bool face of the probe: unreadable is not active.
 
-        Left unkilled, each wedged probe leaves a child behind for the life of
-        the backend; answered as anything but False, a stop that never happened
-        is reported as complete and the next source starts over a unit still
-        holding the loopback.
+        This docstring used to argue the opposite — that answering "anything
+        but False" was what let a stop that never happened read as complete.
+        It is exactly backwards, and it is why the defect sat here in plain
+        sight: `_control_service` compares the answer against
+        `expected_active`, which is False for a stop, so False was the value
+        that declared the unreported stop complete. `is_active` keeps
+        answering False because its callers render it (`api/system.py`, the
+        diagnostic collectors); the settle loop reads `probe_active` instead,
+        pinned just below.
+
+        Left unkilled, each wedged probe also leaves a child behind for the
+        life of the backend, and six run per source switch.
         """
         _short_wait_for(monkeypatch)
         proc = _hanging_proc()
@@ -348,9 +356,49 @@ class TestIsActive:
         proc.kill.assert_called_once()
         assert "Timeout checking is_active for milo-radio" in caplog.text
 
+    @pytest.mark.asyncio
+    async def test_a_wedged_probe_answers_unknown_not_inactive(
+        self, manager, monkeypatch
+    ):
+        """The distinction the bool could not carry.
+
+        `probe_active` is what a caller acting on the answer must use; None is
+        the state that says so. Collapsed to False it is indistinguishable
+        from "the unit is down", which is the answer a stop is waiting for.
+        """
+        _short_wait_for(monkeypatch)
+        proc = _hanging_proc()
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            assert await manager.probe_active("milo-radio") is None
+
 
 class TestControlServiceFailureArms:
     """What `start`/`stop`/`restart` do when systemctl does not come back."""
+
+    @pytest.mark.asyncio
+    async def test_an_unanswered_probe_is_not_a_successful_stop(
+        self, manager, monkeypatch, caplog
+    ):
+        """The defect itself, isolated from the call's ceiling.
+
+        systemctl stop succeeds, every settle probe times out, and the budget
+        is generous — so nothing else can produce the False. Before the probe
+        grew its third answer this returned True in ~5s: the unit may still
+        hold the loopback, and the next source starts over it.
+        """
+        monkeypatch.setattr("backend.core.systemd.CONTROL_TIMEOUT", 5.0)
+        monkeypatch.setattr("backend.core.systemd.IS_ACTIVE_TIMEOUT", 0.01)
+        monkeypatch.setattr("backend.core.systemd.SETTLE_INTERVAL", 0.0)
+        stopped = _make_mock_proc(returncode=0)
+
+        def _spawn(*args, **kwargs):
+            return _hanging_proc() if "is-active" in args else stopped
+
+        with patch("asyncio.create_subprocess_exec", side_effect=_spawn):
+            with caplog.at_level(logging.ERROR):
+                assert await manager.stop("milo-radio") is False
+
+        assert "Could not confirm" in caplog.text
 
     @pytest.mark.asyncio
     async def test_a_wedged_systemctl_is_killed_and_reported(
