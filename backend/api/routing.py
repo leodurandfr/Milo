@@ -15,7 +15,7 @@ import aiohttp
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.api.models import SnapcastServerConfigRequest
+from backend.api.models import SnapcastCalibrationRequest, SnapcastServerConfigRequest
 from backend.api.responses import MultiroomSetResponse
 from backend.api.route_helpers import api_error_handler, coerce_audio_source_or_none
 from backend.config.constants import CLIENT_API_PORT
@@ -28,6 +28,7 @@ from backend.core.multiroom.routing import (
 from backend.core.multiroom.snapcast import NETWORK_PRESETS, SUPPORTED_CODECS
 
 if TYPE_CHECKING:
+    from backend.core.multiroom.calibration_service import CalibrationService
     from backend.core.multiroom.client_registry import ClientRegistryService
     from backend.core.multiroom.routing import AudioRoutingService
     from backend.core.multiroom.snapcast import SnapcastService
@@ -68,6 +69,7 @@ def create_routing_router(
     snapcast_service: "SnapcastService",
     settings_service: Optional["SettingsService"] = None,
     client_registry_service: Optional["ClientRegistryService"] = None,
+    calibration_service: Optional["CalibrationService"] = None,
 ):
     """Creates the /api/routing router (multiroom mode + snapcast server config)."""
     router = APIRouter(prefix="/api/routing", tags=["routing"])
@@ -251,6 +253,48 @@ def create_routing_router(
             return {
                 "status": "success",
                 "message": "Configuration updated and services restarted"
+            }
+
+    # === Automatic analysis ===
+
+    @router.post("/snapcast/calibration")
+    async def start_calibration(payload: SnapcastCalibrationRequest):
+        """Measure the fleet and propose a configuration.
+
+        Answers as soon as the run starts; the proposal arrives over WS, because
+        measuring takes tens of seconds. The analysis never writes: what it
+        computes is applied by the caller through PUT /snapcast/server-config,
+        so this house keeps exactly one writer for that resource.
+        """
+        async with api_error_handler("Error starting calibration", logger):
+            if calibration_service is None:
+                logger.error("Calibration requested but the service is not wired")
+                raise HTTPException(status_code=503, detail="Calibration unavailable")
+
+            if not calibration_service.start(payload.quality):
+                raise HTTPException(status_code=409, detail="An analysis is already running")
+
+            return {"status": "success", "message": "Analysis started"}
+
+    @router.get("/snapcast/calibration")
+    async def get_calibration():
+        """Whether an analysis is running, and the last proposal.
+
+        The progress and result events are WS deltas, and deltas are never
+        replayed: a tab backgrounded across a run has to be able to refetch what
+        it missed, or it shows an idle screen over a finished analysis.
+        """
+        async with api_error_handler("Error reading calibration state", logger):
+            if calibration_service is None:
+                return {"status": "success", "running": False, "result": None}
+            return {
+                "status": "success",
+                "running": calibration_service.running,
+                "result": calibration_service.last_result,
+                # Without these a tab that loads mid-run draws an empty bar and
+                # "0 s left" for the rest of the analysis: the duration only
+                # ever travelled on the progress event it had already missed.
+                **calibration_service.progress,
             }
 
     return router

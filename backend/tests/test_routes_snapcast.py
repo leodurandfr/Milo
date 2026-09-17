@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock
 from backend.api.routing import create_routing_router
 from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG, SNAPCLIENT_LIMITS
+from backend.core.multiroom.snapcast import NETWORK_PRESETS
 from backend.core.models.audio_state import AudioSource
 from backend.core.settings import SettingsWriteError
 
@@ -67,7 +68,11 @@ class TestSnapcastRoutes:
         assert "config" in body
         # Capabilities are the single source for the UI codec/preset options
         assert body["capabilities"]["codecs"]
-        assert {p["id"] for p in body["capabilities"]["presets"]} == {"responsive", "balanced", "robust"}
+        # Derived, not restated: the payload's job is to carry whatever the
+        # backend declares, and a hardcoded id list here only ever fails when
+        # someone changes that set on purpose.
+        assert ({p["id"] for p in body["capabilities"]["presets"]}
+                == {p["id"] for p in NETWORK_PRESETS})
 
     def test_get_server_config_unavailable(self, client):
         """Test GET /api/routing/snapcast/server-config when unavailable"""

@@ -346,16 +346,25 @@
     "restarting": "Restarting…"
   },
   "multiroomSettings": {
-    "presets": "Presets",
-    "responsive": "Responsive",
-    "balanced": "Balanced",
-    "robust": "Robust",
-    "advanced": "Advanced settings",
     "globalBuffer": "Global buffer (ms)",
     "snapclientBuffer": "Player buffer (ms)",
     "codec": "Audio codec",
     "chunkSize": "Chunk size (ms)",
-    "apply": "Apply"
+    "apply": "Apply",
+    "failedNoRemote": "Analysis needs at least one remote speaker online.",
+    "failedProbe": "A speaker could not be measured: {detail}",
+    "latencyAndQuality": "Latency and quality",
+    "failedStart": "The analysis could not be started.",
+    "reset": "Reset",
+    "autoTune": "Set automatically",
+    "partlyAssumed": "Some values could not be measured and were assumed.",
+    "valuesAreMeasured": "Settings measured on your network",
+    "remaining": "{seconds} s left",
+    "stageProbing": "Measuring the speakers",
+    "stageComputing": "Computing the settings",
+    "speaker": "Speaker",
+    "latency": "Latency",
+    "loss": "Loss"
   },
   "updates": {
     "osTitle": "Operating system",

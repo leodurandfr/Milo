@@ -346,16 +346,25 @@
     "restarting": "A reiniciar…"
   },
   "multiroomSettings": {
-    "presets": "Presets",
-    "responsive": "Reativo",
-    "balanced": "Equilibrado",
-    "robust": "Robusto",
-    "advanced": "Configurações avançadas",
     "globalBuffer": "Buffer global (ms)",
     "snapclientBuffer": "Buffer do reprodutor (ms)",
     "codec": "Codec de áudio",
     "chunkSize": "Tamanho dos blocos (ms)",
-    "apply": "Aplicar"
+    "apply": "Aplicar",
+    "failedNoRemote": "A análise precisa de pelo menos uma coluna remota em linha.",
+    "failedProbe": "Não foi possível medir uma coluna: {detail}",
+    "latencyAndQuality": "Latência e qualidade",
+    "failedStart": "Não foi possível iniciar a análise.",
+    "reset": "Repor",
+    "autoTune": "Definir automaticamente",
+    "partlyAssumed": "Alguns valores não puderam ser medidos e foram presumidos.",
+    "valuesAreMeasured": "Definições medidas na sua rede",
+    "remaining": "faltam {seconds} s",
+    "stageProbing": "A medir as colunas",
+    "stageComputing": "A calcular as definições",
+    "speaker": "Coluna",
+    "latency": "Latência",
+    "loss": "Perda"
   },
   "updates": {
     "osTitle": "Sistema operacional",

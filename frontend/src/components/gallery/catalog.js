@@ -411,6 +411,12 @@ export const ENTRIES = [
     summary: 'The settings card, and the most-imported component in the frontend (30). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
   },
   {
+    id: 'ProgressStrip',
+    group: 'settings',
+    file: 'components/settings/ProgressStrip.vue',
+    summary: 'The progress strip the settings screens share: Navidrome\'s scan, the add-share wizard, the multiroom analysis. `percent` null sweeps, for work with no known total; a number fills. Two modes rather than two components, because a second bar drawn elsewhere is how two of them come to look different.',
+  },
+  {
     id: 'SettingItem',
     group: 'settings',
     file: 'components/settings/SettingItem.vue',

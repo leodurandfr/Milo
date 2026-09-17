@@ -114,6 +114,7 @@ def boot(monkeypatch):
 
     by_service_name = {
         "pending_clients_service": _torn_down("pending_clients"),
+        "calibration_service": _torn_down("calibration"),
         "connectivity_service": _torn_down("connectivity"),
         "hostname_conflict_service": _torn_down("hostname_conflict"),
     }
@@ -341,7 +342,8 @@ class TestShutdownTable:
 
         assert set(boot["order"]) == {
             "snapcast_websocket_service", "client_registry_service", "volume_service",
-            "camilladsp_service", "pending_clients", "equalizer_proxy_service",
+            "camilladsp_service", "pending_clients", "calibration",
+            "equalizer_proxy_service",
             "levels_monitor", "screen_controller", "bt_remote_controller",
             "ir_remote_controller", "fan_controller", "connectivity", "network",
             "routing_service", "crossover_service", "hostname_conflict",

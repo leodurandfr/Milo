@@ -346,16 +346,25 @@
     "restarting": "Redémarrage…"
   },
   "multiroomSettings": {
-    "presets": "Pré-réglages",
-    "responsive": "Réactif",
-    "balanced": "Équilibré",
-    "robust": "Robuste",
-    "advanced": "Paramètres avancés",
     "globalBuffer": "Buffer global (ms)",
     "snapclientBuffer": "Buffer lecteur (ms)",
     "codec": "Codec audio",
     "chunkSize": "Taille des chunks (ms)",
-    "apply": "Appliquer"
+    "apply": "Appliquer",
+    "failedNoRemote": "L'analyse exige au moins une enceinte distante en ligne.",
+    "failedProbe": "Une enceinte n'a pas pu être mesurée : {detail}",
+    "latencyAndQuality": "Latence et qualité",
+    "failedStart": "L'analyse n'a pas pu être lancée.",
+    "reset": "Réinitialiser",
+    "autoTune": "Régler automatiquement",
+    "partlyAssumed": "Certaines valeurs n'ont pas pu être mesurées et ont été supposées.",
+    "valuesAreMeasured": "Réglages mesurés sur votre réseau",
+    "remaining": "{seconds} s restantes",
+    "stageProbing": "Mesure des enceintes",
+    "stageComputing": "Calcul des réglages",
+    "speaker": "Enceinte",
+    "latency": "Latence",
+    "loss": "Perte"
   },
   "updates": {
     "osTitle": "Système d'exploitation",

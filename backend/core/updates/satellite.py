@@ -7,6 +7,7 @@ import contextlib
 import aiohttp
 import logging
 import os
+import hashlib
 import tarfile
 import tempfile
 from pathlib import Path
@@ -269,13 +270,41 @@ class SatelliteUpdateService:
         Uncommitted work in the directory is payload no commit names, hence the
         `-dirty` suffix: without it a satellite change under test can never be
         pushed from the UI.
+
+        That suffix carries a digest of the uncommitted content, and it has to.
+        A bare `-dirty` is a flag, not a fingerprint: it reads the same before
+        and after the working tree changes, so the *first* push of a change
+        under test worked and every later one was reported as already applied.
+        Measured on the fleet -- both satellites answered `081c8316-dirty`,
+        "up to date" in the UI, while neither carried the route added to that
+        directory half an hour earlier.
         """
         commit = await self._git("log", "-1", "--format=%h", "--", "milo-client")
         if not commit:
             return None
 
-        dirty = await self._git("status", "--porcelain", "--", "milo-client")
-        return f"{commit}-dirty" if dirty else commit
+        # `-uall` and `-z` are both load-bearing. Without `-uall`, git collapses a
+        # brand-new directory into a single `?? dir/` entry, `read_bytes()` on it
+        # raises IsADirectoryError, the suppress below eats it, and the digest is
+        # identical across every edit inside that module -- which is the exact
+        # case this fingerprint exists to catch. Without `-z`, git quotes paths
+        # holding accents or spaces, and the quoted name reads as a missing file.
+        dirty = await self._git(
+            "status", "--porcelain", "--untracked-files=all", "-z", "--", "milo-client"
+        )
+        if not dirty:
+            return commit
+
+        digest = hashlib.sha256()
+        digest.update((await self._git("diff", "HEAD", "--", "milo-client") or "").encode())
+        for entry in dirty.split("\0"):
+            # Untracked files are absent from the diff, and a brand new module is
+            # the most common shape of satellite work under test.
+            if entry.startswith("?? "):
+                path = MILO_REPO_DIR / entry[3:]
+                with contextlib.suppress(OSError):
+                    digest.update(await asyncio.to_thread(path.read_bytes))
+        return f"{commit}-dirty.{digest.hexdigest()[:8]}"
 
     async def get_server_version(self) -> Optional[str]:
         """The version string the server shows for itself, which is the one a

@@ -101,6 +101,7 @@ import { useLyricsStore } from '@/stores/lyricsStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
+import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
@@ -143,6 +144,7 @@ const lyricsStore = useLyricsStore();
 const podcastStore = usePodcastStore();
 const radioStore = useRadioStore();
 const musicLibraryStore = useMusicLibraryStore();
+const snapcastStore = useSnapcastStore();
 const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
@@ -207,7 +209,7 @@ function processInitialState(event) {
 const deltaStores = [
   unifiedStore, multiroomStore, equalizerStore, systemStore, fanStore,
   radioStore, podcastStore, updatesStore, settingsStore,
-  musicLibraryStore,
+  musicLibraryStore, snapcastStore,
 ];
 
 async function resyncStores() {
@@ -552,6 +554,11 @@ const RAW_EVENTS = [
   ['routing', 'multiroom_disabling', multiroomStore.handleRoutingEvent],
   ['routing', 'multiroom_ready', multiroomStore.handleRoutingEvent],
   ['routing', 'multiroom_error', multiroomStore.handleRoutingEvent],
+  // The automatic Snapcast analysis: progress while it measures, then either
+  // the proposal or the speaker that stopped it.
+  ['routing', 'calibration_progress', snapcastStore.handleCalibrationEvent],
+  ['routing', 'calibration_result', snapcastStore.handleCalibrationEvent],
+  ['routing', 'calibration_failed', snapcastStore.handleCalibrationEvent],
   ['multiroom', 'client_state_changed', multiroomStore.handleMultiroomEvent],
   ['multiroom', 'zone_changed', multiroomStore.handleMultiroomEvent],
   ['equalizer', 'enabled_changed', equalizerStore.handleEnabledChanged],

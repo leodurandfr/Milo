@@ -80,38 +80,110 @@
             </div>
           </SettingsSection>
 
-          <!-- Advanced settings (includes presets) -->
-          <SettingsSection :title="t('multiroomSettings.presets')">
-            <ButtonGroup :model-value="activePresetId" :options="presetOptions"
-              :disabled="snapcastStore.isApplyingServerConfig" mobile-layout="column" @change="handlePresetChange" />
-
-            <div class="section-divider"></div>
-
-            <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
+          <!-- No modes. The analysis is an action, not a state one sits in --
+               tabs claimed otherwise, and made the codec selection invisible
+               besides, because a disabled ButtonGroup drops its active mark. -->
+          <SettingsSection>
+            <template #header>
+              <SectionHeader :title="t('multiroomSettings.latencyAndQuality')">
+                <template #actions>
+                  <Button v-if="canReset" variant="outline" size="small"
+                    :disabled="snapcastStore.isApplyingServerConfig || calibration.running"
+                    @click="resetToDefault">
+                    {{ t('multiroomSettings.reset') }}
+                  </Button>
+                </template>
+              </SectionHeader>
+            </template>
 
             <SettingItem :label="t('multiroomSettings.globalBuffer')">
               <RangeSlider v-model="snapcastStore.serverConfig.buffer_ms" :min="150" :max="3000" :step="100"
-                value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
+                value-unit="ms" :disabled="busy" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.chunkSize')">
               <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="15" :max="50" :step="5"
-                value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
+                value-unit="ms" :disabled="busy" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.snapclientBuffer')">
               <RangeSlider v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="60" :max="300" :step="10"
-                value-unit="ms" :disabled="snapcastStore.isApplyingServerConfig" />
+                value-unit="ms" :disabled="busy" />
             </SettingItem>
 
             <SettingItem :label="t('multiroomSettings.codec')">
               <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
-                :disabled="snapcastStore.isApplyingServerConfig" mobile-layout="column" @change="selectCodec" />
+                :disabled="busy" mobile-layout="column" @change="selectCodec" />
             </SettingItem>
+
+            <div class="section-divider"></div>
+
+            <!-- The result of this button is the sliders above moving. The only
+                 thing they cannot say is which speaker held the house back, so
+                 that is the one line printed underneath. -->
+            <Button variant="outline" size="medium" class="auto-tune"
+              :loading="calibration.running" :disabled="busy" @click="startAnalysis">
+              {{ t('multiroomSettings.autoTune') }}
+            </Button>
+
+            <!-- Thirty seconds with no feedback reads as a hang. Same strip the
+                 library scan uses: a second progress bar drawn here is how two
+                 of them come to look different in one app. It stops short of
+                 full — only the result may finish it, so a slow network never
+                 shows a completed bar over a running analysis. -->
+            <ProgressStrip :open="calibration.running" :percent="progressPercent"
+              :step-ms="PROGRESS_TICK_MS"
+              :label="calibration.running ? stageLabel : ''"
+              :hint="calibration.running ? t('multiroomSettings.remaining', { seconds: remainingSeconds }) : ''" />
+
+            <p v-if="!calibration.running && analysisNote" class="text-mono-medium analysis-note">
+              {{ analysisNote }}
+            </p>
+
+            <!-- What the measurement found, and only what a person can act
+                 on: which speakers were weighed, how each connects, and which
+                 one held the house back. The round-trip in milliseconds is
+                 gone -- it was the one figure here nobody can rank. -->
+            <template v-if="!calibration.running && measuredLinks.length">
+              <p v-if="showsMeasuredValues" class="text-mono-medium analysis-badge">
+                {{ t('multiroomSettings.valuesAreMeasured') }}
+              </p>
+
+              <!-- A table once it has headers: "1.59 ms" beside "0 %" needs
+                   naming, and naming a column is what a header row is for. -->
+              <table class="analysis-links">
+                <thead>
+                  <tr class="analysis-links__row">
+                    <th class="analysis-links__icon"></th>
+                    <th class="text-mono-small analysis-links__head">{{ t('multiroomSettings.speaker') }}</th>
+                    <th class="text-mono-small analysis-links__head analysis-links__value">
+                      {{ t('multiroomSettings.latency') }}
+                    </th>
+                    <th class="text-mono-small analysis-links__head analysis-links__value">
+                      {{ t('multiroomSettings.loss') }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in measuredLinks" :key="row.mac_id" class="analysis-links__row">
+                    <td class="analysis-links__icon">
+                      <SvgIcon v-if="row.link === 'ethernet'" name="network" :size="16" />
+                      <WifiSignal v-else :signal="row.signal_percent ?? 100" :size="16" />
+                    </td>
+                    <td class="text-mono-medium analysis-links__name">{{ row.name }}</td>
+                    <td class="text-mono-medium analysis-links__value">{{ row.rtt_max_ms }} ms</td>
+                    <td class="text-mono-medium analysis-links__value"
+                      :class="{ 'analysis-links__value--warn': row.loss_pct > 0 }">
+                      {{ row.loss_pct }} %
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
           </SettingsSection>
 
-          <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
-            :loading="snapcastStore.isApplyingServerConfig"
+          <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium"
+            class="apply-button-sticky" :loading="snapcastStore.isApplyingServerConfig"
             :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
             {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
           </Button>
@@ -120,7 +192,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { useTimer } from '@/composables/useTimer';
 import { useI18n } from '@/services/i18n';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -132,10 +205,12 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 
 const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client', 'configure-system']);
 
@@ -269,34 +344,140 @@ function handleEditClient(macId) {
   emit('edit-client', macId);
 }
 
-// Presets come from the backend capabilities (single source of truth);
-// only the display name is resolved here, via i18n keyed on the preset id
-// (responsive, balanced, robust).
-const audioPresets = computed(() =>
-  snapcastStore.capabilities.presets.map(preset => ({
-    id: preset.id,
-    name: t(`multiroomSettings.${preset.id.replace(/_([a-z])/g, (_, c) => c.toUpperCase())}`),
-    config: preset.config
-  }))
+// === LATENCY AND QUALITY ===
+
+const calibration = computed(() => snapcastStore.calibration);
+const busy = computed(() =>
+  snapcastStore.isApplyingServerConfig || calibration.value.running
 );
 
-const presetOptions = computed(() =>
-  audioPresets.value.map(preset => ({
-    label: preset.name,
-    value: preset.id
-  }))
+// The factory configuration, as the backend declares it — never restated here,
+// so "reset" restores what a freshly flashed unit actually runs.
+const defaultPreset = computed(() =>
+  snapcastStore.capabilities.presets.find(preset => preset.id === 'default') || null
 );
 
-// Active preset ID (or null if custom config)
-const activePresetId = computed(() => {
-  const current = snapcastStore.serverConfig;
-  const active = audioPresets.value.find(preset =>
-    current.buffer_ms === preset.config.buffer_ms &&
-    current.codec === preset.config.codec &&
-    current.chunk_ms === preset.config.chunk_ms &&
-    current.snapclient_buffer_time === preset.config.snapclient_buffer_time
-  );
-  return active?.id || null;
+// Offered only when it would change something: a reset button on a machine
+// already at its factory values is a control that does nothing.
+const canReset = computed(() => {
+  const config = defaultPreset.value?.config;
+  return Boolean(config) &&
+    Object.keys(config).some(key => snapcastStore.serverConfig[key] !== config[key]);
+});
+
+function resetToDefault() {
+  if (defaultPreset.value) {
+    snapcastStore.applyPreset(defaultPreset.value);
+  }
+}
+
+const ANALYSIS_ERROR_KEYS = {
+  no_remote_client: 'failedNoRemote',
+  probe_failed: 'failedProbe',
+  start_failed: 'failedStart',
+};
+
+// Only a failure, or a caveat the numbers cannot carry. Progress has its own
+// bar and the result has its own table, so the line that used to name the
+// limiting speaker said less than the four figures beside it.
+const analysisNote = computed(() => {
+  if (calibration.value.error) {
+    return t(`multiroomSettings.${ANALYSIS_ERROR_KEYS[calibration.value.error] || 'failedProbe'}`,
+      { detail: calibration.value.detail || '' });
+  }
+  if (calibration.value.result?.assumed?.length) return t('multiroomSettings.partlyAssumed');
+  return null;
+});
+
+const measuredLinks = computed(() =>
+  // The local speaker has no link to weigh: its row was three em-dashes.
+  (calibration.value.result?.measurements || []).filter(row => !row.is_local)
+);
+
+// True only while the sliders still hold what was measured. Drag one and the
+// badge goes, because the settings are no longer the measurement.
+const showsMeasuredValues = computed(() => {
+  const config = calibration.value.result?.config;
+  return Boolean(config) &&
+    Object.keys(config).every(key => snapcastStore.serverConfig[key] === config[key]);
+});
+
+// === PROGRESS ===
+
+const elapsedMs = ref(0);
+const timer = useTimer();
+let progressTicker = null;
+
+// Capped: the bar may approach the end but only the result event completes it.
+const PROGRESS_CEILING = 95;
+
+// One second, matched by the strip's CSS transition. A shorter tick with the
+// same transition is what made the bar advance in visible steps: the animation
+// finished long before the next value arrived and the fill sat still between.
+const PROGRESS_TICK_MS = 1000;
+
+const progressPercent = computed(() => {
+  const expected = calibration.value.expectedSeconds * 1000;
+  if (!expected) return 0;
+  return Math.min(PROGRESS_CEILING, (elapsedMs.value / expected) * 100);
+});
+
+const remainingSeconds = computed(() => {
+  const expected = calibration.value.expectedSeconds;
+  if (!expected) return 0;
+  return Math.max(0, Math.round(expected - elapsedMs.value / 1000));
+});
+
+watch(() => calibration.value.running, (running) => {
+  if (progressTicker) {
+    timer.clear(progressTicker);
+    progressTicker = null;
+  }
+  if (!running) return;
+  elapsedMs.value = Date.now() - (calibration.value.startedAt || Date.now());
+  progressTicker = timer.setInterval(() => {
+    elapsedMs.value = Date.now() - (calibration.value.startedAt || Date.now());
+  }, PROGRESS_TICK_MS);
+}, { immediate: true });
+
+// Numbers, not a verdict. "Sets the limit" singled out whichever speaker had
+// the marginally worse jitter — 1.02 ms against 0.36 ms on two gigabit links —
+// and which one that was flipped between runs. It read as "this speaker is the
+// problem" about a fleet where nothing was wrong. Two measured figures side by
+// side say the same thing without accusing anyone.
+
+const ANALYSIS_STAGE_KEYS = { probing: 'stageProbing', computing: 'stageComputing' };
+const stageLabel = computed(() =>
+  t(`multiroomSettings.${ANALYSIS_STAGE_KEYS[calibration.value.stage] || 'stageProbing'}`)
+);
+
+async function startAnalysis() {
+  // Armed only once the run actually began. Set before the request, a refused
+  // POST left it armed and the next result the store saw — a restored one from
+  // some later reload — was staged as though the user had asked for it.
+  awaitingResult.value = await snapcastStore.startCalibration('lossless');
+}
+
+// A measured result lands in the sliders, which is where every other setting is
+// read. Staging is not writing — the sticky Apply is, so snapserver.conf keeps
+// exactly one writer.
+// Only a run started here. Without the flag, opening the panel restored the
+// last stored proposal and staged it — the same trap the tab switch had, back
+// through the reload path: an hours-old measurement on the sliders and an
+// Apply button for a change nobody asked for.
+const awaitingResult = ref(false);
+
+watch(() => calibration.value.result, (result) => {
+  if (result && awaitingResult.value) {
+    awaitingResult.value = false;
+    snapcastStore.stageCalibrationResult();
+  }
+});
+
+// A run that ends without a proposal must disarm too, or the flag outlives it
+// and claims the next result as this user's request.
+watch(() => calibration.value.error, (error) => {
+  if (error) awaitingResult.value = false;
 });
 
 // Codec options for ButtonGroup — the list comes from the backend
@@ -317,19 +498,14 @@ async function loadMultiroomData() {
   await Promise.all([
     snapcastStore.loadClients(),
     snapcastStore.loadServerConfig(),
+    snapcastStore.loadCalibration(),
     multiroomClientStore.fetchPendingClients(),
   ]);
+
   // Volume data comes from unifiedAudioStore.volumeState via WebSocket
 }
 
 // === MULTIROOM - SERVER CONFIG ===
-
-function handlePresetChange(presetId) {
-  const preset = audioPresets.value.find(p => p.id === presetId);
-  if (preset) {
-    snapcastStore.applyPreset(preset);
-  }
-}
 
 function selectCodec(codecName) {
   snapcastStore.selectCodec(codecName);
@@ -342,6 +518,16 @@ async function applyServerConfig() {
 // Reload data when multiroom becomes ready after a transition
 watch(() => multiroomClientStore.transitionState, (newState, oldState) => {
   if (newState === 'idle' && (oldState === 'enabling' || oldState === 'disabling')) {
+    loadMultiroomData();
+  }
+});
+
+// Opened before the store knew multiroom was on, `onMounted` skipped the fetch
+// and only a later enable/disable transition would have retried — so the panel
+// sat on PLACEHOLDER_SERVER_CONFIG forever, showing a 1000 ms buffer as though
+// it were real and an empty codec list. Load on the flip instead.
+watch(isMultiroomActive, (active) => {
+  if (active && !snapcastStore.capabilities.codecs.length) {
     loadMultiroomData();
   }
 });
@@ -449,6 +635,64 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary);
   margin-top: var(--space-03);
   margin-bottom: var(--space-01);
+}
+
+/* Automatic analysis */
+.auto-tune {
+  width: 100%;
+}
+
+.analysis-note {
+  color: var(--color-text-secondary);
+  margin: var(--space-02) 0 0;
+}
+
+.analysis-badge {
+  color: var(--color-brand);
+  margin: var(--space-03) 0 0;
+}
+
+/* Framed, with the light separators a settings card uses — the heaviness of
+   the first table came from its borders, not from having columns. */
+.analysis-links {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-02);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-02);
+  overflow: hidden;
+}
+
+.analysis-links__row > * {
+  padding: var(--space-02);
+  text-align: left;
+}
+
+.analysis-links tbody .analysis-links__row > * {
+  border-top: 1px solid var(--color-border);
+}
+
+.analysis-links__head {
+  color: var(--color-text-light);
+}
+
+.analysis-links__icon {
+  width: 16px;
+  padding-right: 0;
+}
+
+.analysis-links__name {
+  width: 100%;
+}
+
+.analysis-links__value {
+  text-align: right;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+
+.analysis-links__value--warn {
+  color: var(--color-brand);
 }
 
 .apply-button-sticky {

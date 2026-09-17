@@ -104,7 +104,7 @@
 
       <p class="text-mono-medium ml-desc">{{ t('musicLibrary.maintenance.description') }}</p>
 
-      <ScanProgress :open="busy" :has-bar="busy" :label="scanLabel" />
+      <ProgressStrip :open="busy" :has-bar="busy" :label="scanLabel" />
 
       <Button variant="brand" size="medium" left-icon="arrowClockwise"
         :disabled="busy" @click="onRefresh">
@@ -126,7 +126,7 @@ import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
-import ScanProgress from '@/components/settings/categories/music-library/ScanProgress.vue';
+import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
 

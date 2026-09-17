@@ -16,11 +16,19 @@ import aiofiles
 
 from backend.config.constants import get_client_display_name, DEPLOY_UPDATE_CMD
 from backend.core.multiroom.identity import compute_mac_id, is_stale_local_client
+from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG
 from backend.shared.decorators import handle_errors
 
 # Codec whitelist — single source for _validate_config and the /server-config
 # capabilities payload the frontend builds its codec options from.
 SUPPORTED_CODECS = ["flac", "pcm", "opus", "ogg"]
+
+# Accepted ranges for the two numeric stream parameters, declared here because
+# _validate_config is what enforces them. `core/multiroom/calibration.py` clamps
+# its computed values against these same tuples rather than restating the
+# bounds: a proposal outside them would be a payload this very method rejects.
+BUFFER_MS_RANGE = (150, 3000)
+CHUNK_MS_RANGE = (15, 50)
 
 
 class SnapcastRequestError(RuntimeError):
@@ -32,16 +40,26 @@ class SnapcastRequestError(RuntimeError):
     scoped except; command callers let it surface as a False return.
     """
 
-# Use-case presets surfaced by the UI (ids are i18n'd client-side). 'responsive'
-# is the measured wired stability floor + margin (lossless PCM, lowest latency);
-# 'balanced' / 'robust' keep the proven Wi-Fi-tolerant values for weak networks.
+# The one canned configuration the UI offers, beside the automatic analysis and
+# manual editing. It is not a fourth opinion: it is exactly what a freshly
+# flashed unit runs, so selecting it means "put this back as it came".
+#
+# There used to be three -- 'responsive', 'balanced', 'robust' -- and their
+# names were the whole problem: nothing in "robust" tells a person what it costs
+# or when to want it. The analysis now measures the house and computes all four
+# values, which is what those three were approximating by hand.
+#
+# Dropping them also exposed something they had been hiding: the shipped values
+# matched none of them, so a unit nobody had ever configured showed no selected
+# preset at all.
+#
+# `provisioning/snapcast.sh` is what actually writes these into snapserver.conf
+# at image build, and it cannot import Python -- the two are pinned together by
+# tests/architecture/test_default_preset.py.
 NETWORK_PRESETS = [
-    {"id": "responsive",
-     "config": {"buffer_ms": 180, "codec": "pcm", "chunk_ms": 20, "snapclient_buffer_time": 60}},
-    {"id": "balanced",
-     "config": {"buffer_ms": 700, "codec": "flac", "chunk_ms": 40, "snapclient_buffer_time": 120}},
-    {"id": "robust",
-     "config": {"buffer_ms": 1500, "codec": "opus", "chunk_ms": 40, "snapclient_buffer_time": 200}},
+    {"id": "default",
+     "config": {"buffer_ms": 300, "codec": "flac", "chunk_ms": 40,
+                "snapclient_buffer_time": DEFAULT_SNAPCLIENT_CONFIG["buffer_time"]}},
 ]
 
 
@@ -404,9 +422,9 @@ class SnapcastService:
         unknown-key rule above rejects it loudly, which is the point.
         """
         validators = {
-            "buffer_ms": lambda x: isinstance(x, int) and 150 <= x <= 3000,
+            "buffer_ms": lambda x: isinstance(x, int) and BUFFER_MS_RANGE[0] <= x <= BUFFER_MS_RANGE[1],
             "codec": lambda x: x in SUPPORTED_CODECS,
-            "chunk_ms": lambda x: isinstance(x, int) and 15 <= x <= 50,
+            "chunk_ms": lambda x: isinstance(x, int) and CHUNK_MS_RANGE[0] <= x <= CHUNK_MS_RANGE[1],
         }
 
         unknown = set(config) - set(validators) - {"sampleformat"}

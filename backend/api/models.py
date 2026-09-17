@@ -62,6 +62,16 @@ class SnapcastServerConfigRequest(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
 
 
+class SnapcastCalibrationRequest(BaseModel):
+    """Start the automatic Snapcast analysis.
+
+    `quality` is an input to the measurement, not a result of it: the codec
+    moves the whole bandwidth ladder, so the model has to know which one the
+    user wants before it can size anything.
+    """
+    quality: Literal["lossless", "economical"] = "lossless"
+
+
 # =============================================================================
 # SETTINGS - LANGUAGE
 # =============================================================================

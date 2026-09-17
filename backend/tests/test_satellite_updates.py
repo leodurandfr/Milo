@@ -45,7 +45,7 @@ def _mock_proc(stdout: bytes, returncode: int = 0):
 
 
 def _fake_git(payload: str = SERVER_PAYLOAD, described: str = SERVER_VERSION,
-              dirty: bool = False):
+              dirty: bool = False, diff: str = "- old\n+ new", status: str = None):
     """Stands in for git across the calls the two identities issue.
 
     It answers each by its argv instead of returning one string to all of them:
@@ -67,7 +67,10 @@ def _fake_git(payload: str = SERVER_PAYLOAD, described: str = SERVER_VERSION,
                 return _mock_proc(b"", returncode=128)
             out = described
         elif "status" in argv:
-            out = " M milo-client/app/main.py" if dirty else ""
+            out = (status if status is not None
+                   else (" M milo-client/app/main.py" if dirty else ""))
+        elif "diff" in argv:
+            out = diff if dirty else ""
         else:
             raise AssertionError(f"unexpected git call: {argv}")
         return _mock_proc(out.encode() + b"\n")
@@ -273,7 +276,45 @@ class TestTheTwoSatelliteIdentities:
                    _fake_git(dirty=True)):
             payload = await satellite_service.get_client_payload_version()
 
-        assert payload == f"{SERVER_PAYLOAD}-dirty"
+        assert payload.startswith(f"{SERVER_PAYLOAD}-dirty.")
+
+    async def test_a_new_module_is_hashed_file_by_file(self, satellite_service):
+        """git collapses an untracked directory into one `?? dir/` entry.
+
+        Hashing that entry reads a directory, which raises, which the digest
+        swallows -- so every edit inside a brand-new module produced the same
+        fingerprint, the exact case this digest exists to catch. `-uall` is what
+        makes git name the files instead, and `-z` stops it quoting a path that
+        holds an accent.
+        """
+        git = _fake_git(dirty=True)
+
+        with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", git):
+            await satellite_service.get_client_payload_version()
+
+        status = next(argv for argv in git.calls if "status" in argv)
+        assert "--untracked-files=all" in status, "an untracked directory would hash as one entry"
+        assert "-z" in status, "a quoted path reads as a missing file"
+
+    async def test_editing_uncommitted_work_again_changes_the_payload(
+            self, satellite_service):
+        """A bare `-dirty` is a flag, not a fingerprint.
+
+        It reads identically before and after the working tree changes, so the
+        first push of a change under test landed and every later one was
+        reported as already applied. Measured on the fleet: both satellites
+        answered `081c8316-dirty` and the UI said "up to date", while neither
+        carried a route added to that directory half an hour earlier.
+        """
+        async def payload_for(diff):
+            with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                       _fake_git(dirty=True, diff=diff)):
+                return await satellite_service.get_client_payload_version()
+
+        first = await payload_for("- old\n+ new")
+        second = await payload_for("- old\n+ newer still")
+
+        assert first != second
 
     async def test_a_git_that_fails_yields_no_payload(self, satellite_service):
         """None disarms every satellite's button; any stray string would arm

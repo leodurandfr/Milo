@@ -346,16 +346,25 @@
     "restarting": "Reiniciando…"
   },
   "multiroomSettings": {
-    "presets": "Preajustes",
-    "responsive": "Reactivo",
-    "balanced": "Equilibrado",
-    "robust": "Robusto",
-    "advanced": "Ajustes avanzados",
     "globalBuffer": "Búfer global (ms)",
     "snapclientBuffer": "Búfer del reproductor (ms)",
     "codec": "Códec de audio",
     "chunkSize": "Tamaño de los fragmentos (ms)",
-    "apply": "Aplicar"
+    "apply": "Aplicar",
+    "failedNoRemote": "El análisis necesita al menos un altavoz remoto en línea.",
+    "failedProbe": "No se pudo medir un altavoz: {detail}",
+    "latencyAndQuality": "Latencia y calidad",
+    "failedStart": "No se pudo iniciar el análisis.",
+    "reset": "Restablecer",
+    "autoTune": "Ajustar automáticamente",
+    "partlyAssumed": "Algunos valores no pudieron medirse y se han supuesto.",
+    "valuesAreMeasured": "Ajustes medidos en su red",
+    "remaining": "quedan {seconds} s",
+    "stageProbing": "Midiendo los altavoces",
+    "stageComputing": "Calculando los ajustes",
+    "speaker": "Altavoz",
+    "latency": "Latencia",
+    "loss": "Pérdida"
   },
   "updates": {
     "osTitle": "Sistema operativo",

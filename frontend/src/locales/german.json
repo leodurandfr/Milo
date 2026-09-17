@@ -346,16 +346,25 @@
     "restarting": "Neustart…"
   },
   "multiroomSettings": {
-    "presets": "Voreinstellungen",
-    "responsive": "Reaktiv",
-    "balanced": "Ausgewogen",
-    "robust": "Robust",
-    "advanced": "Erweiterte Einstellungen",
     "globalBuffer": "Globaler Puffer (ms)",
     "snapclientBuffer": "Player-Puffer (ms)",
     "codec": "Audio-Codec",
     "chunkSize": "Chunk-Größe (ms)",
-    "apply": "Anwenden"
+    "apply": "Anwenden",
+    "failedNoRemote": "Die Analyse benötigt mindestens einen entfernten Lautsprecher online.",
+    "failedProbe": "Ein Lautsprecher konnte nicht gemessen werden: {detail}",
+    "latencyAndQuality": "Latenz und Qualität",
+    "failedStart": "Die Analyse konnte nicht gestartet werden.",
+    "reset": "Zurücksetzen",
+    "autoTune": "Automatisch einstellen",
+    "partlyAssumed": "Einige Werte konnten nicht gemessen werden und wurden angenommen.",
+    "valuesAreMeasured": "In Ihrem Netzwerk gemessene Einstellungen",
+    "remaining": "noch {seconds} s",
+    "stageProbing": "Lautsprecher werden gemessen",
+    "stageComputing": "Einstellungen werden berechnet",
+    "speaker": "Lautsprecher",
+    "latency": "Latenz",
+    "loss": "Verlust"
   },
   "updates": {
     "osTitle": "Betriebssystem",

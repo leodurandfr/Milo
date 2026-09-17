@@ -182,6 +182,7 @@ async def lifespan(app: FastAPI):
         ("volume", volume_service.cleanup),
         ("camilladsp", camilladsp_service.cleanup),
         ("pending_clients", get_service("pending_clients_service").shutdown),
+        ("calibration", get_service("calibration_service").cleanup),
         ("equalizer_proxy", equalizer_proxy_service.cleanup),
         ("levels_monitor", levels_monitor.cleanup),
         ("screen", screen_controller.cleanup),
@@ -225,6 +226,7 @@ routing_router = create_routing_router(
     routing_service, state_machine, snapcast_service,
     settings_service=settings_service,
     client_registry_service=client_registry_service,
+    calibration_service=get_service("calibration_service"),
 )
 app.include_router(routing_router)
 

@@ -346,16 +346,25 @@
     "restarting": "पुनः आरंभ हो रहा है…"
   },
   "multiroomSettings": {
-    "presets": "प्रीसेट्स",
-    "responsive": "प्रतिक्रियाशील",
-    "balanced": "संतुलित",
-    "robust": "मज़बूत",
-    "advanced": "उन्नत सेटिंग्स",
     "globalBuffer": "ग्लोबल बफर (ms)",
     "snapclientBuffer": "प्लेयर बफर (ms)",
     "codec": "ऑडियो कोडेक",
     "chunkSize": "चंक आकार (ms)",
-    "apply": "लागू करें"
+    "apply": "लागू करें",
+    "failedNoRemote": "विश्लेषण के लिए कम से कम एक दूरस्थ स्पीकर ऑनलाइन चाहिए।",
+    "failedProbe": "एक स्पीकर मापा नहीं जा सका: {detail}",
+    "latencyAndQuality": "विलंबता और गुणवत्ता",
+    "failedStart": "विश्लेषण शुरू नहीं किया जा सका।",
+    "reset": "रीसेट करें",
+    "autoTune": "स्वचालित रूप से सेट करें",
+    "partlyAssumed": "कुछ मान मापे नहीं जा सके और अनुमानित हैं।",
+    "valuesAreMeasured": "आपके नेटवर्क पर मापी गई सेटिंग्स",
+    "remaining": "{seconds} से शेष",
+    "stageProbing": "स्पीकर मापे जा रहे हैं",
+    "stageComputing": "सेटिंग्स की गणना हो रही है",
+    "speaker": "स्पीकर",
+    "latency": "विलंबता",
+    "loss": "हानि"
   },
   "updates": {
     "osTitle": "ऑपरेटिंग सिस्टम",

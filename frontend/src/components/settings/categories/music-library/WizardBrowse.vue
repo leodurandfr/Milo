@@ -86,7 +86,7 @@
            No CTA: it settles into 'indexed' on its own once the scan finishes. -->
       <template v-else-if="phase === 'indexing'">
         <h2 class="heading-2">{{ t('musicLibrary.shares.wizard.indexing') }}</h2>
-        <ScanProgress open
+        <ProgressStrip open
           :label="t('musicLibrary.shares.wizard.indexingCount', { count: liveFound })" />
       </template>
 
@@ -128,7 +128,7 @@ import { useTimer } from '@/composables/useTimer';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
-import ScanProgress from '@/components/settings/categories/music-library/ScanProgress.vue';
+import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';

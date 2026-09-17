@@ -68,6 +68,18 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   // populated alongside the server config fetch.
   const capabilities = ref({ codecs: [], presets: [] });
 
+  // Automatic analysis. `stage` and `result` arrive as WS deltas, which are
+  // never replayed — hence resync() below and this store's membership of
+  // App.vue's deltaStores. Without it a tab backgrounded across a run comes
+  // back showing an idle button over a finished analysis.
+  const calibration = ref({
+    running: false, stage: null, result: null, error: null,
+    // The backend declares how long it expects to take; the UI animates against
+    // it and never completes the bar on its own. `startedAt` is local because
+    // the only clock the bar can trust is the one it is drawn on.
+    expectedSeconds: 0, startedAt: 0,
+  });
+
   // Memorization of display items structure (for zone-aware skeletons)
   // Each item: { type: 'zone' | 'client' }
   const lastKnownDisplayItems = ref([
@@ -78,7 +90,14 @@ export const useSnapcastStore = defineStore('snapcast', () => {
 
   // === COMPUTED ===
   const hasServerConfigChanges = computed(() => {
-    return JSON.stringify(serverConfig.value) !== JSON.stringify(originalServerConfig.value);
+    // Key by key, not JSON.stringify: that compares insertion order too. The
+    // placeholder lists its keys in one order and the API answers in another,
+    // so a buffer identical in every field read as a pending change and lit
+    // the Apply button over nothing to apply.
+    const edited = serverConfig.value;
+    const applied = originalServerConfig.value;
+    const keys = new Set([...Object.keys(edited), ...Object.keys(applied)]);
+    return [...keys].some((key) => edited[key] !== applied[key]);
   });
 
   // === DISPLAY CACHE MANAGEMENT ===
@@ -159,9 +178,17 @@ export const useSnapcastStore = defineStore('snapcast', () => {
 
     await apiCall('store', 'Error loading server config', async () => {
       const config = await fetchServerConfig(signal);
-      if (config) {
+      if (!config) return;
+
+      // The applied reference always refreshes; the edit buffer only when the
+      // user has nothing staged. This reload runs whenever the multiroom panel
+      // refetches — which includes right after an apply, because snapserver
+      // restarts — and overwriting unconditionally made a staged proposal, and
+      // its Apply button, vanish on their own.
+      const pending = hasServerConfigChanges.value;
+      originalServerConfig.value = { ...config };
+      if (!pending) {
         serverConfig.value = config;
-        originalServerConfig.value = { ...config };
       }
     });
     serverConfigAbortController = null;
@@ -187,6 +214,104 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     return false;
   }
 
+  // === ACTIONS - AUTOMATIC ANALYSIS ===
+
+  /**
+   * Start the analysis. The proposal arrives over WS, not in this response:
+   * measuring the fleet takes tens of seconds.
+   */
+  async function startCalibration(quality = 'lossless') {
+    if (calibration.value.running) return false;
+
+    calibration.value = {
+      running: true, stage: 'probing', result: null, error: null,
+      expectedSeconds: 0, startedAt: Date.now(),
+    };
+    const result = await apiCall.post('/api/routing/snapcast/calibration', { quality }, {
+      category: 'store',
+      message: 'Error starting multiroom analysis',
+    });
+
+    if (!result.ok) {
+      calibration.value = {
+        ...calibration.value, running: false, stage: null, error: 'start_failed',
+      };
+      return false;
+    }
+    return true;
+  }
+
+  /** Whole-event handler for the three `routing/calibration_*` deltas. */
+  function handleCalibrationEvent(event) {
+    const data = event?.data || {};
+    if (event?.type === 'calibration_progress') {
+      calibration.value = {
+        ...calibration.value,
+        running: true,
+        stage: data.stage,
+        error: null,
+        expectedSeconds: data.expected_seconds || calibration.value.expectedSeconds,
+        // A client that joined mid-run has no start of its own to measure from.
+        startedAt: calibration.value.startedAt || Date.now(),
+      };
+    } else if (event?.type === 'calibration_result') {
+      calibration.value = {
+        ...calibration.value, running: false, stage: null, result: data, error: null,
+      };
+    } else if (event?.type === 'calibration_failed') {
+      calibration.value = {
+        ...calibration.value, running: false, stage: null, result: null,
+        error: data.reason || 'probe_failed', detail: data.detail || null,
+      };
+    }
+  }
+
+  async function loadCalibration() {
+    const result = await apiCall.get('/api/routing/snapcast/calibration', {
+      category: 'store',
+      message: 'Error loading multiroom analysis state',
+    });
+    if (result.ok && result.data?.status === 'success') {
+      // A failure is held locally and the backend keeps no record of it, so
+      // clearing it here would wipe the message on the next tab refocus and
+      // leave an empty Auto tab where an explanation had been.
+      const running = Boolean(result.data.running);
+      const recovered = result.data.result || null;
+      const keepError = !running && !recovered ? calibration.value.error : null;
+      // The server reports elapsed, not a start time: turning a timestamp into
+      // a bar position would mean trusting this browser's clock against the
+      // appliance's, and the two are only as close as whoever set them.
+      const elapsed = Number(result.data.elapsed_seconds) || 0;
+      calibration.value = {
+        ...calibration.value,
+        running,
+        stage: running ? 'probing' : null,
+        result: recovered,
+        error: keepError,
+        detail: keepError ? calibration.value.detail : null,
+        expectedSeconds: Number(result.data.expected_seconds) || calibration.value.expectedSeconds,
+        startedAt: running ? Date.now() - elapsed * 1000 : 0,
+      };
+    }
+  }
+
+  /**
+   * Load the proposal into the edit buffer. It is NOT written here: the user
+   * still presses apply, and the write goes through applyServerConfig like any
+   * other change, so snapserver.conf keeps exactly one writer.
+   */
+  function stageCalibrationResult() {
+    const proposed = calibration.value.result?.config;
+    if (!proposed) return false;
+    applyPreset({ config: proposed });
+    return true;
+  }
+
+  /** Delta-fed state healer — see App.vue's deltaStores. */
+  async function resync() {
+    await loadCalibration();
+  }
+
   function selectCodec(codecName) {
     serverConfig.value.codec = codecName;
   }
@@ -206,6 +331,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     isLoading,
     serverConfig,
     capabilities,
+    calibration,
     isApplyingServerConfig,
     lastKnownDisplayItems,
 
@@ -228,5 +354,12 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     applyServerConfig,
     selectCodec,
     applyPreset,
+
+    // Actions - Automatic analysis
+    startCalibration,
+    handleCalibrationEvent,
+    loadCalibration,
+    stageCalibrationResult,
+    resync,
   };
 });

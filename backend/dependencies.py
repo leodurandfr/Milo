@@ -92,6 +92,18 @@ def _create_service(name: str) -> Any:
         "client_registry_service": lambda: _import("backend.core.multiroom.client_registry", "ClientRegistryService")(
             settings_service=get_service("settings_service")
         ),
+
+        # The analysis only reads: it measures the fleet and broadcasts a
+        # proposal. Applying it stays with PUT /api/routing/snapcast/server-config
+        # so the snapserver config keeps exactly one writer.
+        "calibration_service": lambda: _import(
+            "backend.core.multiroom.calibration_service", "CalibrationService"
+        )(
+            state_machine=get_service("audio_state_machine"),
+            probe_service=_import(
+                "backend.core.multiroom.calibration_probe", "CalibrationProbeService"
+            )(client_registry=get_service("client_registry_service")),
+        ),
         "camilladsp_service": lambda: _import("backend.core.equalizer", "CamillaDSPService")(
             settings_service=get_service("settings_service")
         ),

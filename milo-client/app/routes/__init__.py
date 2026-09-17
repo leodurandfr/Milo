@@ -8,6 +8,7 @@ from routes.app_update import create_app_update_router
 from routes.hardware import create_hardware_router
 from routes.camilladsp_update import create_camilladsp_update_router
 from routes.diagnostic import create_diagnostic_router
+from routes.probe import create_probe_router
 
 __all__ = [
     "create_health_router",
@@ -17,4 +18,5 @@ __all__ = [
     "create_hardware_router",
     "create_camilladsp_update_router",
     "create_diagnostic_router",
+    "create_probe_router",
 ]

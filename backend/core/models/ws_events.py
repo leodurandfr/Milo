@@ -13,7 +13,7 @@ consumers (frontend store/handler, Milo-Mac where applicable).
 import time
 from typing import Any, ClassVar, Dict, List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.core.network.models import NetworkStatus
 from backend.core.models.settings_config import (
@@ -638,6 +638,62 @@ class RoutingMultiroomError(WsEvent):
     CATEGORY = "routing"
     TYPE = "multiroom_error"
     reason: str  # "enable_failed" | "disable_failed"
+
+
+class RoutingCalibrationProgress(WsEvent):
+    """multiroomStore.handleCalibrationEvent — drives the analysis progress bar.
+
+    The analysis takes tens of seconds and grows with the fleet, so it runs in
+    the background and reports here rather than holding an HTTP request open.
+    `stage` is a key the frontend localizes, never a sentence.
+    """
+    CATEGORY = "routing"
+    TYPE = "calibration_progress"
+    stage: str  # "probing" | "computing"
+    clients_total: int = 0
+    clients_done: int = 0
+    # How long the run is expected to take. The bar animates against this and
+    # stops short of full: only the result event may complete it, so a slow
+    # network never shows a finished bar over a running analysis.
+    expected_seconds: float = 0.0
+
+
+class RoutingCalibrationResult(WsEvent):
+    """multiroomStore.handleCalibrationEvent — the proposal the user confirms.
+
+    Deliberately NOT applied by the analysis: `config` is offered, and the write
+    only happens when the user presses apply, through the existing
+    PUT /api/routing/snapcast/server-config. `assumed` names the fields that had
+    to be inferred rather than measured, so a partly-guessed proposal cannot
+    present itself as a measured one.
+
+    The per-decision reasoning does not travel here. It was four lines of
+    sentences under a table of numbers, in a panel that already shows the result
+    on the sliders themselves -- the screen said the same thing three times. The
+    model still produces it and the service logs it, which is where a value
+    nobody can explain gets explained.
+    """
+    CATEGORY = "routing"
+    TYPE = "calibration_result"
+    config: Dict[str, Any]
+    predicted_latency_ms: int
+    limiting_client: Optional[str] = None
+    measurements: List[Dict[str, Any]] = Field(default_factory=list)
+    assumed: List[str] = Field(default_factory=list)
+
+
+class RoutingCalibrationFailed(WsEvent):
+    """multiroomStore.handleCalibrationEvent — the analysis reached no verdict.
+
+    A speaker that is online but could not be measured stops the whole run,
+    because the buffer is one value sized by the worst link and an unweighed
+    client may be that link. `reason` is a localization key; `detail` carries
+    the speaker's name so the message can point at it.
+    """
+    CATEGORY = "routing"
+    TYPE = "calibration_failed"
+    reason: str  # "no_remote_client" | "probe_failed"
+    detail: Optional[str] = None
 
 
 # =============================================================================

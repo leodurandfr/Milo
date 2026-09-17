@@ -98,6 +98,7 @@ import SkeletonEpisodeDetails from '@/components/podcasts/SkeletonEpisodeDetails
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import SectionHeader from '@/components/settings/SectionHeader.vue';
 import FillerBlock from './samples/FillerBlock.vue';
 import ControlSample from './samples/ControlSample.vue';
@@ -954,6 +955,14 @@ export const REGISTRY = {
       },
       default: { 'A control': { component: ControlSample } }
     }
+  },
+
+  ProgressStrip: {
+    component: ProgressStrip,
+    // `open` defaults false and the strip collapses to nothing, which in the
+    // playground reads as a component that failed to render.
+    args: { open: true, label: 'Measuring your network… about 12 s remaining',
+            percent: 45, class: 'canvas-column' },
   },
 
   SettingItem: {
