@@ -38,13 +38,22 @@ const { isMobile } = useIsMobile();
 </script>
 
 <style scoped>
+/* space-evenly splits what the plate's padding leaves, so the side padding is
+   the one knob that sets the whole rhythm: widening it tightens the three
+   buttons and opens the ends in the same move. --space-07 measures 89px between
+   glyph edges against 116px at the ends on the 528px desktop plate, and 58
+   against 67 on the phone's 356px one — where --space-04 left both plates with
+   the gaps between the icons slightly *wider* than the margins framing them
+   (105/100 and 66/59), which read as three loose icons rather than one control.
+   The token carries its own mobile step (48 desktop, 32 phone), which is what
+   keeps the narrower plate from running out of room. */
 .controls {
   background: var(--color-background);
   border-radius: var(--radius-06);
   display: flex;
   justify-content: space-evenly;
   align-items: center;
-  padding: var(--space-01) var(--space-04);
+  padding: var(--space-01) var(--space-07);
 }
 
 /* The tap target, which is NOT the icon and does not follow it: 80/90px circles
