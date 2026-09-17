@@ -50,6 +50,7 @@ from fastapi.responses import Response
 
 from backend.api.route_helpers import api_error_handler
 from backend.api.source_dependency import make_source_dependency
+from backend.sources.music_library.artist_filter import is_placeholder_artist
 from backend.sources.music_library.browse import browse_share
 from backend.sources.music_library.disc_merge import (
     expand_merged_album,
@@ -173,12 +174,25 @@ async def get_artist(
     An artist left with nothing renders an empty page rather than a 404: the id
     is legitimately held by a tab opened before the key was pulled, and a 404
     there reads as "this artist never existed".
+
+    A compilation credit is the one case where that reading is the right one, so
+    it is the one 404 here that is deliberate. The listings already leave those
+    rows out (artist_filter), which is what makes this unreachable from the UI
+    today — and is exactly why it is worth stating here rather than there: a
+    later link to an artist, from a track row or a "more from", would otherwise
+    reopen a page for "Various Artists" with nothing to notice it by.
     """
     async with _catalog_errors("Error getting artist", source):
         client = await _require_client(source)
         artist = await client.get_artist(artist_id)
         if artist is None:
             logger.error("Artist not found: %s", artist_id)
+            raise HTTPException(status_code=404, detail="Artist not found")
+        if is_placeholder_artist(artist):
+            # Expected, not a fault: nothing offers this id, so reaching it is a
+            # caller asking for a credit by hand. Kept below ERROR so it never
+            # reaches the WebSocketLogHandler banner.
+            logger.debug("Not a browsable artist: %s", artist.get("name"))
             raise HTTPException(status_code=404, detail="Artist not found")
         album_ids = await source.mounted_album_ids()
         artist["album"] = merge_albums(

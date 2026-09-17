@@ -169,6 +169,49 @@ class TestNavidromeBrowse:
         for row in rows:
             assert parse_artist_cover_id(row["coverArt"]) == row["id"]
 
+    async def test_the_two_listings_leave_out_credits_that_are_not_people(self, client):
+        """Both ways into an artist page are closed, not just the tab.
+
+        The Artists tab and the search panel are the only two places that offer
+        an artist to open — the album page reaches one too, but decides for
+        itself whether to link it. Filtering one listing and not the other would
+        leave "Various Artists" browsable from the search field.
+        """
+        client._make_request = AsyncMock(return_value={
+            "artists": {"index": [
+                {"name": "A", "artist": [{"id": "a1", "name": "Adele"}]},
+                {"name": "V", "artist": [
+                    {"id": "a2", "name": "Various Artists"},
+                    {"id": "a3", "name": "Vitalic"},
+                ]},
+            ]},
+            "searchResult3": {
+                "artist": [{"id": "a2", "name": "Various Artists"},
+                           {"id": "a4", "name": "Vanessa Paradis"}],
+                "album": [], "song": [],
+            },
+        })
+
+        index = await client.get_artists([2])
+        assert [
+            [artist["name"] for artist in bucket["artist"]] for bucket in index
+        ] == [["Adele"], ["Vitalic"]]
+
+        found = (await client.search3("various", [2]))["artist"]
+        assert [artist["name"] for artist in found] == ["Vanessa Paradis"]
+
+    async def test_a_letter_left_with_nobody_behind_it_is_dropped(self, client):
+        """The A–Z rail is drawn from these buckets, so an emptied letter would
+        be a rung that scrolls to nothing."""
+        client._make_request = AsyncMock(return_value={
+            "artists": {"index": [
+                {"name": "A", "artist": [{"id": "a1", "name": "Adele"}]},
+                {"name": "V", "artist": [{"id": "a2", "name": "Various Artists"}]},
+            ]},
+        })
+
+        assert [bucket["name"] for bucket in await client.get_artists([2])] == ["A"]
+
     async def test_an_album_cover_id_is_not_mistaken_for_an_artist(self, client):
         """The other half of the round trip: the resolver is called on every
         cover miss, album ids included, and must claim only its own."""
@@ -458,6 +501,15 @@ class TestBrowseRoutes:
     def test_artist_404_when_missing(self, api, nav_client):
         nav_client.get_artist = AsyncMock(return_value=None)
         assert api.get("/api/music-library/artist/nope").status_code == 404
+
+    def test_a_compilation_credit_has_no_page(self, api, nav_client):
+        """The listings leave "Various Artists" out, so the page behind it has to
+        refuse too — otherwise the backend gives two different answers about the
+        same id, and the next feature that links an artist reopens the door."""
+        nav_client.get_artist = AsyncMock(
+            return_value={"id": "63sqASlAfjbGMuLP4JhnZU", "name": "Various Artists"}
+        )
+        assert api.get("/api/music-library/artist/63sqASlAfjbGMuLP4JhnZU").status_code == 404
 
     def test_album_404_when_missing(self, api, nav_client):
         nav_client.get_album = AsyncMock(return_value=None)

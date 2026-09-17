@@ -37,6 +37,7 @@ import aiohttp
 
 from backend.config.constants import NAVIDROME_CRED_FILE, NAVIDROME_URL
 from backend.shared.network import describe_network_error, is_network_error
+from backend.sources.music_library.artist_filter import drop_placeholder_artists
 from backend.sources.music_library.artist_images import artist_cover_id
 
 # The two sizes _is_placeholder asks for. Small on purpose: above an image's own
@@ -366,7 +367,9 @@ class NavidromeClient:
             return {"artist": [], "album": [], "song": []}
         result = response.get("searchResult3", {})
         return {
-            "artist": _stamp_artist_covers(result.get("artist", []) or []),
+            "artist": _stamp_artist_covers(
+                drop_placeholder_artists(result.get("artist", []) or [])
+            ),
             "album": result.get("album", []) or [],
             "song": result.get("song", []) or [],
         }
@@ -375,7 +378,8 @@ class NavidromeClient:
         """All artists as A–Z index buckets (Subsonic ``getArtists``).
 
         Returns the ``artists.index`` list — ``[{"name": "A", "artist": [...]},
-        ...]`` — preserving the alphabetical grouping the Artists view renders.
+        ...]`` — preserving the alphabetical grouping the Artists view renders,
+        minus the rows that are a credit rather than a person (artist_filter).
         """
         if not music_folder_ids:
             return []
@@ -384,10 +388,16 @@ class NavidromeClient:
         )
         if not response or response.get("_network_error"):
             return []
-        index = response.get("artists", {}).get("index", []) or []
-        for bucket in index:
-            _stamp_artist_covers(bucket.get("artist") or [])
-        return index
+        buckets = []
+        for bucket in response.get("artists", {}).get("index", []) or []:
+            artists = drop_placeholder_artists(bucket.get("artist") or [])
+            if not artists:
+                # The A–Z rail IS the bucket list, so a letter left with nothing
+                # behind it would draw a rung that scrolls to an empty row.
+                continue
+            bucket["artist"] = _stamp_artist_covers(artists)
+            buckets.append(bucket)
+        return buckets
 
     async def get_artist(self, artist_id: str) -> Optional[Dict[str, Any]]:
         """A single artist with its albums (Subsonic ``getArtist``).
