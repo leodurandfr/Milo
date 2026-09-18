@@ -129,7 +129,7 @@ def test_rest_route_exists(entry):
         f"Route `{method} {path}` was removed/renamed but is required by "
         f"Milo-Mac ({consumer}). It is not in this checkout — restore the route "
         f"or, if Milo-Mac genuinely dropped it, delete the entry from "
-        f"{MANIFEST_PATH.name}. See CLAUDE.md §'External API clients — Milo-Mac'."
+        f"{MANIFEST_PATH.name}. See CLAUDE.md §'External API clients — Milo-Mac and Milo-iOS'."
     )
 
 
@@ -210,7 +210,7 @@ def test_ws_broadcast_site_exists(event):
         f"subclass referenced outside ws_events.py) but is required by "
         f"Milo-Mac ({event['consumer']}). Restore the broadcast or, if "
         f"Milo-Mac genuinely dropped it, delete the entry from "
-        f"{MANIFEST_PATH.name}. See CLAUDE.md §'External API clients — Milo-Mac'."
+        f"{MANIFEST_PATH.name}. See CLAUDE.md §'External API clients — Milo-Mac and Milo-iOS'."
     )
 
 
@@ -385,7 +385,7 @@ def test_manifest_matches_vendored_milo_mac():
         "Surface drift between the vendored Milo-Mac snapshot and the manifest:\n  "
         + "\n  ".join(errors + warnings)
         + "\nRefresh vendor/milo-mac/ and milo_mac_contract.json together, in one "
-        "conscious commit. See CLAUDE.md §'External API clients — Milo-Mac'."
+        "conscious commit. See CLAUDE.md §'External API clients — Milo-Mac and Milo-iOS'."
     )
 
 
