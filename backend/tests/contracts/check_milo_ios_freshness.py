@@ -10,9 +10,13 @@ extension and App Intents):
         removed from the backend);
       - manifest == snapshot            (the surface extracted from the
         committed snapshot matches `rest` + `_broken_calls` exactly).
-  * NETWORK, NON-BLOCKING (this script, scheduled CI job):
-      re-clones the real app and warns when the vendored snapshot has fallen
-      behind upstream.
+  * NETWORK, MANUAL (this script, run by hand):
+      compares the vendored snapshot against a real checkout and says whether it
+      has fallen behind. Deliberately NOT a CI job, unlike the Milo-Mac twin: a
+      six-route app with one author, changed by the same person who would fix
+      the drift, does not earn a clone on every push to main plus a weekly cron.
+      Run it whenever Milo-iOS changes — the offline test cannot see upstream,
+      so nothing else will tell you the snapshot is stale.
 
 Milo-iOS has NO WebSocket surface: every consumer is a process that lives for
 seconds (a WidgetKit timeline entry, an App Intent), and none can hold a socket
