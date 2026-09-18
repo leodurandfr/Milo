@@ -448,10 +448,22 @@ class SpotifySource(BaseAudioSource):
         — what the settings page's "restart to apply" button asks for, and the
         only way to change crossfade on a running daemon. The restart is
         absorbed by the existing WS retry loop + _reconcile_on_connect.
+
+        A stopped daemon is left stopped: `systemctl restart` on an inactive
+        unit STARTS it, which would raise a Spotify Connect speaker named after
+        this house while another source plays, with no state-machine transition
+        behind it — the source object never ran _do_start, so nothing monitors
+        what that daemon then does. SpotifySettings.vue already only offers the
+        button while spotify is the active source; this is the same rule where
+        it belongs, since a route may not rely on a v-if.
         """
         await self._apply_managed_config()
 
         if not apply_now:
+            return True
+
+        if not await self._is_service_active():
+            self._logger.info("Crossfade stored; go-librespot is stopped, it applies at its next start")
             return True
 
         return await self._restart_service()

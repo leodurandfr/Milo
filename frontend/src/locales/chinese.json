@@ -326,8 +326,8 @@
       "gradual": "渐进",
       "intact": "完整"
     },
-    "apply": "应用并重启",
-    "restarting": "正在重启…"
+    "apply": "应用",
+    "applying": "正在应用…"
   },
   "qobuzSettings": {
     "accountTitle": "账户设置",

@@ -741,12 +741,16 @@ def create_settings_router(
     @router.put("/mac-roc")
     async def set_mac_roc_config(payload: MacRocConfigRequest):
         """
-        Update Mac ROC streaming configuration and restart the service.
+        Update Mac ROC streaming configuration.
 
         This endpoint:
         1. Saves settings to settings.json
         2. Regenerates mac.env from the saved settings (does NOT touch routing.env)
-        3. Restarts milo-mac.service to apply changes
+        3. Restarts milo-mac.service ONLY if it is already running
+
+        `service_restarted` is False both for a receiver that was not running and
+        for one that refused to come back; no consumer distinguishes them, and the
+        journal does.
         """
         async with api_error_handler("Error updating Mac ROC config", logger):
             target_latency_ms = payload.target_latency_ms
@@ -764,9 +768,23 @@ def create_settings_router(
 
             await MacEnv.regenerate(mac_config)
 
-            restart_success = await systemd_manager.restart("milo-mac.service")
-            if not restart_success:
-                logger.warning("Failed to restart milo-mac.service, settings saved but not applied")
+            # roc-recv IS the audio path, and `restart` on a stopped unit starts
+            # it: applying a latency change while another source played put a
+            # second stream into CamillaDSP and left the Mac audible with no
+            # active source at all — the state machine never ran _do_start, so
+            # nothing in the UI said a receiver was up. mac.env is an
+            # EnvironmentFile, re-read on every start, so a unit left alone here
+            # picks the new values up when the source is next selected.
+            # probe_active, not is_active: this acts on the answer, and a probe
+            # that could not look must not authorize a start.
+            running = await systemd_manager.probe_active("milo-mac.service") is True
+            if not running:
+                logger.info("ROC settings stored; the receiver is stopped, they apply at its next start")
+                restart_success = False
+            else:
+                restart_success = await systemd_manager.restart("milo-mac.service")
+                if not restart_success:
+                    logger.warning("Failed to restart milo-mac.service, settings saved but not applied")
 
             # service_restarted stays in the HTTP response only.
             await state_machine.broadcast(MacRocChanged(config=MacRocConfig(**mac_config)))

@@ -62,6 +62,7 @@ class TestSettingsRoutes:
         manager.start = AsyncMock(return_value=True)
         manager.stop = AsyncMock(return_value=True)
         manager.restart = AsyncMock(return_value=True)
+        manager.probe_active = AsyncMock(return_value=True)
         return manager
 
     @pytest.fixture
@@ -594,6 +595,36 @@ class TestSettingsRoutes:
 
         assert response.status_code == 200
         assert response.json()["service_restarted"] is False
+        client._mock_state_machine.broadcast.assert_awaited_once()
+
+    @pytest.mark.parametrize("probe", [False, None], ids=["stopped", "unreadable"])
+    def test_set_mac_roc_never_starts_a_receiver_that_was_not_running(
+        self, client, mock_systemd_manager, probe
+    ):
+        """`systemctl restart` on a stopped unit STARTS it, and roc-recv is the
+        audio path itself. Applying a latency change while Spotify played opened
+        a second stream into CamillaDSP, then left the Mac audible with no active
+        source once Spotify stopped: the state machine never ran MacSource's
+        _do_start, so nothing in the UI reported a receiver at all. mac.env must
+        still be written — it is re-read at the next start.
+
+        None is the probe that could not look, and it must not authorize a start
+        either: nothing distinguishes it from a stopped unit here.
+        """
+        mock_systemd_manager.probe_active = AsyncMock(return_value=probe)
+
+        with patch("backend.api.settings.MacEnv.regenerate", new=AsyncMock()) as regenerate:
+            response = client.put("/api/settings/mac-roc", json={
+                "target_latency_ms": 100,
+                "latency_profile": "responsive",
+                "frame_length_ms": 6,
+            })
+
+        assert response.status_code == 200
+        assert response.json()["service_restarted"] is False
+        mock_systemd_manager.restart.assert_not_awaited()
+        mock_systemd_manager.start.assert_not_awaited()
+        regenerate.assert_awaited_once()
         client._mock_state_machine.broadcast.assert_awaited_once()
 
     # ===================

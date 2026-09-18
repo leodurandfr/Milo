@@ -106,6 +106,54 @@ class TestSnapcastRoutes:
         )
         assert response.status_code == 502
 
+    def test_a_write_is_refused_while_snapserver_is_down(self, client):
+        """Direct mode stops both snapcast units, and every step of this route
+        ends in a `systemctl restart` — a verb that STARTS a stopped unit.
+
+        Applying a config there would raise snapserver and snapclient behind
+        AudioRoutingService's back, and snapclient would take hw:Loopback,0,0
+        while routing.env still points milo_roc at it: the next direct-mode
+        source opens a busy device and plays silence until a reboot. Nothing
+        may run before the probe — a persisted buffer_time pushed to every
+        satellite for a server that is not there is the same lie one layer up.
+
+        The gate is the mode, not a liveness probe: snapserver enabled but down
+        is exactly when rewriting its conf is the repair, and a probe would 409
+        that away. `test_a_write_survives_a_dead_snapserver_while_multiroom_is_on`
+        holds that half.
+
+        MultiroomSettings.vue hides the button in direct mode, which is why this
+        never fired; a route may not rely on a v-if.
+        """
+        client._mock_routing.get_state = Mock(return_value={"multiroom_enabled": False})
+
+        response = client.put(
+            "/api/routing/snapcast/server-config",
+            json={"config": {"buffer": 1000, "snapclient_buffer_time": 80}}
+        )
+
+        assert response.status_code == 409
+        client._mock_snapcast.update_server_config.assert_not_awaited()
+
+    def test_a_write_survives_a_dead_snapserver_while_multiroom_is_on(self, client):
+        """The other half of the gate above: an enabled-but-down snapserver must
+        still be configurable.
+
+        update_server_config writes snapserver.conf BEFORE restarting, so a conf
+        the daemon refused is repaired by rewriting it. Gating on liveness would
+        answer 409 to every retry and strand a failed unit with no route back
+        from the settings page.
+        """
+        client._mock_snapcast.is_available = AsyncMock(return_value=False)
+
+        response = client.put(
+            "/api/routing/snapcast/server-config",
+            json={"config": {"buffer_ms": 700}}
+        )
+
+        assert response.status_code == 200
+        client._mock_snapcast.update_server_config.assert_awaited_once()
+
 
 class TestSnapclientBufferSetting:
     """`snapclient_buffer_time` / `snapclient_fragments` travel a path of their own.
@@ -130,6 +178,7 @@ class TestSnapclientBufferSetting:
     @pytest.fixture
     def client(self, settings_service):
         routing_service = Mock()
+        routing_service.get_state = Mock(return_value={"multiroom_enabled": True})
         routing_service.service_manager = Mock()
         routing_service.service_manager.restart = AsyncMock(return_value=True)
 
@@ -308,6 +357,7 @@ class TestStoredFragmentsReachBothSidesClamped:
     @pytest.fixture
     def client(self, settings_service, registry):
         routing_service = Mock()
+        routing_service.get_state = Mock(return_value={"multiroom_enabled": True})
         routing_service.service_manager = Mock()
         routing_service.service_manager.restart = AsyncMock(return_value=True)
 

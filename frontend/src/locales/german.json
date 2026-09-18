@@ -326,8 +326,8 @@
       "gradual": "Allmählich",
       "intact": "Intakt"
     },
-    "apply": "Anwenden & neu starten",
-    "restarting": "Neustart…"
+    "apply": "Anwenden",
+    "applying": "Wird angewendet…"
   },
   "qobuzSettings": {
     "accountTitle": "Kontoeinstellungen",

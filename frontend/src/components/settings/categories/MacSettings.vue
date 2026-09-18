@@ -32,7 +32,9 @@
       </SettingItem>
     </SettingsSection>
 
-    <!-- Apply Button (requires service restart) -->
+    <!-- mac.env is written on every apply; the ROC receiver is only bounced
+         if it is already running, so the button promises the write, not a
+         restart. A stopped receiver picks the values up at its next start. -->
     <Button
       v-if="hasChanges"
       variant="brand"
@@ -42,7 +44,7 @@
       :disabled="isApplying"
       @click="applyChanges"
     >
-      {{ isApplying ? t('macSettings.restarting') : t('macSettings.apply') }}
+      {{ isApplying ? t('macSettings.applying') : t('macSettings.apply') }}
     </Button>
   </SettingsContainer>
 </template>
@@ -119,7 +121,7 @@ function handleFrameLengthChange(value) {
   config.value.frame_length_ms = value;
 }
 
-// Apply changes and restart service
+// Writes mac.env; the backend bounces roc-recv only if it is already running.
 async function applyChanges() {
   if (isApplying.value) return;
   isApplying.value = true;

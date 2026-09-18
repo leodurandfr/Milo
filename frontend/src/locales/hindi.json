@@ -326,8 +326,8 @@
       "gradual": "क्रमिक",
       "intact": "अक्षुण्ण"
     },
-    "apply": "लागू करें और पुनः आरंभ करें",
-    "restarting": "पुनः आरंभ हो रहा है…"
+    "apply": "लागू करें",
+    "applying": "लागू हो रहा है…"
   },
   "qobuzSettings": {
     "accountTitle": "खाता सेटिंग्स",

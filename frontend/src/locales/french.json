@@ -326,8 +326,8 @@
       "gradual": "Graduel",
       "intact": "Intact"
     },
-    "apply": "Appliquer & Redémarrer",
-    "restarting": "Redémarrage…"
+    "apply": "Appliquer",
+    "applying": "Application…"
   },
   "qobuzSettings": {
     "accountTitle": "Paramètres du compte",

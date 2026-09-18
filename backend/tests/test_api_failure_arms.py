@@ -260,6 +260,7 @@ class TestTheSnapclientConfigPush:
     def pieces(self):
         routing = MagicMock()
         routing.multiroom_enabled = True
+        routing.get_state = Mock(return_value={"multiroom_enabled": True})
         routing.snapclient_service = "milo-snapclient-multiroom.service"
         routing.service_manager.restart = AsyncMock(return_value=True)
         snapcast = MagicMock()

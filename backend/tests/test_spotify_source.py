@@ -1022,6 +1022,27 @@ class TestManagedConfig:
         spotify_source._service_manager.restart.assert_called_once_with("milo-spotify.service")
 
     @pytest.mark.asyncio
+    async def test_apply_now_never_starts_a_stopped_daemon(self, spotify_source):
+        """`systemctl restart` on an inactive unit STARTS it.
+
+        go-librespot is only running while Spotify is the active source, so an
+        apply_now reaching a stopped unit would raise a Connect speaker named
+        after this house while another source plays — and outside the state
+        machine, which never ran _do_start, so nothing monitors or stops it.
+        The same shape did exactly that to roc-recv through the Mac panel.
+
+        Leaving the unit alone is not a dropped setting: config.yml is written
+        unconditionally (pinned by the sibling test above) and parsed at every
+        start, so the value is live the moment Spotify is next selected.
+        """
+        spotify_source._service_manager.is_active = AsyncMock(return_value=False)
+
+        assert await spotify_source.on_spotify_settings_changed(apply_now=True) is True
+
+        spotify_source._service_manager.restart.assert_not_called()
+        spotify_source._service_manager.start.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_a_settings_change_always_reaches_config_yml(self, spotify_source):
         """The write is unconditional; only the restart is not.
 

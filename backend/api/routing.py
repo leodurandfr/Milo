@@ -181,8 +181,32 @@ def create_routing_router(
 
     @router.put("/snapcast/server-config")
     async def update_server_config(payload: SnapcastServerConfigRequest):
-        """Replace the server configuration (idempotent full write)."""
+        """Replace the server configuration (idempotent full write).
+
+        Refused in direct mode. Both snapcast units are stopped there, and every
+        step below ends in a `systemctl restart` — a verb that STARTS a stopped
+        unit. Applying a buffer_time in direct mode would therefore raise
+        snapserver and snapclient behind AudioRoutingService's back, and
+        snapclient would take hw:Loopback,0,0 while routing.env still points
+        milo_roc at it: the next direct-mode source opens a busy device and
+        plays silence until a reboot or a manual multiroom toggle.
+
+        The gate is the MODE, not a liveness probe of snapserver. A daemon that
+        is enabled but down is exactly when rewriting snapserver.conf is the
+        repair — the conf is written before the restart — and probing liveness
+        would 409 that away, leaving a failed unit with no way back from the UI.
+        `logger.warning`, not error: ERROR is what WebSocketLogHandler turns into
+        a house-wide red banner, and a client-state conflict is not a backend
+        failure.
+        """
         async with api_error_handler("Error updating server config", logger):
+            if not (routing_service and routing_service.get_state()["multiroom_enabled"]):
+                logger.warning("Refusing server-config write: multiroom is off")
+                raise HTTPException(
+                    status_code=409,
+                    detail="Multiroom is off; there is no snapserver to configure"
+                )
+
             config = payload.config.copy()
 
             # Extract snapclient config (not part of snapserver.conf)
