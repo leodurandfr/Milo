@@ -218,6 +218,12 @@ def _create_service(name: str) -> Any:
         "lyrics_service": lambda: _import("backend.core.lyrics", "LyricsService")(),
         "push_token_registry": lambda: _import("backend.core.push", "PushTokenRegistry")(),
         "apns_client": lambda: _import("backend.core.push", "ApnsClient")(),
+        "push_service": lambda: _import("backend.core.push", "PushService")(
+            token_registry=get_service("push_token_registry"),
+            apns_client=get_service("apns_client"),
+            volume_service=get_service("volume_service"),
+            client_registry_service=get_service("client_registry_service"),
+        ),
 
         # Update services
         "update_service": lambda: _import("backend.core.updates", "UpdateService")(
@@ -375,6 +381,7 @@ async def initialize_services() -> None:
     network_service = get_service("network_service")
     push_token_registry = get_service("push_token_registry")
     apns_client = get_service("apns_client")
+    push_service = get_service("push_service")
 
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
@@ -383,6 +390,11 @@ async def initialize_services() -> None:
     #   connectivity broadcasts its own event through the state machine.
     connectivity_service.set_state_machine(state_machine)
     state_machine.connectivity_service = connectivity_service
+    # Plain assignment, like its three siblings above: broadcast() calls into
+    # it synchronously, and the service needs the machine back to read the
+    # state it publishes. Both directions are set here, nothing else reads them.
+    state_machine.push_service = push_service
+    push_service.set_state_machine(state_machine)
 
     # =========================================================================
     # STEP 2: Wire the dependencies that CANNOT be constructor-injected.
@@ -535,7 +547,8 @@ async def initialize_services() -> None:
             # Network status live updates (Ethernet + WiFi, NM D-Bus, fail-open)
             ("network_service", network_service.initialize()),
             ("push_token_registry", push_token_registry.initialize()),
-            ("apns_client", apns_client.initialize())
+            ("apns_client", apns_client.initialize()),
+            ("push_service", push_service.initialize())
         ]
 
         results = await asyncio.gather(

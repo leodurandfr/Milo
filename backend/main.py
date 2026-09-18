@@ -196,6 +196,7 @@ async def lifespan(app: FastAPI):
         ("crossover", crossover_service.cleanup),
         ("hostname_conflict", get_service("hostname_conflict_service").cleanup),
         ("music_library_shares", get_service("music_library_source").shares.cleanup),
+        ("push_service", get_service("push_service").cleanup),
         ("apns", get_service("apns_client").cleanup),
         ("websockets", ws_manager.cleanup),
     ]

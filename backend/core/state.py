@@ -104,6 +104,7 @@ class AudioStateMachine:
         self.routing_service = None
         self.camilladsp_service = None
         self.connectivity_service = None
+        self.push_service = None
 
     def register_source(self, source: AudioSource, instance: BaseAudioSource) -> None:
         """Register an audio source implementation."""
@@ -625,3 +626,10 @@ class AudioStateMachine:
             event_payload["full_state"] = self.get_current_state()
 
         await self.ws_manager.broadcast_dict(event.to_envelope(event_payload))
+
+        # APNs fan-out rides the same single emission point, so there is no
+        # second place to remember to notify. Synchronous and non-raising by
+        # contract: it only marks state dirty, and the push happens on the
+        # service's own loop — a slow Apple must never delay this broadcast.
+        if self.push_service:
+            self.push_service.on_event(event)

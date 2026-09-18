@@ -117,6 +117,7 @@ def boot(monkeypatch):
         "calibration_service": _torn_down("calibration"),
         "connectivity_service": _torn_down("connectivity"),
         "hostname_conflict_service": _torn_down("hostname_conflict"),
+        "push_service": _torn_down("push_service"),
         "apns_client": _torn_down("apns"),
     }
     music_library = MagicMock()
@@ -348,7 +349,7 @@ class TestShutdownTable:
             "levels_monitor", "screen_controller", "bt_remote_controller",
             "ir_remote_controller", "fan_controller", "connectivity", "network",
             "routing_service", "crossover_service", "hostname_conflict",
-            "music_library_shares", "rotary_controller", "apns",
+            "music_library_shares", "rotary_controller", "apns", "push_service",
         }
 
     async def test_a_unit_with_no_encoder_tears_down_without_one(self, boot):
