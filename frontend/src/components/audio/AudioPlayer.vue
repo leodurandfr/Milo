@@ -772,10 +772,6 @@ img.player-artwork.loaded {
 .player-info-inner {
   display: flex;
   flex-direction: column;
-  /* Explicit `inherit` (gap isn't inherited by default) mirrors whatever
-     .player-info currently has — var(--space-04) desktop, var(--space-01) mobile —
-     without duplicating the token here. */
-  gap: inherit;
   width: 100%;
 }
 
