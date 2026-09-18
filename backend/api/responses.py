@@ -125,6 +125,17 @@ class VolumeAdjustResponse(BaseModel):
     delta_db: float
 
 
+class VolumeSetResponse(BaseModel):
+    """PATCH /api/volume/global.
+
+    `VolumeAdjustResponse` without `delta_db`, which an absolute write has no
+    value for. `volume_db` is the level that was applied, read back from the
+    service after the clamp — never the one the request carried.
+    """
+    status: str
+    volume_db: float
+
+
 class EqualizerEnabledResponse(BaseModel):
     """PUT /api/equalizer/target/{target}/enabled."""
     status: str

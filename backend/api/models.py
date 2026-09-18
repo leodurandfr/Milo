@@ -43,6 +43,17 @@ class VolumeAdjustRequest(BaseModel):
     show_bar: bool = Field(default=True)
 
 
+class VolumeSetRequest(BaseModel):
+    """Absolute global volume request (in dB).
+
+    The bounds are the technical range, not the operator's: `volume_limits`
+    (min_db/max_db) is applied on top by VolumeService, which clamps rather
+    than rejects.
+    """
+    volume_db: float = Field(..., ge=-80, le=0, description="Target global volume in dB")
+    show_bar: bool = Field(default=True)
+
+
 class ClientVolumeRequest(BaseModel):
     """Client volume request (in dB)"""
     volume_db: float = Field(..., ge=-80, le=0, description="Client volume in dB")

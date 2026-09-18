@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from backend.api.route_helpers import api_error_handler
 from backend.api.models import (
     VolumeAdjustRequest,
+    VolumeSetRequest,
     ClientVolumeRequest,
     ClientMuteRequest,
     VolumeControlRequest,
@@ -17,6 +18,7 @@ from backend.api.responses import (
     ClientVolumeSetResponse,
     VolumeAdjustResponse,
     VolumeControlResponse,
+    VolumeSetResponse,
     VolumeStateEnvelope,
     ZoneVolumeDeltaResponse,
 )
@@ -55,6 +57,31 @@ def create_volume_router(
                 return {"status": "success", "volume_db": volume_db, "delta_db": request.delta_db}
             else:
                 raise HTTPException(status_code=500, detail="Failed to adjust volume")
+
+    @router.patch("/global", response_model=VolumeSetResponse)
+    async def set_global_volume(request: VolumeSetRequest):
+        """Set the global volume in dB, absolute.
+
+        The absolute half of `/adjust`, and the third target of this router
+        alongside `/zone/{id}` and `/client/mac/{mac}`. A caller that knows the
+        level it wants says so, instead of reading `/state` and posting the
+        difference: two round-trips with a window in which the rotary, the
+        screen or another client moves the volume in between. The
+        read-modify-write still happens in multiroom — `set_volume_db` shifts
+        every client by the same delta — but it happens under `_volume_lock`,
+        which is the only place it can be atomic at all.
+
+        Out-of-range values are **clamped, not rejected**: `set_volume_db`
+        applies `volume_limits` (min_db/max_db) exactly as `/adjust` does. That
+        is the opposite of the per-client route, which answers 400 — so the
+        response carries the level that was actually applied, read back from the
+        service, never the one that was asked for.
+        """
+        async with api_error_handler("Failed to set global volume"):
+            if not await volume_service.set_volume_db(request.volume_db, show_bar=request.show_bar):
+                raise HTTPException(status_code=500, detail="Failed to set global volume")
+
+            return {"status": "success", "volume_db": await volume_service.get_volume_db()}
 
     # ============================================================================
     # MAC ADDRESS UTILITIES

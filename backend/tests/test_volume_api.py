@@ -6,6 +6,7 @@ Tests cover:
 - PATCH /api/volume/client/mac/{mac_url} - Set client volume by MAC
 - PATCH /api/volume/client/mac/{mac_url}/mute - Set client mute by MAC
 - PATCH /api/volume/zone/{zone_id} - Apply zone volume delta
+- PATCH /api/volume/global - Set the global volume, absolute
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -328,3 +329,77 @@ class TestVolumeAdjustRoute:
         mock_volume_service.adjust_volume_db.return_value = False
         response = test_client.post("/api/volume/adjust", json={"delta_db": 2.0})
         assert response.status_code == 500
+
+
+# =============================================================================
+# The absolute global write — PATCH /api/volume/global
+# =============================================================================
+
+class TestGlobalVolumeRoute:
+    """The absolute half of `/adjust`.
+
+    It exists so a caller holding a level — a Now Playing slider, which reports
+    a position and not a gesture — stops reading `/state` and posting the
+    difference. That read-modify-write leaves a window in which the rotary, the
+    screen or another client moves the volume in between, and the caller writes
+    a level computed against a state that no longer holds.
+    """
+
+    @pytest.fixture
+    def mock_volume_service(self):
+        service = MagicMock()
+        service.set_volume_db = AsyncMock(return_value=True)
+        # Deliberately not the value any request below asks for: the route must
+        # report what the service applied, never what the caller wrote.
+        service.get_volume_db = AsyncMock(return_value=-37.5)
+        return service
+
+    @pytest.fixture
+    def test_client(self, mock_volume_service):
+        app = FastAPI()
+        app.include_router(create_volume_router(mock_volume_service))
+        return TestClient(app)
+
+    def test_it_reports_what_the_service_applied(self, test_client, mock_volume_service):
+        """The response carries the service's level, not the request's.
+
+        This is how the clamp becomes visible: `volume_limits` is applied inside
+        `set_volume_db`, so a route echoing `request.volume_db` would answer a dB
+        no speaker is playing, and the caller's slider would spring back on the
+        next `/state`.
+        """
+        response = test_client.patch("/api/volume/global", json={"volume_db": -10.0})
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "success", "volume_db": -37.5}
+        mock_volume_service.set_volume_db.assert_awaited_once()
+        assert mock_volume_service.set_volume_db.await_args.args[0] == -10.0
+
+    def test_show_bar_reaches_the_service(self, test_client, mock_volume_service):
+        """A push-driven write must be able to move the level without lighting up
+        the screen of an appliance nobody is standing in front of. The flag is the
+        only reason this route takes a body field beyond the level."""
+        test_client.patch(
+            "/api/volume/global", json={"volume_db": -10.0, "show_bar": False}
+        )
+
+        assert mock_volume_service.set_volume_db.await_args.kwargs["show_bar"] is False
+
+    def test_genuine_failure_returns_500(self, test_client, mock_volume_service):
+        """Same mapping as `/adjust`: False from the service is a real failure,
+        not a silent no-op. The direct-mode/no-DAC path returns True, so this arm
+        only ever fires on something the caller has to know about."""
+        mock_volume_service.set_volume_db.return_value = False
+
+        assert test_client.patch(
+            "/api/volume/global", json={"volume_db": -30.0}
+        ).status_code == 500
+
+    def test_outside_the_technical_range_is_rejected(self, test_client, mock_volume_service):
+        """`volume_limits` is clamped, but the -80..0 dB technical range is not a
+        preference — a value outside it is a caller bug, and answering 422 says
+        so instead of silently landing at the floor."""
+        response = test_client.patch("/api/volume/global", json={"volume_db": 12.0})
+
+        assert response.status_code == 422
+        mock_volume_service.set_volume_db.assert_not_awaited()
