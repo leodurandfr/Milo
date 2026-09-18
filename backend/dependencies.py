@@ -216,6 +216,8 @@ def _create_service(name: str) -> Any:
 
         # Lyrics (transverse Lyrics app — LRCLIB lookup + disk cache; no source, no boot init)
         "lyrics_service": lambda: _import("backend.core.lyrics", "LyricsService")(),
+        "push_token_registry": lambda: _import("backend.core.push", "PushTokenRegistry")(),
+        "apns_client": lambda: _import("backend.core.push", "ApnsClient")(),
 
         # Update services
         "update_service": lambda: _import("backend.core.updates", "UpdateService")(
@@ -371,6 +373,8 @@ async def initialize_services() -> None:
     hostname_conflict_service = get_service("hostname_conflict_service")
     connectivity_service = get_service("connectivity_service")
     network_service = get_service("network_service")
+    push_token_registry = get_service("push_token_registry")
+    apns_client = get_service("apns_client")
 
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
@@ -529,7 +533,9 @@ async def initialize_services() -> None:
             # Internet connectivity monitoring (D-Bus subscription, fail-open)
             ("connectivity_service", connectivity_service.initialize()),
             # Network status live updates (Ethernet + WiFi, NM D-Bus, fail-open)
-            ("network_service", network_service.initialize())
+            ("network_service", network_service.initialize()),
+            ("push_token_registry", push_token_registry.initialize()),
+            ("apns_client", apns_client.initialize())
         ]
 
         results = await asyncio.gather(

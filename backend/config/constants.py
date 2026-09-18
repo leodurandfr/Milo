@@ -19,6 +19,16 @@ MILO_DATA_DIR = Path("/var/lib/milo")
 SETTINGS_FILE = MILO_DATA_DIR / "settings.json"
 HARDWARE_FILE = MILO_DATA_DIR / "hardware.json"
 ERROR_LOG_FILE = MILO_DATA_DIR / "errors.log"
+# APNs device tokens (widget / push-to-start / Now Playing session), per iOS install.
+PUSH_TOKENS_FILE = MILO_DATA_DIR / "push_tokens.json"
+# APNs provider signing key, provisioned per device and deliberately NOT baked
+# into the pi-gen image: one .p8 signs for every app in the Apple team, so an
+# image carrying it would ship that credential on every card. Expected content
+# is exactly one AuthKey_<KEYID>.p8 (milo:milo, 0600) — the Key ID lives in the
+# filename, which is Apple's own naming and the only copy of it.
+APNS_KEY_DIR = MILO_DATA_DIR / "apns"
+APNS_TEAM_ID = "7C2S8B9978"
+IOS_APP_BUNDLE_ID = "leodurand.Milo-iOS"   # topics derive from the APP, not the widget
 
 # =============================================================================
 # DIRECTORIES (derived from MILO_DATA_DIR)

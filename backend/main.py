@@ -39,6 +39,7 @@ from backend.api.discovery import create_discovery_router
 from backend.api.multiroom import create_multiroom_router
 from backend.api.qobuz_account import create_qobuz_account_router
 from backend.api.lyrics import create_lyrics_router
+from backend.api.push import create_push_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
 
@@ -195,6 +196,7 @@ async def lifespan(app: FastAPI):
         ("crossover", crossover_service.cleanup),
         ("hostname_conflict", get_service("hostname_conflict_service").cleanup),
         ("music_library_shares", get_service("music_library_source").shares.cleanup),
+        ("apns", get_service("apns_client").cleanup),
         ("websockets", ws_manager.cleanup),
     ]
     if rotary_controller:
@@ -352,6 +354,7 @@ app.include_router(discovery_router)
 app.include_router(create_qobuz_account_router(systemd_manager))
 
 app.include_router(create_lyrics_router(get_service("lyrics_service")))
+app.include_router(create_push_router(get_service("push_token_registry")))
 
 app.add_api_websocket_route("/ws", websocket_server.websocket_endpoint)
 

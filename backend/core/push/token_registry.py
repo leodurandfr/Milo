@@ -1,0 +1,238 @@
+# backend/core/push/token_registry.py
+"""Persistent registry of the APNs device tokens Milō pushes to.
+
+Three tokens per iOS install, one file, one lock. The registry stores and
+purges; it never talks to APNs — the emitter does, and hands back what APNs
+said about a token (see ``purge``).
+
+Keyed by the token string, because that is the only identifier the two sides
+agree on: APNs names a dead token by its string and by nothing else, so a
+registry keyed on anything richer could not act on a 410 without a reverse
+index. ``device_id`` is carried on the record instead, which is all the
+replacement rules below need.
+"""
+import asyncio
+import logging
+import time
+from pathlib import Path
+from typing import Callable, Dict, List, Optional
+
+from backend.config.constants import PUSH_TOKENS_FILE
+from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
+from backend.shared.persistence import load_versioned_json, save_versioned_json
+
+
+class PushTokenRegistry:
+    """Stores the widget, push-to-start and session tokens of every iOS install."""
+
+    SCHEMA_VERSION: int = 1
+
+    def __init__(self):
+        self.tokens_file: Path = PUSH_TOKENS_FILE
+        self.logger = logging.getLogger("push.tokens")
+        self._file_lock = asyncio.Lock()
+        self._tokens: Dict[str, PushToken] = {}
+
+    async def initialize(self) -> None:
+        """Load the file so a schema mismatch surfaces at boot, not at first push.
+
+        Raises SchemaVersionMismatch on version drift; the handler in
+        dependencies.py::init_async logs the banner and SystemExit(1)s. A
+        missing file is a fresh install and stays unwritten until the first
+        registration — an empty registry is a valid state, so seeding one on
+        disk would only create a file to back up.
+        """
+        async with self._file_lock:
+            self._tokens = await self._load_locked()
+        self.logger.info(f"Push token registry loaded: {len(self._tokens)} token(s)")
+
+    # =========================================================================
+    # READ — synchronous, served from memory
+    # =========================================================================
+
+    def tokens_for(self, kind: PushTokenKind) -> List[PushToken]:
+        """Every registered token of one kind.
+
+        Synchronous on purpose: the emitter reads this on the push path, which
+        the coalescer already rate-limits, and an await there would let a
+        registration interleave between picking the targets and sending.
+        """
+        return [t for t in self._tokens.values() if t.kind == kind]
+
+    def token_for_session(self, session_id: str) -> Optional[PushToken]:
+        """The token carrying `update` and `end` for one Now Playing session."""
+        return next(
+            (
+                t for t in self._tokens.values()
+                if t.kind == PushTokenKind.SESSION and t.session_id == session_id
+            ),
+            None,
+        )
+
+    # =========================================================================
+    # WRITE
+    # =========================================================================
+
+    async def register(
+        self,
+        token: str,
+        kind: PushTokenKind,
+        environment: ApnsEnvironment,
+        device_id: str,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Record a token, replacing the one it supersedes.
+
+        Replacement is what keeps the registry from filling with tokens that are
+        dead but not yet known to be: iOS reissues on reinstall, and the old one
+        is only revealed by a 410 on a push nobody may send for days.
+
+        What a new token supersedes depends on its kind:
+
+        * ``WIDGET`` / ``PUSH_TO_START`` — the same kind on the same
+          ``device_id``. One install holds one of each.
+        * ``SESSION`` — the same ``session_id``. A session has one token, and a
+          resumed session reuses its id.
+
+        The token string itself is also a key, so re-registering an existing
+        string under another device moves the record rather than duplicating it.
+        """
+        now = time.time()
+        record = PushToken(
+            token=token,
+            kind=kind,
+            environment=environment,
+            device_id=device_id,
+            session_id=session_id,
+            registered_at=now,
+        )
+
+        def apply(tokens: Dict[str, PushToken]) -> bool:
+            for superseded in self._superseded_by(tokens, record):
+                del tokens[superseded]
+            tokens[token] = record
+            return True
+
+        await self._mutate(apply)
+        self.logger.info(
+            f"Registered {kind.value} token ({environment.value}) for device {device_id}"
+        )
+
+    async def unregister(self, token: str) -> bool:
+        """Drop a token the app asked to remove. False when it was not held."""
+        def apply(tokens: Dict[str, PushToken]) -> bool:
+            return tokens.pop(token, None) is not None
+
+        removed = await self._mutate(apply)
+        if removed:
+            self.logger.info("Unregistered token on request")
+        return removed
+
+    async def purge(self, token: str, *, invalidated_at: Optional[float] = None) -> bool:
+        """Drop a token APNs refused. False when it was kept or not held.
+
+        `invalidated_at` is the unix timestamp a 410 Unregistered carries, in
+        SECONDS — APNs sends it in milliseconds and the emitter divides. It says
+        when the token stopped being valid, and Apple's rule is to delete only
+        if the token has not been registered again since.
+
+        That guard is not decoration. Without it this sequence deletes a live
+        token: the app is reinstalled and registers its new token while a push
+        to the old one is still in flight; the 410 comes back after the new
+        registration and takes the new token with it. The device then receives
+        nothing until its next launch, with no trace anywhere — the push path
+        reports success, and the registry is simply empty.
+
+        A ``BadDeviceToken`` (400) carries no timestamp: the emitter calls this
+        without one, and the token goes unconditionally.
+        """
+        def apply(tokens: Dict[str, PushToken]) -> bool:
+            held = tokens.get(token)
+            if held is None:
+                return False
+            if invalidated_at is not None and held.registered_at > invalidated_at:
+                self.logger.info(
+                    "APNs reported a token invalid, but it was registered again "
+                    "since — keeping it"
+                )
+                return False
+            del tokens[token]
+            return True
+
+        purged = await self._mutate(apply)
+        if purged:
+            self.logger.info("Purged a token APNs no longer accepts")
+        return purged
+
+    async def mark_pushed(self, tokens: List[str], at: Optional[float] = None) -> None:
+        """Stamp `last_push_at`, so an operator reading the file can see silence.
+
+        Nothing reads this back — it exists because the only way to tell a token
+        that is idle from one that is broken is when it was last used, and the
+        file is the only surface this registry has.
+        """
+        stamp = at if at is not None else time.time()
+
+        def apply(held: Dict[str, PushToken]) -> bool:
+            changed = False
+            for token in tokens:
+                if token in held:
+                    held[token].last_push_at = stamp
+                    changed = True
+            return changed
+
+        await self._mutate(apply)
+
+    # =========================================================================
+    # PRIVATE
+    # =========================================================================
+
+    @staticmethod
+    def _superseded_by(tokens: Dict[str, PushToken], record: PushToken) -> List[str]:
+        """Token strings `record` replaces — see ``register`` for the rules."""
+        if record.kind == PushTokenKind.SESSION:
+            return [
+                key for key, held in tokens.items()
+                if held.kind == PushTokenKind.SESSION
+                and held.session_id == record.session_id
+            ]
+        return [
+            key for key, held in tokens.items()
+            if held.kind == record.kind and held.device_id == record.device_id
+        ]
+
+    async def _mutate(self, apply: Callable[[Dict[str, PushToken]], bool]) -> bool:
+        """Read → mutate → write under a single hold of ``_file_lock``.
+
+        ``apply`` edits the dict in place and returns whether anything changed;
+        the file is rewritten only when it did. It is deliberately synchronous:
+        an await inside it would reopen the window this closes.
+
+        Taking the lock once is the whole point, and the interleave it closes is
+        this registry's own: a purge triggered by a failed push runs in the
+        background while a registration arrives over HTTP. Loading and saving
+        under two separate holds lets them read the same state and lets the
+        second write drop the first one's edit — which here means either a dead
+        token resurrected or a fresh one deleted.
+        """
+        async with self._file_lock:
+            tokens = await self._load_locked()
+            changed = apply(tokens)
+            self._tokens = tokens
+            if changed:
+                await save_versioned_json(
+                    self.tokens_file,
+                    {"tokens": {k: v.to_dict() for k, v in tokens.items()}},
+                    self.SCHEMA_VERSION,
+                )
+        return changed
+
+    async def _load_locked(self) -> Dict[str, PushToken]:
+        """Read and decode the file. The caller must already hold ``_file_lock``."""
+        data = await load_versioned_json(self.tokens_file, self.SCHEMA_VERSION)
+        if not data:
+            return {}
+        return {
+            token: PushToken.from_dict(token, record)
+            for token, record in data["tokens"].items()
+        }

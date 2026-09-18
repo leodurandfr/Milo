@@ -64,6 +64,41 @@ class ClientMuteRequest(BaseModel):
     mute: bool = Field(..., description="Mute state")
 
 
+from backend.core.push.models import ApnsEnvironment, PushTokenKind
+
+
+# =============================================================================
+# PUSH NOTIFICATIONS (APNs)
+# =============================================================================
+
+class PushTokenRegisterRequest(BaseModel):
+    """POST /api/push/tokens.
+
+    `environment` has no default on purpose. A Debug build's token is only
+    valid against the sandbox host, and guessing wrong answers BadDeviceToken —
+    a 400 indistinguishable from a malformed token, with nothing on the device
+    to see. A caller that does not say gets a 422 instead of silence.
+    """
+    token: str = Field(..., min_length=1, description="APNs device token (hex)")
+    kind: PushTokenKind = Field(..., description="What this token may receive")
+    environment: ApnsEnvironment = Field(..., description="APNs host that issued it")
+    device_id: str = Field(..., min_length=1, description="Stable per-install id")
+    session_id: Optional[str] = Field(
+        default=None, description="Required for kind=session, forbidden otherwise"
+    )
+
+    @model_validator(mode="after")
+    def _session_id_matches_kind(self):
+        """A session token without its session reaches nothing, and a session id
+        on a widget token is a caller that confused the two — both are silent
+        once stored, so they are refused at the door."""
+        if self.kind == PushTokenKind.SESSION and not self.session_id:
+            raise ValueError("session_id is required when kind is 'session'")
+        if self.kind != PushTokenKind.SESSION and self.session_id is not None:
+            raise ValueError(f"session_id is not allowed when kind is '{self.kind.value}'")
+        return self
+
+
 # =============================================================================
 # SNAPCAST
 # =============================================================================
