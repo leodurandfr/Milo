@@ -151,7 +151,7 @@ const equalizerStore = useEqualizerStore();
 const systemStore = useSystemStore();
 const fanStore = useFanStore();
 const updatesStore = useUpdatesStore();
-const { on, parsedOn, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
+const { on, parsedOn, onReconnect, onVisibilityChange, showDisconnectedBanner } = useWebSocket();
 
 // The volume bar is fixed above every view, so it is the one component that
 // cannot see what it is drawn on. The dark full-bleed surfaces (screensaver,
@@ -172,11 +172,6 @@ watch(() => settingsStore.language, (lang) => i18n.handleLanguageChanged(lang));
 const isReady = ref(false);
 const isBootComplete = ref(false);
 const currentError = ref(null);
-const showConnectionLost = ref(false);
-let connectionLostTimeout = null;
-
-// iOS delay constant for connection lost notification
-const IOS_CONNECTION_LOST_DELAY_MS = 1200;
 
 // === Boot screen reference ===
 let bootScreenEl = null;
@@ -291,35 +286,16 @@ const sourceLabel = (id) => {
   return id ? id.charAt(0).toUpperCase() + id.slice(1) : '';
 };
 
-// Watch connection state with iOS-specific delay to avoid flash on quick reconnects
-watch(isConnected, (connected) => {
-  if (!isBootComplete.value) return;
-  // Suppress during setup wizard (HTTP fallback handles captive portal without WebSocket)
-  if (settingsStore.setupCompleted === false) return;
-
-  if (connectionLostTimeout) {
-    timer.clear(connectionLostTimeout);
-    connectionLostTimeout = null;
-  }
-
-  if (!connected) {
-    const isStandalone = window.navigator.standalone === true
-      || window.matchMedia('(display-mode: standalone)').matches;
-    if (isStandalone) {
-      // PWA standalone: delay to avoid flash during quick background/foreground transitions
-      connectionLostTimeout = timer.setTimeout(() => {
-        if (!isConnected.value) {
-          showConnectionLost.value = true;
-        }
-      }, IOS_CONNECTION_LOST_DELAY_MS);
-    } else {
-      // Desktop browser: show immediately
-      showConnectionLost.value = true;
-    }
-  } else {
-    showConnectionLost.value = false;
-  }
-});
+// The grace delay that keeps a backgrounded app's wake from blinking this
+// banner belongs to the WebSocket service, which owns both the socket and the
+// visibility listener the delay has to agree with. Left here is what the
+// service cannot know: the banner has nothing to say before boot, and the setup
+// wizard runs over an HTTP fallback that needs no WebSocket at all.
+const showConnectionLost = computed(() =>
+  showDisconnectedBanner.value
+  && isBootComplete.value
+  && settingsStore.setupCompleted !== false
+);
 
 // Connectivity is deliberately absent from this banner. A missing link is only
 // worth telling the user about when it blocks the source they selected, and

@@ -33,6 +33,8 @@ class WebSocketSingleton {
   constructor() {
     this.socket = null;
     this.isConnected = ref(false);
+    this.showDisconnectedBanner = ref(false);
+    this.disconnectedBannerTimeout = null;
     this.hasEverConnected = false;
     this.eventHandlers = new Map();
     this.subscribers = new Set();
@@ -44,6 +46,7 @@ class WebSocketSingleton {
     this.reconnectAttempts = 0;
     this.maxReconnectDelay = 30000; // Max 30 seconds
     this.pingStaleMs = 90000; // 3x the backend keepalive interval (30s)
+    this.disconnectedGraceMs = 2500; // see armDisconnectedBanner()
   }
 
   addSubscriber(subscriberId) {
@@ -97,6 +100,7 @@ class WebSocketSingleton {
       const wasReconnecting = this.hasEverConnected;
       this.hasEverConnected = true;
       this.isConnected.value = true;
+      this.clearDisconnectedBanner();
       this.lastPingTime = Date.now();
       this.reconnectAttempts = 0; // Reset backoff counter on successful connection
       this.setupVisibilityListener();
@@ -130,6 +134,7 @@ class WebSocketSingleton {
 
       this.isConnected.value = false;
       this.socket = null;
+      this.armDisconnectedBanner();
       logger.info('websocket', 'Disconnected');
 
       // Auto-reconnect only if the tab is visible
@@ -162,37 +167,85 @@ class WebSocketSingleton {
     if (fullCleanup) {
       this.eventHandlers.clear();
       this.removeVisibilityListener();
+      this.clearDisconnectedBanner();
     }
+  }
+
+  /**
+   * Arm the "connection lost" banner on a grace delay.
+   *
+   * The banner states that the connection is lost, which is not the same thing
+   * as the socket being momentarily closed: iOS suspends the process and kills
+   * the socket on every backgrounding, and the visibility handler below reopens
+   * one ~100 ms later. Bound to the raw isConnected, the banner therefore blinked
+   * on every return to the app — on iOS, in Safari and in the Mac app alike.
+   *
+   * Armed only while the document is visible, and re-armed when it becomes
+   * visible again: a timer left running across a suspension expires the instant
+   * the process resumes, which is the flash itself rather than a fix for it.
+   */
+  armDisconnectedBanner() {
+    if (this.disconnectedBannerTimeout || this.showDisconnectedBanner.value) return;
+    if (document.hidden) return;
+    // A close event is dispatched after close() returns, so a teardown's
+    // clearDisconnectedBanner() runs first and this call is what lands last:
+    // without the guard it latches a banner nobody can clear any more
+    if (this.subscribers.size === 0) return;
+
+    this.disconnectedBannerTimeout = setTimeout(() => {
+      this.disconnectedBannerTimeout = null;
+      if (!this.isConnected.value) {
+        this.showDisconnectedBanner.value = true;
+      }
+    }, this.disconnectedGraceMs);
+  }
+
+  clearDisconnectedBanner() {
+    if (this.disconnectedBannerTimeout) {
+      clearTimeout(this.disconnectedBannerTimeout);
+      this.disconnectedBannerTimeout = null;
+    }
+    this.showDisconnectedBanner.value = false;
   }
 
   setupVisibilityListener() {
     if (this.visibilityHandler) return;
 
     this.visibilityHandler = () => {
-      if (!document.hidden) {
-        if (this.subscribers.size === 0) return;
+      if (document.hidden) {
+        // Nobody is looking, and a banner timer left armed would expire the
+        // instant the process resumes. The return path below re-arms it if the
+        // socket is still down by then.
+        this.clearDisconnectedBanner();
+        return;
+      }
 
-        // readyState can still report OPEN on a dead connection after system
-        // sleep or tab suspension; trust the keepalive age instead and force
-        // a clean reconnect (onclose reschedules, onopen re-requests state)
-        if (this.socket?.readyState === WebSocket.OPEN &&
-            Date.now() - this.lastPingTime > this.pingStaleMs) {
-          logger.warn('websocket', 'Tab visible - stale connection, forcing reconnect');
-          this.closeConnection();
-          return;
-        }
+      if (this.subscribers.size === 0) return;
 
-        if (this.socket?.readyState === WebSocket.OPEN) {
-          // Socket is open and alive: the deltas missed while hidden are healed
-          // by App.vue's resyncStores(), the one recipe that describes what the
-          // stores hold. This layer only reports that the tab came back.
-          logger.debug('websocket', 'Tab visible - notifying subscribers');
-          this.notifyVisibilityChange();
-        } else {
-          // Socket is closed - trigger reconnection
-          logger.info('websocket', 'Tab visible - socket closed, reconnecting');
-          this.createConnection();
-        }
+      // A socket killed while the app was backgrounded closed with the document
+      // hidden, so it armed nothing — the grace delay starts here instead
+      if (!this.isConnected.value) this.armDisconnectedBanner();
+
+      // readyState can still report OPEN on a dead connection after system
+      // sleep or tab suspension; trust the keepalive age instead and force
+      // a clean reconnect (onclose reschedules, onopen re-requests state)
+      if (this.socket?.readyState === WebSocket.OPEN &&
+          Date.now() - this.lastPingTime > this.pingStaleMs) {
+        logger.warn('websocket', 'Tab visible - stale connection, forcing reconnect');
+        this.closeConnection();
+        return;
+      }
+
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        // Socket is open and alive: the deltas missed while hidden are healed
+        // by App.vue's resyncStores(), the one recipe that describes what the
+        // stores hold. This layer only reports that the tab came back.
+        logger.debug('websocket', 'Tab visible - notifying subscribers');
+        this.notifyVisibilityChange();
+      } else {
+        // Socket is closed - trigger reconnection
+        logger.info('websocket', 'Tab visible - socket closed, reconnecting');
+        this.createConnection();
       }
     };
 
@@ -397,7 +450,7 @@ export default function useWebSocket() {
   }
 
   return {
-    isConnected: computed(() => wsInstance.isConnected.value),
+    showDisconnectedBanner: computed(() => wsInstance.showDisconnectedBanner.value),
     on,
     parsedOn,
     onReconnect,
