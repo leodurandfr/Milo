@@ -36,7 +36,7 @@
                       <div class="skeleton-icon shimmer"></div>
                       <div class="skeleton-text shimmer skeleton-name"></div>
                       <div class="skeleton-text shimmer skeleton-version"></div>
-                      <div class="skeleton-button shimmer"></div>
+                      <div class="skeleton-button shimmer heading-4" aria-hidden="true">{{ t('updates.upToDate') }}</div>
                     </div>
                   </div>
 
@@ -86,7 +86,7 @@
                     <div class="skeleton-icon shimmer"></div>
                     <div class="skeleton-text shimmer skeleton-name"></div>
                     <div class="skeleton-text shimmer skeleton-version"></div>
-                    <div class="skeleton-button shimmer"></div>
+                    <div class="skeleton-button shimmer heading-4" aria-hidden="true">{{ t('updates.upToDate') }}</div>
                   </div>
                 </div>
 
@@ -178,19 +178,19 @@
                   <div class="skeleton-icon shimmer"></div>
                   <div class="skeleton-text shimmer skeleton-name"></div>
                   <div class="skeleton-text shimmer skeleton-version"></div>
-                  <div class="skeleton-button shimmer"></div>
+                  <div class="skeleton-button shimmer heading-4" aria-hidden="true">{{ t('updates.upToDate') }}</div>
                 </div>
                 <div class="program-item-skeleton">
                   <div class="skeleton-icon shimmer"></div>
                   <div class="skeleton-text shimmer skeleton-name"></div>
                   <div class="skeleton-text shimmer skeleton-version"></div>
-                  <div class="skeleton-button shimmer"></div>
+                  <div class="skeleton-button shimmer heading-4" aria-hidden="true">{{ t('updates.upToDate') }}</div>
                 </div>
                 <div class="program-item-skeleton">
                   <div class="skeleton-icon shimmer"></div>
                   <div class="skeleton-text shimmer skeleton-name"></div>
                   <div class="skeleton-text shimmer skeleton-version"></div>
-                  <div class="skeleton-button shimmer"></div>
+                  <div class="skeleton-button shimmer heading-4" aria-hidden="true">{{ t('updates.upToDate') }}</div>
                 </div>
               </div>
 
@@ -713,18 +713,32 @@ onMounted(async () => {
 
 .skeleton-button {
   grid-area: button;
-  width: 100px;
-  /* Button `size="small"`: 36px tall, --radius-03. */
+  /* Button `size="small"`: 36px tall, 12px of side padding, --radius-03, and
+     `heading-4` for the label — which the block carries, invisibly, because a
+     fixed width is a width that is wrong in every locale. The row almost
+     always settles on "Up to date", so standing in for that button is what
+     makes the block the size of the one that replaces it. */
   height: 36px;
+  padding: 0 12px;
   border-radius: var(--radius-03);
   justify-self: end;
+  color: transparent;
+  user-select: none;
 }
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .program-item {
     grid-template-columns: 1fr;
-    gap: var(--space-02);
+    gap: 0;
+  }
+
+  /* The gap belongs to a button that is actually drawn. "Up to date" is hidden
+     at this width, so left unconditional it sits above a 0px actions track and
+     the row stands 8px taller than the skeleton handing over to it — once per
+     row, so the list drifts by five of them before the last one lands. */
+  .program-item:has(> .program-actions > .program-button:not(.btn-up-to-date)) {
+    row-gap: var(--space-02);
   }
 
   .program-item:first-child {
