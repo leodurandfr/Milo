@@ -39,38 +39,66 @@ const spinnerStyle = computed(() => {
   return {};
 });
 
-const svgContent = computed(() => {
-  // Use currentColor to inherit from parent's text color
-  const fillColor = 'currentColor';
+/* The geometry, in the units of the 24x24 viewBox. Two numbers, and every
+   consumer reads the result — there is no second place that resizes a spinner.
 
-  // The full 24-unit viewBox, blades inset inside it: `size` then means the same
-  // thing here as on SvgIcon and AppIcon, so a spinner standing in for an icon
-  // is drawn at the icon's weight rather than a tenth larger.
-  return `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path fill="${fillColor}" d="M11.241 6.258V3.388c0-.19.076-.373.21-.508a.718.718 0 0 1 1.016 0c.135.135.21.318.21.508v2.87c0 .19-.076.373-.21.508a.718.718 0 0 1-1.016 0 .718.718 0 0 1-.21-.508Z" opacity="0.16">
-  <animate attributeName="opacity" values="1;0.64;0.6;0.16;0.16;0.16;0.16;0.16;1" dur="1.4s" repeatCount="indefinite"/>
-</path>
-<path fill="${fillColor}" d="M17.54 5.403a.718.718 0 0 1 .508-.211.718.718 0 0 1 .508.21.718.718 0 0 1 .21.516.718.718 0 0 1-.209.508l-2.032 2.033a.718.718 0 0 1-.506.209.718.718 0 0 1-.508-.211.718.718 0 0 1-.21-.507.718.718 0 0 1 .21-.507l2.03-2.04Z" opacity="0.16">
-  <animate attributeName="opacity" values="0.16;1;0.64;0.6;0.16;0.16;0.16;0.16;0.16" dur="1.4s" repeatCount="indefinite"/>
-</path>
-<path fill="${fillColor}" d="M20.571 11.282c.19 0 .373.076.508.21.134.135.21.318.21.508s-.076.373-.21.508a.718.718 0 0 1-.508.21h-2.87a.718.718 0 0 1-.508-.21.718.718 0 0 1-.21-.508c0-.19.076-.373.21-.508a.718.718 0 0 1 .508-.21h2.87Z" opacity="0.16">
-  <animate attributeName="opacity" values="0.16;0.16;1;0.64;0.6;0.16;0.16;0.16;0.16" dur="1.4s" repeatCount="indefinite"/>
-</path>
-<path fill="${fillColor}" d="M18.557 17.582a.718.718 0 0 1-.19.497.718.718 0 0 1-.48.212.718.718 0 0 1-.497-.187l-2.031-2.032a.718.718 0 0 1-.207-.503.718.718 0 0 1 .213-.492.718.718 0 0 1 .493-.212.718.718 0 0 1 .501.19l2.031 2.03.167-.003Z" opacity="0.16">
-  <animate attributeName="opacity" values="0.16;0.16;0.16;1;0.64;0.6;0.16;0.16;0.16" dur="1.4s" repeatCount="indefinite"/>
-</path>
-<path fill="${fillColor}" d="M11.241 20.612v-2.87c0-.19.076-.373.21-.508a.718.718 0 0 1 1.016 0c.135.135.21.318.21.508v2.87c0 .19-.076.373-.21.508a.718.718 0 0 1-1.016 0 .718.718 0 0 1-.21-.508Z" opacity="0.16">
-  <animate attributeName="opacity" values="0.16;0.16;0.16;0.16;1;0.64;0.6;0.16;0.16" dur="1.4s" repeatCount="indefinite"/>
-</path>
-<path fill="${fillColor}" d="M7.392 15.552a.718.718 0 0 1 .5-.186c.184.005.36.08.49.21.13.13.205.306.21.49a.718.718 0 0 1-.185.5l-2.032 2.032a.718.718 0 0 1-1.015-1.016l2.032-2.03Z" opacity="0.16">
-  <animate attributeName="opacity" values="0.16;0.16;0.16;0.16;0.16;1;0.64;0.6;0.16" dur="1.4s" repeatCount="indefinite"/>
-</path>
-<path fill="${fillColor}" d="M6.217 11.282c.19 0 .373.076.508.21.134.135.21.318.21.508s-.076.373-.21.508a.718.718 0 0 1-.508.21h-2.87a.718.718 0 0 1-.508-.21.718.718 0 0 1-.21-.508c0-.19.076-.373.21-.508a.718.718 0 0 1 .508-.21h2.87Z" opacity="0.16">
-  <animate attributeName="opacity" values="0.6;0.16;0.16;0.16;0.16;0.16;1;0.64;0.6" dur="1.4s" repeatCount="indefinite"/>
-</path>
-<path fill="${fillColor}" d="M5.362 6.418a.718.718 0 0 1 .517-.196.718.718 0 0 1 .496.204l2.032 2.03a.718.718 0 0 1-1.015 1.016l-2.03-2.03a.718.718 0 0 1-.016-1.008l.016-.016Z" opacity="0.16">
-  <animate attributeName="opacity" values="0.64;0.6;0.16;0.16;0.16;0.16;0.16;1;0.64" dur="1.4s" repeatCount="indefinite"/>
-</path>
+   `OUTER_RADIUS` is the radius the original artwork carried, kept: the ring
+   draws 18.7 units of the 24, against `play`'s 17.57 of ink. Drawing it a few
+   percent over the glyph it replaces is deliberate — a ring reads lighter than
+   a solid mark at an equal height, and the swap is one in time, never a
+   neighbour in space, so the eye compares before and after at the same spot.
+   Sizing it *under* the play is what made the wait read as a shrink.
+
+   `BLADE_WIDTH` is the icon set's line weight, measured on search.svg — its
+   ring is 1.51 units thick and its handle 1.5 wide. A spinner is the only
+   stroked mark among solid glyphs, so it borrows that weight rather than
+   inventing one.
+
+   `INNER_RADIUS` keeps the hole at the proportion the original artwork had. */
+const OUTER_RADIUS = 9.35;
+const INNER_RADIUS = 5.04;
+const BLADE_WIDTH = 1.5;
+const BLADE_COUNT = 8;
+
+/* One blade lit, two fading behind it, the rest at the floor — rotated by one
+   step per blade, which is what makes the ring appear to turn. Nothing rotates:
+   only opacity animates, so the mark never leaves its bounding box.
+
+   Derived from BLADE_COUNT rather than written out: the rotation indexes this
+   modulo BLADE_COUNT, so a hand-written list one short of it would hand every
+   blade `undefined`, and a `values="undefined;…"` makes the browser discard the
+   whole <animate> and hold the spinner static at full opacity — silently. */
+const OPACITY_HEAD = [1, 0.64, 0.6];
+const OPACITY_FLOOR = 0.16;
+const OPACITY_CYCLE = Array.from(
+  { length: BLADE_COUNT },
+  (_, i) => OPACITY_HEAD[i] ?? OPACITY_FLOOR
+);
+
+const svgContent = computed(() => {
+  const cap = BLADE_WIDTH / 2;
+  const blades = Array.from({ length: BLADE_COUNT }, (_, i) => {
+    const angle = (i * 2 * Math.PI) / BLADE_COUNT - Math.PI / 2;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const at = (r) => [12 + r * cos, 12 + r * sin].map((v) => v.toFixed(3));
+    const [x1, y1] = at(INNER_RADIUS + cap);
+    const [x2, y2] = at(OUTER_RADIUS - cap);
+
+    // Rotated right by `i`, then closed on its own first value so the cycle loops.
+    const values = Array.from(
+      { length: BLADE_COUNT },
+      (_, j) => OPACITY_CYCLE[(j - i + BLADE_COUNT) % BLADE_COUNT]
+    );
+    values.push(values[0]);
+
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" opacity="${values[0]}">
+  <animate attributeName="opacity" values="${values.join(';')}" dur="1.4s" repeatCount="indefinite"/>
+</line>`;
+  });
+
+  return `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="${BLADE_WIDTH}" stroke-linecap="round">
+${blades.join('\n')}
 </svg>`;
 });
 </script>

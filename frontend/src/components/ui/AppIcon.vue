@@ -183,7 +183,10 @@ const svgContent = computed(() => {
 /* App icons are drawn full-bleed, so the loading state has to paint the plate
    the artwork was carrying — otherwise the tile disappears and the row reads as
    a gap. The spinner is inset rather than full-bleed: it is a mark on a plate,
-   where the artwork is the plate. */
+   where the artwork is the plate. No glyph is being swapped here — there is
+   only a plate to sit on — so the transport's sizing does not apply, and at the
+   tile's own size the ring crowds it. The multiplier is the plate's margin, not
+   a size correction. */
 .app-icon--loading {
   --spinner-size: calc(var(--icon-size) * 0.8);
 

@@ -482,7 +482,12 @@
 }
 
 /* Roles. `--spinner-size` rides along so a control swapping to its loading
-   state keeps the exact footprint of the icon it replaced. */
+   state keeps the exact footprint of the icon it replaced. Nothing rescales the
+   spinner on top of that, and a rescale here is what the box was carrying
+   before: a `scale(0.85)` calibrated on `pause`, when the glyph a spinner
+   replaces is `play` — you press play and wait. It read as a shrink. The ring's
+   own radius is the whole of the sizing; LoadingSpinner.vue says why it sits a
+   few percent over the glyph rather than on it. */
 .transport-primary {
     --svg-size: var(--transport-primary);
     --spinner-size: var(--transport-primary);
@@ -497,12 +502,6 @@
 .transport-secondary-round {
     --svg-size: var(--transport-secondary-round);
     --spinner-size: var(--transport-secondary-round);
-}
-
-/* The spinner's glyph is drawn edge to edge where an icon has its own margin —
-   pulling it in keeps the two the same apparent weight mid-swap. */
-.transport-primary .loading-spinner-content {
-    transform: scale(0.85);
 }
 
 
