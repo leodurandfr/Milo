@@ -6,27 +6,24 @@ WidgetKit timeline entry, App Intents — so it holds no WebSocket and cannot be
 told about anything: every dependency it has is a route it calls and a field it
 decodes. Drop either and it breaks silently at runtime.
 
-That is not a hypothesis. `cf430ae6` removed `GET /api/settings/dock-apps` as
-"Milo-Mac-only" after the Mac converged on `/bulk`; Milo-iOS called it too, the
-path still serves PUT, and the call has answered 405 ever since with nothing
-anywhere reporting it. A route with no caller in `frontend/src/` is not dead, it
-is unwitnessed — and this file is what witnesses it.
+`cf430ae6` removed `GET /api/settings/dock-apps` as "Milo-Mac-only" after the Mac
+converged on `/bulk`. Milo-iOS' client layer targets it too, and nothing in this
+checkout recorded that. The break is latent — no caller reaches `getDockApps` in
+the published build, so nobody is broken today — and that is the point: nobody
+could have known either way. A route with no caller in `frontend/src/` is not
+dead, it is unwitnessed, and this file is what witnesses it.
 
 Four guards, all offline:
 
   * every route the manifest declares still resolves to a FastAPI route;
-  * every route the VENDORED snapshot calls is declared by the manifest — the
-    app cannot depend on something the backend is free to delete;
-  * the difference the other way is exactly `_pending_push`, so the window in
-    which the manifest leads the published app is enumerated data that deletes
-    itself rather than a weakened assertion;
-  * every field the app reads by name exists — on the typed response model where
-    the route has one, and on the function that builds the payload where the
-    schema is deliberately opaque.
+  * the manifest and the VENDORED snapshot describe the same surface, exactly —
+    neither may depend on something the other does not know about;
+  * a route the app declares that the backend does not serve is listed in
+    `_broken_calls`, and stops being listed the moment either side moves;
+  * every field the app reads by name still exists on the typed response model.
 
 `check_milo_ios_freshness.py` is the network half, non-blocking, in CI.
 """
-import importlib
 import importlib.util
 import json
 from pathlib import Path
@@ -144,43 +141,28 @@ def test_the_extractor_reads_both_call_shapes():
     assert ("POST", "/api/audio/source/{}") in surface, "interpolated path not collapsed"
 
 
-def test_every_route_the_app_calls_is_declared():
-    """The app may not depend on a route the manifest does not list.
+def test_manifest_matches_the_vendored_surface_exactly():
+    """Manifest and snapshot must describe the same surface, in both directions.
 
-    An undeclared route is one the backend is free to delete as dead code, which
-    is the failure this contract exists for. Direction matters: this is the half
-    that stays true no matter how far the manifest leads the published app.
+    Undeclared: the app targets a route the manifest does not account for, so the
+    backend is free to delete it as dead code — the failure this contract exists
+    for. Unexplained: the manifest pins a route the app no longer targets, which
+    freezes backend surface for nobody.
+
+    Equality, not containment. An earlier draft tolerated a manifest that led the
+    published app, for a batch of routes that were then cancelled — a tolerance
+    outlives the reason for it, an equality cannot.
     """
-    undeclared, _ = _FRESHNESS.compute_diff(_MANIFEST, _VENDORED_SWIFT)
+    undeclared, unexplained = _FRESHNESS.compute_diff(_MANIFEST, _VENDORED_SWIFT)
 
     assert not undeclared, (
-        f"the vendored Milo-iOS snapshot calls routes the manifest does not "
-        f"declare: {sorted(undeclared)}. Add them to {MANIFEST_PATH.name}."
+        f"the vendored Milo-iOS snapshot targets routes the manifest does not "
+        f"account for: {sorted(undeclared)}. Add them to {MANIFEST_PATH.name}."
     )
-
-
-def test_pending_push_is_exactly_the_gap():
-    """`_pending_push` must account for the whole manifest-minus-snapshot gap.
-
-    The manifest currently leads the published app: routes integrated locally
-    cannot appear in a snapshot of what was pushed. Rather than weaken the
-    comparison, the gap is enumerated — so it is data, and this test is what
-    deletes it. When the push lands and the snapshot is refreshed, the routes
-    move into the extracted surface and each stale `_pending_push` entry fails
-    here until it is removed. A gap that forgets to close cannot stay silent.
-    """
-    _, unexplained = _FRESHNESS.compute_diff(_MANIFEST, _VENDORED_SWIFT)
     assert not unexplained, (
-        f"declared but neither called by the snapshot nor listed in "
-        f"_pending_push: {sorted(unexplained)}. Either Milo-iOS dropped the "
-        f"route (prune the entry) or the snapshot is stale (refresh it)."
-    )
-
-    stale = _FRESHNESS.pending_surface(_MANIFEST) & _FRESHNESS.extract_rest(_VENDORED_SWIFT)
-    assert not stale, (
-        f"the snapshot now calls {sorted(stale)} — the push landed. Remove these "
-        f"from `_pending_push` in {MANIFEST_PATH.name}; the contract is complete "
-        f"for them."
+        f"the manifest pins routes the vendored snapshot no longer targets: "
+        f"{sorted(unexplained)}. Either Milo-iOS dropped them (prune the entries) "
+        f"or the snapshot is stale (refresh it, together with the manifest)."
     )
 
 
@@ -328,61 +310,6 @@ def test_schema_payload_invariant(path, field):
         f"`{field}` is gone from the response of {path}, but Milo-iOS decodes it "
         f"by name. A Codable struct missing a non-optional key throws — the whole "
         f"call fails, it does not degrade."
-    )
-
-
-_BUILDER_INVARIANTS = [
-    (target, field)
-    for target, fields in _MANIFEST["payload_invariants"]["builders"].items()
-    if not target.startswith("_")
-    for field in fields
-]
-
-
-def _builder_keys(target: str) -> set:
-    """The keys a payload builder emits, by calling it on an empty instance.
-
-    `GET /api/multiroom/state` types its clients and zones as `Dict[str, Any]`,
-    so the schema says nothing about them — deliberately, since both carry
-    computed and conditional keys. The functions that build those dicts do say,
-    and calling them is exact where reading the schema is impossible.
-    """
-    module_name, attribute = target.split(":")
-    module = importlib.import_module(module_name)
-    class_name, method = attribute.split(".")
-    cls = getattr(module, class_name)
-
-    if class_name == "Client":
-        return set(cls(mac_id="aa:bb:cc:dd:ee:ff", name="probe", ip="127.0.0.1").to_dict())
-
-    from backend.core.multiroom.models import Zone
-
-    zone = Zone(name="probe", id="probe-zone", client_ids=[])
-    return set(getattr(cls(), method)(zone))
-
-
-def test_the_builder_probe_returns_a_real_payload():
-    """Both builders must answer a non-trivial dict before anything trusts them.
-
-    An empty set passes every membership test that follows, so a constructor
-    signature that drifts — or a probe that silently returns `{}` — would turn
-    these invariants green while checking nothing.
-    """
-    for target, _ in _BUILDER_INVARIANTS:
-        assert len(_builder_keys(target)) >= 4, f"{target} probe returned nothing usable"
-
-
-@pytest.mark.parametrize(
-    ("target", "field"),
-    _BUILDER_INVARIANTS,
-    ids=[f"{t.rsplit(':', 1)[-1]} {f}" for t, f in _BUILDER_INVARIANTS],
-)
-def test_builder_payload_invariant(target, field):
-    """Each multiroom field Milo-iOS reads must still be emitted by its builder."""
-    assert field in _builder_keys(target), (
-        f"`{field}` is no longer emitted by {target}, but Milo-iOS reads it off "
-        f"GET /api/multiroom/state. The response is typed Dict[str, Any], so "
-        f"nothing else would have noticed."
     )
 
 

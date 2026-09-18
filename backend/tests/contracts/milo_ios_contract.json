@@ -1,36 +1,19 @@
 {
-  "_about": "Wire contract consumed by Milo-iOS (github.com/leodurandfr/Milo-iOS), a THIRD API client beyond frontend/ and Milo-Mac. Its consumers are short-lived processes — a WidgetKit timeline entry, App Intents — so there is NO WebSocket surface at all: everything is REST, and the app cannot be told about a change by the backend. If a route listed here is dropped, Milo-iOS breaks silently at runtime. THIS FILE IS THE SOURCE OF TRUTH for that contract. test_milo_ios_contract.py enforces it offline on every pytest run: the backend still serves every route here, every route the VENDORED snapshot calls is declared here, the gap the other way is exactly `_pending_push`, and every payload_invariant holds against the typed response models. The non-blocking CI job check_milo_ios_freshness.py re-clones the real app and warns when vendor/milo-ios/ has fallen behind. Refresh the snapshot and this file TOGETHER, consciously, in one commit.",
+  "_about": "Wire contract consumed by Milo-iOS (github.com/leodurandfr/Milo-iOS), a THIRD API client beyond frontend/ and Milo-Mac. Its consumers are short-lived processes — a WidgetKit timeline entry, App Intents — so there is NO WebSocket surface at all: everything is REST, and the app can never be told about a change, only ask. If a route listed here is dropped, Milo-iOS breaks silently at runtime. THIS FILE IS THE SOURCE OF TRUTH for that contract. test_milo_ios_contract.py enforces it offline on every pytest run: the backend still serves every route in `rest`, the manifest matches the VENDORED snapshot's surface exactly, and every payload_invariant holds against the typed response models. The non-blocking CI job check_milo_ios_freshness.py re-clones the real app and warns when vendor/milo-ios/ has fallen behind. Refresh the snapshot and this file TOGETHER, consciously, in one commit.",
 
-  "_why_this_exists": "Not hypothetical. Commit cf430ae6 ('drop 3 Milo-Mac-only GET routes after Mac converged to /bulk') deleted GET /api/settings/dock-apps on the premise that Milo-Mac was its only consumer. Milo-iOS called it too, and still does in the published app (MiloAPIClient.getDockApps). The path survives for PUT, so the call answers 405, forever, with nothing anywhere reporting it. That is the whole failure mode this manifest turns into a failing test: a route with no caller in frontend/src/ is not dead, it is unwitnessed.",
+  "_surface_is_declared_not_reached": "The extractor reads the routes MiloAPIClient declares, which is the right granularity for a contract — the app ships that code, and a backend free to delete a route it targets is the hazard. Two of the six are currently declared but invoked by nothing in the app: `getAudioState` and `getDockApps` have no caller in any of the 17 Swift files. They are pinned anyway, because 'no caller today' is a fact about this build and not about the dependency.",
+
+  "_why_this_exists": "cf430ae6 deleted GET /api/settings/dock-apps as 'Milo-Mac-only' once the Mac had converged on /bulk. Milo-iOS' client layer targets it too, and nothing in this checkout recorded that. The break is latent rather than live — no caller reaches getDockApps in the published build — so nobody is broken today; the point is that nobody could have known either way. A route with no caller in frontend/src/ is not dead, it is unwitnessed.",
 
   "_snapshot": {
     "upstream_commit": "bf969c4ffecb",
     "captured": "2026-09-18",
     "files": ["MiloAPIClient.swift", "Models.swift"],
-    "note": "MiloAPIClient.swift names the routes; Models.swift names the response fields the app decodes. Every call goes through MiloAPIClient — the three Intents and the TimelineProvider build no URL of their own — so those two files are the whole surface."
-  },
-
-  "_pending_push": {
-    "why": "The manifest leads the published app: these routes were integrated locally and verified against the unit on 2026-09-18, but are not in the pushed source, so the vendored snapshot cannot show them. They are listed so the manifest-vs-snapshot difference is enumerated DATA rather than a weakened assertion. test_pending_push_is_exactly_the_gap fails the moment the push lands and the snapshot is refreshed — emptying this list is how the contract completes itself, and it cannot be forgotten in silence.",
-    "routes": [
-      {"method": "PATCH", "path": "/api/volume"},
-      {"method": "PATCH", "path": "/api/volume/mute"},
-      {"method": "PATCH", "path": "/api/volume/client/mac/{mac_url}"},
-      {"method": "PATCH", "path": "/api/volume/zone/{zone_id}"},
-      {"method": "GET", "path": "/api/multiroom/state"},
-      {"method": "POST", "path": "/api/audio/control/{source}"},
-      {"method": "GET", "path": "/api/radio/stations"},
-      {"method": "POST", "path": "/api/radio/play"},
-      {"method": "POST", "path": "/api/radio/stop"},
-      {"method": "GET", "path": "/api/music-library/search"},
-      {"method": "GET", "path": "/api/music-library/albums"},
-      {"method": "GET", "path": "/api/music-library/album/{id}"},
-      {"method": "GET", "path": "/api/music-library/artist/{id}"}
-    ]
+    "note": "MiloAPIClient.swift names the routes; Models.swift names the response fields the app decodes. Every call goes through MiloAPIClient — the Intents and the widget's timeline provider build no URL of their own, and every path is a literal — so these two files are the whole surface, confirmed by the app's author on 2026-09-18."
   },
 
   "_broken_calls": {
-    "why": "Calls the vendored app makes that the backend does not serve. They cannot be declared in `rest` — test_rest_route_exists would fail on a route that genuinely does not exist — and they cannot be ignored, or the contract would be silent about a client that is already broken. So they are listed, and test_broken_calls_are_still_broken fails the moment either side changes: if the backend starts serving it, or the app stops calling it, the entry is stale and must go. Same self-deleting shape as `_pending_push`.",
+    "why": "Routes the app's client layer targets that the backend does not serve. They cannot go in `rest` — test_rest_route_exists would fail on a route that genuinely does not exist — and they cannot be dropped, or the contract would be silent about a dependency that is already unmet. So they are listed, and test_broken_calls_are_still_broken fails the moment either side moves: if the backend starts serving it, or the app stops declaring it, the entry is stale and must go. It is an enumerated fact about the client, never a tolerance in the contract — do not add a second section of this kind to paper over a mismatch.",
     "routes": [
       {
         "method": "GET",
@@ -38,7 +21,8 @@
         "consumer": "MiloAPIClient.getDockApps",
         "answers": 405,
         "since": "cf430ae6",
-        "replacement": "Read dock_apps.enabled_apps from GET /api/settings/bulk, already declared in `rest`. The path survives for PUT, which is why the call answers 405 and not 404."
+        "reached": false,
+        "replacement": "Read dock_apps.enabled_apps from GET /api/settings/bulk, already in `rest`. The path survives for PUT, which is why it answers 405 and not 404."
       }
     ]
   },
@@ -47,47 +31,19 @@
     {"method": "GET", "path": "/api/volume/state", "consumer": "MiloAPIClient.getVolume"},
     {"method": "POST", "path": "/api/volume/adjust", "consumer": "MiloAPIClient.fireAdjustVolume",
      "note": "Body {delta_db, show_bar}. Built by hand with URLRequest rather than the get/post helper — the extractor reads both shapes on purpose."},
-    {"method": "PATCH", "path": "/api/volume",
-     "note": "Body {volume_db, show_bar?}. The ABSOLUTE global level. Clamped on volume_limits rather than rejected, so the response carries the applied dB and the client must read it back instead of keeping what it sent."},
-    {"method": "PATCH", "path": "/api/volume/mute",
-     "note": "Body {mute} — `mute`, never `muted`. Response `mute` is read back from the derived state, so an online client that refused shows as false."},
-    {"method": "PATCH", "path": "/api/volume/client/mac/{mac_url}",
-     "note": "Body {volume_db}. MAC without colons in the path, with colons in every response. Answers 400 outside volume_limits instead of clamping — deliberately the opposite of PATCH /api/volume."},
-    {"method": "PATCH", "path": "/api/volume/zone/{zone_id}",
-     "note": "Body {delta_db} — a zone-wide DELTA applied atomically, emitting one volume_changed."},
-    {"method": "GET", "path": "/api/multiroom/state"},
     {"method": "GET", "path": "/api/settings/bulk", "consumer": "MiloAPIClient.syncVolumeSettings",
-     "note": "Also the ONLY read for dock apps: it carries dock_apps.enabled_apps. GET /api/settings/dock-apps no longer exists (cf430ae6) — that path serves PUT only and answers 405."},
-    {"method": "GET", "path": "/api/audio/state", "consumer": "MiloAPIClient.getAudioState"},
+     "note": "Also the only surviving read for dock apps: it carries dock_apps.enabled_apps."},
+    {"method": "GET", "path": "/api/audio/state", "consumer": "MiloAPIClient.getAudioState",
+     "note": "Declared, not reached. Its Codable model (Models.swift::AudioStateResponse) declares a non-optional `status` plus `source`/`title`/`artist`, none of which this route serves — title and artist live inside `metadata`. So the decode would throw if anything called it, and no payload_invariants are listed: asserting fields the app does not read would be inventing a contract rather than recording one."},
     {"method": "POST", "path": "/api/audio/source/{name}", "consumer": "MiloAPIClient.changeSource",
-     "note": "Answers 200 with status:'error' on failure, not an HTTP error — the same deliberate exception Milo-Mac depends on."},
-    {"method": "POST", "path": "/api/audio/control/{source}",
-     "note": "The single transport for every source command, play_context on music_library included. GET /api/audio/commands describes each source's table; do not hardcode one."},
-    {"method": "GET", "path": "/api/radio/stations",
-     "note": "Called with ?favorites_only=true. The query is not part of the route identity."},
-    {"method": "POST", "path": "/api/radio/play"},
-    {"method": "POST", "path": "/api/radio/stop",
-     "note": "Idempotent since 145e4876: with nothing playing it answers 200, where it used to serve an unguarded AttributeError as a 400."},
-    {"method": "GET", "path": "/api/music-library/search"},
-    {"method": "GET", "path": "/api/music-library/albums"},
-    {"method": "GET", "path": "/api/music-library/album/{id}"},
-    {"method": "GET", "path": "/api/music-library/artist/{id}"}
+     "note": "Answers 200 with status:'error' on failure, not an HTTP error — the same deliberate exception Milo-Mac depends on."}
   ],
 
   "payload_invariants": {
-    "_about": "The response fields Milo-iOS reads by name. A route can survive while the field the app decodes is renamed, and a Codable struct that misses a non-optional key throws rather than degrading — which is how the published AudioStateResponse, declaring a non-optional `status` that /api/audio/state does not serve, fails every call. Checked against the typed response models, never against a hand-written copy.",
+    "_about": "The response fields Milo-iOS decodes by name. A route can survive while the field the app reads is renamed, and a Codable struct missing a non-optional key throws rather than degrading — the whole call fails, it does not lose one value. Resolved through the live OpenAPI schema, never a hand-written copy: `a.b` is a property, `a[k]` a dict value (additionalProperties).",
     "schema": {
-      "_about": "Dotted paths resolved through the live OpenAPI schema. `a.b` is a property, `a[k]` a dict value (additionalProperties).",
-      "/api/volume/state": ["data.global_volume_db", "data.global_mute", "data.any_volume_control", "data.clients[mac].volume_db"],
-      "/api/settings/bulk": ["volume_limits.min_db", "volume_limits.max_db", "volume_steps.step_mobile_db", "dock_apps.enabled_apps"],
-      "/api/audio/state": ["active_source", "source_state", "transitioning", "metadata"],
-      "/api/volume/zone/{zone_id}": ["new_average_db"],
-      "/api/volume/mute": ["mute"]
-    },
-    "builders": {
-      "_about": "GET /api/multiroom/state types its clients and zones as Dict[str, Any] — opaque by design, since both carry computed and conditional keys. So its fields are checked against the functions that BUILD the payload, which is exact by construction where the schema says nothing.",
-      "backend.core.multiroom.models:Client.to_dict": ["mac_id", "name", "online", "volume_control", "zone_id", "is_local"],
-      "backend.core.multiroom.client_registry:ClientRegistryService.zone_to_enriched_dict": ["id", "name", "online_client_count"]
+      "/api/volume/state": ["data.global_volume_db", "data.global_mute", "data.any_volume_control"],
+      "/api/settings/bulk": ["volume_limits.min_db", "volume_limits.max_db", "volume_steps.step_mobile_db", "dock_apps.enabled_apps"]
     }
   }
 }

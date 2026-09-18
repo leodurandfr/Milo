@@ -8,9 +8,8 @@ extension and App Intents):
   * OFFLINE, BLOCKING (test_milo_ios_contract.py, every pytest run):
       - backend  ⊇ manifest             (no route the manifest declares has been
         removed from the backend);
-      - snapshot ⊆ manifest             (every route the vendored app calls is
-        declared), and the difference the other way is exactly the manifest's
-        own `pending_push` list.
+      - manifest == snapshot            (the surface extracted from the
+        committed snapshot matches `rest` + `_broken_calls` exactly).
   * NETWORK, NON-BLOCKING (this script, scheduled CI job):
       re-clones the real app and warns when the vendored snapshot has fallen
       behind upstream.
@@ -109,12 +108,6 @@ def manifest_surface(manifest: dict) -> set[tuple[str, str]]:
     return {(e["method"].upper(), _shape(e["path"])) for e in manifest["rest"]}
 
 
-def pending_surface(manifest: dict) -> set[tuple[str, str]]:
-    """{(METHOD, path_shape)} the manifest declares but the snapshot cannot show yet."""
-    return {(e["method"].upper(), _shape(e["path"]))
-            for e in manifest["_pending_push"]["routes"]}
-
-
 def broken_surface(manifest: dict) -> set[tuple[str, str]]:
     """{(METHOD, path_shape)} the app calls that the backend does not serve.
 
@@ -128,18 +121,17 @@ def broken_surface(manifest: dict) -> set[tuple[str, str]]:
 def compute_diff(manifest: dict, api_swift: str):
     """(undeclared, unexplained) — the two ways manifest and snapshot disagree.
 
-    `undeclared`: the app calls it, the manifest does not list it and
-        `_broken_calls` does not account for it. Always a defect — the backend
-        is free to delete a route nothing declares.
-    `unexplained`: the manifest lists it, the snapshot does not call it, and
-        `_pending_push` does not account for it. Either the app dropped the
-        route (prune the entry) or the snapshot is stale (refresh it).
+    `undeclared`: the app declares a call the manifest does not account for, in
+        `rest` or in `_broken_calls`. The backend is free to delete a route
+        nothing declares, so this is always a defect.
+    `unexplained`: the manifest lists a route the app no longer declares. Either
+        Milo-iOS dropped it (prune the entry) or the snapshot is stale.
+
+    Empty on both sides is the whole contract: manifest == snapshot.
     """
-    declared = manifest_surface(manifest)
+    accounted = manifest_surface(manifest) | broken_surface(manifest)
     called = extract_rest(api_swift)
-    undeclared = called - declared - broken_surface(manifest)
-    unexplained = declared - called - pending_surface(manifest)
-    return undeclared, unexplained
+    return called - accounted, accounted - called
 
 
 def _read_source(root: Path) -> str:
