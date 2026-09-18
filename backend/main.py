@@ -204,7 +204,23 @@ async def lifespan(app: FastAPI):
     await run_teardown(teardown)
     logger.info("Cleanup completed")
 
-app = FastAPI(title="Milo API", lifespan=lifespan)
+# The docs live under /api because that is the only prefix nginx proxies to the
+# backend (plus /ws) — at their default paths they were served, but only on
+# :8000, while port 80 fell through to the SPA's index.html and answered every
+# fetch 200 text/html. Moving them costs nothing and reaches the whole fleet
+# with an ordinary update, where a new nginx `location` would reach only a
+# freshly flashed card: the site is written by provisioning/network.sh at image
+# build and is in neither `rootfs/` nor `system/`, so `milo-deploy-update
+# sync-system-files` does not carry it. Three clients derive from this schema
+# (frontend, Milo-Mac, Milo-iOS); Swagger UI itself loads from a CDN, so /api/docs
+# needs the internet while /api/openapi.json, the machine-readable half, does not.
+app = FastAPI(
+    title="Milo API",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+    redoc_url="/api/redoc",
+)
 
 # CORS configuration - restricted to authorized origins
 app.add_middleware(
