@@ -2030,6 +2030,122 @@ class TestPerClientApplyVerdict:
 
 
 # ============================================================================
+# The global mute fans out once (PATCH /api/volume/mute)
+# ============================================================================
+
+class TestGlobalMuteFansOutOnce:
+    """`set_global_mute` must reach every known client and broadcast exactly once.
+
+    When these fail, `PATCH /api/volume/mute` is worth nothing over the loop of
+    per-client PATCHes it replaces: a speaker that was away comes back playing
+    into a muted room, or the UI receives one `volume_changed` per client and
+    shows the room going silent one speaker at a time.
+    """
+
+    ACCEPTING = "aa:bb:cc:dd:ee:01"
+    REFUSING = "aa:bb:cc:dd:ee:02"
+    AWAY = "aa:bb:cc:dd:ee:03"
+
+    @pytest.fixture
+    def mock_state_machine(self):
+        sm = Mock()
+        sm.broadcast = AsyncMock()
+        sm.routing_service = Mock()
+        sm.routing_service.get_state = Mock(return_value={'multiroom_enabled': True})
+        return sm
+
+    @pytest.fixture
+    def mock_settings(self):
+        settings = Mock()
+        settings.invalidate_cache = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_setting = AsyncMock()
+        return settings
+
+    @pytest.fixture
+    def mock_registry(self):
+        """AWAY is the speaker that is switched off: registered, not online."""
+        registry = Mock()
+        registry.is_client_online = Mock(
+            side_effect=lambda mac: mac != TestGlobalMuteFansOutOnce.AWAY
+        )
+        registry.get_online_client_ids = Mock(return_value=[
+            TestGlobalMuteFansOutOnce.ACCEPTING, TestGlobalMuteFansOutOnce.REFUSING
+        ])
+        return registry
+
+    @pytest.fixture
+    def mock_equalizer_controller(self):
+        """The refusing client answers False while still online — a real refusal."""
+        controller = Mock()
+
+        async def apply(mac_id, _value, **kwargs):
+            return mac_id != TestGlobalMuteFansOutOnce.REFUSING
+
+        controller.set_equalizer_mute = AsyncMock(side_effect=apply)
+        return controller
+
+    @pytest.fixture
+    def service(self, mock_state_machine, mock_settings, mock_registry,
+                mock_equalizer_controller):
+        svc = VolumeService(
+            state_machine=mock_state_machine,
+            snapcast_service=Mock(),
+            settings_service=mock_settings,
+            camilladsp_service=Mock(
+                set_mute=AsyncMock(return_value=True),
+                is_volume_control_available=Mock(return_value=True),
+            ),
+        )
+        svc._volume_config = VolumeConfig(
+            limit_min_db=-80.0, limit_max_db=0.0,
+            startup_volume_db=-40.0, restore_last_volume=True,
+        )
+        svc._state_store.set_volume_config(svc._volume_config)
+        svc._routing_service = mock_state_machine.routing_service
+        svc._equalizer_controller = mock_equalizer_controller
+        svc._client_registry = mock_registry
+        svc._state_store._mode = "multiroom"
+        svc._state_store._clients = {
+            mac: ClientVolume(volume_db=-40.0, offset_db=0.0, mute=False, available=True)
+            for mac in (self.ACCEPTING, self.REFUSING, self.AWAY)
+        }
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_the_fan_out_reaches_the_client_that_is_away(self, service):
+        """An offline client is targeted like any other: its mute is recorded, and
+        the admission sync re-pushes the stored value when it comes back. Skipping
+        it is what would leave one speaker playing into a muted room."""
+        applied_to, offline = await service.set_global_mute(True)
+
+        assert service.state_store.get_client_mute(self.AWAY) is True
+        assert offline == [self.AWAY]
+        assert applied_to == [self.ACCEPTING, self.REFUSING]
+
+    @pytest.mark.asyncio
+    async def test_three_clients_produce_one_broadcast(self, service, mock_state_machine):
+        """The whole point of the route. Per-client PATCHes emit one
+        `volume_changed` each; this must emit one for the lot, which is only
+        possible because each call passes broadcast=False."""
+        await service.set_global_mute(True)
+
+        mock_state_machine.broadcast.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_an_online_refusal_leaves_the_derived_mute_false(self, service, caplog):
+        """`global_mute` is `all(c.mute …)`, so a client that answered and refused
+        keeps it False — which is what the route reports. Storing the mute anyway
+        would answer 200 with a silence the room is not in."""
+        with caplog.at_level(logging.ERROR):
+            await service.set_global_mute(True)
+
+        assert service.state_store.get_client_mute(self.REFUSING) is False
+        assert (await service.get_volume_state()).global_mute is False
+        assert self.REFUSING in caplog.text
+
+
+# ============================================================================
 # A relative adjustment reaches a client that was absent for it (plan phase 3)
 # ============================================================================
 

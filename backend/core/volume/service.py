@@ -719,6 +719,62 @@ class VolumeService:
             await self.broadcast_volume_state(show_bar=False)
         return not refused
 
+    async def set_global_mute(self, mute: bool) -> Tuple[list, list]:
+        """Mute or unmute every known client, then broadcast once.
+
+        There is no global mute flag to write: `global_mute` is derived by
+        VolumeStateStore as "every available client is muted", so the clients
+        themselves are the only thing to set. What this buys over a client-side
+        loop of per-client PATCHes is therefore not the recording — a loop
+        records just as well — but three things a loop cannot do:
+
+        * the client list is read on the side that writes it, so a client
+          admitted mid-operation cannot be the one left playing;
+        * one `volume_changed` reaches the UI instead of N, so nobody watches
+          the room fall silent one speaker at a time;
+        * `broadcast=False` per client makes that single emission possible
+          without a second mute implementation.
+
+        Every *known* client is targeted, not only the reachable ones — the same
+        rule as apply_zone_volume_delta. An offline client's mute is recorded and
+        replayed by the admission sync, which re-pushes the stored mute with
+        force=True (multiroom/websocket.py::_apply_target_volume_to_client). So
+        a speaker that was away comes back at the room's mute state, and there is
+        no half-muted outcome to guard against here.
+
+        A client that refused is not reported as such: it is already logged at
+        error by `_refused`, and the caller reads the outcome from the derived
+        `global_mute`, which stays False while any available client still plays.
+
+        Returns:
+            (applied_to, offline) — the clients the command reached, and those
+            whose mute was recorded for their next admission.
+        """
+        state = await self._state_store.get_complete_state()
+        targets = list(state.clients)
+        if not targets:
+            self.logger.warning(f"Global mute={mute}: no client to apply it to")
+            return [], []
+
+        await asyncio.gather(*(
+            self.set_client_mute(mac_id, mute, broadcast=False) for mac_id in targets
+        ))
+        await self.broadcast_volume_state(show_bar=False)
+
+        # The local client is never short-circuited on `online`: EqualizerRouter
+        # sends it to CamillaDSP before it ever looks at the flag, and in direct
+        # mode it is not in the registry at all — reading the registry alone
+        # would report the one client that did take the mute as offline.
+        online = set(self._online_client_ids())
+        local_mac = self._state_store.local_mac_id
+        applied_to = [m for m in targets if m == local_mac or m in online]
+        offline = [m for m in targets if m not in applied_to]
+        self.logger.info(
+            f"Global mute={mute}: {len(applied_to)} applied, "
+            f"{len(offline)} recorded for their next admission"
+        )
+        return applied_to, offline
+
     # ============================================================================
     # ATOMIC ZONE OPERATIONS
     # ============================================================================
