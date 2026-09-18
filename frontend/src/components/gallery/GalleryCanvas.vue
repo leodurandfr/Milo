@@ -29,7 +29,7 @@
       </span>
     </div>
 
-    <div class="canvas-host__stage">
+    <div class="canvas-host__stage" :class="{ 'canvas-host__stage--inset': isSized }">
       <div ref="fit" class="canvas-host__fit">
         <div class="canvas-host__device" :class="{ 'canvas-host__device--sized': isSized }" :style="deviceStyle">
           <iframe
@@ -238,8 +238,8 @@ onMounted(() => {
 
   // `clientWidth/Height` rather than a rect: they are layout pixels, so the
   // kiosk's own `ui_scale` transform on an ancestor cannot skew the fit. The
-  // observed element sits inside the stage's padding, which is why the padding
-  // needs no constant here.
+  // observed element sits inside the stage's inset, which is why the inset needs
+  // no constant here — including when it is dropped at `fill`.
   observer = new ResizeObserver(([entry]) => {
     const box = entry.target;
     available.value = { width: box.clientWidth, height: box.clientHeight };
@@ -294,13 +294,27 @@ onUnmounted(() => {
   border-color: var(--color-brand);
 }
 
+/* The border is what says where the viewport ends. It used to be the inset
+   below doing that job by accident — and only for as long as the stage's own
+   tone stayed distinguishable from the page's, which it is not: both resolve to
+   the same near-white in light mode, so a `fill` frame with no inset and no
+   border leaves a primitive floating in the page with no edge at all. */
 .canvas-host__stage {
   flex: 1;
   min-height: 320px;
-  padding: var(--space-04);
   overflow: hidden;
   background: var(--color-background-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-04);
+}
+
+/* Only a preset earns the backdrop: the device is smaller than the stage, and
+   its shadow needs somewhere to fall. At `fill` the frame *is* the stage — same
+   reasoning as the missing shadow below — so an inset there rings the thing being
+   read with a band, and leaves its corners square inside the stage's radius. The
+   `overflow: hidden` above rounds the frame instead. */
+.canvas-host__stage--inset {
+  padding: var(--space-04);
 }
 
 /* The measured box. Its padding-free size is what a preset is scaled to fit. */
