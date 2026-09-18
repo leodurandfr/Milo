@@ -199,22 +199,20 @@ def test_broken_calls_are_still_broken(entry):
     )
 
 
-def test_a_declared_route_the_snapshot_shows_names_its_consumer():
-    """A route the snapshot proves the app calls must say WHERE it calls it from.
+def test_every_declared_route_names_its_consumer():
+    """Each route must say WHERE in the app it is called from.
 
     The `consumer` is what makes a contract failure actionable — it points at the
-    Swift function to fix. It is required only where the snapshot can back it:
-    demanding one for a `_pending_push` route would be asking for a name nobody
-    can check.
+    Swift function to fix rather than at a path. Required for every entry, with
+    no exception: manifest == snapshot means each one is backed by a call the
+    extractor found, so there is always a name to give.
     """
-    called = _FRESHNESS.extract_rest(_VENDORED_SWIFT)
     missing = [
         f"{e['method']} {e['path']}"
         for e in _MANIFEST["rest"]
-        if (e["method"].upper(), _FRESHNESS._shape(e["path"])) in called
-        and not e.get("consumer")
+        if not e.get("consumer")
     ]
-    assert not missing, f"declared, called by the snapshot, no consumer named: {missing}"
+    assert not missing, f"declared with no consumer named: {missing}"
 
 
 # --------------------------------------------------------------------------- #
