@@ -71,17 +71,6 @@ class AudioStateResponse(BaseModel):
     network_unavailable: Optional[str] = None
 
 
-class AudioCommandsResponse(BaseModel):
-    """GET /api/audio/commands.
-
-    `commands[source][command]` is the param map: name -> {required, type}, and
-    `{}` for a param-less command. Built from each source's `COMMANDS`, so it
-    cannot describe a table the dispatcher does not use.
-    """
-    status: str
-    commands: Dict[str, Dict[str, Dict[str, Any]]]
-
-
 class MultiroomSetResponse(BaseModel):
     """PUT /api/routing/multiroom."""
     status: str
