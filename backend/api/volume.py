@@ -8,18 +8,15 @@ from fastapi import APIRouter, HTTPException
 from backend.api.route_helpers import api_error_handler
 from backend.api.models import (
     VolumeAdjustRequest,
-    VolumeSetRequest,
     ClientVolumeRequest,
-    MuteRequest,
+    ClientMuteRequest,
     VolumeControlRequest,
 )
 from backend.api.responses import (
     ClientMuteSetResponse,
     ClientVolumeSetResponse,
-    GlobalMuteResponse,
     VolumeAdjustResponse,
     VolumeControlResponse,
-    VolumeSetResponse,
     VolumeStateEnvelope,
     ZoneVolumeDeltaResponse,
 )
@@ -58,60 +55,6 @@ def create_volume_router(
                 return {"status": "success", "volume_db": volume_db, "delta_db": request.delta_db}
             else:
                 raise HTTPException(status_code=500, detail="Failed to adjust volume")
-
-    @router.patch("", response_model=VolumeSetResponse)
-    async def set_volume(request: VolumeSetRequest):
-        """Set the global volume in dB, absolute.
-
-        The absolute half of `/adjust`. A client that knows the level it wants
-        says so, instead of reading `/state` and posting the difference: two
-        round-trips with a window in which the rotary, the screen or another
-        client moves the volume in between. The read-modify-write still happens
-        in multiroom — `set_volume_db` shifts every client by the same delta —
-        but it happens under `_volume_lock`, which is the only place it can be
-        atomic at all.
-
-        Out-of-range values are **clamped, not rejected**: `set_volume_db`
-        applies `volume_limits` (min_db/max_db) exactly as `/adjust` does. That
-        is the opposite of the per-client route, which answers 400 — so the
-        response carries the level that was actually applied, read back from the
-        service, never the one that was asked for.
-        """
-        async with api_error_handler("Failed to set volume"):
-            if not await volume_service.set_volume_db(request.volume_db, show_bar=request.show_bar):
-                raise HTTPException(status_code=500, detail="Failed to set volume")
-
-            return {"status": "success", "volume_db": await volume_service.get_volume_db()}
-
-    @router.patch("/mute", response_model=GlobalMuteResponse)
-    async def set_global_mute(request: MuteRequest):
-        """Mute or unmute every client at once.
-
-        One request instead of a loop over `/client/mac/{mac}/mute`, and one
-        `volume_changed` instead of N. It closes the same window `PATCH
-        /api/volume` closes: the client list is read on the side that writes it,
-        so a client admitted while a loop was running cannot be the one left
-        playing.
-
-        Notes:
-            - `mute` is read back from the state, not echoed. `global_mute` is
-              derived (`all(c.mute …)`), so an online client that refused shows
-              up here as `false` rather than as a 200 claiming a silence that
-              did not happen.
-            - `offline_clients` is information, not a warning: their mute is
-              recorded and replayed when they are next admitted, so the room
-              cannot end up half muted by a speaker dropping mid-operation.
-        """
-        async with api_error_handler("Failed to set global mute", logger):
-            applied_to, offline_clients = await volume_service.set_global_mute(request.mute)
-            state = await volume_service.get_volume_state()
-
-            return {
-                "status": "success",
-                "mute": state.global_mute,
-                "applied_to": applied_to,
-                "offline_clients": offline_clients,
-            }
 
     # ============================================================================
     # MAC ADDRESS UTILITIES
@@ -308,7 +251,7 @@ def create_volume_router(
             }
 
     @router.patch("/client/mac/{mac_url}/mute", response_model=ClientMuteSetResponse)
-    async def set_client_mute_by_mac(mac_url: str, request: MuteRequest):
+    async def set_client_mute_by_mac(mac_url: str, request: ClientMuteRequest):
         """
         Set mute state for a specific client using MAC address.
 

@@ -11,7 +11,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from backend.api.models import ClientVolumeRequest, MuteRequest
+from backend.api.models import ClientVolumeRequest, ClientMuteRequest
 from backend.api.volume import create_volume_router
 
 
@@ -48,17 +48,17 @@ class TestClientVolumeRequest:
             ClientVolumeRequest(volume_db=1.0)
 
 
-class TestMuteRequest:
-    """Tests for MuteRequest Pydantic model."""
+class TestClientMuteRequest:
+    """Tests for ClientMuteRequest Pydantic model."""
 
     def test_mute_true(self):
         """Test mute=True."""
-        request = MuteRequest(mute=True)
+        request = ClientMuteRequest(mute=True)
         assert request.mute is True
 
     def test_mute_false(self):
         """Test mute=False."""
-        request = MuteRequest(mute=False)
+        request = ClientMuteRequest(mute=False)
         assert request.mute is False
 
 
@@ -328,97 +328,3 @@ class TestVolumeAdjustRoute:
         mock_volume_service.adjust_volume_db.return_value = False
         response = test_client.post("/api/volume/adjust", json={"delta_db": 2.0})
         assert response.status_code == 500
-
-
-# =============================================================================
-# The two global write routes — PATCH /api/volume and PATCH /api/volume/mute
-# =============================================================================
-
-class TestGlobalVolumeRoutes:
-    """The absolute global write and the global mute.
-
-    Both exist so a client (Milo-Mac, the iOS app) stops doing the work itself:
-    reading `/state` and posting a delta leaves a window in which the rotary or
-    another client moves the volume, and looping the per-client mute leaves one
-    in which a newly admitted client is never muted. When these fail, both
-    clients are back to a read-modify-write they cannot make atomic.
-    """
-
-    @pytest.fixture
-    def mock_volume_service(self):
-        service = MagicMock()
-        service.set_volume_db = AsyncMock(return_value=True)
-        # Deliberately not the value any request below asks for: the routes must
-        # report what the service applied, never what the caller wrote.
-        service.get_volume_db = AsyncMock(return_value=-37.5)
-        service.set_global_mute = AsyncMock(return_value=(["aa:bb:cc:dd:ee:01"], []))
-        service.get_volume_state = AsyncMock(return_value=MagicMock(global_mute=True))
-        return service
-
-    @pytest.fixture
-    def test_client(self, mock_volume_service):
-        app = FastAPI()
-        app.include_router(create_volume_router(mock_volume_service))
-        return TestClient(app)
-
-    def test_set_volume_reports_what_the_service_applied(self, test_client, mock_volume_service):
-        """The response carries the service's level, not the request's.
-
-        This is how the clamp becomes visible: `volume_limits` is applied inside
-        `set_volume_db`, so a route echoing `request.volume_db` would answer a dB
-        no speaker is playing, and the caller's slider would spring back on the
-        next `/state`.
-        """
-        response = test_client.patch("/api/volume", json={"volume_db": -10.0})
-
-        assert response.status_code == 200
-        assert response.json() == {"status": "success", "volume_db": -37.5}
-        mock_volume_service.set_volume_db.assert_awaited_once()
-        assert mock_volume_service.set_volume_db.await_args.args[0] == -10.0
-
-    def test_set_volume_genuine_failure_returns_500(self, test_client, mock_volume_service):
-        """Same mapping as `/adjust`: False from the service is a real failure,
-        not a silent no-op. The deferred cold-boot path returns True, so this
-        arm only ever fires on something the caller has to know about."""
-        mock_volume_service.set_volume_db.return_value = False
-
-        assert test_client.patch("/api/volume", json={"volume_db": -30.0}).status_code == 500
-
-    def test_set_volume_outside_the_technical_range_is_rejected(self, test_client, mock_volume_service):
-        """`volume_limits` is clamped, but the -80..0 dB technical range is not a
-        preference — a value outside it is a caller bug, and answering 422 says
-        so instead of silently landing at the floor."""
-        response = test_client.patch("/api/volume", json={"volume_db": 12.0})
-
-        assert response.status_code == 422
-        mock_volume_service.set_volume_db.assert_not_awaited()
-
-    def test_global_mute_reports_the_derived_state_not_the_request(
-        self, test_client, mock_volume_service
-    ):
-        """`global_mute` is derived from the clients, so the route must read it
-        back. Echoing `request.mute` would answer 200 with a silence that an
-        online client's refusal prevented."""
-        mock_volume_service.get_volume_state.return_value = MagicMock(global_mute=False)
-
-        response = test_client.patch("/api/volume/mute", json={"mute": True})
-
-        assert response.status_code == 200
-        assert response.json()["mute"] is False
-        mock_volume_service.set_global_mute.assert_awaited_once_with(True)
-
-    def test_global_mute_reports_the_clients_it_could_not_reach(
-        self, test_client, mock_volume_service
-    ):
-        """An unreachable speaker is information, not a failure: its mute was
-        recorded and the admission sync replays it. Answering anything but 200
-        would push the caller back to the per-client loop this route replaces."""
-        mock_volume_service.set_global_mute.return_value = (
-            ["aa:bb:cc:dd:ee:01"], ["aa:bb:cc:dd:ee:02"]
-        )
-
-        response = test_client.patch("/api/volume/mute", json={"mute": True})
-
-        assert response.status_code == 200
-        assert response.json()["applied_to"] == ["aa:bb:cc:dd:ee:01"]
-        assert response.json()["offline_clients"] == ["aa:bb:cc:dd:ee:02"]

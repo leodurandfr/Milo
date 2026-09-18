@@ -125,30 +125,6 @@ class VolumeAdjustResponse(BaseModel):
     delta_db: float
 
 
-class VolumeSetResponse(BaseModel):
-    """PATCH /api/volume.
-
-    `volume_db` is the level that was applied, read back from the service after
-    the clamp — never the one the request carried.
-    """
-    status: str
-    volume_db: float
-
-
-class GlobalMuteResponse(BaseModel):
-    """PATCH /api/volume/mute.
-
-    `mute` is read back from the derived state, so an online client that refused
-    the command shows as `false` instead of a 200 claiming a silence that did
-    not happen. `applied_to`/`offline_clients` mirror the zone route's split:
-    the offline ones had their mute recorded, and the admission sync replays it.
-    """
-    status: str
-    mute: bool
-    applied_to: List[str]
-    offline_clients: List[str]
-
-
 class EqualizerEnabledResponse(BaseModel):
     """PUT /api/equalizer/target/{target}/enabled."""
     status: str
