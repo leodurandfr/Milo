@@ -638,3 +638,27 @@ class TestPrerollProbe:
 
         process.kill.assert_called_once()
         process.wait.assert_awaited_once()
+
+
+class TestTransportOnAnIdleSource:
+    """A transport command sent while nothing plays must not serve a crash.
+
+    `command()` catches everything `_handle_command` raises and hands the
+    exception text to `run_source_command`, which serves it as HTTP 400. So an
+    unguarded attribute access does not surface as a 500 — it arrives at the
+    client wearing a client error's clothes, and Milo-iOS could only tell it
+    from a real refusal by matching "NoneType" in the detail string.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stop_before_the_first_play_reports_success(self, radio_source):
+        """`_mpv` is None before the first play and again after `_cleanup` — the
+        exact state a client stops from. Stop is idempotent: not playing is the
+        end state asked for, so this is a success, not an invented failure."""
+        assert radio_source._mpv is None
+
+        result = await radio_source.command("stop", {})
+
+        assert result["success"] is True
+        assert "NoneType" not in str(result)
+        assert radio_source._is_playing is False

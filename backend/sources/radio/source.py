@@ -359,7 +359,17 @@ class RadioSource(MpvAudioSource):
             if self._shazam:
                 await self._shazam.stop()
 
-            await self._mpv.stop()
+            # Guarded like the shazam call above, and like music_library's stop:
+            # `_mpv` is None before the first play and again after `_cleanup`,
+            # which is exactly the state a client sends `stop` from. Unguarded,
+            # the AttributeError was caught by `command()` and served as
+            # HTTP 400 "'NoneType' object has no attribute 'stop'" — a crash
+            # wearing a client error's clothes, which Milo-iOS could only tell
+            # from a real refusal by matching "NoneType" in the string.
+            # Stop is idempotent: nothing playing already is the end state asked
+            # for, so this reports success rather than inventing a failure.
+            if self._mpv:
+                await self._mpv.stop()
 
             self._last_station = self._current_station
             self._current_station = None

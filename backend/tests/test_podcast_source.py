@@ -652,3 +652,52 @@ class TestMpvRefusesTheTransportCommand:
         assert refusing._playback_speed == 1.0
         refusing._podcast_data.set_setting.assert_not_called()
         refusing._bg.spawn.assert_not_called()
+
+
+class TestTransportOnAnIdleSource:
+    """Three commands answered a client wrongly while nothing was playing.
+
+    `command()` turns anything `_handle_command` raises into the 400 body, so an
+    unguarded `self._mpv` reached the client as "'NoneType' object has no
+    attribute 'seek'" — a crash indistinguishable from a refusal without string
+    matching. `resume` was the opposite failure: it fell through its own guard
+    and reported success while the player stayed silent, which a client cannot
+    detect at all.
+    """
+
+    @pytest.mark.asyncio
+    async def test_resume_without_an_episode_is_a_refusal_not_a_success(self, podcast_source):
+        """There is no end state that makes "Resumed" true with nothing loaded.
+        Same phrasing family as radio's "No station to resume"."""
+        assert podcast_source._current_episode is None
+
+        result = await podcast_source.command("resume", {})
+
+        assert result["success"] is False
+        assert "resume" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_seek_with_no_session_answers_a_domain_error(self, podcast_source):
+        """Unlike pause and stop, a seek has no idempotent reading — there is no
+        position to move to — so it refuses, but in words a client can act on."""
+        assert podcast_source._mpv is None
+
+        result = await podcast_source.command("seek", {"position": 30})
+
+        assert result["success"] is False
+        assert "NoneType" not in str(result)
+
+    @pytest.mark.asyncio
+    async def test_set_speed_off_playback_is_stored_for_the_next_episode(self, podcast_source):
+        """The speed is a preference re-applied at every play, so setting it with
+        nothing loaded is legitimate — only the push to a live session is not.
+        This is what lets a widget set the speed without starting an episode."""
+        assert podcast_source._mpv is None
+
+        result = await podcast_source.command("set_speed", {"speed": 1.5})
+
+        assert result["success"] is True
+        assert podcast_source._playback_speed == 1.5
+        podcast_source._podcast_data.set_setting.assert_awaited_once_with(
+            "playback_speed", 1.5
+        )

@@ -344,8 +344,15 @@ class PodcastSource(MpvAudioSource):
 
     async def _handle_resume(self) -> Dict[str, Any]:
         """Resume playback."""
+        # Without an episode there is nothing to resume and no end state that
+        # makes "Resumed" true — the old code fell through the guard below and
+        # reported success while the player stayed silent, which a client cannot
+        # detect at all. Same phrasing family as radio's "No station to resume".
+        if not self._current_episode:
+            return self.error_response("No episode to resume")
+
         try:
-            if not self._is_playing and self._current_episode:
+            if not self._is_playing:
                 if not await self._mpv.resume():
                     return self.mpv_refused("resume")
                 self._is_playing = True
@@ -360,6 +367,13 @@ class PodcastSource(MpvAudioSource):
     async def _handle_seek(self, params: SeekParams) -> Dict[str, Any]:
         """Seek to position (params normalize `position`/`position_ms` to seconds)."""
         position = params.seconds
+
+        # Unlike pause and stop, a seek has no idempotent reading: there is no
+        # position to move to. `_mpv` is None before the first play and after
+        # cleanup, and the AttributeError used to reach the client as
+        # 400 "'NoneType' object has no attribute 'seek'".
+        if not self._mpv or not self._current_episode:
+            return self.error_response("No episode playing")
 
         try:
             if not await self._mpv.seek(int(position)):
@@ -414,8 +428,14 @@ class PodcastSource(MpvAudioSource):
                 self._logger.info(f"Invalid speed {speed}, using nearest valid")
                 speed = min(VALID_PLAYBACK_SPEEDS, key=lambda x: abs(x - speed))
 
-            if not await self._mpv.set_property("speed", speed):
-                return self.mpv_refused(f"speed {speed}x")
+            # The speed is a stored preference, re-applied to every episode at
+            # play time — so setting it while nothing plays is meaningful, and
+            # only the push to the live session needs one. Unguarded, it raised
+            # AttributeError on `_mpv` and reached the client as a 400, making a
+            # legitimate "set my speed" from a widget impossible off playback.
+            if self._mpv and self._current_episode:
+                if not await self._mpv.set_property("speed", speed):
+                    return self.mpv_refused(f"speed {speed}x")
             self._playback_speed = speed
 
             await self._podcast_data.set_setting("playback_speed", speed)
