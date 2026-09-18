@@ -336,6 +336,7 @@
     "disconnect": "Disconnect",
     "notConnectedTitle": "Account Qobuz not connected",
     "notConnectedDetails": "Sign in to your Qobuz account to stream to Milō from the Qobuz app. A browser window opens for you to sign in; return here once it's done.",
+    "selectSourceFirst": "Select the Qobuz source on Milō first: the sign-in page is served by Qobuz itself, which only runs while the source is selected.",
     "appVolumeTitle": "Volume control from the Qobuz app",
     "appVolumeDescription": "Let the Qobuz app change the volume. When off, Milō keeps Qobuz at full volume and its own volume control sets the level."
   },

@@ -112,13 +112,29 @@ def create_qobuz_account_router(systemd_manager: "SystemdServiceManager") -> API
         code and starts the speaker — stays on the proxy. `origin` must point
         back at qobuz-proxy for the callback to land there.
 
-        milo-qobuz.service isn't necessarily running (it only starts when Qobuz
-        becomes the active source), so ensure it's up first — a no-op if it's
-        already active — or the browser hits connection-refused on :8689.
+        Requires Qobuz to already be the active source, because that is what
+        runs the sidecar the browser is about to reach on :8689. This route used
+        to start the unit itself, which left a Qobuz Connect speaker named after
+        the house advertising for as long as the backend ran — raised from a
+        settings screen, outside the state machine, with nothing watching it and
+        nothing to stop it but the lifespan's lingering-unit sweep at the next
+        boot. Selecting the source is the one gesture that starts a daemon here,
+        and an unauthenticated Qobuz source is a supported state: it sits idle
+        and its poll already broadcasts the login landing.
+
+        Reading the account and logging out stay available from any source —
+        both go through the credentials cache, not the sidecar.
         """
-        if not await systemd_manager.start(QOBUZ_SERVICE):
-            logger.error("Could not start milo-qobuz.service for login-url")
-            raise HTTPException(status_code=503, detail="qobuz-proxy could not be started")
+        # probe_active, not is_active: this acts on the answer rather than
+        # rendering it, and an unreadable probe must not be reported as a fact
+        # the backend established. Both unknown and down refuse — handing out a
+        # URL for a proxy that may be down only buys a connection-refused.
+        if await systemd_manager.probe_active(QOBUZ_SERVICE) is not True:
+            logger.warning("Refusing login-url: qobuz-proxy is not confirmed running")
+            raise HTTPException(
+                status_code=409,
+                detail="Select the Qobuz source before connecting the account",
+            )
 
         host = request.url.hostname or "milo.local"
         base = f"http://{host}:{QOBUZ_PROXY_PORT}"

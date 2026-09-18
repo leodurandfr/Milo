@@ -336,6 +336,7 @@
     "disconnect": "Disconnetti",
     "notConnectedTitle": "Account Qobuz non connesso",
     "notConnectedDetails": "Acceda al suo account Qobuz per trasmettere a Milō dall'app Qobuz. Si aprirà una finestra del browser per accedere; torni qui una volta terminato.",
+    "selectSourceFirst": "Selezioni prima la sorgente Qobuz su Milō: la pagina di accesso è servita da Qobuz stesso, che è attivo solo quando la sorgente è selezionata.",
     "appVolumeTitle": "Controllo del volume dall'app Qobuz",
     "appVolumeDescription": "Consentire all'app Qobuz di modificare il volume. Se disattivato, Milō mantiene Qobuz al volume massimo e il proprio controllo del volume imposta il livello."
   },

@@ -516,6 +516,13 @@ is driven entirely by an external app:
   `GET .../login-url`, `POST .../logout`), which proxies qobuz-proxy's OAuth so
   the browser flow stays on `:8689`. The token is cached in
   `/var/lib/milo/qobuz/credentials.json` (per-user, **not** baked into the image).
+  **Connecting requires Qobuz to be the selected source**, because the sign-in
+  page is served by the sidecar and the sidecar runs only while the source is
+  selected — `GET .../login-url` answers 409 otherwise, and the screen drops its
+  Connect button rather than offering one. The route used to start the unit
+  itself, which raised a Connect speaker from a settings screen and left it
+  advertising until the next boot. Reading the account and logging out stay
+  available from any source: both go through the credentials cache, not `:8689`.
 - **ASCII device name.** `device.name` must be ASCII (`"Milo"`, not `"Milō"`) —
   the Qobuz iOS app silently aborts the Connect handshake on a non-ASCII name.
   Milō's own UI still shows the `audioSources.qobuz` label ("Qobuz").

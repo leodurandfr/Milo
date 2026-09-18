@@ -29,7 +29,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, Mock
 
 from backend.api import qobuz_account
-from backend.api.qobuz_account import QOBUZ_SERVICE, create_qobuz_account_router
+from backend.api.qobuz_account import create_qobuz_account_router
 
 
 CREDENTIALS = {
@@ -52,6 +52,7 @@ def systemd():
     manager = Mock()
     manager.start = AsyncMock(return_value=True)
     manager.is_active = AsyncMock(return_value=False)
+    manager.probe_active = AsyncMock(return_value=False)
     return manager
 
 
@@ -109,39 +110,47 @@ class TestAccountStatus:
 
 class TestLoginUrl:
 
-    def test_the_sidecar_is_started_before_its_url_is_handed_out(
+    def test_the_url_is_refused_rather_than_starting_the_sidecar_itself(
         self, client, systemd
     ):
-        """milo-qobuz.service only runs while Qobuz is the active source, and
-        the URL points at :8689 on the proxy itself. Handing it over without
-        starting the unit sends the browser to connection-refused.
-        """
-        client.get("/api/qobuz/account/login-url")
+        """This route used to start milo-qobuz.service to make :8689 reachable.
 
-        systemd.start.assert_awaited_once_with(QOBUZ_SERVICE)
+        That raised a Qobuz Connect speaker named after the house from a
+        settings screen, outside the state machine — nothing watched it, and
+        nothing stopped it before the lifespan's lingering-unit sweep at the
+        next boot, so it kept advertising while another source played. The
+        sidecar now has exactly one starter: selecting the Qobuz source.
+        """
+        response = client.get("/api/qobuz/account/login-url")
+
+        assert response.status_code == 409
+        systemd.start.assert_not_awaited()
+
+    def test_an_unreadable_probe_refuses_too(self, client, systemd):
+        """`probe_active` answers None when it could not look. Handing the URL
+        out then sends the browser to a proxy that may be down, and the refusal
+        message must not assert a state the backend never established.
+        """
+        systemd.probe_active = AsyncMock(return_value=None)
+
+        assert client.get("/api/qobuz/account/login-url").status_code == 409
+        systemd.start.assert_not_awaited()
 
     def test_the_url_and_its_callback_both_point_at_the_host_the_client_used(
-        self, client
+        self, client, systemd
     ):
         """`origin` is where qobuz-proxy sends the OAuth callback that exchanges
         the code and starts the speaker. Pointed anywhere but back at the proxy,
         the login completes in the browser and the speaker never appears.
         """
+        systemd.probe_active = AsyncMock(return_value=True)
+
         url = client.get(
             "/api/qobuz/account/login-url", headers={"Host": "milo.local"}
         ).json()["data"]["login_url"]
 
         assert url.startswith("http://milo.local:8689/auth/login?")
         assert "origin=http%3A%2F%2Fmilo.local%3A8689" in url
-
-    def test_a_sidecar_that_will_not_start_is_a_503_and_not_a_dead_link(
-        self, client, systemd
-    ):
-        systemd.start = AsyncMock(return_value=False)
-
-        response = client.get("/api/qobuz/account/login-url")
-
-        assert response.status_code == 503
 
 
 class TestLogout:

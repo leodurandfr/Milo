@@ -336,6 +336,7 @@
     "disconnect": "Trennen",
     "notConnectedTitle": "Qobuz-Konto nicht verbunden",
     "notConnectedDetails": "Melden Sie sich bei Ihrem Qobuz-Konto an, um von der Qobuz-App aus zu Milō zu streamen. Ein Browserfenster öffnet sich zur Anmeldung; kehren Sie hierher zurück, sobald Sie fertig sind.",
+    "selectSourceFirst": "Wählen Sie zuerst die Qobuz-Quelle auf Milō: Die Anmeldeseite wird von Qobuz selbst bereitgestellt und läuft nur, solange die Quelle ausgewählt ist.",
     "appVolumeTitle": "Lautstärkeregelung von der Qobuz-App",
     "appVolumeDescription": "Der Qobuz-App erlauben, die Lautstärke zu ändern. Wenn deaktiviert, hält Milō Qobuz auf voller Lautstärke und die eigene Lautstärkeregelung bestimmt den Pegel."
   },

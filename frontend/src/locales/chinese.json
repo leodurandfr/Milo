@@ -336,6 +336,7 @@
     "disconnect": "断开连接",
     "notConnectedTitle": "Qobuz 账户未连接",
     "notConnectedDetails": "登录您的 Qobuz 账户，即可从 Qobuz 应用将音乐播放到 Milō。系统会打开一个浏览器窗口供您登录，完成后请返回此页面。",
+    "selectSourceFirst": "请先在 Milō 上选择 Qobuz 音源：登录页面由 Qobuz 自身提供，仅在该音源被选中时运行。",
     "appVolumeTitle": "从 Qobuz 应用控制音量",
     "appVolumeDescription": "允许 Qobuz 应用调节音量。关闭后，Milō 会将 Qobuz 保持在最大音量，并使用自身的音量控制来设定音量大小。"
   },

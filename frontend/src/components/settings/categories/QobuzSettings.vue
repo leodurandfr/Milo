@@ -14,12 +14,15 @@
   <!-- Checking status -->
   <MessageContent v-if="loading" loading :title="t('qobuzSettings.loading')" />
 
-  <!-- Not connected: a single message-content card carries its own Connect CTA. -->
+  <!-- Not connected: a single message-content card carries its own Connect CTA.
+       The CTA is dropped unless Qobuz is the active source: the OAuth page is
+       served by the sidecar, which only runs while the source is selected, and
+       the backend no longer starts it on this screen's behalf. -->
   <MessageContent
     v-else-if="!account.authenticated"
     :title="t('qobuzSettings.notConnectedTitle')"
-    :details="t('qobuzSettings.notConnectedDetails')"
-    :cta-label="t('qobuzSettings.connect')"
+    :details="canConnect ? t('qobuzSettings.notConnectedDetails') : t('qobuzSettings.selectSourceFirst')"
+    :cta-label="canConnect ? t('qobuzSettings.connect') : ''"
     :cta-loading="connecting"
     :cta-click="connect"
   />
@@ -63,6 +66,7 @@ import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
 import { useTimer } from '@/composables/useTimer';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import SettingsContainer from '@/components/settings/SettingsContainer.vue';
 import SettingsSection from '@/components/settings/SettingsSection.vue';
@@ -73,6 +77,7 @@ import Button from '@/components/ui/Button.vue';
 const { t } = useI18n();
 const timer = useTimer();
 const settingsStore = useSettingsStore();
+const unifiedStore = useUnifiedAudioStore();
 const { updateSetting } = useSettingsAPI();
 
 // Whether the Qobuz app may change the volume (else qobuz-proxy stays at unity
@@ -85,6 +90,16 @@ async function handleAppVolumeToggle(enabled) {
 }
 
 const account = ref({ authenticated: false, email: null });
+// The CTA opens a page served by qobuz-proxy on :8689, so it is armed only once
+// the sidecar has actually answered — `account_authenticated` is published by the
+// source's own poll and by nothing else (monitor.py skips a tick the proxy did not
+// answer), and `_reset_playback_state` clears it at every start. `active_source`
+// alone is set before the source starts and survives a failed start, which would
+// offer a button whose only possible answer is the backend's 409.
+const canConnect = computed(() =>
+  unifiedStore.systemState.active_source === 'qobuz' &&
+  unifiedStore.systemState.metadata?.account_authenticated === false
+);
 const loading = ref(true);
 const connecting = ref(false);
 const disconnecting = ref(false);
