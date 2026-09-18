@@ -2,7 +2,7 @@
 Main API routes for audio management
 """
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args
 
 from fastapi import APIRouter, HTTPException
 from backend.api.models import AudioControlRequest
@@ -16,6 +16,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+def _type_name(annotation) -> str:
+    """A type name a client can act on.
+
+    `Optional[str].__name__` is "Optional", which names the wrapper and not the
+    value — useless to a client generating a model. The `required` flag beside
+    it already carries optionality, so the wrapper is unwrapped and the inner
+    type is what is reported.
+    """
+    args = [a for a in get_args(annotation) if a is not type(None)]
+    if len(args) == 1:
+        return _type_name(args[0])
+    return getattr(annotation, "__name__", str(annotation))
+
+
 def _describe_params(model) -> dict:
     """Param name -> {required, type} for a command's Pydantic model.
 
@@ -26,10 +40,7 @@ def _describe_params(model) -> dict:
     if model is None:
         return {}
     return {
-        name: {
-            "required": field.is_required(),
-            "type": getattr(field.annotation, "__name__", str(field.annotation)),
-        }
+        name: {"required": field.is_required(), "type": _type_name(field.annotation)}
         for name, field in model.model_fields.items()
     }
 

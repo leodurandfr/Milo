@@ -151,21 +151,28 @@ class TestCommandsListing:
     def test_the_listing_follows_the_source_table(self, client, source):
         """Derived, not restated: a command the source declares appears without
         anyone editing the route. A hand-written copy is the thing this replaces."""
+        from typing import Optional
+
         from pydantic import BaseModel
 
         class SeekParams(BaseModel):
             position_ms: int
             smooth: bool = False
+            uri: Optional[str] = None
 
         source.COMMANDS = {"pause": None, "seek": SeekParams}
 
         body = client.get("/api/audio/commands").json()
 
+        # `uri` reports `str`, not `Optional`: the wrapper names itself and not
+        # the value a client has to send, and `required` already says it may be
+        # left out.
         assert body["commands"]["podcast"] == {
             "pause": {},
             "seek": {
                 "position_ms": {"required": True, "type": "int"},
                 "smooth": {"required": False, "type": "bool"},
+                "uri": {"required": False, "type": "str"},
             },
         }
 
