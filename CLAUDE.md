@@ -50,9 +50,11 @@ Both sides ship in the same commit, so there is no versioning and no shim — wi
 
 **One client, one admission.** Four snapserver notifications can be first to see a client arrive (the sweep at WebSocket connect, `Client.OnConnect`, `Server.OnUpdate`, the reconcile sweep's online flip) and which wins is a boot-order race — so all four share **one** registration (`_register_snapclient`, the only caller of `registry.register_client`) and **one** sync (`_sync_reconnecting_client_volume`). A client is announced online *only* by that sync, after the hardware confirmed, via `set_online_after`. Enforced by [backend/tests/architecture/test_client_admission.py](backend/tests/architecture/test_client_admission.py).
 
-## Third consumer: Milo-Mac (read before deleting any route or WS event)
+## External API clients — Milo-Mac and Milo-iOS (read before deleting any route or WS event)
 
-The REST + WebSocket API has a consumer outside this checkout: **Milo-Mac** (`github.com/leodurandfr/Milo-Mac`), a macOS app that remotely drives a unit and streams via ROC. **A route or WS event with no caller in `frontend/src/` is NOT necessarily dead.**
+The REST + WebSocket API has **two** consumers outside this checkout: **Milo-Mac** (`github.com/leodurandfr/Milo-Mac`), a macOS app that remotely drives a unit and streams via ROC, and **Milo-iOS** (`github.com/leodurandfr/Milo-iOS`), a widget + App Intents app. **A route or WS event with no caller in `frontend/src/` is NOT necessarily dead.**
+
+That sentence is not a precaution, it is a post-mortem. `cf430ae6` deleted `GET /api/settings/dock-apps` as "Milo-Mac-only" once the Mac had converged on `/bulk`; Milo-iOS called it too, had no manifest, and its call has answered 405 ever since — found only by writing the second contract. **Two manifests now, one procedure: grep neither, read both.**
 
 The pinned surface is [backend/tests/contracts/milo_mac_contract.json](backend/tests/contracts/milo_mac_contract.json) — the single source of truth, no manual grepping. A **vendored snapshot** of Milo-Mac's two relevant Swift files lives in [backend/tests/contracts/vendor/milo-mac/](backend/tests/contracts/vendor/milo-mac/). `test_milo_mac_contract.py` (offline, every `pytest`) enforces three things: the backend still serves every route/WS event the manifest lists; the manifest **matches the vendored snapshot's surface exactly**; and the manifest's `payload_invariants` hold on the typed `WsEvent` models. A non-blocking weekly CI job (`check_milo_mac_freshness.py`) re-clones the real app and opens a tracking issue when the snapshot falls behind.
 
@@ -61,6 +63,14 @@ The pinned surface is [backend/tests/contracts/milo_mac_contract.json](backend/t
 Milo-Mac couples to REST paths/methods + request/response keys, and to WS `(category, type)` pairs across `system`, `source`, `volume`, `routing` and `settings` — plus `payload_invariants` naming the exact fields it reads. **Read the manifest for the list; never trust a summary here.** The one worth knowing by heart is `routing/multiroom_error`: its invariant is *presence only, no payload field is read*, so it looks unreferenced from every angle and is the easiest entry to delete by accident.
 
 **Exception:** Milo-Mac reads WS `metadata` as an opaque dict, so an over-emitted metadata *sub-field* with no `frontend/src/` consumer is safe to drop. Purely frontend code (Vue components, Pinia stores, frontend Zod schemas) never needs a manifest touch.
+
+### Milo-iOS — same shape, three differences
+
+[backend/tests/contracts/milo_ios_contract.json](backend/tests/contracts/milo_ios_contract.json) + [vendor/milo-ios/](backend/tests/contracts/vendor/milo-ios/) + `test_milo_ios_contract.py` + the non-blocking `milo-ios-freshness` job. Swift path canonicalisation is imported from the Mac's freshness script, never copied.
+
+1. **No WebSocket surface at all.** Every consumer is a process that lives for seconds (a WidgetKit timeline entry, an App Intent) and cannot hold a socket, so the contract is REST-only and the app can never be *told* anything — a poll is its only channel. This is also why `GET /api/settings/bulk` carries `volume_steps`.
+2. **Two fields the schema cannot check.** `GET /api/multiroom/state` types clients and zones as `Dict[str, Any]` on purpose (computed + conditional keys), so those invariants are checked against the functions that *build* the payload — `Client.to_dict` and `ClientRegistryService.zone_to_enriched_dict` — which is exact where reading the schema is impossible. Everything else walks the live OpenAPI schema.
+3. **Two enumerated gaps, both self-deleting.** `_pending_push` holds routes the manifest declares that the pushed app does not yet call; `_broken_calls` holds calls the app makes that the backend does not serve (today: the dock-apps 405). Neither is a weakened assertion — each is data whose own test fails the moment the situation resolves, so the list cannot quietly become a permanent exemption. **Never add a third such section to paper over a mismatch**: the two that exist name a temporary state of the *client*, not a tolerance in the contract.
 
 ## Backend architecture
 
