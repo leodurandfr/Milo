@@ -18,10 +18,9 @@
  * renamed or dropped on the backend surfaces here rather than at runtime.
  *
  * Known limit, stated rather than papered over: rule 4 assumes every bulk field
- * has a frontend consumer. That holds today (Milo-Mac reads `volume_limits` and
- * `dock_apps`, both of which the store reads too). A field served *only* for
- * Milo-Mac would go red here and belongs in an allowlist with its reason, the
- * same way `tests/i18n/` allowlists the translations that legitimately diverge.
+ * has a frontend consumer. A field served *only* for a client outside this app
+ * goes red here and belongs in `NO_FRONTEND_CONSUMER` with its reason, the same
+ * way `tests/i18n/` allowlists the translations that legitimately diverge.
  *
  * Every extraction asserts it found a plausible surface first — a broken parse
  * must fail loudly, not pass on an empty set.
@@ -102,6 +101,18 @@ function refInitialKeys(name) {
   return [...m[1].matchAll(/^\s*([a-z_]+):/gm)].map(x => x[1]);
 }
 
+/**
+ * Bulk fields with no consumer in this app, each with the reason it is served.
+ * Rule 4's escape hatch — an entry here is a claim that someone *else* reads the
+ * field, not that nobody does.
+ */
+const NO_FRONTEND_CONSUMER = {
+  volume_steps:
+    'Read by the iOS app\'s WidgetKit volume control, a process woken for seconds to '
+    + 'build a timeline and killed — it cannot hold a WebSocket open, and `volume_changed` '
+    + 'is where this app and Milo-Mac get `step_mobile_db`, so the store has no use for it.',
+};
+
 const BULK = bulkFields();
 const MODELS = configModels();
 const BODY = loaderBody();
@@ -135,9 +146,14 @@ describe('settings/bulk ↔ settingsStore', () => {
 
   it('leaves no bulk field unread', () => {
     // A category the backend serves and nobody reads is the write-only payload
-    // this programme keeps finding; see the docstring for the Milo-Mac caveat.
-    const unread = [...BULK.keys()].filter(k => k !== 'status' && !READ.has(k));
+    // this programme keeps finding; NO_FRONTEND_CONSUMER is the stated exception.
+    const unread = [...BULK.keys()]
+      .filter(k => k !== 'status' && !READ.has(k) && !(k in NO_FRONTEND_CONSUMER));
     expect(unread).toEqual([]);
+
+    // An allowlisted key that the response no longer declares is a stale excuse.
+    const stale = Object.keys(NO_FRONTEND_CONSUMER).filter(k => !BULK.has(k));
+    expect(stale).toEqual([]);
   });
 
   it('gives each wholesale-assigned ref the shape its backend model declares', () => {

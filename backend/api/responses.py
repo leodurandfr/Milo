@@ -40,6 +40,7 @@ from backend.core.models.settings_config import (
     SpotifySettingsConfig,
     VolumeLimitsConfig,
     VolumeStartupConfig,
+    VolumeStepsConfig,
 )
 from backend.core.network.models import NetworkStatus, SavedNetwork, WifiNetwork
 
@@ -155,13 +156,20 @@ class RadioStationsResponse(BaseModel):
 class BulkSettingsResponse(BaseModel):
     """GET /api/settings/bulk — every settings category in one payload.
 
-    `volume_steps` is deliberately absent: `step_mobile_db` reaches clients on
-    the `volume_changed` event instead (Milo-Mac reads it there).
+    `volume_steps` carries `step_mobile_db`, which for a while was the only one
+    of the four step settings readable over no HTTP route at all: `cf430ae6`
+    deleted `GET /volume-steps` together with `GET /volume-limits` and
+    `GET /dock-apps` on the premise that `/bulk` had replaced all three, and
+    `/bulk` carried the other two but never this one. A WebSocket-only read is
+    not a read surface for a client that cannot hold a socket open — an iOS
+    WidgetKit extension lives for seconds — so it is projected here beside its
+    three siblings.
     """
     status: str
     language: str
     volume_limits: VolumeLimitsConfig
     volume_startup: VolumeStartupConfig
+    volume_steps: VolumeStepsConfig
     rotary_steps: RotaryStepsConfig
     bt_remote_steps: BtRemoteStepsConfig
     ir_remote_steps: IrRemoteStepsConfig

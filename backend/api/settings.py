@@ -186,6 +186,7 @@ def create_settings_router(
                 "startup_volume_db": vol['startup_volume_db'],
                 "restore_last_volume": vol['restore_last_volume']
             },
+            "volume_steps": {"step_mobile_db": vol['step_mobile_db']},
             "rotary_steps": {"step_rotary_db": vol['step_rotary_db']},
             "bt_remote_steps": {"step_bt_remote_db": vol['step_bt_remote_db']},
             "ir_remote_steps": {"step_ir_remote_db": vol['step_ir_remote_db']},

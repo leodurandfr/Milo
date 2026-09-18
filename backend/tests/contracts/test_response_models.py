@@ -251,6 +251,7 @@ def test_bulk_settings_full_key_set():
         "language": "french",
         "volume_limits": {"min_db": -76.0, "max_db": -12.0},
         "volume_startup": {"startup_volume_db": -53.99, "restore_last_volume": True},
+        "volume_steps": {"step_mobile_db": 2.0},
         "rotary_steps": {"step_rotary_db": 1.0},
         "bt_remote_steps": {"step_bt_remote_db": 1.0},
         "ir_remote_steps": {"step_ir_remote_db": 3.0},

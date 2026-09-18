@@ -886,6 +886,7 @@ class TestBulkSettings:
         ("volume_limits", "max_db"): ("volume", "limit_max_db"),
         ("volume_startup", "startup_volume_db"): ("volume", "startup_volume_db"),
         ("volume_startup", "restore_last_volume"): ("volume", "restore_last_volume"),
+        ("volume_steps", "step_mobile_db"): ("volume", "step_mobile_db"),
         ("rotary_steps", "step_rotary_db"): ("volume", "step_rotary_db"),
         ("bt_remote_steps", "step_bt_remote_db"): ("volume", "step_bt_remote_db"),
         ("ir_remote_steps", "step_ir_remote_db"): ("volume", "step_ir_remote_db"),
