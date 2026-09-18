@@ -1503,17 +1503,28 @@ describe('component gallery source pages', () => {
     expect(CANVAS).toMatch(/context\.unified\.sendCommand\s*=/);
   });
 
-  it('hands the source stage the viewport its preset is named after', () => {
+  it('hands every full-surface view the viewport its preset is named after', () => {
     // The stage pads itself, which is right for a primitive sitting on it and
-    // wrong for a source: the presets are labelled "1280 × 800 — the unit", and
-    // an inset stage hands the source 1232 × 752 instead — a different aspect
-    // ratio (which is what every mobile branch in the app switches on), a
+    // wrong for a whole screen: the presets are labelled "1280 × 800 — the
+    // unit", and an inset stage hands the view 1232 × 752 instead — a different
+    // aspect ratio (which is what every mobile branch in the app switches on), a
     // different column count in every grid, and a different share of the row for
-    // the 340 px player pane. So the padding is zeroed for this one selection.
+    // the 340 px player pane. So the padding is zeroed for those selections.
     // Both halves are asserted because either alone is silently a no-op: the
     // class with no rule pads anyway, the rule with no binding never applies.
     expect(CANVAS).toMatch(/'canvas--bleed':\s*bleed/);
-    expect(CANVAS).toMatch(/bleed\s*=\s*computed\(\(\)\s*=>\s*id\.value === AUDIO_SOURCES_ID\)/);
+
+    // Keyed on the class the descriptors already carry, not on a second list of
+    // ids: the same token drives the height rule below, so the two cannot drift.
+    expect(CANVAS).toMatch(/bleed\s*=\s*computed\([^;]*'canvas-fill'/);
+
+    // And the class has to be on something, or the binding above is a constant
+    // false and every screen silently pads again.
+    const filling = [...Object.entries(REGISTRY), ...Object.entries(SOURCE_REGISTRY)]
+      .filter(([, descriptor]) => String(descriptor.args?.class ?? '').split(' ').includes('canvas-fill'))
+      .map(([id]) => id);
+    expect(filling).toContain(AUDIO_SOURCES_ID);
+    expect(filling.length).toBeGreaterThan(1);
 
     // Zeroing the pad rather than the padding is load-bearing: the stage's
     // height is `100vh - 2 * var(--canvas-pad)`, so a rule that set `padding: 0`

@@ -50,7 +50,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { REGISTRY, entryFor, AUDIO_SOURCES_ID } from './registry';
+import { REGISTRY, entryFor } from './registry';
 import { installApiHarness } from './canvasHttp';
 import { describeEvents, callbackProps } from './controls';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
@@ -123,16 +123,23 @@ const surfaceClass = computed(() => {
 });
 
 /**
- * The stage's inset, dropped for the one selection that is a whole screen.
+ * The stage's inset, dropped for every selection that is a whole screen.
  *
  * A primitive is an object on a stage and reads better with air around it; a
- * source is what the unit shows edge to edge, and the viewport presets name a
- * real panel ("1280 × 800 — the unit"). Padding the stage there hands the source
- * 1232 × 752 instead — a different aspect ratio, a different column count in
- * every grid, and a player pane taking a different share of the row. So the
- * source page gets the viewport it is labelled with.
+ * full-surface view is what the unit shows edge to edge, and the viewport
+ * presets name a real panel ("1280 × 800 — the unit"). Padding the stage there
+ * hands the view 1232 × 752 instead — a different aspect ratio (which is what
+ * every mobile branch switches on), a different column count in every grid, and
+ * a player pane taking a different share of the row. Inside a sized preset the
+ * inset also draws a third edge, inside the device frame, that the unit has not
+ * got.
+ *
+ * Keyed on the `canvas-fill` class the descriptor already hands the component,
+ * because that class *is* the declaration "this one fills its host" — it is what
+ * the height rule below resolves against. A second list of which ids are screens
+ * would be the same statement written twice.
  */
-const bleed = computed(() => id.value === AUDIO_SOURCES_ID);
+const bleed = computed(() => String(args.value.class ?? '').split(' ').includes('canvas-fill'));
 
 function post(message) {
   window.parent?.postMessage({ source: 'milo-canvas', ...message }, window.location.origin);
