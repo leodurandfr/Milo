@@ -244,6 +244,61 @@ class TestConnectionState:
 
         assert bluetooth_source.state == SourceState.ACTIVE
 
+    def test_published_metadata_says_whether_avrcp_is_there(self, bluetooth_source):
+        """The screensaver dismisses itself on a pause, and for Bluetooth it can
+        only tell a pause from a sender that never reports playback by reading
+        has_avrcp: PlaybackMetadata always serializes is_playing, so a Mac (no
+        AVRCP player) publishes is_playing=False for the whole session. Asserted
+        on an *empty* track on purpose — that is the case a title/artist guess
+        would get wrong, and the one the frontend must not have to guess."""
+        bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "iPhone"}
+        bluetooth_source.avrcp = Mock()
+        bluetooth_source.avrcp.has_player = True
+        bluetooth_source._playback = {}
+
+        bluetooth_source._update_connection_state()
+
+        assert bluetooth_source.metadata["has_avrcp"] is True
+        assert "title" not in bluetooth_source.metadata
+
+    def test_no_avrcp_is_published_as_false_not_dropped(self, bluetooth_source):
+        """emit_connection_state drops None extras; a False that went with them
+        would leave the frontend reading 'absent' as 'unknown' and gating the
+        screensaver on a play state no sender ever sends."""
+        bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "MacBook"}
+        bluetooth_source.avrcp = Mock()
+        bluetooth_source.avrcp.has_player = False
+
+        bluetooth_source._update_connection_state()
+
+        assert bluetooth_source.metadata["has_avrcp"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_player_that_vanishes_is_broadcast_with_nothing_else_to_say(
+        self, bluetooth_source
+    ):
+        """A sender that publishes no track text and is not playing produces the
+        exact same AVRCP snapshot whether its player is there or gone — a Mac
+        mini, the case has_avrcp exists for. Compared on the snapshot fields
+        alone, the departure broadcasts nothing, has_avrcp stays true for the
+        rest of the session, and the screensaver never arms again for a sender
+        that is still connected."""
+        bluetooth_source.connected_device = {"address": "AA:BB:CC:DD:EE:FF", "name": "Mac mini"}
+        bluetooth_source.avrcp = Mock()
+        bluetooth_source.avrcp.has_player = True
+        paused_with_no_track = {
+            "title": None, "artist": None, "album": None,
+            "duration": None, "is_playing": False, "position": None,
+        }
+        bluetooth_source._playback = dict(paused_with_no_track)
+        bluetooth_source._update_connection_state()
+        assert bluetooth_source.metadata["has_avrcp"] is True
+
+        bluetooth_source.avrcp.has_player = False
+        await bluetooth_source._on_avrcp_update("AA:BB:CC:DD:EE:FF", dict(paused_with_no_track))
+
+        assert bluetooth_source.metadata["has_avrcp"] is False
+
     @pytest.mark.asyncio
     async def test_on_device_connected(self, bluetooth_source):
         """Test device connection callback."""

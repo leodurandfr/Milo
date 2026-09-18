@@ -122,6 +122,8 @@ class BluetoothSource(BaseAudioSource):
         # PCM is up: the player object and the PCM appear in either order, and
         # _update_connection_state reads this whichever arrives second.
         self._playback: Dict[str, Any] = {}
+        # What the last broadcast said about has_avrcp — see _on_avrcp_update.
+        self._avrcp_published = False
         self._last_progress_broadcast = 0.0
 
         # Cover art resolved from the track text, and the track it belongs to.
@@ -371,7 +373,9 @@ class BluetoothSource(BaseAudioSource):
     # === AVRCP Callbacks ===
 
     # What the frontend cannot interpolate: any change here owes a full
-    # broadcast, a moved position alone owes only a drift correction.
+    # broadcast, a moved position alone owes only a drift correction. Whether a
+    # player exists at all is compared alongside them (it is not a snapshot
+    # field) — see _on_avrcp_update.
     SUBSTANTIVE_FIELDS = ("title", "artist", "album", "duration", "is_playing")
 
     async def _on_avrcp_update(self, address: str, snapshot: Dict[str, Any]) -> None:
@@ -384,7 +388,14 @@ class BluetoothSource(BaseAudioSource):
         if connected and connected.upper() != address.upper():
             return
 
-        before = tuple(self._playback.get(k) for k in self.SUBSTANTIVE_FIELDS)
+        # The player's presence rides in the comparison because it is published
+        # (has_avrcp) and a snapshot cannot carry it: a player that vanishes
+        # arrives here as an empty snapshot, which for a sender that published
+        # no track text and was not playing is *identical* to the one before it
+        # — a Mac mini, exactly the case has_avrcp exists for. Compared on the
+        # fields alone, that departure broadcasts nothing and leaves has_avrcp
+        # true for good, gating the screensaver on a play state nobody reports.
+        before = (self._avrcp_published, *(self._playback.get(k) for k in self.SUBSTANTIVE_FIELDS))
         before_track = self._track_key(self._playback)
         self._playback = snapshot
         self._is_playing = bool(snapshot.get("is_playing"))
@@ -393,7 +404,8 @@ class BluetoothSource(BaseAudioSource):
         if track != before_track and any(track):
             self._bg.spawn(self._resolve_artwork(track), label="avrcp_artwork")
 
-        if before != tuple(snapshot.get(k) for k in self.SUBSTANTIVE_FIELDS):
+        after = (self.avrcp.has_player, *(snapshot.get(k) for k in self.SUBSTANTIVE_FIELDS))
+        if before != after:
             self._update_connection_state()
         else:
             self._broadcast_progress()
@@ -568,15 +580,34 @@ class BluetoothSource(BaseAudioSource):
         resolved from the track text. AVRCP itself never carries one (see
         avrcp.py); the resolver is the only reason that field is ever set, and
         the player draws its source glyph when the lookup found nothing.
+
+        has_avrcp says whether that second feed exists at all, and it is on the
+        wire because nothing else on it can answer: PlaybackMetadata always
+        serializes is_playing, so a sender publishing no player is
+        indistinguishable from one sitting paused. The screensaver is the
+        consumer — it dismisses itself on a pause and must not do so for a sender
+        that never claimed to be playing.
+
+        Why the flag and not a guess at the track text: what a sender registers
+        and what it *serves* are two different things. Measured on the unit
+        2026-09-18 — a Mac mini registers a MediaPlayer1 whose play/pause is
+        accurate while answering no track metadata at all (no title, no artist:
+        it never serves GetElementAttributes, unlike an iPhone). Read from
+        title/artist, that sender would have looked like one with no transport,
+        which is the one reading that must not happen.
         """
         device = self.connected_device or {}
         playback = dict(self._playback)
         if self._artwork_url and self._artwork_key == self._track_key(playback):
             playback["album_art_url"] = self._artwork_url
 
+        self._avrcp_published = self.avrcp.has_player
         self.emit_connection_state(
             self.connected_device is not None,
             PlaybackMetadata.model_validate(playback),
-            extras={"device_name": device.get("name")},
+            extras={
+                "device_name": device.get("name"),
+                "has_avrcp": self._avrcp_published,
+            },
         )
 

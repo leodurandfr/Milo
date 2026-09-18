@@ -23,11 +23,23 @@ import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 const ACTIVITY_THROTTLE_MS = 500;
 
 // Media sources: the countdown only runs while audio is actually playing — an
-// idle unit showing a paused track has nothing to fade into. The two passive
-// receivers below have no play/pause concept, so a connected sender is enough.
-// Arming only: neither list ever dismisses a screensaver already up.
+// idle unit showing a paused track has nothing to fade into. The two receivers
+// below are armed by a connected sender instead, because neither is guaranteed
+// to report a play state at all. Bluetooth may nonetheless *have* one (see
+// isPlaybackStopped); Mac never does.
 const PLAYBACK_GATED_SOURCES = ['radio', 'podcast', 'airplay', 'dlna', 'qobuz', 'music_library', 'spotify', 'cd', 'tidal'];
 const PASSIVE_SOURCES = ['bluetooth', 'mac'];
+
+/**
+ * How long playback must stay stopped before the overlay steps aside.
+ *
+ * A pause and the gap between two tracks are one and the same thing on the wire
+ * — `is_playing: false` — so only duration tells them apart: a handover closes
+ * in well under a second (Spotify's `not_playing` followed by the next track's
+ * `metadata`), a pause lasts until someone presses play. Three seconds sits
+ * above the gap and below what reads as a screen that stopped answering.
+ */
+const PAUSE_DISMISS_MS = 3000;
 
 /**
  * Manages the audio screensaver lifecycle: visibility, inactivity timer,
@@ -83,6 +95,7 @@ export function useScreensaver() {
   // its entrance animation — consumed via useScreensaverReveal.
   const screensaverRevealNonce = ref(0);
   let inactivityTimer = null;
+  let pauseDismissTimer = null;
   let lastActivityTime = 0;
 
   // --- Derived settings ---
@@ -93,17 +106,22 @@ export function useScreensaver() {
 
   /**
    * What keeps the screensaver up is having something to show: a source still on
-   * the air. Nothing about the playback itself belongs here.
+   * the air. Nothing about the playback itself belongs here — playback is asked
+   * separately, by canArmScreensaver and by isPlaybackStopped, because a single
+   * expression answering all three is the bug this split fixes.
    *
-   * Arming and dismissing are two questions, and answering both with one
-   * expression is the bug this split fixes. `is_playing` dips to false when a
-   * track ends *on its own*, so the screensaver closed itself between two tracks
-   * — no touch, no user, just the gap. Four sources carry that dip, each from
-   * its own channel: Spotify's `not_playing` event (published straight from the
-   * event, without re-reading /status — which is why polling /status at 10 Hz
-   * across two boundaries never sees it), Tidal's BUFFERING/IDLE player states,
-   * DLNA's STOPPED transport state, and AirPlay's `pfls` flush. A skip commanded
-   * from the sender never produced it, which is what made it look intermittent.
+   * `is_playing` dips to false when a track ends *on its own*, so a screensaver
+   * keyed on it closed itself between two tracks — no touch, no user, just the
+   * gap. The sources carry that dip each from its own channel: Spotify's
+   * `not_playing` event (published straight from the event, without re-reading
+   * /status — which is why polling /status at 10 Hz across two boundaries never
+   * sees it), Tidal's BUFFERING/IDLE player states and DLNA's STOPPED transport
+   * state. A skip commanded from the sender never produced it, which is what
+   * made it look intermittent. AirPlay is absent from that list on purpose: its
+   * `pfls` flush was once assumed to carry the same dip, but shairport-sync
+   * sends neither `pfls` nor `pend` from a macOS sender (measured 2026-08-07,
+   * sources/airplay/source.py), which is also why an AirPlay pause never
+   * dismisses anything here.
    */
   const screensaverStillApplies = computed(() => {
     // Pi-screen-only: a remote Mac/iPhone viewing the UI never shows it (matches
@@ -117,15 +135,65 @@ export function useScreensaver() {
     return unifiedStore.systemState.source_state === 'active';
   });
 
+  /**
+   * Whether `is_playing` means anything for the source on the air.
+   *
+   * Both halves below ask it, and they must get the same answer: a source whose
+   * pause dismisses the overlay is a source whose pause must also keep it from
+   * appearing, or a paused sender would draw one every idle stretch just to lose
+   * it three seconds later.
+   *
+   * Bluetooth is the one source that can go either way, because it has two feeds
+   * and only one of them is guaranteed: BlueALSA says a sender is connected,
+   * AVRCP says what is playing — and an AVRCP player is optional, may appear
+   * seconds after the link, and can go away with the app that published it.
+   * `is_playing` alone cannot tell "no player" from "paused", since
+   * PlaybackMetadata always serializes it: a sender with no player publishes
+   * `is_playing: false` for the whole session, and reading that as a pause would
+   * take its screensaver away three seconds in and never give it back. So the
+   * source says it outright — `has_avrcp`, see sources/bluetooth/source.py.
+   *
+   * Not inferred from the track text either, and that is measured rather than
+   * cautious: a Mac mini registers a player whose play/pause is accurate while
+   * serving no title and no artist (2026-09-18, on the unit). Every guess from
+   * the track would have read that sender as having no transport at all — and
+   * pausing it is exactly the case this rule exists for.
+   */
+  const reportsPlayState = computed(() => {
+    const source = unifiedStore.systemState.active_source;
+    if (PLAYBACK_GATED_SOURCES.includes(source)) return true;
+    return source === 'bluetooth' && unifiedStore.systemState.metadata?.has_avrcp === true;
+  });
+
+  /**
+   * Whether playback has stopped, as opposed to handing over to the next track.
+   *
+   * `is_buffering` separates the two while the gap is still open: a source
+   * loading what comes next is not paused. It is a bonus, not the mechanism —
+   * only Spotify, Tidal, Music Library and CD ever set it, and Spotify clears it
+   * for the sliver between `not_playing` and the next track's `metadata`. AirPlay
+   * and DLNA never set it at all, so their handovers are held by the wall clock
+   * alone: a DLNA controller taking more than PAUSE_DISMISS_MS between STOPPED
+   * and the next Play would read as a pause here. Measured against nothing —
+   * accepted as the price of one rule per source rather than four.
+   */
+  const isPlaybackStopped = computed(() => {
+    if (!reportsPlayState.value) return false;
+    const metadata = unifiedStore.systemState.metadata || {};
+    if (metadata.is_buffering === true) return false;
+    return metadata.is_playing !== true;
+  });
+
   /** Whether the inactivity countdown may run: the above, plus live playback. */
   const canArmScreensaver = computed(() => {
     if (!screensaverStillApplies.value) return false;
     const source = unifiedStore.systemState.active_source;
-    if (PASSIVE_SOURCES.includes(source)) return true;
-    if (PLAYBACK_GATED_SOURCES.includes(source)) {
-      return unifiedStore.systemState.metadata?.is_playing === true;
+    if (!PLAYBACK_GATED_SOURCES.includes(source) && !PASSIVE_SOURCES.includes(source)) {
+      return false;
     }
-    return false;
+    // A receiver that reports nothing is armed by the link alone.
+    if (!reportsPlayState.value) return true;
+    return unifiedStore.systemState.metadata?.is_playing === true;
   });
 
   // --- Timer management ---
@@ -134,6 +202,13 @@ export function useScreensaver() {
     if (inactivityTimer) {
       timer.clear(inactivityTimer);
       inactivityTimer = null;
+    }
+  }
+
+  function clearPauseDismissTimer() {
+    if (pauseDismissTimer) {
+      timer.clear(pauseDismissTimer);
+      pauseDismissTimer = null;
     }
   }
 
@@ -175,6 +250,7 @@ export function useScreensaver() {
   // --- Public action ---
 
   function closeScreensaver() {
+    clearPauseDismissTimer();
     isScreensaverVisible.value = false;
     resetInactivityTimer();
   }
@@ -429,17 +505,35 @@ export function useScreensaver() {
       addActivityListeners();
       resetInactivityTimer();
     } else {
-      // Only the countdown stops. A screensaver already up survives a pause and
-      // the between-tracks gap; the overlay's own pointerdown still closes it.
+      // Only the countdown stops here. What becomes of an overlay already up is
+      // the next watcher's question, and it waits before answering it.
       removeActivityListeners();
       clearInactivityTimer();
     }
   }, { immediate: true });
 
-  // The one automatic dismissal: the source being drawn is no longer on the air,
+  // First automatic dismissal: the source being drawn is no longer on the air,
   // so the overlay would be showing a track nothing is playing.
   watch(screensaverStillApplies, (stillApplies) => {
     if (!stillApplies) isScreensaverVisible.value = false;
+  });
+
+  // Second: playback stopped and stayed stopped, which no track handover does.
+  // Pausing from a remote, a phone or the sender's own app is the one way to
+  // reach the unit's screen without touching it, and the UI it hides is what
+  // the hand reaching for the pause button was looking for.
+  //
+  // Visibility is watched alongside, not assumed: an overlay can go up over a
+  // source that stopped before it appeared — a Bluetooth sender whose AVRCP
+  // player shows up mid-session changes the answer without anything on the wire
+  // moving — and an edge on `stopped` alone would never come.
+  watch([isPlaybackStopped, isScreensaverVisible], ([stopped, visible]) => {
+    clearPauseDismissTimer();
+    if (!stopped || !visible) return;
+
+    pauseDismissTimer = timer.setTimeout(() => {
+      isScreensaverVisible.value = false;
+    }, PAUSE_DISMISS_MS);
   });
 
   watch(
