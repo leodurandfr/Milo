@@ -185,6 +185,55 @@ class PushTokenRegistry:
             self.logger.info("Unregistered token on request")
         return removed
 
+    async def drop_sessions_absent_from(
+        self, device_id: str, live_session_ids: List[str]
+    ) -> int:
+        """Forget this device's session tokens for sessions it no longer holds.
+
+        A session token outlives its session, and nothing on this side can tell
+        the difference. APNs accepts every push to it and answers 200 — the
+        phone throws the payload away in silence, because there is no session
+        behind it any more. Measured 2026-09-19: the phone logged
+        `Could not find the specified now playing client` while Milō, restarted
+        from a clean slate, adopted that very id — `session 2eb3b71b adopted
+        (was None)` — and went on feeding it. Nothing ever started a new one.
+
+        ``was_lost_to_reboot`` only covers a phone that restarted. Everything
+        else that ends a session leaves no mark: a reinstall does (the bundle
+        container changes every time), and so does the system reclaiming one.
+        In development a reinstall is the common case, not the corner one.
+
+        The app is the only party that knows, and it does know: it enumerates
+        the live sessions every couple of seconds while it runs. This is that
+        report. Silence says nothing — a backgrounded app reports nothing at
+        all — so only an explicit list that OMITS a session retires it.
+
+        Scoped to the reporting device: a phone knows its own sessions and
+        nobody else's, and an empty list from one must not touch another's.
+        """
+        live = set(live_session_ids)
+
+        def apply(tokens: Dict[str, PushToken]) -> bool:
+            doomed = [
+                token for token, held in tokens.items()
+                if held.kind == PushTokenKind.SESSION
+                and held.device_id == device_id
+                and held.session_id not in live
+            ]
+            for token in doomed:
+                tokens.pop(token)
+            return bool(doomed)
+
+        before = len(self._tokens)
+        if not await self._mutate(apply):
+            return 0
+        dropped = before - len(self._tokens)
+        self.logger.info(
+            f"Device {device_id} reports {len(live)} live session(s); "
+            f"dropped {dropped} stale session token(s)"
+        )
+        return dropped
+
     async def purge(self, token: str, *, invalidated_at: Optional[float] = None) -> bool:
         """Drop a token APNs refused. False when it was kept or not held.
 

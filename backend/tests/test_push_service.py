@@ -99,6 +99,17 @@ def sent_events(apns):
             if "event" in c.args[1]["aps"]]
 
 
+def sent_sessions(apns):
+    """The session id each push addressed, read from the attributes it carried.
+
+    A renewal is only a retry if it names the session already held; a different
+    id would be the rival session this whole area exists to avoid.
+    """
+    return [c.args[1]["aps"]["attributes"].get("id")
+            for c in apns.send.await_args_list
+            if "event" in c.args[1]["aps"]]
+
+
 async def _settled(apns, deadline=3.0, settle=0.1):
     """Wait until a push has landed, then a little longer for a second one.
 
@@ -459,7 +470,72 @@ class TestDeviceReboot:
         await service._publish()
 
         assert service._session_id == started
-        assert sent_events(apns) == []
+
+    async def test_the_wait_knocks_again_instead_of_lasting_forever(
+        self, service, registry, apns
+    ):
+        """Waiting in silence could never end: the extension is woken by
+        `update`, Milō sends none without a token, and only the woken extension
+        can supply one. Measured 2026-09-19 — `token de session : Milō
+        injoignable` at 18:53:00, then 98 seconds of nothing, until the app was
+        brought to the foreground by hand at 18:54:38.
+
+        `start` is the one message that reaches the phone without a session
+        token, so it is what breaks the deadlock. Carrying the SAME id keeps it
+        a retry rather than a second session."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        started = service._session_id
+        service._session_started_at -= START_REPORT_GRACE_S + 1
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["start"]
+        assert service._session_id == started
+        assert sent_sessions(apns) == [started]
+
+    async def test_the_knocking_is_spaced_out(self, service, registry, apns):
+        """Each renewal wakes an app extension and spends APNs budget, and the
+        token it fishes for needs a moment to come back. Sending one per cycle
+        would be a push per second for as long as the token stayed away."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        service._session_started_at -= START_REPORT_GRACE_S + 1
+        apns.send.reset_mock()
+
+        await service._publish()      # knocks
+        await service._publish()      # too soon to knock again
+        await service._publish()
+
+        assert sent_events(apns) == ["start"]
+
+    async def test_a_session_nobody_reports_is_let_go(
+        self, service, registry, apns
+    ):
+        """The ghost: the session died without the phone restarting, so its
+        token outlived it. APNs answers 200, the phone discards the payload, and
+        no `start` is ever sent because a token exists. Measured 2026-09-19 —
+        `Could not find the specified now playing client` on the phone while
+        this side logged `session 2eb3b71b adopted (was None)`.
+
+        Once the app reports what it really holds, the stale token goes, and the
+        renewal path above is what brings the card back."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        started = service._session_id
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=started)
+        apns.send.reset_mock()
+
+        # The device says it holds no session at all — the report that retires
+        # a ghost. Silence would say nothing; this says something.
+        del registry.held["sess"]
+        service._session_started_at -= START_REPORT_GRACE_S + 1
+
+        await service._publish()
+
+        assert sent_events(apns) == ["start"]
 
 
 class TestRadioMetadata:

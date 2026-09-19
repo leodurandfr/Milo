@@ -71,6 +71,23 @@ from backend.core.push.models import ApnsEnvironment, PushTokenKind
 # PUSH NOTIFICATIONS (APNs)
 # =============================================================================
 
+class PushLiveSessionsRequest(BaseModel):
+    """POST /api/push/sessions.
+
+    What the phone still holds. A session token outlives its session and Milō
+    cannot tell the two apart — APNs answers 200 either way and the phone drops
+    the payload in silence. Only the device knows, and this is how it says.
+
+    `session_ids` may legitimately be empty: "I hold none" is the report that
+    matters most, since it is the one that retires a ghost. Silence is NOT that
+    report — an app that is not running says nothing at all.
+    """
+    device_id: str = Field(..., min_length=1, description="Stable per-install id")
+    session_ids: List[str] = Field(
+        default_factory=list, description="Now Playing sessions the device holds"
+    )
+
+
 class PushTokenRegisterRequest(BaseModel):
     """POST /api/push/tokens.
 

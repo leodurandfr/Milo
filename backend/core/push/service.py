@@ -103,6 +103,7 @@ class PushService:
         self._bg = BackgroundTaskSet(logger, "push")
         self._session_id: Optional[str] = None
         self._session_started_at: float = 0.0
+        self._session_renewed_at: float = 0.0
         self._session_cleared_at: float = 0.0
         self._idle_since: float = 0.0
         self._last_attributes: Optional[Dict[str, Any]] = None
@@ -307,6 +308,7 @@ class PushService:
         )
         self._session_id = newest.session_id
         self._session_started_at = newest.registered_at
+        self._session_renewed_at = 0.0
 
     async def _start_session(self, state: Dict[str, Any]) -> None:
         """Wake a session on the phone through the push-to-start token.
@@ -326,6 +328,7 @@ class PushService:
         if await self._send_all(targets, payload, "nowplaying"):
             self._session_id = session_id
             self._session_started_at = time.time()
+            self._session_renewed_at = 0.0
             logger.info(f"Now Playing session {session_id} started")
 
     async def _update_session(self, state: Dict[str, Any]) -> None:
@@ -341,32 +344,75 @@ class PushService:
                 self._session_cleared_at = time.time()
                 return
 
-            # No token yet. Wait, and keep the session.
+            # No token yet. Keep the session, and knock again.
             #
-            # This used to drop the session after a minute and let the next
-            # cycle start a fresh one, on the theory that a session nobody can
-            # address is not a session. It made things worse, and measurably:
-            # the registration comes from the extension, whose only route to
-            # Milō is an mDNS lookup that answers in 2 ms most of the time and
-            # never once in a while — `token 8a3983dc rotation → unavailable` at
-            # 18:13:49 on 2026-09-19. Dropping on that turned a late
-            # registration into a second session: `8a3983dc` abandoned at
-            # 18:15:23, `95a95ca2` started at 18:15:25, the phone holding both,
-            # the system showing one and this service feeding the other. The
-            # commands went to the one with nothing behind it and completed in
-            # 23 milliseconds having done nothing.
+            # Dropping it is wrong — that was tried, and it turned a late
+            # registration into a second, rival session: `8a3983dc` abandoned at
+            # 18:15:23 on 2026-09-19, `95a95ca2` started two seconds later, the
+            # phone holding both, the system showing one and this service
+            # feeding the other.
             #
-            # Waiting costs a silent lock screen until the token arrives. The
-            # app now forwards what the extension could not send, so it arrives.
-            # And the one case dropping was really for — a phone that rebooted
-            # and lost its sessions — is answered by `boot_time` instead, which
-            # says so rather than guessing.
+            # But waiting in silence is wrong too, and for a reason that only
+            # showed up once the whole path finally ran. **The wait can never
+            # end on its own.** The extension is woken by `update` pushes; Milō
+            # sends none without a token; only the woken extension can supply
+            # one. Measured 2026-09-19:
+            #
+            #     18:52:58  extension  SESSION CONSTRUITE a0297239-…
+            #     18:53:00  extension  token de session : Milō injoignable
+            #        …      98 seconds, no push of any kind
+            #     18:54:38  app        POST /api/push/tokens   ← app came forward
+            #
+            # The extension's own attempt is one mDNS lookup inside a three
+            # second budget, and it misses often enough to matter. The fallback
+            # — the extension leaves the token in the shared container and the
+            # app posts it — only runs while the app is in the foreground, which
+            # on a locked phone is never. Between the two, the card stayed dark
+            # for as long as nobody opened the app.
+            #
+            # `start` is the one message that reaches the phone without a
+            # session token, so it is what breaks the deadlock: re-sent to the
+            # push-to-start token, it wakes the extension again, and each wake is
+            # a fresh chance for the registration to land. Carrying the SAME
+            # session id is what makes it a retry rather than a second session —
+            # the phone rebuilds that session, and this service keeps addressing
+            # the one it already knows.
+            await self._renew_start(state)
             return
         payload = now_playing_payload(
             "update", self._session_id,
             await self._build_attributes(self._session_id, state),
         )
         await self._send_all([targets], payload, "nowplaying")
+
+    async def _renew_start(self, state: Dict[str, Any]) -> None:
+        """Re-send `start` for the session we hold, to shake a token loose.
+
+        Spaced rather than sent every cycle: each one wakes an app extension and
+        spends APNs budget, and the token it is fishing for needs a moment to
+        come back. `START_REPORT_GRACE_S` is the same window `_adopt_reported_
+        session` gives a fresh start before letting a leftover overrule it, so a
+        renewal cannot be mistaken for a session the device chose.
+        """
+        now = time.time()
+        waited_since = max(self._session_renewed_at, self._session_started_at)
+        if now - waited_since < START_REPORT_GRACE_S:
+            return
+
+        targets = self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
+        if not targets:
+            return
+
+        self._session_renewed_at = now
+        payload = now_playing_payload(
+            "start", self._session_id,
+            await self._build_attributes(self._session_id, state),
+        )
+        if await self._send_all(targets, payload, "nowplaying"):
+            logger.info(
+                f"Now Playing session {self._session_id} re-announced — still no "
+                "token for it"
+            )
 
     async def _end_session(self) -> None:
         """Close the session, and drop the token that could only address it.
@@ -379,6 +425,7 @@ class PushService:
         """
         session_id, self._session_id = self._session_id, None
         self._session_started_at = 0.0
+        self._session_renewed_at = 0.0
         self._session_cleared_at = time.time()
         self._idle_since = 0.0
         target = self._registry.token_for_session(session_id)

@@ -298,6 +298,77 @@ class TestConcurrency:
         assert restarted.tokens_for(WIDGET) == []
 
 
+class TestLiveSessionReports:
+    """The device says which sessions it still holds; the rest are let go.
+
+    A session token outlives its session and nothing on this side can see it:
+    APNs answers 200, the phone discards the payload, and the emitter never
+    sends a `start` because a token exists. Measured 2026-09-19 — the phone
+    logged `Could not find the specified now playing client` while Milō adopted
+    that very id.
+    """
+
+    async def test_a_session_the_device_no_longer_lists_is_dropped(self, registry):
+        await registry.register(
+            "tok-live", SESSION, ApnsEnvironment.PRODUCTION, "phone-1",
+            session_id="live")
+        await registry.register(
+            "tok-ghost", SESSION, ApnsEnvironment.PRODUCTION, "phone-1",
+            session_id="ghost")
+
+        dropped = await registry.drop_sessions_absent_from("phone-1", ["live"])
+
+        assert dropped == 1
+        assert registry.token_for_session("ghost") is None
+        assert registry.token_for_session("live") is not None
+
+    async def test_an_empty_report_is_a_report(self, registry):
+        """« I hold none » is the case that most needs clearing, and it arrives
+        as an empty list. What says nothing is an app that is not running — and
+        an app that is not running does not call this at all."""
+        await registry.register(
+            "tok-ghost", SESSION, ApnsEnvironment.PRODUCTION, "phone-1",
+            session_id="ghost")
+
+        assert await registry.drop_sessions_absent_from("phone-1", []) == 1
+        assert registry.token_for_session("ghost") is None
+
+    async def test_one_phone_cannot_retire_another_phones_session(self, registry):
+        """A device knows its own sessions and nobody else's. Unscoped, the
+        first empty report from any phone would wipe the household."""
+        await registry.register(
+            "tok-other", SESSION, ApnsEnvironment.PRODUCTION, "phone-2",
+            session_id="theirs")
+
+        assert await registry.drop_sessions_absent_from("phone-1", []) == 0
+        assert registry.token_for_session("theirs") is not None
+
+    async def test_the_other_kinds_are_untouched(self, registry):
+        """Only sessions are reported here. Taking the push-to-start token with
+        them would remove the one address that can open the next session — the
+        exact opposite of the repair."""
+        await registry.register("tok-p", PTS, ApnsEnvironment.PRODUCTION, "phone-1")
+        await registry.register("tok-w", WIDGET, ApnsEnvironment.SANDBOX, "phone-1")
+
+        await registry.drop_sessions_absent_from("phone-1", [])
+
+        assert len(registry.tokens_for(PTS)) == 1
+        assert len(registry.tokens_for(WIDGET)) == 1
+
+    async def test_the_drop_survives_a_restart(self, registry):
+        """In memory only, the ghost would come back at the next boot and the
+        emitter would resume addressing it."""
+        await registry.register(
+            "tok-ghost", SESSION, ApnsEnvironment.PRODUCTION, "phone-1",
+            session_id="ghost")
+        await registry.drop_sessions_absent_from("phone-1", [])
+
+        restarted = reopened(registry)
+        await restarted.initialize()
+
+        assert restarted.token_for_session("ghost") is None
+
+
 class TestRoutes:
     """POST /api/push/tokens and DELETE /api/push/tokens/{token}."""
 
@@ -306,6 +377,7 @@ class TestRoutes:
         registry = AsyncMock()
         registry.register = AsyncMock(return_value=None)
         registry.unregister = AsyncMock(return_value=True)
+        registry.drop_sessions_absent_from = AsyncMock(return_value=0)
         return registry
 
     @pytest.fixture
@@ -374,3 +446,22 @@ class TestRoutes:
 
         assert response.status_code == 200
         mock_registry.unregister.assert_awaited_once_with("tok")
+
+    def test_a_live_session_report_reaches_the_registry(self, client, mock_registry):
+        """The app's half of the ghost repair."""
+        response = client.post("/api/push/sessions", json={
+            "device_id": "phone-1", "session_ids": ["sess-a", "sess-b"],
+        })
+
+        assert response.status_code == 200
+        mock_registry.drop_sessions_absent_from.assert_awaited_once_with(
+            "phone-1", ["sess-a", "sess-b"])
+
+    def test_an_absent_session_list_means_none(self, client, mock_registry):
+        """Holding nothing is the report that matters most, so the field
+        defaults rather than 422s — an app with no sessions should not have to
+        remember to say so in two ways."""
+        response = client.post("/api/push/sessions", json={"device_id": "phone-1"})
+
+        assert response.status_code == 200
+        mock_registry.drop_sessions_absent_from.assert_awaited_once_with("phone-1", [])
