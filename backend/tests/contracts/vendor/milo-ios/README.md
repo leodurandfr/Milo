@@ -8,6 +8,7 @@ the manifest against the real app **with no network**:
 |---|---|
 | `MiloAPIClient.swift` | the volume / settings / audio routes |
 | `MiloAPIClient+Push.swift` | the APNs token registration routes |
+| `MiloAPIClient+Media.swift` | the Now Playing transport + per-room volume routes |
 | `Models.swift` | every response field the app decodes by name |
 
 Every call goes through `MiloAPIClient` — the three App Intents and the widget's
@@ -35,7 +36,11 @@ of the manifest and a manifest ahead of the snapshot both fail
 targets that the backend does not serve is named in `_broken_calls`, and that
 entry deletes itself as soon as either side moves.
 
-Captured from upstream `efef56dc42be6d32753d876ee07894ec037ed616` on 2026-09-19.
+Captured from upstream `a84400a9dab7795adc61df347f77fa81241d91d1` on 2026-09-19.
+
+`a84400a9` is the first refresh that moved the surface — two routes, in a **fourth** file the
+glob found on its own. That is the patterns earning their keep: a frozen list would have
+reported an unchanged surface for the second time.
 
 None of the three refreshes since `09b9789b` moved a route — only
 `MiloAPIClient+Push.swift` changed each time, and only in what the app *sends*, how it *reads
