@@ -412,22 +412,22 @@ const headerTitle = computed(() => {
 
 // Multiroom tuning is staged in the snapcast store, which outlives this modal:
 // an analysis run and left alone is a proposal, not a setting, and came back on
-// the sliders — Apply button included — on the next visit. It is dropped on the
-// way out of the multiroom views, by name, so a detour into a speaker or a zone
-// keeps it: nothing there could re-stage it, since only a run the user started
-// stages a result.
+// the sliders — Apply button and measurement cards included — on the next
+// visit. It is dropped on the way out of the multiroom views, by name, so a
+// detour into a speaker or a zone keeps it: nothing there could re-stage it,
+// since only a run the user started stages a result.
 const isMultiroomView = (view) => view.startsWith('multiroom');
 
 watch(currentView, (view, previous) => {
   if (isMultiroomView(previous) && !isMultiroomView(view)) {
-    snapcastStore.discardServerConfigChanges();
+    snapcastStore.discardUnappliedTuning();
   }
 });
 
 // Closing the modal is leaving too, from whichever view was on screen — and
 // unconditionally, because with nothing staged the discard is a no-op.
 onBeforeUnmount(() => {
-  snapcastStore.discardServerConfigChanges();
+  snapcastStore.discardUnappliedTuning();
 });
 
 // Navigate away from volume view when no device manages volume anymore

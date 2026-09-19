@@ -204,6 +204,28 @@ class TestTheServiceLifecycle:
         assert service.running is True
         assert service.last_result is None
 
+    def test_a_proposal_nobody_applied_can_be_forgotten(self):
+        """The result is evidence for a configuration that was never written.
+        Held here, it comes back on the refetch every panel open performs — a
+        table of measurements over a setting the unit does not run, which the
+        panel had already dropped on its own side."""
+        service = self._service()
+        service._last_result = {"config": {"buffer_ms": 700}}
+
+        service.forget()
+
+        assert service.last_result is None
+
+    def test_forgetting_does_not_stop_a_run(self):
+        """One client walking away is not a reason to stop measuring for the
+        others — and the run's own result lands as usual afterwards."""
+        service = self._service()
+        service.start()
+
+        service.forget()
+
+        assert service.running is True
+
     def test_an_idle_service_reports_no_elapsed_time(self):
         """A bar drawn from a stale elapsed would start part-filled over an
         analysis that has not begun."""

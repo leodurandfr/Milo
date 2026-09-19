@@ -199,11 +199,12 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   }
 
   /**
-   * Drop what was staged and never applied. The edit buffer is store state and
-   * outlives the panel, so a proposal left alone came back on the sliders — and
-   * brought its Apply button with it — the next time the panel opened.
+   * Leaving the multiroom panel with something never applied: the edit buffer
+   * and the analysis behind it are store state and outlived the panel, so a
+   * proposal left alone came back on the sliders — Apply button and measurement
+   * cards included — reading as the configuration the unit runs.
    */
-  async function discardServerConfigChanges() {
+  async function discardUnappliedTuning() {
     // Mid-apply the buffer IS what the server is being handed, and the outcome
     // is what decides which configuration counts as applied: waiting keeps the
     // new one on success and restores the old one on failure. Returning early
@@ -211,6 +212,31 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     // a second time, and loadServerConfig deliberately spares a staged buffer.
     await lastApply;
     serverConfig.value = { ...originalServerConfig.value };
+
+    // The measurements are evidence for a proposal: once it is dropped they
+    // describe a configuration nobody runs. They survive only when the analysis
+    // IS what the unit runs, which is the same question the "measured values"
+    // line asks.
+    const proposed = calibration.value.result?.config;
+    const applied = originalServerConfig.value;
+    const keepResult = Boolean(proposed) &&
+      Object.keys(proposed).every((key) => applied[key] === proposed[key]);
+
+    // A failure is feedback on an action someone took in front of the panel,
+    // never state: it is local-only, and a panel opened afresh starts clean.
+    calibration.value = {
+      ...calibration.value, error: null, detail: null,
+      result: keepResult ? calibration.value.result : null,
+    };
+    if (keepResult || !proposed) return;
+
+    // The backend holds it too, for the refetch a backgrounded tab needs — and
+    // that refetch runs on every panel open, so a result dropped here alone
+    // would simply come back.
+    await apiCall.delete('/api/routing/snapcast/calibration', {
+      category: 'store',
+      message: 'Error clearing multiroom analysis',
+    });
   }
 
   async function applyServerConfig() {
@@ -376,7 +402,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     fetchServerConfig,
     loadServerConfig,
     applyServerConfig,
-    discardServerConfigChanges,
+    discardUnappliedTuning,
     selectCodec,
     applyPreset,
 

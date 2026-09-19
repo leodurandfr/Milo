@@ -223,7 +223,7 @@ describe('snapcastStore — leaving the panel drops what was never applied', () 
     store.handleCalibrationEvent(event('calibration_result', PROPOSAL));
     store.stageCalibrationResult();
 
-    await store.discardServerConfigChanges();
+    await store.discardUnappliedTuning();
 
     expect(store.serverConfig.buffer_ms).toBe(300);
     expect(store.serverConfig.codec).toBe('flac');
@@ -241,10 +241,61 @@ describe('snapcastStore — leaving the panel drops what was never applied', () 
     apiCall.put.mockReturnValueOnce(new Promise((resolve) => { finishPut = resolve; }));
     const applying = store.applyServerConfig();
 
-    const discarding = store.discardServerConfigChanges();
+    const discarding = store.discardUnappliedTuning();
     finishPut(outcome);
     await Promise.all([applying, discarding]);
   }
+
+  it('forgets the measurements behind a proposal nobody applied', async () => {
+    // The cards describe the proposal: left standing they report a network
+    // measurement over a configuration the unit does not run. The backend holds
+    // the result too, for the refetch a backgrounded tab needs — and that
+    // refetch runs on every panel open, so dropping it here alone changes
+    // nothing.
+    await loadApplied();
+    store.handleCalibrationEvent(event('calibration_result', PROPOSAL));
+    store.stageCalibrationResult();
+
+    await store.discardUnappliedTuning();
+
+    expect(store.calibration.result).toBeNull();
+    expect(apiCall.delete).toHaveBeenCalledWith(
+      '/api/routing/snapcast/calibration', expect.anything()
+    );
+  });
+
+  it('keeps the measurements of an analysis the unit is running', async () => {
+    // Applied, the result is what the sliders show and what the "measured
+    // values" line reads — forgetting it there would delete the one thing that
+    // says where those numbers came from.
+    apiCall.get.mockResolvedValueOnce(ok({
+      config: { ...PROPOSAL.config, sampleformat: '48000:32:2' },
+      capabilities: { codecs: [], presets: [] },
+    }));
+    await store.loadServerConfig();
+    store.handleCalibrationEvent(event('calibration_result', PROPOSAL));
+
+    await store.discardUnappliedTuning();
+
+    expect(store.calibration.result).toEqual(PROPOSAL);
+    expect(apiCall.delete).not.toHaveBeenCalled();
+  });
+
+  it('does not report a failure to a panel opened afresh', async () => {
+    // The message answers an action someone took while watching the analysis
+    // run. It is held locally on purpose, across every resync — but leaving is
+    // not a resync.
+    await loadApplied();
+    store.handleCalibrationEvent(
+      event('calibration_failed', { reason: 'probe_failed', detail: 'Bureau: timed out' })
+    );
+
+    await store.discardUnappliedTuning();
+
+    expect(store.calibration.error).toBeNull();
+    expect(store.calibration.detail).toBeNull();
+    expect(apiCall.delete).not.toHaveBeenCalled();
+  });
 
   it('keeps the values the apply landed', async () => {
     await discardOverAnApply(ok({ status: 'success' }));

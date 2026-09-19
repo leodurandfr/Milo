@@ -321,4 +321,20 @@ def create_routing_router(
                 **calibration_service.progress,
             }
 
+    @router.delete("/snapcast/calibration")
+    async def forget_calibration():
+        """Forget the last proposal — the caller left it unapplied.
+
+        The result is evidence for a configuration that was never written, and
+        it outlives the panel on this side: without this the measurements came
+        back on the next open, describing a setting the unit does not run.
+
+        Idempotent, and it never interrupts a run: with nothing stored there is
+        nothing to forget.
+        """
+        async with api_error_handler("Error clearing calibration state", logger):
+            if calibration_service is not None:
+                calibration_service.forget()
+            return {"status": "success"}
+
     return router

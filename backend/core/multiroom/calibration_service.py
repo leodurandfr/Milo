@@ -87,6 +87,19 @@ class CalibrationService:
         self._bg.spawn(self._run(quality), label="run")
         return True
 
+    def forget(self) -> None:
+        """Drop the last proposal: whoever asked for it left it unapplied.
+
+        Kept, it comes back on the next refetch as a table of measurements over
+        a configuration the unit does not run — the panel's own state said the
+        proposal was gone while this one still answered with it.
+
+        A run in progress is not touched. One client walking away is not a
+        reason to stop measuring for the others, and its result is dropped the
+        same way by whoever leaves it unapplied.
+        """
+        self._last_result = None
+
     async def cleanup(self) -> None:
         await self._bg.cancel_all()
 
