@@ -43,9 +43,10 @@ class ApnsEnvironment(str, Enum):
     `aps-environment` entitlement an iOS app reads spells the same two things
     ``development`` and ``production``, so a client that forwards its
     entitlement verbatim sends ``development`` and takes a 422. Measured on
-    Milo-iOS, 2026-09-19: because that client decodes only ``status``, the 422
-    was indistinguishable from a network failure and the registration simply
-    never happened.
+    Milo-iOS, 2026-09-19: that client decoded only ``status`` at the time, so
+    the 422 was indistinguishable from a network failure and the registration
+    simply never happened. It now reads the HTTP status too, and a 4xx from
+    here is a verdict it records rather than a failure it replays.
 
     The names stay as they are, and the translation stays on the client, which
     is the side that speaks the entitlement dialect. Accepting both spellings

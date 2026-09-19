@@ -35,7 +35,15 @@ of the manifest and a manifest ahead of the snapshot both fail
 targets that the backend does not serve is named in `_broken_calls`, and that
 entry deletes itself as soon as either side moves.
 
-Captured from upstream `09b9789b83c1a16f7e8c3cfdc48d53b445c46744` on 2026-09-19.
+Captured from upstream `c4cea32b64ddf1b239105f9b794210787d5bc34f` on 2026-09-19.
+
+Neither of the two refreshes since `09b9789b` moved a route — only
+`MiloAPIClient+Push.swift` changed each time, and only in what the app *sends* or how it
+*reads a reply*. Both were taken anyway: the first because the vendored copy still held the
+version that forwarded Apple's raw `development` entitlement value and took a 422, the second
+because it still held the version that could not tell that 422 from a network failure. The
+rule is not "refresh per commit" — it is whether the vendored content would mislead someone
+reading it, or whether the surface moved.
 
 Nothing checks this automatically — there is no `milo-ios-freshness` CI job, on
 purpose. When Milo-iOS changes, run:
