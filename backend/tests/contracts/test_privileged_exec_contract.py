@@ -38,6 +38,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+SATELLITE_APP = REPO_ROOT / "milo-client" / "app"
 
 # `sudo` resolves a bare command name through PATH; the policy names the
 # absolute path. This is the translation between the two sides, so a new bare
@@ -131,8 +132,16 @@ def _constant_index() -> dict[str, dict[str, str]]:
         for path in root.rglob("*.py"):
             if "__pycache__" in path.parts:
                 continue
-            dotted = ".".join(path.relative_to(REPO_ROOT).with_suffix("").parts)
-            index[dotted] = _module_constants(ast.parse(path.read_text(encoding="utf-8")))
+            consts = _module_constants(ast.parse(path.read_text(encoding="utf-8")))
+            index[".".join(path.relative_to(REPO_ROOT).with_suffix("").parts)] = consts
+            # The satellite app runs with `milo-client/app` on sys.path, so it
+            # spells its own imports `services.snapclient`, never the path from
+            # the repo root. Keyed only the latter way, the index resolves no
+            # satellite constant at all and every call carrying one reads as an
+            # unresolved argument — which fails loudly, but pushes the next
+            # author to restate a unit name rather than import it.
+            if path.is_relative_to(SATELLITE_APP):
+                index[".".join(path.relative_to(SATELLITE_APP).with_suffix("").parts)] = consts
     return index
 
 

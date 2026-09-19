@@ -10,8 +10,9 @@
 # Nothing here re-resolves afterwards, and Restart=on-failure cannot help:
 # snapclient retries a dead address in-process forever rather than exiting, so
 # the unit never fails. Following the server when it moves between Ethernet and
-# WiFi is the job of the API's follow_server_address(), which compares this
-# literal against a fresh lookup and stop/starts the unit when they diverge.
+# WiFi is the job of the API's follow_server_address(), which stop/starts this
+# unit once the literal below has gone stale *and* snapclient holds no
+# connection — a client that is streaming is never interrupted for an address.
 #
 # Environment variables (provided by /var/lib/milo-client/env):
 #   MILO_PRINCIPAL_IP            hostname or IP of the main Milō server
