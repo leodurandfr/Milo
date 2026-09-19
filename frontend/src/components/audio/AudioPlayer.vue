@@ -1127,14 +1127,31 @@ img.player-artwork.loaded {
 
   }
 
-  /* Apply same styles to slotted content (fixes scoped CSS limitation) */
-  :deep(.player-title) {
+  /* Docked bar: every text line is exactly one line, cut by a right-edge fade
+     rather than an ellipsis. Applies to the slotted title/subtitle pair
+     (fixes scoped CSS limitation) and to the carousel's own cells alike.
+     `white-space: nowrap` is the only clamp available here: .horizontal-layout's
+     `display: block !important` below overrides the -webkit-box the base rules
+     declare, and -webkit-line-clamp does nothing outside -webkit-box — which is
+     how the subtitle silently grew a second line, taking the bar's height with
+     it (the row is `height: auto` + `flex-wrap: wrap`). */
+  .audio-player :deep(.player-title),
+  .audio-player :deep(.player-subtitle) {
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
+    text-overflow: clip;
     -webkit-line-clamp: unset;
     -webkit-box-orient: unset;
     display: block;
+  }
+
+  /* The fade is per line here. The swipe carousel's cells must NOT get one:
+     .player-info-carousel above already masks the same edge for the whole
+     strip, and a second mask on the text would compound it into a harder cut. */
+  .player-info-inner :deep(.player-title),
+  .player-info-inner :deep(.player-subtitle) {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--space-05)), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - var(--space-05)), transparent 100%);
   }
 
   .audio-player :deep(.desktop-only) {
