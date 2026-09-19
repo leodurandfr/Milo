@@ -51,6 +51,7 @@ class ImageManager:
     MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
     MAX_DIMENSIONS = (1024, 1024)
     WEBP_QUALITY = 80
+    JPEG_QUALITY = 88
 
     def __init__(self):
         self.logger = logging.getLogger("source.radio.images")
@@ -156,9 +157,80 @@ class ImageManager:
 
         if file_path.exists():
             file_path.unlink()
+            # The JPEG rendition is derived from this file and nothing else will
+            # ever come looking for it. Leaving it behind would put one orphan
+            # per deleted station in the directory, which nothing sweeps.
+            file_path.with_suffix(self.JPEG_SUFFIX).unlink(missing_ok=True)
             self.logger.info(f"Image deleted: {filename}")
             return True
         return False
+
+    # Where JPEG renditions live. Beside the originals rather than in a separate
+    # tree, so `delete` and the stale-image sweep keep finding them by prefix.
+    JPEG_SUFFIX = ".jpg"
+
+    async def as_jpeg(self, filename: str) -> Optional[bytes]:
+        """The same image as JPEG, converted once and kept.
+
+        Exists because WebP is the right storage format and the wrong wire
+        format for one of the callers: iOS draws nothing from WebP bytes, and
+        says nothing about it. See the negotiation in `get_station_image`.
+
+        The rendition is written next to the original and reused. Converting on
+        every request would put a PIL decode on the path the Lock Screen waits
+        on — and that path is served to an app extension the system may
+        terminate while it waits.
+        """
+        source_path = self.get_image_path(filename)
+        if source_path is None:
+            return None
+
+        cached = source_path.with_suffix(self.JPEG_SUFFIX)
+        if cached.exists():
+            try:
+                async with aiofiles.open(cached, "rb") as f:
+                    return await f.read()
+            except OSError as e:
+                # A truncated rendition would be served forever otherwise.
+                self.logger.warning(f"Unreadable JPEG rendition {cached.name}: {e}")
+
+        def _convert() -> Optional[bytes]:
+            try:
+                with Image.open(source_path) as image:
+                    # A station logo is routinely transparent, and JPEG has no
+                    # alpha: flattening onto white keeps the artwork readable,
+                    # where the default black turns a dark logo into a square.
+                    if image.mode in ("RGBA", "LA", "P"):
+                        image = image.convert("RGBA")
+                        flat = Image.new("RGB", image.size, (255, 255, 255))
+                        flat.paste(image, mask=image.split()[-1])
+                        image = flat
+                    else:
+                        image = image.convert("RGB")
+                    buffer = io.BytesIO()
+                    image.save(buffer, format="JPEG", quality=self.JPEG_QUALITY)
+                    return buffer.getvalue()
+            except Exception as e:
+                self.logger.error(f"JPEG conversion failed for {filename}: {e}")
+                return None
+
+        # PIL is synchronous and this runs on the event loop that also answers
+        # the WebSocket the UI depends on.
+        content = await asyncio.to_thread(_convert)
+        if content is None:
+            return None
+
+        try:
+            # `.tmp` then rename: a reader must never meet a half-written file,
+            # and this one is cached forever once it exists.
+            staging = cached.with_suffix(".jpg.tmp")
+            async with aiofiles.open(staging, "wb") as f:
+                await f.write(content)
+            staging.replace(cached)
+        except OSError as e:
+            self.logger.warning(f"Could not keep JPEG rendition {cached.name}: {e}")
+
+        return content
 
     @handle_errors(default=None)
     def get_image_path(self, filename: str) -> Optional[Path]:

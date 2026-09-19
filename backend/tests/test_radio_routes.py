@@ -168,3 +168,92 @@ class TestFavoritesHaveOneEntryPoint:
         # Without this the test also passes on any other 500 — a Mock source
         # blowing up inside run_source_command, for instance.
         data.remove_favorite.assert_awaited_once_with("s1")
+
+
+class TestStationImageFormat:
+    """GET /api/radio/images/{filename} must answer in a format the caller reads.
+
+    Station images are stored as WebP because it is much the smallest. iOS does
+    not read WebP: `ArtworkRepresentation(data:)` takes the bytes without
+    complaining and then draws nothing. Measured 2026-09-19 — `réseau servi :
+    HTTP 200, 5526 o format WEBP depuis /api/radio/images/6239161eaee1.webp`,
+    and an empty square on the Lock Screen until a track was recognised and its
+    cover came from elsewhere. That is the whole of "the artwork is missing
+    intermittently".
+
+    Consumers: the web UI (`<img>`, announces image/webp) and the iOS Now
+    Playing extension (`URLSession`, announces `*/*`).
+    """
+
+    @staticmethod
+    def _client(tmp_path, jpeg=b"\xff\xd8\xff\xe0payload"):
+        from backend.sources.radio import routes as radio_routes
+
+        image = tmp_path / "station.webp"
+        image.write_bytes(b"RIFF....WEBPfake")
+
+        manager = Mock()
+        manager.get_image_path = Mock(return_value=image)
+        manager.as_jpeg = AsyncMock(return_value=jpeg)
+
+        source = Mock()
+        source.station_data.image_manager = manager
+
+        app = FastAPI()
+        app.include_router(radio_routes.router, prefix="/api")
+        app.dependency_overrides[radio_routes.get_source] = lambda: source
+        return TestClient(app), manager
+
+    def test_a_caller_that_reads_webp_keeps_the_small_file(self, tmp_path):
+        client, manager = self._client(tmp_path)
+
+        response = client.get("/api/radio/images/station.webp",
+                              headers={"Accept": "image/avif,image/webp,*/*"})
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/webp"
+        manager.as_jpeg.assert_not_awaited()
+
+    def test_a_caller_that_does_not_gets_jpeg(self, tmp_path):
+        """`URLSession` sends `*/*`, which promises nothing and reads no WebP."""
+        client, manager = self._client(tmp_path)
+
+        response = client.get("/api/radio/images/station.webp",
+                              headers={"Accept": "*/*"})
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+        assert response.content.startswith(b"\xff\xd8\xff")
+
+    def test_the_answer_says_it_depends_on_accept(self, tmp_path):
+        """Without `Vary`, a shared cache hands the browser's WebP to the phone
+        and the bug is back one layer further away."""
+        client, _ = self._client(tmp_path)
+
+        response = client.get("/api/radio/images/station.webp",
+                              headers={"Accept": "*/*"})
+
+        assert response.headers["vary"] == "Accept"
+
+    def test_a_failed_conversion_still_answers(self, tmp_path):
+        """Serving the WebP is no worse than a 500, and the phone now refuses
+        undisplayable bytes rather than caching them — so the failure stays
+        visible instead of sticking to that station for good."""
+        client, _ = self._client(tmp_path, jpeg=None)
+
+        response = client.get("/api/radio/images/station.webp",
+                              headers={"Accept": "*/*"})
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/webp"
+
+    def test_a_missing_image_is_still_a_404(self, tmp_path):
+        from backend.sources.radio import routes as radio_routes
+
+        source = Mock()
+        source.station_data.image_manager.get_image_path = Mock(return_value=None)
+        app = FastAPI()
+        app.include_router(radio_routes.router, prefix="/api")
+        app.dependency_overrides[radio_routes.get_source] = lambda: source
+
+        assert TestClient(app).get("/api/radio/images/nope.webp").status_code == 404

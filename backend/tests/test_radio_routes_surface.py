@@ -42,6 +42,7 @@ def station_data():
         return_value=(True, "abc123.webp", None)
     )
     data.image_manager.delete_image = AsyncMock(return_value=True)
+    data.image_manager.as_jpeg = AsyncMock(return_value=b"\xff\xd8\xffjpeg")
     data.image_manager.get_image_path = Mock(return_value=None)
     return data
 
@@ -414,15 +415,38 @@ class TestStationImage:
         self, client, station_data, tmp_path, suffix, media_type
     ):
         """A WebP served as `application/octet-stream` is a download prompt
-        where the list expects a logo."""
+        where the list expects a logo.
+
+        `Accept` is spelled out because the answer now depends on it: a caller
+        that does not read WebP is handed a JPEG rendition instead of the file.
+        That is the negotiation, covered in test_radio_routes.py; here we pin
+        the plain case, where the caller takes the file as stored.
+        """
         image = tmp_path / f"logo{suffix}"
         image.write_bytes(b"bytes")
         station_data.image_manager.get_image_path = Mock(return_value=image)
 
-        response = client.get(f"/api/radio/images/logo{suffix}")
+        response = client.get(f"/api/radio/images/logo{suffix}",
+                              headers={"Accept": "image/webp,*/*"})
 
         assert response.status_code == 200
         assert response.headers["content-type"] == media_type
+
+    def test_a_conversion_that_blows_up_still_serves_the_file(
+        self, client, station_data, tmp_path
+    ):
+        """An image route holding a perfectly good file has no business
+        answering 500 because a rendition failed."""
+        image = tmp_path / "logo.webp"
+        image.write_bytes(b"bytes")
+        station_data.image_manager.get_image_path = Mock(return_value=image)
+        station_data.image_manager.as_jpeg = AsyncMock(side_effect=OSError("boom"))
+
+        response = client.get("/api/radio/images/logo.webp",
+                              headers={"Accept": "*/*"})
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/webp"
 
     def test_an_unknown_suffix_falls_back_to_a_binary_type(
         self, client, station_data, tmp_path
@@ -442,7 +466,8 @@ class TestStationImage:
         image.write_bytes(b"bytes")
         station_data.image_manager.get_image_path = Mock(return_value=image)
 
-        headers = client.get("/api/radio/images/logo.webp").headers
+        headers = client.get("/api/radio/images/logo.webp",
+                             headers={"Accept": "image/webp,*/*"}).headers
 
         assert headers["cache-control"] == "public, max-age=31536000"
 

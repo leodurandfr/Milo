@@ -492,3 +492,80 @@ class TestImageStore:
         assert await images.delete_image("cover.webp") is True
         assert not stored.exists()
         assert await images.delete_image("cover.webp") is False
+
+
+class TestJpegRendition:
+    """`ImageManager.as_jpeg` — the format iOS can actually draw.
+
+    WebP is the right thing to store and the wrong thing to hand one of the
+    callers. Rather than store both, the rendition is derived on first ask and
+    kept beside the original.
+    """
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        mgr = ImageManager()
+        mgr.IMAGES_DIR = tmp_path
+        return mgr
+
+    @staticmethod
+    def _webp(manager, name="station.webp", mode="RGB", size=(64, 64)):
+        from PIL import Image
+
+        path = manager.IMAGES_DIR / name
+        Image.new(mode, size, (12, 34, 56) if mode == "RGB" else (12, 34, 56, 0)).save(
+            path, format="WEBP")
+        return name
+
+    async def test_a_webp_comes_back_as_jpeg(self, manager):
+        name = self._webp(manager)
+
+        content = await manager.as_jpeg(name)
+
+        assert content is not None
+        # The three bytes the iOS side checks before trusting a cached file.
+        assert content.startswith(b"\xff\xd8\xff")
+
+    async def test_the_rendition_is_kept_and_reused(self, manager):
+        """Converting on every request would put a PIL decode on the path the
+        Lock Screen waits on, in an extension the system may terminate while it
+        waits.
+
+        Proven by making the kept file distinguishable from a fresh conversion:
+        if the second call re-converted, it would answer the station colour
+        again instead of the marker.
+        """
+        name = self._webp(manager)
+        await manager.as_jpeg(name)
+        rendition = manager.IMAGES_DIR / "station.jpg"
+        assert rendition.exists()
+
+        marker = b"\xff\xd8\xffkept"
+        rendition.write_bytes(marker)
+
+        assert await manager.as_jpeg(name) == marker
+
+    async def test_transparency_is_flattened_onto_white(self, manager):
+        """JPEG has no alpha. The default is black, which turns a dark logo on a
+        transparent field into a square."""
+        from PIL import Image
+
+        name = self._webp(manager, name="alpha.webp", mode="RGBA")
+
+        content = await manager.as_jpeg(name)
+
+        import io
+        assert Image.open(io.BytesIO(content)).mode == "RGB"
+
+    async def test_an_unknown_image_converts_to_nothing(self, manager):
+        assert await manager.as_jpeg("absent.webp") is None
+
+    async def test_deleting_the_image_takes_its_rendition(self, manager):
+        """Otherwise one orphan per deleted station stays in the directory, and
+        nothing sweeps it."""
+        name = self._webp(manager)
+        await manager.as_jpeg(name)
+
+        await manager.delete_image(name)
+
+        assert not (manager.IMAGES_DIR / "station.jpg").exists()

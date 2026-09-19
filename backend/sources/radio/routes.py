@@ -17,7 +17,7 @@ from typing import Dict, Any, Optional
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
-from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends
+from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends, Request
 from backend.api.route_helpers import api_error_handler, run_source_command
 from backend.api.responses import RadioStationsResponse
 from fastapi.responses import FileResponse, Response
@@ -418,17 +418,27 @@ async def remove_custom_station(
 
 @router.get("/images/{filename}")
 async def get_station_image(
+    request: Request,
     filename: str,
     source: RadioSource = Depends(get_source)
-) -> FileResponse:
+) -> Response:
     """
-    Serve a radio station image.
+    Serve a radio station image, in a format the caller can actually display.
 
-    Args:
-        filename: Image filename
+    Station images are stored as WebP because that is much the smallest, and the
+    web UI reads WebP. **iOS does not.** `ArtworkRepresentation(data:)` accepts
+    WebP bytes without complaining and then draws nothing — so a station whose
+    logo reached the Lock Screen through this route showed an empty square, and
+    kept showing one until a track was recognised and its cover came from
+    somewhere else. Measured 2026-09-19: `réseau servi : HTTP 200, 5526 o format
+    WEBP depuis /api/radio/images/6239161eaee1.webp`, followed by nothing on
+    screen.
 
-    Returns:
-        Image file
+    So the format is negotiated rather than fixed. Browsers announce
+    `image/webp` in `Accept` and keep the small file; anything that does not —
+    `URLSession` sends `*/*` — gets a JPEG rendition instead. That fixes every
+    non-browser caller at once, without any of them having to know, and without
+    a second URL to keep in step on three clients.
     """
     async with api_error_handler("Image error", logger):
         image_path = source.station_data.image_manager.get_image_path(filename)
@@ -447,14 +457,34 @@ async def get_station_image(
         }
         media_type = media_type_map.get(ext, 'application/octet-stream')
 
-        return FileResponse(
-            path=str(image_path),
-            media_type=media_type,
-            headers={
-                "Cache-Control": "public, max-age=31536000",
-                "Content-Disposition": f"inline; filename={filename}"
-            }
-        )
+        headers = {
+            # `Vary` is not decoration here: without it a shared cache would
+            # hand the browser's WebP to the phone, which is the whole bug back
+            # again, one layer further away.
+            "Vary": "Accept",
+            "Cache-Control": "public, max-age=31536000",
+            "Content-Disposition": f"inline; filename={filename}",
+        }
+
+        if media_type == "image/webp" and "image/webp" not in request.headers.get("accept", ""):
+            # Broad on purpose. This is a fallback path, and its whole value is
+            # that it cannot make things worse than not having it: whatever PIL,
+            # the filesystem or a future refactor throws, an image route has no
+            # business answering 500 when it is holding a perfectly good file.
+            # Serving the WebP leaves the caller exactly where it was, and the
+            # iOS side now refuses undisplayable bytes instead of caching them,
+            # so the failure stays visible rather than sticking to that station.
+            try:
+                jpeg = await source.station_data.image_manager.as_jpeg(filename)
+            except Exception as e:
+                logger.warning("JPEG rendition raised for %s: %s", filename, e)
+                jpeg = None
+
+            if jpeg is not None:
+                return Response(content=jpeg, media_type="image/jpeg", headers=headers)
+            logger.warning("JPEG rendition failed, serving WebP: %s", filename)
+
+        return FileResponse(path=str(image_path), media_type=media_type, headers=headers)
 
 
 # A favicon URL is supplied by the *caller*, so the proxy fetches whatever it is
