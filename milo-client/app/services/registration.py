@@ -46,7 +46,7 @@ def _get_local_ip(remote_ip: str, remote_port: int) -> str:
         return s.getsockname()[0]
 
 
-def _resolve_milo_principal() -> str:
+def resolve_milo_principal() -> str:
     """Resolve the main Milo to an IPv4 address.
 
     MILO_PRINCIPAL_IP comes from the unit's EnvironmentFile. `milo-first-boot`
@@ -121,7 +121,7 @@ async def register_with_main_milo() -> None:
     while True:
         try:
             # Resolve main Milo (blocking mDNS — run in executor to avoid blocking event loop)
-            milo_ip = await loop.run_in_executor(None, _resolve_milo_principal)
+            milo_ip = await loop.run_in_executor(None, resolve_milo_principal)
 
             # Get our own info (blocking file I/O — run in executor)
             mac_id = await loop.run_in_executor(None, _get_mac_address)

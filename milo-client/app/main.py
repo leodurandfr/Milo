@@ -16,6 +16,7 @@ from services import EqualizerService, SnapclientService, AppUpdateService, Cami
 from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router, create_hardware_router, create_camilladsp_update_router, create_diagnostic_router, create_probe_router
 from routes.health import get_hostname
 from services.registration import register_with_main_milo
+from services.server_address_watch import follow_server_address
 
 # Constants
 API_PORT = 8001
@@ -74,9 +75,14 @@ async def lifespan(app: FastAPI):
     # Register with main Milo (background task, retries until successful)
     registration_task = asyncio.create_task(register_with_main_milo())
 
+    # Follow the main Milo when it changes address: snapclient resolved it
+    # once, at its own start, and cannot re-resolve on its own.
+    address_watch_task = asyncio.create_task(follow_server_address())
+
     yield  # Application runs here
 
     registration_task.cancel()
+    address_watch_task.cancel()
     await equalizer_service.stop_connection_loop()
     logger.info("Milo Client API shutting down...")
 

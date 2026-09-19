@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from services.registration import MILO_PRINCIPAL_PORT, _resolve_milo_principal
+from services.registration import MILO_PRINCIPAL_PORT, resolve_milo_principal
 
 
 def _addrinfo(ip: str) -> list:
@@ -31,7 +31,7 @@ def test_literal_server_ip_is_used_without_resolving():
     """
     with patch.dict(os.environ, {"MILO_PRINCIPAL_IP": "192.168.1.10"}, clear=True), \
          patch("services.registration.socket.getaddrinfo") as getaddrinfo:
-        assert _resolve_milo_principal() == "192.168.1.10"
+        assert resolve_milo_principal() == "192.168.1.10"
         getaddrinfo.assert_not_called()
 
 
@@ -44,7 +44,7 @@ def test_hostname_from_env_is_the_name_resolved():
     with patch.dict(os.environ, {"MILO_PRINCIPAL_IP": "milo.local"}, clear=True), \
          patch("services.registration.socket.getaddrinfo",
                return_value=_addrinfo("192.168.1.42")) as getaddrinfo:
-        assert _resolve_milo_principal() == "192.168.1.42"
+        assert resolve_milo_principal() == "192.168.1.42"
         assert getaddrinfo.call_args.args[0] == "milo.local"
 
 
@@ -53,7 +53,7 @@ def test_no_env_entry_falls_back_to_mdns():
     with patch.dict(os.environ, {}, clear=True), \
          patch("services.registration.socket.getaddrinfo",
                return_value=_addrinfo("192.168.1.42")) as getaddrinfo:
-        assert _resolve_milo_principal() == "192.168.1.42"
+        assert resolve_milo_principal() == "192.168.1.42"
         assert getaddrinfo.call_args.args[0] == "milo.local"
 
 
@@ -69,4 +69,4 @@ def test_unresolvable_target_names_itself_in_the_error():
          patch("services.registration.socket.getaddrinfo",
                side_effect=socket_module.gaierror):
         with pytest.raises(RuntimeError, match="milo-server.lan"):
-            _resolve_milo_principal()
+            resolve_milo_principal()
