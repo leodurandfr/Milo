@@ -38,6 +38,20 @@ class ApnsEnvironment(str, Enum):
     recorded per token rather than configured per unit because one appliance can
     legitimately hold both: a TestFlight build and a Debug build on the same
     phone produce tokens on different hosts.
+
+    **These names are the APNs HOSTS, not Apple's entitlement values.** The
+    `aps-environment` entitlement an iOS app reads spells the same two things
+    ``development`` and ``production``, so a client that forwards its
+    entitlement verbatim sends ``development`` and takes a 422. Measured on
+    Milo-iOS, 2026-09-19: because that client decodes only ``status``, the 422
+    was indistinguishable from a network failure and the registration simply
+    never happened.
+
+    The names stay as they are, and the translation stays on the client, which
+    is the side that speaks the entitlement dialect. Accepting both spellings
+    here would be a two-key chain for one concept — the shape CLAUDE.md's "no
+    legacy / migration code" rules out — and it would leave the backend unable
+    to say which vocabulary a stored token was registered under.
     """
     SANDBOX = "sandbox"
     PRODUCTION = "production"
