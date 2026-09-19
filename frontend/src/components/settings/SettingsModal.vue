@@ -148,12 +148,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, inject, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, inject, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
+import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useFanStore } from '@/stores/fanStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
@@ -232,6 +233,7 @@ const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
+const snapcastStore = useSnapcastStore();
 const radioStore = useRadioStore();
 const fanStore = useFanStore();
 
@@ -406,6 +408,26 @@ const headerTitle = computed(() => {
     'music-library-usb-edit': t('musicLibrary.usb.renameTitle'),
   };
   return titles[currentView.value] || t('settings.title');
+});
+
+// Multiroom tuning is staged in the snapcast store, which outlives this modal:
+// an analysis run and left alone is a proposal, not a setting, and came back on
+// the sliders — Apply button included — on the next visit. It is dropped on the
+// way out of the multiroom views, by name, so a detour into a speaker or a zone
+// keeps it: nothing there could re-stage it, since only a run the user started
+// stages a result.
+const isMultiroomView = (view) => view.startsWith('multiroom');
+
+watch(currentView, (view, previous) => {
+  if (isMultiroomView(previous) && !isMultiroomView(view)) {
+    snapcastStore.discardServerConfigChanges();
+  }
+});
+
+// Closing the modal is leaving too, from whichever view was on screen — and
+// unconditionally, because with nothing staged the discard is a no-op.
+onBeforeUnmount(() => {
+  snapcastStore.discardServerConfigChanges();
 });
 
 // Navigate away from volume view when no device manages volume anymore

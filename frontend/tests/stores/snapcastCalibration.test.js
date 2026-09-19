@@ -198,6 +198,69 @@ describe('snapcastStore — a staged change survives a reload', () => {
   });
 });
 
+describe('snapcastStore — leaving the panel drops what was never applied', () => {
+  let store;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    resetApiCallMock();
+    store = useSnapcastStore();
+  });
+
+  async function loadApplied() {
+    apiCall.get.mockResolvedValueOnce(ok({
+      config: { buffer_ms: 300, codec: 'flac', chunk_ms: 40, snapclient_buffer_time: 80 },
+      capabilities: { codecs: [], presets: [] },
+    }));
+    await store.loadServerConfig();
+  }
+
+  it('restores the applied configuration when a proposal is abandoned', async () => {
+    // Running the analysis and closing the panel without pressing Apply left
+    // the proposal on the sliders — and its Apply button under them — for the
+    // next visit, which reads as a setting the unit is running.
+    await loadApplied();
+    store.handleCalibrationEvent(event('calibration_result', PROPOSAL));
+    store.stageCalibrationResult();
+
+    await store.discardServerConfigChanges();
+
+    expect(store.serverConfig.buffer_ms).toBe(300);
+    expect(store.serverConfig.codec).toBe('flac');
+    expect(store.hasServerConfigChanges).toBe(false);
+  });
+
+  // Leaving while the PUT is in flight — snapserver restarts, so the apply
+  // lasts seconds. The buffer must follow the outcome instead of being pulled
+  // out from under the request, and either outcome has to settle it: a discard
+  // that simply stood down left a refused apply staged for good.
+  async function discardOverAnApply(outcome) {
+    await loadApplied();
+    store.applyPreset({ config: PROPOSAL.config });
+    let finishPut;
+    apiCall.put.mockReturnValueOnce(new Promise((resolve) => { finishPut = resolve; }));
+    const applying = store.applyServerConfig();
+
+    const discarding = store.discardServerConfigChanges();
+    finishPut(outcome);
+    await Promise.all([applying, discarding]);
+  }
+
+  it('keeps the values the apply landed', async () => {
+    await discardOverAnApply(ok({ status: 'success' }));
+
+    expect(store.serverConfig.buffer_ms).toBe(180);
+    expect(store.hasServerConfigChanges).toBe(false);
+  });
+
+  it('drops them when the apply is refused', async () => {
+    await discardOverAnApply(fail('snapserver did not restart', 502));
+
+    expect(store.serverConfig.buffer_ms).toBe(300);
+    expect(store.hasServerConfigChanges).toBe(false);
+  });
+});
+
 describe('snapcastStore — the apply button only means a real change', () => {
   let store;
 

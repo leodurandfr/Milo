@@ -63,6 +63,10 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   const serverConfig = ref({ ...PLACEHOLDER_SERVER_CONFIG });
   const originalServerConfig = ref({ ...PLACEHOLDER_SERVER_CONFIG });
   const isApplyingServerConfig = ref(false);
+  // The last write, kept so a discard landing mid-flight can wait for its
+  // outcome rather than pull the buffer out from under the request. Settled,
+  // awaiting it costs one microtask.
+  let lastApply = Promise.resolve();
 
   // Backend-declared capabilities (codec whitelist + quality presets),
   // populated alongside the server config fetch.
@@ -194,9 +198,29 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     serverConfigAbortController = null;
   }
 
+  /**
+   * Drop what was staged and never applied. The edit buffer is store state and
+   * outlives the panel, so a proposal left alone came back on the sliders — and
+   * brought its Apply button with it — the next time the panel opened.
+   */
+  async function discardServerConfigChanges() {
+    // Mid-apply the buffer IS what the server is being handed, and the outcome
+    // is what decides which configuration counts as applied: waiting keeps the
+    // new one on success and restores the old one on failure. Returning early
+    // instead left a refused apply staged for good — nothing runs the discard
+    // a second time, and loadServerConfig deliberately spares a staged buffer.
+    await lastApply;
+    serverConfig.value = { ...originalServerConfig.value };
+  }
+
   async function applyServerConfig() {
     if (!hasServerConfigChanges.value || isApplyingServerConfig.value) return false;
 
+    lastApply = _writeServerConfig();
+    return lastApply;
+  }
+
+  async function _writeServerConfig() {
     isApplyingServerConfig.value = true;
     const result = await apiCall.put('/api/routing/snapcast/server-config', {
       config: serverConfig.value,
@@ -352,6 +376,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     fetchServerConfig,
     loadServerConfig,
     applyServerConfig,
+    discardServerConfigChanges,
     selectCodec,
     applyPreset,
 
