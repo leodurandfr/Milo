@@ -131,6 +131,7 @@ These are shared by every source; they break for all of them at once.
 | Favourites | The favourites grid renders with logos | smoke |
 | Playback | Tapping a station plays within a few seconds; play/pause works | smoke |
 | Station info | Name, genre, codec and bitrate shown under the player | smoke |
+| Next/prev | Rotary double-click (next) / triple-click (prev) and the IR remote's next/prev keys tune the next/previous favorite station, wrapping at both ends; a station played from search enters the list at one end | targeted |
 | Track recognition | With recognition on, a recognised track's title + artist appear within ~30 s and update on track change | targeted |
 | Custom station | An added/customised station keeps its name, image and stream URL after a backend restart | targeted |
 | Custom station, edited | Réglages → Webradio: add a station, rename it, then **reload the page** — the list shows the new name, not the one it was created with (in-session the WS delta hides a stale record; only a reload re-reads it) | targeted |

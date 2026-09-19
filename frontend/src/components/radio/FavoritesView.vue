@@ -70,7 +70,7 @@ defineProps({
 
 defineEmits(['play-station'])
 
-// Favorite stations (already sorted by store)
+// Favorite stations (ordered by the backend — see radioStore.enrichedFavorites)
 const favoriteStations = computed(() => radioStore.favoriteStations || [])
 </script>
 

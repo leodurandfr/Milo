@@ -13,6 +13,7 @@ Images location: /var/lib/milo/radio_images/
 """
 import asyncio
 import logging
+import unicodedata
 import uuid
 import io
 from pathlib import Path
@@ -314,6 +315,36 @@ class StationDataService:
         """Check if station is in favorites."""
         return station_id in self._favorites
 
+    @property
+    def favorite_ids(self) -> List[str]:
+        """Favorite station ids, in the one order every consumer shows them.
+
+        Sorted here rather than stored sorted: `_favorites` keeps the order the
+        stations were added in, and the grid used to re-sort it client-side. Two
+        orders is one too many the moment a physical button means "the next
+        station" — so the sort moved here, and both the favorites endpoint and
+        RadioSource's next/prev read it from this one place.
+        """
+        return sorted(self._favorites, key=self._display_sort_key)
+
+    def _display_sort_key(self, station_id: str) -> Tuple[str, str]:
+        """Sort key reproducing the grid's `name.localeCompare(name)`.
+
+        Accents are folded and case ignored, which is what ICU's collation does
+        at its primary level; the raw name breaks ties so the order is total.
+        Measured against Node's `localeCompare` on a real 22-station list: same
+        order, position for position.
+
+        A station whose metadata is not local yet sorts under the empty string.
+        That is the same key `get_favorites_with_metadata` walks, so the grid
+        and the next/prev walk agree on where it sits even then — which is the
+        property that matters, more than the placement itself.
+        """
+        name = (self._lookup_local(station_id) or {}).get('name', '')
+        folded = unicodedata.normalize('NFKD', name)
+        folded = ''.join(c for c in folded if not unicodedata.combining(c))
+        return (folded.casefold(), name)
+
     def _lookup_local(
         self, station_id: str, *, include_cache: bool = True
     ) -> Optional[Dict[str, Any]]:
@@ -360,9 +391,9 @@ class StationDataService:
         return self._lookup_local(station_id)
 
     async def get_favorites_with_metadata(self) -> List[Dict[str, Any]]:
-        """Get favorite stations with complete metadata."""
+        """Get favorite stations with complete metadata, in display order."""
         result = []
-        for station_id in self._favorites:
+        for station_id in self.favorite_ids:
             metadata = await self.get_station_metadata(station_id)
             if metadata:
                 metadata['is_favorite'] = True

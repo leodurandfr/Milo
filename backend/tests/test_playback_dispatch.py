@@ -124,10 +124,11 @@ class TestPublicDispatchMethods:
 
     @pytest.mark.asyncio
     async def test_dispatch_track_unsupported_source_is_noop(self):
-        # Radio doesn't support next/prev
+        # Podcast registers no next/prev: an episode has nothing to skip to,
+        # and its COMMANDS offer `seek` instead.
         source = MagicMock()
         source.command = AsyncMock()
-        sm = _make_state_machine(AudioSource.RADIO, source)
+        sm = _make_state_machine(AudioSource.PODCAST, source)
 
         dispatcher = PlaybackDispatcher(sm)
         await dispatcher.dispatch_track("next")

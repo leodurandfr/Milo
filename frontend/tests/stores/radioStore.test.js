@@ -29,7 +29,7 @@ const STATION = (id, extra = {}) => ({
 
 /**
  * The store keeps `searchResults` and the raw `favoriteStations` private —
- * publicly they surface as `displayedStations` and the sorted `favoriteStations`
+ * publicly they surface as `displayedStations` and the `favoriteStations`
  * computed. Seed them the way the app does: through loadStations().
  */
 async function seedSearchResults(store, stations) {
@@ -186,13 +186,16 @@ describe('radioStore', () => {
     });
   });
 
-  it('exposes favorites sorted by name, each marked favorite', async () => {
+  it('exposes favorites in the order the backend sent them, each marked favorite', async () => {
     await seedFavorites(store, [
       STATION('b', { name: 'Zeta' }),
       STATION('a', { name: 'Alpha' }),
     ]);
 
-    expect(store.favoriteStations.map(s => s.name)).toEqual(['Alpha', 'Zeta']);
+    // Deliberately un-alphabetical. The grid and RadioSource's next/prev walk
+    // one list, ordered by the backend; a sort here would fork it, and the
+    // physical buttons would step through a list nobody is looking at.
+    expect(store.favoriteStations.map(s => s.name)).toEqual(['Zeta', 'Alpha']);
     expect(store.favoriteStations.every(s => s.is_favorite)).toBe(true);
   });
 
@@ -464,17 +467,67 @@ describe('radioStore', () => {
     });
   });
 
+  describe('handleFavoriteEvent', () => {
+    it('adds without touching the loading flag the search view reads', async () => {
+      // The heart is tapped from the search view, and `loading` is shared with
+      // it: refetching through loadStations() would blank the results grid the
+      // user is looking at. The favorites still have to be re-read, because the
+      // backend decides where the new station sits.
+      await seedSearchResults(store, [STATION('s1'), STATION('s2')]);
+      let loadingWhileFetching = false;
+      apiCall.get.mockImplementationOnce(async () => {
+        loadingWhileFetching = store.loading;
+        return ok({ stations: [STATION('s1')] });
+      });
+
+      await store.handleFavoriteEvent('s1', true);
+
+      expect(loadingWhileFetching).toBe(false);
+      expect(store.favoriteStations.map(s => s.id)).toEqual(['s1']);
+      expect(store.displayedStations).toHaveLength(2);
+    });
+  });
+
   describe('handleMetadataModified', () => {
     it('updates the station in both the favorites and the search list', async () => {
       await seedFavorites(store, [STATION('s1')]);
       await seedSearchResults(store, [STATION('s1'), STATION('s2')]);
+      apiCall.get.mockResolvedValueOnce(ok({ stations: [{ ...STATION('s1'), name: 'Renamed' }] }));
 
-      store.handleMetadataModified({ ...STATION('s1'), name: 'Renamed' });
+      await store.handleMetadataModified({ ...STATION('s1'), name: 'Renamed' });
 
       expect(store.favoriteStations[0].name).toBe('Renamed');
       expect(store.favoriteStations[0].is_favorite).toBe(true);
       expect(store.displayedStations[0].name).toBe('Renamed');
       expect(store.displayedStations[1].name).toBe('Station s2');
+    });
+
+    it('refetches the favorites after a rename, because the name is the sort key', async () => {
+      // The rename lands in the grid immediately, but it also moves the station
+      // in the backend's order — the order RadioSource's next/prev steps. Only
+      // the backend can say where it went now, so the list is re-read rather
+      // than re-sorted here.
+      await seedFavorites(store, [STATION('s1', { name: 'Alpha' }), STATION('s2', { name: 'Beta' })]);
+      apiCall.get.mockResolvedValueOnce(ok({
+        stations: [STATION('s2', { name: 'Beta' }), STATION('s1', { name: 'Zeta' })],
+      }));
+
+      await store.handleMetadataModified({ ...STATION('s1'), name: 'Zeta' });
+
+      expect(apiCall.get).toHaveBeenLastCalledWith(
+        '/api/radio/stations',
+        expect.objectContaining({ params: { favorites_only: true } }),
+      );
+      expect(store.favoriteStations.map(s => s.name)).toEqual(['Beta', 'Zeta']);
+    });
+
+    it('leaves a station that is not a favorite alone, with no refetch', async () => {
+      await seedSearchResults(store, [STATION('s1')]);
+      apiCall.get.mockClear();
+
+      await store.handleMetadataModified({ ...STATION('s1'), name: 'Renamed' });
+
+      expect(apiCall.get).not.toHaveBeenCalled();
     });
 
     it('leaves the custom dict alone until the settings view has asked for it', () => {

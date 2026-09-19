@@ -72,7 +72,11 @@ async function handleShazamToggle(enabled) {
   await updateSetting('radio-settings', { shazam_enabled: enabled });
 }
 
-// Unmodified favorites: favorites that are NOT in customStations (already sorted by store)
+// Unmodified favorites: favorites that are NOT in customStations. No sort here —
+// filtering preserves the order the backend sent, which is the order the grid
+// and RadioSource's next/prev walk. The two lists below are a different set
+// (customStations is a map, and this screen is its only consumer), so they
+// order themselves.
 const unmodifiedFavorites = computed(() => {
   return radioStore.favoriteStations
     .filter(station => !radioStore.customStations[station.id]);

@@ -148,6 +148,11 @@ class RadioSource(MpvAudioSource):
         self._metadata: Dict[str, Any] = {}
         self._current_station: Optional[Dict[str, Any]] = None
         self._last_station: Optional[Dict[str, Any]] = None
+        # Serializes next/prev: the step reads _current_station, and
+        # _handle_play_station only writes it after awaiting mpv. Two presses
+        # arriving inside that window would both compute the same target and
+        # collapse into one station moved.
+        self._step_lock = asyncio.Lock()
         self._preroll_cache: Dict[str, int] = {}  # hostname → preroll skip seconds (for Shazam)
         self._buffering_ticks: int = 0
 
@@ -229,6 +234,8 @@ class RadioSource(MpvAudioSource):
         "play_station": PlayStationParams,
         "stop": None,
         "resume_playback": None,
+        "next": None,
+        "prev": None,
     }
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
@@ -241,6 +248,9 @@ class RadioSource(MpvAudioSource):
 
         if cmd == "resume_playback":
             return await self._handle_resume_playback()
+
+        if cmd in ("next", "prev"):
+            return await self._handle_step_favorite(1 if cmd == "next" else -1)
 
         return self.error_response(f"Unhandled command: {cmd}")
 
@@ -371,7 +381,7 @@ class RadioSource(MpvAudioSource):
             if self._mpv:
                 await self._mpv.stop()
 
-            self._last_station = self._current_station
+            self._last_station = self._current_station or self._last_station
             self._current_station = None
             self._metadata = {"is_playing": False, "is_buffering": False}
             self.set_state(SourceState.READY, self._metadata)
@@ -392,6 +402,37 @@ class RadioSource(MpvAudioSource):
         return await self._handle_play_station(
             PlayStationParams(station_id=station_id, station=self._last_station)
         )
+
+    async def _handle_step_favorite(self, offset: int) -> Dict[str, Any]:
+        """Play the favorite station `offset` places from the current one.
+
+        A live stream has no track to skip, so next/prev step the favorites
+        list instead — that is what the rotary, the IR remote and the iOS lock
+        screen send. The list wraps. A station played from a search is not in
+        it and has no neighbor, so stepping enters the list at its first
+        entry (next) or its last (prev); when nothing is tuned the last station
+        stands in, so a press after `stop` resumes the walk where it left off.
+        """
+        async with self._step_lock:
+            favorites = self._station_data.favorite_ids
+            if not favorites:
+                return self.error_response("No favorite station to step to")
+
+            station = self._current_station or self._last_station
+            current_id = station.get('id') if station else None
+
+            if current_id in favorites:
+                index = (favorites.index(current_id) + offset) % len(favorites)
+            else:
+                index = 0 if offset > 0 else len(favorites) - 1
+
+            station_id = favorites[index]
+            if station_id == current_id and self._is_playing:
+                # Single favorite: re-tuning the station already playing would
+                # only cost a re-buffer.
+                return self.success_response("Already on the only favorite station")
+
+            return await self._handle_play_station(PlayStationParams(station_id=station_id))
 
     # === Helpers ===
 
