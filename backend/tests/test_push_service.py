@@ -44,6 +44,7 @@ def registry():
          if t.kind == PushTokenKind.SESSION and t.session_id == sid), None
     )
     reg.purge = AsyncMock(return_value=True)
+    reg.mark_pushed = AsyncMock()
     return reg
 
 
@@ -337,6 +338,29 @@ class TestPurge:
         await service._publish()
 
         registry.purge.assert_awaited_once_with("w", invalidated_at=123.0)
+
+    async def test_a_delivered_push_is_stamped_on_the_token(self, service, registry, apns):
+        """`last_push_at` is the registry's only observable: there is no read
+        route, so an operator diagnosing "the widget never updates" has nothing
+        but this file. It sat at null through three real 200s from the unit on
+        2026-09-19 because nothing called mark_pushed — the field existed and
+        answered no question."""
+        registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
+
+        await service._publish()
+
+        registry.mark_pushed.assert_awaited_once_with(["w"])
+
+    async def test_a_refused_push_is_not_stamped(self, service, registry, apns):
+        """Stamping a send Apple refused would make the file say the opposite
+        of what happened — the token would read as recently used at the exact
+        moment it stopped working."""
+        registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
+        apns.send.return_value = ApnsResult(ok=False, status=0, reason="Unreachable")
+
+        await service._publish()
+
+        registry.mark_pushed.assert_not_awaited()
 
     async def test_a_transient_failure_purges_nothing(self, service, registry, apns):
         """Apple unreachable is not a verdict about the token."""

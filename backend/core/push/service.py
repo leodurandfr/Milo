@@ -269,15 +269,22 @@ class PushService:
             self._apns.send(t, payload, push_type, priority=priority) for t in targets
         ))
 
-        delivered = False
+        delivered = []
         for target, result in zip(targets, results):
             if result.ok:
-                delivered = True
+                delivered.append(target.token)
             elif result.dead:
                 await self._registry.purge(
                     target.token, invalidated_at=result.invalidated_at
                 )
-        return delivered
+
+        # Stamped only for the ones Apple accepted. `last_push_at` is the only
+        # way an operator reading push_tokens.json can tell a token that is
+        # idle from one that is broken, and stamping a refused send would make
+        # it say the opposite of what happened.
+        if delivered:
+            await self._registry.mark_pushed(delivered)
+        return bool(delivered)
 
     @staticmethod
     def _has_active_source(state: Dict[str, Any]) -> bool:
