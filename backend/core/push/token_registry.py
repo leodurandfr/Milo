@@ -32,6 +32,7 @@ class PushTokenRegistry:
         self.logger = logging.getLogger("push.tokens")
         self._file_lock = asyncio.Lock()
         self._tokens: Dict[str, PushToken] = {}
+        self._lost_sessions: set[str] = set()
 
     async def initialize(self) -> None:
         """Load the file so a schema mismatch surfaces at boot, not at first push.
@@ -69,6 +70,57 @@ class PushTokenRegistry:
             None,
         )
 
+    def was_lost_to_reboot(self, session_id: str) -> bool:
+        """Did this session die with a restart of the phone that held it?
+
+        The emitter needs to tell two silences apart, and they want opposite
+        things. A session whose token has not arrived *yet* must be kept — the
+        registration comes from an app extension whose only route here is an
+        mDNS lookup that fails now and then, and giving up on it opened a rival
+        session that the phone showed and nobody fed. A session whose token was
+        taken away because the device rebooted must be let go, or this side
+        holds an id that addresses nothing for as long as playback lasts.
+
+        Only a reboot lands here, and only because the device said so.
+        """
+        return session_id in self._lost_sessions
+
+    def newest_session_token(self) -> Optional[PushToken]:
+        """The session token registered most recently, of any session.
+
+        This is how Milō learns about a session it did not open. A session can
+        be started from either end — by a push to the push-to-start token, or
+        by the app itself while it is running — and only the device knows which
+        one the system actually kept. It says so by registering that session's
+        token, and the most recent registration is the most recent thing the
+        device has said on the subject.
+
+        Older entries are not evidence of anything: ``register`` supersedes by
+        ``session_id``, so a session that ended leaves its token behind until a
+        push to it returns a 410 and ``purge`` takes it. Reading the newest one
+        is what keeps those from being mistaken for the live session.
+
+        Only sessions belonging to a device that still holds a push-to-start
+        token count. ``device_id`` is minted by the app and kept in its shared
+        container, so it does not always outlive the install: measured
+        2026-09-19, one phone went from ``DF45773A`` to ``7823EF03`` and left
+        eleven session tokens behind under the name it no longer answered to.
+        The reboot rule could not reach them — it matches on ``device_id`` — so
+        the newest orphan was adopted and every update went to a session that
+        had not existed for half an hour. The push-to-start token is the one
+        thing a running install always re-registers, which makes it the record
+        of which names are still answered to.
+        """
+        live_devices = {
+            t.device_id for t in self._tokens.values()
+            if t.kind == PushTokenKind.PUSH_TO_START
+        }
+        sessions = [
+            t for t in self._tokens.values()
+            if t.kind == PushTokenKind.SESSION and t.device_id in live_devices
+        ]
+        return max(sessions, key=lambda t: t.registered_at, default=None)
+
     # =========================================================================
     # WRITE
     # =========================================================================
@@ -80,6 +132,7 @@ class PushTokenRegistry:
         environment: ApnsEnvironment,
         device_id: str,
         session_id: Optional[str] = None,
+        boot_time: Optional[float] = None,
     ) -> None:
         """Record a token, replacing the one it supersedes.
 
@@ -110,6 +163,10 @@ class PushTokenRegistry:
         def apply(tokens: Dict[str, PushToken]) -> bool:
             for superseded in self._superseded_by(tokens, record):
                 del tokens[superseded]
+            for gone in self._lost_to_reboot(tokens, record, boot_time):
+                self.logger.info("Device rebooted — dropping a session token it lost")
+                self._lost_sessions.add(tokens[gone].session_id)
+                del tokens[gone]
             tokens[token] = record
             return True
 
@@ -186,6 +243,38 @@ class PushTokenRegistry:
     # =========================================================================
     # PRIVATE
     # =========================================================================
+
+    @staticmethod
+    def _lost_to_reboot(
+        tokens: Dict[str, PushToken],
+        record: PushToken,
+        boot_time: Optional[float],
+    ) -> List[str]:
+        """Session tokens this device cannot hold any more, because it rebooted.
+
+        A restart destroys every Now Playing session on the phone and announces
+        it to nobody: the emitter keeps pushing `update` to a session that no
+        longer exists, APNs accepts each one with a 200, and the Lock Screen
+        stays empty for good. Measured 2026-09-19 — phone restarted with music
+        playing, and not one `start` sent afterwards.
+
+        The device cannot repair itself — `RemoteMediaSession` is unavailable to
+        app extensions, so only the foreground app can open or adopt one — but
+        it can say when it booted, and it already POSTs here. A boot time later
+        than the one a session token was registered under means that token
+        belongs to a session that did not survive.
+
+        Silence stays silent: a caller that sends no `boot_time` invalidates
+        nothing, which is what keeps an older build of the app working.
+        """
+        if boot_time is None:
+            return []
+        return [
+            key for key, held in tokens.items()
+            if held.kind == PushTokenKind.SESSION
+            and held.device_id == record.device_id
+            and held.registered_at < boot_time
+        ]
 
     @staticmethod
     def _superseded_by(tokens: Dict[str, PushToken], record: PushToken) -> List[str]:

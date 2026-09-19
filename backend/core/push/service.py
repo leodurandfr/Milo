@@ -26,6 +26,7 @@ undo. Three rules keep it bounded:
 """
 import asyncio
 import logging
+import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -39,6 +40,7 @@ from backend.core.push.models import PushTokenKind
 from backend.core.push.payloads import (
     NowPlayingDevice,
     build_attributes,
+    displayed_track,
     normalize_volume,
     now_playing_payload,
     widget_payload,
@@ -57,6 +59,33 @@ MIN_PUSH_INTERVAL_S = 1.0
 # it too often to be worth a push.
 TRIGGERS: Tuple[type, ...] = (VolumeChanged, SourceStateChanged, SystemStateChanged)
 
+# How long a session Milō just started is trusted before the device has
+# registered its token. Generous on purpose: the round trip is an HTTP call the
+# extension makes on a process the system may terminate first, so it can take
+# several wakes. Nothing is lost by waiting — updates to a session with no token
+# go nowhere either way.
+START_REPORT_GRACE_S = 60.0
+
+# How long nothing may be playing before the session is closed.
+#
+# A gap is not an ending. A source change passes through "nothing is playing" on
+# its way to the next source, and so does a station change: `Stopping radio` at
+# 17:17:27, `Transition completed` at 17:17:28. Ending on the first idle cycle
+# turned each of those into an `end` and a `start` two seconds apart — the card
+# left the Lock Screen, and the session that replaced it was one no app had
+# asked to be primary, so nothing came back until the app was relaunched.
+#
+# Minutes rather than seconds, because the gap is only as short as the person is
+# quick. Switching to the music library and taking half a minute to choose an
+# album is an ordinary thing to do, and twenty seconds made that ordinary thing
+# cost the card — and the app relaunch needed to bring it back, since only a
+# foreground app can claim the screen for a session.
+#
+# What it costs: after playback really stops, the card lingers, showing paused.
+# That is what every other player does, and it is the side of the trade whose
+# failure is merely untidy rather than a feature that stops working.
+SESSION_IDLE_GRACE_S = 300.0
+
 
 class PushService:
     """Coalesces state changes into APNs pushes and owns the session lifecycle."""
@@ -73,6 +102,10 @@ class PushService:
         self._dirty = asyncio.Event()
         self._bg = BackgroundTaskSet(logger, "push")
         self._session_id: Optional[str] = None
+        self._session_started_at: float = 0.0
+        self._session_cleared_at: float = 0.0
+        self._idle_since: float = 0.0
+        self._last_attributes: Optional[Dict[str, Any]] = None
         self._widget_signature: Optional[tuple] = None
 
     def set_state_machine(self, state_machine) -> None:
@@ -144,14 +177,136 @@ class PushService:
         playing = self._has_active_source(state)
 
         if not playing:
-            if self._session_id:
-                await self._end_session()
+            await self._consider_ending(state)
             return
+
+        self._idle_since = 0.0
+        self._adopt_reported_session()
 
         if self._session_id is None:
             await self._start_session(state)
         else:
             await self._update_session(state)
+
+    async def _consider_ending(self, state: Dict[str, Any]) -> None:
+        """End only once nothing has been playing for a while.
+
+        A gap is not an ending. Changing source, and changing station within
+        radio, both pass through a moment where no source is active — the one
+        thing the paragraph above promises a session survives. Acting on the
+        first idle cycle broke that promise twice over: the card left the Lock
+        Screen, and the `start` that followed two seconds later opened a session
+        the app had never asked to be primary, which the system therefore did
+        not show. Nothing came back until the app was relaunched.
+
+        `transitioning` says so precisely but says it too briefly: the coalescer
+        sleeps a second before publishing, and by then the transition is over.
+        It is kept because when it IS visible it is certain, and the delay
+        covers the rest.
+
+        The re-check has to be scheduled. This loop only runs on a bus event,
+        and the event that mattered — the source going quiet — has already
+        happened; without waking ourselves, a session would linger until
+        something unrelated happened to stir the bus.
+        """
+        if self._session_id is None:
+            return
+        if state.get("transitioning"):
+            return
+
+        now = time.time()
+        if self._idle_since == 0.0:
+            self._idle_since = now
+            self._bg.spawn(self._wake_after(SESSION_IDLE_GRACE_S), label="idle-recheck")
+            await self._publish_paused()
+            return
+        if now - self._idle_since < SESSION_IDLE_GRACE_S:
+            return
+
+        await self._end_session()
+
+    async def _publish_paused(self) -> None:
+        """Say the music stopped, without saying the session did.
+
+        Keeping the session through the gap is what stops the card from
+        disappearing — but on its own it left the card claiming the previous
+        source was still playing, because nothing is published while the state
+        reads idle. The last attributes are re-sent with `isPlaying` false, so
+        the card holds its place and tells the truth while the next source
+        starts.
+
+        The timestamp is deliberately not refreshed: paused is paused, and iOS
+        extrapolates from it only while playing.
+        """
+        if self._last_attributes is None:
+            return
+        target = self._registry.token_for_session(self._session_id)
+        if target is None:
+            return
+        await self._send_all(
+            [target],
+            now_playing_payload(
+                "update", self._session_id,
+                {**self._last_attributes, "isPlaying": False},
+            ),
+            "nowplaying",
+        )
+
+    async def _wake_after(self, delay: float) -> None:
+        """Stir the coalescer once, later. See `_consider_ending`."""
+        await asyncio.sleep(delay)
+        self._dirty.set()
+
+    def _adopt_reported_session(self) -> None:
+        """Follow the session the device holds, whoever opened it.
+
+        A session has two possible origins — a push to the push-to-start token,
+        or `RemoteMediaSession.start` in the app while it runs — and only one of
+        them can be the session the system shows. Minting an id here and never
+        looking again made this side certain of a session the phone had already
+        replaced: `token_for_session` answered None on every cycle and
+        `_update_session` returned in silence, for as long as playback lasted.
+        Measured 2026-09-19 — fifteen session tokens registered, not one of them
+        for an id this file had minted, and not one `update` push ever sent.
+
+        The rule is the freshest registration wins, because that is the most
+        recent thing the device has said about which session exists. Three
+        guards keep it from following a ghost:
+
+        * nothing registered before the last ending is followed. `_end_session`
+          clears the id, and the token it could be adopted from outlives it by
+          a moment — so the very next cycle re-adopted the session this service
+          had itself just closed. Measured 2026-09-19: "session 96D8F08F
+          ended" at 17:04:06, "session 96D8F08F adopted (was None)" at
+          17:04:08, and never a `start` again;
+        * a session whose token is registered more recently than the newest is
+          kept — ours is the live one and the other is a leftover;
+        * a session we have just started is kept for `START_REPORT_GRACE_S`
+          even though nothing is registered for it yet. Its token takes a
+          second round trip to come back, and without this window every start
+          would be overwritten by the previous session's leftover token before
+          the device had a chance to answer.
+        """
+        newest = self._registry.newest_session_token()
+        if newest is None or newest.session_id == self._session_id:
+            return
+
+        if newest.registered_at < self._session_cleared_at:
+            return
+
+        if self._session_id is not None:
+            ours = self._registry.token_for_session(self._session_id)
+            if ours is not None and ours.registered_at >= newest.registered_at:
+                return
+            if ours is None and time.time() - self._session_started_at < START_REPORT_GRACE_S:
+                return
+
+        logger.info(
+            f"Now Playing session {newest.session_id} adopted "
+            f"(was {self._session_id})"
+        )
+        self._session_id = newest.session_id
+        self._session_started_at = newest.registered_at
 
     async def _start_session(self, state: Dict[str, Any]) -> None:
         """Wake a session on the phone through the push-to-start token.
@@ -170,13 +325,42 @@ class PushService:
         )
         if await self._send_all(targets, payload, "nowplaying"):
             self._session_id = session_id
+            self._session_started_at = time.time()
             logger.info(f"Now Playing session {session_id} started")
 
     async def _update_session(self, state: Dict[str, Any]) -> None:
         targets = self._registry.token_for_session(self._session_id)
         if targets is None:
-            # The app has not reported this session's token yet. Not an error:
-            # `start` was accepted and the registration is a second round trip.
+            if self._registry.was_lost_to_reboot(self._session_id):
+                logger.info(
+                    f"Now Playing session {self._session_id} died with the phone "
+                    "that held it — starting a new one"
+                )
+                self._session_id = None
+                self._session_started_at = 0.0
+                self._session_cleared_at = time.time()
+                return
+
+            # No token yet. Wait, and keep the session.
+            #
+            # This used to drop the session after a minute and let the next
+            # cycle start a fresh one, on the theory that a session nobody can
+            # address is not a session. It made things worse, and measurably:
+            # the registration comes from the extension, whose only route to
+            # Milō is an mDNS lookup that answers in 2 ms most of the time and
+            # never once in a while — `token 8a3983dc rotation → unavailable` at
+            # 18:13:49 on 2026-09-19. Dropping on that turned a late
+            # registration into a second session: `8a3983dc` abandoned at
+            # 18:15:23, `95a95ca2` started at 18:15:25, the phone holding both,
+            # the system showing one and this service feeding the other. The
+            # commands went to the one with nothing behind it and completed in
+            # 23 milliseconds having done nothing.
+            #
+            # Waiting costs a silent lock screen until the token arrives. The
+            # app now forwards what the extension could not send, so it arrives.
+            # And the one case dropping was really for — a phone that rebooted
+            # and lost its sessions — is answered by `boot_time` instead, which
+            # says so rather than guessing.
             return
         payload = now_playing_payload(
             "update", self._session_id,
@@ -185,21 +369,35 @@ class PushService:
         await self._send_all([targets], payload, "nowplaying")
 
     async def _end_session(self) -> None:
+        """Close the session, and drop the token that could only address it.
+
+        A session token dies with its session — it is the one kind of token
+        whose death this side witnesses rather than learns from a 410. Leaving
+        it behind is what let fifteen of them pile up in the registry, and what
+        made `_adopt_reported_session` able to follow a session that no longer
+        existed.
+        """
         session_id, self._session_id = self._session_id, None
+        self._session_started_at = 0.0
+        self._session_cleared_at = time.time()
+        self._idle_since = 0.0
         target = self._registry.token_for_session(session_id)
         if target is not None:
             await self._send_all(
                 [target], now_playing_payload("end", session_id), "nowplaying"
             )
+            await self._registry.unregister(target.token)
         logger.info(f"Now Playing session {session_id} ended")
 
     async def _build_attributes(self, session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
-        return build_attributes(
+        """Build, and keep a copy: `_publish_paused` re-sends the last one."""
+        self._last_attributes = build_attributes(
             session_id=session_id,
             metadata=state.get("metadata"),
             devices=await self._devices(),
             active_source=str(state.get("active_source") or "none"),
         )
+        return self._last_attributes
 
     async def _devices(self) -> List[NowPlayingDevice]:
         """One entry per snapcast client, so the lock screen gets one slider per room.
@@ -249,12 +447,19 @@ class PushService:
 
     @staticmethod
     def _signature(state: Dict[str, Any]) -> tuple:
+        """What a widget draws, read the same way the lock screen reads it.
+
+        Through the floor alone, radio has no title and no artist: every station
+        looked identical here and a station change spent no push, so the widget
+        kept the previous one until its own timeline came round.
+        """
         metadata = state.get("metadata") or {}
+        shown = displayed_track(metadata)
         return (
             state.get("active_source"),
             state.get("source_state"),
-            metadata.get("title"),
-            metadata.get("artist"),
+            shown["title"],
+            shown["artist"],
             metadata.get("is_playing"),
         )
 

@@ -137,6 +137,97 @@ class TestReplacement:
         assert held[0].device_id == "phone-2"
 
 
+class TestReboot:
+    """A phone that restarts loses every Now Playing session, silently."""
+
+    async def test_a_reboot_drops_the_sessions_that_did_not_survive(self, registry):
+        """Nothing else reveals it: the emitter keeps pushing `update` to a
+        session that no longer exists and APNs answers 200 to every one. The
+        device cannot repair itself — `RemoteMediaSession` is unavailable to
+        app extensions — but it can say when it booted."""
+        await registry.register("sess-tok", SESSION, ApnsEnvironment.SANDBOX,
+                                "phone-1", "sess-1")
+        booted = time.time() + 1
+
+        await registry.register("widget-tok", WIDGET, ApnsEnvironment.SANDBOX,
+                                "phone-1", boot_time=booted)
+
+        assert registry.token_for_session("sess-1") is None
+        assert registry.was_lost_to_reboot("sess-1")
+        assert [t.token for t in registry.tokens_for(WIDGET)] == ["widget-tok"]
+
+    async def test_a_session_opened_after_the_boot_is_kept(self, registry):
+        """The phone reboots, the app opens a session, and the widget reports
+        the same boot time afterwards. Dropping by device alone would take the
+        live session with it."""
+        booted = time.time() - 60
+        await registry.register("sess-tok", SESSION, ApnsEnvironment.SANDBOX,
+                                "phone-1", "sess-1", boot_time=booted)
+
+        await registry.register("widget-tok", WIDGET, ApnsEnvironment.SANDBOX,
+                                "phone-1", boot_time=booted)
+
+        assert registry.token_for_session("sess-1").token == "sess-tok"
+        assert not registry.was_lost_to_reboot("sess-1")
+
+    async def test_another_phone_is_untouched(self, registry):
+        """One phone rebooting says nothing about another's sessions."""
+        await registry.register("sess-tok", SESSION, ApnsEnvironment.SANDBOX,
+                                "phone-2", "sess-2")
+
+        await registry.register("widget-tok", WIDGET, ApnsEnvironment.SANDBOX,
+                                "phone-1", boot_time=time.time() + 1)
+
+        assert registry.token_for_session("sess-2").token == "sess-tok"
+
+    async def test_a_caller_that_says_nothing_invalidates_nothing(self, registry):
+        """An older build of the app sends no `boot_time`. Treating its silence
+        as a reboot would drop the session it is holding."""
+        await registry.register("sess-tok", SESSION, ApnsEnvironment.SANDBOX,
+                                "phone-1", "sess-1")
+
+        await registry.register("widget-tok", WIDGET, ApnsEnvironment.SANDBOX, "phone-1")
+
+        assert registry.token_for_session("sess-1").token == "sess-tok"
+
+
+class TestOrphans:
+    """`device_id` does not always outlive the install that minted it."""
+
+    async def test_a_session_from_a_device_that_no_longer_answers_is_ignored(
+        self, registry
+    ):
+        """Measured 2026-09-19: one phone went from `DF45773A` to `7823EF03`
+        and left eleven session tokens behind under the name it no longer
+        answered to. The reboot rule matches on `device_id`, so it could not
+        reach them — the newest orphan was adopted and every update went to a
+        session that had not existed for half an hour."""
+        await registry.register("old-sess", SESSION, ApnsEnvironment.SANDBOX,
+                                "phone-old", "sess-old")
+        await registry.register("pts", PTS, ApnsEnvironment.SANDBOX, "phone-new")
+
+        assert registry.newest_session_token() is None
+
+    async def test_a_session_from_the_device_that_answers_is_taken(self, registry):
+        await registry.register("pts", PTS, ApnsEnvironment.SANDBOX, "phone-new")
+        await registry.register("sess", SESSION, ApnsEnvironment.SANDBOX,
+                                "phone-new", "sess-1")
+
+        assert registry.newest_session_token().session_id == "sess-1"
+
+    async def test_the_newest_of_two_live_devices_wins(self, registry):
+        """Nothing here is scoped per device yet — one session is published at a
+        time — so the rule stays "the freshest thing a live install said"."""
+        await registry.register("pts-a", PTS, ApnsEnvironment.SANDBOX, "phone-a")
+        await registry.register("pts-b", PTS, ApnsEnvironment.SANDBOX, "phone-b")
+        await registry.register("sess-a", SESSION, ApnsEnvironment.SANDBOX,
+                                "phone-a", "sess-a")
+        await registry.register("sess-b", SESSION, ApnsEnvironment.SANDBOX,
+                                "phone-b", "sess-b")
+
+        assert registry.newest_session_token().session_id == "sess-b"
+
+
 class TestPurge:
     """The 410 path, including the race that deletes a live token."""
 

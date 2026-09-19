@@ -86,6 +86,10 @@ class PushTokenRegisterRequest(BaseModel):
     session_id: Optional[str] = Field(
         default=None, description="Required for kind=session, forbidden otherwise"
     )
+    boot_time: Optional[float] = Field(
+        default=None,
+        description="Unix seconds the device booted; a change invalidates its sessions",
+    )
 
     @model_validator(mode="after")
     def _session_id_matches_kind(self):

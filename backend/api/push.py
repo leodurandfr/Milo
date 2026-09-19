@@ -44,6 +44,7 @@ def create_push_router(push_token_registry: "PushTokenRegistry"):
                 environment=request.environment,
                 device_id=request.device_id,
                 session_id=request.session_id,
+                boot_time=request.boot_time,
             )
             return {"status": "success"}
 

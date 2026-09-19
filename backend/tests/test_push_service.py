@@ -18,7 +18,12 @@ from backend.core.models.ws_events import (
 )
 from backend.core.push.apns_client import ApnsResult
 from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
-from backend.core.push.service import MIN_PUSH_INTERVAL_S, PushService
+from backend.core.push.service import (
+    MIN_PUSH_INTERVAL_S,
+    SESSION_IDLE_GRACE_S,
+    START_REPORT_GRACE_S,
+    PushService,
+)
 
 PLAYING = {
     "active_source": "spotify", "source_state": "active",
@@ -43,6 +48,25 @@ def registry():
         (t for t in held.values()
          if t.kind == PushTokenKind.SESSION and t.session_id == sid), None
     )
+    reg.lost = set()
+    reg.was_lost_to_reboot = lambda sid: sid in reg.lost
+
+    def _newest_session_token():
+        """Mirrors the real rule: a session belonging to a device that no longer
+        holds a push-to-start token is an orphan, not a session."""
+        live = {t.device_id for t in held.values()
+                if t.kind == PushTokenKind.PUSH_TO_START}
+        return max(
+            (t for t in held.values()
+             if t.kind == PushTokenKind.SESSION and t.device_id in live),
+            key=lambda t: t.registered_at, default=None
+        )
+
+    reg.newest_session_token = _newest_session_token
+    async def _unregister(token):
+        return held.pop(token, None) is not None
+
+    reg.unregister = _unregister
     reg.purge = AsyncMock(return_value=True)
     reg.mark_pushed = AsyncMock()
     return reg
@@ -185,11 +209,14 @@ class TestSessionLifecycle:
         service.machine.get_current_state.return_value = dict(STOPPED)
         apns.send.reset_mock()
 
+        await service._publish()          # arms the delay, and says "paused"
+        service._idle_since -= SESSION_IDLE_GRACE_S + 1
         await service._publish()
 
         assert service._session_id is None
-        assert sent_events(apns) == ["end"]
-        assert apns.send.await_args_list[0].args[1]["aps"]["attributes"].keys() == {"id"}
+        # The paused snapshot rides ahead of the ending — see `_publish_paused`.
+        assert sent_events(apns) == ["update", "end"]
+        assert apns.send.await_args_list[1].args[1]["aps"]["attributes"].keys() == {"id"}
 
     async def test_a_refused_start_does_not_claim_a_session(self, service, registry, apns):
         """Recording a session the phone never opened would send every later
@@ -201,6 +228,280 @@ class TestSessionLifecycle:
         await service._publish()
 
         assert service._session_id is None
+
+
+class TestSessionAdoption:
+    """A session can be opened from either end, and only one of them is shown.
+
+    Measured on the appliance 2026-09-19: fifteen session tokens registered
+    over an afternoon, every one of them for a session the app had opened, and
+    not one for an id this service had minted — so `token_for_session` answered
+    None on every cycle, `_update_session` returned in silence, and the lock
+    screen kept whatever it was showing when the app went to the background.
+    """
+
+    async def test_a_session_the_app_opened_is_adopted(self, service, registry, apns):
+        """The app opens one while it runs. Milō has to push updates to THAT
+        one — the id it would mint itself addresses nothing."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="APP-1")
+
+        await service._publish()
+
+        assert service._session_id == "APP-1"
+        assert sent_events(apns) == ["update"]
+        assert apns.send.await_args_list[0].args[0].token == "sess"
+
+    async def test_a_newer_registration_wins(self, service, registry, apns):
+        """The app restarts and opens a second session; the first one's token
+        stays in the registry until a push to it returns a 410. The freshest
+        registration is the only statement about what exists now."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["old"] = tok(PushTokenKind.SESSION, "old", session_id="APP-1")
+        await service._publish()
+        fresh = tok(PushTokenKind.SESSION, "new", session_id="APP-2")
+        fresh.registered_at = 2.0
+        registry.held["new"] = fresh
+
+        await service._publish()
+
+        assert service._session_id == "APP-2"
+
+    async def test_a_leftover_token_does_not_steal_a_fresh_start(
+        self, service, registry, apns
+    ):
+        """A start takes a second round trip to be reported back. Adopting in
+        that window would hand every new session to the previous one's
+        leftover token, which is the one case where this rule inverts."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        minted = service._session_id
+        registry.held["stale"] = tok(PushTokenKind.SESSION, "stale", session_id="GONE")
+
+        await service._publish()
+
+        assert service._session_id == minted
+
+    async def test_a_leftover_token_is_adopted_once_the_grace_expires(
+        self, service, registry, apns
+    ):
+        """The other side of the same window: a start nobody ever reported is
+        not a session, and holding it forever is how this got stuck."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        service._session_started_at -= START_REPORT_GRACE_S + 1
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="OTHER")
+
+        await service._publish()
+
+        assert service._session_id == "OTHER"
+
+
+class TestSourceTransitions:
+    """Changing source on the appliance must not take the card off the screen."""
+
+    TRANSITION = {"active_source": "none", "source_state": "inactive",
+                  "transitioning": True, "metadata": {}}
+
+    async def test_a_source_change_does_not_end_the_session(
+        self, service, registry, apns
+    ):
+        """Between `Stopping radio` and `music_library started` the machine
+        reads as nothing playing. Ending there emptied the lock screen on every
+        source change, and it came back only when the app was relaunched."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        session_id = service._session_id
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=session_id)
+        service.machine.get_current_state.return_value = dict(self.TRANSITION)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == session_id
+        assert sent_events(apns) == []
+
+    async def test_a_gap_between_stations_is_not_an_ending(
+        self, service, registry, apns
+    ):
+        """Changing station stops one stream before starting the next, and the
+        machine reads idle in between. Ending there took the card off the Lock
+        Screen on every station change, and what replaced it was a session the
+        app had never asked to be primary."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        session_id = service._session_id
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id=session_id)
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        await service._publish()
+        service.machine.get_current_state.return_value = dict(PLAYING)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == session_id
+        assert sent_events(apns) == ["update"]
+
+    async def test_the_gap_is_published_as_paused(self, service, registry, apns):
+        """Holding the session through the gap is what keeps the card on screen,
+        but on its own it left the card claiming the previous source was still
+        playing — nothing is published while the state reads idle."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_events(apns) == ["update"]
+        attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
+        assert attributes["isPlaying"] is False
+        assert attributes["currentTrack"]["title"] == "T"
+
+    async def test_a_real_stop_still_ends_it(self, service, registry, apns):
+        """The other side of the delay: a session that outlived playback for
+        good would keep Milō on a Lock Screen it no longer owns."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        await service._publish()
+        service._idle_since -= SESSION_IDLE_GRACE_S + 1
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id is None
+        assert sent_events(apns) == ["end"]
+
+    async def test_an_ended_session_is_not_adopted_back(self, service, registry, apns):
+        """`_end_session` clears the id, and the token it could be adopted from
+        outlives it. Following it put every later update on a session this
+        service had itself just killed, and `_start_session` was never reached
+        again."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        ended = service._session_id
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        await service._publish()
+        service._idle_since -= SESSION_IDLE_GRACE_S + 1
+        await service._publish()
+        service.machine.get_current_state.return_value = dict(PLAYING)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id != ended
+        assert sent_events(apns) == ["start"]
+
+    async def test_ending_drops_the_token_that_only_addressed_it(
+        self, service, registry, apns
+    ):
+        """It is the one token whose death this side witnesses. Fifteen of them
+        had piled up in the registry by the afternoon of 2026-09-19."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        service.machine.get_current_state.return_value = dict(STOPPED)
+
+        await service._publish()
+        service._idle_since -= SESSION_IDLE_GRACE_S + 1
+        await service._publish()
+
+        assert "sess" not in registry.held
+
+
+class TestDeviceReboot:
+    """A restart destroys every session on the phone and tells nobody."""
+
+    async def test_a_session_the_phone_lost_to_a_reboot_is_let_go(
+        self, service, registry, apns
+    ):
+        """Holding it meant updating a session that no longer existed, forever,
+        while APNs answered 200 to every push. Measured 2026-09-19: phone
+        restarted with music playing, not one `start` sent afterwards."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
+        lost = service._session_id
+        del registry.held["sess"]
+        registry.lost.add(lost)
+        apns.send.reset_mock()
+
+        await service._publish()          # notices, lets go
+        await service._publish()          # starts a real one
+
+        assert service._session_id not in (None, lost)
+        assert sent_events(apns) == ["start"]
+
+    async def test_a_token_that_is_merely_late_keeps_its_session(
+        self, service, registry, apns
+    ):
+        """The other silence, and it wants the opposite. The registration comes
+        from an app extension whose only route to Milō is an mDNS lookup that
+        fails now and then — `token 8a3983dc rotation → unavailable`, 18:13:49.
+        Giving up on it opened a rival session two seconds later that the phone
+        showed and nobody fed, and the commands went to the one with nothing
+        behind it."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        await service._publish()
+        started = service._session_id
+        service._session_started_at -= START_REPORT_GRACE_S + 1
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert service._session_id == started
+        assert sent_events(apns) == []
+
+
+class TestRadioMetadata:
+    """Radio leaves the common floor empty and carries the track beside it."""
+
+    RADIO = {
+        "active_source": "radio", "source_state": "active",
+        "metadata": {"is_playing": True, "station_name": "FIP Jazz",
+                     "track_title": "Snibor", "track_artist": "Gil Evans",
+                     "favicon": "/api/radio/images/7ff7.webp"},
+    }
+
+    async def test_a_station_reaches_the_lock_screen(self, service, registry, apns):
+        """Reading `title` alone sent a push whose every field was null, which
+        on the phone is a session with no track at all."""
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(self.RADIO)
+
+        await service._publish()
+
+        track = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
+        assert track["title"] == "Snibor"
+        assert track["artist"] == "Gil Evans"
+        assert track["album"] == "FIP Jazz"
+        assert track["artworkURL"] == "/api/radio/images/7ff7.webp"
+
+    async def test_a_station_change_spends_a_widget_push(self, service, registry, apns):
+        """Through the floor alone every station looked identical, so the
+        widget signature never moved and the change cost no push — and the
+        widget kept the old station until its own timeline came round."""
+        registry.held["widget"] = tok(PushTokenKind.WIDGET, "widget")
+        service.machine.get_current_state.return_value = dict(self.RADIO)
+        await service._publish()
+        apns.send.reset_mock()
+        service.machine.get_current_state.return_value = {
+            **self.RADIO,
+            "metadata": {**self.RADIO["metadata"], "track_title": "Blues For Pablo"},
+        }
+
+        await service._publish()
+
+        assert [c.args[0].token for c in apns.send.await_args_list] == ["widget"]
 
 
 class TestWidgetCadence:
