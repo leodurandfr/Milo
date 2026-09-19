@@ -51,9 +51,22 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 VENDOR_DIR = HERE / "vendor" / "milo-ios"
 
-# The two files that carry the surface: one names the routes, the other names
-# the response fields the app decodes. Mirrors the Mac's REST+WS pair.
-SOURCE_FILES = ("MiloAPIClient.swift", "Models.swift")
+# The files that carry the surface. GLOB patterns, not a fixed list, and that
+# is the whole point of the pattern: the list used to read exactly
+# ("MiloAPIClient.swift", "Models.swift") while the app grew its push routes in
+# MiloAPIClient+Push.swift, so the extractor saw a surface that had not changed
+# and this script printed "vendored snapshot matches upstream" while Milo-iOS
+# had gained two routes. The contract passed by describing an app that no
+# longer existed — the exact rot the manifest's own _broken_calls.why warns
+# about, arrived for real (Milo-iOS 09b9789b, 2026-09-19).
+#
+# A glob is still a bet on a naming convention, so it is not left as one:
+# `unvendored_surface()` below reads EVERY .swift in a checkout and fails on
+# any route literal living outside these patterns.
+SOURCE_FILES = ("MiloAPIClient*.swift", "Models.swift")
+
+# Where a route literal can appear at all. Used only by the completeness guard.
+_ROUTE_LITERAL = re.compile(r'"(/api/[^"]*)"')
 
 
 def _load_shared():
@@ -138,15 +151,50 @@ def compute_diff(manifest: dict, api_swift: str):
     return called - accounted, accounted - called
 
 
+def matching_files(root: Path) -> list[Path]:
+    """Every file under `root` matching SOURCE_FILES, deduplicated and ordered.
+
+    All matches, not the first: `MiloAPIClient.swift` and
+    `MiloAPIClient+Push.swift` both carry routes, and taking one of them is how
+    two routes went missing in silence.
+    """
+    found: set[Path] = set()
+    for pattern in SOURCE_FILES:
+        found.update(root.rglob(pattern))
+    return sorted(found)
+
+
 def _read_source(root: Path) -> str:
     """Concatenate the tracked Swift files from a checkout (or the vendor dir)."""
-    chunks = []
-    for name in SOURCE_FILES:
-        matches = sorted(root.rglob(name)) if root != VENDOR_DIR else [root / name]
-        if not matches:
-            raise SystemExit(f"{name} not found under {root}")
-        chunks.append(matches[0].read_text())
-    return "\n".join(chunks)
+    matches = matching_files(root)
+    if not matches:
+        raise SystemExit(f"no file matching {SOURCE_FILES} found under {root}")
+    return "\n".join(m.read_text() for m in matches)
+
+
+def unvendored_surface(root: Path) -> dict[str, set[str]]:
+    """{file: {route literals}} for route literals OUTSIDE the vendored patterns.
+
+    The completeness guard, and the reason a glob is acceptable where a fixed
+    list was not. A pattern is a bet that the app keeps naming its client files
+    a certain way; this measures the bet instead of trusting it. Anything it
+    reports is either a file to vendor or a pattern to widen — never something
+    to leave, because a route the snapshot cannot see is a route the backend
+    believes nobody calls.
+
+    Deliberately crude: it greps for `"/api/…"` anywhere, so a path in a comment
+    is reported too. That direction is safe — a false positive is a line to
+    read, a false negative is the defect this exists for.
+    """
+    vendored = set(matching_files(root))
+    escaped: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*.swift")):
+        if path in vendored:
+            continue
+        literals = set(_ROUTE_LITERAL.findall(path.read_text()))
+        if literals:
+            escaped[str(path.relative_to(root))] = literals
+    return escaped
 
 
 def main(argv: list[str]) -> int:
@@ -154,11 +202,26 @@ def main(argv: list[str]) -> int:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
         return 2
 
-    upstream = _read_source(Path(argv[1]))
+    checkout = Path(argv[1])
+    upstream = _read_source(checkout)
     vendored = _read_source(VENDOR_DIR)
 
+    # Completeness first: a surface that agrees is worth nothing if the files
+    # compared are not the files that carry it.
+    escaped = unvendored_surface(checkout)
+    if escaped:
+        print("Milo-iOS: route literals live OUTSIDE the vendored patterns "
+              f"{SOURCE_FILES} — the comparison below cannot see them.")
+        for name, literals in escaped.items():
+            print(f"  {name}: {', '.join(sorted(literals))}")
+        print("\nVendor that file too, or widen SOURCE_FILES. Do not ignore this: "
+              "a route the snapshot cannot see reads as a route nobody calls.")
+        return 1
+
     if extract_rest(upstream) == extract_rest(vendored):
-        print("Milo-iOS: vendored snapshot matches upstream.")
+        print(f"Milo-iOS: vendored snapshot matches upstream "
+              f"({len(matching_files(checkout))} files, "
+              f"{len(extract_rest(upstream))} routes).")
         return 0
 
     gained = extract_rest(upstream) - extract_rest(vendored)

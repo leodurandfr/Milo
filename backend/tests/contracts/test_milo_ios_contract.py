@@ -141,6 +141,37 @@ def test_the_extractor_reads_both_call_shapes():
     assert ("POST", "/api/audio/source/{}") in surface, "interpolated path not collapsed"
 
 
+def test_the_extractor_reads_every_client_file_not_just_the_first():
+    """The surface is spread across several files, and all of them are read.
+
+    This is the defect of 2026-09-19, named so it cannot come back quietly.
+    `SOURCE_FILES` was a frozen two-name list while Milo-iOS 09b9789b put its
+    push routes in a third file, `MiloAPIClient+Push.swift`. The extractor read
+    an unchanged surface, and `check_milo_ios_freshness.py` printed "vendored
+    snapshot matches upstream" while the app had gained two routes — the
+    contract passing by describing an app that no longer existed.
+
+    `test_manifest_matches_the_vendored_surface_exactly` does catch a
+    regression here today, but only as a side effect of the manifest happening
+    to list those two routes. This asserts the property itself: more than one
+    client file vendored, and a route that exists in none but the second one.
+    """
+    client_files = [
+        p.name for p in _FRESHNESS.matching_files(VENDOR_DIR)
+        if p.name.startswith("MiloAPIClient")
+    ]
+    assert len(client_files) > 1, (
+        f"only {client_files} vendored — if Milo-iOS really collapsed back to one "
+        f"client file, this test is the place to say so"
+    )
+
+    surface = _FRESHNESS.extract_rest(_VENDORED_SWIFT)
+    assert ("POST", "/api/push/tokens") in surface, (
+        "a route declared outside MiloAPIClient.swift is missing from the "
+        "extracted surface — SOURCE_FILES is reading too few files again"
+    )
+
+
 def test_manifest_matches_the_vendored_surface_exactly():
     """Manifest and snapshot must describe the same surface, in both directions.
 
