@@ -355,7 +355,9 @@ app.include_router(discovery_router)
 app.include_router(create_qobuz_account_router(systemd_manager))
 
 app.include_router(create_lyrics_router(get_service("lyrics_service")))
-app.include_router(create_push_router(get_service("push_token_registry")))
+app.include_router(create_push_router(
+    get_service("push_token_registry"), get_service("push_service")
+))
 
 app.add_api_websocket_route("/ws", websocket_server.websocket_endpoint)
 

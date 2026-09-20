@@ -370,7 +370,7 @@ class TestLiveSessionReports:
 
 
 class TestRoutes:
-    """POST /api/push/tokens and DELETE /api/push/tokens/{token}."""
+    """POST /api/push/tokens, DELETE /api/push/tokens/{token}, POST /sessions."""
 
     @pytest.fixture
     def mock_registry(self):
@@ -381,9 +381,15 @@ class TestRoutes:
         return registry
 
     @pytest.fixture
-    def client(self, mock_registry):
+    def mock_service(self):
+        service = AsyncMock()
+        service.align_session_to_playback = AsyncMock(return_value=None)
+        return service
+
+    @pytest.fixture
+    def client(self, mock_registry, mock_service):
         app = FastAPI()
-        app.include_router(create_push_router(mock_registry))
+        app.include_router(create_push_router(mock_registry, mock_service))
         return TestClient(app)
 
     def test_a_registration_reaches_the_registry_as_typed_values(self, client, mock_registry):
@@ -465,3 +471,35 @@ class TestRoutes:
 
         assert response.status_code == 200
         mock_registry.drop_sessions_absent_from.assert_awaited_once_with("phone-1", [])
+
+    def test_a_report_aligns_the_session_with_what_is_playing(
+        self, client, mock_service
+    ):
+        """The emitter opens on a playback event and closes after a grace, and
+        neither reaches the two cases the app hits: music already playing with
+        no session, and a source change that leaves the card on the old track.
+        Dropping this call leaves both, with nothing to read anywhere."""
+        response = client.post("/api/push/sessions", json={
+            "device_id": "phone-1", "session_ids": ["sess-a"],
+        })
+
+        assert response.status_code == 200
+        mock_service.align_session_to_playback.assert_awaited_once_with("phone-1")
+
+    def test_the_ghosts_are_retired_before_the_session_is_aligned(
+        self, client, mock_registry, mock_service
+    ):
+        """A session token outlives its session, and "a session is held" is the
+        one input the alignment turns on. Aligned first, a ghost reads as a live
+        card and the `end` that should close it is never sent."""
+        order = []
+        mock_registry.drop_sessions_absent_from.side_effect = (
+            lambda *_: order.append("retire") or 0
+        )
+        mock_service.align_session_to_playback.side_effect = (
+            lambda *_: order.append("align")
+        )
+
+        client.post("/api/push/sessions", json={"device_id": "phone-1"})
+
+        assert order == ["retire", "align"]

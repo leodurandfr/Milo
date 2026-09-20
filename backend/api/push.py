@@ -12,7 +12,9 @@ operator can read directly (/var/lib/milo/push_tokens.json).
 
 `POST /sessions` is the other half of that: the app says which sessions still
 exist, because a session token outlives its session and this side cannot see
-the difference.
+the difference. It is also the one moment Milō learns anything at all about the
+card while the app is awake, so it is where the session is brought back in line
+with what is playing — see `PushService.align_session_to_playback`.
 """
 import logging
 from typing import TYPE_CHECKING
@@ -24,12 +26,15 @@ from backend.api.responses import StatusResponse
 from backend.api.route_helpers import api_error_handler
 
 if TYPE_CHECKING:
+    from backend.core.push.service import PushService
     from backend.core.push.token_registry import PushTokenRegistry
 
 logger = logging.getLogger(__name__)
 
 
-def create_push_router(push_token_registry: "PushTokenRegistry"):
+def create_push_router(
+    push_token_registry: "PushTokenRegistry", push_service: "PushService"
+):
     """Creates the push token router with dependency injection"""
     router = APIRouter(prefix="/api/push", tags=["push"])
 
@@ -68,11 +73,20 @@ def create_push_router(push_token_registry: "PushTokenRegistry"):
         phone says it holds nothing, which is exactly the case that needs
         clearing. What says nothing is an app that is not running — and an app
         that is not running does not call this.
+
+        The report is then what the session is aligned against. Milō opens the
+        card on a playback event and closes it on a silence it has waited out,
+        and neither clock ticks when the app needs it to: music already playing
+        when no session exists produces no event, and a source change leaves the
+        card frozen on the previous track for as long as the idle grace lasts.
+        Retire first, align second — a ghost token still in the registry reads
+        as a session held, which is the one input this decision turns on.
         """
         async with api_error_handler("Failed to report live sessions", logger):
             await push_token_registry.drop_sessions_absent_from(
                 request.device_id, request.session_ids
             )
+            await push_service.align_session_to_playback(request.device_id)
             return {"status": "success"}
 
     @router.delete("/tokens/{token}", response_model=StatusResponse)

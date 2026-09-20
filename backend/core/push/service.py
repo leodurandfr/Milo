@@ -7,6 +7,12 @@ notify. `on_event` is synchronous and does nothing but mark the state dirty:
 a slow or unreachable APNs must never delay the WebSocket broadcast the UI
 depends on.
 
+There is a second way in, and only one: `align_session_to_playback`, called by
+the device's own report of the sessions it holds. It emits nothing on its own —
+it opens or closes the session when the bus, which ticks on events rather than
+on the absence of them, has left the two out of step. Read its docstring before
+adding a third entry point.
+
 **Throughput is the real hazard of pushing from an appliance.** APNs is not a
 WebSocket. Apple throttles frequent pushes and an abused budget degrades
 delivery for the whole app, durably — which is a state no code change here can
@@ -100,6 +106,14 @@ class PushService:
         self._state_machine = None
 
         self._dirty = asyncio.Event()
+        # Serializes the two seams. The coalescer used to be the only thing that
+        # touched the session, and a loop is single file; the device's report is
+        # a second caller on the same loop, and both decide on `_session_id`
+        # BEFORE awaiting APNs. Interleaved, each would read None and mint a
+        # session of its own — the phone holding two, the system showing one and
+        # this service feeding the other, which is the failure the whole area
+        # exists to avoid.
+        self._session_lock = asyncio.Lock()
         self._bg = BackgroundTaskSet(logger, "push")
         self._session_id: Optional[str] = None
         self._session_started_at: float = 0.0
@@ -107,6 +121,7 @@ class PushService:
         self._session_cleared_at: float = 0.0
         self._idle_since: float = 0.0
         self._last_attributes: Optional[Dict[str, Any]] = None
+        self._last_source: Optional[str] = None
         self._widget_signature: Optional[tuple] = None
 
     def set_state_machine(self, state_machine) -> None:
@@ -134,6 +149,91 @@ class PushService:
         """
         if isinstance(event, TRIGGERS):
             self._dirty.set()
+
+    # =========================================================================
+    # THE DEVICE'S REPORT SEAM
+    # =========================================================================
+
+    async def align_session_to_playback(self, device_id: str) -> None:
+        """Open or close the card, on the report the device just filed.
+
+        Called from `POST /api/push/sessions`, after the registry has retired
+        the session tokens the device no longer names. The bus seam above is an
+        emitter; this one is a reconciler, and it exists because the two ends of
+        the session lifecycle each have a case the bus cannot reach:
+
+        * **No `start`.** A session is opened on a playback EVENT. Music that is
+          already playing when no session exists produces no event, so nothing
+          opens one — Control Center reads "stopped" until the next track
+          change.
+        * **No `end` in time.** Measured 2026-09-20: change source, and the
+          state goes to `ready` with no metadata while the card keeps the
+          previous track, paused, offering the transport of a source that has
+          nothing to play. `_consider_ending` does end it, but only after
+          `SESSION_IDLE_GRACE_S`, because from the bus a gap and an ending look
+          identical — see its docstring for what acting on the first idle cycle
+          cost.
+
+        A report is different evidence, and that is the whole justification for
+        ending here without waiting out the grace: it only arrives while the app
+        is running, which is the one condition under which a card that turns out
+        to have been closed too early can be reopened and claim the screen —
+        `RemoteMediaSession.requestToBecomeSystemPrimary` is the app's to call
+        and nobody else's. When the app is not running, no report arrives and
+        the grace still governs, untouched.
+
+        Sends at most one push per report, and at most one per session in each
+        direction: `_session_id` is the guard, set by the `start` and cleared by
+        the `end`. That is what keeps a route the app calls every couple of
+        seconds off the APNs budget the module docstring is about.
+
+        Nothing during `transitioning` — that is the beat of a source change,
+        and closing on it would drop the card and raise it again at every
+        switch.
+        """
+        if not self._apns.available or self._state_machine is None:
+            return
+
+        state = self._state_machine.get_current_state()
+        if state.get("transitioning"):
+            return
+
+        async with self._session_lock:
+            self._adopt_reported_session()
+
+            if self._has_active_source(state):
+                if self._session_id is None and self._device_can_be_started(device_id):
+                    await self._start_session(state)
+                return
+
+            if self._session_device() == device_id:
+                await self._end_session()
+
+    def _device_can_be_started(self, device_id: str) -> bool:
+        """Does the reporting device hold a token a `start` can be sent to?
+
+        Scoped to the reporter rather than read off the registry as a whole: a
+        phone that cannot receive a `start` must not be what makes Milō send one
+        to another phone, which would open a session the reporter then adopts
+        nothing of.
+        """
+        return any(
+            token.device_id == device_id
+            for token in self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
+        )
+
+    def _session_device(self) -> Optional[str]:
+        """Which device the live session's `end` would be addressed to.
+
+        A session with no token registered for it belongs to nobody this side
+        can name, and an `end` for it would reach no one — so it is not this
+        device's to close. A phone knows its own sessions and nobody else's,
+        exactly as `drop_sessions_absent_from` is scoped.
+        """
+        if self._session_id is None:
+            return None
+        target = self._registry.token_for_session(self._session_id)
+        return target.device_id if target is not None else None
 
     # =========================================================================
     # THE LOOP
@@ -175,19 +275,18 @@ class PushService:
         session is "Milō is playing something", not "Milō is playing Spotify",
         so its id stays stable while the track and the source underneath move.
         """
-        playing = self._has_active_source(state)
+        async with self._session_lock:
+            if not self._has_active_source(state):
+                await self._consider_ending(state)
+                return
 
-        if not playing:
-            await self._consider_ending(state)
-            return
+            self._idle_since = 0.0
+            self._adopt_reported_session()
 
-        self._idle_since = 0.0
-        self._adopt_reported_session()
-
-        if self._session_id is None:
-            await self._start_session(state)
-        else:
-            await self._update_session(state)
+            if self._session_id is None:
+                await self._start_session(state)
+            else:
+                await self._update_session(state)
 
     async def _consider_ending(self, state: Dict[str, Any]) -> None:
         """End only once nothing has been playing for a while.
@@ -209,6 +308,10 @@ class PushService:
         and the event that mattered — the source going quiet — has already
         happened; without waking ourselves, a session would linger until
         something unrelated happened to stir the bus.
+
+        The grace is what a running app can shorten: `align_session_to_playback`
+        ends on the report instead of waiting, because a report only arrives
+        while the app is there to reopen the card.
         """
         if self._session_id is None:
             return
@@ -219,14 +322,14 @@ class PushService:
         if self._idle_since == 0.0:
             self._idle_since = now
             self._bg.spawn(self._wake_after(SESSION_IDLE_GRACE_S), label="idle-recheck")
-            await self._publish_paused()
+            await self._publish_paused(state)
             return
         if now - self._idle_since < SESSION_IDLE_GRACE_S:
             return
 
         await self._end_session()
 
-    async def _publish_paused(self) -> None:
+    async def _publish_paused(self, state: Dict[str, Any]) -> None:
         """Say the music stopped, without saying the session did.
 
         Keeping the session through the gap is what stops the card from
@@ -236,20 +339,46 @@ class PushService:
         the card holds its place and tells the truth while the next source
         starts.
 
-        The timestamp is deliberately not refreshed: paused is paused, and iOS
-        extrapolates from it only while playing.
+        **Which track it holds depends on whether the source moved.** A gap
+        INSIDE a source is a gap: a station change stops one stream before
+        starting the next, and the track that comes back is usually the one that
+        was there, so holding it is the least flicker. A gap that arrives with
+        ANOTHER source selected — or with none at all — is not a gap in that
+        track, it is a track that is no longer loaded anywhere. Measured
+        2026-09-20: radio → spotify at 13:07:56, one push at 13:07:57, and the
+        Lock Screen kept the radio track, paused, with the transport of a source
+        that had nothing to play, for the whole five minutes of the grace. The
+        attributes are therefore rebuilt from the new state, which empties
+        `currentTrack` — the card stays, and shows nothing rather than a lie.
+
+        Ending instead of emptying would be the wrong trade and it has been
+        measured: a session opened afterwards by a push has never been in the
+        foreground, so it cannot ask to be system primary, and nothing comes
+        back until the app is relaunched. See `_consider_ending`.
+
+        The timestamp is deliberately not refreshed when the track is held:
+        paused is paused, and iOS extrapolates from it only while playing.
         """
         if self._last_attributes is None:
             return
         target = self._registry.token_for_session(self._session_id)
         if target is None:
             return
+
+        if str(state.get("active_source") or "none") == self._last_source:
+            attributes = {**self._last_attributes, "isPlaying": False}
+        else:
+            attributes = await self._build_attributes(self._session_id, state)
+        # Forced on both branches, never read off the state. This function has
+        # one thing to say and a source that is not active can still carry
+        # `is_playing` — Bluetooth's AVRCP feed publishes a transport whether or
+        # not BlueALSA calls the source active — which would put a card the
+        # music has left back into playing, with a position iOS extrapolates.
+        attributes["isPlaying"] = False
+
         await self._send_all(
             [target],
-            now_playing_payload(
-                "update", self._session_id,
-                {**self._last_attributes, "isPlaying": False},
-            ),
+            now_playing_payload("update", self._session_id, attributes),
             "nowplaying",
         )
 
@@ -437,12 +566,18 @@ class PushService:
         logger.info(f"Now Playing session {session_id} ended")
 
     async def _build_attributes(self, session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Build, and keep a copy: `_publish_paused` re-sends the last one."""
+        """Build, and keep a copy: `_publish_paused` re-sends the last one.
+
+        The source is kept beside it, because that is what tells a gap in the
+        track being played from a track that belongs to a source nobody
+        selected any more — see `_publish_paused`.
+        """
+        self._last_source = str(state.get("active_source") or "none")
         self._last_attributes = build_attributes(
             session_id=session_id,
             metadata=state.get("metadata"),
             devices=await self._devices(),
-            active_source=str(state.get("active_source") or "none"),
+            active_source=self._last_source,
         )
         return self._last_attributes
 
