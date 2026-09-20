@@ -132,6 +132,12 @@ class NetworkService:
         # Holds strong refs to fire-and-forget tasks (CPython can otherwise GC
         # a pending task that has no external reference).
         self._bg = BackgroundTaskSet(self.logger, "network")
+        # Set after construction: this service sees link changes, and
+        # ConnectivityService is the only thing that can turn one into a verdict.
+        self._connectivity_service = None
+
+    def set_connectivity_service(self, connectivity_service) -> None:
+        self._connectivity_service = connectivity_service
 
     @property
     def hotspot_active(self) -> bool:
@@ -1129,6 +1135,17 @@ class NetworkService:
                 return
 
             self._last_broadcast = status
+
+            # After the dedup, deliberately: this costs one IPv4 request and a
+            # link that has not changed cannot have moved the uplink. NM only
+            # emits connectivity when its own family-agnostic verdict moves, so
+            # a link change is the appliance's only chance to notice an IPv4
+            # path that died while IPv6 kept the verdict green.
+            if self._connectivity_service is not None:
+                self._bg.spawn(
+                    self._connectivity_service.recheck("link change"),
+                    label="connectivity_recheck",
+                )
 
         await self.state_machine.broadcast(
             NetworkStatusChanged(**status.model_dump())

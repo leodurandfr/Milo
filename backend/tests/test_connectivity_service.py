@@ -15,6 +15,9 @@ disagrees, without holding up startup.
 """
 import asyncio
 
+import aiohttp
+import pytest
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.core.connectivity.service import ConnectivityService
@@ -57,6 +60,36 @@ def _patch_dbus(nm_iface: MagicMock):
     bus.get_proxy_object = MagicMock(return_value=proxy)
 
     return patch("backend.core.connectivity.service.MessageBus", return_value=bus), properties_iface
+
+
+# Bound before the autouse fixture below can shadow it, so the tests that
+# examine the probe itself call the real thing. Without this they assert
+# against the stub and pass green having tested nothing.
+_REAL_CONFIRM_IPV4 = ConnectivityService._confirm_ipv4
+
+
+@pytest.fixture(autouse=True)
+def ipv4_probe_succeeds():
+    """Keep every test that is *not* about the probe off the network.
+
+    Adopting FULL now costs one IPv4 request, so without this the suite would
+    reach nmcheck.gnome.org from CI — and fail closed on a build host with no
+    IPv4, turning an infrastructure fact into a red test.
+    """
+    with patch.object(ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=True)):
+        yield
+
+
+async def _settle(service: ConnectivityService, max_yields: int = 50) -> None:
+    """Let a spawned adoption task finish, without a wall-clock budget.
+
+    Adoption moved off the synchronous D-Bus callback when it gained an await,
+    so a single `sleep(0)` no longer covers the whole chain.
+    """
+    for _ in range(max_yields):
+        if not service._bg._tasks:
+            return
+        await asyncio.sleep(0)
 
 
 async def test_initialize_reads_cached_property_without_forcing_a_probe():
@@ -217,7 +250,7 @@ async def test_a_property_change_publishes_the_new_level():
         {"Connectivity": Variant("u", NM_FULL)},
         [],
     )
-    await asyncio.sleep(0)
+    await _settle(service)
     await service._bg.cancel_all()
 
     assert service._level is ConnectivityLevel.FULL
@@ -239,7 +272,7 @@ async def test_a_raw_integer_value_is_read_the_same_as_a_variant():
     service._on_properties_changed(
         "org.freedesktop.NetworkManager", {"Connectivity": NM_FULL}, []
     )
-    await asyncio.sleep(0)
+    await _settle(service)
     await service._bg.cancel_all()
 
     assert service._level is ConnectivityLevel.FULL
@@ -255,7 +288,7 @@ async def test_a_signal_from_another_interface_is_ignored():
     service._on_properties_changed(
         "org.freedesktop.NetworkManager.Device", {"Connectivity": NM_NONE}, []
     )
-    await asyncio.sleep(0)
+    await _settle(service)
     await service._bg.cancel_all()
 
     assert service._level is ConnectivityLevel.FULL
@@ -271,7 +304,7 @@ async def test_a_signal_about_another_property_is_ignored():
     service._on_properties_changed(
         "org.freedesktop.NetworkManager", {"WirelessEnabled": True}, []
     )
-    await asyncio.sleep(0)
+    await _settle(service)
     await service._bg.cancel_all()
 
     assert service._level is ConnectivityLevel.FULL
@@ -288,7 +321,7 @@ async def test_an_unchanged_level_is_not_re_broadcast():
     service._on_properties_changed(
         "org.freedesktop.NetworkManager", {"Connectivity": NM_FULL}, []
     )
-    await asyncio.sleep(0)
+    await _settle(service)
     await service._bg.cancel_all()
 
     service._state_machine.broadcast.assert_not_awaited()
@@ -304,7 +337,7 @@ async def test_an_unknown_nm_value_arriving_by_signal_fails_open():
     service._on_properties_changed(
         "org.freedesktop.NetworkManager", {"Connectivity": 99}, []
     )
-    await asyncio.sleep(0)
+    await _settle(service)
     await service._bg.cancel_all()
 
     assert service._level is ConnectivityLevel.UNKNOWN
@@ -405,3 +438,160 @@ class TestCleanup:
         await service.cleanup()
 
         assert service._bus is None
+
+
+# ============================================================================
+# The IPv4 confirmation.
+#
+# NM's connectivity probe is address-family agnostic. On a dual-stack host it
+# can succeed over IPv6 while IPv4 is dead, and this appliance streams over
+# IPv4-only hosts (icecast.radiofrance.fr has no AAAA). Measured 2026-09-20:
+# the wired gateway stopped answering ARP, IPv6 failed over to wifi by itself,
+# NM went LIMITED then back to FULL 2.5 minutes later, and Milo published
+# "internet is back" for the remaining 18 minutes while every podcast feed
+# logged `Connect call failed`.
+#
+# So FULL — and only FULL — is confirmed before it is believed.
+# ============================================================================
+
+def _session_raising(exc):
+    """Stand in for the outside world: a session whose request raises `exc`."""
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    session.get = MagicMock(side_effect=exc)
+    return patch.multiple(
+        "backend.core.connectivity.service.aiohttp",
+        ClientSession=MagicMock(return_value=session),
+        TCPConnector=MagicMock(),
+    )
+
+
+async def test_nm_reporting_full_over_ipv6_alone_publishes_limited():
+    """The incident, in one test.
+
+    Without this the appliance tells the user the internet is back while every
+    IPv4-only stream times out, and the status card drops its "No internet
+    access" phrase mid-outage.
+    """
+    service = make_service()
+    service._level = ConnectivityLevel.LIMITED
+
+    with patch.object(
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=False)
+    ):
+        await service._adopt(NM_FULL, "changed")
+
+    assert service.level is ConnectivityLevel.LIMITED
+    service._state_machine.broadcast.assert_not_awaited()
+
+
+async def test_a_confirmed_full_is_published():
+    """The downgrade must not become permanent pessimism: a healthy IPv4 path
+    publishes FULL exactly as before."""
+    service = make_service()
+    service._level = ConnectivityLevel.LIMITED
+
+    await service._adopt(NM_FULL, "changed")  # autouse fixture: probe succeeds
+
+    assert service.level is ConnectivityLevel.FULL
+    event = service._state_machine.broadcast.await_args.args[0]
+    assert event.connectivity == "full"
+
+
+async def test_a_degraded_level_is_never_second_guessed():
+    """NM reporting a problem is an observation we have no reason to doubt, and
+    confirming bad news would spend a request to learn nothing."""
+    service = make_service()
+    service._level = ConnectivityLevel.FULL
+    probe = AsyncMock(return_value=True)
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", probe):
+        await service._adopt(NM_LIMITED, "changed")
+
+    assert service.level is ConnectivityLevel.LIMITED
+    probe.assert_not_awaited()
+
+
+async def test_a_probe_that_times_out_trusts_nm():
+    """Fail open stays fail open.
+
+    A timeout is not evidence that IPv4 is down — it is evidence we could not
+    tell. Holding LIMITED here would block Spotify, Tidal, Qobuz, Radio and
+    Podcast in the UI on a failure we never attributed. Note asyncio.TimeoutError
+    subclasses OSError on Python 3.11+, so an `except OSError` in the probe would
+    land it in the downgrade branch.
+    """
+    service = make_service()
+
+    with _session_raising(asyncio.TimeoutError()):
+        assert await _REAL_CONFIRM_IPV4(service) is True
+
+
+async def test_a_dns_failure_is_not_an_ipv4_verdict():
+    """Name resolution failing says nothing about IPv4 reachability, and it is
+    a subclass of the error that *does* — so it must be caught first."""
+    service = make_service()
+    exc = aiohttp.ClientConnectorDNSError(MagicMock(), OSError("no resolver"))
+
+    with _session_raising(exc):
+        assert await _REAL_CONFIRM_IPV4(service) is True
+
+
+async def test_a_refused_ipv4_connection_is_a_verdict():
+    """A TCP connect failure is the one positive observation that downgrades."""
+    service = make_service()
+    exc = aiohttp.ClientConnectorError(MagicMock(), OSError("unreachable"))
+
+    with _session_raising(exc):
+        assert await _REAL_CONFIRM_IPV4(service) is False
+
+
+async def test_a_held_downgrade_lifts_itself_when_ipv4_returns():
+    """NM has no reason to emit anything while we contradict it — its own value
+    stays FULL — so nothing but our own re-probe can lift the hold. Without this
+    loop the unit stays 'no internet' until the backend restarts."""
+    service = make_service()
+    service._level = ConnectivityLevel.LIMITED
+    service._nm_level = ConnectivityLevel.FULL
+    service._holding = True
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=True)), \
+         patch("backend.core.connectivity.service.HOLD_RECHECK_START_S", 0.001):
+        await service._hold_loop()
+
+    assert service.level is ConnectivityLevel.FULL
+    assert service._holding is False
+    event = service._state_machine.broadcast.await_args.args[0]
+    assert event.connectivity == "full"
+
+
+async def test_recheck_re_evaluates_without_waiting_for_nm_to_speak():
+    """NM only emits when its own verdict moves, and its verdict is
+    family-agnostic. Measured 2026-09-20: the cable was pulled, the unit spent
+    43 seconds with no IPv4 default route, and NM stayed FULL throughout
+    because wlan0 carries its own IPv6 default. Without this entry point the
+    IPv4 confirmation never runs for that failure."""
+    service = make_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_FULL))
+
+    with patch.object(
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=False)
+    ):
+        await service.recheck("link change")
+
+    assert service.level is ConnectivityLevel.LIMITED
+    event = service._state_machine.broadcast.await_args.args[0]
+    assert event.connectivity == "limited"
+
+
+async def test_recheck_before_the_bus_is_up_is_a_no_op():
+    """initialize() can fail (dev host, NM down) and link events still arrive."""
+    service = make_service()
+    service._level = ConnectivityLevel.UNKNOWN
+
+    await service.recheck("link change")
+
+    assert service.level is ConnectivityLevel.UNKNOWN
+    service._state_machine.broadcast.assert_not_awaited()

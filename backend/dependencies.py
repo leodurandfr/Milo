@@ -390,6 +390,11 @@ async def initialize_services() -> None:
     #   connectivity broadcasts its own event through the state machine.
     connectivity_service.set_state_machine(state_machine)
     state_machine.connectivity_service = connectivity_service
+    # network_service → connectivity_service, one direction only. NM emits a
+    # connectivity change solely when its own family-agnostic verdict moves, and
+    # measurement showed it does not move when an uplink dies while IPv6 keeps
+    # answering. A link change is the only other signal the appliance gets.
+    network_service.set_connectivity_service(connectivity_service)
     # Plain assignment, like its three siblings above: broadcast() calls into
     # it synchronously, and the service needs the machine back to read the
     # state it publishes. Both directions are set here, nothing else reads them.

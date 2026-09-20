@@ -34,8 +34,10 @@ interval.
 """
 import asyncio
 import logging
+import socket
 from typing import Optional
 
+import aiohttp
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 from dbus_next.signature import Variant
@@ -62,6 +64,26 @@ NM_LEVELS = {
 
 NM_CHECK_CONNECTIVITY_TIMEOUT = 15  # seconds; bounds the background forced probe
 
+# The endpoint NM itself probes, declared in
+# /etc/NetworkManager/conf.d/99-milo-connectivity.conf (written by
+# pi-gen/stage-milo/02-install-milo/01-run.sh, which is the authority). Restated
+# here because that drop-in is not readable as configuration from this process.
+#
+# We re-fetch it forced to IPv4, because NM's own fetch is family-agnostic and a
+# dual-stack host answers it over IPv6. Measured 2026-09-20: the wired gateway
+# stopped answering ARP, IPv6 failed over to wifi on its own, NM's probe
+# succeeded over IPv6 and reported FULL — while every IPv4-only stream
+# (icecast.radiofrance.fr has no AAAA) and every podcast feed was timing out.
+# Milo published "internet is back" for the remaining 18 minutes of the outage.
+IPV4_PROBE_URI = "http://nmcheck.gnome.org/check_network_status.txt"
+IPV4_PROBE_TIMEOUT = 3.0
+
+# NM has no reason to emit anything while we hold a downgrade against it — its
+# own value stays FULL — so our own re-probe is the only thing that can lift it.
+# Without this loop a held downgrade would block every internet source for ever.
+HOLD_RECHECK_START_S = 20.0
+HOLD_RECHECK_MAX_S = 120.0
+
 
 class ConnectivityService:
     """Tracks NetworkManager connectivity and broadcasts state changes."""
@@ -70,7 +92,13 @@ class ConnectivityService:
         self._state_machine = None
         self._bus: Optional[MessageBus] = None
         self._properties_iface = None
+        self._nm_iface = None
         self._level: ConnectivityLevel = ConnectivityLevel.UNKNOWN  # Fail-open default
+        # What NM last told us, before our IPv4 confirmation. Kept apart from
+        # _level so the hold loop knows it is still contradicting NM.
+        self._nm_level: ConnectivityLevel = ConnectivityLevel.UNKNOWN
+        self._holding: bool = False
+        self._hold_running: bool = False
         self._listener_attached: bool = False
         self._bg = BackgroundTaskSet(logger, "connectivity")
 
@@ -95,6 +123,8 @@ class ConnectivityService:
             proxy = self._bus.get_proxy_object(NM_SERVICE, NM_PATH, introspect)
             nm_iface = proxy.get_interface(NM_IFACE)
             self._properties_iface = proxy.get_interface(DBUS_PROPERTIES_IFACE)
+
+            self._nm_iface = nm_iface
 
             connectivity = await nm_iface.get_connectivity()
             self._level = NM_LEVELS.get(connectivity, ConnectivityLevel.UNKNOWN)
@@ -131,19 +161,7 @@ class ConnectivityService:
             logger.warning("NM forced connectivity re-check failed: %s", exc)
             return
 
-        new_level = NM_LEVELS.get(connectivity, ConnectivityLevel.UNKNOWN)
-        if new_level == self._level:
-            return
-
-        previous = self._level
-        self._level = new_level
-        logger.info(
-            "Connectivity (forced re-check): %s → %s (NM=%s)",
-            previous.value,
-            new_level.value,
-            connectivity,
-        )
-        await self._broadcast()
+        await self._adopt(connectivity, "forced re-check")
 
     def _on_properties_changed(self, iface: str, changed: dict, _invalidated: list) -> None:
         """D-Bus PropertiesChanged callback. Filters NM Connectivity changes."""
@@ -152,7 +170,84 @@ class ConnectivityService:
 
         value = changed["Connectivity"]
         connectivity = value.value if isinstance(value, Variant) else value
-        new_level = NM_LEVELS.get(connectivity, ConnectivityLevel.UNKNOWN)
+        # Adoption may probe, so it cannot run in this synchronous callback.
+        self._bg.spawn(self._adopt(connectivity, "changed"), label="nm_props_changed")
+
+    async def recheck(self, reason: str = "link change") -> None:
+        """Re-evaluate without waiting for NM to say something.
+
+        NM only emits when *its own* verdict moves, and its verdict is
+        family-agnostic: measured 2026-09-20, the ethernet cable was pulled and
+        NM stayed FULL for the whole 43-second outage, because wlan0 carries its
+        own IPv6 default route (proto ra, metric 600) and the probe succeeded
+        over it. No event meant no adoption, so the IPv4 confirmation never ran
+        and the appliance reported a working internet it did not have.
+
+        Called by NetworkService on a link change — the cheapest trigger there
+        is, and the one that actually correlates with an uplink moving.
+        """
+        if self._nm_iface is None:
+            return
+        try:
+            connectivity = await self._nm_iface.get_connectivity()
+        except Exception as exc:
+            logger.debug("Connectivity re-read failed (%s): %s", reason, exc)
+            return
+        await self._adopt(connectivity, reason)
+
+    async def _confirm_ipv4(self) -> bool:
+        """True unless IPv4 is *observed* to be broken.
+
+        Asymmetric on purpose, and the asymmetry is the whole doctrine. A TCP
+        connect failure is a positive observation, so it downgrades. Anything
+        else — a timeout, a DNS failure, aiohttp missing on a dev host — means
+        we could not tell, and an untold story is not a problem: holding LIMITED
+        on our own probe's failure would block Spotify, Tidal, Qobuz, Radio and
+        Podcast in the UI on evidence we never gathered. Fail open stays fail
+        open.
+
+        Note asyncio.TimeoutError subclasses OSError on Python 3.11+, so a bare
+        `except OSError` here would silently turn a slow link into a fake outage.
+        """
+        try:
+            connector = aiohttp.TCPConnector(family=socket.AF_INET)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(
+                    IPV4_PROBE_URI,
+                    timeout=aiohttp.ClientTimeout(total=IPV4_PROBE_TIMEOUT),
+                ) as response:
+                    response.release()
+            return True
+        except aiohttp.ClientConnectorDNSError as exc:
+            # Name resolution, not an IPv4 reachability verdict.
+            logger.debug("IPv4 probe could not resolve %s: %s", IPV4_PROBE_URI, exc)
+            return True
+        except aiohttp.ClientConnectorError as exc:
+            logger.info("IPv4 probe could not connect, holding NM's FULL down: %s", exc)
+            return False
+        except Exception as exc:
+            logger.debug("IPv4 probe inconclusive, trusting NM: %s", exc)
+            return True
+
+    async def _adopt(self, connectivity: int, reason: str) -> None:
+        """Publish the level NM reports, downgrading an unconfirmed FULL.
+
+        Only FULL is second-guessed. NM reporting a degraded link is an
+        observation we have no reason to doubt, and confirming bad news would
+        spend a request to learn nothing.
+        """
+        self._nm_level = NM_LEVELS.get(connectivity, ConnectivityLevel.UNKNOWN)
+        new_level = self._nm_level
+
+        if new_level == ConnectivityLevel.FULL and not await self._confirm_ipv4():
+            new_level = ConnectivityLevel.LIMITED
+
+        self._holding = (
+            self._nm_level == ConnectivityLevel.FULL
+            and new_level != ConnectivityLevel.FULL
+        )
+        if self._holding:
+            self._start_hold_loop()
 
         if new_level == self._level:
             return
@@ -160,12 +255,44 @@ class ConnectivityService:
         previous = self._level
         self._level = new_level
         logger.info(
-            "Connectivity changed: %s → %s (NM=%s)",
+            "Connectivity (%s): %s → %s (NM=%s)",
+            reason,
             previous.value,
             new_level.value,
             connectivity,
         )
-        self._bg.spawn(self._broadcast(), label="nm_props_changed")
+        await self._broadcast()
+
+    def _start_hold_loop(self) -> None:
+        if self._hold_running:
+            return
+        self._hold_running = True
+        self._bg.spawn(self._hold_loop(), label="ipv4_hold_recheck")
+
+    async def _hold_loop(self) -> None:
+        """Re-probe while we contradict NM, so the downgrade can lift itself.
+
+        Backs off because the condition it waits for — IPv4 coming back on a
+        link NM already considers healthy — is measured in minutes, not seconds.
+        """
+        delay = HOLD_RECHECK_START_S
+        try:
+            while self._holding:
+                await asyncio.sleep(delay)
+                if not self._holding:
+                    break
+                if await self._confirm_ipv4():
+                    self._holding = False
+                    previous = self._level
+                    self._level = ConnectivityLevel.FULL
+                    logger.info(
+                        "Connectivity (IPv4 recovered): %s → full", previous.value
+                    )
+                    await self._broadcast()
+                    break
+                delay = min(delay * 2, HOLD_RECHECK_MAX_S)
+        finally:
+            self._hold_running = False
 
     async def _broadcast(self) -> None:
         """The level rides its own event *and* full_state, since a level change

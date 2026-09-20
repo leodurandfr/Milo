@@ -31,7 +31,7 @@ import contextlib
 import logging
 import types
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -2094,3 +2094,72 @@ async def test_the_access_point_path_is_not_read_without_a_wireless_device(servi
     """A board with no wlan0 never anchors a proxy; the AP read is on the status
     path, which such a unit still serves."""
     assert await service._read_active_ap_path() is None
+
+
+# ============================================================================
+# The link change → connectivity re-check hook.
+#
+# NetworkManager emits a connectivity change only when its own verdict moves,
+# and that verdict is address-family agnostic. Measured on the unit
+# 2026-09-20: the ethernet cable was pulled, the appliance spent 43 seconds
+# with no IPv4 default route at all, and NM never left `full` — wlan0 carries
+# its own IPv6 default (proto ra, metric 600) and the probe kept succeeding
+# over it. No NM event meant ConnectivityService never re-evaluated, so the
+# appliance reported a working internet it did not have.
+#
+# A link change is the only other signal available, and this service is the
+# only thing that sees one.
+# ============================================================================
+
+async def _settle_bg(service, max_yields: int = 50) -> None:
+    """Let spawned tasks finish, without a wall-clock budget."""
+    for _ in range(max_yields):
+        if not service._bg._tasks:
+            return
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_a_link_change_forces_a_connectivity_recheck(service):
+    """Without this the appliance only ever learns about the internet when NM
+    volunteers it, and NM stays silent for exactly the failure that matters."""
+    connectivity = MagicMock()
+    connectivity.recheck = AsyncMock()
+    service.set_connectivity_service(connectivity)
+
+    _fake, patcher = with_nmcli(_status_router(eth=("Wired connection 1", "192.168.1.55")))
+    with patcher:
+        await service._refresh_and_broadcast()
+        await _settle_bg(service)
+
+    connectivity.recheck.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_link_does_not_spend_a_probe(service):
+    """The re-check costs one IPv4 request. NM re-emits device properties
+    several times a second while a card renegotiates, and a link that has not
+    changed cannot have moved the uplink."""
+    connectivity = MagicMock()
+    connectivity.recheck = AsyncMock()
+    service.set_connectivity_service(connectivity)
+
+    _fake, patcher = with_nmcli(_status_router(eth=("Wired connection 1", "192.168.1.55")))
+    with patcher:
+        await service._refresh_and_broadcast()
+        await _settle_bg(service)
+        await service._refresh_and_broadcast()
+        await _settle_bg(service)
+
+    connectivity.recheck.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_link_change_is_harmless_before_the_service_is_wired(service):
+    """Services are constructed before STEP 2 injects this one, and a D-Bus
+    signal can land in that window. Unguarded it is an AttributeError inside a
+    background task, which BackgroundTaskSet logs and nothing else notices."""
+    _fake, patcher = with_nmcli(_status_router(eth=("Wired connection 1", "192.168.1.55")))
+    with patcher:
+        await service._refresh_and_broadcast()
+        await _settle_bg(service)
