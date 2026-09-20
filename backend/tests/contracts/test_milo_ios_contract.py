@@ -124,21 +124,53 @@ def test_rest_route_exists(entry):
 # 2/3. Manifest and vendored snapshot agree, and the gap is declared.
 # --------------------------------------------------------------------------- #
 
-def test_the_extractor_reads_both_call_shapes():
-    """The surface reader must find routes through BOTH shapes the app uses.
+def test_the_extractor_reads_every_call_shape():
+    """The surface reader must find routes through ALL THREE shapes the app uses.
 
-    `get(path: "…")` is the helper; `fireAdjustVolume` hand-builds its URL with
-    `URL(string: baseURL() + "…")` and sets `httpMethod` separately. An extractor
-    modelling only the helper reports a smaller surface with no error, and a
-    route missing from it reads as "the app does not use it" — the silence this
-    whole contract exists to break. Asserted before anything trusts the
-    extraction: a guard that cannot see is a guard that passes.
+    `get(path: "…")` is the helper, where the method is the helper's own name;
+    `fireAdjustVolume` hand-builds its URL with `URL(string: baseURL() + "…")`
+    and sets `httpMethod` separately; `writeClientVolume` and `writeGlobalVolume`
+    go through `writeVolume(path:body:label:)`, a helper of the app's own that
+    builds the URL inside its body and is named after nothing in particular.
+
+    An extractor modelling fewer shapes reports a smaller surface with no error,
+    and a route missing from it reads as "the app does not use it" — the silence
+    this whole contract exists to break. The third shape is not hypothetical:
+    at Milo-iOS be15c1f the two-shape extractor lost BOTH volume writes, one of
+    which the manifest already pinned, so the freshness script would have
+    reported the app as having dropped a route it calls on every gesture.
+
+    Asserted before anything trusts the extraction: a guard that cannot see is a
+    guard that passes.
     """
     surface = _FRESHNESS.extract_rest(_VENDORED_SWIFT)
 
     assert ("GET", "/api/volume/state") in surface, "helper call shape not read"
     assert ("POST", "/api/volume/adjust") in surface, "hand-built URL shape not read"
     assert ("POST", "/api/audio/source/{}") in surface, "interpolated path not collapsed"
+    assert ("PATCH", "/api/volume/global") in surface, "wrapped helper shape not read"
+    assert ("PATCH", "/api/volume/client/mac/{}") in surface, (
+        "wrapped helper shape not read on an interpolated path"
+    )
+
+
+def test_a_wrapped_helper_takes_the_method_its_own_body_assigns():
+    """Where the third shape's method comes from, stated rather than assumed.
+
+    Not a table of known helper names — that is the bet `SOURCE_FILES` already
+    had to stop making. The rule is URLRequest's: a helper's method is the
+    `httpMethod` its body assigns, and GET when it assigns none. It therefore
+    holds for a helper nobody has written yet, and a helper this snapshot cannot
+    see raises instead of silently defaulting to GET.
+    """
+    methods = _FRESHNESS.helper_methods(_VENDORED_SWIFT)
+
+    assert methods["writeVolume"] == "PATCH", "the wrapping helper's verb is not read"
+    assert methods["post"] == "POST"
+    assert methods["get"] == "GET", "a helper that assigns no method is not a GET"
+
+    with pytest.raises(ValueError, match="does not declare"):
+        _FRESHNESS.extract_rest('unknownHelper(path: "/api/volume/state")')
 
 
 def test_the_extractor_reads_every_client_file_not_just_the_first():

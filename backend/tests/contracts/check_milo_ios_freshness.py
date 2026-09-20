@@ -22,18 +22,25 @@ Milo-iOS has NO WebSocket surface: every consumer is a process that lives for
 seconds (a WidgetKit timeline entry, an App Intent), and none can hold a socket
 open. So the contract is REST-only and this script has no `extract_ws` twin.
 
-Two call shapes, and both must be read or a route goes missing in silence:
+Three call shapes, and all three must be read or a route goes missing in silence:
 
     get(path: "/api/volume/state")                     # private helper, method
     post(path: "/api/audio/source/\\(name)")            # is the function name
     URL(string: baseURL() + "/api/volume/adjust")      # hand-built, method is a
     request.httpMethod = "POST"                        # nearby assignment
+    writeVolume(path: "/api/volume/global", …)         # the app's own wrapper,
+    request.httpMethod = "PATCH"                       # method in ITS body
 
-`fireAdjustVolume` uses the second form for its fire-and-forget path, so an
-extractor modelling only the helper reports 5 routes instead of 6 — and a
-missing route reads as "the app does not use it", which is the exact silence
-this whole contract exists to break. `test_the_extractor_reads_both_call_shapes`
-pins both against the vendored snapshot.
+`fireAdjustVolume` uses the second form for its fire-and-forget path, and
+`be15c1f` moved both volume writes behind the third — a helper that builds the
+URL from `baseURL() + path` inside itself. Each time, an extractor modelling one
+shape fewer reports a smaller surface with no error, and a missing route reads
+as "the app does not use it", which is the exact silence this whole contract
+exists to break. The third cost the most: it lost a route the manifest ALREADY
+pinned, so the loss would have read as the app having dropped it.
+`test_the_extractor_reads_every_call_shape` and
+`test_a_wrapped_helper_takes_the_method_its_own_body_assigns` pin all three
+against the vendored snapshot.
 
 Path canonicalisation (`_shape`, `_collapse_interpolation`) is imported from the
 Milo-Mac freshness script rather than copied: Swift string interpolation is one
@@ -60,10 +67,15 @@ VENDOR_DIR = HERE / "vendor" / "milo-ios"
 # longer existed — the exact rot the manifest's own _broken_calls.why warns
 # about, arrived for real (Milo-iOS 09b9789b, 2026-09-19).
 #
+# The third pattern is a filename and not a glob: the Now Playing bridge is not
+# a client file by name, but it calls `MiloAPIClient.get(path:)` directly and is
+# the only declaration of GET /api/multiroom/state. It was found by the guard
+# below rather than by reading, which is the guard working.
+#
 # A glob is still a bet on a naming convention, so it is not left as one:
 # `unvendored_surface()` below reads EVERY .swift in a checkout and fails on
 # any route literal living outside these patterns.
-SOURCE_FILES = ("MiloAPIClient*.swift", "Models.swift")
+SOURCE_FILES = ("MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift")
 
 # Where a route literal can appear at all. Used only by the completeness guard.
 _ROUTE_LITERAL = re.compile(r'"(/api/[^"]*)"')
@@ -88,10 +100,21 @@ _shape = _SHARED._shape
 # get(path: "…") / post(path: "…") — the method IS the helper's name. The helper
 # *definitions* take `path: String`, a parameter and not a string literal, so
 # they do not match.
+_VERB_HELPERS = ("get", "post", "patch", "put", "delete")
 _HELPER_CALL = re.compile(
-    r'\b(get|post|patch|put|delete)\(\s*path:\s*"([^"]+)"',
+    r'\b(' + "|".join(_VERB_HELPERS) + r')\(\s*path:\s*"([^"]+)"',
     re.IGNORECASE,
 )
+# Any OTHER function taking `path:` with a route literal — a helper of the app's
+# own, wrapping the transport for a family of calls. `writeVolume(path:body:label:)`
+# is the first: it builds the URL itself from `baseURL() + path` and sets
+# `httpMethod` in its own body, so neither shape above sees it. Measured at
+# Milo-iOS be15c1f: modelling only the two shapes returned a surface missing BOTH
+# volume writes, one of which the manifest already pinned — the extractor would
+# have reported the app as no longer calling a route it calls on every gesture.
+_WRAPPED_CALL = re.compile(r'\b(\w+)\(\s*path:\s*"(/api/[^"]*)"')
+# `func name(… path: String …)` — where such a helper is declared.
+_HELPER_DEF = re.compile(r'\bfunc\s+(\w+)\s*\([^)]*\bpath:\s*String')
 # URL(string: … "/api/…") with `request.httpMethod = "…"` somewhere after it.
 # `[^"]*?` and not `[^)]*?`: the prefix is an expression, and the real call is
 # `URL(string: baseURL() + "/api/volume/adjust")` — a class excluding `)` stops
@@ -99,18 +122,61 @@ _HELPER_CALL = re.compile(
 # vanished from the extracted surface without any error.
 _HAND_BUILT = re.compile(r'URL\(\s*string:[^"]*?"(/api/[^"]*)"')
 _HTTP_METHOD = re.compile(r'httpMethod\s*=\s*"(\w+)"')
+_NEXT_FUNC = re.compile(r'\bfunc\s')
 # How far past a hand-built URL to look for its method. The assignment sits in
 # the same short function body; a window keeps one call's method from being read
 # off the next one's.
 _METHOD_WINDOW = 400
 
 
+def helper_methods(api_swift: str) -> dict[str, str]:
+    """{helper name: METHOD} for every function that takes a `path:`.
+
+    The method is the `httpMethod` the helper's own body assigns, and GET when
+    it assigns none — that is URLRequest's rule, not a convention of this app,
+    so it holds for a helper nobody has written yet. The body is read up to the
+    next `func`, so one helper's method can never be taken off the next one's.
+
+    A name declared twice with two methods raises rather than picking one: two
+    spellings of one route's verb disagreeing in silence is the failure this
+    whole file exists to make loud.
+    """
+    found: dict[str, str] = {}
+    for match in _HELPER_DEF.finditer(api_swift):
+        rest = api_swift[match.end():]
+        stop = _NEXT_FUNC.search(rest)
+        body = rest[: stop.start()] if stop else rest
+        verb = _HTTP_METHOD.search(body)
+        method = (verb.group(1) if verb else "GET").upper()
+        name = match.group(1)
+        if found.get(name, method) != method:
+            raise ValueError(
+                f"helper {name!r} is declared with two methods "
+                f"({found[name]} and {method}) — which one a call site takes "
+                f"cannot be decided from the source"
+            )
+        found[name] = method
+    return found
+
+
 def extract_rest(api_swift: str) -> set[tuple[str, str]]:
-    """{(METHOD, path_shape)} consumed by MiloAPIClient.swift, both call shapes."""
+    """{(METHOD, path_shape)} the vendored Swift declares, all three call shapes."""
     out: set[tuple[str, str]] = set()
 
     for method, path in _HELPER_CALL.findall(api_swift):
         out.add((method.upper(), _shape(path)))
+
+    methods = helper_methods(api_swift)
+    for name, path in _WRAPPED_CALL.findall(api_swift):
+        if name.lower() in _VERB_HELPERS:
+            continue                                   # read above, by name
+        if name not in methods:
+            raise ValueError(
+                f"{name}(path: {path!r}) targets a route through a helper this "
+                f"snapshot does not declare — vendor the file that defines it, "
+                f"or the route's method is a guess"
+            )
+        out.add((methods[name], _shape(path)))
 
     for match in _HAND_BUILT.finditer(api_swift):
         window = api_swift[match.end(): match.end() + _METHOD_WINDOW]
@@ -172,6 +238,11 @@ def _read_source(root: Path) -> str:
     return "\n".join(m.read_text() for m in matches)
 
 
+def _is_test_target(relative: Path) -> bool:
+    """Does this path sit inside one of the app's test targets?"""
+    return any(part.endswith(("Tests", "UITests")) for part in relative.parts[:-1])
+
+
 def unvendored_surface(root: Path) -> dict[str, set[str]]:
     """{file: {route literals}} for route literals OUTSIDE the vendored patterns.
 
@@ -185,11 +256,17 @@ def unvendored_surface(root: Path) -> dict[str, set[str]]:
     Deliberately crude: it greps for `"/api/…"` anywhere, so a path in a comment
     is reported too. That direction is safe — a false positive is a line to
     read, a false negative is the defect this exists for.
+
+    The app's own test targets are the one exception, and it is stated on the
+    DIRECTORY rather than on a route: a test target is not client code, and its
+    `/api/…` literals are fixtures (Milo-iOS' `Milo_iOSTests.swift` builds radio
+    artwork URLs). Excusing a route here instead would be the second tolerance
+    section `_broken_calls.why` refuses.
     """
     vendored = set(matching_files(root))
     escaped: dict[str, set[str]] = {}
     for path in sorted(root.rglob("*.swift")):
-        if path in vendored:
+        if path in vendored or _is_test_target(path.relative_to(root)):
             continue
         literals = set(_ROUTE_LITERAL.findall(path.read_text()))
         if literals:

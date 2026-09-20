@@ -10,11 +10,19 @@ the manifest against the real app **with no network**:
 | `MiloAPIClient+Push.swift` | the APNs token registration routes |
 | `MiloAPIClient+Media.swift` | the Now Playing transport + per-room volume routes |
 | `Models.swift` | every response field the app decodes by name |
+| `MiloNowPlayingBridge.swift` | the lock screen's device list: `/api/multiroom/state` |
 
 Every call goes through `MiloAPIClient` — the three App Intents and the widget's
 timeline provider build no URL of their own — but it is **no longer one file**,
-and the vendored set is matched by the glob patterns
-`("MiloAPIClient*.swift", "Models.swift")` rather than a frozen list.
+and the vendored set is matched by the patterns
+`("MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift")` rather
+than a frozen list.
+
+The third is a filename, not a glob, and it is the guard's own find: the Now
+Playing bridge is not named like a client file, yet it calls
+`MiloAPIClient.get(path:)` directly and is the **only** declaration of
+`GET /api/multiroom/state`, which it reads for one field — the per-room name the
+lock screen's sliders carry.
 
 **Why patterns.** The list used to name exactly two files. Milo-iOS `09b9789b`
 added `POST /api/push/tokens` and `DELETE /api/push/tokens/{}` in a third, the
@@ -29,6 +37,16 @@ rot mode this directory exists to prevent. Now Playing will add more
 checkout and refuses to compare at all when a `"/api/…"` literal sits outside
 these patterns. Vendor that file or widen the patterns — never ignore it.
 
+**Three call shapes, not two.** `be15c1f` moved both volume writes behind
+`writeVolume(path:body:label:)`, a private helper that builds its URL from
+`baseURL() + path` and sets `httpMethod` in its own body. The two-shape extractor
+lost them both — including `PATCH /api/volume/client/mac/{}`, which the manifest
+*already pinned*, so the script would have reported the app as having dropped a
+route it calls on every gesture. `helper_methods()` now resolves any
+`name(path: "/api/…")` through the method its helper's body assigns, GET when it
+assigns none: URLRequest's own rule, so it holds for a helper nobody has written
+yet, and an unresolvable one raises rather than defaulting.
+
 **Refresh them and `../../milo_ios_contract.json` together, in one commit.** The
 two must describe the same surface exactly, in both directions — a snapshot ahead
 of the manifest and a manifest ahead of the snapshot both fail
@@ -36,13 +54,22 @@ of the manifest and a manifest ahead of the snapshot both fail
 targets that the backend does not serve is named in `_broken_calls`, and that
 entry deletes itself as soon as either side moves.
 
-Captured from upstream `a84400a9dab7795adc61df347f77fa81241d91d1` on 2026-09-19.
+Captured from upstream `be15c1f3a9513e2d77832fc5a7a8d6b16cd5c5c9` on 2026-09-20.
 
-`a84400a9` is the first refresh that moved the surface — two routes, in a **fourth** file the
+**`be15c1f` is the refresh that showed what not running this costs.** Eighteen commits
+separated it from `a84400a9`, and across them the app had gained **four** routes the
+manifest named nowhere: `PATCH /api/volume/global`, `GET /api/multiroom/state`,
+`POST /api/push/sessions`, `GET /api/radio/stations`. Nothing said so, because the offline
+test compares the manifest to the *snapshot*, and the snapshot was the stale thing —
+`manifest == snapshot` stayed true while both described an app that had moved. The only
+trigger this check has is someone deciding the app changed, so decide on the commit that
+changes the wire.
+
+`a84400a9` was the first refresh that moved the surface — two routes, in a **fourth** file the
 glob found on its own. That is the patterns earning their keep: a frozen list would have
 reported an unchanged surface for the second time.
 
-None of the three refreshes since `09b9789b` moved a route — only
+None of the three refreshes before it moved a route — only
 `MiloAPIClient+Push.swift` changed each time, and only in what the app *sends*, how it *reads
 a reply*, or how it guards a retry. All three were taken anyway, each because the vendored
 copy would have taught something measured to be wrong: the version that forwarded Apple's raw
