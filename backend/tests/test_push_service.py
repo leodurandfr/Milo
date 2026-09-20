@@ -7,10 +7,13 @@ cannot be observed from this side: Apple throttles an app that pushes too
 often, and the degradation outlives the code change that caused it.
 """
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from backend.core.models.volume import VolumeConfig
+from backend.core.models.volume_state import ClientVolume, VolumeState
 from backend.core.models.ws_events import (
     SourcePositionUpdate,
     SourceStateChanged,
@@ -1021,3 +1024,84 @@ def test_the_interval_is_a_real_ceiling():
     """Guards the constant against being tuned to zero — at which point the
     coalescer is a no-op and every burst reaches Apple whole."""
     assert MIN_PUSH_INTERVAL_S >= 1.0
+
+
+class TestTheDeviceList:
+    """Which speakers the lock screen is given a slider for.
+
+    Never exercised until now: the `service` fixture above wires no volume
+    service, so every test in this file takes `_devices`' early return and the
+    whole body — the filter AND the normalization — ran nowhere.
+
+    What breaks when these fail is invisible from this side. The phone builds a
+    master gesture by averaging the sliders it was handed, so a list wider than
+    the one Milō averages into `global_volume_db` makes the two sides name
+    different numbers for "the house volume" — and it makes the app disagree
+    with itself, since awake it builds the same list from /api/volume/state and
+    filters on exactly these two flags.
+    """
+
+    LIMITS = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
+
+    @pytest.fixture
+    def volumes(self):
+        def state(**clients):
+            return VolumeState(
+                mode="multiroom",
+                global_volume_db=-43.0,
+                global_mute=False,
+                limit_min_db=self.LIMITS.limit_min_db,
+                limit_max_db=self.LIMITS.limit_max_db,
+                clients=clients,
+            )
+        return state
+
+    @pytest.fixture
+    def wired(self, registry, apns, volumes):
+        """The fixture the rest of this file deliberately does without."""
+        def build(**clients):
+            volume_service = MagicMock()
+            volume_service.get_volume_state = AsyncMock(return_value=volumes(**clients))
+            volume_service.volume_config = self.LIMITS
+            client_registry = MagicMock()
+            client_registry.get_all_clients = MagicMock(return_value={
+                mac: SimpleNamespace(name=mac.capitalize()) for mac in clients
+            })
+            return PushService(
+                token_registry=registry, apns_client=apns,
+                volume_service=volume_service, client_registry_service=client_registry,
+            )
+        return build
+
+    async def test_a_speaker_that_is_playing_gets_its_level_on_the_sliders_scale(
+        self, wired
+    ):
+        """-43 dB is the middle of -78..-8, and the phone is told 0.5 — never
+        the decibel, and never a fraction of a range this unit does not use."""
+        service = wired(kitchen=ClientVolume(
+            volume_db=-43.0, offset_db=0.0, mute=False,
+        ))
+
+        devices = await service._devices()
+
+        assert [(d.id, d.name, d.volume) for d in devices] == [("kitchen", "Kitchen", 0.5)]
+
+    async def test_an_unavailable_speaker_is_not_offered_a_slider(self, wired):
+        """It is out of `global_volume_db`'s average, so a handle for it moves
+        the phone's idea of the house volume and not Milō's."""
+        service = wired(
+            kitchen=ClientVolume(volume_db=-43.0, offset_db=0.0, mute=False),
+            garden=ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=False),
+        )
+
+        assert [d.id for d in await service._devices()] == ["kitchen"]
+
+    async def test_a_dac_client_is_not_offered_a_slider(self, wired):
+        """Same argument, other flag: an external amp owns its own level, so
+        Milō neither counts it nor can move it."""
+        service = wired(
+            kitchen=ClientVolume(volume_db=-43.0, offset_db=0.0, mute=False),
+            study=ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, volume_control=False),
+        )
+
+        assert [d.id for d in await service._devices()] == ["kitchen"]

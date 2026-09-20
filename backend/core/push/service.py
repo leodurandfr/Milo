@@ -36,7 +36,6 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from backend.core.models.volume import normalize_volume
 from backend.core.models.ws_events import (
     SourceStateChanged,
     SystemStateChanged,
@@ -582,10 +581,21 @@ class PushService:
         return self._last_attributes
 
     async def _devices(self) -> List[NowPlayingDevice]:
-        """One entry per snapcast client, so the lock screen gets one slider per room.
+        """One slider per room the phone can actually move, and no others.
 
         The level is normalized here rather than on the phone: only this side
         knows `volume_limits`, and they move.
+
+        `available` and `volume_control` are the SAME two filters
+        `global_volume_db` averages over, and they are applied for that reason.
+        A speaker that is off, or a client driving an external amp, has a level
+        Milō does not count; drawing it anyway gave the lock screen a handle
+        that moves nothing and, worse, a different set from the one Milō calls
+        the house volume — and the phone reconstructs a master gesture by
+        averaging the sliders it was given, so the two averages named different
+        numbers. It also put the app at odds with itself: awake, it builds this
+        list from `/api/volume/state` and filters on exactly these two flags,
+        so a sleeping phone was shown speakers a waking one dropped.
         """
         if not self._volume_service:
             return []
@@ -600,11 +610,10 @@ class PushService:
             NowPlayingDevice(
                 id=mac,
                 name=names.get(mac, mac),
-                volume=normalize_volume(
-                    client.volume_db, config.limit_min_db, config.limit_max_db
-                ),
+                volume=config.normalize(client.volume_db),
             )
             for mac, client in sorted(volume_state.clients.items())
+            if client.available and client.volume_control
         ]
 
     # =========================================================================
