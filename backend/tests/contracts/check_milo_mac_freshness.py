@@ -71,23 +71,72 @@ def _shape(path: str) -> str:
     return path.rstrip("/")
 
 
+# A `"…/api/…"` literal sitting on a line of code. The class excludes newlines on
+# purpose: a doc comment's backticked path followed by a later quote would
+# otherwise span half the file and swallow real call sites.
+_ANY_ROUTE_LITERAL = re.compile(r'"([^"\n]*?/api/[^"\n]*)"')
+
+
 def extract_rest(api_swift: str) -> set[tuple[str, str]]:
     """{(METHOD, path_shape)} consumed by MiloAPIService.swift.
 
-    Every request funnels through two helpers:
+    TWO passes, and the second is the one that matters.
+
+    Most requests funnel through two helpers, where the verb is explicit:
         send("<path>", method: "<M>", ...)   # method omitted -> GET
         fetchJSON("<path>")                   # always GET (wraps send)
-    so we read each call site's literal path and its optional method:. The helper
-    *definitions* (`func send(_ path: String, ...)`) take a variable, not a string
-    literal, so they don't match.
+    The helper *definitions* take a variable, not a string literal, so they do
+    not match.
+
+    But "every request funnels through those two" was the docstring's claim and
+    it was FALSE — measured 2026-09-20 against Milo-Mac 1f708a2. Three routes
+    are reached by building a URL instead of calling a helper: the radio favicon
+    proxy and the music-library cover proxy go through `URLComponents(string:)`,
+    and `/api/radio/images/` is matched with `hasPrefix` on a path the backend
+    itself served. All three are real dependencies — the cover proxy feeds the
+    whole library browser — and all three were invisible to a one-shape reader,
+    so the manifest could not list them and the offline equality test was green
+    while the backend was free to delete them.
+
+    So the second pass reads EVERY `/api/…` literal on a line of code, as GET,
+    and the first pass's explicit verbs win. That is URLSession's own default
+    rather than a guess about this app, and it cannot be defeated by a fourth
+    call shape the way a table of known helpers can: a literal is the one thing
+    every shape has in common. The cost is that a `/api/…` string used for
+    something other than a request would be read as one — accepted in this
+    direction, because a false positive is a line to read and a false negative
+    is a route nobody protects. This is the same lesson, and the same remedy,
+    as check_milo_ios_freshness.py::unvendored_surface.
+
+    Comment lines are skipped: they carry backticked route names by the dozen.
     """
     out: set[tuple[str, str]] = set()
+    explicit: set[str] = set()
+
     for m in re.finditer(
         r'\b(?:send|fetchJSON)\(\s*"([^"]+)"(?:\s*,\s*method:\s*"(\w+)")?',
         api_swift,
     ):
         method = (m.group(2) or "GET").upper()
-        out.add((method, _shape(m.group(1))))
+        shape = _shape(m.group(1))
+        explicit.add(shape)
+        out.add((method, shape))
+
+    for line in api_swift.splitlines():
+        if line.lstrip().startswith("//"):
+            continue
+        for raw in _ANY_ROUTE_LITERAL.findall(line):
+            path = raw[raw.index("/api/"):]
+            # A literal ending in "/" is a PREFIX, never a whole route: it is
+            # matched with hasPrefix against a path the backend served, and the
+            # filename follows. `/api/radio/images/` is the case — declared as
+            # `/api/radio/images` it would be a three-segment path that can
+            # never match the four-segment route FastAPI serves, so the entry
+            # would be unlistable and the dependency would stay invisible.
+            shape = _shape(path + "{}") if path.endswith("/") else _shape(path)
+            if shape not in explicit:
+                out.add(("GET", shape))
+
     return out
 
 

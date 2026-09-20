@@ -27,6 +27,7 @@ A static check that turns a silent contract break into an actionable failing tes
 import ast
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -309,24 +310,6 @@ def test_invariant_settings_payloads(pair_key):
         )
 
 
-@pytest.mark.parametrize("pair_key", ["multiroom/client_state_changed", "multiroom/zone_changed"])
-def test_invariant_multiroom_payloads(pair_key):
-    """The registry events must keep the top-level keys Milo-Mac reads.
-
-    Presence only: `client` and `zone` are `Dict[str, Any]` on the backend and
-    are decoded by MultiroomModels.swift, which is not vendored — so their
-    sub-fields are as opaque here as full_state.metadata is.
-    """
-    inv = _INVARIANTS[pair_key]
-    category, evt_type = pair_key.split("/")
-    cls = _sole_event_class(category, evt_type)
-
-    for key in inv["data_keys"]:
-        assert key in cls.model_fields, (
-            f"{cls.__name__} lost `{key}` — Milo-Mac reads it on {pair_key}."
-        )
-
-
 def test_all_payload_invariants_are_verified():
     """A new manifest invariant must not silently skip verification: this list
     mirrors the test functions above (routing/multiroom_error is presence-only,
@@ -345,10 +328,16 @@ def test_all_payload_invariants_are_verified():
         "payload_invariants changed in the manifest — add/remove the matching "
         "verification test in this file, then update this list."
     )
-    assert _INVARIANTS["routing/multiroom_error"]["data_keys"] == [], (
-        "routing/multiroom_error is documented as presence-only; if Milo-Mac "
-        "now reads payload fields, write a real invariant test for them."
-    )
+    presence_only = [
+        "routing/multiroom_error",
+        "multiroom/client_state_changed",
+        "multiroom/zone_changed",
+    ]
+    for pair_key in presence_only:
+        assert _INVARIANTS[pair_key]["data_keys"] == [], (
+            f"{pair_key} is documented as presence-only; if Milo-Mac now reads "
+            f"payload fields, write a real invariant test for them."
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -386,6 +375,62 @@ def test_manifest_matches_vendored_milo_mac():
         + "\n  ".join(errors + warnings)
         + "\nRefresh vendor/milo-mac/ and milo_mac_contract.json together, in one "
         "conscious commit. See CLAUDE.md §'External API clients — Milo-Mac and Milo-iOS'."
+    )
+
+
+def test_every_consumer_named_exists_in_the_snapshot():
+    """A `consumer` must name something the vendored Milo-Mac source contains.
+
+    The field is what makes a contract failure actionable — it points at the
+    Swift function to fix instead of at a path — so a name that resolves to
+    nothing points the reader at a function that does not exist, with the same
+    authority as one that does. Nothing checked it, and TEN had rotted: the two
+    REST entries still said `applyZoneDelta` and `fetchMultiroomTopology`
+    (renamed to setZoneVolumeDelta / fetchMultiroomState), and every WS entry
+    named a `handle*` method deleted in the 9727a28 refactor. One was worse than
+    absent — `handleVolumeChange` still EXISTS, in VolumeController, where it
+    takes a Double from the hotkey path and has nothing to do with the
+    volume/volume_changed event. A reader following it would have landed in the
+    wrong file and believed they were right.
+
+    This is why a WS `consumer` now names the decoder in WebSocketService, which
+    IS vendored and therefore checkable. `store_delegate` is checked too, and
+    the first draft of this test wrongly excused it as unverifiable "because
+    MiloStore.swift is not vendored": the IMPLEMENTATIONS live there, but every
+    one of them is DECLARED in the WebSocketServiceDelegate protocol inside the
+    vendored WebSocketService.swift, so the name is right here. Excusing a field
+    that can be checked is how the ten names rotted in the first place — the
+    exemption, not the rename, is what kept them quiet.
+    """
+    corpus = "\n".join(
+        (VENDOR_DIR / name).read_text()
+        for name in ("MiloAPIService.swift", "WebSocketService.swift")
+    )
+    assert "func " in corpus, "vendored snapshot unreadable — the check below cannot fail"
+
+    missing = []
+    for entry in _MANIFEST["rest"]:
+        for consumer in (c.strip() for c in entry["consumer"].split(",")):
+            symbol = consumer.split(".")[-1]
+            if not re.search(rf"\b{re.escape(symbol)}\b", corpus):
+                missing.append(f"REST {entry['method']} {entry['path']} -> {consumer}")
+    for event in _MANIFEST["ws"]["events"]:
+        for field in ("consumer", "store_delegate"):
+            value = event.get(field)
+            if not value:
+                continue
+            # `didReceiveMultiroomTransitionComplete(success: false)` names the
+            # call, not just the symbol: take the identifier and drop the args.
+            symbol = re.split(r"[ (+]", value.split(".")[-1])[0]
+            if not re.search(rf"\b{re.escape(symbol)}\b", corpus):
+                missing.append(
+                    f"WS {event['category']}/{event['type']} {field} -> {value}"
+                )
+
+    assert not missing, (
+        "consumers naming a symbol absent from vendor/milo-mac/:\n  "
+        + "\n  ".join(missing)
+        + "\nRefresh the snapshot, or correct the name to what Milo-Mac calls it now."
     )
 
 
