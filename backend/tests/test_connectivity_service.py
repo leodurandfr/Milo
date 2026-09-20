@@ -20,7 +20,14 @@ import pytest
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from backend.core.connectivity.service import ConnectivityService
+from backend.core.connectivity.service import (
+    HOLD_RECHECK_MAX_S,
+    INCONCLUSIVE_STRIKES,
+    PROBE_FAILED,
+    PROBE_INCONCLUSIVE,
+    PROBE_OK,
+    ConnectivityService,
+)
 from backend.core.models.audio_state import ConnectivityLevel
 
 NM_FULL = 4
@@ -76,7 +83,7 @@ def ipv4_probe_succeeds():
     reach nmcheck.gnome.org from CI — and fail closed on a build host with no
     IPv4, turning an infrastructure fact into a red test.
     """
-    with patch.object(ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=True)):
+    with patch.object(ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=PROBE_OK)):
         yield
 
 
@@ -108,7 +115,13 @@ async def test_initialize_reads_cached_property_without_forcing_a_probe():
     nm_iface.get_connectivity.assert_awaited_once()
     nm_iface.call_check_connectivity.assert_not_awaited()
     properties_iface.on_properties_changed.assert_called_once()
-    spawn_mock.assert_called_once()
+    # Both background jobs are armed here and neither is awaited: the forced
+    # re-check that corrects a stale boot value, and the loop that is the only
+    # thing able to see a grey failure.
+    assert {c.kwargs["label"] for c in spawn_mock.call_args_list} == {
+        "initial_recheck",
+        "ipv4_probe_loop",
+    }
 
 
 async def test_initialize_keeps_the_level_nm_reports():
@@ -454,15 +467,32 @@ class TestCleanup:
 # So FULL — and only FULL — is confirmed before it is believed.
 # ============================================================================
 
+class _RaisingSession:
+    """A ClientSession whose request raises. Written as a real class, not a
+    MagicMock: magic methods are looked up on the *type*, so an instance-level
+    `__aenter__` is silently ignored and `async with` hands back a fresh auto
+    mock that raises nothing. That is how three probe tests sat green while
+    exercising no error path at all — caught only when the probe stopped
+    returning the same value for success and for silence."""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_a):
+        return False
+
+    def get(self, *_a, **_k):
+        raise self._exc
+
+
 def _session_raising(exc):
     """Stand in for the outside world: a session whose request raises `exc`."""
-    session = MagicMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=False)
-    session.get = MagicMock(side_effect=exc)
     return patch.multiple(
         "backend.core.connectivity.service.aiohttp",
-        ClientSession=MagicMock(return_value=session),
+        ClientSession=MagicMock(side_effect=lambda **_kw: _RaisingSession(exc)),
         TCPConnector=MagicMock(),
     )
 
@@ -478,7 +508,7 @@ async def test_nm_reporting_full_over_ipv6_alone_publishes_limited():
     service._level = ConnectivityLevel.LIMITED
 
     with patch.object(
-        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=False)
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=PROBE_FAILED)
     ):
         await service._adopt(NM_FULL, "changed")
 
@@ -504,7 +534,7 @@ async def test_a_degraded_level_is_never_second_guessed():
     confirming bad news would spend a request to learn nothing."""
     service = make_service()
     service._level = ConnectivityLevel.FULL
-    probe = AsyncMock(return_value=True)
+    probe = AsyncMock(return_value=PROBE_OK)
 
     with patch.object(ConnectivityService, "_confirm_ipv4", probe):
         await service._adopt(NM_LIMITED, "changed")
@@ -525,7 +555,7 @@ async def test_a_probe_that_times_out_trusts_nm():
     service = make_service()
 
     with _session_raising(asyncio.TimeoutError()):
-        assert await _REAL_CONFIRM_IPV4(service) is True
+        assert await _REAL_CONFIRM_IPV4(service) == PROBE_INCONCLUSIVE
 
 
 async def test_a_dns_failure_is_not_an_ipv4_verdict():
@@ -535,7 +565,7 @@ async def test_a_dns_failure_is_not_an_ipv4_verdict():
     exc = aiohttp.ClientConnectorDNSError(MagicMock(), OSError("no resolver"))
 
     with _session_raising(exc):
-        assert await _REAL_CONFIRM_IPV4(service) is True
+        assert await _REAL_CONFIRM_IPV4(service) == PROBE_INCONCLUSIVE
 
 
 async def test_a_refused_ipv4_connection_is_a_verdict():
@@ -544,26 +574,99 @@ async def test_a_refused_ipv4_connection_is_a_verdict():
     exc = aiohttp.ClientConnectorError(MagicMock(), OSError("unreachable"))
 
     with _session_raising(exc):
-        assert await _REAL_CONFIRM_IPV4(service) is False
+        assert await _REAL_CONFIRM_IPV4(service) == PROBE_FAILED
+
+
+async def test_a_silent_grey_failure_is_caught_by_the_loop_alone():
+    """The failure that emits nothing, and the reason the loop exists.
+
+    Measured on the unit 2026-09-20: gateway silent, link and lease both intact.
+    NM logged nothing in 100 seconds and nothing in 7 minutes — its own probe
+    kept succeeding over IPv6, so its value never changed, and NM signals only
+    on change. No event means no `_on_properties_changed` and no `recheck`, so
+    without this pass the outage is invisible for ever, not for one interval.
+    """
+    service = make_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+
+    with patch.object(
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=PROBE_FAILED)
+    ):
+        await service._periodic_check()
+
+    assert service.level is ConnectivityLevel.LIMITED
+    event = service._state_machine.broadcast.await_args.args[0]
+    assert event.connectivity == "limited"
 
 
 async def test_a_held_downgrade_lifts_itself_when_ipv4_returns():
-    """NM has no reason to emit anything while we contradict it — its own value
-    stays FULL — so nothing but our own re-probe can lift the hold. Without this
-    loop the unit stays 'no internet' until the backend restarts."""
+    """Same loop, the other direction. NM has no reason to emit while we
+    contradict it, so nothing else can lift the downgrade and the unit would
+    stay 'no internet' until the backend restarted."""
     service = make_service()
     service._level = ConnectivityLevel.LIMITED
     service._nm_level = ConnectivityLevel.FULL
-    service._holding = True
 
-    with patch.object(ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=True)), \
-         patch("backend.core.connectivity.service.HOLD_RECHECK_START_S", 0.001):
-        await service._hold_loop()
+    await service._periodic_check()  # autouse fixture: probe succeeds
 
     assert service.level is ConnectivityLevel.FULL
-    assert service._holding is False
     event = service._state_machine.broadcast.await_args.args[0]
     assert event.connectivity == "full"
+
+
+async def test_the_loop_does_not_probe_while_nm_already_reports_a_problem():
+    """We never upgrade on our own evidence, and confirming bad news spends a
+    request to learn nothing. NM will signal when it clears."""
+    service = make_service()
+    service._level = ConnectivityLevel.NONE
+    service._nm_level = ConnectivityLevel.NONE
+    probe = AsyncMock(return_value=PROBE_OK)
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", probe):
+        await service._periodic_check()
+
+    assert service.level is ConnectivityLevel.NONE
+    probe.assert_not_awaited()
+
+
+async def test_the_backoff_grows_only_while_the_contradiction_holds():
+    """What the loop waits for — IPv4 returning on a link NM calls healthy —
+    takes minutes, so a fixed fast cadence would spend requests for nothing.
+    A pass that resolves the contradiction must reset it, or the next outage
+    inherits the previous one's delay."""
+    service = make_service()
+    service._level = ConnectivityLevel.LIMITED
+    service._nm_level = ConnectivityLevel.FULL
+
+    with patch.object(
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=PROBE_FAILED)
+    ):
+        first = service._hold_backoff
+        await service._periodic_check()
+        grown = service._hold_backoff
+        await service._periodic_check()
+
+    assert grown > first
+    assert service._hold_backoff > grown
+
+    await service._periodic_check()  # probe succeeds, contradiction resolved
+    assert service._hold_backoff == first
+
+
+async def test_the_backoff_is_capped():
+    """Unbounded doubling would leave a recovered link undetected for hours."""
+    service = make_service()
+    service._level = ConnectivityLevel.LIMITED
+    service._nm_level = ConnectivityLevel.FULL
+    service._hold_backoff = HOLD_RECHECK_MAX_S
+
+    with patch.object(
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=PROBE_FAILED)
+    ):
+        await service._periodic_check()
+
+    assert service._hold_backoff == HOLD_RECHECK_MAX_S
 
 
 async def test_recheck_re_evaluates_without_waiting_for_nm_to_speak():
@@ -577,7 +680,7 @@ async def test_recheck_re_evaluates_without_waiting_for_nm_to_speak():
     service._nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_FULL))
 
     with patch.object(
-        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=False)
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=PROBE_FAILED)
     ):
         await service.recheck("link change")
 
@@ -595,3 +698,65 @@ async def test_recheck_before_the_bus_is_up_is_a_no_op():
 
     assert service.level is ConnectivityLevel.UNKNOWN
     service._state_machine.broadcast.assert_not_awaited()
+
+
+async def test_silence_alone_is_not_a_verdict():
+    """The trap that made the first version of this loop useless on the unit.
+
+    A blackholed path and a merely slow link produce the *same* signal —
+    nothing. Measured 2026-09-20: with the gateway's ARP entry poisoned the
+    probe raises TimeoutError, exactly as a link under load would, and the
+    original code read that as "could not tell" and trusted NM. Ten minutes of
+    a dead IPv4 path went unreported.
+
+    One silence must still not condemn a slow link, so the rule is repetition.
+    """
+    service = make_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+
+    with patch.object(
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=PROBE_INCONCLUSIVE)
+    ):
+        for _ in range(INCONCLUSIVE_STRIKES - 1):
+            await service._periodic_check()
+            assert service.level is ConnectivityLevel.FULL
+            service._state_machine.broadcast.assert_not_awaited()
+
+        await service._periodic_check()
+
+    assert service.level is ConnectivityLevel.LIMITED
+
+
+async def test_one_answer_clears_the_silence_count():
+    """A link that stutters and recovers must not accumulate strikes across
+    unrelated episodes, or the third stutter in a day reads as an outage."""
+    service = make_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+
+    with patch.object(
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=PROBE_INCONCLUSIVE)
+    ):
+        for _ in range(INCONCLUSIVE_STRIKES - 1):
+            await service._periodic_check()
+    assert service._inconclusive == INCONCLUSIVE_STRIKES - 1
+
+    await service._periodic_check()  # autouse fixture: the probe answers
+    assert service._inconclusive == 0
+    assert service.level is ConnectivityLevel.FULL
+
+
+async def test_a_refusal_condemns_on_the_first_pass():
+    """A connect failure is an answer, not silence — it needs no repetition.
+    This is what the cable-out path produces (`Network is unreachable`)."""
+    service = make_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+
+    with patch.object(
+        ConnectivityService, "_confirm_ipv4", AsyncMock(return_value=PROBE_FAILED)
+    ):
+        await service._periodic_check()
+
+    assert service.level is ConnectivityLevel.LIMITED
