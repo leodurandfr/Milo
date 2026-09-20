@@ -212,11 +212,11 @@ class EqualizerService:
         reconnect_delay = RECONNECT_DELAY
 
         while self._running:
+            usable = False
             try:
                 connected = await self._connect_once()
 
                 if connected:
-                    reconnect_delay = RECONNECT_DELAY
 
                     # Volume and mute first, config second, and the order is
                     # load-bearing twice over. `_connect_once` publishes
@@ -229,26 +229,34 @@ class EqualizerService:
                     # so anything after it is skipped. Behind it, that meant the
                     # cached level never reached the daemon and the speaker sat
                     # muted at the floor until the next pass.
-                    await self._restore_after_reconnect()
-                    await self._load_state_from_config()
+                    if await self._restore_after_reconnect():
+                        # A session that reached the daemon: the backoff has
+                        # served its purpose and starts over.
+                        reconnect_delay = RECONNECT_DELAY
+                        usable = True
+                        await self._load_state_from_config()
 
-                    # Idle: periodically probe CamillaDSP to detect silent disconnections
-                    while self._running and self._connected:
-                        await asyncio.sleep(RECONNECT_DELAY)
-                        if self._connected:
-                            await self._probe_connection()
+                        # Idle: periodically probe CamillaDSP to detect silent disconnections
+                        while self._running and self._connected:
+                            await asyncio.sleep(RECONNECT_DELAY)
+                            if self._connected:
+                                await self._probe_connection()
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error(f"Connection loop error: {e}")
 
-            # Outside the try, and on every path — mirroring
-            # CamillaDSPService._connection_loop. Sleeping only when
-            # `_connect_once` itself failed let a connect that succeeded and a
-            # restore that then failed spin with no delay at all: connect,
-            # GetConfig error, disconnect, connect again, two log lines a pass.
-            if self._running:
+            # Outside the try, so no path can skip it — but not on every pass.
+            # A session that worked and then lost its socket is retried at once,
+            # because `_exec` no longer reconnects and every `/equalizer/*` call
+            # answers 400 until the loop is back: waiting there would spend the
+            # server's sync retries on a daemon that is probably already up.
+            # What must back off is the connect-then-fail pass — `-w` holding an
+            # invalid config, or a GetConfig timing out under CPU starvation —
+            # which otherwise churns a fresh websocket client and three log lines
+            # every RECONNECT_DELAY for ever.
+            if self._running and not usable:
                 self.logger.info(f"Reconnecting to CamillaDSP in {reconnect_delay:.0f}s...")
                 await asyncio.sleep(reconnect_delay)
                 reconnect_delay = min(reconnect_delay * 1.5, MAX_RECONNECT_DELAY)
@@ -271,8 +279,12 @@ class EqualizerService:
             self._connected = False
             await self._drop_client()
 
-    async def _restore_after_reconnect(self) -> None:
-        """Restore volume/mute from cache after CamillaDSP reconnection.
+    async def _restore_after_reconnect(self) -> bool:
+        """Restore volume/mute from cache after CamillaDSP reconnection, reporting.
+
+        The loop needs the outcome, not just the attempt: a connection whose
+        restore failed is not a usable one, and treating it as one is what let
+        a refusing daemon churn a fresh client every backoff for ever.
 
         CamillaDSP starts muted (-m flag). DSP effects (EQ, compressor, loudness,
         crossover) are already restored from the config file on disk. Only volume
@@ -286,8 +298,10 @@ class EqualizerService:
             self.logger.info(
                 f"Restored volume after reconnect: {volume:.1f} dB, mute={mute}"
             )
+            return True
         except Exception as e:
             self.logger.error(f"Error restoring volume after reconnect: {e}")
+            return False
 
     async def _drop_client(self) -> None:
         """Let go of the client, closing the socket it may still be holding.

@@ -149,6 +149,16 @@ DEFAULT_VOLUME_DB = -45.0       # Default volume for new clients and startup
 MIN_VOLUME_DB = -80.0           # Technical minimum (silent)
 MAX_VOLUME_DB = 0.0             # Technical maximum
 
+# What the main fader holds the moment CamillaDSP starts, set by `--gain` in
+# milo-camilladsp.service. Mirrored here because a systemd unit and a Python
+# module cannot share a declaration: the unit is the authority, this is what the
+# volume cache reports for a daemon it has not reached yet. The satellite keeps
+# its own copy (milo-client/app/services/equalizer.py::STARTUP_GAIN_DB) since
+# the two trees deploy independently, and
+# backend/tests/architecture/test_camilladsp_startup_floor.py holds all four
+# declarations equal.
+STARTUP_GAIN_DB = MIN_VOLUME_DB
+
 # =============================================================================
 # DOCK APPS & AUDIO SOURCES
 # =============================================================================

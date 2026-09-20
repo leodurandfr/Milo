@@ -503,9 +503,15 @@ class TestCamillaDSPService:
         assert camilladsp_service._loudness["low_boost"] == 8.0
 
     def test_initial_volume_settings(self, camilladsp_service):
-        """Should have default volume settings"""
-        assert camilladsp_service._volume["main"] == 0.0
-        assert camilladsp_service._volume["mute"] is False
+        """The cache must describe the daemon its unit starts, not unity.
+
+        `get_volume()` answers from here while disconnected, so this is what the
+        equalizer status payload and the diagnostic collector report for a
+        daemon that came up `-m --gain=STARTUP_GAIN_DB`.
+        """
+        from backend.config.constants import STARTUP_GAIN_DB
+        assert camilladsp_service._volume["main"] == STARTUP_GAIN_DB
+        assert camilladsp_service._volume["mute"] is True
 
     def test_get_equalizer_settings_snapshots_local_cache(self, camilladsp_service):
         """get_equalizer_settings() returns the local client's full EQ record from cache."""
@@ -661,8 +667,9 @@ class TestCamillaDSPService:
     @pytest.mark.asyncio
     async def test_get_volume_disconnected(self, camilladsp_service):
         """Should return cached volume when disconnected"""
+        from backend.config.constants import STARTUP_GAIN_DB
         volume = await camilladsp_service.get_volume()
-        assert volume == {"main": 0.0, "mute": False}
+        assert volume == {"main": STARTUP_GAIN_DB, "mute": True}
 
     @pytest.mark.asyncio
     async def test_get_filters_disconnected(self, camilladsp_service):

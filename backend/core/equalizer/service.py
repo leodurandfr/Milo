@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
+from backend.config.constants import STARTUP_GAIN_DB
 from backend.core.equalizer.camilladsp_client import CamillaDspClient
 from backend.core.equalizer.config_builder import (
     compressor_processor_def,
@@ -137,9 +138,14 @@ class CamillaDSPService:
         # satellite keeps in milo-client/app/services/equalizer.py.
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
+        # Matches CamillaDSP's `-m --gain=STARTUP_GAIN_DB` start, because
+        # `get_volume()` answers from this cache whenever the daemon is out of
+        # reach — the equalizer status payload, EqualizerRouter.get_volume for
+        # the local client and the diagnostic collector all read it. Unity here
+        # reported a fader at full scale while it sat silent at the floor.
         self._volume: Dict[str, Any] = {
-            "main": 0.0,  # dB
-            "mute": False
+            "main": STARTUP_GAIN_DB,  # dB
+            "mute": True
         }
 
         # Preset / custom-gains state (formerly in settings.json under equalizer.*)

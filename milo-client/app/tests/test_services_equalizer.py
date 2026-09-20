@@ -331,6 +331,7 @@ class TestEqualizerServiceConnection:
         order = []
         async def restore():
             order.append("restore")
+            return True
         async def load():
             order.append("load")
         service._restore_after_reconnect = restore
@@ -382,6 +383,49 @@ class TestEqualizerServiceConnection:
             await service._connection_loop()
 
         assert slept, "the loop retried without waiting: a refusing daemon would spin"
+        assert slept == sorted(slept) and slept[-1] > slept[0], (
+            f"the backoff never grew: {slept}. A delay reset on every successful "
+            f"connect churns a fresh client every RECONNECT_DELAY for ever."
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_session_that_worked_is_retried_without_waiting(self):
+        """A socket lost after a usable session must not cost a backoff.
+
+        `_exec` no longer reconnects, so every `/equalizer/*` call answers 400
+        until the loop is back. Sleeping there spends the server's sync retries
+        (6 at 3 s) on a daemon that is most likely already up — measured cost of
+        a lone DSP restart, before this: ~10 s of refusals instead of ~5.
+        """
+        from services.equalizer import EqualizerService
+        service = EqualizerService()
+        service._load_state_from_config = AsyncMock()
+        service._restore_after_reconnect = AsyncMock(return_value=True)
+
+        passes = []
+        async def connect_once():
+            passes.append(1)
+            service._connected = True
+            return True
+        service._connect_once = connect_once
+
+        async def drop_on_first_probe():
+            service._connected = False
+            if len(passes) >= 2:
+                service._running = False
+        service._probe_connection = drop_on_first_probe
+
+        slept = []
+        async def record(delay):
+            slept.append(delay)
+        with patch("services.equalizer.asyncio.sleep", record):
+            await service._connection_loop()
+
+        # The idle probe sleeps; the reconnect must not add its own on top.
+        assert len(slept) == len(passes), (
+            f"{len(slept)} sleeps for {len(passes)} passes: a healthy session "
+            f"that dropped paid a reconnect delay it did not owe"
+        )
 
     @pytest.mark.asyncio
     async def test_a_first_connect_restores_the_startup_floor_not_unity(

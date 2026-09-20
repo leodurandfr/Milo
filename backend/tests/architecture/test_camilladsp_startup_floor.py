@@ -37,7 +37,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.config.constants import MIN_VOLUME_DB
+from backend.config.constants import MIN_VOLUME_DB, STARTUP_GAIN_DB
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -47,6 +47,7 @@ UNITS = {
 }
 
 SATELLITE_SERVICE = REPO_ROOT / "milo-client" / "app" / "services" / "equalizer.py"
+SERVER_SERVICE = REPO_ROOT / "backend" / "core" / "equalizer" / "service.py"
 
 # The declaration the satellite's volume cache starts from, mirrored from its unit.
 STARTUP_GAIN_RE = re.compile(r"^STARTUP_GAIN_DB\s*=\s*(-?\d+(?:\.\d+)?)\s*$", re.MULTILINE)
@@ -173,6 +174,33 @@ def test_the_satellite_volume_cache_starts_at_its_units_floor():
     assert declared == unit_gain, (
         f"STARTUP_GAIN_DB is {declared} but milo-client-camilladsp.service "
         f"starts the daemon at {unit_gain}"
+    )
+
+
+def test_each_volume_cache_starts_where_its_own_unit_does():
+    """Both halves keep a cache, and both answer from it while disconnected.
+
+    `get_volume()` returns the cache verbatim when the daemon is out of reach,
+    so a cache at unity describes a fader at full scale while it sits silent at
+    the floor — the equalizer status payload, `EqualizerRouter.get_volume` for
+    the local client and the diagnostic collector all read it. The satellite's
+    copy is also what its connection loop *writes* on the first connect, so
+    there it misconfigures rather than merely misreports. The server's was left
+    at 0.0 when the satellite's was fixed, which is the same one-sided move that
+    caused the incident this file exists for.
+    """
+    assert STARTUP_GAIN_DB == _gain(_camilladsp_argv(UNITS["server"])), (
+        f"backend STARTUP_GAIN_DB is {STARTUP_GAIN_DB} but milo-camilladsp.service "
+        f"starts the daemon at {_gain(_camilladsp_argv(UNITS['server']))}"
+    )
+    server_src = SERVER_SERVICE.read_text(encoding="utf-8")
+    assert re.search(r'"main":\s*STARTUP_GAIN_DB', server_src), (
+        f"{SERVER_SERVICE.relative_to(REPO_ROOT)} does not seed its volume cache "
+        f"from STARTUP_GAIN_DB"
+    )
+    assert re.search(r'"mute":\s*True', server_src), (
+        f"{SERVER_SERVICE.relative_to(REPO_ROOT)} seeds its volume cache unmuted, "
+        f"but the daemon starts with -m"
     )
 
 
