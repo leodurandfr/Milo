@@ -31,13 +31,16 @@ ExecStartPre=-/usr/local/bin/milo-alsa-passthrough
 # -a 127.0.0.1: Listen only on localhost
 # -m: Start muted - backend will unmute after setting correct volume
 # -w: Wait for valid config before processing
-# --gain=-60.0: Safe startup volume (restored by backend after init)
+# --gain=-80.0: Safe startup volume — MIN_VOLUME_DB, the lowest level this
+#   appliance can represent, so the fader can never come up loud. Restored by
+#   the backend after init. The satellite unit carries the same floor and
+#   test_camilladsp_startup_floor.py holds them equal.
 ExecStart=/usr/local/bin/camilladsp \
     -p 1234 \
     -a 127.0.0.1 \
     -m \
     -w \
-    --gain=-60.0 \
+    --gain=-80.0 \
     /var/lib/milo/camilladsp/config.yml
 
 # Restart policy

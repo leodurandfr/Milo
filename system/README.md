@@ -141,7 +141,7 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 - **Port**: 1234 (WebSocket control, localhost only)
 - **Dependencies**: sound.target (`Requires=`)
 - **Startup**: Enabled at boot
-- **Notes**: Starts muted (`-m`) and waits for a valid config (`-w`) at safe startup volume (`--gain=-60.0`); the backend unmutes and restores volume after init. Runs with real-time FIFO scheduling (`CPUSchedulingPolicy=fifo`, priority 15) and locked memory. `RuntimeDirectoryPreserve=yes` on `/run/milo`, shared with the mpv-based source units.
+- **Notes**: Starts muted (`-m`) and waits for a valid config (`-w`) at safe startup volume (`--gain=-80.0`, the appliance's technical minimum); the backend unmutes and restores volume after init. Runs with real-time FIFO scheduling (`CPUSchedulingPolicy=fifo`, priority 15) and locked memory. `RuntimeDirectoryPreserve=yes` on `/run/milo`, shared with the mpv-based source units.
 
 #### milo-navidrome.service
 - **Role**: Navidrome catalog engine for the Music Library source (Subsonic API, localhost-only, indexes `/media/milo`)

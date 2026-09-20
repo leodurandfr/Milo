@@ -273,6 +273,7 @@ makes this silent.
 |---|---|---|
 | Enable | The main switch activates within a few seconds; audio continues | targeted |
 | Boot with multiroom already on | After a reboot, each satellite comes back **at its own stored level**, not at the local one — the boot-time push (`_delayed_multiroom_sync`) waits on snapserver answering, then re-sends. Nothing in CI executes its body: the suite only ever reaches its give-up branch | targeted |
+| Satellite startup floor ⚠ | Restart a satellite's CamillaDSP alone (`sat restart <t> dsp`) and push `PUT :8001/equalizer/mute {"muted": false}` within a second: it must answer **400**, and the daemon's own `GetVolume` must read the unit's `--gain` floor, muted. A 200 here is a speaker that opens at whatever the fader happens to hold — measured 2026-09-20, 3 s at 0 dB in a room set to -52.8 dB. Run it on a silent stream: the floor sits inside this fleet's listening range, it is not inaudible | targeted |
 | Sync | Two speakers playing the same track show no audible echo or drift over ≥5 min | targeted |
 | Client volume | The per-speaker slider and mute affect only that speaker | targeted |
 | Zone | A zone groups speakers; its global volume and mute act on all members | targeted |

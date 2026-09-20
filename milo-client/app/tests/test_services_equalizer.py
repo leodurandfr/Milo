@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 
 class TestEqualizerServiceProperties:
@@ -204,7 +204,7 @@ class TestEqualizerServiceConnection:
         with patch("services.equalizer.CamillaDspClient", return_value=refuses):
             from services.equalizer import EqualizerService
             service = EqualizerService()
-            result = await service.connect()
+            result = await service._connect_once()
             assert result is False
             assert service.connected is False
             assert service._client is None
@@ -240,12 +240,31 @@ class TestEqualizerServiceConnection:
         mock_camilla_client.set_mute.assert_called_with(False)
 
     @pytest.mark.asyncio
-    async def test_exec_reconnects_on_failure(self, mock_camilla_client):
-        """Should reconnect and retry when first attempt fails.
+    async def test_exec_never_opens_a_connection_of_its_own(self, mock_camilla_client):
+        """A command must not reach a daemon the loop has not restored yet.
 
-        The retry is handed the *live* client rather than the one the first
-        attempt used: a reconnect builds a new one, and a call closed over the
-        dead one would retry down the socket that just failed.
+        CamillaDSP comes up muted at its unit's `--gain` floor, and only the
+        connection loop pushes the cached volume and mute over it. A command
+        that connected here would run against the bare fader — which is exactly
+        what the server's `PUT /equalizer/mute` did on 2026-09-20.
+        """
+        with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client) as factory:
+            from services.equalizer import EqualizerService
+            service = EqualizerService()
+            assert service.connected is False
+
+            with pytest.raises(ConnectionError):
+                await service._exec(lambda c: c.set_mute(False))
+
+            factory.assert_not_called()
+            mock_camilla_client.set_mute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_exec_marks_disconnected_so_the_loop_takes_over(self, mock_camilla_client):
+        """A failed call hands the connection back to the loop, which restores it.
+
+        Without this the service would keep a client the daemon has dropped and
+        every later command would fail down the same dead socket.
         """
         with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
             from services.equalizer import EqualizerService
@@ -253,16 +272,137 @@ class TestEqualizerServiceConnection:
             service._client = mock_camilla_client
             service._connected = True
 
-            seen = []
-            async def flaky_call(client):
-                seen.append(client)
-                if len(seen) == 1:
-                    raise IOError("Connection lost")
-                return "ok"
+            async def fails(client):
+                raise IOError("Connection lost")
 
-            result = await service._exec(flaky_call)
-            assert result == "ok"
-            assert seen == [mock_camilla_client, mock_camilla_client]
+            with pytest.raises(IOError):
+                await service._exec(fails)
+
+            assert service.connected is False
+
+    @pytest.mark.asyncio
+    async def test_a_push_that_lands_before_the_loop_is_deferred_not_applied_bare(
+        self, mock_camilla_client
+    ):
+        """The 2026-09-20 sequence, replayed against a daemon the loop has not reached.
+
+        The server pushes the level, then unmutes unconditionally
+        (`websocket.py::_apply_target_volume_to_client`). Both must be refused
+        while there is no restored connection, and both must survive in the
+        cache so the loop replays them — volume first, unmute second. The
+        ordering is the point: reversed, the fader opens before it is set.
+        """
+        with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
+            from services.equalizer import EqualizerService
+            service = EqualizerService()
+
+            assert await service.set_volume(-52.8) is False
+            assert await service.set_mute(False) is False
+            mock_camilla_client.set_mute.assert_not_awaited()
+
+            # The loop gets there; it is the only path that connects.
+            service._client = mock_camilla_client
+            service._connected = True
+            await service._restore_after_reconnect()
+
+        assert mock_camilla_client.method_calls == [
+            call.set_volume(-52.8),
+            call.set_mute(False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_the_level_is_restored_before_the_config_is_read(
+        self, mock_camilla_client
+    ):
+        """Order inside the loop, not just between the loop and everything else.
+
+        `_load_state_from_config` goes through `_exec`, which no longer
+        reconnects, so a failure there clears `_connected` and skips whatever
+        comes after it. With the config read first, that left the cached level
+        unsent and the speaker muted at its `--gain` floor until the next pass.
+        Reading the config after means a failed read costs the EQ state it was
+        fetching, never the level.
+        """
+        from services.equalizer import EqualizerService
+        service = EqualizerService()
+        service._client = mock_camilla_client
+        service._connected = True
+
+        order = []
+        async def restore():
+            order.append("restore")
+        async def load():
+            order.append("load")
+        service._restore_after_reconnect = restore
+        service._load_state_from_config = load
+        service._connect_once = AsyncMock(return_value=True)
+        service._probe_connection = AsyncMock()
+
+        async def stop_after_first_pass(_delay):
+            service._running = False
+        with patch("services.equalizer.asyncio.sleep", stop_after_first_pass):
+            await service._connection_loop()
+
+        assert order == ["restore", "load"]
+
+    @pytest.mark.asyncio
+    async def test_a_restore_that_fails_still_costs_a_backoff(self):
+        """A connect that succeeds and a restore that then fails must not spin.
+
+        The delay used to be slept only when `_connect_once` itself failed, so
+        this path — connect ok, GetConfig error, `_exec` clears `_connected`,
+        idle loop exits at once — went straight back to connecting with no wait:
+        two log lines a pass, for as long as the daemon refused. `-w` holding an
+        invalid config, or a timeout under CPU starvation, both reach it.
+        """
+        from services.equalizer import EqualizerService
+        service = EqualizerService()
+        service._probe_connection = AsyncMock()
+        service._load_state_from_config = AsyncMock()
+
+        # The loop is stopped by counting passes, not by the sleep it is meant
+        # to take — otherwise the very defect under test (never sleeping) would
+        # hang the suite instead of failing it.
+        passes = []
+        async def connect_once():
+            passes.append(1)
+            if len(passes) >= 3:
+                service._running = False
+            service._connected = True
+            return True
+        service._connect_once = connect_once
+
+        async def restore_then_drop():
+            service._connected = False
+            raise ConnectionError("Not connected to CamillaDSP")
+        service._restore_after_reconnect = restore_then_drop
+
+        slept = []
+        with patch("services.equalizer.asyncio.sleep", AsyncMock(side_effect=lambda d: slept.append(d))):
+            await service._connection_loop()
+
+        assert slept, "the loop retried without waiting: a refusing daemon would spin"
+
+    @pytest.mark.asyncio
+    async def test_a_first_connect_restores_the_startup_floor_not_unity(
+        self, mock_camilla_client
+    ):
+        """Before the server's first push, the loop must push the floor, not 0 dB.
+
+        `_restore_after_reconnect` runs on the first connect too, so the cache's
+        initial value is what the fader holds while the server is still
+        resolving the client's level. At unity that is a speaker at full scale.
+        """
+        with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
+            from services.equalizer import EqualizerService, STARTUP_GAIN_DB
+            service = EqualizerService()
+            service._client = mock_camilla_client
+            service._connected = True
+
+            await service._restore_after_reconnect()
+
+        mock_camilla_client.set_volume.assert_awaited_once_with(STARTUP_GAIN_DB)
+        mock_camilla_client.set_mute.assert_awaited_once_with(True)
 
     @pytest.mark.asyncio
     async def test_a_reconnect_closes_the_client_it_replaces(self, equalizer_service):

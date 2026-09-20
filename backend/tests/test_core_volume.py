@@ -201,20 +201,25 @@ class TestEqualizerController:
     async def test_an_offline_client_is_not_reported_as_applied(self, controller, mock_router):
         """A command the router refused to send must not read as applied.
 
-        Both refusals arrive as `skipped` and they are opposites: a DAC client
-        owns its own volume so there was nothing to send, while an offline
-        client never heard the command. Counting the second as success is what
-        let VolumeService commit a level to a satellite it had not reached.
+        Both refusals arrive as `skipped` and they are opposites: on a DAC
+        client the level trim is something Milo does not own, so there was
+        nothing to send, while an offline client never heard the command.
+        Counting the second as success is what let VolumeService commit a level
+        to a satellite it had not reached.
+
+        The volume half of this pair no longer exists: a DAC client is routed
+        at unity rather than skipped, because a fader nobody writes is a fader
+        left at whatever its unit started it on.
         """
         mock_router.set_volume = AsyncMock(
             return_value={"status": "skipped", "reason": "client_offline"}
         )
         assert await controller.set_equalizer_volume("milo-client-01", -25.0) is False
 
-        mock_router.set_volume = AsyncMock(
+        mock_router.set_gain = AsyncMock(
             return_value={"status": "skipped", "reason": "external_volume_control"}
         )
-        assert await controller.set_equalizer_volume("milo-client-01", -25.0) is True
+        assert await controller.set_equalizer_gain("milo-client-01", 3.0) is True
 
     @pytest.mark.asyncio
     async def test_the_router_offline_skip_is_the_shape_the_controller_reads(self):

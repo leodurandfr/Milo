@@ -813,6 +813,19 @@ class SnapcastWebSocketService:
             # wrong volume is worse than an unmuted client with wrong volume.
             # CamillaDSP starts muted with -m flag, so skipping unmute on volume
             # failure would leave the client permanently silent.
+            #
+            # That trade only holds because the fader a failed volume leaves
+            # behind is bounded, and what bounds it is the `--gain` floor both
+            # CamillaDSP units start at — not the ordering, which is narrowed
+            # but not closed: a satellite's connection loop is the only thing
+            # that opens a connection, yet it publishes `_connected` just before
+            # restoring, so a command landing in that hop still meets an
+            # unrestored daemon. At the floor that is inaudible, which is the
+            # whole point of having one. On 2026-09-20 neither half held — the
+            # satellite unit carried no `--gain` and `_exec` could connect on
+            # its own — and this line unmuted a 0 dB fader for 3 s in a room set
+            # to -52.8 dB. Pinned by test_camilladsp_startup_floor.py for the
+            # floor and test_services_equalizer.py for the single door.
             persisted_mute = self._volume_service.state_store.get_client_mute(mac_id)
             mute_ok = await eq.set_equalizer_mute(mac_id, persisted_mute, force=True)
             self.logger.debug(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")

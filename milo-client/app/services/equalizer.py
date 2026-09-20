@@ -26,6 +26,17 @@ CONFIG_FILE = "/var/lib/milo-client/camilladsp/config.yml"
 RECONNECT_DELAY = 5.0
 MAX_RECONNECT_DELAY = 30.0
 
+# What the main fader holds the moment CamillaDSP starts, set by `--gain` in
+# milo-client-camilladsp.service. Mirrored here because a systemd unit and a
+# Python module cannot share a declaration: the unit is the authority — it is
+# what actually configures the daemon — and this is where the volume cache
+# starts, which the connection loop pushes on every connect, the first one
+# included. backend/tests/architecture/test_camilladsp_startup_floor.py fails
+# the moment the two disagree, in either direction, and also the moment either
+# one rises above the backend's MIN_VOLUME_DB — a floor is only a floor while
+# it stays at the bottom.
+STARTUP_GAIN_DB = -80.0
+
 
 def serialised_config_write(method):
     """Hold the config lock for a whole read-modify-write.
@@ -88,7 +99,7 @@ class EqualizerService:
         }
         self._delay = {"left": 0.0, "right": 0.0}
         self._gain_db: float = 0.0
-        self._volume = {"main": 0.0, "mute": True}  # Matches CamillaDSP startup state (-m flag)
+        self._volume = {"main": STARTUP_GAIN_DB, "mute": True}  # Matches CamillaDSP's -m + --gain start
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._mono: bool = False
@@ -144,19 +155,14 @@ class EqualizerService:
         """Returns lowpass state."""
         return self._lowpass
 
-    async def connect(self) -> bool:
-        """Connect to local CamillaDSP (public entry point for startup)."""
-        result = await self._connect_once()
-        if result:
-            await self._load_state_from_config()
-        return result
-
     async def _connect_once(self) -> bool:
         """Single connection attempt, guarded by lock to prevent concurrent connects.
 
-        Does NOT call _load_state_from_config() — callers must do so after
-        the lock is released to avoid deadlock (_load_state_from_config calls
-        _exec which may re-enter _connect_once on failure).
+        `_connection_loop` is the only caller, and it is what makes a connection
+        usable: it follows a successful attempt with `_load_state_from_config()`
+        and `_restore_after_reconnect()`, in that order, outside this lock. A
+        second caller would hand out a connection to a daemon still sitting at
+        its `--gain` floor — which is the whole of the 2026-09-20 incident.
         """
         async with self._reconnect_lock:
             if self._connected:
@@ -207,32 +213,45 @@ class EqualizerService:
 
         while self._running:
             try:
-                if not self._connected:
-                    connected = await self._connect_once()
-                    if connected:
-                        reconnect_delay = RECONNECT_DELAY
-                        await self._load_state_from_config()
-                        await self._restore_after_reconnect()
-                    else:
-                        if self._running:
-                            self.logger.info(f"Reconnecting to CamillaDSP in {reconnect_delay:.0f}s...")
-                            await asyncio.sleep(reconnect_delay)
-                            reconnect_delay = min(reconnect_delay * 1.5, MAX_RECONNECT_DELAY)
-                        continue
+                connected = await self._connect_once()
 
-                # Idle: periodically probe CamillaDSP to detect silent disconnections
-                while self._running and self._connected:
-                    await asyncio.sleep(RECONNECT_DELAY)
-                    if self._connected:
-                        await self._probe_connection()
+                if connected:
+                    reconnect_delay = RECONNECT_DELAY
+
+                    # Volume and mute first, config second, and the order is
+                    # load-bearing twice over. `_connect_once` publishes
+                    # `_connected` before either runs, so whatever comes first
+                    # is the window in which a command can reach a daemon still
+                    # on its `--gain` floor — a `GetConfig` round trip is orders
+                    # of magnitude wider than the hop between these two lines.
+                    # And `_load_state_from_config` goes through `_exec`, which
+                    # no longer reconnects: a failure there clears `_connected`,
+                    # so anything after it is skipped. Behind it, that meant the
+                    # cached level never reached the daemon and the speaker sat
+                    # muted at the floor until the next pass.
+                    await self._restore_after_reconnect()
+                    await self._load_state_from_config()
+
+                    # Idle: periodically probe CamillaDSP to detect silent disconnections
+                    while self._running and self._connected:
+                        await asyncio.sleep(RECONNECT_DELAY)
+                        if self._connected:
+                            await self._probe_connection()
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error(f"Connection loop error: {e}")
-                if self._running:
-                    await asyncio.sleep(reconnect_delay)
-                    reconnect_delay = min(reconnect_delay * 1.5, MAX_RECONNECT_DELAY)
+
+            # Outside the try, and on every path — mirroring
+            # CamillaDSPService._connection_loop. Sleeping only when
+            # `_connect_once` itself failed let a connect that succeeded and a
+            # restore that then failed spin with no delay at all: connect,
+            # GetConfig error, disconnect, connect again, two log lines a pass.
+            if self._running:
+                self.logger.info(f"Reconnecting to CamillaDSP in {reconnect_delay:.0f}s...")
+                await asyncio.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 1.5, MAX_RECONNECT_DELAY)
 
     async def _probe_connection(self) -> None:
         """Probe CamillaDSP connection to detect silent disconnections.
@@ -282,26 +301,34 @@ class EqualizerService:
             await stale.disconnect()
 
     async def _exec(self, call):
-        """
-        Execute a CamillaDSP operation with auto-reconnect on connection loss.
+        """Await one daemon call, marking the service disconnected on failure.
 
-        On first failure, resets connection state and retries once after
-        reconnecting. `call` is handed the live client rather than closing over
-        one, because a reconnect builds a new one and the retry must reach it.
+        It never opens a connection. `_connection_loop` owns every attempt, the
+        first one included, because a connection is only usable once the cached
+        volume and mute have been pushed over the floor CamillaDSP starts at
+        (`-m` and `--gain=STARTUP_GAIN_DB`), and the loop is the only thing that
+        does that.
+
+        Measured on the fleet, 2026-09-20 01:43:23: an app update restarted the
+        daemon, the loop was asleep in its 5 s backoff, and the server's
+        `PUT /equalizer/mute` opened the connection here and applied
+        `set_mute(False)` to a bare 0 dB fader — 3 s of full-scale music in a
+        room set to -52.8 dB. A refusal costs nothing here: `set_volume` and
+        `set_mute` write the cache before calling, so the loop replays them in
+        the right order, and the server retries the sync six times at 3 s.
+
+        Mirror of `CamillaDSPService._run` in the backend. `call` is handed the
+        live client rather than closing over one, because a reconnect builds a
+        new one.
         """
-        for attempt in range(2):
-            if not self._connected:
-                await self._connect_once()
-            if not self._connected:
-                raise ConnectionError("Not connected to CamillaDSP")
-            try:
-                return await call(self._client)
-            except Exception:
-                self._connected = False
-                if attempt == 0:
-                    self.logger.warning("CamillaDSP connection lost, reconnecting...")
-                    continue
-                raise
+        if not self._connected or self._client is None:
+            raise ConnectionError("Not connected to CamillaDSP")
+        try:
+            return await call(self._client)
+        except Exception:
+            self.logger.warning("CamillaDSP command failed, marking disconnected")
+            self._connected = False
+            raise
 
     async def _load_state_from_config(self):
         """Load compressor/loudness/delay/trim state from current CamillaDSP config."""

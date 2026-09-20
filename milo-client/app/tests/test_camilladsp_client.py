@@ -270,9 +270,10 @@ class TestWhenTheDaemonWillNotAnswer:
     async def test_a_socket_that_closes_mid_call_surfaces_as_a_disconnect(
         self, daemon, client
     ):
-        """`EqualizerService._exec` reconnects and retries once on any exception,
-        and the connection loop re-pushes volume and mute afterwards. What it
-        cannot do is act on a call that answered normally with nothing."""
+        """`EqualizerService._exec` marks the service disconnected on any
+        exception and lets the connection loop reconnect and re-push volume and
+        mute. What it cannot do is act on a call that answered normally with
+        nothing."""
         daemon.hang_up.add("GetState")
 
         with pytest.raises(ConnectionError):

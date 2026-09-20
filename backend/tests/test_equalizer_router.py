@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import Client
+from backend.config.constants import MAX_VOLUME_DB
 
 
 LOCAL_MAC = "aa:bb:cc:dd:ee:ff"
@@ -146,11 +147,18 @@ class TestLocalVerdictReachesTheEnvelope:
 class TestLocalRoutingIsRefused:
     """The two cases that must not reach the DSP at all."""
 
-    async def test_a_dac_client_is_skipped_before_any_routing(
+    async def test_a_dac_client_is_routed_at_unity_never_at_the_asked_level(
         self, router, camilladsp, proxy, registry
     ):
-        """A DAC card's amp owns the level: Milo attenuating too would stack
-        two attenuations on one signal."""
+        """A DAC card's amp owns the level, so Milo asks for unity — but asks.
+
+        Attenuating too would stack two attenuations on one signal, so the
+        level the caller passed must not reach the daemon. Writing *nothing*
+        used to mean the same thing and stopped meaning it the day CamillaDSP
+        started at a floor: the fader would keep whatever its unit started it
+        on, and the unmute that always follows a volume push would open the
+        speaker on that.
+        """
         registry.get_client.return_value = Client(
             mac_id=LOCAL_MAC, name="DAC", ip="127.0.0.1", online=True,
             volume_control=False,
@@ -158,8 +166,8 @@ class TestLocalRoutingIsRefused:
 
         result = await router.set_volume(LOCAL_MAC, -18.5)
 
-        assert result == {"status": "skipped", "reason": "external_volume_control"}
-        camilladsp.set_volume.assert_not_awaited()
+        assert result["status"] == "success"
+        camilladsp.set_volume.assert_awaited_once_with(MAX_VOLUME_DB)
         proxy.request.assert_not_awaited()
 
     async def test_no_registry_and_no_dsp_reports_an_error_envelope(self, proxy):

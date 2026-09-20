@@ -439,9 +439,11 @@ def create_multiroom_router(
                     detail=f"Client with mac_id '{mac_id}' not found"
                 )
             if not client.volume_control:
-                # Same promise EqualizerRouter.set_volume keeps for a DAC client:
+                # Same promise EqualizerRouter.set_gain keeps for a DAC client:
                 # its external amp owns the level and Milō attenuates nothing on
                 # that path. A digital trim would be attenuation by another name.
+                # (`set_volume` no longer skips — it writes unity explicitly, so
+                # that no unmute can land on a fader nobody set.)
                 raise HTTPException(
                     status_code=400,
                     detail="This speaker's external amplifier owns its level"

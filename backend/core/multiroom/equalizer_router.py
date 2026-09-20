@@ -13,7 +13,7 @@ Architecture:
 import logging
 from typing import Any, Dict, Callable, Awaitable, TYPE_CHECKING
 
-from backend.config.constants import DEFAULT_VOLUME_DB
+from backend.config.constants import DEFAULT_VOLUME_DB, MAX_VOLUME_DB
 
 if TYPE_CHECKING:
     from backend.core.equalizer.client_proxy import EqualizerClientProxyService
@@ -100,11 +100,22 @@ class EqualizerRouter:
     # === VOLUME ===
 
     async def set_volume(self, mac_id: str, volume_db: float, force: bool = False) -> Dict[str, Any]:
-        """Set volume for a client."""
+        """Set volume for a client.
+
+        A DAC client's external amp owns the level, so Milō asks for unity
+        rather than for the level it would otherwise send — but it does ask.
+        Writing nothing used to be the same thing, and it stopped being so the
+        day CamillaDSP started at a floor: the fader would keep whatever its
+        unit started it on, and the unmute that always follows
+        (`websocket.py::_apply_target_volume_to_client`) would open the speaker
+        on it. The caller still records the level the user asked for; this only
+        decides what reaches the daemon, and on a real DAC path it is an
+        idempotent no-op.
+        """
         client = self._get_client(mac_id)
         if client and not client.volume_control:
-            logger.debug(f"Skipping volume for DAC client {mac_id}")
-            return {"status": "skipped", "reason": "external_volume_control"}
+            logger.debug(f"Unity volume for DAC client {mac_id} (external amp owns the level)")
+            volume_db = MAX_VOLUME_DB
 
         async def local():
             if self._camilladsp_service:

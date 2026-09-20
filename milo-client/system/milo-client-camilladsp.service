@@ -24,6 +24,13 @@ ExecStartPre=-/usr/local/bin/milo-alsa-passthrough
 # -a 127.0.0.1: Listen only on localhost
 # -w: Wait for valid config before processing
 # -m: Start muted - milo-client will unmute after setting correct volume
+# --gain=-80.0: Safe startup volume, the level the fader holds until the
+#   connection loop pushes the real one. It is MIN_VOLUME_DB, the lowest level
+#   this appliance can represent, so the fader can never come up loud. Same
+#   floor as the server's milo-camilladsp.service, and STARTUP_GAIN_DB in
+#   app/services/equalizer.py mirrors it; all three are held equal, and held
+#   at or below that minimum, by
+#   backend/tests/architecture/test_camilladsp_startup_floor.py.
 ExecStart=/bin/sh -c '\
   AUDIO_ID=$(python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get(sys.argv[1],{}).get(sys.argv[2],sys.argv[3]))" audio id none < /var/lib/milo-client/hardware.json || echo "none"); \
   if [ "$AUDIO_ID" = "none" ]; then echo "No audio card configured, skipping CamillaDSP"; exit 0; fi; \
@@ -32,6 +39,7 @@ ExecStart=/bin/sh -c '\
     -a 127.0.0.1 \
     -m \
     -w \
+    --gain=-80.0 \
     /var/lib/milo-client/camilladsp/config.yml'
 
 # Restart policy

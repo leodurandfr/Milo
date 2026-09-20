@@ -52,8 +52,8 @@ async def lifespan(app: FastAPI):
     """
     Application lifecycle management.
 
-    CamillaDSP starts MUTED (-m flag in systemd service) and stays muted until
-    the backend pushes the correct volume.
+    CamillaDSP starts MUTED and at a safe floor (-m and --gain in the systemd
+    service) and stays there until the backend pushes the correct volume.
     """
     logger.info("Milo Client API starting up...")
 
@@ -63,6 +63,8 @@ async def lifespan(app: FastAPI):
     # can therefore never succeed; it only bought ~4.5 s of sleeps and an ERROR in
     # the journal on every boot. The loop owns every attempt, the first included,
     # and it also restores volume/mute, which the startup connect never did.
+    # Nothing else may connect: _exec refuses when there is none, so no command
+    # can reach a daemon still sitting at the floor its unit started it on.
     equalizer_service.start_connection_loop()
 
     logger.info("Milo Client API startup complete")
