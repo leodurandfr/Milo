@@ -1,5 +1,12 @@
 """
-API routes for volume management - All values in dB (-80 to 0)
+API routes for volume management.
+
+Two scales cross this router, and which one a route takes says who calls it.
+dB (-80..0) is the unit the audio path, the web UI and Milo-Mac speak; 0..1 over
+the operator's `volume_limits` is the unit a phone speaks, because the limits
+move and a client that caches them converts against a span the unit left. Milō
+owns both directions of that conversion (`core/models/volume.py`) so that no
+client ever has to.
 """
 import logging
 from typing import Optional, TYPE_CHECKING
@@ -60,7 +67,7 @@ def create_volume_router(
 
     @router.patch("/global", response_model=VolumeSetResponse)
     async def set_global_volume(request: VolumeSetRequest):
-        """Set the global volume in dB, absolute.
+        """Set the global volume, absolute, on the 0..1 slider scale.
 
         The absolute half of `/adjust`, and the third target of this router
         alongside `/zone/{id}` and `/client/mac/{mac}`. A caller that knows the
@@ -71,17 +78,31 @@ def create_volume_router(
         every client by the same delta — but it happens under `_volume_lock`,
         which is the only place it can be atomic at all.
 
-        Out-of-range values are **clamped, not rejected**: `set_volume_db`
-        applies `volume_limits` (min_db/max_db) exactly as `/adjust` does. That
-        is the opposite of the per-client route, which answers 400 — so the
-        response carries the level that was actually applied, read back from the
-        service, never the one that was asked for.
+        Milō denormalizes, because only Milō knows the limits and they move. A
+        client that converted on its own cached limits is the whole reason this
+        route changed scale: it sent a decibel figure computed on -80..-21 while
+        the unit ran -78..-8, and a gesture worth 12 dB landed as 3.
+
+        Out of range is unreachable here — 0..1 falls inside `volume_limits` by
+        construction — and `set_volume_db` still clamps on top. The response
+        carries the level that was actually applied, read back from the service,
+        never the one that was asked for: the phone shows it optimistically for
+        three seconds, so a level the service did not take must not be the one
+        it displays.
         """
         async with api_error_handler("Failed to set global volume"):
-            if not await volume_service.set_volume_db(request.volume_db, show_bar=request.show_bar):
+            config = volume_service.volume_config
+            if not await volume_service.set_volume_db(
+                config.denormalize(request.volume), show_bar=request.show_bar
+            ):
                 raise HTTPException(status_code=500, detail="Failed to set global volume")
 
-            return {"status": "success", "volume_db": await volume_service.get_volume_db()}
+            applied_db = await volume_service.get_volume_db()
+            return {
+                "status": "success",
+                "volume_db": applied_db,
+                "volume": config.normalize(applied_db),
+            }
 
     # ============================================================================
     # MAC ADDRESS UTILITIES
@@ -234,15 +255,22 @@ def create_volume_router(
 
         Args:
             mac_url: MAC address without colons (e.g., "dca6327ed343")
-            request: Volume in dB (-80 to 0)
+            request: Volume in dB (-80 to 0) or on the 0..1 slider scale
 
         Returns:
-            Success status with MAC (with colons) and new volume
+            Success status with MAC (with colons) and the new volume, on both
+            scales
 
         Notes:
             - MAC format in URL: no colons (dca6327ed343)
             - MAC format in response: with colons (dc:a6:32:7e:d3:43)
             - A WebSocket event `volume_changed` is broadcast after the update
+            - `volume_db` is checked against the operator's limits and answers
+              400 outside them. `volume` is **not**, and deliberately: 0..1
+              lands inside those limits by construction, and putting a
+              denormalized 1.0 through a strict comparison would answer 400 on
+              a few microdecibels of float rounding — a slider that springs
+              back at its own top end and says nothing.
             - A client that answered and refused the level answers 502, never a
               200 carrying a dB it is not playing.
             - An **offline** client also answers 200 — nothing failed — and the
@@ -256,7 +284,12 @@ def create_volume_router(
         async with api_error_handler("Error setting client volume by MAC", logger):
             mac_id = _mac_from_url(mac_url)
             client = _validate_mac_exists(mac_id)
-            _validate_volume_limits(request.volume_db)
+            config = volume_service.volume_config
+
+            if request.volume is not None:
+                volume_db = config.denormalize(request.volume)
+            else:
+                volume_db = _validate_volume_limits(request.volume_db)
 
             if hasattr(client, 'online') and not client.online:
                 logger.info(
@@ -264,8 +297,8 @@ def create_volume_router(
                     f"its next admission brings it back at this level"
                 )
 
-            if not await volume_service.update_client_volume_db(mac_id, request.volume_db):
-                logger.error(f"Client {mac_id} did not take volume {request.volume_db:.1f} dB")
+            if not await volume_service.update_client_volume_db(mac_id, volume_db):
+                logger.error(f"Client {mac_id} did not take volume {volume_db:.1f} dB")
                 raise HTTPException(
                     status_code=502,
                     detail=f"Volume not applied to client {mac_id}",
@@ -274,7 +307,8 @@ def create_volume_router(
             return {
                 "status": "success",
                 "mac_id": mac_id,
-                "volume_db": request.volume_db
+                "volume_db": volume_db,
+                "volume": config.normalize(volume_db)
             }
 
     @router.patch("/client/mac/{mac_url}/mute", response_model=ClientMuteSetResponse)

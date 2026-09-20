@@ -16,7 +16,11 @@ from backend.core.volume import (
     VolumeStateStore,
     EqualizerController
 )
-from backend.core.models.volume import VolumeConfig
+from backend.core.models.volume import (
+    VolumeConfig,
+    denormalize_volume,
+    normalize_volume,
+)
 from backend.core.models.volume_state import VolumeState, ClientVolume
 from backend.core.models.ws_events import VolumeStartupChanged
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
@@ -80,6 +84,72 @@ class TestVolumeConfig:
         config = VolumeConfig(step_ir_remote_db=4.5)
         assert config.step_ir_remote_db == 4.5
         assert config.to_dict()["step_ir_remote_db"] == 4.5
+
+
+# ============================================================================
+# The dB <-> 0..1 scale
+# ============================================================================
+
+class TestVolumeScale:
+    """The two conversions Milō owns, so no client re-implements them.
+
+    What breaks when these fail is a slider that does not mean what it shows:
+    Milo-iOS converted on its own cached -80..-21 while the unit ran -78..-8,
+    and a gesture worth 12 dB landed as 3, with no error anywhere.
+    """
+
+    def test_the_span_is_the_operator_limits_not_the_technical_range(self):
+        """A slider calibrated on a hardcoded -80..0 sits at the wrong place on
+        every unit: this one is limited to -78..-8, where the midpoint is -43,
+        not -40. Normalizing on the client is what would bake that in."""
+        assert normalize_volume(-43.0, -78.0, -8.0) == 0.5
+
+    @pytest.mark.parametrize("db,expected", [(-78.0, 0.0), (-8.0, 1.0)])
+    def test_the_limits_map_to_the_ends(self, db, expected):
+        assert normalize_volume(db, -78.0, -8.0) == expected
+
+    def test_a_level_outside_the_limits_is_clamped(self):
+        """A client can sit below the floor through its per-client offset. A
+        slider at -0.03 is not a thing iOS can draw."""
+        assert normalize_volume(-90.0, -78.0, -8.0) == 0.0
+        assert normalize_volume(0.0, -78.0, -8.0) == 1.0
+
+    def test_a_degenerate_span_does_not_divide_by_zero(self):
+        assert normalize_volume(-40.0, -40.0, -40.0) == 0.0
+
+    @pytest.mark.parametrize("level,expected", [(0.0, -78.0), (1.0, -8.0), (0.5, -43.0)])
+    def test_the_ends_of_the_slider_are_the_limits_exactly(self, level, expected):
+        """Not "close to": the top of the slider must denormalize to
+        limit_max_db itself, because the per-client route compares against that
+        bound and a value a hair above it would be refused."""
+        assert denormalize_volume(level, -78.0, -8.0) == expected
+
+    def test_a_level_outside_zero_one_is_clamped(self):
+        assert denormalize_volume(-0.5, -78.0, -8.0) == -78.0
+        assert denormalize_volume(1.5, -78.0, -8.0) == -8.0
+
+    def test_a_degenerate_span_answers_the_floor(self):
+        """Symmetric with the 0.0 the forward direction answers: the silent end
+        is the only safe answer when there is no span to place a level in."""
+        assert denormalize_volume(0.9, -40.0, -40.0) == -40.0
+
+    @pytest.mark.parametrize("limits", [(-78.0, -8.0), (-80.0, -20.0), (-60.0, -10.0)])
+    @pytest.mark.parametrize("level", [0.0, 0.0001, 0.43, 0.5, 0.6, 0.9999, 1.0])
+    def test_the_two_directions_are_reciprocal(self, limits, level):
+        """A round trip through Milō must give a phone back the position it
+        sent. The forward direction rounds to four decimals, which is the
+        tolerance — anything coarser would make the slider creep on every
+        update it echoes back."""
+        min_db, max_db = limits
+        assert normalize_volume(denormalize_volume(level, min_db, max_db), min_db, max_db) == level
+
+    def test_the_config_spans_its_own_limits(self):
+        """The methods exist so a caller holding a config never has to name the
+        bounds a second time — that second naming is how a client came to
+        convert on limits the unit had left."""
+        config = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0)
+        assert config.normalize(-43.0) == 0.5
+        assert config.denormalize(0.5) == -43.0
 
 
 # ============================================================================
@@ -451,6 +521,42 @@ class TestVolumeStateStore:
 
         assert isinstance(state, VolumeState)
         assert state.mode in ["direct", "multiroom"]
+
+    @pytest.mark.asyncio
+    async def test_the_snapshot_carries_the_span_its_levels_were_measured_over(
+        self, state_store, mock_settings
+    ):
+        """A normalized level means nothing without the limits it spans, and the
+        limits move. Sending them apart — in a settings call a client caches —
+        is how Milo-iOS came to convert on a span this unit had left."""
+        mock_settings.get_setting = AsyncMock(return_value=False)
+        state_store.set_volume_config(VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0))
+        state_store.ensure_local_client("dc:a6:32:7e:d3:43", -43.0)
+
+        state = await state_store.get_complete_state()
+
+        assert (state.limit_min_db, state.limit_max_db) == (-78.0, -8.0)
+        assert state.to_dict()["global_volume"] == 0.5
+
+    @pytest.mark.asyncio
+    async def test_a_dac_client_says_so_in_its_own_entry(self, state_store, mock_settings):
+        """`volume_control` is already the filter the global average applies, so
+        a reader that gets it can build the same set. Without it the lock screen
+        drew a slider for a speaker Milō does not count, and the phone's idea of
+        the global level and Milō's named different numbers."""
+        mock_settings.get_setting = AsyncMock(return_value={})
+        await state_store.set_mode("multiroom")
+        await state_store.register_client("dac-client", volume_db=-30.0, available=True)
+
+        registry = Mock()
+        registry.get_client = Mock(return_value=Mock(volume_control=False))
+        registry.get_all_zones = Mock(return_value={})
+        state_store._registry = registry
+
+        state = await state_store.get_complete_state()
+
+        assert state.clients["dac-client"].volume_control is False
+        assert state.to_dict()["clients"]["dac-client"]["volume_control"] is False
 
     @pytest.mark.asyncio
     async def test_any_volume_control_local_manages(self, state_store, mock_settings):

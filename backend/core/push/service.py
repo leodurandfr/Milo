@@ -36,6 +36,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
+from backend.core.models.volume import normalize_volume
 from backend.core.models.ws_events import (
     SourceStateChanged,
     SystemStateChanged,
@@ -47,7 +48,6 @@ from backend.core.push.payloads import (
     NowPlayingDevice,
     build_attributes,
     displayed_track,
-    normalize_volume,
     now_playing_payload,
     widget_payload,
 )

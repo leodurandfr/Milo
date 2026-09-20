@@ -82,9 +82,11 @@ class MultiroomSetResponse(BaseModel):
 class VolumeClientModel(BaseModel):
     """ClientVolume.to_dict()."""
     volume_db: float
+    volume: float
     offset_db: float
     mute: bool
     available: bool
+    volume_control: bool
 
 
 class VolumeZoneModel(BaseModel):
@@ -97,10 +99,19 @@ class VolumeZoneModel(BaseModel):
 
 
 class VolumeStateModel(BaseModel):
-    """VolumeState.to_dict() — the inner `data` object."""
+    """VolumeState.to_dict() — the inner `data` object.
+
+    Every level appears twice, in dB and normalized over `limit_min_db` /
+    `limit_max_db`, which travel with it. A reader that takes the normalized
+    value takes the span it was measured over in the same reply, which is what
+    a separate settings call could not promise.
+    """
     mode: str
     global_volume_db: float
+    global_volume: float
     global_mute: bool
+    limit_min_db: float
+    limit_max_db: float
     volume_control: bool
     any_volume_control: bool
     clients: Dict[str, VolumeClientModel]
@@ -129,11 +140,14 @@ class VolumeSetResponse(BaseModel):
     """PATCH /api/volume/global.
 
     `VolumeAdjustResponse` without `delta_db`, which an absolute write has no
-    value for. `volume_db` is the level that was applied, read back from the
-    service after the clamp — never the one the request carried.
+    value for. Both fields carry the level that was applied, read back from the
+    service after the clamp — never the one the request carried. `volume` is
+    what the caller asked on, and what it displays optimistically while the
+    next state arrives.
     """
     status: str
     volume_db: float
+    volume: float
 
 
 class EqualizerEnabledResponse(BaseModel):
@@ -268,10 +282,14 @@ class ZoneVolumeDeltaResponse(BaseModel):
 
 
 class ClientVolumeSetResponse(BaseModel):
-    """PATCH /api/volume/client/mac/{mac_url}."""
+    """PATCH /api/volume/client/mac/{mac_url}.
+
+    The level that was written, on both scales, whichever one the request used.
+    """
     status: str
     mac_id: str
     volume_db: float
+    volume: float
 
 
 class ClientMuteSetResponse(BaseModel):

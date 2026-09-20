@@ -676,12 +676,16 @@ class VolumeStateStore:
                 else:
                     offset = 0.0
 
-                # Create client with computed offset
+                # Create client with computed offset. `volume_control` comes
+                # from the registry, and it is already the filter the global
+                # average below applies — publishing it means a reader can build
+                # the same set instead of guessing which speakers Milo counted.
                 clients_with_offsets[mac_id] = ClientVolume(
                     volume_db=client.volume_db,
                     offset_db=offset,
                     mute=client.mute,
-                    available=client.available
+                    available=client.available,
+                    volume_control=self.has_volume_control(mac_id)
                 )
 
             # Compute zone states
@@ -725,10 +729,19 @@ class VolumeStateStore:
             else:
                 any_vol_ctrl = False
 
+            # The span every normalized level in this snapshot is measured
+            # over. In production the config is set before any read
+            # (`VolumeService._load_volume_config` assigns it in a `finally`);
+            # the fallback is for a store built without a service, and the
+            # model's own docstring reserves its field defaults for exactly that.
+            config = self._volume_config or VolumeConfig()
+
             return VolumeState(
                 mode=self._mode,
                 global_volume_db=global_volume,
                 global_mute=global_mute,
+                limit_min_db=config.limit_min_db,
+                limit_max_db=config.limit_max_db,
                 clients=clients_with_offsets,
                 zones=zone_states,
                 volume_control=self._volume_control,

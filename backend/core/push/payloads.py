@@ -21,6 +21,9 @@ from typing import Any, Dict, List, Optional
 # Two conversions Milō owns, so no client re-implements them:
 #   * positions and durations are MILLISECONDS on the wire and SECONDS here;
 #   * a device volume is dB internally and 0..1 here.
+# The second one is declared by `core/models/volume.py`, next to its reciprocal
+# and to the limits it spans: the incoming direction is read by the API layer
+# too, and a conversion with one home cannot drift from itself.
 MS_PER_S = 1000.0
 
 
@@ -34,23 +37,6 @@ class NowPlayingDevice:
 
     def to_dict(self) -> Dict[str, Any]:
         return {"id": self.id, "name": self.name, "type": self.type, "volume": self.volume}
-
-
-def normalize_volume(volume_db: float, min_db: float, max_db: float) -> float:
-    """dB → 0..1 over the operator's `volume_limits`.
-
-    Milō normalizes rather than the client because only Milō knows the limits,
-    and they move: a slider calibrated against a hardcoded -80..0 would sit at
-    a third of its travel on a unit limited to -78..-8, and would jump the day
-    an operator changed them.
-
-    Degenerate spans answer 0.0 rather than dividing by zero — the validator
-    already refuses a span under 6 dB, so this is defence, not a real case.
-    """
-    span = max_db - min_db
-    if span <= 0:
-        return 0.0
-    return round(min(1.0, max(0.0, (volume_db - min_db) / span)), 4)
 
 
 def widget_payload() -> Dict[str, Any]:

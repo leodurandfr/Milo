@@ -44,19 +44,36 @@ class VolumeAdjustRequest(BaseModel):
 
 
 class VolumeSetRequest(BaseModel):
-    """Absolute global volume request (in dB).
+    """Absolute global volume request, on the slider's scale.
 
-    The bounds are the technical range, not the operator's: `volume_limits`
-    (min_db/max_db) is applied on top by VolumeService, which clamps rather
-    than rejects.
+    0..1 over the operator's `volume_limits`, not decibels: this route has no
+    caller that thinks in dB. The web UI moves the volume with `/adjust`
+    deltas, and the rotary, the IR remote and the Pi screen reach VolumeService
+    without going through HTTP at all — the one consumer is a phone, which must
+    not hold a copy of limits the operator can change from the other end of the
+    house. Milō denormalizes here, with the limits it actually runs on.
     """
-    volume_db: float = Field(..., ge=-80, le=0, description="Target global volume in dB")
+    volume: float = Field(..., ge=0, le=1, description="Target global volume, 0..1 over volume_limits")
     show_bar: bool = Field(default=True)
 
 
 class ClientVolumeRequest(BaseModel):
-    """Client volume request (in dB)"""
-    volume_db: float = Field(..., ge=-80, le=0, description="Client volume in dB")
+    """Client volume request, in dB or on the slider's scale — exactly one.
+
+    Unlike the global route, this one has live callers on both scales: the web
+    UI and Milo-Mac send `volume_db` (Milo-Mac's manifest pins that body), while
+    Milo-iOS sends `volume`. Two units of one quantity, arbitrated at the door
+    rather than absorbed by a fallback chain — a request that names both, or
+    neither, is a caller that does not know which scale it is on.
+    """
+    volume_db: Optional[float] = Field(default=None, ge=-80, le=0, description="Client volume in dB")
+    volume: Optional[float] = Field(default=None, ge=0, le=1, description="Client volume, 0..1 over volume_limits")
+
+    @model_validator(mode="after")
+    def _exactly_one_scale(self):
+        if (self.volume_db is None) == (self.volume is None):
+            raise ValueError("exactly one of 'volume_db' or 'volume' is required")
+        return self
 
 
 class ClientMuteRequest(BaseModel):

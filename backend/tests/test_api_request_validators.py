@@ -20,6 +20,7 @@ from backend.api.models import (
     AudioStopRequest,
     BtRemoteConfigRequest,
     ConfigureClientAudioRequest,
+    ClientVolumeRequest,
     ConfigurePendingClientRequest,
     FanConfigRequest,
     HardwareAudioRequest,
@@ -268,6 +269,33 @@ class TestConfigurableAudioIdExcludesNone:
         """
         for audio_id in (k for k in AUDIO_CARDS if k != "none"):
             assert ConfigureClientAudioRequest(audio_id=audio_id).audio_id == audio_id
+
+
+class TestClientVolumeNamesOneScale:
+    """`ClientVolumeRequest._exactly_one_scale`.
+
+    This route takes a level in two units because it has live callers in both:
+    the web UI and Milo-Mac send `volume_db`, Milo-iOS sends `volume` (0..1 over
+    the operator's limits). Two units of one quantity are safe only while the
+    request says which one it is on — a precedence rule would silently pick for
+    a caller that meant the other, and the levels differ by tens of decibels.
+    """
+
+    def test_naming_both_scales_is_refused(self):
+        with pytest.raises(ValidationError, match="exactly one"):
+            ClientVolumeRequest(volume_db=-30.0, volume=0.5)
+
+    def test_naming_neither_scale_is_refused(self):
+        """The empty body. Without this arm the model would accept it and the
+        route would hand `None` to the volume service."""
+        with pytest.raises(ValidationError, match="exactly one"):
+            ClientVolumeRequest()
+
+    def test_either_scale_alone_is_accepted(self):
+        """The half a validator that rejected everything would fail: both
+        callers must still get through."""
+        assert ClientVolumeRequest(volume_db=-30.0).volume is None
+        assert ClientVolumeRequest(volume=0.25).volume_db is None
 
 
 class TestVolumeLimitsKeepUsableRange:

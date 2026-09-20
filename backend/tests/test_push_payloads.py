@@ -1,9 +1,12 @@
 # backend/tests/test_push_payloads.py
-"""The two APNs payload shapes and the two unit conversions Milō owns.
+"""The two APNs payload shapes.
 
 Pure functions, no mocks. What breaks when these fail is invisible from this
 side: APNs accepts any well-formed JSON, so a payload iOS cannot decode is
 answered 200 and dropped on the phone.
+
+The dB ↔ 0..1 conversion used to be declared here and is tested next to its
+owner now — `tests/test_core_volume.py::TestVolumeScale`.
 """
 from datetime import datetime, timezone
 
@@ -12,35 +15,11 @@ import pytest
 from backend.core.push.payloads import (
     NowPlayingDevice,
     build_attributes,
-    normalize_volume,
     now_playing_payload,
     widget_payload,
 )
 
 FIXED = datetime(2026, 9, 19, 12, 0, 0, tzinfo=timezone.utc)
-
-
-class TestNormalizeVolume:
-    """dB → 0..1, over limits that move."""
-
-    def test_the_span_is_the_operator_limits_not_the_technical_range(self):
-        """A slider calibrated on a hardcoded -80..0 sits at the wrong place on
-        every unit: this one is limited to -78..-8, where the midpoint is -43,
-        not -40. Normalizing on the client is what would bake that in."""
-        assert normalize_volume(-43.0, -78.0, -8.0) == 0.5
-
-    @pytest.mark.parametrize("db,expected", [(-78.0, 0.0), (-8.0, 1.0)])
-    def test_the_limits_map_to_the_ends(self, db, expected):
-        assert normalize_volume(db, -78.0, -8.0) == expected
-
-    def test_a_level_outside_the_limits_is_clamped(self):
-        """A client can sit below the floor through its per-client offset. A
-        slider at -0.03 is not a thing iOS can draw."""
-        assert normalize_volume(-90.0, -78.0, -8.0) == 0.0
-        assert normalize_volume(0.0, -78.0, -8.0) == 1.0
-
-    def test_a_degenerate_span_does_not_divide_by_zero(self):
-        assert normalize_volume(-40.0, -40.0, -40.0) == 0.0
 
 
 class TestWidgetPayload:

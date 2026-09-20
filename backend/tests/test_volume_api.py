@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from backend.api.models import ClientVolumeRequest, ClientMuteRequest
 from backend.api.volume import create_volume_router
+from backend.core.models.volume import VolumeConfig
 
 
 # =============================================================================
@@ -77,9 +78,9 @@ class TestMacAddressClientVolume:
         service.update_client_volume_db = AsyncMock(return_value=True)
         service.set_client_mute = AsyncMock(return_value=True)
         service.config = MagicMock()
-        service.volume_config = MagicMock()
-        service.volume_config.limit_min_db = -80.0
-        service.volume_config.limit_max_db = 0.0
+        # A real config, not a mock: the route converts through it, and a mock
+        # would answer a mock rather than a level.
+        service.volume_config = VolumeConfig(limit_min_db=-80.0, limit_max_db=0.0)
         return service
 
     @pytest.fixture
@@ -156,8 +157,9 @@ class TestMacAddressClientVolume:
 
     def test_set_volume_mac_out_of_range(self, test_client, mock_volume_service, mock_client_registry):
         """Test volume outside configured limits returns 400."""
-        mock_volume_service.volume_config.limit_min_db = -60.0
-        mock_volume_service.volume_config.limit_max_db = -10.0
+        mock_volume_service.volume_config = VolumeConfig(
+            limit_min_db=-60.0, limit_max_db=-10.0
+        )
 
         response = test_client.patch(
             "/api/volume/client/mac/dca6327ed343",
@@ -166,6 +168,58 @@ class TestMacAddressClientVolume:
 
         assert response.status_code == 400
         assert "out of configured range" in response.json()["detail"]
+
+    def test_a_slider_position_reaches_the_service_as_a_level(
+        self, test_client, mock_volume_service
+    ):
+        """0.5 over -60..-10 is -35 dB. The phone sends the position and never
+        the decibel, because the decibel depends on limits it cannot see move."""
+        mock_volume_service.volume_config = VolumeConfig(
+            limit_min_db=-60.0, limit_max_db=-10.0
+        )
+
+        response = test_client.patch(
+            "/api/volume/client/mac/dca6327ed343", json={"volume": 0.5}
+        )
+
+        assert response.status_code == 200
+        mock_volume_service.update_client_volume_db.assert_awaited_once_with(
+            "dc:a6:32:7e:d3:43", pytest.approx(-35.0)
+        )
+        assert response.json()["volume"] == 0.5
+
+    def test_the_top_of_the_slider_is_not_out_of_range(
+        self, test_client, mock_volume_service
+    ):
+        """The reason `volume` skips `_validate_volume_limits`. A denormalized
+        1.0 IS limit_max_db, and a strict comparison against it answers 400 on
+        whatever float rounding the span happens to produce — a slider that
+        springs back at its own top end and says nothing."""
+        mock_volume_service.volume_config = VolumeConfig(
+            limit_min_db=-77.3, limit_max_db=-8.7
+        )
+
+        for level in (0.0, 1.0):
+            response = test_client.patch(
+                "/api/volume/client/mac/dca6327ed343", json={"volume": level}
+            )
+            assert response.status_code == 200, level
+
+    @pytest.mark.parametrize(
+        "body", [{}, {"volume": 0.5, "volume_db": -30.0}, {"volume": 1.5}, {"volume_db": 12.0}]
+    )
+    def test_a_body_that_names_no_single_scale_is_refused(
+        self, test_client, mock_volume_service, body
+    ):
+        """Both scales, or neither, is a caller that does not know which one it
+        is on — refused at the door rather than resolved by a precedence rule
+        nobody would remember."""
+        response = test_client.patch(
+            "/api/volume/client/mac/dca6327ed343", json=body
+        )
+
+        assert response.status_code == 422
+        mock_volume_service.update_client_volume_db.assert_not_awaited()
 
     def test_mute_with_mac_address(self, test_client, mock_volume_service, mock_client_registry):
         """Test muting client using MAC address."""
@@ -336,14 +390,20 @@ class TestVolumeAdjustRoute:
 # =============================================================================
 
 class TestGlobalVolumeRoute:
-    """The absolute half of `/adjust`.
+    """The absolute half of `/adjust`, on the slider's own scale.
 
     It exists so a caller holding a level — a Now Playing slider, which reports
     a position and not a gesture — stops reading `/state` and posting the
     difference. That read-modify-write leaves a window in which the rotary, the
     screen or another client moves the volume in between, and the caller writes
     a level computed against a state that no longer holds.
+
+    The body is 0..1, never dB: the caller is a phone, and a phone that converts
+    on limits it cached converts against a span the unit has left. That is not a
+    hypothetical — it is the failure this route changed scale for.
     """
+
+    LIMITS = (-78.0, -8.0)
 
     @pytest.fixture
     def mock_volume_service(self):
@@ -351,7 +411,10 @@ class TestGlobalVolumeRoute:
         service.set_volume_db = AsyncMock(return_value=True)
         # Deliberately not the value any request below asks for: the route must
         # report what the service applied, never what the caller wrote.
-        service.get_volume_db = AsyncMock(return_value=-37.5)
+        service.get_volume_db = AsyncMock(return_value=-43.0)
+        service.volume_config = VolumeConfig(
+            limit_min_db=self.LIMITS[0], limit_max_db=self.LIMITS[1]
+        )
         return service
 
     @pytest.fixture
@@ -360,27 +423,38 @@ class TestGlobalVolumeRoute:
         app.include_router(create_volume_router(mock_volume_service))
         return TestClient(app)
 
-    def test_it_reports_what_the_service_applied(self, test_client, mock_volume_service):
-        """The response carries the service's level, not the request's.
-
-        This is how the clamp becomes visible: `volume_limits` is applied inside
-        `set_volume_db`, so a route echoing `request.volume_db` would answer a dB
-        no speaker is playing, and the caller's slider would spring back on the
-        next `/state`.
-        """
-        response = test_client.patch("/api/volume/global", json={"volume_db": -10.0})
+    def test_the_level_reaching_the_service_is_denormalized_on_the_units_own_limits(
+        self, test_client, mock_volume_service
+    ):
+        """0.6 of the way up a -78..-8 span is -36 dB, and nothing but this unit
+        can say so. The bug this replaces is exactly one client answering that
+        question for itself on a stale -80..-21, where 0.6 reads -44.6."""
+        response = test_client.patch("/api/volume/global", json={"volume": 0.6})
 
         assert response.status_code == 200
-        assert response.json() == {"status": "success", "volume_db": -37.5}
         mock_volume_service.set_volume_db.assert_awaited_once()
-        assert mock_volume_service.set_volume_db.await_args.args[0] == -10.0
+        assert mock_volume_service.set_volume_db.await_args.args[0] == pytest.approx(-36.0)
+
+    def test_it_reports_what_the_service_applied(self, test_client, mock_volume_service):
+        """The response carries the service's level, not the request's, on both
+        scales.
+
+        This is how the clamp becomes visible: `volume_limits` is applied inside
+        `set_volume_db`, so a route echoing the request would answer a level no
+        speaker is playing — and the phone holds that answer optimistically for
+        three seconds before the next state can correct it.
+        """
+        response = test_client.patch("/api/volume/global", json={"volume": 1.0})
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "success", "volume_db": -43.0, "volume": 0.5}
 
     def test_show_bar_reaches_the_service(self, test_client, mock_volume_service):
         """A push-driven write must be able to move the level without lighting up
         the screen of an appliance nobody is standing in front of. The flag is the
         only reason this route takes a body field beyond the level."""
         test_client.patch(
-            "/api/volume/global", json={"volume_db": -10.0, "show_bar": False}
+            "/api/volume/global", json={"volume": 0.3, "show_bar": False}
         )
 
         assert mock_volume_service.set_volume_db.await_args.kwargs["show_bar"] is False
@@ -392,14 +466,17 @@ class TestGlobalVolumeRoute:
         mock_volume_service.set_volume_db.return_value = False
 
         assert test_client.patch(
-            "/api/volume/global", json={"volume_db": -30.0}
+            "/api/volume/global", json={"volume": 0.4}
         ).status_code == 500
 
-    def test_outside_the_technical_range_is_rejected(self, test_client, mock_volume_service):
-        """`volume_limits` is clamped, but the -80..0 dB technical range is not a
-        preference — a value outside it is a caller bug, and answering 422 says
-        so instead of silently landing at the floor."""
-        response = test_client.patch("/api/volume/global", json={"volume_db": 12.0})
+    @pytest.mark.parametrize("body", [{"volume": 1.2}, {"volume": -0.1}, {"volume_db": -30.0}])
+    def test_anything_that_is_not_a_slider_position_is_rejected(
+        self, test_client, mock_volume_service, body
+    ):
+        """Outside 0..1 is a caller bug, and so is a decibel: this route has no
+        dB caller, and accepting one would put back the second scale whose
+        silent divergence is the whole defect."""
+        response = test_client.patch("/api/volume/global", json=body)
 
         assert response.status_code == 422
         mock_volume_service.set_volume_db.assert_not_awaited()

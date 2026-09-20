@@ -63,12 +63,16 @@ def test_volume_state_success_omits_message():
     inner = {
         "mode": "multiroom",
         "global_volume_db": -45.0,
+        "global_volume": 0.4375,
         "global_mute": False,
+        "limit_min_db": -80.0,
+        "limit_max_db": 0.0,
         "volume_control": True,
         "any_volume_control": True,
         "clients": {
             "dc:a6:32:7e:d3:43": {
-                "volume_db": -40.0, "offset_db": 0.0, "mute": False, "available": True,
+                "volume_db": -40.0, "volume": 0.5, "offset_db": 0.0,
+                "mute": False, "available": True, "volume_control": True,
             }
         },
         "zones": {
@@ -160,7 +164,7 @@ def test_volume_zone_delta_keys():
 
 
 def test_volume_client_and_control_keys():
-    assert set(emit(R.ClientVolumeSetResponse, {"status": "success", "mac_id": "m", "volume_db": -40.0})) == {"status", "mac_id", "volume_db"}
+    assert set(emit(R.ClientVolumeSetResponse, {"status": "success", "mac_id": "m", "volume_db": -40.0, "volume": 0.5})) == {"status", "mac_id", "volume_db", "volume"}
     assert set(emit(R.ClientMuteSetResponse, {"status": "success", "mac_id": "m", "mute": True})) == {"status", "mac_id", "mute"}
     assert set(emit(R.VolumeControlResponse, {"status": "success", "volume_control": False})) == {"status", "volume_control"}
 
