@@ -7,19 +7,22 @@ told about anything: every dependency it has is a route it calls and a field it
 decodes. Drop either and it breaks silently at runtime.
 
 `cf430ae6` removed `GET /api/settings/dock-apps` as "Milo-Mac-only" after the Mac
-converged on `/bulk`. Milo-iOS' client layer targets it too, and nothing in this
-checkout recorded that. The break is latent — no caller reaches `getDockApps` in
-the published build, so nobody is broken today — and that is the point: nobody
-could have known either way. A route with no caller in `frontend/src/` is not
-dead, it is unwitnessed, and this file is what witnesses it.
+converged on `/bulk`. Milo-iOS' client layer targeted it too, and nothing in this
+checkout recorded that. The break was latent — no caller reached `getDockApps` in
+the published build, so nobody was broken — and that is the point: nobody could
+have known either way. A route with no caller in `frontend/src/` is not dead, it
+is unwitnessed, and this file is what witnesses it. Milo-iOS deleted the call at
+741f8dc1, which is how such a dependency is meant to end: seen, then removed on
+purpose, rather than discovered by a unit in the field.
 
 Five guards, all offline:
 
   * every route the manifest declares still resolves to a FastAPI route;
   * the manifest and the VENDORED snapshot describe the same surface, exactly —
     neither may depend on something the other does not know about;
-  * a route the app declares that the backend does not serve is listed in
-    `_broken_calls`, and stops being listed the moment either side moves;
+  * a tolerance section does not reappear without the test that proves its
+    entries are still defects — `_broken_calls` held one, and self-deleted at
+    741f8dc1 when Milo-iOS dropped the call;
   * every field the app reads by name still exists on the typed response model;
   * every field pinned as an invariant is a key the app actually mentions — the
     same check from the client side, which is where `dock_apps.enabled_apps`
@@ -146,6 +149,11 @@ def test_the_extractor_reads_every_call_shape():
     which the manifest already pinned, so the freshness script would have
     reported the app as having dropped a route it calls on every gesture.
 
+    Since 741f8dc1 no PLAIN helper call carries an interpolated path — changeSource
+    was the last — so the collapsing is witnessed on the hand-built shape and on
+    the wrapped helper instead. Both still exercise it; the notation is a property
+    of `_shape`, not of any one call site.
+
     Asserted before anything trusts the extraction: a guard that cannot see is a
     guard that passes.
     """
@@ -153,7 +161,9 @@ def test_the_extractor_reads_every_call_shape():
 
     assert ("GET", "/api/volume/state") in surface, "helper call shape not read"
     assert ("POST", "/api/volume/adjust") in surface, "hand-built URL shape not read"
-    assert ("POST", "/api/audio/source/{}") in surface, "interpolated path not collapsed"
+    assert ("POST", "/api/audio/control/{}") in surface, (
+        "interpolated path not collapsed on a hand-built URL"
+    )
     assert ("PATCH", "/api/volume/global") in surface, "wrapped helper shape not read"
     assert ("PATCH", "/api/volume/client/mac/{}") in surface, (
         "wrapped helper shape not read on an interpolated path"
@@ -235,36 +245,28 @@ def test_manifest_matches_the_vendored_surface_exactly():
     )
 
 
-@pytest.mark.parametrize(
-    "entry",
-    _MANIFEST["_broken_calls"]["routes"],
-    ids=[f"{e['method']} {e['path']}" for e in _MANIFEST["_broken_calls"]["routes"]],
-)
-def test_broken_calls_are_still_broken(entry):
-    """A listed client-side defect must still be one, on BOTH sides.
+def test_a_tolerance_section_brings_its_test_back():
+    """`_broken_calls` self-deleted at 741f8dc1. If it returns, its test must too.
 
-    `GET /api/settings/dock-apps` is the first entry: the app calls it, the
-    backend serves only PUT on that path, and the call has answered 405 since
-    `cf430ae6`. It cannot go in `rest` — the route does not exist — and leaving
-    it unlisted would make the contract silent about a client already broken.
+    The section held one route — GET /api/settings/dock-apps, which the app
+    targeted and the backend answered 405 — and `test_broken_calls_are_still_broken`
+    is what kept it from becoming a permanent exemption: it failed the moment
+    either side moved. Milo-iOS deleted the call, so both the entry and its test
+    are gone.
 
-    So it is listed, and this is what stops the list becoming a permanent
-    exemption. The entry is stale, and fails here, as soon as either side moves:
-    the backend starts serving the route, or the app stops calling it. Removing
-    it is then the only way back to green.
+    This is what stands in their place. A tolerance section reappearing WITHOUT
+    the test that proves its entries are still broken is the failure mode the
+    manifest's `_no_tolerance_sections` describes: a list that cannot fail on its
+    own is a comment, not a contract. Restoring the section is legitimate; doing
+    it silently is not.
     """
-    method, path = entry["method"].upper(), entry["path"]
-
-    served = [p for m, p in _ROUTES if m == method and _segments_match(path, p)]
-    assert not served, (
-        f"the backend now serves `{method} {path}` — Milo-iOS' call is no longer "
-        f"broken. Move the entry from `_broken_calls` into `rest`."
-    )
-
-    called = _FRESHNESS.extract_rest(_VENDORED_SWIFT)
-    assert (method, _FRESHNESS._shape(path)) in called, (
-        f"the vendored app no longer calls `{method} {path}` — it was fixed "
-        f"({entry.get('replacement', '')}). Delete the entry from `_broken_calls`."
+    assert "_broken_calls" not in _MANIFEST, (
+        "`_broken_calls` is back in the manifest. Restore "
+        "test_broken_calls_are_still_broken alongside it (deleted with the "
+        "section; it asserted the backend still does not serve the route AND "
+        "the vendored app still calls it), then delete this guard's assertion. "
+        "A listed defect nothing re-checks stops being a defect and becomes an "
+        "excuse."
     )
 
 

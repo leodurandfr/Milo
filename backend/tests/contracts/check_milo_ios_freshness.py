@@ -9,7 +9,8 @@ extension and App Intents):
       - backend  ⊇ manifest             (no route the manifest declares has been
         removed from the backend);
       - manifest == snapshot            (the surface extracted from the
-        committed snapshot matches `rest` + `_broken_calls` exactly).
+        committed snapshot matches `rest` — plus `_broken_calls` while such a
+        section exists — exactly).
   * NETWORK, MANUAL (this script, run by hand):
       compares the vendored snapshot against a real checkout and says whether it
       has fallen behind. Deliberately NOT a CI job, unlike the Milo-Mac twin: a
@@ -64,8 +65,8 @@ VENDOR_DIR = HERE / "vendor" / "milo-ios"
 # MiloAPIClient+Push.swift, so the extractor saw a surface that had not changed
 # and this script printed "vendored snapshot matches upstream" while Milo-iOS
 # had gained two routes. The contract passed by describing an app that no
-# longer existed — the exact rot the manifest's own _broken_calls.why warns
-# about, arrived for real (Milo-iOS 09b9789b, 2026-09-19).
+# longer existed — the exact rot the manifest's own _no_tolerance_sections
+# warns about, arrived for real (Milo-iOS 09b9789b, 2026-09-19).
 #
 # The third pattern is a filename and not a glob: the Now Playing bridge is not
 # a client file by name, but it calls `MiloAPIClient.get(path:)` directly and is
@@ -196,9 +197,16 @@ def broken_surface(manifest: dict) -> set[tuple[str, str]]:
 
     Known client-side defects, listed so they are neither declared (the route
     does not exist) nor silent (the client is already broken).
+
+    ABSENT is the normal state and means the empty set, not a malformed manifest:
+    the section is data about a defect, so it exists only while one does. It held
+    GET /api/settings/dock-apps until Milo-iOS 741f8dc1 deleted the call, then
+    went with it. `.get` here is not a compatibility fallback — nothing older is
+    being absorbed — it is the section's own lifecycle, and the manifest's
+    `_no_tolerance_sections` records what may never come back in its place.
     """
     return {(e["method"].upper(), _shape(e["path"]))
-            for e in manifest["_broken_calls"]["routes"]}
+            for e in manifest.get("_broken_calls", {}).get("routes", [])}
 
 
 def compute_diff(manifest: dict, api_swift: str):
@@ -260,8 +268,8 @@ def unvendored_surface(root: Path) -> dict[str, set[str]]:
     The app's own test targets are the one exception, and it is stated on the
     DIRECTORY rather than on a route: a test target is not client code, and its
     `/api/…` literals are fixtures (Milo-iOS' `Milo_iOSTests.swift` builds radio
-    artwork URLs). Excusing a route here instead would be the second tolerance
-    section `_broken_calls.why` refuses.
+    artwork URLs). Excusing a route here instead would be the tolerance
+    section the manifest's `_no_tolerance_sections` refuses.
     """
     vendored = set(matching_files(root))
     escaped: dict[str, set[str]] = {}
