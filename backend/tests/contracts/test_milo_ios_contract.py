@@ -13,19 +13,25 @@ the published build, so nobody is broken today — and that is the point: nobody
 could have known either way. A route with no caller in `frontend/src/` is not
 dead, it is unwitnessed, and this file is what witnesses it.
 
-Four guards, all offline:
+Five guards, all offline:
 
   * every route the manifest declares still resolves to a FastAPI route;
   * the manifest and the VENDORED snapshot describe the same surface, exactly —
     neither may depend on something the other does not know about;
   * a route the app declares that the backend does not serve is listed in
     `_broken_calls`, and stops being listed the moment either side moves;
-  * every field the app reads by name still exists on the typed response model.
+  * every field the app reads by name still exists on the typed response model;
+  * every field pinned as an invariant is a key the app actually mentions — the
+    same check from the client side, which is where `dock_apps.enabled_apps`
+    went unwitnessed on /api/settings/bulk until 2026-09-20.
 
-`check_milo_ios_freshness.py` is the network half, non-blocking, in CI.
+`check_milo_ios_freshness.py` is the network half. It is run BY HAND against a
+checkout — there is NO CI job for it, unlike the Milo-Mac twin — so nothing but
+a person deciding the app has moved will ever report a stale snapshot.
 """
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -371,6 +377,71 @@ def test_schema_payload_invariant(path, field):
         f"`{field}` is gone from the response of {path}, but Milo-iOS decodes it "
         f"by name. A Codable struct missing a non-optional key throws — the whole "
         f"call fails, it does not degrade."
+    )
+
+
+_BRACKETED = re.compile(r"\[[^\]]*\]")
+_SEGMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _wire_keys(field: str) -> list[str]:
+    """The literal wire keys in a dotted invariant — `a.b[k].c` -> [a, b, c].
+
+    The bracket content is this manifest's notation for a dict KEY, not a key the
+    app decodes: `clients[mac]` is additionalProperties and `mac` is a stand-in
+    that appears in no Swift file. Dropping it is the difference between a guard
+    and a guard that is permanently red.
+    """
+    return _SEGMENT.findall(_BRACKETED.sub("", field))
+
+
+_WIRE_KEYS = sorted({
+    (path, field, key)
+    for path, field in _SCHEMA_INVARIANTS
+    for key in _wire_keys(field)
+})
+
+
+def test_the_wire_key_reader_reports_a_key_the_app_never_mentions():
+    """The guard below must be able to go red, and be red on the known case.
+
+    Same rule as the field walker above: an extractor is trusted only after its
+    own output is shown non-trivial. `dock_apps` is the measured case — it was a
+    payload_invariant on /api/settings/bulk while occurring ZERO times in the
+    app, so it is the one key that proves this reads anything at all.
+
+    The second assertion is the standing half: if Milo-iOS ever does start
+    reading dock apps out of /bulk, this fails and the invariant is owed back.
+    """
+    assert _wire_keys("dock_apps.enabled_apps") == ["dock_apps", "enabled_apps"]
+    assert _wire_keys("data.clients[mac].volume") == ["data", "clients", "volume"]
+
+    assert not re.search(r"\bdock_apps\b", _VENDORED_SWIFT)
+    assert re.search(r"\bvolume_limits\b", _VENDORED_SWIFT)
+
+
+@pytest.mark.parametrize(
+    ("path", "field", "key"), _WIRE_KEYS,
+    ids=[f"{p} {f} -> {k}" for p, f, k in _WIRE_KEYS],
+)
+def test_an_invariant_names_a_key_the_app_mentions(path, field, key):
+    """Every wire key pinned here must occur in the vendored Swift.
+
+    The other direction of test_schema_payload_invariant, which resolves these
+    fields against the BACKEND only. That asymmetry let `dock_apps.enabled_apps`
+    sit on /api/settings/bulk from the day it was written: the backend does serve
+    it, so the check passed, and nothing ever asked the client. syncVolumeSettings
+    reads three fields and has never read that one.
+
+    PRESENCE, not attribution — see payload_invariants._about. A key the app
+    mentions for a DIFFERENT route still passes here, and confirming otherwise is
+    the hand check owed at each snapshot refresh.
+    """
+    assert re.search(rf"\b{re.escape(key)}\b", _VENDORED_SWIFT), (
+        f"`{path}` pins `{field}`, but `{key}` occurs nowhere in the vendored "
+        f"Milo-iOS snapshot — so the app does not decode it and the invariant is "
+        f"describing the backend rather than the client. Drop it, or refresh the "
+        f"snapshot if the app has gained the field."
     )
 
 
