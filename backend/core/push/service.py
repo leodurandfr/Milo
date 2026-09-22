@@ -373,10 +373,15 @@ class PushService:
         holding what was there. Scoped to the SAME source, because a track
         belonging to a source nobody selected any more is the lie above.
 
-        To delete the day every source publishes an idle identity. Until then
-        this is the only memory those six have, and it is a stand-in for a gap
-        in their producers rather than a second home for a fact the state
-        already carries.
+        **Not a debt, and not waiting on those six to publish an idle identity:
+        they have none to publish.** All six are driven from the other end — the
+        four receivers by their sender, Spotify and Tidal by a Connect session
+        that is gone by the time the source reads READY — so nothing over there
+        can be resumed from here, and "what would come back" is not a fact their
+        producers are withholding. What this holds is the last card across a
+        GAP, which is a different problem from the one the mpv sources solved by
+        publishing what a play press would reopen. Extending that change here
+        would mean inventing a "last played" for sources where it means nothing.
 
         Ending instead of emptying would be the wrong trade and it has been
         measured: a session opened afterwards by a push has never been in the
