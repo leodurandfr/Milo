@@ -114,6 +114,43 @@ def service(registry, apns):
     return svc
 
 
+def vol_state(any_volume_control=True, global_volume_db=-43.0):
+    """A volume snapshot, varying only what a widget test is about.
+
+    The limits are scaffolding: the widget signature does not read them, and
+    `_devices` normalizes against `volume_config`, not against these.
+    """
+    return VolumeState(
+        mode="multiroom",
+        global_volume_db=global_volume_db,
+        global_mute=False,
+        limit_min_db=-78.0,
+        limit_max_db=-8.0,
+        any_volume_control=any_volume_control,
+    )
+
+
+@pytest.fixture
+def with_volume(registry, apns):
+    """A service that can answer the one question a widget asks of Milō.
+
+    The bare `service` fixture deliberately has no volume service, which is
+    what a host wired without one looks like; the widget signature is read
+    from this side, so a test about it needs the seam present.
+    """
+    def build(**state):
+        volume_service = MagicMock()
+        volume_service.get_volume_state = AsyncMock(return_value=vol_state(**state))
+        svc = PushService(token_registry=registry, apns_client=apns,
+                          volume_service=volume_service)
+        machine = MagicMock()
+        machine.get_current_state = MagicMock(return_value=dict(PLAYING))
+        svc.set_state_machine(machine)
+        svc.machine = machine
+        return svc
+    return build
+
+
 def sent_types(apns):
     return [c.args[2] for c in apns.send.await_args_list]
 
@@ -919,13 +956,23 @@ class TestRadioMetadata:
                      "track_artist": "Gil Evans"},
     }
 
-    async def test_a_station_change_spends_a_widget_push(self, service, registry, apns):
-        """Through a floor radio left empty every station looked identical, so
-        the widget signature never moved and the change cost no push — and the
-        widget kept the old station until its own timeline came round."""
+    async def test_a_station_change_reaches_the_card_and_not_the_widget(
+        self, service, registry, apns
+    ):
+        """Through a floor radio left empty every station looked identical here,
+        so a station change reached the lock screen as the previous track.
+
+        The widget is the other half, and it is the half that was wrong in this
+        file: a station is drawn nowhere in `MiloWidgetEntry`, so the push this
+        test used to assert paid for no pixel. Both tokens are held, and only
+        the card's is written to.
+        """
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         registry.held["widget"] = tok(PushTokenKind.WIDGET, "widget")
         service.machine.get_current_state.return_value = dict(self.RADIO)
         await service._publish()
+        registry.held["sess"] = tok(
+            PushTokenKind.SESSION, "sess", session_id=service._session_id)
         apns.send.reset_mock()
         service.machine.get_current_state.return_value = {
             **self.RADIO,
@@ -935,7 +982,9 @@ class TestRadioMetadata:
 
         await service._publish()
 
-        assert [c.args[0].token for c in apns.send.await_args_list] == ["widget"]
+        assert [c.args[0].token for c in apns.send.await_args_list] == ["sess"]
+        card = apns.send.await_args_list[0].args[1]["aps"]["attributes"]["currentTrack"]
+        assert card["title"] == "Blues For Pablo"
 
     async def test_a_stopped_station_still_draws_a_card(self, service, registry, apns):
         """What the whole change is for, at this layer: a source that stopped
@@ -958,20 +1007,41 @@ class TestRadioMetadata:
 
 
 class TestWidgetCadence:
-    """The widget is budgeted separately and must not ride the 1 Hz cap."""
+    """What the widget actually draws, and what a push on anything else costs.
 
-    async def test_a_volume_change_alone_pushes_no_widget(self, service, registry, apns):
-        """A widget draws the track, not the level. Spending a push on a knob
-        turn burns a budget Apple grants per day, not per second."""
+    Measured against the published app on 2026-09-22: `MiloWidgetEntry` carries
+    a `MiloWidgetData` (level, reachable, driveable, muted) and a `showVolume`
+    flag. The view draws the +/- buttons, and above them either the logo — at
+    full opacity iff `isConnected && canControlVolume` — or the level, and the
+    level only while `showVolume` is set. Nothing else is reachable from an
+    entry, so nothing else can justify a push out of a budget Apple grants per
+    day.
+    """
+
+    async def test_a_level_change_pushes_no_widget(self, with_volume, registry, apns):
+        """The level is drawn for 3 s after a press on the widget's own buttons
+        and at no other time — `showVolume` comes from a 5 s window whose only
+        writers are those two intents. So a push sent because a knob turned in
+        the room re-renders the logo: it cannot show the new level, whatever it
+        costs. And the press that does show it reloads the timeline itself.
+        """
+        service = with_volume(global_volume_db=-43.0)
         registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
         await service._publish()          # first cycle: the signature is new
+        service._volume_service.get_volume_state = AsyncMock(
+            return_value=vol_state(global_volume_db=-12.0))
         apns.send.reset_mock()
 
-        await service._publish()          # same state — nothing a widget shows moved
+        await service._publish()
 
         assert sent_types(apns) == []
 
-    async def test_a_track_change_pushes_the_widget(self, service, registry, apns):
+    async def test_a_track_change_pushes_no_widget(self, with_volume, registry, apns):
+        """A widget draws no track. It carried a source name once and Milo-iOS
+        deleted it as dead on 2026-09-20 (`MiloWidgetData.sourceName`), and this
+        side went on spending a push per track for a field with no reader.
+        """
+        service = with_volume()
         registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
         await service._publish()
         service.machine.get_current_state.return_value = {
@@ -979,6 +1049,59 @@ class TestWidgetCadence:
         }
         apns.send.reset_mock()
 
+        await service._publish()
+
+        assert sent_types(apns) == []
+
+    async def test_a_source_going_ready_pushes_no_widget(self, with_volume, registry, apns):
+        """The other half of the same saving: an ACTIVE/READY flip is a play
+        state, and no entry field carries one. Pinned apart from the track
+        because the two arrived in the signature for different reasons.
+        """
+        service = with_volume()
+        registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
+        await service._publish()
+        service.machine.get_current_state.return_value = dict(READY)
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_types(apns) == []
+
+    async def test_losing_the_last_driveable_speaker_pushes_the_widget(
+        self, with_volume, registry, apns
+    ):
+        """The one push that buys a pixel: `any_volume_control` is the half of
+        the widget's `isReady` this side can observe, and it dims the logo. A
+        mode switch, the local DAC flag and the set of available clients with
+        volume control all move it — and all already broadcast VolumeChanged,
+        so the coalescer wakes for it without a new trigger.
+        """
+        service = with_volume(any_volume_control=True)
+        registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
+        await service._publish()
+        service._volume_service.get_volume_state = AsyncMock(
+            return_value=vol_state(any_volume_control=False))
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert sent_types(apns) == ["widgets"]
+
+    async def test_the_first_publish_after_a_restart_pushes_the_widget(
+        self, with_volume, registry, apns
+    ):
+        """This is what relights a logo the widget left dimmed, and it is why
+        no boot hook was added for it. Milō cannot push while it is down, so
+        "it is back" can only be said on the way up — and `_widget_signature`
+        starting None says it, for free, on the first cycle. Remove that and
+        a unit that was unreachable stays dimmed until the widget's own retry,
+        which WidgetKit is free to defer.
+        """
+        service = with_volume()
+        registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
+
+        assert service._widget_signature is None
         await service._publish()
 
         assert sent_types(apns) == ["widgets"]

@@ -25,10 +25,12 @@ undo. Three rules keep it bounded:
     of the volume knob emits a burst of `volume_changed`, and the burst
     collapses into one push carrying the level it ended on.
   * The widget push is rarer still, and is NOT on that one-second cap. It
-    fires only when what a widget actually displays changes — source, track,
-    play state — because a volume tick does not move a widget, and Apple
-    budgets these separately and delivers them opportunistically. Pushing one
-    per second would spend a day's budget in a minute.
+    fires only when what a widget actually displays changes, which is one
+    thing — whether Milō can be driven at all, drawn as the logo's opacity.
+    Apple budgets these separately and delivers them opportunistically, so
+    pushing one per second would spend a day's budget in a minute. See
+    `_signature`: the track and the level are not merely too frequent to be
+    worth a push, they are drawn nowhere a push can reach.
 """
 import asyncio
 import logging
@@ -276,7 +278,7 @@ class PushService:
 
         state = self._state_machine.get_current_state()
         await self._publish_now_playing(state)
-        await self._publish_widget(state)
+        await self._publish_widget()
 
     # =========================================================================
     # NOW PLAYING
@@ -660,14 +662,26 @@ class PushService:
     # WIDGET
     # =========================================================================
 
-    async def _publish_widget(self, state: Dict[str, Any]) -> None:
-        """Push only when what a widget shows has actually changed.
+    async def _publish_widget(self) -> None:
+        """Push only when what a widget draws has actually changed.
 
-        A widget draws the source, the track and the play state. It does not
-        draw the volume, so a knob turn must not spend a push — Apple budgets
-        these per day and delivers them when it chooses.
+        A widget draws one thing that depends on Milō: the logo, dimmed while
+        Milō is not both reachable and driveable. It draws neither the source,
+        the track nor the play state — `MiloWidgetEntry` carries a
+        `MiloWidgetData` and a `showVolume` flag, and nothing else reaches the
+        view. `MiloWidgetData.sourceName`/`.availableSources` were deleted
+        upstream as dead on 2026-09-20, and this side kept spending a push per
+        track and per ACTIVE/READY flip for them.
+
+        Nor does it draw the level, and that has to be stated precisely because
+        it reads as a budget question and is not one. `showVolume` is true only
+        inside a 5 s window, and the only writers of that window are the
+        widget's own +/- buttons. A push arriving because a knob turned in the
+        room re-renders the logo, not the digits — so pushing the level buys no
+        pixel at any budget. The press that WOULD show digits reloads the
+        timeline itself and re-reads the level from Milō before drawing it.
         """
-        signature = self._signature(state)
+        signature = await self._signature()
         if signature == self._widget_signature:
             return
         self._widget_signature = signature
@@ -676,29 +690,34 @@ class PushService:
         if targets:
             await self._send_all(targets, widget_payload(), "widgets", priority=5)
 
-    @staticmethod
-    def _signature(state: Dict[str, Any]) -> tuple:
-        """What a widget draws, read the same way the lock screen reads it.
+    async def _signature(self) -> tuple:
+        """Is the logo lit — the whole of what a widget draws from this state.
 
-        Through a floor radio left empty, every station looked identical here
-        and a station change spent no push, so the widget kept the previous one
-        until its own timeline came round. The sources fill the floor now, so
-        this reads it directly instead of through a cascade.
+        `any_volume_control` is the half of the widget's own
+        `isReady = isConnected && canControlVolume` that this side can observe,
+        and it does move: a mode switch, the local DAC flag, and the set of
+        available clients holding volume control each flip it, and every one of
+        those paths already broadcasts `VolumeChanged`. So `TRIGGERS` needs
+        nothing added for this to be seen — which was worth checking first,
+        because a signature nothing wakes is a push that silently never fires.
 
-        `source_state` stays, though `is_playing` may look like it says the same
-        thing. Dropping it was tried and put back: the only vendored iOS model
-        is `MiloWidgetData`, which carries volume alone, so the widget's own
-        view code is not in this repo and what it draws cannot be read from
-        here. A saved push is not worth a bet on a surface nobody can see.
+        The other half cannot be pushed while it is false: a unit that is not
+        reachable is not sending anything either. Coming back needs no hook and
+        deliberately does not get one — `_widget_signature` starts None, so the
+        first publish after a restart pushes whatever it finds and the logo
+        relights without waiting out the widget's 5-minute unreachable retry. A
+        boot push would be delivered opportunistically, which is a weaker
+        guarantee than the retry it would be racing.
+
+        Read through the volume service, because the broadcast state does not
+        carry it. Wired without one, the signature is constant and nothing is
+        pushed past the first cycle — the same fail-open this service already
+        applies to a missing signing key.
         """
-        metadata = state.get("metadata") or {}
-        return (
-            state.get("active_source"),
-            state.get("source_state"),
-            metadata.get("title"),
-            metadata.get("artist"),
-            metadata.get("is_playing"),
-        )
+        if self._volume_service is None:
+            return ()
+        volume_state = await self._volume_service.get_volume_state()
+        return (volume_state.any_volume_control,)
 
     # =========================================================================
     # DELIVERY
