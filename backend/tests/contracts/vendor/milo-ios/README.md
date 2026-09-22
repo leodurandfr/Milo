@@ -10,7 +10,7 @@ the manifest against the real app **with no network**:
 | `MiloAPIClient+Push.swift` | the APNs token registration routes |
 | `MiloAPIClient+Media.swift` | the Now Playing transport + per-room volume routes |
 | `Models.swift` | every response field the app decodes by name |
-| `MiloNowPlayingBridge.swift` | the lock screen's device list: `/api/multiroom/state` |
+| `MiloNowPlayingBridge.swift` | the lock screen's device list (`/api/multiroom/state`) **and** the rule that decides whether the card exists |
 
 Every call goes through `MiloAPIClient` — the three App Intents and the widget's
 timeline provider build no URL of their own — but it is **no longer one file**,
@@ -54,7 +54,24 @@ of the manifest and a manifest ahead of the snapshot both fail
 targets that the backend does not serve is named in `_broken_calls`, and that
 entry deletes itself as soon as either side moves.
 
-Captured from upstream `be15c1f3a9513e2d77832fc5a7a8d6b16cd5c5c9` on 2026-09-20.
+Captured from upstream `4b9e73f01cdcf3e848ec553f8a2de45e966cf7ce` on 2026-09-22.
+
+**This line was two refreshes stale when 4b9e73f was taken**, and it is worth saying
+where: it still named `be15c1f` after `741f8dc1 -> 0edead3` and again after
+`0edead3 -> 4b9e73f`. Nothing checks it — `check_milo_ios_freshness.py` reads the
+Swift, and `test_milo_ios_contract.py` reads the manifest; neither opens this file.
+The hash that is enforced lives in `milo_ios_contract.json::_snapshot.upstream_commit`,
+so this one is prose, and prose left behind is exactly the `would mislead a reader`
+failure these refreshes exist to prevent. Update it in the same commit as the files.
+
+**`4b9e73f` is the first refresh taken because the BACKEND moved.** `95293764` made a
+stopped mpv source publish what a play press would resume, so `source_state: ready`
+stopped meaning *nothing to show*. Until then `MiloNowPlayingBridge` ended the Lock
+Screen session on `sourceState != "active"` — so stopping a station closed the card
+instead of leaving it paused on what `resume_playback` would bring back. The vendored
+copy stated that rule on the one file a backend reader would open to check it. No
+route moved, four of the five files came back byte-identical, and the script answered
+*matches upstream* on both sides of the change.
 
 **`be15c1f` is the refresh that showed what not running this costs.** Eighteen commits
 separated it from `a84400a9`, and across them the app had gained **four** routes the
