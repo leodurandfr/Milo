@@ -21,6 +21,7 @@ state change and no restart.
 import asyncio
 import contextlib
 import logging
+import signal
 from typing import AsyncIterator, Iterable, List, Optional
 
 
@@ -59,19 +60,21 @@ async def follow_unit(
             if not line:  # EOF: the writer went away
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(proc.wait(), 1.0)
-                # A journalctl that died on a signal was killed by someone
-                # else, and on this appliance that someone is systemd:
+                # SIGTERM alone is the backend going down with it:
                 # milo-backend.service runs KillMode=control-group, so an
                 # ordinary `systemctl restart milo-backend` SIGTERMs the
                 # journalctl children in the same cgroup, and they reach here
                 # before uvicorn's shutdown cancels the monitor task that owns
-                # this generator. Measured: returncode -15. Reporting it would
-                # put a false "detection is down" in errors.log and the UI
-                # banner on every restart — the noise this exists to replace.
-                # A clean consumer teardown never comes through here at all:
-                # it unwinds through CancelledError/GeneratorExit into the
-                # finally below.
-                if proc.returncode is None or proc.returncode >= 0:
+                # this generator. Measured: returncode -15, and a restart with
+                # Mac selected logged nothing. Reporting it would put a false
+                # "detection is down" in errors.log and the UI banner on every
+                # restart. Any other signal is a death the backend survives —
+                # SIGKILL from the OOM killer, a crash — and silencing those
+                # would leave the source deaf with nothing said, which is the
+                # hole this report exists to close. A clean consumer teardown
+                # never comes through here at all: it unwinds through
+                # CancelledError/GeneratorExit into the finally below.
+                if proc.returncode != -signal.SIGTERM:
                     (logger or logging.getLogger(__name__)).error(
                         "journalctl follow for %s ended (exit=%s) — %s until the "
                         "source is restarted",

@@ -146,7 +146,31 @@ class TestAFollowThatDies:
         assert "milo-mac" in message
         assert "Mac connection detection is down" in message
 
-    async def test_a_journalctl_killed_by_a_signal_reports_nothing(self, monkeypatch):
+    async def test_a_journalctl_killed_otherwise_is_reported(self, monkeypatch):
+        """Only the restart's signal is silenced.
+
+        SIGKILL is what the OOM killer sends, and the backend survives it: the
+        source is deaf from then on. Treating every negative returncode as a
+        restart made that death silent — exactly the hole the report closes.
+        """
+        async def fake_exec(*args, **kwargs):
+            return _FakeFollowProc([b"a\n"], exit_code=-9)
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        with caplog_at("test.journal") as records:
+            async for _ in journalctl.follow_unit(
+                "milo-mac",
+                consequence="Mac connection detection is down",
+                logger=logging.getLogger("test.journal"),
+            ):
+                pass
+
+        errors = [r for r in records if r.levelno >= logging.ERROR]
+        assert len(errors) == 1
+        assert "exit=-9" in errors[0].getMessage()
+
+    async def test_the_restart_signal_reports_nothing(self, monkeypatch):
         """`systemctl restart milo-backend` is not a dead feed.
 
         milo-backend.service runs KillMode=control-group, so the restart
