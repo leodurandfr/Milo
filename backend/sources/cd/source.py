@@ -29,7 +29,8 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 from backend.config.constants import CD_DEVICE, CD_PREV_RESTART_THRESHOLD_S
-from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.audio_state import AudioSource
+from backend.core.models.source_metadata import PlaybackMetadata
 from backend.core.models.ws_events import SystemCdDriveStatus
 from backend.sources.cd.data import CDS_DISC_OK, CDS_DRIVE_NOT_READY, CdDataService
 from backend.sources.cd.models import DiscInfo, PlayTrackParams, SeekParams, TrackInfo
@@ -1176,15 +1177,15 @@ class CdSource(MpvAudioSource):
 
     def _update_connection_state(self) -> None:
         # ACTIVE iff there's a live playback session; a merely-inserted or
-        # auto-stopped/finished disc is READY so the screen can sleep. Unlike
-        # the generic emit_connection_state (which drops the now-playing core in
-        # READY), a loaded CD stays fully visible while idle — its album,
-        # artist and cover are a real thing to show in the player — so publish
-        # the whole metadata dict in both states. _build_metadata already
-        # projects the idle view (album as title, no progress) vs the playing one.
+        # auto-stopped/finished disc is READY so the screen can sleep. The full
+        # projection survives READY through `_idle_metadata()`, which returns
+        # `_build_metadata()` — a loaded CD's album, artist and cover are a real
+        # thing to show while idle, and so is the resume point. That is why this
+        # can go through the shared publisher: the generic READY drops the
+        # now-playing core only for a source that has nothing to keep.
         connected = self._is_playing or self._is_buffering or self._is_paused
-        state = SourceState.ACTIVE if connected else SourceState.READY
-        self.set_state(state, self._build_metadata())
+        core, extras = PlaybackMetadata.split(self._build_metadata())
+        self.emit_connection_state(connected, core, extras)
 
     async def refresh_metadata(self) -> bool:
         """Refresh metadata so WebSocket initial_state contains live position."""

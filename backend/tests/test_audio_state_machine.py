@@ -899,6 +899,7 @@ class TestUpdatePositionMetadata:
 
     async def test_the_playhead_lands_in_the_state_a_new_client_reads(self, state_machine):
         state_machine.system_state.active_source = AudioSource.RADIO
+        state_machine.system_state.source_state = SourceState.ACTIVE
         state_machine.system_state.metadata = {"title": "Song"}
 
         await state_machine.update_position_metadata(AudioSource.RADIO, 42, 180)
@@ -922,6 +923,33 @@ class TestUpdatePositionMetadata:
         assert state_machine.system_state.metadata == {
             "title": "Song", "position": 42, "duration": 180
         }
+
+    async def test_a_playhead_is_refused_once_the_source_went_idle(self, state_machine):
+        """A producer that awaits its hardware between reading the playhead and
+        pushing it — Bluetooth reads the position over D-Bus — can arrive after
+        the session ended. Stamping it would put a position and a duration on a
+        payload that says nothing is playing."""
+        state_machine.system_state.active_source = AudioSource.BLUETOOTH
+        state_machine.system_state.source_state = SourceState.READY
+        state_machine.system_state.metadata = {"is_playing": False, "is_buffering": False}
+
+        await state_machine.update_position_metadata(AudioSource.BLUETOOTH, 4200, 60000)
+
+        assert state_machine.system_state.metadata == {
+            "is_playing": False, "is_buffering": False
+        }
+
+    async def test_a_playhead_is_refused_during_a_transition(self, state_machine):
+        """Same rule as update_source_state: what a transition publishes is
+        settled by its post-start resync, never by a task still in flight."""
+        state_machine.system_state.active_source = AudioSource.PODCAST
+        state_machine.system_state.source_state = SourceState.ACTIVE
+        state_machine.system_state.transitioning = True
+        state_machine.system_state.metadata = {}
+
+        await state_machine.update_position_metadata(AudioSource.PODCAST, 4200, 60000)
+
+        assert state_machine.system_state.metadata == {}
 
 
 class TestExclusiveTransition:

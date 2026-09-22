@@ -385,11 +385,25 @@ class AudioStateMachine:
         self, source: AudioSource, position: int, duration: int
     ) -> None:
         """Sync live position/duration into system_state.metadata (so a new WS
-        connection's initial_state carries them). Only the active source may
-        write; the write stays here so state mutation lives in the state machine."""
+        connection's initial_state carries them). The write stays here so state
+        mutation lives in the state machine.
+
+        Guarded exactly like update_source_state, plus ACTIVE: a playhead is a
+        claim about a live session, and every producer only ticks while it is
+        publishing one. Without the last two, a producer that awaits its
+        hardware between reading the playhead and pushing it (Bluetooth's AVRCP
+        read is the one that does) could stamp a position onto a payload that
+        has already gone idle. What is closed here is the cached record — the
+        one `initial_state` hands a connecting client; the live
+        SourcePositionUpdate is a separate event every consumer already gates
+        on is_playing, which is why nothing drew either of them."""
         async with self._state_lock:
             sm = self.system_state
-            if sm.metadata is not None and sm.active_source == source:
+            if sm.active_source != source or sm.transitioning:
+                return
+            if sm.source_state is not SourceState.ACTIVE:
+                return
+            if sm.metadata is not None:
                 sm.metadata["position"] = position
                 sm.metadata["duration"] = duration
 

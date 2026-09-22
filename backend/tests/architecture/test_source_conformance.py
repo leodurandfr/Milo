@@ -614,3 +614,22 @@ def test_a_ready_payload_cannot_claim_playback(source_id):
     assert payload["is_buffering"] is False
     # The rest of the projection is the source's business and passes through.
     assert payload["title"] == "Something stale"
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_a_source_publishes_through_emit_connection_state(source_id):
+    """`set_state` is the base class's own transport, not a source's API.
+
+    A source calling it directly hand-builds the whole payload and never
+    reaches `_idle_payload()` — which is how one READY went out with no
+    transport key in it and another with three episode fields and nothing
+    generic. Anything the idle view must keep goes in `_idle_metadata()`, and
+    anything describing one transition goes in `extras`; neither needs a second
+    way out.
+    """
+    primitives = set().union(*_publish_sites(source_id).values())
+    assert primitives == {"emit_connection_state"}, (
+        f"{source_id} calls {sorted(primitives - {'emit_connection_state'})} "
+        f"directly — publish through emit_connection_state, and put anything the "
+        f"idle view must keep in `_idle_metadata()`"
+    )

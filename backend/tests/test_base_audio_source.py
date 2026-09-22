@@ -432,6 +432,9 @@ class TestPositionUpdateReachesBothSinks:
         source.state_machine = state_machine
         state_machine.register_source(AudioSource.RADIO, source)
         state_machine.system_state.active_source = AudioSource.RADIO
+        # ACTIVE as well as selected: a playhead is a claim about a live
+        # session, and update_position_metadata refuses one that is not.
+        state_machine.system_state.source_state = SourceState.ACTIVE
         return source, state_machine
 
     @pytest.mark.asyncio
