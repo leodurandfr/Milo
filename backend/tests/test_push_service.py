@@ -1088,6 +1088,63 @@ class TestWidgetCadence:
 
         assert sent_types(apns) == ["widgets"]
 
+    async def test_a_widget_push_apple_refused_is_retried(
+        self, with_volume, registry, apns
+    ):
+        """The signature is recorded only once Apple has taken the push.
+
+        It used to be stamped before the send, which was survivable while the
+        signature moved on every track change — the next track retried it by
+        accident. It now moves only on a rare flip, so a stamp-then-fail would
+        lose that push for good and leave the logo wrong until WidgetKit's own
+        refresh.
+        """
+        service = with_volume()
+        registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
+        apns.send.return_value = ApnsResult(ok=False, status=0, reason="Unreachable")
+
+        await service._publish()
+        assert sent_types(apns) == ["widgets"]        # attempted, refused
+
+        apns.send.return_value = ApnsResult(ok=True, status=200)
+        apns.send.reset_mock()
+        await service._publish()                       # same state, still unsent
+
+        assert sent_types(apns) == ["widgets"]
+
+    async def test_a_delivered_widget_push_is_not_sent_twice(
+        self, with_volume, registry, apns
+    ):
+        """The other side of the retry: taking delivery into the condition must
+        not turn the signature into a no-op that re-pushes every cycle."""
+        service = with_volume()
+        registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
+
+        await service._publish()
+        apns.send.reset_mock()
+        await service._publish()
+
+        assert sent_types(apns) == []
+
+    async def test_a_dead_token_does_not_leave_the_signature_unrecorded(
+        self, with_volume, registry, apns
+    ):
+        """A 410 is not a transient failure, and the retry must not spin on it.
+        `_send_all` purges the token, so the next cycle has no target left —
+        which is the branch that records the signature and ends it."""
+        service = with_volume()
+        registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
+        apns.send.return_value = ApnsResult(ok=False, status=410, reason="Unregistered",
+                                            dead=True, invalidated_at=123.0)
+
+        await service._publish()
+        del registry.held["w"]                         # what purge did, in this mock
+        apns.send.reset_mock()
+        await service._publish()
+
+        assert sent_types(apns) == []
+        assert service._widget_signature is not None
+
     async def test_the_first_publish_after_a_restart_pushes_the_widget(
         self, with_volume, registry, apns
     ):

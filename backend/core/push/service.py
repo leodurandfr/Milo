@@ -684,22 +684,47 @@ class PushService:
         signature = await self._signature()
         if signature == self._widget_signature:
             return
-        self._widget_signature = signature
 
         targets = self._registry.tokens_for(PushTokenKind.WIDGET)
-        if targets:
-            await self._send_all(targets, widget_payload(), "widgets", priority=5)
+        if not targets:
+            self._widget_signature = signature
+            return
+
+        # Recorded only once Apple has taken it. This used to be stamped before
+        # the send and the result dropped, which was survivable while the
+        # signature moved on every track change — the next track retried it by
+        # accident. It no longer moves on anything but a rare flip, so a push
+        # lost to a transient failure would be lost for good, and the thing it
+        # was carrying is a logo left in the wrong state until WidgetKit's own
+        # refresh. The retry costs nothing extra in the normal case: it is the
+        # same coalesced cycle, and `_send_all` already purges a token Apple
+        # calls dead rather than retrying it forever.
+        if await self._send_all(targets, widget_payload(), "widgets", priority=5):
+            self._widget_signature = signature
 
     async def _signature(self) -> tuple:
         """Is the logo lit — the whole of what a widget draws from this state.
 
         `any_volume_control` is the half of the widget's own
-        `isReady = isConnected && canControlVolume` that this side can observe,
-        and it does move: a mode switch, the local DAC flag, and the set of
-        available clients holding volume control each flip it, and every one of
-        those paths already broadcasts `VolumeChanged`. So `TRIGGERS` needs
-        nothing added for this to be seen — which was worth checking first,
-        because a signature nothing wakes is a push that silently never fires.
+        `isReady = isConnected && canControlVolume` that this side can observe.
+        Note the short-circuit it is read through: while the local client holds
+        volume control the value is pinned True whatever the satellites do, so
+        on a unit that is not a DAC this signature is constant and the only
+        widget push left is the one the paragraph below describes. It moves on
+        a DAC-configured unit, where it is also the only thing that can dim the
+        logo for a reason Milō knows.
+
+        What wakes the coalescer for it is NOT complete, and the gap is on the
+        dim side. `VolumeChanged` is broadcast when a client reconnects
+        (`_sync_reconnecting_client_volume`), so the relight is seen; it is NOT
+        broadcast when one drops (`set_client_online(mac, False)` reaches
+        `VolumeStateStore.set_client_availability` and stops there) nor by
+        `PATCH /api/multiroom/clients/{mac}` changing `volume_control`. Those
+        two flips therefore reach no push and wait for the widget's own
+        timeline. The missing broadcasts are a defect in those paths — the Dock
+        reads `any_volume_control` too and goes stale on the same event — and
+        not something to work around here by widening `TRIGGERS`, which would
+        wake this loop for events that change nothing a widget draws.
 
         The other half cannot be pushed while it is false: a unit that is not
         reachable is not sending anything either. Coming back needs no hook and
