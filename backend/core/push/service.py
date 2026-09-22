@@ -41,6 +41,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from backend.core.models.ws_events import (
     SourceStateChanged,
     SystemStateChanged,
+    SystemTransitionComplete,
     VolumeChanged,
     WsEvent,
 )
@@ -63,7 +64,22 @@ MIN_PUSH_INTERVAL_S = 1.0
 # The events worth a push. Everything else on the bus — position ticks,
 # favourites, settings — either changes nothing a lock screen shows or changes
 # it too often to be worth a push.
-TRIGGERS: Tuple[type, ...] = (VolumeChanged, SourceStateChanged, SystemStateChanged)
+TRIGGERS: Tuple[type, ...] = (
+    VolumeChanged, SourceStateChanged, SystemStateChanged, SystemTransitionComplete,
+)
+# `SystemTransitionComplete` is here because nothing else announces the end of a
+# source change to this loop, and that is the one moment the active source is
+# different. `transition_to_source` holds `transitioning` across the whole
+# switch, which suppresses the per-source broadcasts inside it, and the two
+# events it does emit — Start and Complete — were in neither this tuple nor any
+# other path here. Measured on the appliance 2026-09-22: source left from the
+# UI, `Transition completed: none` in the journal, and the session still open a
+# minute later; a volume nudge woke the loop and it ended on the spot, which is
+# what proved the logic was right and the wake-up missing.
+#
+# This is not the widening `_signature` warns against. That warning is about
+# events which change nothing a widget draws; a completed transition changes the
+# active source, which is the whole of what the Now Playing card draws.
 
 # How long a session Milō just started is trusted before the device has
 # registered its token. Generous on purpose: the round trip is an HTTP call the
@@ -291,10 +307,30 @@ class PushService:
         the moment someone reaches for it — and survives a source change: the
         session is "Milō is playing something", not "Milō is playing Spotify",
         so its id stays stable while the track and the source underneath move.
+
+        It does NOT survive the source being left. `align_session_to_playback`
+        has always ended on the spot when the state named nothing, and this
+        path waited out the whole grace for the same state — so the card
+        cleared at once if the app happened to be open to report, and hung on
+        for five minutes if it was not. The Lock Screen is the surface that
+        matters when the app is closed, which is exactly where it behaved worst.
         """
         async with self._session_lock:
             if not self._has_active_source(state):
-                await self._consider_ending(state)
+                # Both guards are `_consider_ending`'s own, and skipping
+                # either was measured on the appliance: without the session
+                # check `_end_session` ran on every publish with no session to
+                # end — `Now Playing session None ended` in the journal, and
+                # `_session_cleared_at` pushed forward each time — and without
+                # `transitioning` a source change reads as nothing playing
+                # while it is in flight, which empties the Lock Screen on every
+                # switch.
+                if (self._session_id is not None
+                        and not state.get("transitioning")
+                        and not self._a_source_is_selected(state)):
+                    await self._end_session()
+                else:
+                    await self._consider_ending(state)
                 return
 
             self._idle_since = 0.0
@@ -785,6 +821,29 @@ class PushService:
         """
         metadata = state.get("metadata") or {}
         return bool(metadata.get("title"))
+
+    @staticmethod
+    def _a_source_is_selected(state: Dict[str, Any]) -> bool:
+        """Is any source selected at all — playing, warming up or idle?
+
+        Strictly weaker than `_has_active_source`, and the two are not
+        interchangeable: this is true wherever that one is, AND wherever a
+        source is selected without being active — every source just switched
+        to and not yet started, and every source that has gone quiet. Only
+        `none` means nobody chose anything.
+
+        This is what lets a session end the moment the source is LEFT while a
+        source merely going quiet keeps its grace. The distinction is safe
+        because `transition_to_source` assigns the target in the same locked
+        block that raises `transitioning`, so a change from one source to
+        another never passes through `none` — measured 2026-09-22, sampling
+        /api/audio/state across radio -> spotify: `spotify/starting` then
+        `spotify/ready`, and `none` in no sample. Were that ever to change,
+        leaving a source and changing source would become indistinguishable
+        here and the card would blink on every switch.
+        """
+        source = state.get("active_source")
+        return bool(source) and str(source) != "none"
 
     @staticmethod
     def _has_active_source(state: Dict[str, Any]) -> bool:

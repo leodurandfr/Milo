@@ -18,6 +18,7 @@ from backend.core.models.volume_state import ClientVolume, VolumeState
 from backend.core.models.ws_events import (
     SourcePositionUpdate,
     SourceStateChanged,
+    SystemTransitionComplete,
     VolumeChanged,
 )
 from backend.core.push.apns_client import ApnsResult
@@ -274,6 +275,16 @@ class TestSessionLifecycle:
         assert service._session_id == session_id
 
     async def test_playback_stopping_ends_the_session(self, service, registry, apns):
+        """Leaving the source ends it AT ONCE, with no paused snapshot first.
+
+        This used to empty the card and end it a grace later, and the emptying
+        was the whole point: `none` was treated as one more gap to ride out.
+        It is not one. Nothing is selected, so nothing will resume and no
+        `start` is coming — the grace could only keep Milō on a Lock Screen it
+        no longer owns. Reported from the appliance 2026-09-22: source left,
+        Control Center still offering the track that was playing, and the only
+        way to clear it was to open the app so it would report.
+        """
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         registry.held["sess"] = tok(
@@ -281,14 +292,11 @@ class TestSessionLifecycle:
         service.machine.get_current_state.return_value = dict(STOPPED)
         apns.send.reset_mock()
 
-        await service._publish()          # arms the delay, and says "paused"
-        service._idle_since -= SESSION_IDLE_GRACE_S + 1
         await service._publish()
 
         assert service._session_id is None
-        # The paused snapshot rides ahead of the ending — see `_publish_paused`.
-        assert sent_events(apns) == ["update", "end"]
-        assert apns.send.await_args_list[1].args[1]["aps"]["attributes"].keys() == {"id"}
+        assert sent_events(apns) == ["end"]
+        assert apns.send.await_args_list[0].args[1]["aps"]["attributes"].keys() == {"id"}
 
     async def test_a_refused_start_does_not_claim_a_session(self, service, registry, apns):
         """Recording a session the phone never opened would send every later
@@ -509,10 +517,19 @@ class TestSourceTransitions:
         assert attributes["isPlaying"] is False
         assert attributes["currentTrack"]["title"] is None
 
-    async def test_selecting_no_source_empties_the_card_too(
+    async def test_selecting_no_source_takes_the_card_away(
         self, service, registry, apns
     ):
-        """`active_source: none` is the other way to leave the track behind."""
+        """`active_source: none` removes the card rather than emptying it.
+
+        Emptying was the old answer, and it left a Milō card with every field
+        null sitting in Control Center for five minutes — which reads as the
+        appliance still offering something to play. A source nobody selected
+        offers nothing, and the surface should say so by not being there.
+
+        READY is the case this must not swallow: a source IS selected there,
+        it simply has nothing to show yet, and it keeps its grace.
+        """
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         registry.held["sess"] = tok(
@@ -522,8 +539,8 @@ class TestSourceTransitions:
 
         await service._publish()
 
-        attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
-        assert attributes["currentTrack"]["title"] is None
+        assert sent_events(apns) == ["end"]
+        assert service._session_id is None
 
     async def test_the_paused_snapshot_never_says_playing(
         self, service, registry, apns
@@ -547,15 +564,58 @@ class TestSourceTransitions:
         attributes = apns.send.await_args_list[0].args[1]["aps"]["attributes"]
         assert attributes["isPlaying"] is False
 
-    async def test_a_real_stop_still_ends_it(self, service, registry, apns):
-        """The other side of the delay: a session that outlived playback for
-        good would keep Milō on a Lock Screen it no longer owns."""
+    def test_a_finished_transition_wakes_the_loop(self, service):
+        """Leaving the source must reach this loop without help.
+
+        `transition_to_source` holds `transitioning` across the switch, which
+        suppresses the per-source broadcasts inside it, so Start and Complete
+        are the only events it emits. Neither was a trigger, and the card
+        therefore outlived the source it described until something unrelated —
+        a volume nudge, another source event — happened to wake the loop.
+        Measured on the appliance 2026-09-22.
+        """
+        service._dirty.clear()
+        service.on_event(SystemTransitionComplete())
+        assert service._dirty.is_set()
+
+    async def test_no_session_means_nothing_to_end(self, service, registry, apns):
+        """`none` with no session open must do nothing at all.
+
+        Ending on sight replaced a call that began `if self._session_id is
+        None: return`, and dropping that guard was measured on the appliance
+        2026-09-22: every publish while no source was selected ran the teardown
+        over again — `Now Playing session None ended` in the journal, a
+        `token_for_session(None)` lookup, and `_session_cleared_at` pushed
+        forward each time, which is the window that stops a just-ended session
+        from being adopted back.
+        """
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        service.machine.get_current_state.return_value = dict(STOPPED)
+
+        await service._publish()
+        await service._publish()
+
+        assert service._session_id is None
+        assert sent_events(apns) == []
+        assert service._session_cleared_at == 0.0
+
+    async def test_a_source_that_goes_quiet_still_ends_after_the_grace(
+        self, service, registry, apns
+    ):
+        """The other side of the delay, on the case that still HAS one.
+
+        READY is a source still selected with nothing to show — the gap the
+        grace exists for. It must be ridden out, then ended, or a session that
+        outlived playback for good would keep Milō on a Lock Screen it no
+        longer owns. `none` no longer reaches here; it is ended on sight.
+        """
         registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
         await service._publish()
         registry.held["sess"] = tok(
             PushTokenKind.SESSION, "sess", session_id=service._session_id)
-        service.machine.get_current_state.return_value = dict(STOPPED)
+        service.machine.get_current_state.return_value = dict(READY)
         await service._publish()
+        assert service._session_id is not None      # the grace is armed
         service._idle_since -= SESSION_IDLE_GRACE_S + 1
         apns.send.reset_mock()
 
