@@ -237,7 +237,7 @@ class TestTheJournalMonitor:
     async def test_every_line_reaches_the_classifier(self, source):
         seen = []
 
-        async def follow(unit, logger=None):
+        async def follow(unit, *, consequence, logger=None):
             for line in ["a", "b"]:
                 yield line
 
@@ -254,7 +254,7 @@ class TestTheJournalMonitor:
         the source is restarted — with nothing on screen to say so."""
         seen = []
 
-        async def follow(unit, logger=None):
+        async def follow(unit, *, consequence, logger=None):
             for line in ["bad", "good"]:
                 yield line
 
@@ -274,7 +274,7 @@ class TestTheJournalMonitor:
     async def test_the_journal_going_away_is_logged_not_raised(self, source, caplog):
         """The monitor is a bare task; an exception escaping it dies unobserved
         except for asyncio's own warning."""
-        async def follow(unit, logger=None):
+        async def follow(unit, *, consequence, logger=None):
             raise RuntimeError("journalctl gone")
             yield  # pragma: no cover - generator marker
 
@@ -287,7 +287,7 @@ class TestTheJournalMonitor:
     async def test_a_cancelled_monitor_ends_quietly(self, source, caplog):
         """`_do_stop` cancels it on every source switch; an error log here
         would raise the UI banner on an ordinary switch away from Mac."""
-        async def follow(unit, logger=None):
+        async def follow(unit, *, consequence, logger=None):
             raise asyncio.CancelledError
             yield  # pragma: no cover - generator marker
 

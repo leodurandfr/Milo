@@ -45,16 +45,21 @@ class _FakeFollowStdout:
 
 
 class _FakeFollowProc:
-    def __init__(self, lines):
+    """journalctl. `exit_code` is what `wait()` reaps, and the default is the
+    negative one a terminated process carries — the case the follow's own
+    teardown produces, and the one systemd's cgroup kill produces too."""
+
+    def __init__(self, lines, exit_code: int = -15):
         self.stdout = _FakeFollowStdout(lines)
         self.returncode = None
         self.terminated = False
+        self._exit_code = exit_code
 
     def terminate(self):
         self.terminated = True
 
     async def wait(self):
-        self.returncode = -15
+        self.returncode = self._exit_code
         return self.returncode
 
 
@@ -84,10 +89,15 @@ class TestFollowUnit:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
 
-        out = [line async for line in journalctl.follow_unit("milo-x")]
+        out = [line async for line in journalctl.follow_unit(
+            "milo-x", consequence="nothing real"
+        )]
 
         assert out == ["hello", "world"]  # blank line skipped, EOF ends iteration
-        assert proc.terminated is True    # finally-block teardown ran
+        # Reaped rather than terminated: journalctl exited on its own, so the
+        # EOF branch waits for it and the finally block has nothing left to kill.
+        assert proc.returncode is not None
+        assert proc.terminated is False
 
     @pytest.mark.asyncio
     async def test_terminates_on_early_close(self, monkeypatch):
@@ -98,11 +108,92 @@ class TestFollowUnit:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
 
-        gen = journalctl.follow_unit("milo-x")
+        gen = journalctl.follow_unit("milo-x", consequence="nothing real")
         assert await gen.__anext__() == "a"
         await gen.aclose()  # consumer stops early
 
         assert proc.terminated is True
+
+
+class TestAFollowThatDies:
+    """A journalctl that exits takes a source's only connection feed with it.
+
+    Consumers: `sources/mac/source.py::_monitor_events` (ROC connect/disconnect)
+    and `sources/spotify/source.py::_monitor_logs` (go-librespot errors). Before
+    this, the EOF break was silent — the source went deaf for the rest of the
+    session with nothing in the journal to say so.
+    """
+
+    async def test_an_exit_is_reported_once_with_the_unit_and_the_cost(
+        self, monkeypatch
+    ):
+        async def fake_exec(*args, **kwargs):
+            return _FakeFollowProc([b"a\n"], exit_code=1)
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        with caplog_at("test.journal") as records:
+            async for _ in journalctl.follow_unit(
+                "milo-mac",
+                consequence="Mac connection detection is down",
+                logger=logging.getLogger("test.journal"),
+            ):
+                pass
+
+        errors = [r for r in records if r.levelno >= logging.ERROR]
+        assert len(errors) == 1
+        message = errors[0].getMessage()
+        assert "milo-mac" in message
+        assert "Mac connection detection is down" in message
+
+    async def test_a_journalctl_killed_by_a_signal_reports_nothing(self, monkeypatch):
+        """`systemctl restart milo-backend` is not a dead feed.
+
+        milo-backend.service runs KillMode=control-group, so the restart
+        SIGTERMs the journalctl children in the same cgroup and they reach the
+        EOF branch before uvicorn's shutdown cancels the monitor that owns the
+        generator (measured on the unit: returncode -15). Without this, every
+        restart wrote a false "connection detection is down" to errors.log and
+        raised the UI banner — the exact noise this report exists to replace.
+        """
+        async def fake_exec(*args, **kwargs):
+            return _FakeFollowProc([b"a\n"], exit_code=-15)
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        with caplog_at("test.journal") as records:
+            async for _ in journalctl.follow_unit(
+                "milo-mac",
+                consequence="Mac connection detection is down",
+                logger=logging.getLogger("test.journal"),
+            ):
+                pass
+
+        assert [r for r in records if r.levelno >= logging.ERROR] == []
+
+    async def test_a_consumer_that_stops_early_reports_nothing(self, monkeypatch):
+        """The one that earns this file's keep.
+
+        A generator closed by its consumer is an ordinary source stop, which
+        happens on every source switch. Reporting there would put an error
+        banner on the screen every time the owner changes source — and the
+        report would be false: nothing died.
+        """
+        async def fake_exec(*args, **kwargs):
+            return _FakeFollowProc([b"a\n", b"b\n", b""])
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        with caplog_at("test.journal") as records:
+            gen = journalctl.follow_unit(
+                "milo-mac",
+                consequence="Mac connection detection is down",
+                logger=logging.getLogger("test.journal"),
+            )
+            assert await gen.__anext__() == "a"
+            await gen.aclose()
+
+        assert [r for r in records if r.levelno >= logging.ERROR] == []
 
 
 class TestReadUnit:
@@ -300,7 +391,9 @@ class TestFollowUnitAnnouncement:
 
         with caplog_at("test.journal") as records:
             async for _ in journalctl.follow_unit(
-                "milo-mac", logger=logging.getLogger("test.journal")
+                "milo-mac",
+                consequence="nothing real",
+                logger=logging.getLogger("test.journal"),
             ):
                 pass
 

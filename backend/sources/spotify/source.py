@@ -777,7 +777,11 @@ class SpotifySource(BaseAudioSource):
     async def _monitor_logs(self) -> None:
         """Monitor journalctl for go-librespot errors."""
         try:
-            async for line in follow_unit("milo-spotify", logger=self._logger):
+            async for line in follow_unit(
+                "milo-spotify",
+                consequence="go-librespot error reporting is down",
+                logger=self._logger,
+            ):
                 # Per background-loop doctrine: a transient parse/broadcast
                 # error on one line must not kill the whole monitor.
                 try:

@@ -135,7 +135,11 @@ class MacSource(BaseAudioSource):
     async def _monitor_events(self) -> None:
         """Monitor journalctl for connection events."""
         try:
-            async for line in follow_unit(self.service_name, logger=self._logger):
+            async for line in follow_unit(
+                self.service_name,
+                consequence="Mac connection detection is down",
+                logger=self._logger,
+            ):
                 # Per background-loop doctrine: a transient parse/state error on
                 # one line must not kill the whole monitor.
                 try:

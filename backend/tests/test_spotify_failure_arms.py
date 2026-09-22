@@ -422,7 +422,7 @@ class TestTheJournalBridge:
     async def test_every_line_reaches_the_parser(self, source):
         seen = []
 
-        async def follow(unit, logger=None):
+        async def follow(unit, *, consequence, logger=None):
             for line in ["authenticated AP", "loaded track"]:
                 yield line
 
@@ -439,7 +439,7 @@ class TestTheJournalBridge:
         the rest of the process — with nothing to say so."""
         seen = []
 
-        async def follow(unit, logger=None):
+        async def follow(unit, *, consequence, logger=None):
             for line in ["bad", "authenticated AP"]:
                 yield line
 
@@ -459,7 +459,7 @@ class TestTheJournalBridge:
     async def test_the_journal_going_away_is_logged_not_raised(self, source, caplog):
         """The bridge runs as a bare task; an exception escaping it dies
         unobserved except for asyncio's own warning."""
-        async def follow(unit, logger=None):
+        async def follow(unit, *, consequence, logger=None):
             raise RuntimeError("journalctl gone")
             yield  # pragma: no cover - generator marker
 
@@ -472,7 +472,7 @@ class TestTheJournalBridge:
     async def test_a_cancelled_bridge_ends_quietly(self, source, caplog):
         """`_stop_log_monitor` cancels it on every stop, so an error log here
         would put a banner up on an ordinary source switch."""
-        async def follow(unit, logger=None):
+        async def follow(unit, *, consequence, logger=None):
             raise asyncio.CancelledError
             yield  # pragma: no cover - generator marker
 
@@ -493,7 +493,7 @@ class TestTheJournalBridge:
         Counting the tasks that were created is what separates the two."""
         started = []
 
-        async def follow(unit, logger=None):
+        async def follow(unit, *, consequence, logger=None):
             started.append(True)
             return
             yield  # pragma: no cover - generator marker

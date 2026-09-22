@@ -177,6 +177,12 @@ class BlueAlsaMonitor:
         """Log the death of the feed with what the process left behind, and
         surface it once.
 
+        One of the two implementations of the rule written down in
+        `shared/journalctl.py`: a feed that dies is reported once, at error,
+        naming what stops working — and the state is left to whoever owns the
+        fact it asserts (here `BluetoothSource._on_monitor_lost`, which
+        deliberately changes nothing).
+
         No automatic restart, deliberately: `bluealsa-cli monitor` reaches EOF
         when the bluealsa daemon itself went away, and respawning the client
         against a dead daemon would busy-loop for as long as it stays down. The
