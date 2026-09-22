@@ -17,6 +17,7 @@
       :mode="screensaverData.mode || 'media'"
       :source-type="screensaverData.sourceType"
       :artwork="screensaverData.artwork"
+      :artwork-announced="screensaverData.artworkAnnounced"
       :title="screensaverData.title"
       :subtitle="screensaverData.subtitle"
       :station-favicon="screensaverData.stationFavicon"

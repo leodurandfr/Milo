@@ -13,7 +13,7 @@
  * their own glyph.
  */
 import { describe, it, expect } from 'vitest';
-import { nowPlayingArtwork, artworkFallback } from '@/utils/nowPlayingArtwork';
+import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/utils/nowPlayingArtwork';
 
 describe('nowPlayingArtwork', () => {
   it('reports no cover as the empty string, not as undefined', () => {
@@ -26,6 +26,16 @@ describe('nowPlayingArtwork', () => {
     // The screensaver reads this during transitions, when the store's metadata
     // is briefly null — a throw there blanks the whole screen.
     expect(nowPlayingArtwork(null)).toBe('');
+  });
+});
+
+describe('nowPlayingArtworkPending', () => {
+  it('is false unless a source announces a cover in flight', () => {
+    // Every source but CD omits the key; reading it as pending would veil their
+    // placeholder forever, since only the announcer ever lifts it.
+    expect(nowPlayingArtworkPending({ title: 'Says', album_art_url: '' })).toBe(false);
+    expect(nowPlayingArtworkPending(null)).toBe(false);
+    expect(nowPlayingArtworkPending({ artwork_pending: true })).toBe(true);
   });
 });
 

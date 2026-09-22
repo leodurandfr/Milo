@@ -24,7 +24,7 @@ Key rules:
 """
 import asyncio
 from time import monotonic
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from pydantic import BaseModel
 
@@ -121,6 +121,12 @@ class CdSource(MpvAudioSource):
         self._metadata_retry_pending = False
         self._metadata_retry_last_attempt: float = 0.0
 
+        # Discs whose jacket is being fetched. Published as `artwork_pending` so
+        # the player veils its placeholder instead of swapping it for the cover
+        # a second later. A set, not the last disc: A, then B, then A again
+        # inside one archive retry window must not start a second fetch for A.
+        self._covers_in_flight: Set[str] = set()
+
         # Playback state (reset on stop)
         self._current_track: Optional[int] = None  # 1-based
         self._track_position: float = 0
@@ -191,6 +197,12 @@ class CdSource(MpvAudioSource):
 
             await self._load_auto_stop_config()
             self._start_monitor()
+            # A jacket the archive could not serve last time, the fetch having
+            # been cancelled with the source or failed: asked again before this
+            # first publish, so the player opens veiled instead of showing the
+            # placeholder and veiling it a moment later.
+            if self._current_disc:
+                self._spawn_cover_fetch(self._current_disc)
             self._update_connection_state()
 
             # On activation with a disc inserted, load it (if needed) and
@@ -229,9 +241,7 @@ class CdSource(MpvAudioSource):
             # repopulate state for a disc that's no longer in the drive.
             if not self._disc_present or self._last_disc_id != disc_id:
                 return
-            self._current_disc = disc_info
-            self._tracks = disc_info.tracks
-            self._metadata_retry_pending = disc_info.album is None
+            self._adopt_disc(disc_info)
             self._update_connection_state()
 
         except Exception as e:
@@ -500,9 +510,7 @@ class CdSource(MpvAudioSource):
         # Guard: disc may have been ejected during the await.
         if not self._disc_present or self._last_disc_id != disc_id:
             return
-        self._current_disc = disc_info
-        self._tracks = disc_info.tracks
-        self._metadata_retry_pending = False
+        self._adopt_disc(disc_info)
         self._logger.info(
             "MusicBrainz retry succeeded for %s: %s — %s",
             disc_id, disc_info.artist, disc_info.album,
@@ -631,9 +639,7 @@ class CdSource(MpvAudioSource):
         # repopulate state for a disc that's no longer in the drive.
         if not self._disc_present or self._last_disc_id != disc_id:
             return True
-        self._current_disc = disc_info
-        self._tracks = disc_info.tracks
-        self._metadata_retry_pending = disc_info.album is None
+        self._adopt_disc(disc_info)
 
         # Re-check active state after awaits (user could have switched source)
         still_active = self._is_active_source
@@ -642,6 +648,61 @@ class CdSource(MpvAudioSource):
         elif still_active:
             self._update_connection_state()
         return True
+
+    def _adopt_disc(self, disc_info: DiscInfo) -> None:
+        """Make `disc_info` the loaded disc, then fetch its jacket separately.
+
+        The disc is published by the caller as soon as this returns; the cover
+        follows on its own through `_resolve_cover`, so an archive that retries
+        for a minute and a half delays a picture, not the disc or its playback.
+        """
+        self._current_disc = disc_info
+        self._tracks = disc_info.tracks
+        self._metadata_retry_pending = disc_info.album is None
+        self._spawn_cover_fetch(disc_info)
+
+    def _spawn_cover_fetch(self, disc: DiscInfo) -> None:
+        """Fetch `disc`'s jacket in the background, if it lacks one it can get.
+
+        One fetch per disc: a disc reinserted, or read by the watcher while the
+        source opens, is served by the fetch already in flight — a second one
+        would lift the flag when the first ends and race it for the .tmp file.
+        """
+        disc_id = disc.disc_id
+        if (disc.cover_url is not None or disc_id in self._covers_in_flight
+                or not self._data_service.cover_fetchable(disc_id)):
+            return
+        # Set before the spawn, not inside the task: the caller publishes the
+        # disc right after this returns, and that publish must already say a
+        # cover is on its way or the placeholder shows for a frame.
+        self._covers_in_flight.add(disc_id)
+        self._bg.spawn(self._resolve_cover(disc_id), label="cd_cover")
+
+    async def _resolve_cover(self, disc_id: str) -> None:
+        """Fetch a disc's jacket and publish it if that disc is still loaded.
+
+        A disc ejected or swapped during the fetch must not be given the old
+        one's cover, hence the re-check. A miss still publishes, to lift the
+        player's veil onto its placeholder; the next load asks again.
+        """
+        try:
+            url = await self._data_service.fetch_cover(disc_id)
+        except Exception as e:
+            # Not re-raised: the flag cleared below must still be published,
+            # or the player keeps veiling a cover that is not coming.
+            self._logger.error(f"Cover fetch for disc {disc_id} failed: {e}")
+            url = None
+        finally:
+            # Cleared on cancellation too (the source stopping), but published
+            # only below: the stop's own READY carries the cleared flag.
+            self._covers_in_flight.discard(disc_id)
+        disc = self._current_disc
+        if not self._disc_present or not disc or disc.disc_id != disc_id:
+            return
+        if url:
+            self._current_disc = disc.model_copy(update={"cover_url": url})
+        if self._is_active_source:
+            self._update_connection_state()
 
     async def _pre_start_service(self) -> None:
         """Start milo-cd service and connect IPC (no stream loading)."""
@@ -1167,6 +1228,7 @@ class CdSource(MpvAudioSource):
                 "album": self._current_disc.album,
                 "artist": self._current_disc.artist,
                 "album_art_url": self._current_disc.cover_url,
+                "artwork_pending": self._current_disc.disc_id in self._covers_in_flight,
                 "title": playing_track.title if playing_track
                 else self._current_disc.album,
                 "position": int(self._track_position * 1000),

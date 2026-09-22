@@ -86,7 +86,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, toRef } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import ProgressBar from './ProgressBar.vue';
@@ -124,6 +124,11 @@ const props = defineProps({
   artwork: {
     type: String,
     default: null
+  },
+  // A cover the backend is still fetching (see nowPlayingArtworkPending).
+  artworkAnnounced: {
+    type: Boolean,
+    default: false
   },
   // Two meanings, one prop: the track title in media mode, the status line
   // ("Connected to") in simple mode — where `subtitle` carries the device name.
@@ -172,8 +177,9 @@ markDarkSurface(() => props.isVisible);
 // differently here would show up exactly when the two are superimposed.
 const artworkTarget = computed(() => props.artwork || '');
 const trackKey = computed(() => `${props.title}|${props.subtitle}`);
+const artworkAnnounced = toRef(props, 'artworkAnnounced');
 const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
-  useArtworkTransition(artworkTarget, trackKey);
+  useArtworkTransition(artworkTarget, trackKey, artworkAnnounced);
 
 // What fills the slot with no cover — resolved by the shared helper, exactly as
 // AudioPlayerFull resolves it, so the two views cannot answer differently for

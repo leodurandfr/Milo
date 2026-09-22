@@ -115,6 +115,15 @@ describe('artwork parity between the player and the screensaver', () => {
     expect(player).toMatch(/useArtworkTransition\(/);
     expect(screensaverView).toMatch(/useArtworkTransition\(/);
 
+    // Including the announced wait: CD veils its placeholder while the jacket is
+    // fetched, and a view left without the signal would show the bare
+    // placeholder under the other's spinner during the crossfade.
+    expect(playerCode).toMatch(/useArtworkTransition\(\s*\w+,\s*\w+,\s*artworkAnnounced\s*\)/);
+    expect(screensaverViewCode).toMatch(/useArtworkTransition\(\s*\w+,\s*\w+,\s*artworkAnnounced\s*\)/);
+    expect(playerCode).toMatch(/nowPlayingArtworkPending\(/);
+    expect(screensaverCode.match(/artworkAnnounced: nowPlayingArtworkPending\(metadata\)/g))
+      .toHaveLength(screensaverCode.match(/artwork: nowPlayingArtwork\(metadata\)/g).length);
+
     // And neither may re-roll its own wait: the bounded timeout is the only
     // thing that lifts a veil when a cover never arrives.
     expect(playerCode).not.toMatch(/setTimeout/);

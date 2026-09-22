@@ -28,12 +28,12 @@ import { defineComponent, h, nextTick, ref } from 'vue';
 import { mount } from '@vue/test-utils';
 import { useArtworkTransition, ARTWORK_WAIT_MS } from '@/composables/useArtworkTransition';
 
-/** Mount a host exposing the composable for `target`/`trackKey`. */
-function mountTransition(target, trackKey) {
+/** Mount a host exposing the composable for `target`/`trackKey`/`announced`. */
+function mountTransition(target, trackKey, announced) {
   let api;
   const Host = defineComponent({
     setup() {
-      api = useArtworkTransition(target, trackKey);
+      api = useArtworkTransition(target, trackKey, announced);
       return () => h('div');
     },
   });
@@ -129,6 +129,62 @@ describe('useArtworkTransition', () => {
     settleFromLoad(decodedAt(600, 600));
 
     expect(shownArtwork.value).toBe('/api/cover/two');
+  });
+
+  it('veils the placeholder for as long as the backend announces a cover', async () => {
+    // CD: the disc is published first and its jacket fetched after, `artwork_pending`
+    // meanwhile. Without the veil the placeholder is swapped for the cover a
+    // second later, with nothing saying one was coming — and the fetch can last
+    // over a minute when the archive retries, so the 4 s bound must not apply.
+    const target = ref('');
+    const announced = ref(true);
+    const { shownArtwork, artworkPending, settleFromLoad } =
+      mountTransition(target, ref('track|'), announced);
+
+    expect(artworkPending.value).toBe(true);
+    vi.advanceTimersByTime(ARTWORK_WAIT_MS * 10);
+    expect(artworkPending.value).toBe(true);
+
+    target.value = '/api/cd/cover/disc';
+    announced.value = false;
+    await nextTick();
+    expect(artworkPending.value).toBe(true); // now waiting on the decode
+
+    settleFromLoad(decodedAt(500, 500));
+    expect(shownArtwork.value).toBe('/api/cd/cover/disc');
+    expect(artworkPending.value).toBe(false);
+  });
+
+  it('lifts the announced veil the moment the backend gives up', async () => {
+    // The archive has no jacket, or could not be reached: the flag drops with no
+    // URL, and the placeholder is the answer — right away, not 4 s later.
+    const announced = ref(true);
+    const { shownArtwork, artworkPending } =
+      mountTransition(ref(''), ref('track|'), announced);
+
+    announced.value = false;
+    await nextTick();
+
+    expect(artworkPending.value).toBe(false);
+    expect(shownArtwork.value).toBe('');
+  });
+
+  it('lifts it at once even when a track change had armed the bounded wait', async () => {
+    // A new disc changes the title, which arms the 4 s wait; the archive then
+    // answers "no jacket" half a second later. The backend's answer is final —
+    // the placeholder must not sit veiled for the rest of the 4 s.
+    const target = ref('');
+    const trackKey = ref('old|');
+    const announced = ref(true);
+    const { artworkPending } = mountTransition(target, trackKey, announced);
+
+    trackKey.value = 'new|';
+    await nextTick();
+    vi.advanceTimersByTime(500);
+    announced.value = false;
+    await nextTick();
+
+    expect(artworkPending.value).toBe(false);
   });
 
   it('disarms the wait when the cover resolved is the one already shown', async () => {

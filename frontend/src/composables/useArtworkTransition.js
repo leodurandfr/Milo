@@ -3,27 +3,32 @@
 // decoded — so a track change never flashes the fallback (a source glyph in the
 // player, a generated text avatar on the screensaver) between two covers.
 //
-// Two different waits hide behind one veil, and both are real:
+// Three different waits hide behind one veil, and all are real:
 //   - waiting for the URL — Bluetooth's cover is looked up from the track text
 //     after the fact, so it lands about a second after the title;
+//   - waiting for a cover the backend announced — CD publishes the disc first
+//     and fetches its jacket after, flagging `artwork_pending` meanwhile;
 //   - waiting for the bytes — every source still has to decode the bitmap.
 //
 // Shared by AudioPlayerFull and AudioScreensaver rather than written twice: the
 // screensaver is a full-screen restatement of the player and crossfades into it,
 // so a transition that behaved differently in each would be visible precisely at
 // the moment the two are superimposed.
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useTimer } from '@/composables/useTimer';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
 
-// The only signal that a cover is never coming: the backend has no "no cover for
-// this track" event, and an image that will not decode fires no `load` either.
-// Bounded so the veil always lifts.
+// The only signal that a cover is never coming, for every source that does not
+// announce its own: no "no cover for this track" event exists, and an image
+// that will not decode fires no `load` either. Bounded so the veil always lifts.
 export const ARTWORK_WAIT_MS = 4000;
 
 /**
  * @param {import('vue').Ref<string>} target - the cover we are heading to ('' when unknown yet)
  * @param {import('vue').Ref<string>} trackKey - changes when the track does, cover or not
+ * @param {import('vue').Ref<boolean>} [announced] - the backend says a cover is on
+ *   its way. Not bounded by ARTWORK_WAIT_MS: the backend lifts it itself, found
+ *   or not, so the veil lasts exactly as long as the fetch.
  * @returns {{
  *   shownArtwork: import('vue').Ref<string>,
  *   preloadArtwork: import('vue').Ref<string>,
@@ -35,19 +40,22 @@ export const ARTWORK_WAIT_MS = 4000;
  *   two straight to its load/error. It does not get to decide what counts as a
  *   cover — see the size rule below.
  */
-export function useArtworkTransition(target, trackKey) {
+export function useArtworkTransition(target, trackKey, announced = ref(false)) {
   const timer = useTimer();
 
   const shownArtwork = ref('');
   const preloadArtwork = ref('');
-  const artworkPending = ref(false);
+  const waiting = ref(false);
+  // Announced and not yet named: once the URL lands, the decode wait below
+  // takes over, so a cover is never veiled past its own load.
+  const artworkPending = computed(() => waiting.value || (announced.value && !target.value));
   let wait = null;
 
   function settleArtwork(url) {
     if (wait) { timer.clear(wait); wait = null; }
     shownArtwork.value = url;
     preloadArtwork.value = '';
-    artworkPending.value = false;
+    waiting.value = false;
   }
 
   // What counts as a cover, decided once for both views. A tracking pixel or a
@@ -68,7 +76,7 @@ export function useArtworkTransition(target, trackKey) {
   }
 
   function waitFor(fallbackUrl) {
-    artworkPending.value = true;
+    waiting.value = true;
     if (wait) timer.clear(wait);
     wait = timer.setTimeout(() => settleArtwork(fallbackUrl), ARTWORK_WAIT_MS);
   }
@@ -76,6 +84,10 @@ export function useArtworkTransition(target, trackKey) {
   // A new track whose cover is not known yet: hold the previous one rather than
   // dropping to the fallback, and give up on the fallback if none ever comes.
   watch(trackKey, () => { if (!target.value) waitFor(''); });
+
+  // The backend gave up on a cover it announced: the placeholder is its answer,
+  // now — not when a wait armed by the track change runs out.
+  watch(announced, (on) => { if (!on && !target.value) settleArtwork(''); });
 
   // A cover to head for — arriving with the track, or resolved later.
   watch(target, (url) => {

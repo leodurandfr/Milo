@@ -2,7 +2,7 @@
 Tests for CdDataService's cover-art cache.
 
 What breaks when these fail: a jacket interrupted mid-write is served
-forever. `_download_cover` returns early on `os.path.exists(cover_path)` and
+forever. `fetch_cover` returns early on `os.path.exists(cover_path)` and
 `get_cover_path` only tests existence, so nothing ever re-downloads a partial
 file — the operator's only escape hatch is `rm -rf /var/lib/milo/cd_covers/`.
 """
@@ -27,6 +27,15 @@ def service(tmp_path, monkeypatch):
     return svc
 
 
+def _known(service, disc_id, *, release_mbid="release-mbid", release_group_mbid=""):
+    """A cache entry as lookup_metadata writes it for a disc MusicBrainz knows."""
+    service._cache[disc_id] = {
+        "album": "A", "artist": "B", "year": "2000",
+        "release_mbid": release_mbid, "release_group_mbid": release_group_mbid,
+        "cover_missing": False, "tracks": [],
+    }
+
+
 async def test_a_cover_becomes_visible_only_through_a_rename(service, tmp_path, monkeypatch):
     """
     The destination must be created by os.replace from a fully written
@@ -41,8 +50,9 @@ async def test_a_cover_becomes_visible_only_through_a_rename(service, tmp_path, 
         real_replace(src, dst)
 
     monkeypatch.setattr(os, "replace", spy)
+    _known(service, "disc-1")
 
-    assert await service._download_cover("disc-1", "release-mbid") is True
+    assert await service.fetch_cover("disc-1") == "/api/cd/cover/disc-1"
 
     assert len(renames) == 1, "the cover was written into its final path directly"
     src, dst, dst_existed_before, staged = renames[0]
@@ -64,8 +74,10 @@ async def test_an_interrupted_write_leaves_no_servable_cover(service, tmp_path, 
         raise OSError("No space left on device")
 
     monkeypatch.setattr(os, "replace", die)
+    _known(service, "disc-2")
 
-    assert await service._download_cover("disc-2", "release-mbid") is False
+    with pytest.raises(OSError):
+        await service.fetch_cover("disc-2")
     assert service.get_cover_path("disc-2") is None
 
 
@@ -100,6 +112,7 @@ class TestCoverPathLookup:
 #
 # `discid.read()` in particular spins the disc up. It is never called.
 # =============================================================================
+import asyncio
 import fcntl
 import json
 from unittest.mock import Mock, patch
@@ -440,14 +453,16 @@ class TestLookupMetadata:
                             Mock(side_effect=musicbrainzngs.ResponseError("404")))
         return calls
 
-    async def test_a_cached_disc_is_answered_without_reaching_the_network(self, service, monkeypatch):
+    async def test_a_cached_disc_is_answered_without_reaching_the_network(
+            self, service, tmp_path, monkeypatch):
         calls = self._catalogue(monkeypatch, {"disc": {"release-list": []}})
         service._cache["d1"] = {
             "album": "Spaces", "artist": "Nils Frahm", "year": "2013",
-            "has_cover": True,
+            "release_mbid": "rel-1", "release_group_mbid": "rg-1", "cover_missing": False,
             "tracks": [{"number": 1, "title": "One", "duration": 200},
                        {"number": 2, "title": "Two", "duration": 150}],
         }
+        (tmp_path / "d1.jpg").write_bytes(PAYLOAD)
         info = await service.lookup_metadata("d1", "toc", self.TOC)
 
         assert calls == [], "a cached disc still queried MusicBrainz"
@@ -458,8 +473,7 @@ class TestLookupMetadata:
     async def test_a_cached_disc_with_no_cover_offers_no_cover_url(self, service):
         """The URL is what the player requests; offered for a disc whose jacket
         was never fetched, every render pays a 404."""
-        service._cache["d1"] = {"album": "A", "artist": "B", "has_cover": False,
-                                "tracks": []}
+        _known(service, "d1")
         info = await service.lookup_metadata("d1", "toc", [])
         assert info.cover_url is None
 
@@ -491,39 +505,171 @@ class TestLookupMetadata:
                         {"disc": {"release-list": [TestTheMusicBrainzQuery.RELEASE]}})
         info = await service.lookup_metadata("d1", "toc", self.TOC)
 
-        assert info.cover_url == "/api/cd/cover/d1"
         assert [t.title for t in info.tracks] == ["An Aborted Beginning", "Says"]
         assert [t.duration for t in info.tracks] == [200, 150], \
             "the catalogue's durations displaced the disc's own"
-        assert (tmp_path / "d1.jpg").read_bytes() == PAYLOAD
 
         on_disk = json.loads((tmp_path / "cd_data.json").read_text())
-        assert on_disk["discs"]["d1"]["album"] == "Spaces"
-        assert on_disk["discs"]["d1"]["has_cover"] is True
-        assert "cached_at" in on_disk["discs"]["d1"]
+        entry = on_disk["discs"]["d1"]
+        assert entry["album"] == "Spaces"
+        assert (entry["release_mbid"], entry["release_group_mbid"]) == ("rel-1", "rg-1"), \
+            "a cached disc kept nothing to ask the archive for its jacket later"
+        assert "cached_at" in entry
 
-    async def test_a_disc_whose_jacket_is_missing_is_still_cached(self, service, tmp_path, monkeypatch):
-        """has_cover=False is a real answer, not a failure: caching it is what
-        stops every insertion re-asking the Cover Art Archive."""
+    async def test_the_lookup_never_waits_for_the_archive(self, service, tmp_path, monkeypatch):
+        """The caller publishes the disc only once this returns. Measured on
+        the unit: an archive answering 500 then looping on its redirect held a
+        disc MusicBrainz had named in 0.2 s — and its auto-play — for 97 s."""
+        service._data_file = str(tmp_path / "cd_data.json")
+        self._catalogue(monkeypatch,
+                        {"disc": {"release-list": [TestTheMusicBrainzQuery.RELEASE]}})
+        archive = Mock(side_effect=AssertionError("the lookup reached the archive"))
+        monkeypatch.setattr(musicbrainzngs, "get_image_front", archive)
+        monkeypatch.setattr(musicbrainzngs, "get_release_group_image_front", archive)
+
+        info = await service.lookup_metadata("d1", "toc", self.TOC)
+
+        archive.assert_not_called()
+        assert info.album == "Spaces"
+        assert info.cover_url is None
+        assert list(tmp_path.glob("*.jpg")) == []
+
+    async def test_a_fetched_jacket_is_offered_to_the_player(self, service, tmp_path, monkeypatch):
+        service._data_file = str(tmp_path / "cd_data.json")
+        self._catalogue(monkeypatch,
+                        {"disc": {"release-list": [TestTheMusicBrainzQuery.RELEASE]}})
+        await service.lookup_metadata("d1", "toc", self.TOC)
+
+        assert await service.fetch_cover("d1") == "/api/cd/cover/d1"
+        assert (tmp_path / "d1.jpg").read_bytes() == PAYLOAD
+        info = await service.lookup_metadata("d1", "toc", self.TOC)
+        assert info.cover_url == "/api/cd/cover/d1", "the next insertion forgot the jacket"
+
+    async def test_an_unreachable_archive_is_not_remembered_as_no_jacket(
+            self, service, tmp_path, monkeypatch):
+        """Measured on the unit: one outage cached `has_cover: False` for a
+        disc the archive does illustrate, and no later insertion asked again.
+        Only the archive's own "none" may be remembered."""
+        service._data_file = str(tmp_path / "cd_data.json")
+        self._catalogue(monkeypatch,
+                        {"disc": {"release-list": [TestTheMusicBrainzQuery.RELEASE]}})
+        await service.lookup_metadata("d1", "toc", self.TOC)
+        monkeypatch.setattr(musicbrainzngs, "get_image_front",
+                            Mock(side_effect=musicbrainzngs.NetworkError("retried 8 times")))
+
+        assert await service.fetch_cover("d1") is None
+        assert service._cache["d1"]["cover_missing"] is False
+
+        monkeypatch.setattr(musicbrainzngs, "get_image_front", lambda mbid, size="500": PAYLOAD)
+        assert await service.fetch_cover("d1") == "/api/cd/cover/d1"
+
+    async def test_a_disc_whose_jacket_is_missing_is_not_asked_again(
+            self, service, tmp_path, monkeypatch):
+        """No jacket on the pressing nor the album is a real answer, not a
+        failure: remembering it is what stops every insertion re-asking."""
         service._data_file = str(tmp_path / "cd_data.json")
         self._catalogue(monkeypatch,
                         {"disc": {"release-list": [TestTheMusicBrainzQuery.RELEASE]}},
                         jacket=None)
         info = await service.lookup_metadata("d1", "toc", self.TOC)
+        assert await service.fetch_cover("d1") is None
+        assert info.album == "Spaces"
 
-        assert info.cover_url is None
-        assert service._cache["d1"]["has_cover"] is False
-        assert service._cache["d1"]["album"] == "Spaces"
+        archive = Mock(side_effect=AssertionError("asked again for a known absence"))
+        monkeypatch.setattr(musicbrainzngs, "get_image_front", archive)
+        assert await service.fetch_cover("d1") is None
+        archive.assert_not_called()
+        on_disk = json.loads((tmp_path / "cd_data.json").read_text())
+        assert on_disk["discs"]["d1"]["cover_missing"] is True
 
     async def test_a_release_with_no_mbid_does_not_ask_for_a_jacket(self, service, tmp_path, monkeypatch):
         service._data_file = str(tmp_path / "cd_data.json")
         release = dict(TestTheMusicBrainzQuery.RELEASE, id="")
         self._catalogue(monkeypatch, {"disc": {"release-list": [release]}})
         await service.lookup_metadata("d1", "toc", self.TOC)
+        archive = Mock(side_effect=AssertionError("asked with no release to name"))
+        monkeypatch.setattr(musicbrainzngs, "get_image_front", archive)
 
-        assert list(tmp_path.glob("*.jpg")) == [], \
-            "the archive was asked for a jacket with no release to name"
-        assert service._cache["d1"]["has_cover"] is False
+        assert await service.fetch_cover("d1") is None
+        archive.assert_not_called()
+        assert list(tmp_path.glob("*.jpg")) == []
+
+    async def test_a_stalled_archive_is_given_up_on_not_awaited_forever(
+            self, service, tmp_path, monkeypatch):
+        """musicbrainzngs sets no socket timeout: a connection that stops
+        answering never returns, and the source announces the jacket — the
+        player's veil — until this does."""
+        import threading
+        import backend.sources.cd.data as data_module
+        monkeypatch.setattr(data_module, "COVER_FETCH_TIMEOUT_S", 0.05)
+        release = threading.Event()
+        monkeypatch.setattr(musicbrainzngs, "get_image_front",
+                            lambda mbid, size="500": release.wait(5) and PAYLOAD)
+        _known(service, "d1")
+        try:
+            assert await asyncio.wait_for(service.fetch_cover("d1"), 2.0) is None
+            assert service._cache["d1"]["cover_missing"] is False, \
+                "a stall was remembered as no jacket"
+        finally:
+            release.set()
+
+    async def test_a_download_outlives_its_caller_and_serves_the_next(
+            self, service, tmp_path, monkeypatch):
+        """A source closed and reopened during an outage: the first caller is
+        cancelled, its thread is not. The next caller must wait on that thread,
+        not start another — each one parks in the default executor, which the
+        whole backend shares."""
+        import threading
+        release = threading.Event()
+        calls = []
+
+        def slow(mbid, size="500"):
+            calls.append(mbid)
+            release.wait(5)
+            return PAYLOAD
+
+        monkeypatch.setattr(musicbrainzngs, "get_image_front", slow)
+        _known(service, "d1")
+
+        first = asyncio.ensure_future(service.fetch_cover("d1"))
+        await asyncio.sleep(0.05)
+        first.cancel()
+        second = asyncio.ensure_future(service.fetch_cover("d1"))
+        await asyncio.sleep(0.05)
+        release.set()
+
+        assert await asyncio.wait_for(second, 2.0) == "/api/cd/cover/d1"
+        assert calls == ["release-mbid"], "the reopen started a second download"
+
+    async def test_a_missing_musicbrainzngs_is_not_remembered_as_no_jacket(
+            self, service, monkeypatch):
+        """A broken venv answers nothing about the archive; recorded as an
+        absence, every disc loaded meanwhile stays coverless once repaired."""
+        import sys
+        monkeypatch.setitem(sys.modules, "musicbrainzngs", None)
+        _known(service, "d1")
+
+        assert await service.fetch_cover("d1") is None
+        assert service._cache["d1"]["cover_missing"] is False
+
+    async def test_only_a_named_release_without_a_known_absence_is_fetchable(self, service):
+        """The source announces a pending cover on this answer alone."""
+        assert service.cover_fetchable("never-looked-up") is False
+        _known(service, "d1")
+        assert service.cover_fetchable("d1") is True
+        _known(service, "d2", release_mbid="")
+        assert service.cover_fetchable("d2") is False
+        _known(service, "d3")
+        service._cache["d3"]["cover_missing"] = True
+        assert service.cover_fetchable("d3") is False
+
+    async def test_an_unknown_disc_has_no_jacket_to_ask_for(self, service, monkeypatch):
+        """The fallback DiscInfo is never cached, so there is no release to
+        name; the fetch must answer without the network."""
+        archive = Mock(side_effect=AssertionError("asked for a disc nobody named"))
+        monkeypatch.setattr(musicbrainzngs, "get_image_front", archive)
+        assert await service.fetch_cover("never-looked-up") is None
+        archive.assert_not_called()
 
 
 class TestCoverArtFallback:
@@ -573,14 +719,33 @@ class TestTheDiscCacheOnDisk:
     derived cache (CLAUDE.md, persistence). So it must degrade to empty rather
     than fail loud — the opposite rule from a versioned store."""
 
+    ENTRY = {"album": "Spaces", "artist": "Nils Frahm", "year": "2013",
+             "release_mbid": "rel-1", "release_group_mbid": "rg-1", "cover_missing": False,
+             "tracks": [{"number": 1, "title": "One", "duration": 200}]}
+
     async def test_a_cache_written_by_a_previous_boot_comes_back(self, service, tmp_path):
-        entry = {"album": "Spaces", "artist": "Nils Frahm", "has_cover": True,
-                 "tracks": [{"number": 1, "title": "One", "duration": 200}]}
-        (tmp_path / "cd_data.json").write_text(json.dumps({"discs": {"d1": entry}}))
+        (tmp_path / "cd_data.json").write_text(json.dumps({"discs": {"d1": self.ENTRY}}))
         service._data_file = str(tmp_path / "cd_data.json")
 
         await service._load_data()
-        assert service._cache == {"d1": entry}
+        assert service._cache == {"d1": self.ENTRY}
+
+    async def test_an_entry_in_an_older_shape_is_dropped_not_fatal(self, service, tmp_path, caplog):
+        """Written before the MBIDs were cached, an entry has `has_cover` and
+        nothing to fetch a jacket with; kept, it raised KeyError when the disc
+        was loaded, and the CD source failed to open. Dropped, the disc is
+        looked up again — the worst case this cache is allowed."""
+        old = {"album": "Greatest Hits", "artist": "Queen", "year": "1991",
+               "has_cover": False, "tracks": []}
+        (tmp_path / "cd_data.json").write_text(
+            json.dumps({"discs": {"old": old, "d1": self.ENTRY}}))
+        service._data_file = str(tmp_path / "cd_data.json")
+
+        await service._load_data()
+
+        assert service._cache == {"d1": self.ENTRY}
+        assert "Dropped 1 cached disc(s)" in caplog.text
+        assert service.cover_fetchable("old") is False
 
     async def test_a_first_boot_with_no_file_starts_empty(self, service, tmp_path):
         service._data_file = str(tmp_path / "never-written.json")
@@ -631,8 +796,7 @@ class TestTheDiscCacheOnDisk:
 
     async def test_a_saved_cache_survives_a_round_trip(self, service, tmp_path):
         service._data_file = str(tmp_path / "cd_data.json")
-        service._cache = {"d1": {"album": "Ólafur", "artist": "Arnalds",
-                                 "tracks": [], "has_cover": False}}
+        service._cache = {"d1": dict(self.ENTRY, album="Ólafur", artist="Arnalds")}
         assert await service._save_data() is True
 
         reader = CdDataService()
@@ -641,7 +805,7 @@ class TestTheDiscCacheOnDisk:
         assert reader._cache == service._cache, "non-ASCII did not survive the write"
 
     async def test_initialize_creates_the_covers_directory(self, service, tmp_path):
-        """`_download_cover` writes straight into it; missing, every jacket
+        """`fetch_cover` writes straight into it; missing, every jacket
         fails with ENOENT and every disc shows the placeholder."""
         covers = tmp_path / "cd_covers"
         service._covers_dir = str(covers)

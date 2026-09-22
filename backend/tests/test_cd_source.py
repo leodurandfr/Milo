@@ -1166,7 +1166,9 @@ class TestMusicBrainzOfflineFallback:
                 "album": "Cached Album",
                 "artist": "Cached Artist",
                 "year": "1999",
-                "has_cover": False,
+                "release_mbid": "rel-1",
+                "release_group_mbid": "rg-1",
+                "cover_missing": False,
                 "tracks": [{"number": 1, "title": "T1", "duration": 100}],
             }
         }
@@ -2003,6 +2005,197 @@ class TestReadingADiscInTheBackground:
         with caplog.at_level("ERROR", logger=source._logger.name):
             await asyncio.wait_for(source._load_disc_metadata(), 2.0)
         assert any("libdiscid segfault" in r.message for r in caplog.records)
+
+
+NO_COVER = DISC.model_copy(update={"cover_url": None})
+COVER_URL = "/api/cd/cover/disc-1"
+
+
+def _hold_cover_fetches(source):
+    """Keep the cover coroutines `_bg` is handed so the test decides when
+    they run; close every other spawn, as `_with_state_machine` does."""
+    held = []
+
+    def spawn(coro, *, label):
+        if label == "cd_cover":
+            held.append(coro)
+        else:
+            coro.close()
+
+    source._bg.spawn = Mock(side_effect=spawn)
+    return held
+
+
+class TestTheJacketFollowsTheDisc:
+    """The cover is fetched after the disc is published, never before it.
+
+    Measured on the unit: the Cover Art Archive answered 500 and then looped
+    on its redirect, musicbrainzngs retried for 97 s, and a disc MusicBrainz
+    had named in 0.2 s sat on "Loading album" — its auto-play held with it —
+    because the jacket was fetched inside the lookup the disc waits for.
+    """
+
+    def _inserted(self, source):
+        _with_state_machine(source)
+        held = _hold_cover_fetches(source)
+        source._disc_present = True
+        source._mpv = _mpv()
+        source._data_service = Mock()
+        source._data_service.read_disc = AsyncMock(return_value=(
+            "disc-1", "toc", [{"number": 1, "duration": 200, "offset": 150}], 60000,
+        ))
+        source._data_service.lookup_metadata = AsyncMock(return_value=NO_COVER)
+        source._data_service.fetch_cover = AsyncMock(return_value=COVER_URL)
+        source._auto_play_track_1 = AsyncMock()
+        return held
+
+    async def test_an_inserted_disc_plays_before_its_jacket_is_asked_for(self, source):
+        held = self._inserted(source)
+
+        await asyncio.wait_for(source._handle_disc_ready(), 2.0)
+
+        assert source._current_disc.disc_id == "disc-1"
+        source._auto_play_track_1.assert_awaited_once()
+        source._data_service.fetch_cover.assert_not_awaited()
+        assert len(held) == 1, "no cover fetch was left behind for the disc"
+
+        await held[0]
+        assert source._current_disc.cover_url == COVER_URL
+        assert source._metadata["album_art_url"] == COVER_URL, \
+            "the jacket landed but was never published"
+        assert source._metadata["artwork_pending"] is False
+
+    async def test_the_disc_is_published_saying_a_jacket_is_on_its_way(self, source):
+        """The player veils its placeholder on this flag; published only from
+        inside the fetch, the disc's first frame would show the bare
+        placeholder and the veil would pop in after it."""
+        held = self._inserted(source)
+
+        source._adopt_disc(NO_COVER)
+
+        # Every caller publishes right after _adopt_disc returns, before the
+        # fetch task has run a single line.
+        assert source._build_metadata()["artwork_pending"] is True
+        held[0].close()
+
+    async def test_a_disc_swapped_during_the_fetch_is_not_given_the_old_jacket(self, source):
+        held = self._inserted(source)
+        await asyncio.wait_for(source._handle_disc_ready(), 2.0)
+        other = NO_COVER.model_copy(update={"disc_id": "disc-2"})
+        source._last_disc_id = "disc-2"
+        source._adopt_disc(other)
+
+        await held[0]
+        held[1].close()  # disc-2's own fetch, not under test
+
+        assert source._current_disc.disc_id == "disc-2"
+        assert source._current_disc.cover_url is None
+
+    async def test_a_jacket_the_archive_cannot_serve_lifts_the_veil_and_nothing_else(self, source):
+        held = self._inserted(source)
+        source._data_service.fetch_cover = AsyncMock(return_value=None)
+        await asyncio.wait_for(source._handle_disc_ready(), 2.0)
+        before = source._current_disc
+
+        await held[0]
+
+        assert source._current_disc is before
+        assert source._metadata["artwork_pending"] is False, \
+            "the placeholder stays veiled for a cover that is not coming"
+
+    async def test_a_fetch_that_raises_still_lifts_the_veil(self, source, caplog):
+        """A disk-full write or a corrupt cache entry kills the fetch; the
+        cleared flag must still reach the player, which puts no bound on an
+        announced cover and would spin over the placeholder for good."""
+        held = self._inserted(source)
+        source._data_service.fetch_cover = AsyncMock(side_effect=OSError("No space left on device"))
+        await asyncio.wait_for(source._handle_disc_ready(), 2.0)
+
+        await held[0]
+
+        assert source._metadata["artwork_pending"] is False
+        assert "Cover fetch for disc disc-1 failed" in caplog.text
+
+    async def test_a_disc_reread_while_its_jacket_is_in_flight_is_not_fetched_twice(self, source):
+        """Reinserted within the archive's retry window, or read by the watcher
+        while the source opens: a second fetch would lift the flag when the
+        first ends and race it for the same .tmp file."""
+        held = self._inserted(source)
+        source._adopt_disc(NO_COVER)
+        source._adopt_disc(NO_COVER)
+
+        assert len(held) == 1
+        held[0].close()
+
+    async def test_a_disc_that_can_never_get_a_jacket_announces_none(self, source):
+        """Unknown to MusicBrainz, or known to have no jacket: announcing a
+        fetch that answers None at once flashes a veil on every open."""
+        held = self._inserted(source)
+        source._data_service.cover_fetchable = Mock(return_value=False)
+
+        source._adopt_disc(NO_COVER)
+
+        assert held == []
+        assert source._build_metadata()["artwork_pending"] is False
+
+    async def test_a_fetch_cancelled_with_the_source_leaves_no_flag_behind(self, source):
+        """Leaving the source cancels the fetch; a flag left set would publish
+        a veil on the next open that nothing will ever lift."""
+        held = self._inserted(source)
+        await asyncio.wait_for(source._handle_disc_ready(), 2.0)
+        source._data_service.fetch_cover = AsyncMock(side_effect=asyncio.CancelledError)
+
+        with pytest.raises(asyncio.CancelledError):
+            await held[0]
+
+        assert source._build_metadata()["artwork_pending"] is False
+
+    async def test_a_disc_with_its_jacket_already_asks_nothing(self, source):
+        held = self._inserted(source)
+        source._data_service.lookup_metadata = AsyncMock(return_value=DISC)
+
+        await asyncio.wait_for(source._handle_disc_ready(), 2.0)
+
+        assert held == []
+
+    async def test_opening_the_source_asks_again_for_a_missing_jacket(self, source):
+        """The fetch is cancelled with the source and a failed one is not
+        retried by the watcher, so reopening is the next chance — and the
+        open's very first publish must already carry the veil, or the player
+        opens on the placeholder and veils it a moment later."""
+        held = self._inserted(source)
+        source._current_disc = NO_COVER
+        source._tracks = TRACKS
+        source._last_disc_id = "disc-1"
+        source._disc_present = False  # keep the preload spawn out of the way
+        source._load_auto_stop_config = AsyncMock()
+        source._start_monitor = Mock()
+        published = []
+        source.emit_connection_state = Mock(
+            side_effect=lambda connected, core, extras: published.append(extras))
+
+        assert await source._do_start() is True
+
+        assert len(held) == 1
+        assert published[0]["artwork_pending"] is True, \
+            "the open published the placeholder before announcing the fetch"
+        source._disc_present = True
+        await held[0]
+        assert source._current_disc.cover_url == COVER_URL
+
+    async def test_a_disc_swapped_back_during_its_fetch_is_not_fetched_twice(self, source):
+        """A, then B, then A again inside one archive retry window: guarding on
+        the last disc alone lets A's second fetch race the first for A.jpg.tmp
+        — a corrupt jacket served for good — and lifts the veil early."""
+        held = self._inserted(source)
+        other = NO_COVER.model_copy(update={"disc_id": "disc-2"})
+        source._adopt_disc(NO_COVER)
+        source._adopt_disc(other)
+        source._adopt_disc(NO_COVER)
+
+        assert len(held) == 2, "disc-1's jacket was fetched twice at once"
+        for coro in held:
+            coro.close()
 
 
 class TestResumingFromIdle:

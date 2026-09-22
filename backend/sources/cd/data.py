@@ -35,6 +35,22 @@ CDROM_DRIVE_STATUS = 0x5326
 CDS_DRIVE_NOT_READY = 3  # Disc spinning up (detected but not yet readable)
 CDS_DISC_OK = 4  # Disc ready (TOC readable)
 
+# How long a caller waits for a jacket before treating the archive as
+# unreachable. Its own retries last ~100 s in an outage (8 tries, 56 s of
+# sleeps), and musicbrainzngs sets no socket timeout: a stalled connection
+# would otherwise never answer, and the player would veil its placeholder
+# for as long as the source stays open.
+COVER_FETCH_TIMEOUT_S = 150.0
+
+# What lookup_metadata writes into every cache entry. An entry missing one was
+# written by an earlier release and is dropped on load — its disc is simply
+# looked up again. The cache is disposable: it degrades, it never stops the
+# source (an old entry reaching cover_fetchable raised KeyError at source open).
+CACHE_ENTRY_KEYS = frozenset({
+    "album", "artist", "year", "release_mbid", "release_group_mbid",
+    "cover_missing", "tracks",
+})
+
 
 class CdDataService:
     """
@@ -50,6 +66,10 @@ class CdDataService:
         self._file_lock = asyncio.Lock()
         self._cache: Dict[str, Any] = {}
         self._loaded = False
+        # One download per disc, outliving the caller that started it: a
+        # source closed and reopened during an outage waits on the same
+        # thread instead of parking one more in the default executor.
+        self._cover_downloads: Dict[str, asyncio.Future] = {}
 
         # Configure MusicBrainz user agent (module-level, idempotent)
         try:
@@ -149,6 +169,10 @@ class CdDataService:
 
         Falls back to generic track names if MusicBrainz is unavailable
         or the disc is unknown.
+
+        Never reaches the Cover Art Archive: the caller cannot publish the disc
+        until this returns, and the archive's retries once held a known disc
+        (and its auto-play) for 97 s. The jacket is `fetch_cover`'s job.
         """
         cached = self._cache.get(disc_id)
         if cached:
@@ -170,35 +194,20 @@ class CdDataService:
             # Merge MusicBrainz track titles with TOC durations
             merged_tracks = self._merge_tracks(mb_tracks, tracks)
 
-            # Download cover art with fallback: release → release group → placeholder
-            has_cover = False
-            if release_mbid:
-                has_cover = await self._download_cover(disc_id, release_mbid, release_group_mbid)
-
             cache_entry = {
                 "album": album,
                 "artist": artist,
                 "year": year,
-                "has_cover": has_cover,
+                "release_mbid": release_mbid,
+                "release_group_mbid": release_group_mbid,
+                "cover_missing": False,
                 "tracks": [{"number": t["number"], "title": t["title"], "duration": t["duration"]} for t in merged_tracks],
                 "cached_at": int(time.time()),
             }
             self._cache[disc_id] = cache_entry
             await self._save_data()
 
-            total_duration = sum(t["duration"] for t in merged_tracks)
-            cover_url = f"/api/cd/cover/{disc_id}" if has_cover else None
-
-            return DiscInfo(
-                disc_id=disc_id,
-                album=album,
-                artist=artist,
-                year=year,
-                cover_url=cover_url,
-                track_count=len(merged_tracks),
-                total_duration=total_duration,
-                tracks=[TrackInfo(**t) for t in merged_tracks],
-            )
+            return self._disc_info_from_cache(disc_id, cache_entry)
 
         # Fallback: generic track names with TOC durations
         return self._build_fallback_disc_info(disc_id, tracks)
@@ -331,46 +340,90 @@ class CdDataService:
     # COVER ART
     # =========================================================================
 
-    async def _download_cover(self, disc_id: str, release_mbid: str, release_group_mbid: str = "") -> bool:
-        """Download cover art from MusicBrainz Cover Art Archive.
+    async def fetch_cover(self, disc_id: str) -> Optional[str]:
+        """Make sure a known disc's jacket is on disk; return its URL or None.
 
-        Fallback chain: release image → release group image → give up (placeholder).
+        Runs off the publication path (the source spawns it after the disc is
+        shown), so the archive's retries cost a late cover, never a late disc.
+        Only a definitive absence is remembered: an archive that could not be
+        reached is asked again on the next load. Remembering that too is how
+        an archive outage (2026-09-22) left a disc the archive does illustrate
+        cached as coverless for good.
         """
-        cover_path = os.path.join(self._covers_dir, f"{disc_id}.jpg")
-        if os.path.exists(cover_path):
-            return True
+        if not self.cover_fetchable(disc_id):
+            return None
+        entry = self._cache[disc_id]
 
-        try:
-            image_data = await asyncio.to_thread(
-                self._download_cover_sync, release_mbid, release_group_mbid
-            )
-            if image_data:
-                # Atomic, like _save_data: a jacket interrupted mid-write would
-                # be served forever — the existence check above never
-                # re-downloads, and get_cover_path only tests existence.
-                temp_path = cover_path + ".tmp"
-                async with aiofiles.open(temp_path, "wb") as f:
-                    await f.write(image_data)
-                    await f.flush()
-                    os.fsync(f.fileno())
-                os.replace(temp_path, cover_path)
-                logger.info(f"Cover art saved for disc {disc_id}")
-                return True
-        except Exception as e:
-            logger.warning(f"Cover art download failed: {e}")
+        cover_path = self._cover_path(disc_id)
+        if not os.path.exists(cover_path):
+            download = self._cover_downloads.get(disc_id)
+            if download is None:
+                download = asyncio.get_running_loop().run_in_executor(
+                    None, self._download_cover_sync,
+                    entry["release_mbid"], entry["release_group_mbid"],
+                )
+                self._cover_downloads[disc_id] = download
+                download.add_done_callback(
+                    lambda done, d=disc_id: self._forget_download(d, done))
+            try:
+                # Shielded: a cancelled or timed-out caller leaves the thread
+                # to finish for whoever asks next.
+                image_data = await asyncio.wait_for(
+                    asyncio.shield(download), COVER_FETCH_TIMEOUT_S)
+            except Exception as e:
+                logger.warning(
+                    f"Cover art for disc {disc_id} unreachable, "
+                    f"will retry on the next load: {e}"
+                )
+                return None
 
-        return False
+            if image_data is None:
+                entry["cover_missing"] = True
+                await self._save_data()
+                return None
+
+            # Atomic, like _save_data: a jacket interrupted mid-write would
+            # be served forever — the existence check above never
+            # re-downloads, and get_cover_path only tests existence.
+            temp_path = cover_path + ".tmp"
+            async with aiofiles.open(temp_path, "wb") as f:
+                await f.write(image_data)
+                await f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, cover_path)
+            logger.info(f"Cover art saved for disc {disc_id}")
+
+        return self._cover_url(disc_id)
+
+    def _forget_download(self, disc_id: str, done: asyncio.Future) -> None:
+        if self._cover_downloads.get(disc_id) is done:
+            del self._cover_downloads[disc_id]
+        if not done.cancelled():
+            done.exception()  # retrieved here: its caller may be gone
+
+    def cover_fetchable(self, disc_id: str) -> bool:
+        """Whether fetch_cover could still bring a jacket for this disc.
+
+        False for a disc MusicBrainz never named (nothing cached), a release
+        with no MBID, and one the archive already said has none — the source
+        announces no pending cover for those, so the player never veils a
+        placeholder that is the final answer.
+        """
+        entry = self._cache.get(disc_id)
+        return bool(entry and entry["release_mbid"] and not entry["cover_missing"])
 
     def _download_cover_sync(self, release_mbid: str, release_group_mbid: str = "") -> Optional[bytes]:
         """Synchronous cover art download (runs in thread).
 
         Tries the specific release first, then falls back to the release group
         which aggregates cover art from all editions (CD, digital, vinyl, etc.).
+
+        Three outcomes, and fetch_cover treats each differently: the image
+        bytes; None when the archive answered that neither has one; an
+        exception when it could not answer (network, 5xx, redirect loop) —
+        a missing musicbrainzngs included, which is no answer from the archive.
         """
-        try:
-            import musicbrainzngs
-        except ImportError:
-            return None
+        import musicbrainzngs
 
         # Try release-level cover art (exact CD pressing)
         try:
@@ -387,12 +440,19 @@ class CdDataService:
 
         return None
 
+    def _cover_path(self, disc_id: str) -> str:
+        return os.path.join(self._covers_dir, f"{disc_id}.jpg")
+
     def get_cover_path(self, disc_id: str) -> Optional[str]:
         """Get the file path for a disc's cover art, or None if not available."""
-        cover_path = os.path.join(self._covers_dir, f"{disc_id}.jpg")
+        cover_path = self._cover_path(disc_id)
         if os.path.exists(cover_path):
             return cover_path
         return None
+
+    def _cover_url(self, disc_id: str) -> Optional[str]:
+        """The URL the player requests, offered only when the route can serve it."""
+        return f"/api/cd/cover/{disc_id}" if self.get_cover_path(disc_id) else None
 
     # =========================================================================
     # CACHE HELPERS
@@ -402,15 +462,13 @@ class CdDataService:
         """Build DiscInfo from a cache entry."""
         tracks = [TrackInfo(**t) for t in entry.get("tracks", [])]
         total_duration = sum(t.duration for t in tracks)
-        has_cover = entry.get("has_cover", False)
-        cover_url = f"/api/cd/cover/{disc_id}" if has_cover else None
 
         return DiscInfo(
             disc_id=disc_id,
             album=entry.get("album"),
             artist=entry.get("artist"),
             year=entry.get("year"),
-            cover_url=cover_url,
+            cover_url=self._cover_url(disc_id),
             track_count=len(tracks),
             total_duration=total_duration,
             tracks=tracks,
@@ -427,7 +485,16 @@ class CdDataService:
                 async with self._file_lock:
                     async with aiofiles.open(self._data_file, "r", encoding="utf-8") as f:
                         data = json.loads(await f.read())
-                        self._cache = data.get("discs", {})
+                discs = data.get("discs", {})
+                self._cache = {
+                    disc_id: entry for disc_id, entry in discs.items()
+                    if CACHE_ENTRY_KEYS <= entry.keys()
+                }
+                if len(self._cache) < len(discs):
+                    logger.warning(
+                        f"Dropped {len(discs) - len(self._cache)} cached disc(s) in an "
+                        f"older shape from cd_data.json; they will be looked up again"
+                    )
                 logger.info(f"Loaded {len(self._cache)} cached disc(s)")
             else:
                 self._cache = {}

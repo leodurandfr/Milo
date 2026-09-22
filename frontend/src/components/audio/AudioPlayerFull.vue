@@ -111,7 +111,7 @@ import { useI18n } from '@/services/i18n';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
 import { useArtworkTransition } from '@/composables/useArtworkTransition';
-import { nowPlayingArtwork, artworkFallback } from '@/utils/nowPlayingArtwork';
+import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/utils/nowPlayingArtwork';
 import { nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
 
 import PlaybackControls from './PlaybackControls.vue';
@@ -238,8 +238,12 @@ const fallback = computed(() => artworkFallback(props.source));
 const trackKey = computed(
   () => `${persistentMetadata.value.title}|${persistentMetadata.value.artist}`
 );
+// Live, not from the cached copy: a lifted flag must lift the veil at once.
+const artworkAnnounced = computed(
+  () => nowPlayingArtworkPending(unifiedStore.systemState.metadata)
+);
 const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
-  useArtworkTransition(targetArtwork, trackKey);
+  useArtworkTransition(targetArtwork, trackKey, artworkAnnounced);
 
 
 

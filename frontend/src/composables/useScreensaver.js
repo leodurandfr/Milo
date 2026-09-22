@@ -15,7 +15,7 @@ import { useI18n } from '@/services/i18n';
 import { isKiosk } from '@/utils/kiosk';
 import { formatDeviceNames } from '@/utils/deviceName';
 import { getFaviconUrl } from '@/utils/faviconUrl';
-import { nowPlayingArtwork } from '@/utils/nowPlayingArtwork';
+import { nowPlayingArtwork, nowPlayingArtworkPending } from '@/utils/nowPlayingArtwork';
 import { useRichDisplay } from '@/composables/useRichDisplay';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 
@@ -353,6 +353,7 @@ export function useScreensaver() {
         mode: 'media',
         sourceType: source,
         artwork: nowPlayingArtwork(metadata),
+        artworkAnnounced: nowPlayingArtworkPending(metadata),
         title: metadata.title || '',
         subtitle: metadata.artist || null,
       };
@@ -366,6 +367,7 @@ export function useScreensaver() {
       mode: 'media',
       sourceType: source,
       artwork: nowPlayingArtwork(metadata),
+      artworkAnnounced: nowPlayingArtworkPending(metadata),
       title: metadata.title || '',
       subtitle: metadata.artist || null,
       stationIcon: source,

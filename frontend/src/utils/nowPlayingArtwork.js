@@ -26,6 +26,19 @@ export function nowPlayingArtwork(metadata) {
   return (metadata || {}).album_art_url || '';
 }
 
+/**
+ * Whether the backend has announced a cover it is still fetching. CD sets it
+ * while the Cover Art Archive answers — seconds normally, over a minute when
+ * the archive retries — so the slot veils its placeholder rather than swapping
+ * it for the cover a moment later.
+ *
+ * @param {object|null} metadata - systemState.metadata
+ * @returns {boolean}
+ */
+export function nowPlayingArtworkPending(metadata) {
+  return !!(metadata || {}).artwork_pending;
+}
+
 // Sources shipping a static image for the no-cover case. Everything else shows
 // its own source glyph — the two are not interchangeable, which is why this is
 // a lookup and not a single default.
