@@ -3,7 +3,8 @@
      (`position_ms`), so no caller converts on the way in or out; `seek` is
      emitted in ms too.
        - variant "light" (default): dark fill on a light surface — the standard
-         player card.
+         player card. The fill drops to -32 when the bar is not interactive
+         (a source that cannot seek).
        - variant "dark": light fill, for the always-dark surfaces that render
          over artwork (lyrics bar, screensaver, mini-player cards).
      Self-hides when the source reports no duration (e.g. Qobuz, radio). -->
@@ -161,6 +162,10 @@ function onProgressClick(event) {
 
 .progress-bar--light .progress {
   background-color: var(--color-background-contrast);
+}
+
+.progress-bar--light .progress-container:not(.interactive) .progress {
+  background-color: var(--color-background-contrast-32);
 }
 
 .progress-bar--light .time {
