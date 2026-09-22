@@ -185,11 +185,19 @@ class TestArrivalAndDeparture:
     async def test_a_departure_drops_the_transport_and_the_cover_too(self, source):
         """The published READY is inert either way — this is about the object.
 
-        `BaseAudioSource.is_playing` is what hardware/playback_dispatch.py asks
-        to choose pause vs resume for the rotary and the BT remote, and
-        `_artwork_url` is what the next publish re-attaches. Clearing
-        `_playback` alone left both holding the departed sender's session, so
-        the first press after a reconnect paused a device that was not playing.
+        `BaseAudioSource.is_playing` is the load-bearing one:
+        hardware/playback_dispatch.py asks it to choose pause vs resume for the
+        rotary and the BT remote, so a stale True made the first press after a
+        reconnect pause a device that was not playing. It matters for the span
+        no AVRCP snapshot covers — a sender that registers no player object
+        never sends one, and nothing else repairs the flag.
+
+        The artwork pair rides along because one reset is the point, not
+        because it leaked: `_update_connection_state` re-attaches
+        `_artwork_url` only when `_artwork_key` still matches the current track
+        key, and a dropped session's key is empty (measured). What is pinned
+        here is that the departure goes through the source's own reset rather
+        than a hand-picked subset of its fields.
         """
         source.connected_device = {"address": "AA:AA", "name": "iPhone"}
         source._is_playing = True
