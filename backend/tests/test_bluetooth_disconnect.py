@@ -182,6 +182,26 @@ class TestArrivalAndDeparture:
 
         assert source._playback == {}
 
+    async def test_a_departure_drops_the_transport_and_the_cover_too(self, source):
+        """The published READY is inert either way — this is about the object.
+
+        `BaseAudioSource.is_playing` is what hardware/playback_dispatch.py asks
+        to choose pause vs resume for the rotary and the BT remote, and
+        `_artwork_url` is what the next publish re-attaches. Clearing
+        `_playback` alone left both holding the departed sender's session, so
+        the first press after a reconnect paused a device that was not playing.
+        """
+        source.connected_device = {"address": "AA:AA", "name": "iPhone"}
+        source._is_playing = True
+        source._artwork_url = "https://cdn/breathe.jpg"
+        source._artwork_key = ("Breathe", "Télépopmusik")
+
+        await source._on_device_disconnected("AA:AA", "iPhone")
+
+        assert source.is_playing is False
+        assert source._artwork_url is None
+        assert source._artwork_key == ()
+
     async def test_the_appliance_offers_itself_again_after_a_departure(self, source):
         source.connected_device = {"address": "AA:AA", "name": "iPhone"}
 

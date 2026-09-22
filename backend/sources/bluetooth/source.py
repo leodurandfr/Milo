@@ -360,11 +360,15 @@ class BluetoothSource(BaseAudioSource):
         if self.connected_device.get("address") != address:
             return
 
-        self.connected_device = None
-        # Drop the track with the link. emit_connection_state already withholds
-        # media fields on READY, but a device reconnecting before its AVRCP
-        # player is back would otherwise re-publish the previous track.
-        self._playback = {}
+        # Drop the whole playback view with the link, not just the published
+        # half. emit_connection_state already withholds media fields on READY,
+        # but a device reconnecting before its AVRCP player is back would
+        # otherwise re-publish the previous track — and clearing `_playback`
+        # alone left two things behind: the cover (`_artwork_url`, which nothing
+        # re-resolves until the next track change) and `_is_playing`, the object
+        # property hardware/playback_dispatch.py reads to choose pause vs resume
+        # for the rotary and the BT remote. One reset, one fact.
+        self._reset_playback_state()
         self._logger.info(f"Device disconnected: {name} ({address})")
         # Nothing holds the appliance any more: offer it again.
         await self._apply_exposure()
