@@ -54,7 +54,7 @@ of the manifest and a manifest ahead of the snapshot both fail
 targets that the backend does not serve is named in `_broken_calls`, and that
 entry deletes itself as soon as either side moves.
 
-Captured from upstream `4b9e73f01cdcf3e848ec553f8a2de45e966cf7ce` on 2026-09-22.
+Captured from upstream `3018b8ffe5d9419214daad5f084837517824a0dd` on 2026-09-22.
 
 **This line was two refreshes stale when 4b9e73f was taken**, and it is worth saying
 where: it still named `be15c1f` after `741f8dc1 -> 0edead3` and again after
