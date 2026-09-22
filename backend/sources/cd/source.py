@@ -578,7 +578,7 @@ class CdSource(MpvAudioSource):
 
         # Show the loading-album indicator immediately
         if is_active:
-            self.set_state(SourceState.READY, self._build_metadata())
+            self._update_connection_state()
 
     async def _handle_disc_ready(self) -> bool:
         """Phase 2: disc ready (CDS_DISC_OK).
@@ -639,7 +639,7 @@ class CdSource(MpvAudioSource):
         if still_active and self._mpv and self._mpv.is_connected:
             await self._auto_play_track_1()
         elif still_active:
-            self.set_state(SourceState.READY, self._build_metadata())
+            self._update_connection_state()
         return True
 
     async def _pre_start_service(self) -> None:

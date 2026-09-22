@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional
 
 from pydantic import BaseModel
 
-from backend.core.models.audio_state import NetworkRequirement, SourceState
+from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.sources.podcast.models import PlayEpisodeParams, SeekParams, SetSpeedParams
 from backend.sources.podcast.data import PodcastDataService
@@ -556,14 +556,19 @@ class PodcastSource(MpvAudioSource):
 
         return metadata
 
-    def _update_connection_state(self) -> None:
-        """Update state based on playback.
+    def _update_connection_state(self, extras: Optional[Dict[str, Any]] = None) -> None:
+        """Update state based on playback — the source's only publish site.
 
         position/duration in the metadata are in milliseconds (see
-        _build_playback_metadata).
+        _build_playback_metadata). `extras` carries the fields that describe
+        one particular transition rather than the session (the episode-end
+        pair); everything routed through here so the payload always carries the
+        inert {is_playing, is_buffering} pair the players read.
         """
-        core, extras = PlaybackMetadata.split(self._build_playback_metadata())
-        self.emit_connection_state(bool(self._current_episode), core, extras)
+        core, built = PlaybackMetadata.split(self._build_playback_metadata())
+        self.emit_connection_state(
+            bool(self._current_episode), core, {**built, **(extras or {})}
+        )
 
     async def _save_progress(self) -> None:
         """Save current playback progress with full metadata."""
@@ -703,13 +708,16 @@ class PodcastSource(MpvAudioSource):
             self._position = 0
             self._duration = 0
 
-            # READY metadata: {episode_ended: bool, episode_uuid: str, completed: bool}.
-            # episode_uuid + completed let the frontend flip the just-finished card to
-            # "already listened" reactively, without a re-fetch.
-            self.set_state(
-                SourceState.READY,
-                {"episode_ended": True, "episode_uuid": finished_uuid, "completed": True}
-            )
+            # episode_uuid + completed let the frontend flip the just-finished card
+            # to "already listened" reactively, without a re-fetch. Through the one
+            # publisher rather than a hand-built dict, so the payload carries the
+            # inert pair every other READY does — which is what its sibling
+            # music_library._handle_queue_finished already sent.
+            self._update_connection_state(extras={
+                "episode_ended": True,
+                "episode_uuid": finished_uuid,
+                "completed": True,
+            })
 
     # === Progress Save ===
 

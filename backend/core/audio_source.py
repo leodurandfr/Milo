@@ -96,6 +96,16 @@ class BaseAudioSource(ABC):
     # calls _start_pause_timer — which is why it could stay wrong.
     AUTO_STOP_SUPPORTED: bool = True
 
+    # A receiver with no playback concept at all: it carries `extras` and
+    # nothing else — no transport, no media fields, nothing a shared player
+    # could draw (Mac; see core/models/source_metadata.py). Declared on the
+    # class rather than inferred from a `playback=None` argument at a call site:
+    # inferred, a media source that forgot the typed half silently published a
+    # bare {} with no is_playing key in it, which is what two of Music
+    # Library's stop paths did. Declared, that same call publishes the source's
+    # own idle projection instead.
+    MUTE_RECEIVER: bool = False
+
     def __init__(
         self,
         source_id: str,
@@ -334,6 +344,25 @@ class BaseAudioSource(ABC):
         """
         return {"is_playing": False, "is_buffering": False}
 
+    def _idle_payload(self) -> Dict[str, Any]:
+        """`_idle_metadata()` as it goes on the wire — the one definition.
+
+        Two things happen here and nowhere else. Nones are dropped, the same
+        rule `exclude_none` applies to the typed half (a key present-and-null
+        says what an absent key says, at the cost of a line on the wire) — the
+        two idle routes disagreed on exactly this, `emit_connection_state`
+        filtering and `_publish_idle` not, so one state had two shapes
+        depending on which path published it. And the inert pair is forced:
+        READY *means* not playing, while three of the four overrides project
+        from live fields (radio's station, podcast's episode, CD's disc), so a
+        stale True has a path onto a payload that denies it. Forcing it is the
+        definition of the state, not a guard against a caller.
+        """
+        payload = {k: v for k, v in self._idle_metadata().items() if v is not None}
+        payload["is_playing"] = False
+        payload["is_buffering"] = False
+        return payload
+
     async def _publish_idle(self) -> None:
         """Drop to READY and publish it — awaited, not spawned.
 
@@ -355,7 +384,7 @@ class BaseAudioSource(ABC):
         pass and the card would blank on every multiroom toggle.
         """
         self._state = SourceState.READY
-        self._metadata = self._idle_metadata()
+        self._metadata = self._idle_payload()
         if self.state_machine:
             await self.state_machine.update_source_state(
                 self.source, SourceState.READY, self._metadata
@@ -640,14 +669,17 @@ class BaseAudioSource(ABC):
         that replaces per-source active/idle metadata dicts.
 
         - ``connected`` selects ACTIVE vs READY.
-        - ``playback`` is the typed projection consumed by the shared player
-          (None for mute receivers). Its is_playing/is_buffering always emit;
-          on READY the payload is ``_idle_metadata()`` instead, so the media
-          fields (title/artist/album/album_art_url/position/duration) are
-          dropped by default and a stale track can't linger. A source whose
-          idle view still has something to show overrides ``_idle_metadata()``
-          and publishes its resume projection there — the same hook, and the
-          same definition of "stopped", as ``_publish_idle()``.
+        - ``playback`` is the typed projection consumed by the shared player.
+          Its is_playing/is_buffering always emit; on READY the payload is
+          ``_idle_payload()`` instead, so the media fields
+          (title/artist/album/album_art_url/position/duration) are dropped by
+          default and a stale track can't linger. A source whose idle view
+          still has something to show overrides ``_idle_metadata()`` and
+          publishes its resume projection there — the same hook, and the same
+          definition of "stopped", as ``_publish_idle()``. Omitting it is not
+          how a source says it has no transport: that is ``MUTE_RECEIVER``, on
+          the class. Here it only means this call had nothing to project, and
+          the inert pair goes out regardless.
         - ``extras`` are source-specific fields (station/episode/disc/device);
           they pass through in both states, so a source that wants device or
           disc status visible while idle includes it (e.g. CD drive state).
@@ -661,19 +693,13 @@ class BaseAudioSource(ABC):
           (`update_source_state`), never merged — an absent key cannot leave a
           stale value behind.
         """
-        # A mute receiver (playback=None) carries extras and nothing else.
-        meta: Dict[str, Any] = {}
-        if playback is not None:
-            if connected:
-                meta = playback.model_dump(exclude_none=True)
-            else:
-                # Same None-dropping as the extras below and as `exclude_none`
-                # on the typed half: the idle projection is built by a source
-                # that fills every key it knows, and a key present-and-null
-                # says what an absent key says at the cost of a line on the wire.
-                meta = {
-                    k: v for k, v in self._idle_metadata().items() if v is not None
-                }
+        if self.MUTE_RECEIVER:
+            # Carries extras and nothing else — there is no transport to state.
+            meta: Dict[str, Any] = {}
+        elif connected:
+            meta = (playback or PlaybackMetadata()).model_dump(exclude_none=True)
+        else:
+            meta = self._idle_payload()
         if extras:
             meta.update({k: v for k, v in extras.items() if v is not None})
         self.set_state(SourceState.ACTIVE if connected else SourceState.READY, meta)

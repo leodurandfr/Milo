@@ -33,7 +33,6 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, Mock
 
-from backend.core.models.audio_state import SourceState
 from backend.sources.podcast.models import PlayEpisodeParams
 from backend.sources.podcast.source import PodcastSource
 
@@ -806,7 +805,15 @@ class TestTheEndOfAnEpisode:
 
         assert source._is_playing is False
         assert source._current_episode is None
-        assert source.set_state.call_args.args[0] is SourceState.READY
+        # READY (connected=False) through the source's one publisher, carrying
+        # what lets the frontend flip the card to "already listened" without a
+        # re-fetch. The inert {is_playing, is_buffering} pair rides with it —
+        # that half is pinned structurally, in tests/architecture.
+        connected, _core, extras = source.emit_connection_state.call_args.args
+        assert connected is False
+        assert extras["episode_ended"] is True
+        assert extras["episode_uuid"] == EPISODE["uuid"]
+        assert extras["completed"] is True
 
     async def test_the_duration_becoming_known_is_broadcast_at_once(self, source):
         """A feed omits `itunes:duration` often enough that the progress

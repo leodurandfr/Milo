@@ -35,7 +35,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 
-from backend.core.models.audio_state import SourceState
 from backend.core.models.source_metadata import PlaybackMetadata
 from backend.core.models.ws_events import SourceErrorReason, MusicLibraryStoragesChanged
 from backend.shared.decorators import handle_errors
@@ -591,7 +590,7 @@ class MusicLibrarySource(MpvAudioSource):
             if self._resume_is_fresh() and await self._restore_resume_session():
                 return True
             self._resume = None
-            self.emit_connection_state(False)
+            self._update_connection_state()
             return True
 
         except Exception as e:
@@ -710,7 +709,7 @@ class MusicLibrarySource(MpvAudioSource):
         if not loaded:
             self._loading = False
             self._reset_playback_state()
-            self.emit_connection_state(False)
+            self._update_connection_state()
             self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
             return self.error_response("Failed to load playlist")
 
@@ -1017,10 +1016,7 @@ class MusicLibrarySource(MpvAudioSource):
         # Nothing to resume once the queue has played out.
         self._resume = None
         self._reset_playback_state()
-        self.set_state(
-            SourceState.READY,
-            {"is_playing": False, "is_buffering": False, "queue_ended": True},
-        )
+        self._update_connection_state(extras={"queue_ended": True})
 
     async def _on_mpv_disconnect(self) -> None:
         """Unexpected mpv disconnect during playback: drop the queue state.
@@ -1231,10 +1227,6 @@ class MusicLibrarySource(MpvAudioSource):
             # clean up after itself, and the play-press branch added later did
             # not, which left the screen and the lock screen on a track with
             # nothing behind it and `_resume` already consumed.
-            #
-            # Through `_update_connection_state`, like every other stop here, so
-            # the payload is the same inert pair they publish rather than the
-            # bare {} `emit_connection_state(False)` sends with no typed half.
             self._update_connection_state()
             return False
 
@@ -1335,11 +1327,15 @@ class MusicLibrarySource(MpvAudioSource):
             "shuffle": shuffle,
         }
 
-    def _update_connection_state(self) -> None:
-        """Publish the current playback state. ACTIVE while a queue is loaded
-        (playing OR paused), READY once it's cleared."""
-        core, extras = PlaybackMetadata.split(self._build_playback_metadata())
-        self.emit_connection_state(bool(self._queue), core, extras)
+    def _update_connection_state(self, extras: Optional[Dict[str, Any]] = None) -> None:
+        """Publish the current playback state — the source's only publish site.
+
+        ACTIVE while a queue is loaded (playing OR paused), READY once it's
+        cleared. `extras` carries the fields that describe one particular
+        transition rather than the session (the queue-end flag).
+        """
+        core, built = PlaybackMetadata.split(self._build_playback_metadata())
+        self.emit_connection_state(bool(self._queue), core, {**built, **(extras or {})})
 
     async def refresh_metadata(self) -> bool:
         """Pull the live playhead from mpv so a (re)connecting client's

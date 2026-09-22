@@ -43,6 +43,12 @@ class MacSource(BaseAudioSource):
     # in AudioStateMachine is the backstop.
     AUTO_STOP_SUPPORTED = False
 
+    # The one family-A source: ROC hands over an IP and nothing else, so there
+    # is no transport and no media field to project — only the sender's name,
+    # which rides in `extras`. Everything else publishes the inert
+    # {is_playing, is_buffering} pair even when stopped.
+    MUTE_RECEIVER = True
+
     def __init__(
         self,
         config: Optional[Dict[str, Any]] = None,

@@ -490,3 +490,127 @@ def test_mpv_sources_attach_through_the_base_class(source_id):
         and node.func.attr == "connect"
     ]
     assert not connects, f"{source_id}: opens the IPC link itself"
+
+
+# === State publication ===========================================================
+#
+# The audit that produced this section found that `is_playing`/`is_buffering`
+# live in a free-form dict nothing typed and nothing checked, and that four
+# sources published at least one state around the shared primitive — each with
+# a different payload shape. Two READYs went out with no transport key in them
+# at all. The rules below make the shape a property of the source list rather
+# than of whoever wrote the last stop path.
+
+
+def _publish_sites(source_id):
+    """Methods of the `{Name}Source` class that publish a connection state.
+
+    Returns {method name: {primitives it calls}}. `_publish_idle()` is not
+    among them by construction: it lives on the base class, not in this body.
+    """
+    cls, _ = _source_ast(source_id)
+    sites = {}
+    for method in cls.body:
+        if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(method):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("set_state", "emit_connection_state")
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "self"
+            ):
+                sites.setdefault(method.name, set()).add(node.func.attr)
+    return sites
+
+
+def bare_source(source_id):
+    """A source with no services wired — enough to ask it what "stopped" means.
+
+    The four-argument shape is the one `test_source_constructor_signature`
+    pins, so this cannot drift away from the real construction site.
+    """
+    return source_class(source_id)(
+        config={}, state_machine=None, settings_service=None, systemd_manager=None
+    )
+
+
+def test_every_source_publishes_its_own_state():
+    """Non-triviality first: the rules below all pass on an empty surface."""
+    silent = [s for s in SOURCE_IDS if not _publish_sites(s)]
+    assert not silent, (
+        f"no publish site found in {silent} — _publish_sites is broken, or a "
+        f"source stopped announcing itself entirely"
+    )
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_a_source_publishes_its_state_from_one_method(source_id):
+    """One publisher per source.
+
+    Every divergence the audit found was a second publish site with a
+    hand-built payload sitting beside a first one that got it right: Music
+    Library sent a bare `{}` from two stop paths, Podcast sent three
+    source-specific keys and no transport from its episode end. One method is
+    what makes "the payload is right" a single thing to check — and it is where
+    a per-transition field belongs, as an `extras` argument.
+    """
+    sites = _publish_sites(source_id)
+    assert len(sites) == 1, (
+        f"{source_id} publishes state from {sorted(sites)} — funnel them through "
+        f"one method and pass per-transition fields as extras (CLAUDE.md § Audio "
+        f"sources)"
+    )
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_only_the_mute_receiver_declares_itself_one(source_id):
+    """`MUTE_RECEIVER` and the family table say the same thing, or one is wrong.
+
+    A source that declares it publishes no transport at all, in either state —
+    which is right for Mac, where ROC hands over an IP and nothing else, and
+    wrong for everything a shared player draws.
+    """
+    family, _, _ = FAMILIES[source_id]
+    assert source_class(source_id).MUTE_RECEIVER is (family == "A"), (
+        f"{source_id} is family {family} but MUTE_RECEIVER is "
+        f"{source_class(source_id).MUTE_RECEIVER}"
+    )
+
+
+def test_the_idle_projections_are_not_all_the_base_default():
+    """Otherwise the rule below tests BaseAudioSource eleven times over."""
+    overriding = [s for s in SOURCE_IDS if len(bare_source(s)._idle_metadata()) > 2]
+    assert overriding, (
+        "no source projects an idle view of its own — bare_source() or the "
+        "_idle_metadata() hook is broken"
+    )
+
+
+@pytest.mark.parametrize("source_id", SOURCE_IDS)
+def test_a_ready_payload_cannot_claim_playback(source_id):
+    """READY means not playing, whatever the source's idle view projects.
+
+    The projection is handed a lying one on purpose, because the honest ones
+    are only inert by accident: CD's reads the live `_is_playing` and answers
+    True here with nothing else set up, and radio's and podcast's would do the
+    same the moment a station or an episode is behind them — they fall back to
+    the base pair only while there is nothing to resume. So what is pinned is
+    that no source can route around the forcing in `_idle_payload()`, which is
+    what makes a stopped source inert by construction rather than by every
+    caller remembering to reset first. A READY carrying `is_playing: true`
+    leaves AudioPlayerFull drawing a pause button and useSourceProgress
+    advancing a playhead over a source that stopped.
+    """
+    source = bare_source(source_id)
+    source._idle_metadata = lambda: {
+        "is_playing": True, "is_buffering": True, "title": "Something stale"
+    }
+
+    payload = source._idle_payload()
+
+    assert payload["is_playing"] is False
+    assert payload["is_buffering"] is False
+    # The rest of the projection is the source's business and passes through.
+    assert payload["title"] == "Something stale"
