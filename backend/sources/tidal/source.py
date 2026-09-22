@@ -218,7 +218,16 @@ class TidalSource(BaseAudioSource):
             code = message.get("errorCode")
             self._logger.error(f"Tidal playback error (code {code})")
             self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
-            return
+            # Settle the transport here rather than waiting for the daemon to
+            # say so: the protocol has no status query, and whether tisoc sends
+            # a player-status frame after an error is not known. If it does, it
+            # supersedes this with the same values; if it does not, this is the
+            # only thing that takes the pause button and the advancing progress
+            # bar off a track that never started. The session itself stays —
+            # the phone is still attached and can pick another track.
+            self._is_playing = False
+            self._metadata["is_buffering"] = False
+            self._metadata.pop("position", None)
 
         else:
             # setShuffle/setRepeatMode/notifyRequestResult/requestResources —

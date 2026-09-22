@@ -28,6 +28,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from backend.core.models.audio_state import AudioSource, SourceState
+from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.tidal.controller_socket import TidalControllerSocket
 from backend.sources.tidal.source import TidalSource
 
@@ -327,6 +328,34 @@ class TestEventMapping:
         })
         _, metadata = published(state_machine)
         assert (metadata["is_playing"], metadata["is_buffering"]) == (True, False)
+
+    async def test_a_playback_error_takes_the_transport_off_the_track(self, tidal):
+        """A track that failed to play is not playing and is not loading.
+
+        The error frame is the only thing tisoc sends — the protocol has no
+        status query — so a source that only raised the banner left
+        AudioPlayerFull drawing a pause button and useSourceProgress advancing
+        a playhead over a track that never started.
+        """
+        source, state_machine = tidal
+        await source._handle_event(self.MEDIA)
+        await source._handle_event({
+            "command": "notifyPlayerStatusChanged",
+            "playerState": "PLAYING", "progress": 500, "duration": 30066,
+        })
+
+        await source._handle_event({"command": "notifyPlaybackError", "errorCode": 4})
+
+        state, metadata = published(state_machine)
+        assert (metadata["is_playing"], metadata["is_buffering"]) == (False, False)
+        assert "position" not in metadata
+        # The session survives: the phone is still attached and the card stays
+        # actionable, so the track it failed on is still named.
+        assert state == SourceState.ACTIVE
+        assert metadata["title"] == "Mad Again"
+        assert state_machine.broadcast.call_args.args[0].reason == (
+            SourceErrorReason.PLAYBACK_FAILED
+        )
 
     async def test_a_moved_playhead_alone_skips_the_full_broadcast(self, tidal):
         """The daemon ticks about twice a second. A full_state per tick would
